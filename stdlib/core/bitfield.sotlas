@@ -1,0 +1,305 @@
+module core::bitfield;
+
+// ============================================================================
+// core::bitfield — Manipulação de Bits Type-Safe
+// ============================================================================
+//
+// Programação de sistemas é 90% mexer com bits e 10% perguntar
+// "por que esse bit não está fazendo o que eu quero?"
+//
+// Este módulo complementa os operadores slit/notch/strand do parser
+// com funções utilitárias para operações comuns de bitfield que todo
+// driver de hardware, allocator de memória, e scheduler precisa.
+//
+// Funciona em u32 e u64. Zero alloc. Zero libc.
+// ============================================================================
+
+// ============================================================================
+// Operações de Bit Individual
+// ============================================================================
+
+// Liga o bit na posição `pos` (0-indexed, do LSB)
+pub fn bit_set_u32(val: u32, pos: u32) -> u32 {
+    return val | (1 << pos);
+}
+
+pub fn bit_set_u64(val: u64, pos: u64) -> u64 {
+    return val | (1 << pos);
+}
+
+// Desliga o bit na posição `pos`
+pub fn bit_clear_u32(val: u32, pos: u32) -> u32 {
+    return val & ~(1 << pos);
+}
+
+pub fn bit_clear_u64(val: u64, pos: u64) -> u64 {
+    return val & ~(1 << pos);
+}
+
+// Inverte o bit na posição `pos`
+pub fn bit_toggle_u32(val: u32, pos: u32) -> u32 {
+    return val ^ (1 << pos);
+}
+
+pub fn bit_toggle_u64(val: u64, pos: u64) -> u64 {
+    return val ^ (1 << pos);
+}
+
+// Testa se o bit na posição `pos` está ligado
+pub fn bit_test_u32(val: u32, pos: u32) -> bool {
+    return (val & (1 << pos)) != 0;
+}
+
+pub fn bit_test_u64(val: u64, pos: u64) -> bool {
+    return (val & (1 << pos)) != 0;
+}
+
+// ============================================================================
+// Extração e Inserção de Campos de Bits
+// ============================================================================
+//
+// Pra quem trabalha com registradores de hardware, isso é pão com manteiga.
+// Um registrador de 32 bits frequentemente tem "campos" como:
+//
+//   Bits [31:24] = Status flags
+//   Bits [23:16] = Interrupt mask
+//   Bits [15:8]  = Counter value
+//   Bits [7:0]   = Control bits
+//
+// extract/insert fazem exatamente isso sem erros de shift manual.
+
+// Extrai `width` bits a partir da posição `pos`
+// Exemplo: bit_extract_u32(0xFF00, 8, 8) → 0xFF
+pub fn bit_extract_u32(val: u32, pos: u32, width: u32) -> u32 {
+    if width == 0 || width > 32 {
+        return 0;
+    }
+    let mask: u32 = (1 << width) - 1;
+    return (val >> pos) & mask;
+}
+
+pub fn bit_extract_u64(val: u64, pos: u64, width: u64) -> u64 {
+    if width == 0 || width > 64 {
+        return 0;
+    }
+    let mask: u64 = (1 << width) - 1;
+    return (val >> pos) & mask;
+}
+
+// Insere `field_val` de `width` bits na posição `pos`, preservando os outros bits
+// Exemplo: bit_insert_u32(0, 0xFF, 8, 8) → 0xFF00
+pub fn bit_insert_u32(val: u32, field_val: u32, pos: u32, width: u32) -> u32 {
+    if width == 0 || width > 32 {
+        return val;
+    }
+    let mask: u32 = (1 << width) - 1;
+    // Limpa o campo antigo, depois OR com o novo
+    let cleared: u32 = val & ~(mask << pos);
+    return cleared | ((field_val & mask) << pos);
+}
+
+pub fn bit_insert_u64(val: u64, field_val: u64, pos: u64, width: u64) -> u64 {
+    if width == 0 || width > 64 {
+        return val;
+    }
+    let mask: u64 = (1 << width) - 1;
+    let cleared: u64 = val & ~(mask << pos);
+    return cleared | ((field_val & mask) << pos);
+}
+
+// ============================================================================
+// Population Count (popcount) — Conta bits ligados
+// ============================================================================
+//
+// Essencial pra bitmap allocators, contagem de flags ativas, e
+// implementações de SIMD software. O algoritmo é o Hamming Weight
+// paralelo — processa 2, 4, 8 bits por vez usando máscaras constantes.
+//
+// Curiosidade: CPUs modernas têm instrução POPCNT dedicada (SSE4.2),
+// mas como rodamos em bare metal onde SSE pode não estar habilitado,
+// fazemos no software. A penalidade é ~12 instruções vs 1.
+
+pub fn popcount_u32(val: u32) -> u32 {
+    let mut v: u32 = val;
+    // Etapa 1: conta pares de bits adjacentes
+    v = v - ((v >> 1) & 0x55555555);
+    // Etapa 2: soma pares de 2 bits em grupos de 4
+    v = (v & 0x33333333) + ((v >> 2) & 0x33333333);
+    // Etapa 3: soma em grupos de 8
+    v = (v + (v >> 4)) & 0x0F0F0F0F;
+    // Etapa 4: acumula todos os bytes via multiplicação mágica
+    return (v * 0x01010101) >> 24;
+}
+
+pub fn popcount_u64(val: u64) -> u64 {
+    let mut v: u64 = val;
+    v = v - ((v >> 1) & 0x5555555555555555);
+    v = (v & 0x3333333333333333) + ((v >> 2) & 0x3333333333333333);
+    v = (v + (v >> 4)) & 0x0F0F0F0F0F0F0F0F;
+    return (v * 0x0101010101010101) >> 56;
+}
+
+// ============================================================================
+// Count Leading Zeros (CLZ) — Quantos zeros antes do primeiro 1
+// ============================================================================
+//
+// Útil pra: encontrar o bit mais significativo, calcular log2 em O(1),
+// normalização de números em ponto flutuante, e encontrar a primeira
+// página livre num bitmap allocator.
+
+pub fn clz_u32(val: u32) -> u32 {
+    if val == 0 {
+        return 32;
+    }
+    let mut n: u32 = 0;
+    let mut v: u32 = val;
+    // Binary search nos nibbles do topo
+    if v <= 0x0000FFFF { n = n + 16; v = v << 16; }
+    if v <= 0x00FFFFFF { n = n + 8;  v = v << 8;  }
+    if v <= 0x0FFFFFFF { n = n + 4;  v = v << 4;  }
+    if v <= 0x3FFFFFFF { n = n + 2;  v = v << 2;  }
+    if v <= 0x7FFFFFFF { n = n + 1;  }
+    return n;
+}
+
+pub fn clz_u64(val: u64) -> u64 {
+    if val == 0 {
+        return 64;
+    }
+    let mut n: u64 = 0;
+    let mut v: u64 = val;
+    if v <= 0x00000000FFFFFFFF { n = n + 32; v = v << 32; }
+    if v <= 0x0000FFFFFFFFFFFF { n = n + 16; v = v << 16; }
+    if v <= 0x00FFFFFFFFFFFFFF { n = n + 8;  v = v << 8;  }
+    if v <= 0x0FFFFFFFFFFFFFFF { n = n + 4;  v = v << 4;  }
+    if v <= 0x3FFFFFFFFFFFFFFF { n = n + 2;  v = v << 2;  }
+    if v <= 0x7FFFFFFFFFFFFFFF { n = n + 1;  }
+    return n;
+}
+
+// ============================================================================
+// Count Trailing Zeros (CTZ) — Quantos zeros depois do LSB
+// ============================================================================
+//
+// Essencial pra: encontrar o primeiro bit livre (bitmap allocator),
+// iteração eficiente sobre bits ligados, e FFI com API de hardware
+// que numera bits a partir do LSB.
+
+pub fn ctz_u32(val: u32) -> u32 {
+    if val == 0 {
+        return 32;
+    }
+    // Isola o bit mais baixo e conta posição via popcount
+    // (val & -val) isola o lowest set bit
+    // popcount((val & -val) - 1) dá a posição dele
+    let isolated: u32 = val & (0 - val);
+    return popcount_u32(isolated - 1);
+}
+
+pub fn ctz_u64(val: u64) -> u64 {
+    if val == 0 {
+        return 64;
+    }
+    let isolated: u64 = val & (0 - val);
+    return popcount_u64(isolated - 1);
+}
+
+// ============================================================================
+// Log2 inteiro (floor) — Calcula floor(log2(val))
+// ============================================================================
+// Retorna a posição do bit mais significativo. Útil pra:
+// - Calcular o tamanho da heap em potência de 2
+// - Determinar a profundidade de uma árvore binária
+// - Converter entre tamanhos de página e shifts
+
+pub fn log2_u32(val: u32) -> u32 {
+    if val == 0 {
+        return 0;  // Tecnicamente indefinido, mas 0 é mais seguro que panic
+    }
+    return 31 - clz_u32(val);
+}
+
+pub fn log2_u64(val: u64) -> u64 {
+    if val == 0 {
+        return 0;
+    }
+    return 63 - clz_u64(val);
+}
+
+// ============================================================================
+// Potência de 2 — Checa e arredonda
+// ============================================================================
+
+pub fn is_power_of_two_u32(val: u32) -> bool {
+    return val != 0 && (val & (val - 1)) == 0;
+}
+
+pub fn is_power_of_two_u64(val: u64) -> bool {
+    return val != 0 && (val & (val - 1)) == 0;
+}
+
+// Arredonda pra cima pro próximo power-of-2
+// Exemplo: next_power_of_two_u32(5) → 8
+pub fn next_power_of_two_u32(val: u32) -> u32 {
+    if val == 0 {
+        return 1;
+    }
+    if is_power_of_two_u32(val) {
+        return val;
+    }
+    return 1 << (32 - clz_u32(val));
+}
+
+pub fn next_power_of_two_u64(val: u64) -> u64 {
+    if val == 0 {
+        return 1;
+    }
+    if is_power_of_two_u64(val) {
+        return val;
+    }
+    return 1 << (64 - clz_u64(val));
+}
+
+// ============================================================================
+// Bit Mask Generation — Cria máscaras rapidamente
+// ============================================================================
+
+// Cria máscara de `width` bits começando na posição `pos`
+// Exemplo: make_mask_u32(8, 4) → 0xFF0
+pub fn make_mask_u32(pos: u32, width: u32) -> u32 {
+    if width == 0 || width > 32 {
+        return 0;
+    }
+    return ((1 << width) - 1) << pos;
+}
+
+pub fn make_mask_u64(pos: u64, width: u64) -> u64 {
+    if width == 0 || width > 64 {
+        return 0;
+    }
+    return ((1 << width) - 1) << pos;
+}
+
+// Alinhamento de endereço — alinha `addr` pra cima no múltiplo de `alignment`
+// alignment DEVE ser potência de 2
+pub fn align_up_u64(addr: u64, alignment: u64) -> u64 {
+    if alignment == 0 {
+        return addr;
+    }
+    let mask: u64 = alignment - 1;
+    return (addr + mask) & ~mask;
+}
+
+pub fn align_down_u64(addr: u64, alignment: u64) -> u64 {
+    if alignment == 0 {
+        return addr;
+    }
+    return addr & ~(alignment - 1);
+}
+
+pub fn is_aligned_u64(addr: u64, alignment: u64) -> bool {
+    if alignment == 0 {
+        return true;
+    }
+    return (addr & (alignment - 1)) == 0;
+}

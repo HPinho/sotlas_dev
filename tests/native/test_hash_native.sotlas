@@ -1,0 +1,54 @@
+module test::hash_native;
+
+// ============================================================================
+// Teste Nativo: core::hash
+// ============================================================================
+// "Se dois hashes colidirem aqui, ou descobrimos um novo ataque criptográfico
+//  ou o FNV-1a finalmente pediu arrego depois de 35 anos."
+
+import core::hash::*;
+
+pub fn main() -> i32 {
+    // 1. Teste de consistência FNV-1a 32-bit
+    let h1: u32 = fnv1a_32_cstr("sotlas" as *const u8);
+    let h2: u32 = fnv1a_32_cstr("sotlas" as *const u8);
+    probe h1 == h2, "FNV-1a 32-bit deve ser deterministico";
+    probe h1 != 0, "Hash de string nao-vazia nao deve ser zero";
+
+    // 2. Diferenciação (strings diferentes devem ter hashes diferentes)
+    let h3: u32 = fnv1a_32_cstr("soltas" as *const u8); // anagrama de sotlas
+    probe h1 != h3, "Anagramas devem produzir hashes 32-bit completamente distintos";
+
+    // 3. FNV-1a 64-bit
+    let h64_1: u64 = fnv1a_64_cstr("kernel_mode" as *const u8);
+    let h64_2: u64 = fnv1a_64_cstr("user_mode" as *const u8);
+    probe h64_1 != h64_2, "Hashes 64-bit devem ser distintos";
+    probe h64_1 != 0, "Hash 64-bit nao deve ser zero";
+
+    // 4. Hash de inteiros
+    let int_h1: u32 = hash_u32(42);
+    let int_h2: u32 = hash_u32(43);
+    probe int_h1 != int_h2, "Inteiros consecutivos devem ter hashes 32-bit distintos";
+
+    let int64_h1: u64 = hash_u64(1000000);
+    let int64_h2: u64 = hash_u64(1000001);
+    probe int64_h1 != int64_h2, "Inteiros consecutivos 64-bit devem ser distintos";
+
+    // 5. Hash combine
+    let comb1: u32 = hash_combine_32(h1, int_h1);
+    let comb2: u32 = hash_combine_32(h1, int_h2);
+    probe comb1 != comb2, "hash_combine_32 deve propagar diferenca de entrada";
+
+    // 6. hash_to_index (power of two e nao power of two)
+    let idx1: usize = hash_to_index(h1 as usize, 16);
+    probe idx1 < 16, "Indice mapeado para tabela potencia de 2 deve estar dentro dos limites";
+
+    let idx2: usize = hash_to_index(h1 as usize, 17);
+    probe idx2 < 17, "Indice mapeado para tabela nao-potencia de 2 deve estar dentro dos limites";
+
+    // 7. Seguranca contra ponteiro nulo (deve retornar offset basis sem quebrar)
+    let null_h32: u32 = fnv1a_32_cstr(null);
+    probe null_h32 == FNV1A_32_OFFSET, "Ponteiro nulo deve retornar offset basis seguro";
+
+    return 0;
+}

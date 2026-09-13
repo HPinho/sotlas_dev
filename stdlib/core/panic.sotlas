@@ -1,8 +1,9 @@
 module core::panic;
 
 @export
-pub fn sotlas_panic(msg: *const u8) -> ! {
+@noreturn
+pub fn sotlas_panic(msg: *const u8) {
     loop {
-        // Trava de pânico freestanding: laço infinito seguro para kernel/bare-metal
+        // Freestanding kernel lockup loop
     }
 }

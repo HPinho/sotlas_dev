@@ -1,0 +1,80 @@
+module test::log_native;
+
+// ============================================================================
+// Teste Nativo: core::log
+// ============================================================================
+// "Se o log emitir quando estiver desligado, o silêncio quebrou."
+
+import core::log::*;
+
+pub fn main() -> i32 {
+    // 1. Nível padrão deve ser LOG_INFO (2)
+    let initial_level: u8 = log_get_level();
+    probe initial_level == LOG_INFO, "Nivel inicial de log deve ser LOG_INFO (2)";
+
+    // 2. Modificação de nível
+    log_set_level(LOG_WARN);
+    let cur_warn: u8 = log_get_level();
+    probe cur_warn == LOG_WARN, "log_set_level deve atualizar para LOG_WARN";
+
+    // 3. Silenciamento total (LOG_OFF)
+    log_set_level(LOG_OFF);
+    let cur_off: u8 = log_get_level();
+    probe cur_off == LOG_OFF, "log_set_level deve atualizar para LOG_OFF";
+
+    log_reset_counters();
+
+    // Chamadas quando desligado (não devem incrementar o contador)
+    log_trace("isso nao deve emitir" as *const u8);
+    log_debug("isso tambem nao" as *const u8);
+    log_info("nem info" as *const u8);
+    log_warn("nem warn" as *const u8);
+    log_error("nem error" as *const u8);
+    log_fatal("nem fatal" as *const u8);
+    log_u64(LOG_INFO, "x" as *const u8, 123);
+
+    let off_emitted: usize = log_get_total_emitted();
+    probe off_emitted == 0, "Nenhuma mensagem deve ser emitida em LOG_OFF";
+
+    // 4. Reativação para nível DEBUG
+    log_set_level(LOG_DEBUG);
+    let cur_dbg: u8 = log_get_level();
+    probe cur_dbg == LOG_DEBUG, "Nivel reativado para DEBUG";
+
+    // TRACE está abaixo de DEBUG, portanto deve ser ignorado
+    log_trace("mensagem de trace descartada" as *const u8);
+    let trace_emitted: usize = log_get_total_emitted();
+    probe trace_emitted == 0, "TRACE deve ser filtrado quando o nivel e DEBUG";
+
+    // DEBUG deve passar
+    log_debug("kernel: inicializando subsystems" as *const u8);
+    let dbg_emitted: usize = log_get_total_emitted();
+    probe dbg_emitted == 1, "DEBUG deve passar quando o nivel e DEBUG";
+    let dbg_lvl: u8 = log_get_last_level();
+    probe dbg_lvl == LOG_DEBUG, "Ultimo nivel registrado deve ser DEBUG";
+
+    // 5. Logs estruturados com tipos variados
+    log_info("sotlas kernel rodando" as *const u8);
+    log_warn("memoria alta" as *const u8);
+    log_error("falha simulada" as *const u8);
+    log_fatal("panico controlado" as *const u8);
+
+    log_u64(LOG_INFO, "clock_mhz" as *const u8, 3200);
+    log_i64(LOG_INFO, "temperatura" as *const u8, -15);
+    log_hex(LOG_INFO, "cr3" as *const u8, 0x1000);
+    log_bool(LOG_INFO, "irq_enabled" as *const u8, true);
+
+    // Total deve ser 1 (dbg) + 4 (info..fatal) + 4 (u64, i64, hex, bool) = 9
+    let total: usize = log_get_total_emitted();
+    probe total == 9, "Total de 9 mensagens validas emitidas com sucesso";
+
+    let last_len: usize = log_get_last_len();
+    probe last_len > 10, "Comprimento da ultima mensagem deve ser valido";
+
+    // Restaura para o padrão civilizado
+    log_set_level(LOG_INFO);
+    let restored: u8 = log_get_level();
+    probe restored == LOG_INFO, "Nivel restaurado para LOG_INFO";
+
+    return 0;
+}

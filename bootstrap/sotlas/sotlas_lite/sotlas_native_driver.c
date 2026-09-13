@@ -218,7 +218,7 @@ static bool try_resolve_and_load(const char *base_dir, const char *imp_path, uin
     const char *last_part = strrchr(rel_path, '/');
     const char *leaf = last_part ? (last_part + 1) : rel_path;
 
-    char candidates[16][512];
+    char candidates[24][512];
     int num_candidates = 0;
     snprintf(candidates[num_candidates++], sizeof(candidates[0]), "%s/%s.sotlas", base_dir, rel_path);
     snprintf(candidates[num_candidates++], sizeof(candidates[0]), "%s/%s.sotlas", base_dir, leaf);
@@ -228,8 +228,10 @@ static bool try_resolve_and_load(const char *base_dir, const char *imp_path, uin
     snprintf(candidates[num_candidates++], sizeof(candidates[0]), "%s/../../bootstrap/sotlas/%s.sotlas", base_dir, rel_path);
     snprintf(candidates[num_candidates++], sizeof(candidates[0]), "%s/../../../stdlib/%s.sotlas", base_dir, rel_path);
     snprintf(candidates[num_candidates++], sizeof(candidates[0]), "stdlib/%s.sotlas", rel_path);
+    snprintf(candidates[num_candidates++], sizeof(candidates[0]), "stdlib/core/%s.sotlas", leaf);
     snprintf(candidates[num_candidates++], sizeof(candidates[0]), "stdlib/foundation/%s.sotlas", leaf);
     snprintf(candidates[num_candidates++], sizeof(candidates[0]), "stdlib/system/%s.sotlas", leaf);
+    snprintf(candidates[num_candidates++], sizeof(candidates[0]), "stdlib/runtime/%s.sotlas", leaf);
     snprintf(candidates[num_candidates++], sizeof(candidates[0]), "bootstrap/sotlas/%s.sotlas", rel_path);
     snprintf(candidates[num_candidates++], sizeof(candidates[0]), "bootstrap/sotlas/sotlas_lite/%s.sotlas", rel_path);
 

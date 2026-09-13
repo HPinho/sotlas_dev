@@ -1,0 +1,65 @@
+module test_fixed_native;
+import core::fixed::*;
+
+pub fn main() -> i32 {
+    // 1. Basic conversions
+    let one: i32 = fixed_from_int(1);
+    if one != FIXED_ONE { return 1; }
+    if fixed_to_int(one) != 1 { return 2; }
+
+    let four: i32 = fixed_from_int(4);
+    if fixed_to_int(four) != 4 { return 3; }
+
+    // 2. Multiplication: 2.5 * 4.0 = 10.0
+    // 2.5 in Q16.16 = 2 * 65536 + 32768 = 163840
+    let two_point_five: i32 = fixed_from_int(2) + FIXED_HALF;
+    let prod: i32 = fixed_mul(two_point_five, four);
+    if fixed_to_int(prod) != 10 { return 10; }
+
+    // 1.5 * 1.5 = 2.25 (2.25 in Q16.16 = 2 * 65536 + 16384 = 147456)
+    let one_point_five: i32 = fixed_from_int(1) + FIXED_HALF;
+    let sq: i32 = fixed_mul(one_point_five, one_point_five);
+    if sq != 147456 { return 11; }
+    if fixed_to_int(sq) != 2 { return 12; }
+    if fixed_to_int_round(sq) != 2 { return 13; }
+
+    // 3. Division: 10.0 / 4.0 = 2.5
+    let ten: i32 = fixed_from_int(10);
+    let quot: i32 = fixed_div(ten, four);
+    if quot != two_point_five { return 20; }
+
+    // 4. Linear interpolation (Lerp):
+    // lerp(10.0, 20.0, 0.5) = 15.0
+    let twenty: i32 = fixed_from_int(20);
+    let mid: i32 = fixed_lerp(ten, twenty, FIXED_HALF);
+    if fixed_to_int(mid) != 15 { return 30; }
+
+    // lerp(10.0, 20.0, 0.0) = 10.0
+    if fixed_to_int(fixed_lerp(ten, twenty, 0)) != 10 { return 31; }
+
+    // lerp(10.0, 20.0, 1.0) = 20.0
+    if fixed_to_int(fixed_lerp(ten, twenty, FIXED_ONE)) != 20 { return 32; }
+
+    // 5. Clamping
+    let c1: i32 = fixed_clamp(fixed_from_int(-5), 0, ten);
+    if c1 != 0 { return 40; }
+
+    let c2: i32 = fixed_clamp(fixed_from_int(15), 0, ten);
+    if c2 != ten { return 41; }
+
+    let c3: i32 = fixed_clamp(fixed_from_int(5), 0, ten);
+    if fixed_to_int(c3) != 5 { return 42; }
+
+    // 6. Trigonometry: sin(0) = 0, sin(pi/2) ~ 1.0 (65536)
+    let s0: i32 = fixed_sin(0);
+    if s0 != 0 { return 50; }
+
+    let s_half_pi: i32 = fixed_sin(FIXED_HALF_PI);
+    // Bhaskara I approximation is within 1-2% of 65536 (~64000 to 67000)
+    if s_half_pi < 64000 || s_half_pi > 67000 { return 51; }
+
+    let c0: i32 = fixed_cos(0);
+    if c0 < 64000 || c0 > 67000 { return 52; }
+
+    return 0;
+}

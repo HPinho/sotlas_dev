@@ -1,0 +1,86 @@
+module test::sort_native;
+
+// ============================================================================
+// Teste Nativo: core::sort
+// ============================================================================
+// "Se o Knuth visse esses arrays sendo ordenados in-place sem alocação,
+//  ele certamente sorriria e tomaria outro gole de café."
+
+import core::sort::*;
+
+static mut g_buf_insert: [u32; 7] = 0;
+static mut g_buf_shell:  [u32; 8] = 0;
+static mut g_buf_heap:   [u64; 6] = 0;
+
+pub fn main() -> i32 {
+    // 1. Insertion Sort (u32)
+    g_buf_insert[0] = 45;
+    g_buf_insert[1] = 12;
+    g_buf_insert[2] = 89;
+    g_buf_insert[3] = 3;
+    g_buf_insert[4] = 67;
+    g_buf_insert[5] = 23;
+    g_buf_insert[6] = 1;
+
+    let init_sorted: bool = is_sorted_u32(g_buf_insert as *const u32, 7);
+    probe !init_sorted, "Array inicial nao deve estar ordenado";
+
+    insertion_sort_u32(g_buf_insert as *mut u32, 7);
+
+    let ins_sorted: bool = is_sorted_u32(g_buf_insert as *const u32, 7);
+    probe ins_sorted, "InsertionSort deve ordenar corretamente";
+    probe g_buf_insert[0] == 1, "Menor elemento deve ser 1";
+    probe g_buf_insert[6] == 89, "Maior elemento deve ser 89";
+
+    // 2. Shell Sort com Gaps de Ciura (u32)
+    g_buf_shell[0] = 100;
+    g_buf_shell[1] = 20;
+    g_buf_shell[2] = 90;
+    g_buf_shell[3] = 40;
+    g_buf_shell[4] = 80;
+    g_buf_shell[5] = 10;
+    g_buf_shell[6] = 60;
+    g_buf_shell[7] = 30;
+
+    shell_sort_u32(g_buf_shell as *mut u32, 8);
+
+    let shell_sorted: bool = is_sorted_u32(g_buf_shell as *const u32, 8);
+    probe shell_sorted, "ShellSort deve ordenar corretamente";
+    probe g_buf_shell[0] == 10, "ShellSort: menor deve ser 10";
+    probe g_buf_shell[7] == 100, "ShellSort: maior deve ser 100";
+
+    // 3. Heap Sort (u64) — O(n log n) garantido
+    g_buf_heap[0] = 5000000000;
+    g_buf_heap[1] = 1000000000;
+    g_buf_heap[2] = 4000000000;
+    g_buf_heap[3] = 2000000000;
+    g_buf_heap[4] = 6000000000;
+    g_buf_heap[5] = 3000000000;
+
+    heap_sort_u64(g_buf_heap as *mut u64, 6);
+
+    let heap_sorted: bool = is_sorted_u64(g_buf_heap as *const u64, 6);
+    probe heap_sorted, "HeapSort 64-bit deve ordenar corretamente";
+    probe g_buf_heap[0] == 1000000000, "HeapSort: primeiro elemento deve ser 1 bilhao";
+    probe g_buf_heap[5] == 6000000000, "HeapSort: ultimo elemento deve ser 6 bilhoes";
+
+    // 4. Min / Max utilities
+    let min_val: u32 = min_u32(g_buf_insert as *const u32, 7);
+    let max_val: u32 = max_u32(g_buf_insert as *const u32, 7);
+    probe min_val == 1, "min_u32 deve encontrar o menor elemento";
+    probe max_val == 89, "max_u32 deve encontrar o maior elemento";
+
+    // 5. Reverse
+    reverse_u32(g_buf_insert as *mut u32, 7);
+    probe g_buf_insert[0] == 89, "reverse_u32: primeiro elemento deve ser o antigo ultimo";
+    probe g_buf_insert[6] == 1, "reverse_u32: ultimo elemento deve ser o antigo primeiro";
+
+    let rev_sorted: bool = is_sorted_u32(g_buf_insert as *const u32, 7);
+    probe !rev_sorted, "Array invertido nao esta em ordem ascendente";
+
+    // 6. Swap
+    swap_u32(g_buf_insert as *mut u32, 0, 6);
+    probe g_buf_insert[0] == 1 && g_buf_insert[6] == 89, "swap_u32 deve trocar as posicoes 0 e 6";
+
+    return 0;
+}

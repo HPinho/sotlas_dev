@@ -1,0 +1,180 @@
+module core::hash;
+
+// ============================================================================
+// core::hash — Funções de Hashing de Verdade
+// ============================================================================
+//
+// "Confie no processo": XOR, multiply, shift, repeat until data looks random.
+// Se alguém te pergunta por que FNV funciona, a resposta honesta é:
+// "ninguém sabe realmente, mas o Noll testou com dicionários gigantes em 1991
+// e os resultados foram bons o suficiente pro mundo inteiro usar até hoje."
+//
+// Zero alloc. Zero libc. Funciona em bare metal, kernel, e userland.
+// ============================================================================
+
+// FNV-1a offset basis e prime — esses números mágicos são padronizados
+// pela IETF e usados literalmente por milhões de hash tables ao redor do mundo.
+pub const FNV1A_32_OFFSET: u32 = 2166136261;
+pub const FNV1A_32_PRIME: u32  = 16777619;
+pub const FNV1A_64_OFFSET: u64 = 14695981039346656037;
+pub const FNV1A_64_PRIME: u64  = 1099511628211;
+
+// ============================================================================
+// FNV-1a 32-bit — O hash rápido e sujo que todo mundo usa sem admitir
+// ============================================================================
+
+pub fn fnv1a_32(data: *const u8, len: usize) -> u32 {
+    if data == null || len == 0 {
+        return FNV1A_32_OFFSET;
+    }
+    let mut hash: u32 = FNV1A_32_OFFSET;
+    let mut i: usize = 0;
+    unsafe {
+        while i < len {
+            // XOR primeiro, depois multiplica — essa é a variante "1a".
+            // A variante "1" faz o contrário e tem mais colisões.
+            // Sim, a diferença é literalmente a ordem de duas operações.
+            hash = hash ^ (data[i] as u32);
+            hash = hash * FNV1A_32_PRIME;
+            i = i + 1;
+        }
+    }
+    return hash;
+}
+
+// Hash de uma C-string terminada em nulo (conveniente pra quem não quer contar bytes)
+pub fn fnv1a_32_cstr(s: *const u8) -> u32 {
+    if s == null {
+        return FNV1A_32_OFFSET;
+    }
+    let mut hash: u32 = FNV1A_32_OFFSET;
+    let mut i: usize = 0;
+    unsafe {
+        while s[i] != 0 {
+            hash = hash ^ (s[i] as u32);
+            hash = hash * FNV1A_32_PRIME;
+            i = i + 1;
+        }
+    }
+    return hash;
+}
+
+// ============================================================================
+// FNV-1a 64-bit — Pra quando 32 bits de hash não são dignos da sua tabela
+// ============================================================================
+
+pub fn fnv1a_64(data: *const u8, len: usize) -> u64 {
+    if data == null || len == 0 {
+        return FNV1A_64_OFFSET;
+    }
+    let mut hash: u64 = FNV1A_64_OFFSET;
+    let mut i: usize = 0;
+    unsafe {
+        while i < len {
+            hash = hash ^ (data[i] as u64);
+            hash = hash * FNV1A_64_PRIME;
+            i = i + 1;
+        }
+    }
+    return hash;
+}
+
+pub fn fnv1a_64_cstr(s: *const u8) -> u64 {
+    if s == null {
+        return FNV1A_64_OFFSET;
+    }
+    let mut hash: u64 = FNV1A_64_OFFSET;
+    let mut i: usize = 0;
+    unsafe {
+        while s[i] != 0 {
+            hash = hash ^ (s[i] as u64);
+            hash = hash * FNV1A_64_PRIME;
+            i = i + 1;
+        }
+    }
+    return hash;
+}
+
+// ============================================================================
+// hash_combine — Para fazer hash de structs com múltiplos campos
+// ============================================================================
+//
+// Inspirado no boost::hash_combine do C++. A idéia é simples:
+// misture o hash existente com o novo valor usando XOR + golden ratio bits
+// pra garantir que a ordem dos campos importa e que os bits se espalhem.
+//
+// Uso:
+//   let h: u64 = fnv1a_64(name, name_len);
+//   h = hash_combine_64(h, age_hash);
+//   h = hash_combine_64(h, id_hash);
+//
+
+pub fn hash_combine_32(seed: u32, value: u32) -> u32 {
+    // 0x9E3779B9 é o ponto fixo da golden ratio em 32 bits.
+    // Sim, é o mesmo número que o boost::hash_combine usa.
+    // Se funciona pro C++ há 20 anos, funciona pra gente.
+    return seed ^ (value + 2654435769 + (seed << 6) + (seed >> 2));
+}
+
+pub fn hash_combine_64(seed: u64, value: u64) -> u64 {
+    // 0x9E3779B97F4A7C15 — golden ratio em 64 bits.
+    // Quem achou esse número fez um doutorado inteiro em teoria dos números.
+    // Nós só usamos sem perguntar.
+    return seed ^ (value + 11400714819323198485 + (seed << 12) + (seed >> 4));
+}
+
+// ============================================================================
+// Hash de inteiros — Porque às vezes o dado JÁ É o hash (quase)
+// ============================================================================
+//
+// Murmur-ish finalizer: pega um inteiro e espalha os bits pra eliminar
+// padrões lineares. Útil quando suas chaves são IDs sequenciais (0, 1, 2...)
+// e você não quer que caiam todas no mesmo bucket.
+
+pub fn hash_u32(val: u32) -> u32 {
+    let mut h: u32 = val;
+    h = h ^ (h >> 16);
+    h = h * 2654435761;     // primo de Knuth, outra constante mágica venerável
+    h = h ^ (h >> 13);
+    h = h * 2246822519;
+    h = h ^ (h >> 16);
+    return h;
+}
+
+pub fn hash_u64(val: u64) -> u64 {
+    let mut h: u64 = val;
+    h = h ^ (h >> 30);
+    h = h * 13787848793156543929;   // splitmix64 constants
+    h = h ^ (h >> 27);
+    h = h * 10723151780598845931;
+    h = h ^ (h >> 31);
+    return h;
+}
+
+// ============================================================================
+// hash_bytes_to_index — Conveniência para ir direto de bytes ao índice do bucket
+// ============================================================================
+//
+// O truque: usa multiplicação por constante + shift em vez de módulo.
+// Módulo (%) gera uma divisão inteira que em x86 custa ~40 ciclos.
+// Multiplicação + shift custa 3-4 ciclos. Sim, 10x mais rápido.
+//
+// PORÉM: `table_size` DEVE ser potência de 2. Se não for, use módulo normal.
+
+pub fn hash_to_index(hash: u64, table_size: usize) -> usize {
+    if table_size == 0 {
+        return 0;
+    }
+    // Quando table_size é potência de 2, (hash & (table_size - 1)) == hash % table_size
+    // mas sem a divisão assassina de performance.
+    return (hash & (table_size - 1) as u64) as usize;
+}
+
+// Versão com módulo real para tabelas de tamanho arbitrário.
+// Mais lenta, mas correta pra qualquer tamanho.
+pub fn hash_to_index_mod(hash: u64, table_size: usize) -> usize {
+    if table_size == 0 {
+        return 0;
+    }
+    return (hash % table_size as u64) as usize;
+}

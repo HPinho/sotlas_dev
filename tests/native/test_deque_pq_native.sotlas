@@ -1,0 +1,120 @@
+module test::deque_pq_native;
+
+// ============================================================================
+// Teste Nativo: core::deque e core::priority_queue
+// ============================================================================
+// "Se o deque roda em círculos sem se perder e o heap sempre entrega o menor,
+//  o scheduler do kernel pode dormir em paz."
+
+import core::deque::*;
+import core::priority_queue::*;
+
+// Buffers estáticos para testes (zero dynamic allocation)
+static mut g_deq_buf: [u32; 8] = 0;
+static mut g_pq_buf:  [u32; 8] = 0;
+static mut g_item_buf: [PriorityItemU64; 8] = 0;
+
+pub fn main() -> i32 {
+    // ========================================================================
+    // 1. Testes de DequeU32 (Fila de Duas Pontas)
+    // ========================================================================
+    let mut deq: DequeU32 = deque_u32_new(g_deq_buf as *mut u32, 8);
+    probe deque_u32_is_empty(&deq), "Deque inicial deve estar vazio";
+    probe deque_u32_len(&deq) == 0, "Deque len deve ser 0";
+
+    // Push back e push front
+    let ok_b1: bool = deque_u32_push_back(&mut deq, 20);
+    let ok_b2: bool = deque_u32_push_back(&mut deq, 30);
+    let ok_f1: bool = deque_u32_push_front(&mut deq, 10);
+    probe ok_b1 && ok_b2 && ok_f1, "Insercoes push_back e push_front devem ter sucesso";
+    probe deque_u32_len(&deq) == 3, "Deque deve conter 3 elementos: [10, 20, 30]";
+
+    // Peek front e peek back
+    probe deque_u32_peek_front(&deq) == 10, "peek_front deve ser 10";
+    probe deque_u32_peek_back(&deq) == 30, "peek_back deve ser 30";
+
+    // Pop front (deve extrair 10)
+    let mut val: u32 = 0;
+    let ok_pop_f: bool = deque_u32_pop_front(&mut deq, &mut val);
+    probe ok_pop_f && val == 10, "pop_front deve extrair 10";
+
+    // Pop back (deve extrair 30)
+    let ok_pop_b: bool = deque_u32_pop_back(&mut deq, &mut val);
+    probe ok_pop_b && val == 30, "pop_back deve extrair 30";
+
+    // Resta apenas 20
+    probe deque_u32_len(&deq) == 1, "Deve restar 1 elemento";
+    let ok_pop_last: bool = deque_u32_pop_front(&mut deq, &mut val);
+    probe ok_pop_last && val == 20, "Ultimo pop deve extrair 20";
+    probe deque_u32_is_empty(&deq), "Deque deve estar vazio agora";
+
+    // Clear test
+    deque_u32_push_back(&mut deq, 99);
+    deque_u32_clear(&mut deq);
+    probe deque_u32_is_empty(&deq), "Deque apos clear deve estar vazio";
+
+    // ========================================================================
+    // 2. Testes de PriorityQueueU32 (Min-Heap)
+    // ========================================================================
+    let mut pq: PriorityQueueU32 = pq_u32_new(g_pq_buf as *mut u32, 8);
+    probe pq_u32_is_empty(&pq), "PriorityQueue inicial deve estar vazia";
+
+    // Inserção fora de ordem: 50, 20, 80, 10, 30
+    pq_u32_insert(&mut pq, 50);
+    pq_u32_insert(&mut pq, 20);
+    pq_u32_insert(&mut pq, 80);
+    pq_u32_insert(&mut pq, 10);
+    pq_u32_insert(&mut pq, 30);
+
+    probe pq_u32_len(&pq) == 5, "PQ deve ter 5 elementos";
+    probe pq_u32_peek_min(&pq) == 10, "peek_min deve revelar o menor elemento (10)";
+
+    // Extração em ordem crescente (propriedade de Min-Heap)
+    let mut out: u32 = 0;
+    let e1: bool = pq_u32_extract_min(&mut pq, &mut out);
+    probe e1 && out == 10, "1o extract_min deve ser 10";
+
+    let e2: bool = pq_u32_extract_min(&mut pq, &mut out);
+    probe e2 && out == 20, "2o extract_min deve ser 20";
+
+    let e3: bool = pq_u32_extract_min(&mut pq, &mut out);
+    probe e3 && out == 30, "3o extract_min deve ser 30";
+
+    let e4: bool = pq_u32_extract_min(&mut pq, &mut out);
+    probe e4 && out == 50, "4o extract_min deve ser 50";
+
+    let e5: bool = pq_u32_extract_min(&mut pq, &mut out);
+    probe e5 && out == 80, "5o extract_min deve ser 80";
+
+    probe pq_u32_is_empty(&pq), "PQ deve estar vazia apos todas as extracoes";
+
+    // ========================================================================
+    // 3. Testes de PriorityQueueItemU64 (Task Scheduler: prioridade + ID)
+    // ========================================================================
+    let mut tpq: PriorityQueueItemU64 = pq_item_new(g_item_buf as *mut PriorityItemU64, 8);
+    // Insere tarefas com deadlines e task IDs
+    pq_item_insert(&mut tpq, 300, 3); // Task 3 expira no tick 300
+    pq_item_insert(&mut tpq, 100, 1); // Task 1 expira no tick 100
+    pq_item_insert(&mut tpq, 200, 2); // Task 2 expira no tick 200
+
+    probe pq_item_len(&tpq) == 3, "Task queue deve conter 3 tarefas";
+
+    let mut out_prio: u64 = 0;
+    let mut out_id: u64 = 0;
+
+    // A tarefa com menor prazo (100) deve sair primeiro
+    let te1: bool = pq_item_extract_min(&mut tpq, &mut out_prio, &mut out_id);
+    probe te1 && out_prio == 100 && out_id == 1, "Task 1 (deadline 100) deve ser extraida primeiro";
+
+    // Depois a de prazo 200
+    let te2: bool = pq_item_extract_min(&mut tpq, &mut out_prio, &mut out_id);
+    probe te2 && out_prio == 200 && out_id == 2, "Task 2 (deadline 200) deve ser extraida em seguida";
+
+    // Por fim a de prazo 300
+    let te3: bool = pq_item_extract_min(&mut tpq, &mut out_prio, &mut out_id);
+    probe te3 && out_prio == 300 && out_id == 3, "Task 3 (deadline 300) deve ser extraida por ultimo";
+
+    probe pq_item_is_empty(&tpq), "Task queue deve estar vazia";
+
+    return 0;
+}

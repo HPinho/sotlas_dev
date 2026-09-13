@@ -1,0 +1,164 @@
+module core::ring_buffer;
+
+// ----------------------------------------------------------------------------
+// core::ring_buffer — Lock-Free Circular Stream for Interrupts & IPC
+// ----------------------------------------------------------------------------
+//
+// Single-producer single-consumer circular byte FIFO.
+// Zero dynamic allocations; runs anywhere from 16-bit real-mode staging to
+// SMP interrupt dispatch (UART / PS2 keyboards / IPC mailboxes).
+//
+// Dev note:
+// Keep your IRQ handlers lean: push byte here, issue EOI, let userspace or the
+// DPC thread drain it. Don't block inside a hardware interrupt handler. Ever.
+// ----------------------------------------------------------------------------
+
+pub struct RingBuffer {
+    pub data: *mut u8;
+    pub capacity: usize;
+    pub head: usize;
+    pub tail: usize;
+    pub count: usize;
+}
+
+pub fn ring_init(rb: *mut RingBuffer, storage: *mut u8, cap: usize) {
+    if rb == null || storage == null || cap == 0 {
+        return;
+    }
+    unsafe {
+        (*rb).data = storage;
+        (*rb).capacity = cap;
+        (*rb).head = 0;
+        (*rb).tail = 0;
+        (*rb).count = 0;
+    }
+}
+
+pub fn ring_clear(rb: *mut RingBuffer) {
+    if rb == null {
+        return;
+    }
+    unsafe {
+        (*rb).head = 0;
+        (*rb).tail = 0;
+        (*rb).count = 0;
+    }
+}
+
+pub fn ring_is_empty(rb: *const RingBuffer) -> bool {
+    if rb == null {
+        return true;
+    }
+    unsafe {
+        return (*rb).count == 0;
+    }
+}
+
+pub fn ring_is_full(rb: *const RingBuffer) -> bool {
+    if rb == null {
+        return false;
+    }
+    unsafe {
+        return (*rb).count >= (*rb).capacity;
+    }
+}
+
+pub fn ring_available(rb: *const RingBuffer) -> usize {
+    if rb == null {
+        return 0;
+    }
+    unsafe {
+        return (*rb).count;
+    }
+}
+
+pub fn ring_free_space(rb: *const RingBuffer) -> usize {
+    if rb == null {
+        return 0;
+    }
+    unsafe {
+        if (*rb).count >= (*rb).capacity {
+            return 0;
+        }
+        return (*rb).capacity - (*rb).count;
+    }
+}
+
+pub fn ring_push(rb: *mut RingBuffer, val: u8) -> bool {
+    if rb == null {
+        return false;
+    }
+    unsafe {
+        if (*rb).data == null || (*rb).count >= (*rb).capacity {
+            return false;
+        }
+        (*rb).data[(*rb).head] = val;
+        (*rb).head = ((*rb).head + 1) % (*rb).capacity;
+        (*rb).count = (*rb).count + 1;
+        return true;
+    }
+}
+
+pub fn ring_pop(rb: *mut RingBuffer, out_val: *mut u8) -> bool {
+    if rb == null || out_val == null {
+        return false;
+    }
+    unsafe {
+        if (*rb).data == null || (*rb).count == 0 {
+            return false;
+        }
+        *out_val = (*rb).data[(*rb).tail];
+        (*rb).tail = ((*rb).tail + 1) % (*rb).capacity;
+        (*rb).count = (*rb).count - 1;
+        return true;
+    }
+}
+
+pub fn ring_peek(rb: *const RingBuffer, out_val: *mut u8) -> bool {
+    if rb == null || out_val == null {
+        return false;
+    }
+    unsafe {
+        if (*rb).data == null || (*rb).count == 0 {
+            return false;
+        }
+        *out_val = (*rb).data[(*rb).tail];
+        return true;
+    }
+}
+
+// Batch write into ring buffer. Returns number of bytes actually written.
+pub fn ring_write(rb: *mut RingBuffer, src: *const u8, len: usize) -> usize {
+    if rb == null || src == null || len == 0 {
+        return 0;
+    }
+    let mut written: usize = 0;
+    unsafe {
+        while written < len {
+            if !ring_push(rb, src[written]) {
+                break;
+            }
+            written = written + 1;
+        }
+    }
+    return written;
+}
+
+// Batch read from ring buffer into dst. Returns number of bytes actually read.
+pub fn ring_read(rb: *mut RingBuffer, dst: *mut u8, max_len: usize) -> usize {
+    if rb == null || dst == null || max_len == 0 {
+        return 0;
+    }
+    let mut read_count: usize = 0;
+    unsafe {
+        while read_count < max_len {
+            let mut byte: u8 = 0;
+            if !ring_pop(rb, &mut byte) {
+                break;
+            }
+            dst[read_count] = byte;
+            read_count = read_count + 1;
+        }
+    }
+    return read_count;
+}

@@ -1,0 +1,81 @@
+module test_bitmap_native;
+import foundation::bitmap::*;
+
+static mut g_storage: [u64; 4] = 0; // 4 * 64 = 256 bits
+
+pub fn main() -> i32 {
+    let mut bm: Bitmap = 0;
+    unsafe {
+        bitmap_init(&mut bm, g_storage as *mut u64, 256);
+    }
+
+    // 1. Initial state: all bits should be 0
+    if bitmap_test(&bm, 0) { return 1; }
+    if bitmap_test(&bm, 63) { return 2; }
+    if bitmap_test(&bm, 64) { return 3; }
+    if bitmap_test(&bm, 255) { return 4; }
+    if bitmap_count_used(&bm) != 0 { return 5; }
+
+    // 2. Set and clear across 64-bit word boundaries
+    bitmap_set(&mut bm, 0);
+    bitmap_set(&mut bm, 63);
+    bitmap_set(&mut bm, 64);
+    bitmap_set(&mut bm, 127);
+    bitmap_set(&mut bm, 200);
+
+    if !bitmap_test(&bm, 0) { return 10; }
+    if !bitmap_test(&bm, 63) { return 11; }
+    if !bitmap_test(&bm, 64) { return 12; }
+    if !bitmap_test(&bm, 127) { return 13; }
+    if !bitmap_test(&bm, 200) { return 14; }
+    if bitmap_test(&bm, 65) { return 15; }
+    if bitmap_count_used(&bm) != 5 { return 16; }
+
+    bitmap_clear(&mut bm, 63);
+    if bitmap_test(&bm, 63) { return 20; }
+    if !bitmap_test(&bm, 64) { return 21; }
+    if bitmap_count_used(&bm) != 4 { return 22; }
+
+    // 3. First free bit search with word skipping
+    unsafe {
+        // Fill word 0 completely (all 64 bits = 1)
+        g_storage[0] = 0xFFFFFFFFFFFFFFFF;
+        // Word 1 has only bit 64 set (bit 0 of word 1)
+        g_storage[1] = 1;
+        g_storage[2] = 0;
+        g_storage[3] = 0;
+    }
+
+    // Since word 0 is full and bit 64 is set, next free bit MUST be 65
+    let first_free: i64 = bitmap_find_first_free(&bm);
+    if first_free != 65 { return 30; }
+
+    // Allocate bit 65
+    let allocated: i64 = bitmap_alloc_first_free(&mut bm);
+    if allocated != 65 { return 31; }
+    if !bitmap_test(&bm, 65) { return 32; }
+
+    // Now bit 66 should be free
+    if bitmap_find_first_free(&bm) != 66 { return 33; }
+
+    // 4. Contiguous sequence search
+    unsafe {
+        // Reset everything to 0
+        bitmap_init(&mut bm, g_storage as *mut u64, 256);
+    }
+    // Block bits 0..9
+    let mut k: usize = 0;
+    while k < 10 {
+        bitmap_set(&mut bm, k);
+        k = k + 1;
+    }
+    // Search for 16 contiguous free bits: should start at bit 10
+    let contig: i64 = bitmap_find_contiguous(&bm, 16);
+    if contig != 10 { return 40; }
+
+    // Exceed total capacity: should return -1
+    let impossible: i64 = bitmap_find_contiguous(&bm, 300);
+    if impossible != -1 { return 41; }
+
+    return 0;
+}

@@ -1,0 +1,86 @@
+module test::bitfield_native;
+
+// ============================================================================
+// Teste Nativo: core::bitfield
+// ============================================================================
+// "Se 90% da programação de sistemas é mexer com bits, este teste garante que
+//  os 90% funcionam perfeitamente para você só se preocupar com os 10%."
+
+import core::bitfield::*;
+
+pub fn main() -> i32 {
+    // 1. Operações em bits individuais (set, clear, toggle, test)
+    let s1: u32 = bit_set_u32(0, 3);
+    probe s1 == 8, "bit_set_u32: ligar bit 3 deve resultar em 8";
+    probe bit_test_u32(s1, 3), "bit_test_u32: bit 3 deve estar ligado";
+    probe !bit_test_u32(s1, 2), "bit_test_u32: bit 2 deve estar desligado";
+
+    let c1: u32 = bit_clear_u32(15, 1); // 1111b -> 1101b (13)
+    probe c1 == 13, "bit_clear_u32: limpar bit 1 de 15 deve dar 13";
+
+    let t1: u32 = bit_toggle_u32(0, 5); // 1 << 5 = 32
+    probe t1 == 32, "bit_toggle_u32: inverter bit 5 de 0 deve dar 32";
+    let t2: u32 = bit_toggle_u32(t1, 5);
+    probe t2 == 0, "bit_toggle_u32: inverter novamente deve retornar a 0";
+
+    // 2. Extração e inserção de campos
+    let extracted: u32 = bit_extract_u32(0xFF00, 8, 8);
+    probe extracted == 255, "bit_extract_u32: extrair bits [15:8] de 0xFF00 deve ser 0xFF (255)";
+
+    let inserted: u32 = bit_insert_u32(0, 255, 8, 8);
+    probe inserted == 0xFF00, "bit_insert_u32: inserir 0xFF na posicao 8 deve dar 0xFF00";
+
+    // 3. Popcount (Hamming Weight)
+    let pc1: u32 = popcount_u32(11); // 1011b = 3 bits
+    probe pc1 == 3, "popcount_u32(11) deve ser 3";
+
+    let pc_all: u32 = popcount_u32(0xFFFFFFFF);
+    probe pc_all == 32, "popcount_u32(0xFFFFFFFF) deve ser 32";
+
+    let pc64: u64 = popcount_u64(0x0101010101010101);
+    probe pc64 == 8, "popcount_u64 com 8 bits esparsos deve ser 8";
+
+    // 4. Count Leading Zeros (CLZ)
+    let clz1: u32 = clz_u32(0x80000000);
+    probe clz1 == 0, "clz_u32 com MSB ativo deve ser 0";
+
+    let clz2: u32 = clz_u32(1);
+    probe clz2 == 31, "clz_u32 de 1 deve ser 31";
+
+    let clz_zero: u32 = clz_u32(0);
+    probe clz_zero == 32, "clz_u32 de 0 deve ser 32";
+
+    // 5. Count Trailing Zeros (CTZ)
+    let ctz1: u32 = ctz_u32(8); // 1000b -> 3 zeros
+    probe ctz1 == 3, "ctz_u32 de 8 deve ser 3";
+
+    // 6. Log2 inteiro
+    let lg: u32 = log2_u32(16);
+    probe lg == 4, "log2_u32 de 16 deve ser 4";
+
+    let lg2: u32 = log2_u32(31);
+    probe lg2 == 4, "floor log2_u32 de 31 deve ser 4";
+
+    // 7. Potências de 2
+    probe is_power_of_two_u32(16), "16 deve ser potencia de 2";
+    probe !is_power_of_two_u32(15), "15 nao deve ser potencia de 2";
+    probe !is_power_of_two_u32(0), "0 nao deve ser potencia de 2";
+
+    let np: u32 = next_power_of_two_u32(5);
+    probe np == 8, "next_power_of_two_u32(5) deve ser 8";
+
+    let np_exact: u32 = next_power_of_two_u32(16);
+    probe np_exact == 16, "next_power_of_two_u32(16) deve se manter 16";
+
+    // 8. Alinhamento de endereços de memória (páginas de 4KB)
+    let addr_aligned: u64 = align_up_u64(4090, 4096);
+    probe addr_aligned == 4096, "align_up_u64(4090, 4096) deve subir para 4096";
+
+    let addr_down: u64 = align_down_u64(4097, 4096);
+    probe addr_down == 4096, "align_down_u64(4097, 4096) deve descer para 4096";
+
+    probe is_aligned_u64(4096, 4096), "4096 deve ser alinhado a 4096";
+    probe !is_aligned_u64(4097, 4096), "4097 nao deve ser alinhado a 4096";
+
+    return 0;
+}

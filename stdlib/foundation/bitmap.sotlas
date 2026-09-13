@@ -1,0 +1,198 @@
+module foundation::bitmap;
+
+// ----------------------------------------------------------------------------
+// foundation::bitmap — Physical Page Frame & DMA Tracking Bitmap
+// ----------------------------------------------------------------------------
+//
+// 64-bit word bitmap designed for early boot memory allocators and DMA buffers.
+// Zero dynamic allocations; all storage is provided by the caller (typically
+// placed in BSS, pre-allocated kernel heap, or reserved bootloader memory).
+//
+// Dev note:
+// Don't test bits byte-by-byte in a hot page fault handler. We skip full 64-bit
+// words (0xFFFFFFFFFFFFFFFF) in a single cycle. If all 64 frames are taken, move on.
+// ----------------------------------------------------------------------------
+
+pub struct Bitmap {
+    pub words: *mut u64;
+    pub total_bits: usize;
+    pub word_count: usize;
+}
+
+pub fn bitmap_init(bm: *mut Bitmap, storage: *mut u64, bit_count: usize) {
+    if bm == null || storage == null {
+        return;
+    }
+    unsafe {
+        (*bm).words = storage;
+        (*bm).total_bits = bit_count;
+        (*bm).word_count = (bit_count + 63) / 64;
+
+        let mut i: usize = 0;
+        while i < (*bm).word_count {
+            storage[i] = 0;
+            i = i + 1;
+        }
+    }
+}
+
+pub fn bitmap_fill(bm: *mut Bitmap) {
+    if bm == null {
+        return;
+    }
+    unsafe {
+        if (*bm).words == null {
+            return;
+        }
+        let mut i: usize = 0;
+        while i < (*bm).word_count {
+            (*bm).words[i] = 0xFFFFFFFFFFFFFFFF;
+            i = i + 1;
+        }
+    }
+}
+
+pub fn bitmap_set(bm: *mut Bitmap, bit_index: usize) {
+    if bm == null {
+        return;
+    }
+    unsafe {
+        if bit_index >= (*bm).total_bits || (*bm).words == null {
+            return;
+        }
+        let word_idx: usize = bit_index / 64;
+        let bit_in_word: usize = bit_index % 64;
+        let mut one: u64 = 1;
+        let mask: u64 = one << bit_in_word;
+        (*bm).words[word_idx] = (*bm).words[word_idx] | mask;
+    }
+}
+
+pub fn bitmap_clear(bm: *mut Bitmap, bit_index: usize) {
+    if bm == null {
+        return;
+    }
+    unsafe {
+        if bit_index >= (*bm).total_bits || (*bm).words == null {
+            return;
+        }
+        let word_idx: usize = bit_index / 64;
+        let bit_in_word: usize = bit_index % 64;
+        let mut one: u64 = 1;
+        let mask: u64 = one << bit_in_word;
+        (*bm).words[word_idx] = (*bm).words[word_idx] & (~mask);
+    }
+}
+
+pub fn bitmap_test(bm: *const Bitmap, bit_index: usize) -> bool {
+    if bm == null {
+        return false;
+    }
+    unsafe {
+        if bit_index >= (*bm).total_bits || (*bm).words == null {
+            return false;
+        }
+        let word_idx: usize = bit_index / 64;
+        let bit_in_word: usize = bit_index % 64;
+        let mut one: u64 = 1;
+        let mask: u64 = one << bit_in_word;
+        return ((*bm).words[word_idx] & mask) != 0;
+    }
+}
+
+// Scans for the first available (0) bit. Returns bit index, or -1 if exhausted.
+pub fn bitmap_find_first_free(bm: *const Bitmap) -> i64 {
+    if bm == null {
+        return -1;
+    }
+    unsafe {
+        if (*bm).words == null || (*bm).total_bits == 0 {
+            return -1;
+        }
+
+        let mut w_idx: usize = 0;
+        while w_idx < (*bm).word_count {
+            let val: u64 = (*bm).words[w_idx];
+            // Fast path: if all 64 bits are used (1s), skip the whole word
+            if val != 0xFFFFFFFFFFFFFFFF {
+                let mut b: usize = 0;
+                while b < 64 {
+                    let candidate: usize = (w_idx * 64) + b;
+                    if candidate >= (*bm).total_bits {
+                        return -1;
+                    }
+                    let mut one: u64 = 1;
+                    let mask: u64 = one << b;
+                    if (val & mask) == 0 {
+                        return candidate as i64;
+                    }
+                    b = b + 1;
+                }
+            }
+            w_idx = w_idx + 1;
+        }
+        return -1;
+    }
+}
+
+// Allocates the first free bit and marks it used immediately.
+pub fn bitmap_alloc_first_free(bm: *mut Bitmap) -> i64 {
+    let bit: i64 = bitmap_find_first_free(bm as *const Bitmap);
+    if bit >= 0 {
+        bitmap_set(bm, bit as usize);
+    }
+    return bit;
+}
+
+// Finds a contiguous sequence of count free bits (critical for multi-page DMA blocks).
+pub fn bitmap_find_contiguous(bm: *const Bitmap, count: usize) -> i64 {
+    if bm == null || count == 0 {
+        return -1;
+    }
+    unsafe {
+        if (*bm).words == null || count > (*bm).total_bits {
+            return -1;
+        }
+
+        let mut start_bit: usize = 0;
+        let mut matched: usize = 0;
+        let mut idx: usize = 0;
+
+        while idx < (*bm).total_bits {
+            if !bitmap_test(bm, idx) {
+                if matched == 0 {
+                    start_bit = idx;
+                }
+                matched = matched + 1;
+                if matched == count {
+                    return start_bit as i64;
+                }
+            } else {
+                matched = 0;
+            }
+            idx = idx + 1;
+        }
+        return -1;
+    }
+}
+
+// Counts total number of set (used) bits across the bitmap.
+pub fn bitmap_count_used(bm: *const Bitmap) -> usize {
+    if bm == null {
+        return 0;
+    }
+    unsafe {
+        if (*bm).words == null {
+            return 0;
+        }
+        let mut used: usize = 0;
+        let mut i: usize = 0;
+        while i < (*bm).total_bits {
+            if bitmap_test(bm, i) {
+                used = used + 1;
+            }
+            i = i + 1;
+        }
+        return used;
+    }
+}

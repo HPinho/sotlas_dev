@@ -1,0 +1,510 @@
+module core::priority_queue;
+
+// ============================================================================
+// core::priority_queue — Min-Heap Binário de Alta Performance (Zero-Alloc)
+// ============================================================================
+//
+// "Quem tem prioridade passa na frente. Quem não tem, espera o O(log n)."
+//
+// O que acontece quando você precisa que o timer do kernel acorde o processo
+// às 06:00 e outro às 06:01, mas o scheduler inseriu o de 06:01 primeiro?
+// Se você usar uma lista encadeada ou array plano, parabéns: você acabou de
+// introduzir O(n) na rotina de interrupção mais crítica do seu sistema operacional.
+//
+// Aqui implementamos um Min-Heap clássico baseado em array contíguo:
+// - Inserção: O(log n) com sift-up
+// - Extração do mínimo: O(log n) com sift-down
+// - Espiar o mínimo (peek): O(1) puro
+//
+// Regras do Min-Heap com indexação base 0:
+// - Raiz: índice 0 (sempre o menor valor)
+// - Pai de i: (i - 1) / 2
+// - Filho esquerdo de i: 2 * i + 1
+// - Filho direito de i: 2 * i + 2
+//
+// Zero malloc. Zero recursão de stack (tudo iterativo). Zero libc.
+// Backing buffer fornecido pelo caller (estático ou alocado na stack).
+// ============================================================================
+
+// ============================================================================
+// PriorityQueueU32 — Min-Heap de inteiros de 32 bits
+// ============================================================================
+
+pub struct PriorityQueueU32 {
+    pub buffer: *mut u32,
+    pub capacity: usize,
+    pub count: usize,
+}
+
+pub fn pq_u32_new(backing: *mut u32, cap: usize) -> PriorityQueueU32 {
+    let mut pq: PriorityQueueU32 = 0;
+    pq.buffer = backing;
+    pq.capacity = cap;
+    pq.count = 0;
+    return pq;
+}
+
+pub fn pq_u32_is_empty(pq: *const PriorityQueueU32) -> bool {
+    if pq == null {
+        return true;
+    }
+    unsafe {
+        return (*pq).count == 0;
+    }
+}
+
+pub fn pq_u32_is_full(pq: *const PriorityQueueU32) -> bool {
+    if pq == null {
+        return true;
+    }
+    unsafe {
+        return (*pq).count >= (*pq).capacity;
+    }
+}
+
+pub fn pq_u32_len(pq: *const PriorityQueueU32) -> usize {
+    if pq == null {
+        return 0;
+    }
+    unsafe {
+        return (*pq).count;
+    }
+}
+
+pub fn pq_u32_capacity(pq: *const PriorityQueueU32) -> usize {
+    if pq == null {
+        return 0;
+    }
+    unsafe {
+        return (*pq).capacity;
+    }
+}
+
+// Insere elemento e sobe (sift-up) até restaurar a propriedade de min-heap
+pub fn pq_u32_insert(pq: *mut PriorityQueueU32, val: u32) -> bool {
+    if pq == null {
+        return false;
+    }
+    unsafe {
+        if (*pq).buffer == null || (*pq).count >= (*pq).capacity {
+            // Sem espaço no buffer, rejeita sem panic
+            return false;
+        }
+
+        // Coloca o novo elemento no fim da árvore
+        let mut curr: usize = (*pq).count;
+        *((*pq).buffer + curr) = val;
+        (*pq).count = (*pq).count + 1;
+
+        // Sift-up iterativo: enquanto for menor que o pai, sobe na hierarquia
+        while curr > 0 {
+            let parent: usize = (curr - 1) / 2;
+            let curr_val: u32 = *((*pq).buffer + curr);
+            let parent_val: u32 = *((*pq).buffer + parent);
+
+            if curr_val < parent_val {
+                // Troca com o pai
+                *((*pq).buffer + curr) = parent_val;
+                *((*pq).buffer + parent) = curr_val;
+                curr = parent;
+            } else {
+                // Propriedade restaurada, pode descansar
+                break;
+            }
+        }
+    }
+    return true;
+}
+
+// Extrai o menor elemento (raiz) e rebaixa o último (sift-down)
+pub fn pq_u32_extract_min(pq: *mut PriorityQueueU32, out_val: *mut u32) -> bool {
+    if pq == null || out_val == null {
+        return false;
+    }
+    unsafe {
+        if (*pq).buffer == null || (*pq).count == 0 {
+            return false;
+        }
+
+        // O menor elemento sempre está no topo (índice 0)
+        *out_val = *((*pq).buffer + 0);
+        (*pq).count = (*pq).count - 1;
+
+        // Se a fila não ficou vazia, move o último para a raiz e faz sift-down
+        if (*pq).count > 0 {
+            let last_val: u32 = *((*pq).buffer + (*pq).count);
+            *((*pq).buffer + 0) = last_val;
+
+            let mut root: usize = 0;
+            let n: usize = (*pq).count;
+
+            while root * 2 + 1 < n {
+                let left: usize = root * 2 + 1;
+                let right: usize = left + 1;
+                let mut smallest: usize = root;
+
+                if *((*pq).buffer + left) < *((*pq).buffer + smallest) {
+                    smallest = left;
+                }
+                if right < n && *((*pq).buffer + right) < *((*pq).buffer + smallest) {
+                    smallest = right;
+                }
+
+                if smallest == root {
+                    // O elemento na raiz já é menor que ambos os filhos
+                    break;
+                }
+
+                // Troca com o menor dos filhos
+                let tmp: u32 = *((*pq).buffer + root);
+                *((*pq).buffer + root) = *((*pq).buffer + smallest);
+                *((*pq).buffer + smallest) = tmp;
+                root = smallest;
+            }
+        }
+    }
+    return true;
+}
+
+// Espia o menor elemento sem remover. Retorna 0 se estiver vazio ou ponteiro nulo.
+pub fn pq_u32_peek_min(pq: *const PriorityQueueU32) -> u32 {
+    if pq == null {
+        return 0;
+    }
+    unsafe {
+        if (*pq).buffer == null || (*pq).count == 0 {
+            return 0;
+        }
+        return *((*pq).buffer + 0);
+    }
+}
+
+pub fn pq_u32_clear(pq: *mut PriorityQueueU32) {
+    if pq == null {
+        return;
+    }
+    unsafe {
+        (*pq).count = 0;
+    }
+}
+
+// ============================================================================
+// PriorityQueueU64 — Min-Heap de 64 bits (Perfeito para Timestamps de Timer)
+// ============================================================================
+
+pub struct PriorityQueueU64 {
+    pub buffer: *mut u64,
+    pub capacity: usize,
+    pub count: usize,
+}
+
+pub fn pq_u64_new(backing: *mut u64, cap: usize) -> PriorityQueueU64 {
+    let mut pq: PriorityQueueU64 = 0;
+    pq.buffer = backing;
+    pq.capacity = cap;
+    pq.count = 0;
+    return pq;
+}
+
+pub fn pq_u64_is_empty(pq: *const PriorityQueueU64) -> bool {
+    if pq == null {
+        return true;
+    }
+    unsafe {
+        return (*pq).count == 0;
+    }
+}
+
+pub fn pq_u64_is_full(pq: *const PriorityQueueU64) -> bool {
+    if pq == null {
+        return true;
+    }
+    unsafe {
+        return (*pq).count >= (*pq).capacity;
+    }
+}
+
+pub fn pq_u64_len(pq: *const PriorityQueueU64) -> usize {
+    if pq == null {
+        return 0;
+    }
+    unsafe {
+        return (*pq).count;
+    }
+}
+
+pub fn pq_u64_capacity(pq: *const PriorityQueueU64) -> usize {
+    if pq == null {
+        return 0;
+    }
+    unsafe {
+        return (*pq).capacity;
+    }
+}
+
+pub fn pq_u64_insert(pq: *mut PriorityQueueU64, val: u64) -> bool {
+    if pq == null {
+        return false;
+    }
+    unsafe {
+        if (*pq).buffer == null || (*pq).count >= (*pq).capacity {
+            return false;
+        }
+
+        let mut curr: usize = (*pq).count;
+        *((*pq).buffer + curr) = val;
+        (*pq).count = (*pq).count + 1;
+
+        while curr > 0 {
+            let parent: usize = (curr - 1) / 2;
+            let curr_val: u64 = *((*pq).buffer + curr);
+            let parent_val: u64 = *((*pq).buffer + parent);
+
+            if curr_val < parent_val {
+                *((*pq).buffer + curr) = parent_val;
+                *((*pq).buffer + parent) = curr_val;
+                curr = parent;
+            } else {
+                break;
+            }
+        }
+    }
+    return true;
+}
+
+pub fn pq_u64_extract_min(pq: *mut PriorityQueueU64, out_val: *mut u64) -> bool {
+    if pq == null || out_val == null {
+        return false;
+    }
+    unsafe {
+        if (*pq).buffer == null || (*pq).count == 0 {
+            return false;
+        }
+
+        *out_val = *((*pq).buffer + 0);
+        (*pq).count = (*pq).count - 1;
+
+        if (*pq).count > 0 {
+            let last_val: u64 = *((*pq).buffer + (*pq).count);
+            *((*pq).buffer + 0) = last_val;
+
+            let mut root: usize = 0;
+            let n: usize = (*pq).count;
+
+            while root * 2 + 1 < n {
+                let left: usize = root * 2 + 1;
+                let right: usize = left + 1;
+                let mut smallest: usize = root;
+
+                if *((*pq).buffer + left) < *((*pq).buffer + smallest) {
+                    smallest = left;
+                }
+                if right < n && *((*pq).buffer + right) < *((*pq).buffer + smallest) {
+                    smallest = right;
+                }
+
+                if smallest == root {
+                    break;
+                }
+
+                let tmp: u64 = *((*pq).buffer + root);
+                *((*pq).buffer + root) = *((*pq).buffer + smallest);
+                *((*pq).buffer + smallest) = tmp;
+                root = smallest;
+            }
+        }
+    }
+    return true;
+}
+
+pub fn pq_u64_peek_min(pq: *const PriorityQueueU64) -> u64 {
+    if pq == null {
+        return 0;
+    }
+    unsafe {
+        if (*pq).buffer == null || (*pq).count == 0 {
+            return 0;
+        }
+        return *((*pq).buffer + 0);
+    }
+}
+
+pub fn pq_u64_clear(pq: *mut PriorityQueueU64) {
+    if pq == null {
+        return;
+    }
+    unsafe {
+        (*pq).count = 0;
+    }
+}
+
+// ============================================================================
+// PriorityItemU64 e PriorityQueueItemU64 — Para Schedulers (prioridade + payload)
+// ============================================================================
+//
+// No kernel, raramente você quer ordenar números soltos.
+// Você quer ordenar "acorde a tarefa X no tick Y".
+// - priority: menor número = maior urgência (ex: timestamp de expiração)
+// - payload: ID da tarefa, thread handle ou ponteiro bruto
+// ============================================================================
+
+pub struct PriorityItemU64 {
+    pub priority: u64,
+    pub payload: u64,
+}
+
+pub struct PriorityQueueItemU64 {
+    pub buffer: *mut PriorityItemU64,
+    pub capacity: usize,
+    pub count: usize,
+}
+
+pub fn pq_item_new(backing: *mut PriorityItemU64, cap: usize) -> PriorityQueueItemU64 {
+    let mut pq: PriorityQueueItemU64 = 0;
+    pq.buffer = backing;
+    pq.capacity = cap;
+    pq.count = 0;
+    return pq;
+}
+
+pub fn pq_item_is_empty(pq: *const PriorityQueueItemU64) -> bool {
+    if pq == null {
+        return true;
+    }
+    unsafe {
+        return (*pq).count == 0;
+    }
+}
+
+pub fn pq_item_is_full(pq: *const PriorityQueueItemU64) -> bool {
+    if pq == null {
+        return true;
+    }
+    unsafe {
+        return (*pq).count >= (*pq).capacity;
+    }
+}
+
+pub fn pq_item_len(pq: *const PriorityQueueItemU64) -> usize {
+    if pq == null {
+        return 0;
+    }
+    unsafe {
+        return (*pq).count;
+    }
+}
+
+pub fn pq_item_insert(pq: *mut PriorityQueueItemU64, priority: u64, payload: u64) -> bool {
+    if pq == null {
+        return false;
+    }
+    unsafe {
+        if (*pq).buffer == null || (*pq).count >= (*pq).capacity {
+            return false;
+        }
+
+        let mut curr: usize = (*pq).count;
+        let item_ptr: *mut PriorityItemU64 = (*pq).buffer + curr;
+        (*item_ptr).priority = priority;
+        (*item_ptr).payload = payload;
+        (*pq).count = (*pq).count + 1;
+
+        while curr > 0 {
+            let parent: usize = (curr - 1) / 2;
+            let c_ptr: *mut PriorityItemU64 = (*pq).buffer + curr;
+            let p_ptr: *mut PriorityItemU64 = (*pq).buffer + parent;
+
+            if (*c_ptr).priority < (*p_ptr).priority {
+                // Troca itens inteiros
+                let tmp_prio: u64 = (*c_ptr).priority;
+                let tmp_pay: u64 = (*c_ptr).payload;
+
+                (*c_ptr).priority = (*p_ptr).priority;
+                (*c_ptr).payload = (*p_ptr).payload;
+
+                (*p_ptr).priority = tmp_prio;
+                (*p_ptr).payload = tmp_pay;
+
+                curr = parent;
+            } else {
+                break;
+            }
+        }
+    }
+    return true;
+}
+
+pub fn pq_item_extract_min(pq: *mut PriorityQueueItemU64, out_priority: *mut u64, out_payload: *mut u64) -> bool {
+    if pq == null || out_priority == null || out_payload == null {
+        return false;
+    }
+    unsafe {
+        if (*pq).buffer == null || (*pq).count == 0 {
+            return false;
+        }
+
+        let root_ptr: *mut PriorityItemU64 = (*pq).buffer + 0;
+        *out_priority = (*root_ptr).priority;
+        *out_payload = (*root_ptr).payload;
+
+        (*pq).count = (*pq).count - 1;
+
+        if (*pq).count > 0 {
+            let last_ptr: *mut PriorityItemU64 = (*pq).buffer + (*pq).count;
+            (*root_ptr).priority = (*last_ptr).priority;
+            (*root_ptr).payload = (*last_ptr).payload;
+
+            let mut root: usize = 0;
+            let n: usize = (*pq).count;
+
+            while root * 2 + 1 < n {
+                let left: usize = root * 2 + 1;
+                let right: usize = left + 1;
+                let mut smallest: usize = root;
+
+                let s_ptr: *mut PriorityItemU64 = (*pq).buffer + smallest;
+                let l_ptr: *mut PriorityItemU64 = (*pq).buffer + left;
+
+                if (*l_ptr).priority < (*s_ptr).priority {
+                    smallest = left;
+                }
+
+                if right < n {
+                    let r_ptr: *mut PriorityItemU64 = (*pq).buffer + right;
+                    let cur_s_ptr: *mut PriorityItemU64 = (*pq).buffer + smallest;
+                    if (*r_ptr).priority < (*cur_s_ptr).priority {
+                        smallest = right;
+                    }
+                }
+
+                if smallest == root {
+                    break;
+                }
+
+                let cur_root: *mut PriorityItemU64 = (*pq).buffer + root;
+                let target: *mut PriorityItemU64 = (*pq).buffer + smallest;
+
+                let tmp_p: u64 = (*cur_root).priority;
+                let tmp_d: u64 = (*cur_root).payload;
+
+                (*cur_root).priority = (*target).priority;
+                (*cur_root).payload = (*target).payload;
+
+                (*target).priority = tmp_p;
+                (*target).payload = tmp_d;
+
+                root = smallest;
+            }
+        }
+    }
+    return true;
+}
+
+pub fn pq_item_clear(pq: *mut PriorityQueueItemU64) {
+    if pq == null {
+        return;
+    }
+    unsafe {
+        (*pq).count = 0;
+    }
+}

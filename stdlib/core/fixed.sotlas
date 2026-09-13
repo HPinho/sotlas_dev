@@ -1,0 +1,131 @@
+module core::fixed;
+
+// ----------------------------------------------------------------------------
+// core::fixed — Q16.16 Fixed-Point Math for Rasterizers & Kernel Physics
+// ----------------------------------------------------------------------------
+//
+// 32-bit signed fixed-point format (16 bits integer, 16 bits fractional).
+//
+// Dev note:
+// Thinking of using IEEE 754 float in an OS kernel interrupt or rasterizer?
+// Good luck saving 512 bytes of AVX/SSE registers on every timer tick.
+// Q16.16 gives you sub-pixel accuracy and smooth animations with zero FPU overhead.
+// ----------------------------------------------------------------------------
+
+pub const FIXED_ONE: i32 = 65536;       // 1.0 in Q16.16 (1 << 16)
+pub const FIXED_HALF: i32 = 32768;      // 0.5 in Q16.16 (1 << 15)
+pub const FIXED_PI: i32 = 205887;       // pi (3.14159 * 65536)
+pub const FIXED_TWO_PI: i32 = 411775;   // 2*pi
+pub const FIXED_HALF_PI: i32 = 102944;  // pi/2
+
+pub fn fixed_from_int(n: i32) -> i32 {
+    return n << 16;
+}
+
+pub fn fixed_to_int(f: i32) -> i32 {
+    return f >> 16;
+}
+
+pub fn fixed_to_int_round(f: i32) -> i32 {
+    if f >= 0 {
+        return (f + FIXED_HALF) >> 16;
+    } else {
+        return (f - FIXED_HALF) >> 16;
+    }
+}
+
+pub fn fixed_from_parts(integer_part: i32, frac_millis: i32) -> i32 {
+    let int_q: i32 = integer_part << 16;
+    let frac_q: i32 = ((frac_millis as i64 * FIXED_ONE as i64) / 1000) as i32;
+    if integer_part >= 0 {
+        return int_q + frac_q;
+    } else {
+        return int_q - frac_q;
+    }
+}
+
+pub fn fixed_mul(a: i32, b: i32) -> i32 {
+    let prod: i64 = (a as i64) * (b as i64);
+    return (prod >> 16) as i32;
+}
+
+pub fn fixed_div(a: i32, b: i32) -> i32 {
+    if b == 0 {
+        if a >= 0 { return 2147483647; } // INT32_MAX
+        return -2147483647;
+    }
+    let num: i64 = (a as i64) << 16;
+    return (num / (b as i64)) as i32;
+}
+
+pub fn fixed_abs(f: i32) -> i32 {
+    if f < 0 { return -f; }
+    return f;
+}
+
+pub fn fixed_min(a: i32, b: i32) -> i32 {
+    if a < b { return a; }
+    return b;
+}
+
+pub fn fixed_max(a: i32, b: i32) -> i32 {
+    if a > b { return a; }
+    return b;
+}
+
+pub fn fixed_clamp(val: i32, min_val: i32, max_val: i32) -> i32 {
+    if val < min_val { return min_val; }
+    if val > max_val { return max_val; }
+    return val;
+}
+
+// Linear interpolation between a and b: a + (b - a) * t, where t in [0.0, 1.0] in Q16.16
+pub fn fixed_lerp(a: i32, b: i32, t_q16: i32) -> i32 {
+    let diff: i32 = b - a;
+    return a + fixed_mul(diff, t_q16);
+}
+
+pub fn fixed_floor(f: i32) -> i32 {
+    return f & (~65535);
+}
+
+pub fn fixed_ceil(f: i32) -> i32 {
+    return (f + 65535) & (~65535);
+}
+
+pub fn fixed_frac(f: i32) -> i32 {
+    return f & 65535;
+}
+
+// Sine approximation using Bhaskara I formula over [-pi, pi]:
+// sin(x) ~= 16*x*(pi - x) / (5*pi^2 - 4*x*(pi - x))
+pub fn fixed_sin(angle_q16: i32) -> i32 {
+    let mut x: i32 = angle_q16 % FIXED_TWO_PI;
+    if x > FIXED_PI {
+        x = x - FIXED_TWO_PI;
+    } else if x < -FIXED_PI {
+        x = x + FIXED_TWO_PI;
+    }
+
+    let mut sign: i32 = 1;
+    if x < 0 {
+        sign = -1;
+        x = -x;
+    }
+
+    let num_term: i64 = (x as i64) * ((FIXED_PI - x) as i64); // x*(pi - x)
+    let num: i64 = 16 * num_term;
+    let pi_sq: i64 = (FIXED_PI as i64) * (FIXED_PI as i64) >> 16;
+    let den: i64 = 5 * pi_sq - (4 * (num_term >> 16));
+
+    if den == 0 {
+        return 0;
+    }
+
+    let res_q16: i64 = (num / den) as i64;
+    return (sign * (res_q16 as i32));
+}
+
+pub fn fixed_cos(angle_q16: i32) -> i32 {
+    return fixed_sin(angle_q16 + FIXED_HALF_PI);
+}

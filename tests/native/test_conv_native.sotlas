@@ -1,0 +1,73 @@
+module test::conv_native;
+
+// ============================================================================
+// Teste Nativo: core::conv
+// ============================================================================
+// "Se o printf do glibc precisa de 3000 linhas, nós precisamos de 30 probes
+//  pra provar que menos código é mais confiável."
+
+import core::conv::*;
+
+static mut g_buf: [u8; 64] = 0;
+
+pub fn main() -> i32 {
+    // 1. u64_to_str com valor positivo
+    let n1: usize = u64_to_str(12345, g_buf as *mut u8, 64);
+    probe n1 == 5, "u64_to_str: 12345 deve ter 5 digitos";
+    probe g_buf[0] == 49, "Primeiro caractere deve ser '1'";
+    probe g_buf[4] == 53, "Ultimo caractere deve ser '5'";
+    probe g_buf[5] == 0, "Deve conter terminador nulo";
+
+    // 2. u64_to_str com zero
+    let n0: usize = u64_to_str(0, g_buf as *mut u8, 64);
+    probe n0 == 1, "u64_to_str de 0 deve ter 1 caractere";
+    probe g_buf[0] == 48, "Caractere deve ser '0'";
+    probe g_buf[1] == 0, "Terminador nulo";
+
+    // 3. i64_to_str com numero negativo
+    let n_neg: usize = i64_to_str(-42, g_buf as *mut u8, 64);
+    probe n_neg == 3, "i64_to_str: -42 deve ter 3 caracteres";
+    probe g_buf[0] == 45, "Primeiro caractere deve ser '-'";
+    probe g_buf[1] == 52, "Segundo caractere deve ser '4'";
+    probe g_buf[2] == 50, "Terceiro caractere deve ser '2'";
+
+    // 4. u64_to_hex
+    let n_hex: usize = u64_to_hex(255, g_buf as *mut u8, 64);
+    probe n_hex == 2, "255 em hex deve ter 2 caracteres";
+    probe g_buf[0] == 102 && g_buf[1] == 102, "255 deve ser 'ff'";
+
+    // 5. u64_to_hex_prefixed
+    let n_pref: usize = u64_to_hex_prefixed(255, g_buf as *mut u8, 64);
+    probe n_pref == 4, "0xff deve ter 4 caracteres";
+    probe g_buf[0] == 48 && g_buf[1] == 120, "Prefixo deve ser '0x'";
+    probe g_buf[2] == 102 && g_buf[3] == 102, "Sufixo deve ser 'ff'";
+
+    // 6. u64_to_bin
+    let n_bin: usize = u64_to_bin(5, g_buf as *mut u8, 64); // 5 = 101b
+    probe n_bin == 3, "5 em binario deve ter 3 bits";
+    probe g_buf[0] == 49 && g_buf[1] == 48 && g_buf[2] == 49, "5 deve ser '101'";
+
+    // 7. str_to_u64 parsing
+    let mut parsed_u64: u64 = 0;
+    let ok_u64: bool = str_to_u64("9876" as *const u8, 4, &mut parsed_u64);
+    probe ok_u64, "str_to_u64 deve ter sucesso";
+    probe parsed_u64 == 9876, "str_to_u64 deve extrair 9876";
+
+    // 8. str_to_i64 parsing negativo
+    let mut parsed_i64: i64 = 0;
+    let ok_i64: bool = str_to_i64("-500" as *const u8, 4, &mut parsed_i64);
+    probe ok_i64, "str_to_i64 deve aceitar negativo";
+    probe parsed_i64 == -500, "str_to_i64 deve extrair -500";
+
+    // 9. hex_to_u64 parsing com prefixo 0x
+    let mut parsed_hex: u64 = 0;
+    let ok_hex1: bool = hex_to_u64("0xFF" as *const u8, 4, &mut parsed_hex);
+    probe ok_hex1, "hex_to_u64 com 0xFF deve passar";
+    probe parsed_hex == 255, "0xFF deve ser 255";
+
+    let ok_hex2: bool = hex_to_u64("2a" as *const u8, 2, &mut parsed_hex);
+    probe ok_hex2, "hex_to_u64 com 2a deve passar";
+    probe parsed_hex == 42, "0x2a deve ser 42";
+
+    return 0;
+}

@@ -1,0 +1,359 @@
+module core::conv;
+
+// ============================================================================
+// core::conv — Conversão Numérica Zero-Alloc
+// ============================================================================
+//
+// A Santíssima Trindade da programação de sistemas:
+// int → string, string → int, e "por que esse número saiu errado?"
+//
+// Toda conversão usa buffer fornecido pelo caller. Nada de malloc.
+// Se o buffer não couber, trunca educadamente e retorna false.
+//
+// Fun fact: o printf do glibc tem ~3000 linhas de código pra fazer o que
+// nós fazemos aqui em ~200. Será que eles estão overengineerando? Sim. Sim estão.
+// ============================================================================
+
+// ============================================================================
+// u64 → decimal string
+// ============================================================================
+// Retorna o número de caracteres escritos (0 se falhou).
+// O buffer DEVE ter pelo menos 21 bytes (20 dígitos de u64 max + nulo).
+
+pub fn u64_to_str(val: u64, buf: *mut u8, buf_len: usize) -> usize {
+    if buf == null || buf_len < 2 {
+        return 0;
+    }
+
+    if val == 0 {
+        unsafe {
+            *buf = 48;             // '0'
+            *(buf + 1) = 0;       // null terminator
+        }
+        return 1;
+    }
+
+    // Extrai dígitos de trás pra frente (o jeito que funciona na matemática real)
+    let mut temp: [u8; 24] = 0;
+    let mut count: usize = 0;
+    let mut v: u64 = val;
+
+    while v > 0 && count < 20 {
+        let digit: u8 = (v % 10) as u8;
+        temp[count] = 48 + digit;  // '0' + digit
+        v = v / 10;
+        count = count + 1;
+    }
+
+    // Checa se cabe no buffer do usuário
+    if count >= buf_len {
+        unsafe {
+            *buf = 0;
+        }
+        return 0;
+    }
+
+    // Copia na ordem correta (reverse)
+    let mut i: usize = 0;
+    unsafe {
+        while i < count {
+            *(buf + i) = temp[count - 1 - i];
+            i = i + 1;
+        }
+        *(buf + count) = 0;
+    }
+    return count;
+}
+
+// ============================================================================
+// i64 → decimal string (com sinal negativo se necessário)
+// ============================================================================
+
+pub fn i64_to_str(val: i64, buf: *mut u8, buf_len: usize) -> usize {
+    if buf == null || buf_len < 2 {
+        return 0;
+    }
+
+    if val >= 0 {
+        return u64_to_str(val as u64, buf, buf_len);
+    }
+
+    // Valor negativo: coloca o '-' e converte o positivo
+    unsafe {
+        *buf = 45;  // '-'
+    }
+    let pos_val: u64 = (-val) as u64;
+    let digits: usize = u64_to_str(pos_val, buf + 1, buf_len - 1);
+    if digits == 0 {
+        unsafe {
+            *buf = 0;
+        }
+        return 0;
+    }
+    return digits + 1;
+}
+
+// ============================================================================
+// u64 → hexadecimal string (sem prefixo 0x)
+// ============================================================================
+// Buffer precisa de pelo menos 17 bytes (16 hex digits + nulo).
+
+pub fn u64_to_hex(val: u64, buf: *mut u8, buf_len: usize) -> usize {
+    if buf == null || buf_len < 2 {
+        return 0;
+    }
+
+    if val == 0 {
+        unsafe {
+            *buf = 48;         // '0'
+            *(buf + 1) = 0;
+        }
+        return 1;
+    }
+
+    let mut temp: [u8; 16] = 0;
+    let mut count: usize = 0;
+    let mut v: u64 = val;
+
+    while v > 0 && count < 16 {
+        let nibble: u8 = (v & 0x0F) as u8;
+        if nibble < 10 {
+            temp[count] = 48 + nibble;       // '0'..'9'
+        } else {
+            temp[count] = 97 + nibble - 10;  // 'a'..'f' (lowercase, como hex deveria ser)
+        }
+        v = v >> 4;
+        count = count + 1;
+    }
+
+    if count >= buf_len {
+        unsafe {
+            *buf = 0;
+        }
+        return 0;
+    }
+
+    let mut i: usize = 0;
+    unsafe {
+        while i < count {
+            *(buf + i) = temp[count - 1 - i];
+            i = i + 1;
+        }
+        *(buf + count) = 0;
+    }
+    return count;
+}
+
+// Versão com prefixo "0x"
+pub fn u64_to_hex_prefixed(val: u64, buf: *mut u8, buf_len: usize) -> usize {
+    if buf == null || buf_len < 4 {
+        return 0;
+    }
+    unsafe {
+        *buf = 48;             // '0'
+        *(buf + 1) = 120;     // 'x'
+    }
+    let hex_len: usize = u64_to_hex(val, buf + 2, buf_len - 2);
+    if hex_len == 0 {
+        unsafe {
+            *buf = 0;
+        }
+        return 0;
+    }
+    return hex_len + 2;
+}
+
+// ============================================================================
+// u64 → binary string
+// ============================================================================
+// Útil pra debugar registradores de hardware. "Qual bit está ligado?" — esse.
+
+pub fn u64_to_bin(val: u64, buf: *mut u8, buf_len: usize) -> usize {
+    if buf == null || buf_len < 2 {
+        return 0;
+    }
+
+    if val == 0 {
+        unsafe {
+            *buf = 48;
+            *(buf + 1) = 0;
+        }
+        return 1;
+    }
+
+    let mut temp: [u8; 64] = 0;
+    let mut count: usize = 0;
+    let mut v: u64 = val;
+
+    while v > 0 && count < 64 {
+        if v & 1 == 1 {
+            temp[count] = 49;    // '1'
+        } else {
+            temp[count] = 48;    // '0'
+        }
+        v = v >> 1;
+        count = count + 1;
+    }
+
+    if count >= buf_len {
+        unsafe {
+            *buf = 0;
+        }
+        return 0;
+    }
+
+    let mut i: usize = 0;
+    unsafe {
+        while i < count {
+            *(buf + i) = temp[count - 1 - i];
+            i = i + 1;
+        }
+        *(buf + count) = 0;
+    }
+    return count;
+}
+
+// ============================================================================
+// string → u64 (parse decimal)
+// ============================================================================
+// Retorna o resultado via ponteiro `out_val`. Retorna true se parse OK.
+// Ignora whitespace no início. Para no primeiro caractere não-dígito.
+
+pub fn str_to_u64(s: *const u8, len: usize, out_val: *mut u64) -> bool {
+    if s == null || len == 0 || out_val == null {
+        return false;
+    }
+
+    let mut i: usize = 0;
+    unsafe {
+        // Pula whitespace no início
+        while i < len && (s[i] == 32 || s[i] == 9) {
+            i = i + 1;
+        }
+
+        if i >= len || s[i] < 48 || s[i] > 57 {
+            return false;  // Nenhum dígito encontrado
+        }
+
+        let mut result: u64 = 0;
+        while i < len && s[i] >= 48 && s[i] <= 57 {
+            let digit: u64 = (s[i] - 48) as u64;
+            // Overflow check simples: se multiplicar por 10 vai estourar?
+            if result > 1844674407370955161 {
+                return false;  // Overflow iminente, aborta
+            }
+            result = result * 10 + digit;
+            i = i + 1;
+        }
+
+        *out_val = result;
+    }
+    return true;
+}
+
+// ============================================================================
+// string → i64 (parse decimal com sinal)
+// ============================================================================
+
+pub fn str_to_i64(s: *const u8, len: usize, out_val: *mut i64) -> bool {
+    if s == null || len == 0 || out_val == null {
+        return false;
+    }
+
+    let mut i: usize = 0;
+    unsafe {
+        // Pula whitespace
+        while i < len && (s[i] == 32 || s[i] == 9) {
+            i = i + 1;
+        }
+
+        let mut negative: bool = false;
+        if i < len && s[i] == 45 {  // '-'
+            negative = true;
+            i = i + 1;
+        } else if i < len && s[i] == 43 {  // '+'
+            i = i + 1;
+        }
+
+        let mut unsigned_val: u64 = 0;
+        // Cria um slice efetivo a partir da posição atual
+        let remaining: usize = len - i;
+        let result: bool = str_to_u64(s + i, remaining, &mut unsigned_val);
+        if !result {
+            return false;
+        }
+
+        if negative {
+            // Checa overflow pra i64 negativo (max abs é 9223372036854775808)
+            if unsigned_val > 9223372036854775808 {
+                return false;
+            }
+            *out_val = -(unsigned_val as i64);
+        } else {
+            if unsigned_val > 9223372036854775807 {
+                return false;
+            }
+            *out_val = unsigned_val as i64;
+        }
+    }
+    return true;
+}
+
+// ============================================================================
+// string → u64 hex (parse "FF" ou "0xFF" ou "0XFF")
+// ============================================================================
+
+pub fn hex_to_u64(s: *const u8, len: usize, out_val: *mut u64) -> bool {
+    if s == null || len == 0 || out_val == null {
+        return false;
+    }
+
+    let mut i: usize = 0;
+    unsafe {
+        // Pula whitespace
+        while i < len && (s[i] == 32 || s[i] == 9) {
+            i = i + 1;
+        }
+
+        // Pula prefixo "0x" ou "0X" se presente
+        if i + 1 < len && s[i] == 48 && (s[i + 1] == 120 || s[i + 1] == 88) {
+            i = i + 2;
+        }
+
+        if i >= len {
+            return false;
+        }
+
+        let mut result: u64 = 0;
+        let mut found_digit: bool = false;
+
+        while i < len {
+            let c: u8 = s[i];
+            let mut nibble: u64 = 0;
+
+            if c >= 48 && c <= 57 {         // '0'..'9'
+                nibble = (c - 48) as u64;
+            } else if c >= 97 && c <= 102 { // 'a'..'f'
+                nibble = (c - 97 + 10) as u64;
+            } else if c >= 65 && c <= 70 {  // 'A'..'F'
+                nibble = (c - 65 + 10) as u64;
+            } else {
+                break;  // Caractere não-hex, para aqui
+            }
+
+            // Overflow check: se deslocar 4 bits vai perder dados?
+            if result > 0x0FFFFFFFFFFFFFFF {
+                return false;
+            }
+            result = (result << 4) | nibble;
+            found_digit = true;
+            i = i + 1;
+        }
+
+        if !found_digit {
+            return false;
+        }
+        *out_val = result;
+    }
+    return true;
+}

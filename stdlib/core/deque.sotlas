@@ -1,0 +1,336 @@
+module core::deque;
+
+// ============================================================================
+// core::deque — Double-Ended Queue (Fila de Duas Pontas)
+// ============================================================================
+//
+// Se Vec é uma estrada de mão única, Deque é a rotatória.
+// Insere e remove de qualquer lado em O(1) amortizado.
+//
+// Implementação: circular buffer com backing array fornecido pelo caller.
+// Quando head == tail e count > 0, está cheio.
+// Quando count == 0, está vazio.
+//
+// Ideal para:
+// - Work-stealing queues em schedulers
+// - Undo/redo stacks bidirecionais
+// - BFS (breadth-first search)
+// - Window sliding algorithms
+//
+// Zero alloc. Zero libc. O backing buffer é fornecido pelo chamador.
+// ============================================================================
+
+pub struct DequeU32 {
+    pub buffer: *mut u32;
+    pub capacity: usize;
+    pub head: usize;     // índice do próximo elemento a ser removido da frente
+    pub tail: usize;     // índice da próxima posição vazia no final
+    pub count: usize;
+}
+
+pub fn deque_u32_new(backing: *mut u32, cap: usize) -> DequeU32 {
+    let mut d: DequeU32 = 0;
+    d.buffer = backing;
+    d.capacity = cap;
+    d.head = 0;
+    d.tail = 0;
+    d.count = 0;
+    return d;
+}
+
+pub fn deque_u32_is_empty(d: *const DequeU32) -> bool {
+    if d == null {
+        return true;
+    }
+    unsafe {
+        return (*d).count == 0;
+    }
+}
+
+pub fn deque_u32_is_full(d: *const DequeU32) -> bool {
+    if d == null {
+        return true;
+    }
+    unsafe {
+        return (*d).count >= (*d).capacity;
+    }
+}
+
+pub fn deque_u32_len(d: *const DequeU32) -> usize {
+    if d == null {
+        return 0;
+    }
+    unsafe {
+        return (*d).count;
+    }
+}
+
+// Insere no final (como um push normal)
+pub fn deque_u32_push_back(d: *mut DequeU32, val: u32) -> bool {
+    if d == null {
+        return false;
+    }
+    unsafe {
+        if (*d).buffer == null || (*d).count >= (*d).capacity {
+            return false;
+        }
+        *((*d).buffer + (*d).tail) = val;
+        (*d).tail = ((*d).tail + 1) % (*d).capacity;
+        (*d).count = (*d).count + 1;
+    }
+    return true;
+}
+
+// Insere na frente (o lado especial do deque)
+pub fn deque_u32_push_front(d: *mut DequeU32, val: u32) -> bool {
+    if d == null {
+        return false;
+    }
+    unsafe {
+        if (*d).buffer == null || (*d).count >= (*d).capacity {
+            return false;
+        }
+        // head precisa recuar circularmente
+        if (*d).head == 0 {
+            (*d).head = (*d).capacity - 1;
+        } else {
+            (*d).head = (*d).head - 1;
+        }
+        *((*d).buffer + (*d).head) = val;
+        (*d).count = (*d).count + 1;
+    }
+    return true;
+}
+
+// Remove da frente (FIFO order)
+pub fn deque_u32_pop_front(d: *mut DequeU32, out_val: *mut u32) -> bool {
+    if d == null || out_val == null {
+        return false;
+    }
+    unsafe {
+        if (*d).buffer == null || (*d).count == 0 {
+            return false;
+        }
+        *out_val = *((*d).buffer + (*d).head);
+        (*d).head = ((*d).head + 1) % (*d).capacity;
+        (*d).count = (*d).count - 1;
+    }
+    return true;
+}
+
+// Remove do final (LIFO order)
+pub fn deque_u32_pop_back(d: *mut DequeU32, out_val: *mut u32) -> bool {
+    if d == null || out_val == null {
+        return false;
+    }
+    unsafe {
+        if (*d).buffer == null || (*d).count == 0 {
+            return false;
+        }
+        if (*d).tail == 0 {
+            (*d).tail = (*d).capacity - 1;
+        } else {
+            (*d).tail = (*d).tail - 1;
+        }
+        *out_val = *((*d).buffer + (*d).tail);
+        (*d).count = (*d).count - 1;
+    }
+    return true;
+}
+
+// Espia o elemento da frente sem remover
+pub fn deque_u32_peek_front(d: *const DequeU32) -> u32 {
+    if d == null {
+        return 0;
+    }
+    unsafe {
+        if (*d).buffer == null || (*d).count == 0 {
+            return 0;
+        }
+        return *((*d).buffer + (*d).head);
+    }
+}
+
+// Espia o elemento do final sem remover
+pub fn deque_u32_peek_back(d: *const DequeU32) -> u32 {
+    if d == null {
+        return 0;
+    }
+    unsafe {
+        if (*d).buffer == null || (*d).count == 0 {
+            return 0;
+        }
+        let mut back_idx: usize = (*d).capacity - 1;
+        if (*d).tail > 0 {
+            back_idx = (*d).tail - 1;
+        }
+        return *((*d).buffer + back_idx);
+    }
+}
+
+pub fn deque_u32_clear(d: *mut DequeU32) {
+    if d == null {
+        return;
+    }
+    unsafe {
+        (*d).head = 0;
+        (*d).tail = 0;
+        (*d).count = 0;
+    }
+}
+
+// ============================================================================
+// DequeU64 — Versão 64-bit (pra ponteiros, timestamps, IDs de tarefa)
+// ============================================================================
+
+pub struct DequeU64 {
+    pub buffer: *mut u64;
+    pub capacity: usize;
+    pub head: usize;
+    pub tail: usize;
+    pub count: usize;
+}
+
+pub fn deque_u64_new(backing: *mut u64, cap: usize) -> DequeU64 {
+    let mut d: DequeU64 = 0;
+    d.buffer = backing;
+    d.capacity = cap;
+    d.head = 0;
+    d.tail = 0;
+    d.count = 0;
+    return d;
+}
+
+pub fn deque_u64_is_empty(d: *const DequeU64) -> bool {
+    if d == null {
+        return true;
+    }
+    unsafe {
+        return (*d).count == 0;
+    }
+}
+
+pub fn deque_u64_is_full(d: *const DequeU64) -> bool {
+    if d == null {
+        return true;
+    }
+    unsafe {
+        return (*d).count >= (*d).capacity;
+    }
+}
+
+pub fn deque_u64_len(d: *const DequeU64) -> usize {
+    if d == null {
+        return 0;
+    }
+    unsafe {
+        return (*d).count;
+    }
+}
+
+pub fn deque_u64_push_back(d: *mut DequeU64, val: u64) -> bool {
+    if d == null {
+        return false;
+    }
+    unsafe {
+        if (*d).buffer == null || (*d).count >= (*d).capacity {
+            return false;
+        }
+        *((*d).buffer + (*d).tail) = val;
+        (*d).tail = ((*d).tail + 1) % (*d).capacity;
+        (*d).count = (*d).count + 1;
+    }
+    return true;
+}
+
+pub fn deque_u64_push_front(d: *mut DequeU64, val: u64) -> bool {
+    if d == null {
+        return false;
+    }
+    unsafe {
+        if (*d).buffer == null || (*d).count >= (*d).capacity {
+            return false;
+        }
+        if (*d).head == 0 {
+            (*d).head = (*d).capacity - 1;
+        } else {
+            (*d).head = (*d).head - 1;
+        }
+        *((*d).buffer + (*d).head) = val;
+        (*d).count = (*d).count + 1;
+    }
+    return true;
+}
+
+pub fn deque_u64_pop_front(d: *mut DequeU64, out_val: *mut u64) -> bool {
+    if d == null || out_val == null {
+        return false;
+    }
+    unsafe {
+        if (*d).buffer == null || (*d).count == 0 {
+            return false;
+        }
+        *out_val = *((*d).buffer + (*d).head);
+        (*d).head = ((*d).head + 1) % (*d).capacity;
+        (*d).count = (*d).count - 1;
+    }
+    return true;
+}
+
+pub fn deque_u64_pop_back(d: *mut DequeU64, out_val: *mut u64) -> bool {
+    if d == null || out_val == null {
+        return false;
+    }
+    unsafe {
+        if (*d).buffer == null || (*d).count == 0 {
+            return false;
+        }
+        if (*d).tail == 0 {
+            (*d).tail = (*d).capacity - 1;
+        } else {
+            (*d).tail = (*d).tail - 1;
+        }
+        *out_val = *((*d).buffer + (*d).tail);
+        (*d).count = (*d).count - 1;
+    }
+    return true;
+}
+
+pub fn deque_u64_peek_front(d: *const DequeU64) -> u64 {
+    if d == null {
+        return 0;
+    }
+    unsafe {
+        if (*d).buffer == null || (*d).count == 0 {
+            return 0;
+        }
+        return *((*d).buffer + (*d).head);
+    }
+}
+
+pub fn deque_u64_peek_back(d: *const DequeU64) -> u64 {
+    if d == null {
+        return 0;
+    }
+    unsafe {
+        if (*d).buffer == null || (*d).count == 0 {
+            return 0;
+        }
+        let mut back_idx: usize = (*d).capacity - 1;
+        if (*d).tail > 0 {
+            back_idx = (*d).tail - 1;
+        }
+        return *((*d).buffer + back_idx);
+    }
+}
+
+pub fn deque_u64_clear(d: *mut DequeU64) {
+    if d == null {
+        return;
+    }
+    unsafe {
+        (*d).head = 0;
+        (*d).tail = 0;
+        (*d).count = 0;
+    }
+}

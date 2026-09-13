@@ -1,0 +1,312 @@
+module core::log;
+
+// ============================================================================
+// core::log — Logger Estruturado Multi-Nível (Bare-Metal / Kernel / Userland)
+// ============================================================================
+//
+// "print debugging is a valid strategy" — todo programador honesto, em off.
+//
+// A diferença entre print debugging e logging profissional é que logging
+// profissional tem níveis, timestamps, e a capacidade de ser desligado
+// em produção sem recompilar.
+//
+// Este módulo funciona nos três cenários da arquitetura Sotlas:
+// 1. Bare Metal: formata na memória estática (zero libc, zero malloc).
+//    O driver de UART/porta serial simplesmente lê `log_get_last_msg()`.
+// 2. Kernel: dmesg ou ring buffer do kernel consome as linhas formatadas.
+// 3. Userland: buffers prontos para exibição ou redirecionamento.
+//
+// Zero alloc. Zero libc. Totalmente autônomo.
+// ============================================================================
+
+// Níveis de log — do mais verboso pro mais crítico
+pub const LOG_TRACE: u8 = 0;
+pub const LOG_DEBUG: u8 = 1;
+pub const LOG_INFO: u8  = 2;
+pub const LOG_WARN: u8  = 3;
+pub const LOG_ERROR: u8 = 4;
+pub const LOG_FATAL: u8 = 5;
+pub const LOG_OFF: u8   = 6;   // Desliga tudo. Para quando você quer silêncio absoluto no kernel.
+
+// Nível global de log — mude isso pra filtrar mensagens
+// Default: INFO (ignora TRACE e DEBUG em produção)
+static mut g_log_level: u8 = 2;
+
+// Buffer estático interno onde a linha atual de log é formatada.
+// 512 bytes é mais que suficiente para qualquer mensagem sensata de sistema operacional.
+static mut g_log_buf: [u8; 512] = 0;
+static mut g_log_cursor: usize = 0;
+static mut g_last_level: u8 = 2;
+static mut g_total_emitted: usize = 0;
+
+// ============================================================================
+// Configuração e Estado
+// ============================================================================
+
+pub fn log_set_level(level: u8) {
+    unsafe {
+        g_log_level = level;
+    }
+}
+
+pub fn log_get_level() -> u8 {
+    unsafe {
+        return g_log_level;
+    }
+}
+
+pub fn log_get_last_msg() -> *const u8 {
+    unsafe {
+        return g_log_buf as *const u8;
+    }
+}
+
+pub fn log_get_last_len() -> usize {
+    unsafe {
+        return g_log_cursor;
+    }
+}
+
+pub fn log_get_last_level() -> u8 {
+    unsafe {
+        return g_last_level;
+    }
+}
+
+pub fn log_get_total_emitted() -> usize {
+    unsafe {
+        return g_total_emitted;
+    }
+}
+
+pub fn log_reset_counters() {
+    unsafe {
+        g_total_emitted = 0;
+        g_log_cursor = 0;
+        g_log_buf[0] = 0;
+    }
+}
+
+// ============================================================================
+// Helpers Internos de Formatação Zero-Alloc
+// ============================================================================
+
+fn log_should_emit(level: u8) -> bool {
+    unsafe {
+        if g_log_level == LOG_OFF {
+            return false;
+        }
+        return level >= g_log_level;
+    }
+}
+
+fn log_buf_append_byte(b: u8) {
+    unsafe {
+        if g_log_cursor < 510 {
+            g_log_buf[g_log_cursor] = b;
+            g_log_cursor = g_log_cursor + 1;
+            g_log_buf[g_log_cursor] = 0;
+        }
+    }
+}
+
+fn log_buf_append_str(s: *const u8) {
+    if s == null {
+        return;
+    }
+    unsafe {
+        let mut i: usize = 0;
+        while s[i] != 0 && g_log_cursor < 510 {
+            g_log_buf[g_log_cursor] = s[i];
+            g_log_cursor = g_log_cursor + 1;
+            i = i + 1;
+        }
+        g_log_buf[g_log_cursor] = 0;
+    }
+}
+
+fn log_buf_append_u64(val: u64) {
+    if val == 0 {
+        log_buf_append_byte(48); // '0'
+        return;
+    }
+    let mut temp: [u8; 24] = 0;
+    let mut count: usize = 0;
+    let mut v: u64 = val;
+    while v > 0 && count < 20 {
+        let digit: u8 = (v % 10) as u8;
+        temp[count] = 48 + digit;
+        v = v / 10;
+        count = count + 1;
+    }
+    let mut i: usize = 0;
+    while i < count {
+        log_buf_append_byte(temp[count - 1 - i]);
+        i = i + 1;
+    }
+}
+
+fn log_buf_append_hex(val: u64) {
+    if val == 0 {
+        log_buf_append_byte(48); // '0'
+        return;
+    }
+    let mut temp: [u8; 16] = 0;
+    let mut count: usize = 0;
+    let mut v: u64 = val;
+    while v > 0 && count < 16 {
+        let nibble: u8 = (v & 0x0F) as u8;
+        if nibble < 10 {
+            temp[count] = 48 + nibble;
+        } else {
+            temp[count] = 97 + nibble - 10; // 'a'..'f'
+        }
+        v = v >> 4;
+        count = count + 1;
+    }
+    let mut i: usize = 0;
+    while i < count {
+        log_buf_append_byte(temp[count - 1 - i]);
+        i = i + 1;
+    }
+}
+
+fn log_write_prefix(level: u8) {
+    if level == LOG_TRACE {
+        log_buf_append_str("[TRACE] " as *const u8);
+    } else if level == LOG_DEBUG {
+        log_buf_append_str("[DEBUG] " as *const u8);
+    } else if level == LOG_INFO {
+        log_buf_append_str("[INFO]  " as *const u8);
+    } else if level == LOG_WARN {
+        log_buf_append_str("[WARN]  " as *const u8);
+    } else if level == LOG_ERROR {
+        log_buf_append_str("[ERROR] " as *const u8);
+    } else if level == LOG_FATAL {
+        log_buf_append_str("[FATAL] " as *const u8);
+    }
+}
+
+fn log_start_line(level: u8) -> bool {
+    if !log_should_emit(level) {
+        return false;
+    }
+    unsafe {
+        g_log_cursor = 0;
+        g_log_buf[0] = 0;
+    }
+    log_write_prefix(level);
+    return true;
+}
+
+fn log_finish_line(level: u8) {
+    log_buf_append_byte(10); // '\n'
+    unsafe {
+        g_last_level = level;
+        g_total_emitted = g_total_emitted + 1;
+    }
+}
+
+// ============================================================================
+// Funções de Emissão por Nível
+// ============================================================================
+
+pub fn log_trace(msg: *const u8) {
+    if !log_start_line(LOG_TRACE) {
+        return;
+    }
+    log_buf_append_str(msg);
+    log_finish_line(LOG_TRACE);
+}
+
+pub fn log_debug(msg: *const u8) {
+    if !log_start_line(LOG_DEBUG) {
+        return;
+    }
+    log_buf_append_str(msg);
+    log_finish_line(LOG_DEBUG);
+}
+
+pub fn log_info(msg: *const u8) {
+    if !log_start_line(LOG_INFO) {
+        return;
+    }
+    log_buf_append_str(msg);
+    log_finish_line(LOG_INFO);
+}
+
+pub fn log_warn(msg: *const u8) {
+    if !log_start_line(LOG_WARN) {
+        return;
+    }
+    log_buf_append_str(msg);
+    log_finish_line(LOG_WARN);
+}
+
+pub fn log_error(msg: *const u8) {
+    if !log_start_line(LOG_ERROR) {
+        return;
+    }
+    log_buf_append_str(msg);
+    log_finish_line(LOG_ERROR);
+}
+
+pub fn log_fatal(msg: *const u8) {
+    if !log_start_line(LOG_FATAL) {
+        return;
+    }
+    log_buf_append_str(msg);
+    log_finish_line(LOG_FATAL);
+}
+
+// ============================================================================
+// Funções com Dados Estruturados (Chave = Valor)
+// ============================================================================
+
+pub fn log_u64(level: u8, label: *const u8, val: u64) {
+    if !log_start_line(level) {
+        return;
+    }
+    log_buf_append_str(label);
+    log_buf_append_str(" = " as *const u8);
+    log_buf_append_u64(val);
+    log_finish_line(level);
+}
+
+pub fn log_i64(level: u8, label: *const u8, val: i64) {
+    if !log_start_line(level) {
+        return;
+    }
+    log_buf_append_str(label);
+    log_buf_append_str(" = " as *const u8);
+    if val < 0 {
+        log_buf_append_byte(45); // '-'
+        log_buf_append_u64((-val) as u64);
+    } else {
+        log_buf_append_u64(val as u64);
+    }
+    log_finish_line(level);
+}
+
+pub fn log_hex(level: u8, label: *const u8, val: u64) {
+    if !log_start_line(level) {
+        return;
+    }
+    log_buf_append_str(label);
+    log_buf_append_str(" = 0x" as *const u8);
+    log_buf_append_hex(val);
+    log_finish_line(level);
+}
+
+pub fn log_bool(level: u8, label: *const u8, val: bool) {
+    if !log_start_line(level) {
+        return;
+    }
+    log_buf_append_str(label);
+    if val {
+        log_buf_append_str(" = true" as *const u8);
+    } else {
+        log_buf_append_str(" = false" as *const u8);
+    }
+    log_finish_line(level);
+}

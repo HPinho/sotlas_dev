@@ -18,6 +18,7 @@ pub fn type_to_c(st_type: *const u8, dest: *mut u8, max_len: usize) -> usize {
     if str_eq(st_type, "f32") { return str_copy(dest, "float", max_len); }
     if str_eq(st_type, "f64") { return str_copy(dest, "double", max_len); }
     if str_eq(st_type, "void") { return str_copy(dest, "void", max_len); }
+    if str_eq(st_type, "!") { return str_copy(dest, "void", max_len); }
     return 0;
 }
 
@@ -1529,6 +1530,11 @@ pub fn emit_c_from_tokens(tokens: *const Token, tok_count: usize, out_buf: *mut 
                         apply_cast_in_buffer(out_buf, cast_c as *const u8, max_len);
                         str_concat(out_buf, " ", max_len);
                         i = i + consumed_cast;
+                        continue;
+                    }
+                    if str_eq(tokens[i].text as *const u8, "&") && (i + 1 < tok_count) && str_eq(tokens[i + 1].text as *const u8, "mut") {
+                        str_concat(out_buf, "&", max_len);
+                        i = i + 2;
                         continue;
                     }
                     let c_tok: *const u8 = tokens[i].text as *const u8;

@@ -1,0 +1,82 @@
+module test_ring_buffer_native;
+import core::ring_buffer::*;
+
+static mut g_raw_buf: [u8; 8] = 0; // Small 8-byte buffer to test wraparounds aggressively
+
+pub fn main() -> i32 {
+    let mut rb: RingBuffer = 0;
+    unsafe {
+        ring_init(&mut rb, g_raw_buf as *mut u8, 8);
+    }
+
+    if !ring_is_empty(&rb) { return 1; }
+    if ring_is_full(&rb) { return 2; }
+    if ring_available(&rb) != 0 { return 3; }
+    if ring_free_space(&rb) != 8 { return 4; }
+
+    // 1. Push 5 bytes
+    ring_push(&mut rb, 10);
+    ring_push(&mut rb, 20);
+    ring_push(&mut rb, 30);
+    ring_push(&mut rb, 40);
+    ring_push(&mut rb, 50);
+
+    if ring_available(&rb) != 5 { return 10; }
+    if ring_free_space(&rb) != 3 { return 11; }
+
+    // Peek without consuming
+    let mut peeked: u8 = 0;
+    if !ring_peek(&rb, &mut peeked) { return 12; }
+    if peeked != 10 { return 13; }
+
+    // Pop 2 bytes
+    let mut out: u8 = 0;
+    if !ring_pop(&mut rb, &mut out) { return 14; }
+    if out != 10 { return 15; }
+    if !ring_pop(&mut rb, &mut out) { return 16; }
+    if out != 20 { return 17; }
+
+    // Remaining in buffer: 30, 40, 50 (count = 3)
+    if ring_available(&rb) != 3 { return 18; }
+
+    // 2. Push 5 more bytes to cause circular wrap around index 8
+    ring_push(&mut rb, 60);
+    ring_push(&mut rb, 70);
+    ring_push(&mut rb, 80);
+    ring_push(&mut rb, 90);
+    ring_push(&mut rb, 100);
+
+    // Buffer is now exactly full (8 bytes: 30, 40, 50, 60, 70, 80, 90, 100)
+    if !ring_is_full(&rb) { return 20; }
+    if ring_free_space(&rb) != 0 { return 21; }
+
+    // Pushing to full buffer must fail
+    if ring_push(&mut rb, 255) { return 22; }
+
+    // 3. Verify FIFO drainage across the wrap boundary
+    let mut expected: [u8; 8] = 0;
+    expected[0] = 30;
+    expected[1] = 40;
+    expected[2] = 50;
+    expected[3] = 60;
+    expected[4] = 70;
+    expected[5] = 80;
+    expected[6] = 90;
+    expected[7] = 100;
+
+    let mut drained: [u8; 8] = 0;
+    let read_count: usize = ring_read(&mut rb, drained as *mut u8, 8);
+    if read_count != 8 { return 30; }
+
+    let mut i: usize = 0;
+    while i < 8 {
+        if drained[i] != expected[i] { return 31 + (i as i32); }
+        i = i + 1;
+    }
+
+    // Now buffer must be empty
+    if !ring_is_empty(&rb) { return 40; }
+    if ring_pop(&mut rb, &mut out) { return 41; }
+
+    return 0;
+}

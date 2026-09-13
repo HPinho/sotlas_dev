@@ -241,7 +241,7 @@ static bool try_resolve_and_load(const char *base_dir, const char *imp_path, uin
     const char *last_part = strrchr(rel_path, '/');
     const char *leaf = last_part ? (last_part + 1) : rel_path;
 
-    char candidates[16][512];
+    char candidates[24][512];
     int num_candidates = 0;
     snprintf(candidates[num_candidates++], sizeof(candidates[0]), "%s/%s.sotlas", base_dir, rel_path);
     snprintf(candidates[num_candidates++], sizeof(candidates[0]), "%s/%s.sotlas", base_dir, leaf);
@@ -251,8 +251,10 @@ static bool try_resolve_and_load(const char *base_dir, const char *imp_path, uin
     snprintf(candidates[num_candidates++], sizeof(candidates[0]), "%s/../../bootstrap/sotlas/%s.sotlas", base_dir, rel_path);
     snprintf(candidates[num_candidates++], sizeof(candidates[0]), "%s/../../../stdlib/%s.sotlas", base_dir, rel_path);
     snprintf(candidates[num_candidates++], sizeof(candidates[0]), "stdlib/%s.sotlas", rel_path);
+    snprintf(candidates[num_candidates++], sizeof(candidates[0]), "stdlib/core/%s.sotlas", leaf);
     snprintf(candidates[num_candidates++], sizeof(candidates[0]), "stdlib/foundation/%s.sotlas", leaf);
     snprintf(candidates[num_candidates++], sizeof(candidates[0]), "stdlib/system/%s.sotlas", leaf);
+    snprintf(candidates[num_candidates++], sizeof(candidates[0]), "stdlib/runtime/%s.sotlas", leaf);
     snprintf(candidates[num_candidates++], sizeof(candidates[0]), "bootstrap/sotlas/%s.sotlas", rel_path);
     snprintf(candidates[num_candidates++], sizeof(candidates[0]), "bootstrap/sotlas/sotlas_lite/%s.sotlas", rel_path);
 
@@ -1498,7 +1500,11 @@ def build_self_hosted_compiler(
             print(f"sotlas bootstrap: compilando {BOOTSTRAP_ENTRY}...")
 
         stage0.emit_c_project(BOOTSTRAP_ENTRY, compiler_c)
-        driver_c.write_text(NATIVE_DRIVER_C, encoding="utf-8")
+        disk_driver = BOOTSTRAP_SOURCE_DIR / "sotlas_native_driver.c"
+        if disk_driver.is_file():
+            driver_c.write_text(disk_driver.read_text(encoding="utf-8"), encoding="utf-8")
+        else:
+            driver_c.write_text(NATIVE_DRIVER_C, encoding="utf-8")
 
         # 2. Compila ambos os arquivos com Clang nativo para arquivos objeto .obj
         compiler_obj = tmp_dir_path / "compiler.obj"
