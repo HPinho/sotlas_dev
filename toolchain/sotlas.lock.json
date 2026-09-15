@@ -5,7 +5,7 @@
   "source_path": "tools/sotlas_compile",
   "repository": null,
   "revision": null,
-  "language_version": "0.4.5",
+  "language_version": "0.5.0",
   "compiler_api": "canonical-v1",
   "c_abi": "c-v1",
   "target": "x86_64-freestanding",

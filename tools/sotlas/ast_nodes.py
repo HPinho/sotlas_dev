@@ -79,6 +79,11 @@ class TypeNode:
                 TK.KW_FLOAT32: "f32", TK.KW_FLOAT64: "f64",
                 TK.KW_USIZE: "usize", TK.KW_ISIZE: "isize",
                 TK.KW_BOOL: "bool", TK.KW_VOID: "void", TK.KW_CHAR: "char", TK.KW_STRING: "string",
+                TK.KW_F32X4: "f32x4", TK.KW_F32X8: "f32x8",
+                TK.KW_F64X2: "f64x2", TK.KW_F64X4: "f64x4",
+                TK.KW_U8X16: "u8x16", TK.KW_U8X32: "u8x32",
+                TK.KW_I32X4: "i32x4", TK.KW_I32X8: "i32x8",
+                TK.KW_I64X2: "i64x2", TK.KW_I64X4: "i64x4",
             }
             res += canon.get(self.primitive, self.primitive.name.lower().replace('kw_', ''))
         elif self.is_tuple:
@@ -743,6 +748,24 @@ class ModuleDeclNode:
 
 
 @dataclass
+class RegisterFieldNode:
+    span: Span
+    name: str
+    lo_bit: int
+    hi_bit: int
+
+
+@dataclass
+class RegisterDeclNode:
+    span: Span
+    directives: List[DirectiveNode]
+    is_pub: bool
+    name: str
+    backing_type: TypeNode
+    fields: List[RegisterFieldNode]
+
+
+@dataclass
 class SourceFileNode:
     span: Span
     filename: str
@@ -752,5 +775,5 @@ class SourceFileNode:
     decls: List[Union[
         StructDeclNode, ClassDeclNode, MeshDeclNode, SpecDeclNode,
         EnumDeclNode, ConstDeclNode, StaticDeclNode, FnDeclNode,
-        TrapFnDeclNode, TypeAliasDeclNode, MouldBlockNode,
+        TrapFnDeclNode, TypeAliasDeclNode, MouldBlockNode, RegisterDeclNode,
     ]]

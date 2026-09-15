@@ -7,13 +7,25 @@ from .ast_nodes import *
 
 # Standard freestanding C11 prelude
 _PRELUDE = """\
-/* sotlas v1.0 — codegen output */
+/* sotlas v0.5.0 — codegen output */
 #include <stdint.h>
 #include <stddef.h>
+
+/* Native Freestanding Vector SIMD types */
+typedef float    f32x4 __attribute__((vector_size(16)));
+typedef float    f32x8 __attribute__((vector_size(32)));
+typedef double   f64x2 __attribute__((vector_size(16)));
+typedef double   f64x4 __attribute__((vector_size(32)));
+typedef uint8_t  u8x16 __attribute__((vector_size(16)));
+typedef uint8_t  u8x32 __attribute__((vector_size(32)));
+typedef int32_t  i32x4 __attribute__((vector_size(16)));
+typedef int32_t  i32x8 __attribute__((vector_size(32)));
+typedef int64_t  i64x2 __attribute__((vector_size(16)));
+typedef int64_t  i64x4 __attribute__((vector_size(32)));
 """
 
 _BARECORE_PRELUDE = """\
-/* sotlas v1.0 — barecore freestanding, no libc */
+/* sotlas v0.5.0 — barecore freestanding, no libc */
 typedef unsigned char      uint8_t;
 typedef unsigned short     uint16_t;
 typedef unsigned int       uint32_t;
@@ -32,6 +44,18 @@ typedef int64_t            ptrdiff_t;
 #ifndef _Alignof
 #define _Alignof(type) __alignof__(type)
 #endif
+
+/* Native Freestanding Vector SIMD types */
+typedef float    f32x4 __attribute__((vector_size(16)));
+typedef float    f32x8 __attribute__((vector_size(32)));
+typedef double   f64x2 __attribute__((vector_size(16)));
+typedef double   f64x4 __attribute__((vector_size(32)));
+typedef uint8_t  u8x16 __attribute__((vector_size(16)));
+typedef uint8_t  u8x32 __attribute__((vector_size(32)));
+typedef int32_t  i32x4 __attribute__((vector_size(16)));
+typedef int32_t  i32x8 __attribute__((vector_size(32)));
+typedef int64_t  i64x2 __attribute__((vector_size(16)));
+typedef int64_t  i64x4 __attribute__((vector_size(32)));
 """
 
 # Binary operator mapping
@@ -70,6 +94,29 @@ class CodegenC:
         self._classes_with_vtables: Set[str] = set()
         self._defer_stack: List[DeferNode] = []
         self._clinch_counter: int = 0
+        self._registers: Dict[str, RegisterDeclNode] = {}
+        self._scopes: List[Dict[str, TypeNode]] = [{}]
+        for decl in ast.decls:
+            if isinstance(decl, RegisterDeclNode):
+                self._registers[decl.name] = decl
+
+    def _push_scope(self) -> None:
+        self._scopes.append({})
+
+    def _pop_scope(self) -> None:
+        if len(self._scopes) > 1:
+            self._scopes.pop()
+
+    def _def_var(self, name: str, typ: Optional[TypeNode]) -> None:
+        if typ is not None:
+            self._scopes[-1][name] = typ
+
+    def _lookup_type(self, expr: ExprNode) -> Optional[TypeNode]:
+        if isinstance(expr, IdentNode):
+            for s in reversed(self._scopes):
+                if expr.name in s:
+                    return s[expr.name]
+        return None
 
     def emit(self) -> str:
         a = self._ast
@@ -90,6 +137,8 @@ class CodegenC:
                 self._w(f"typedef struct {decl.name} {decl.name};\n")
             elif isinstance(decl, EnumDeclNode):
                 self._w(f"typedef enum {decl.name} {decl.name};\n")
+            elif isinstance(decl, RegisterDeclNode):
+                self._w(f"typedef {self._emit_bare_type(decl.backing_type)} {decl.name};\n")
         self._w("\n")
 
         # Declarações completas num buffer temporário para que vtables e closures
@@ -218,6 +267,8 @@ class CodegenC:
             self._emit_trapfn(decl)
         elif isinstance(decl, TypeAliasDeclNode):
             self._emit_typealias(decl)
+        elif isinstance(decl, RegisterDeclNode):
+            self._emit_register(decl)
         elif isinstance(decl, MouldBlockNode):
             self._w("\n/* mould block */\n")
             for stmt in decl.body:
@@ -246,6 +297,21 @@ class CodegenC:
                                 m.is_async, m.is_moldable, m.is_reshape,
                                 f"{decl.name}__{m.name}", m.generics, m.params, m.ret, m.body)
                 self._emit_fn(m2)
+
+    def _emit_register(self, decl: RegisterDeclNode) -> None:
+        backing = self._emit_bare_type(decl.backing_type)
+        self._w(f"/* register {decl.name}: {backing} */\n")
+        for f in decl.fields:
+            lo = f.lo_bit
+            hi = f.hi_bit
+            width = hi - lo + 1
+            mask = (1 << width) - 1
+            self._w(f"static inline {backing} {decl.name}_get_{f.name}({decl.name} reg) {{\n")
+            self._w(f"    return (reg >> {lo}) & 0x{mask:X}ULL;\n")
+            self._w("}\n")
+            self._w(f"static inline {decl.name} {decl.name}_set_{f.name}({decl.name} reg, {backing} val) {{\n")
+            self._w(f"    return (reg & ~(0x{mask:X}ULL << {lo})) | ((({backing})val & 0x{mask:X}ULL) << {lo});\n")
+            self._w("}\n\n")
 
     def _emit_class(self, decl: ClassDeclNode) -> None:
         # Emitir vtable se houver métodos moldable
@@ -385,6 +451,9 @@ class CodegenC:
         ) or "void"
         self._w(f"{ret}{attrs} {decl.name}({params}) {{\n")
         self._indent_inc()
+        self._push_scope()
+        for p in decl.params:
+            self._def_var(p.name, p.type_ann)
         old_defers = list(self._defer_stack)
         self._defer_stack = []
         for stmt in decl.body:
@@ -396,6 +465,7 @@ class CodegenC:
                 for st in d.body:
                     self._emit_stmt(st)
         self._defer_stack = old_defers
+        self._pop_scope()
         self._indent_dec()
         self._w("}\n\n")
 
@@ -406,8 +476,12 @@ class CodegenC:
         ) or "void"
         self._w(f"__attribute__((interrupt)) {ret} {decl.name}({params}) {{\n")
         self._indent_inc()
+        self._push_scope()
+        for p in decl.params:
+            self._def_var(p.name, p.type_ann)
         for stmt in decl.body:
             self._emit_stmt(stmt)
+        self._pop_scope()
         self._indent_dec()
         self._w("}\n\n")
 
@@ -419,6 +493,20 @@ class CodegenC:
         if isinstance(stmt, LocalVarDeclNode):
             self._emit_local_var(stmt)
         elif isinstance(stmt, AssignmentNode):
+            if isinstance(stmt.target, FieldExprNode):
+                base_t = self._lookup_type(stmt.target.base)
+                if base_t and base_t.name in self._registers:
+                    reg_name = base_t.name
+                    f_name = stmt.target.field
+                    val_str = self._emit_expr(stmt.value)
+                    if base_t.is_topology_ptr or base_t.topology_ptr:
+                        ptr_str = self._emit_expr(stmt.target.base)
+                        self._line(f"*{ptr_str} = {reg_name}_set_{f_name}(*{ptr_str}, {val_str});")
+                        return
+                    else:
+                        base_str = self._emit_expr(stmt.target.base)
+                        self._line(f"{base_str} = {reg_name}_set_{f_name}({base_str}, {val_str});")
+                        return
             op = _ASSIGN_OP_MAP.get(stmt.op, "=")
             self._line(f"{self._emit_expr(stmt.target)} {op} {self._emit_expr(stmt.value)};")
         elif isinstance(stmt, HandoverNode):
@@ -535,6 +623,7 @@ class CodegenC:
             attrs += "__attribute__((section(\".rodata\")))"
         prefix = "" if stmt.is_var else "const "
         c_type = self._emit_type(stmt.type_ann) if stmt.type_ann is not None else "__auto_type"
+        self._def_var(stmt.name, stmt.type_ann)
         val = self._emit_expr(stmt.init)
         self._line(f"{prefix}{c_type}{attrs} {stmt.name} = {val};")
 
@@ -691,6 +780,16 @@ class CodegenC:
         if isinstance(expr, IndexExprNode):
             return f"{self._emit_expr(expr.base)}[{self._emit_expr(expr.index)}]"
         if isinstance(expr, FieldExprNode):
+            base_t = self._lookup_type(expr.base)
+            if base_t and base_t.name in self._registers:
+                reg_name = base_t.name
+                f_name = expr.field
+                if base_t.is_topology_ptr or base_t.topology_ptr:
+                    ptr_str = self._emit_expr(expr.base)
+                    return f"{reg_name}_get_{f_name}(*{ptr_str})"
+                else:
+                    base_str = self._emit_expr(expr.base)
+                    return f"{reg_name}_get_{f_name}({base_str})"
             return f"{self._emit_expr(expr.base)}.{expr.field}"
         if isinstance(expr, BitSliceExprNode):
             # base.slit[lo..hi] → (((base) >> (lo)) & ((1ULL << ((hi)-(lo)+1)) - 1))

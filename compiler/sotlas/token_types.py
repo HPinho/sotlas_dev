@@ -35,6 +35,7 @@ class TK(Enum):
     KW_TRAPFN    = auto()   # trapfn
     KW_TYPEALIAS = auto()   # typealias
     KW_MOULD     = auto()   # mould
+    KW_REGISTER  = auto()   # register
 
     # -------------------------------------------------------------------------
     # Palavras-chave — Membros de Classes e Structs
@@ -117,6 +118,16 @@ class TK(Enum):
     KW_CHAR      = auto()   # Char
     KW_STRING    = auto()   # String
     KW_VOID      = auto()   # Void
+    KW_F32X4     = auto()   # f32x4
+    KW_F32X8     = auto()   # f32x8
+    KW_F64X2     = auto()   # f64x2
+    KW_F64X4     = auto()   # f64x4
+    KW_U8X16     = auto()   # u8x16
+    KW_U8X32     = auto()   # u8x32
+    KW_I32X4     = auto()   # i32x4
+    KW_I32X8     = auto()   # i32x8
+    KW_I64X2     = auto()   # i64x2
+    KW_I64X4     = auto()   # i64x4
 
     # -------------------------------------------------------------------------
     # Palavras-chave — Topology Pointer Qualifiers
@@ -256,6 +267,7 @@ KEYWORDS: dict[str, TK] = {
     "trapfn":     TK.KW_TRAPFN,
     "typealias":  TK.KW_TYPEALIAS,
     "mould":      TK.KW_MOULD,
+    "register":   TK.KW_REGISTER,
     "adopts":     TK.KW_ADOPTS,
     "init":       TK.KW_INIT,
     "deinit":     TK.KW_DEINIT,
@@ -323,6 +335,16 @@ KEYWORDS: dict[str, TK] = {
     "char":       TK.KW_CHAR,
     "string":     TK.KW_STRING,
     "void":       TK.KW_VOID,
+    "f32x4":      TK.KW_F32X4,
+    "f32x8":      TK.KW_F32X8,
+    "f64x2":      TK.KW_F64X2,
+    "f64x4":      TK.KW_F64X4,
+    "u8x16":      TK.KW_U8X16,
+    "u8x32":      TK.KW_U8X32,
+    "i32x4":      TK.KW_I32X4,
+    "i32x8":      TK.KW_I32X8,
+    "i64x2":      TK.KW_I64X2,
+    "i64x4":      TK.KW_I64X4,
     "rawphys":    TK.KW_RAWPHYS,
     "virtmap":    TK.KW_VIRTMAP,
     "portwire":   TK.KW_PORTWIRE,
@@ -385,6 +407,16 @@ PRIMITIVE_C_MAP: dict[TK, str] = {
     TK.KW_CHAR:    "char",
     TK.KW_STRING:  "const char*",
     TK.KW_VOID:    "void",
+    TK.KW_F32X4:   "f32x4",
+    TK.KW_F32X8:   "f32x8",
+    TK.KW_F64X2:   "f64x2",
+    TK.KW_F64X4:   "f64x4",
+    TK.KW_U8X16:   "u8x16",
+    TK.KW_U8X32:   "u8x32",
+    TK.KW_I32X4:   "i32x4",
+    TK.KW_I32X8:   "i32x8",
+    TK.KW_I64X2:   "i64x2",
+    TK.KW_I64X4:   "i64x4",
 }
 
 PRIMITIVE_TOKENS = set(PRIMITIVE_C_MAP.keys())

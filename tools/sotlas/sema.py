@@ -202,6 +202,7 @@ class Sema:
         self._in_method: bool = False
         self._enums: Dict[str, EnumDeclNode] = {}
         self._structs: Dict[str, StructDeclNode] = {}
+        self._registers: Dict[str, RegisterDeclNode] = {}
         self._flow: FlowContext = FlowContext()
         self._current_effects: Set[Effect] = set()
         self._fn_effect_map: Dict[str, Set[Effect]] = {}
@@ -308,6 +309,9 @@ class Sema:
                         elif isinstance(decl, StaticDeclNode):
                             self._global.define(Symbol(decl.name, "var" if decl.is_var else "let",
                                                        decl.type_ann, decl.span))
+                        elif isinstance(decl, RegisterDeclNode):
+                            self._global.define(Symbol(decl.name, "type", None, decl.span))
+                            self._registers[decl.name] = decl
                         elif isinstance(decl, TypeAliasDeclNode):
                             self._global.define(Symbol(decl.name, "type", decl.alias, decl.span))
                 except Exception:
@@ -360,6 +364,10 @@ class Sema:
                 sym = Symbol(decl.name, "var" if decl.is_var else "let",
                              decl.type_ann, decl.span)
                 self._global.define(sym)
+            elif isinstance(decl, RegisterDeclNode):
+                sym = Symbol(decl.name, "type", None, decl.span)
+                self._global.define(sym)
+                self._registers[decl.name] = decl
             elif isinstance(decl, TypeAliasDeclNode):
                 sym = Symbol(decl.name, "type", decl.alias, decl.span)
                 self._global.define(sym)
@@ -380,6 +388,8 @@ class Sema:
                 self._check_class(decl)
             elif isinstance(decl, StaticDeclNode):
                 self._check_static(decl)
+            elif isinstance(decl, RegisterDeclNode):
+                self._check_register(decl)
             elif isinstance(decl, ConstDeclNode):
                 self._check_expr(decl.value, self._global)
             elif isinstance(decl, MouldBlockNode):
@@ -416,6 +426,64 @@ class Sema:
                 self._in_method = True
                 self._check_init(member, scope)
                 self._in_method = prev_in_method
+
+    def _check_register(self, decl: RegisterDeclNode) -> None:
+        width_map = {
+            TK.KW_UINT8: 8, TK.KW_UINT16: 16, TK.KW_UINT32: 32, TK.KW_UINT64: 64,
+            "u8": 8, "u16": 16, "u32": 32, "u64": 64,
+            "UInt8": 8, "UInt16": 16, "UInt32": 32, "UInt64": 64,
+        }
+        b_type = decl.backing_type
+        bit_width = None
+        if b_type.primitive and b_type.primitive in width_map:
+            bit_width = width_map[b_type.primitive]
+        elif b_type.name and b_type.name in width_map:
+            bit_width = width_map[b_type.name]
+
+        if bit_width is None:
+            self._err(
+                f"register '{decl.name}' backing type must be an unsigned integer (u8, u16, u32, u64), got '{b_type.display_name()}'",
+                decl.span
+            )
+            return
+
+        used_bits: Dict[int, str] = {}
+        for f in decl.fields:
+            if f.lo_bit < 0 or f.hi_bit >= bit_width:
+                self._err(
+                    f"register '{decl.name}' field '{f.name}' bit range {f.lo_bit}..{f.hi_bit} exceeds {bit_width}-bit backing type",
+                    f.span
+                )
+            if f.hi_bit < f.lo_bit:
+                self._err(
+                    f"register '{decl.name}' field '{f.name}' invalid bit range: hi_bit ({f.hi_bit}) < lo_bit ({f.lo_bit})",
+                    f.span
+                )
+            for bit in range(f.lo_bit, f.hi_bit + 1):
+                if bit in used_bits:
+                    self._err(
+                        f"register '{decl.name}' field '{f.name}' overlaps bit {bit} with field '{used_bits[bit]}'",
+                        f.span
+                    )
+                    break
+                used_bits[bit] = f.name
+
+    def _is_simd_type(self, t: Optional[TypeNode]) -> bool:
+        if not t:
+            return False
+        simd_primitives = {
+            TK.KW_F32X4, TK.KW_F32X8, TK.KW_F64X2, TK.KW_F64X4,
+            TK.KW_U8X16, TK.KW_U8X32, TK.KW_I32X4, TK.KW_I32X8,
+            TK.KW_I64X2, TK.KW_I64X4,
+        }
+        if t.primitive in simd_primitives:
+            return True
+        if t.name in {
+            "f32x4", "f32x8", "f64x2", "f64x4",
+            "u8x16", "u8x32", "i32x4", "i32x8", "i64x2", "i64x4",
+        }:
+            return True
+        return False
 
     def _check_class(self, decl: ClassDeclNode) -> None:
         # Verificar herança
@@ -846,6 +914,17 @@ class Sema:
                             src_sym.is_moved = True
                 if dest_sym.type_node:
                     self._check_assignment_topology(dest_sym.type_node, src_type, stmt.span)
+        elif isinstance(stmt.target, FieldExprNode):
+            base_t = self._infer_expr_type(stmt.target.base, scope)
+            if base_t:
+                reg_name = base_t.name
+                if reg_name and reg_name in self._registers:
+                    reg_decl = self._registers[reg_name]
+                    field_names = {f.name for f in reg_decl.fields}
+                    if stmt.target.field not in field_names:
+                        self._err(f"register '{reg_name}' has no field '{stmt.target.field}'", stmt.target.span)
+                    if base_t.topology_ptr and self._unsafe_depth <= 0 and not self._is_system_fn:
+                        self._err("acesso a registrador via ponteiro de hardware exige bloco unsafe explícito", stmt.span)
 
     def _check_assignment_topology(self, dest_type: TypeNode, src_type: Optional[TypeNode], span: Span) -> None:
         """Bloqueia atribuição implícita entre *rawphys, *virtmap, *portwire e *dmazone."""
@@ -983,6 +1062,11 @@ class Sema:
         elif isinstance(expr, BinaryExprNode):
             self._check_expr(expr.left, scope)
             self._check_expr(expr.right, scope)
+            lt = self._infer_expr_type(expr.left, scope)
+            rt = self._infer_expr_type(expr.right, scope)
+            if lt and rt and self._is_simd_type(lt) and self._is_simd_type(rt):
+                if lt.display_name() != rt.display_name():
+                    self._err(f"type mismatch in vector operation: '{lt.display_name()}' and '{rt.display_name()}'", expr.span)
         elif isinstance(expr, UnaryExprNode):
             self._check_expr(expr.operand, scope)
             if expr.op == TK.KW_AWAIT:
@@ -1102,6 +1186,16 @@ class Sema:
             self._check_expr(expr.index, scope)
         elif isinstance(expr, FieldExprNode):
             self._check_expr(expr.base, scope)
+            base_t = self._infer_expr_type(expr.base, scope)
+            if base_t:
+                reg_name = base_t.name
+                if reg_name and reg_name in self._registers:
+                    reg_decl = self._registers[reg_name]
+                    field_names = {f.name for f in reg_decl.fields}
+                    if expr.field not in field_names:
+                        self._err(f"register '{reg_name}' has no field '{expr.field}'", expr.span)
+                    if base_t.topology_ptr and self._unsafe_depth <= 0 and not self._is_system_fn:
+                        self._err("acesso a registrador via ponteiro de hardware exige bloco unsafe explícito", expr.span)
         elif isinstance(expr, BitSliceExprNode):
             self._check_expr(expr.base, scope)
             self._check_expr(expr.lo, scope)
@@ -1274,4 +1368,21 @@ class Sema:
                     t = copy.copy(inner_t)
                     t.topology_ptr = TK.KW_MUT if getattr(expr, "is_mut", False) else TK.KW_CONST_MOD
                     return t
+        elif isinstance(expr, FieldExprNode):
+            base_t = self._infer_expr_type(expr.base, scope)
+            if base_t and base_t.name in self._registers:
+                reg_decl = self._registers[base_t.name]
+                for f in reg_decl.fields:
+                    if f.name == expr.field:
+                        return reg_decl.backing_type
+        elif isinstance(expr, BinaryExprNode):
+            lt = self._infer_expr_type(expr.left, scope)
+            rt = self._infer_expr_type(expr.right, scope)
+            if lt and self._is_simd_type(lt):
+                return lt
+            if rt and self._is_simd_type(rt):
+                return rt
+            if lt:
+                return lt
+            return rt
         return None

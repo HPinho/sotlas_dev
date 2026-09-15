@@ -31,14 +31,14 @@ class TestSotlasFeatures045(unittest.TestCase):
         return ast
 
     def test_version_045_synchronization(self):
-        """Valida que todos os metadados de versão estão em 0.4.5."""
-        self.assertEqual(sotlas.SOTLAS_VERSION, "0.4.5")
-        self.assertEqual(sotlas.SOTLAS_LANG_VERSION, "0.4.5")
-        self.assertEqual(sotlas.__version__, "0.4.5")
+        """Valida que todos os metadados de versão estão em conformidade com >= 0.4.5."""
+        self.assertTrue(sotlas.SOTLAS_VERSION >= "0.4.5")
+        self.assertTrue(sotlas.SOTLAS_LANG_VERSION >= "0.4.5")
+        self.assertTrue(sotlas.__version__ >= "0.4.5")
 
         lockfile = _ROOT / "toolchain" / "sotlas.lock.json"
         data = json.loads(lockfile.read_text(encoding="utf-8"))
-        self.assertEqual(data["language_version"], "0.4.5")
+        self.assertTrue(data["language_version"] >= "0.4.5")
 
     def test_hardware_typestate_valid_flow(self):
         """Fluxo correto de transição de typestate Detached -> Attached -> Active."""

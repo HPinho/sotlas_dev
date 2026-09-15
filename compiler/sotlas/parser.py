@@ -182,6 +182,8 @@ class Parser:
             return self._parse_typealias_decl(span, is_pub)
         if cur == TK.KW_MOULD:
             return self._parse_mould_block(span, is_pub)
+        if cur == TK.KW_REGISTER:
+            return self._parse_register_decl(span, directives, is_pub)
 
         tok = self._cur()
         raise SotlasParseError(
@@ -263,6 +265,32 @@ class Parser:
             members.append(MeshMemberNode(ms, mname, mtype, align_expr))
         self._expect(TK.RBRACE)
         return MeshDeclNode(span, directives, is_pub, name, members)
+
+    def _parse_register_decl(self, span, directives, is_pub) -> RegisterDeclNode:
+        self._expect(TK.KW_REGISTER)
+        name = self._expect_ident_or_keyword()
+        self._expect(TK.COLON)
+        backing_type = self._parse_type()
+        self._expect(TK.LBRACE)
+        fields = []
+        while not self._match(TK.RBRACE, TK.EOF):
+            fs = self._span()
+            fname = self._expect_ident_or_keyword()
+            self._expect(TK.COLON)
+            lo_tok = self._expect(TK.INT_LIT)
+            lo_val_str = str(lo_tok.value)
+            lo_bit = int(lo_val_str, 0) if (lo_val_str.isdigit() or lo_val_str.startswith("0x") or lo_val_str.startswith("0b")) else int(lo_tok.value)
+            if self._consume(TK.DOTDOT):
+                hi_tok = self._expect(TK.INT_LIT)
+                hi_val_str = str(hi_tok.value)
+                hi_bit = int(hi_val_str, 0) if (hi_val_str.isdigit() or hi_val_str.startswith("0x") or hi_val_str.startswith("0b")) else int(hi_tok.value)
+            else:
+                hi_bit = lo_bit
+            if not self._consume(TK.SEMICOLON):
+                self._consume(TK.COMMA)
+            fields.append(RegisterFieldNode(fs, fname, lo_bit, hi_bit))
+        self._expect(TK.RBRACE)
+        return RegisterDeclNode(span, directives, is_pub, name, backing_type, fields)
 
     def _parse_spec_decl(self, span, directives, is_pub) -> SpecDeclNode:
         self._expect(TK.KW_SPEC)
