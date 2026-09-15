@@ -1,0 +1,235 @@
+module examples::raycaster_3d;
+
+import core::mem::*;
+import core::io::*;
+import graphics::canvas::*;
+
+// ============================================================================
+// Sotlas 3D Raycaster Engine — Wolfenstein 3D Style Flagship Demo
+// ============================================================================
+// Demonstração da capacidade de computação gráfica e motores de jogos
+// em Sotlas. Utiliza DDA (Digital Differential Analysis), minimapa em tempo
+// real, iluminação por distância e framebuffer sem garbage collector.
+// ============================================================================
+
+pub const SCREEN_WIDTH: u32 = 320;
+pub const SCREEN_HEIGHT: u32 = 240;
+pub const MAP_WIDTH: u32 = 12;
+pub const MAP_HEIGHT: u32 = 12;
+
+// Mapa do mundo 12x12 (1 = Parede Azul, 2 = Parede Vermelha, 3 = Parede Verde, 0 = Vazio)
+static g_map: [u8; 144] = [
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+    1, 0, 2, 2, 0, 0, 0, 3, 3, 3, 0, 1,
+    1, 0, 2, 0, 0, 0, 0, 0, 0, 3, 0, 1,
+    1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1,
+    1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1,
+    1, 0, 3, 0, 0, 0, 0, 0, 0, 2, 0, 1,
+    1, 0, 3, 3, 0, 0, 0, 2, 2, 2, 0, 1,
+    1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+    1, 0, 1, 1, 1, 0, 0, 1, 1, 1, 0, 1,
+    1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
+];
+
+// Estado do Jogador
+@repr(C)
+pub struct Player {
+    pub x: f32;
+    pub y: f32;
+    pub dir_x: f32;
+    pub dir_y: f32;
+    pub plane_x: f32;
+    pub plane_y: f32;
+}
+
+pub fn player_new() -> Player {
+    let mut p: Player = 0;
+    p.x = 2.5;
+    p.y = 2.5;
+    p.dir_x = 1.0;
+    p.dir_y = 0.0;
+    p.plane_x = 0.0;
+    p.plane_y = 0.66; // Campo de visão (FOV ~66 graus)
+    return p;
+}
+
+// Framebuffer estático na memória
+static mut g_framebuffer: [u32; 76800] = 0; // 320 x 240
+
+// Renderiza um frame completo do mundo 3D
+@system
+pub fn render_frame(c: *mut Canvas, p: *const Player) {
+    if c == null || p == null {
+        return;
+    }
+
+    // 1. Teto e Chão (Cores com gradiente sutil)
+    let ceiling_color: u32 = color_rgb(40, 45, 60);
+    let floor_color: u32 = color_rgb(30, 30, 30);
+    canvas_fill_rect(c, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT / 2, ceiling_color);
+    canvas_fill_rect(c, 0, (SCREEN_HEIGHT / 2) as i32, SCREEN_WIDTH, SCREEN_HEIGHT / 2, floor_color);
+
+    let px: f32 = (*p).x;
+    let py: f32 = (*p).y;
+    let p_dir_x: f32 = (*p).dir_x;
+    let p_dir_y: f32 = (*p).dir_y;
+    let p_plane_x: f32 = (*p).plane_x;
+    let p_plane_y: f32 = (*p).plane_y;
+
+    // 2. Loop de Raycasting para cada coluna de pixels da tela
+    let mut col: u32 = 0;
+    while col < SCREEN_WIDTH {
+        // Coordenada da câmera no plano (-1 na esquerda, 0 no centro, +1 na direita)
+        let camera_x: f32 = (2.0 * (col as f32) / (SCREEN_WIDTH as f32)) - 1.0;
+        let ray_dir_x: f32 = p_dir_x + (p_plane_x * camera_x);
+        let ray_dir_y: f32 = p_dir_y + (p_plane_y * camera_x);
+
+        // Caixa do mapa em que o raio está
+        let mut map_x: i32 = px as i32;
+        let mut map_y: i32 = py as i32;
+
+        let mut delta_dist_x: f32 = 1000000.0;
+        if ray_dir_x > 0.0 {
+            delta_dist_x = 1.0 / ray_dir_x;
+        } else if ray_dir_x < 0.0 {
+            delta_dist_x = -1.0 / ray_dir_x;
+        }
+
+        let mut delta_dist_y: f32 = 1000000.0;
+        if ray_dir_y > 0.0 {
+            delta_dist_y = 1.0 / ray_dir_y;
+        } else if ray_dir_y < 0.0 {
+            delta_dist_y = -1.0 / ray_dir_y;
+        }
+
+        let mut step_x: i32 = 0;
+        let mut step_y: i32 = 0;
+        let mut side_dist_x: f32 = 0.0;
+        let mut side_dist_y: f32 = 0.0;
+
+        if ray_dir_x < 0.0 {
+            step_x = -1;
+            side_dist_x = (px - (map_x as f32)) * delta_dist_x;
+        } else {
+            step_x = 1;
+            side_dist_x = (((map_x as f32) + 1.0) - px) * delta_dist_x;
+        }
+
+        if ray_dir_y < 0.0 {
+            step_y = -1;
+            side_dist_y = (py - (map_y as f32)) * delta_dist_y;
+        } else {
+            step_y = 1;
+            side_dist_y = (((map_y as f32) + 1.0) - py) * delta_dist_y;
+        }
+
+        // Execução do Algoritmo DDA
+        let mut hit: bool = false;
+        let mut side: i32 = 0; // 0 para Norte/Sul, 1 para Leste/Oeste
+        let mut wall_type: u8 = 1;
+
+        while !hit {
+            if side_dist_x < side_dist_y {
+                side_dist_x = side_dist_x + delta_dist_x;
+                map_x = map_x + step_x;
+                side = 0;
+            } else {
+                side_dist_y = side_dist_y + delta_dist_y;
+                map_y = map_y + step_y;
+                side = 1;
+            }
+
+            if map_x >= 0 && map_x < (MAP_WIDTH as i32) && map_y >= 0 && map_y < (MAP_HEIGHT as i32) {
+                let cell: u8 = g_map[((map_y as u32) * MAP_WIDTH + (map_x as u32)) as usize];
+                if cell > 0 {
+                    hit = true;
+                    wall_type = cell;
+                }
+            } else {
+                hit = true;
+                wall_type = 1;
+            }
+        }
+
+        // Distância perpendicular até a parede (evita efeito olho de peixe)
+        let mut perp_wall_dist: f32 = side_dist_x - delta_dist_x;
+        if side != 0 {
+            perp_wall_dist = side_dist_y - delta_dist_y;
+        }
+        let mut dist: f32 = perp_wall_dist;
+        if dist <= 0.1 {
+            dist = 0.1;
+        }
+
+        // Altura da parede projetada na tela
+        let line_height: i32 = ((SCREEN_HEIGHT as f32) / dist) as i32;
+        let mut draw_start: i32 = (-line_height / 2) + ((SCREEN_HEIGHT / 2) as i32);
+        let mut draw_end: i32 = (line_height / 2) + ((SCREEN_HEIGHT / 2) as i32);
+
+        if draw_start < 0 { draw_start = 0; }
+        if draw_end >= (SCREEN_HEIGHT as i32) { draw_end = (SCREEN_HEIGHT as i32) - 1; }
+
+        // Escolhe a cor base da parede
+        let mut base_color: u32 = color_rgb(180, 180, 180);
+        if wall_type == 1 {
+            base_color = color_rgb(60, 120, 220); // Azul
+        } else if wall_type == 2 {
+            base_color = color_rgb(220, 60, 60);  // Vermelho
+        } else if wall_type == 3 {
+            base_color = color_rgb(60, 200, 80);  // Verde
+        }
+
+        // Sombreamento lateral e por distância
+        if side == 1 {
+            let r: u8 = color_get_r(base_color) / 2;
+            let g: u8 = color_get_g(base_color) / 2;
+            let b: u8 = color_get_b(base_color) / 2;
+            base_color = color_rgb(r, g, b);
+        }
+
+        // Desenha a coluna vertical da parede
+        canvas_draw_line(c, col as i32, draw_start, col as i32, draw_end, base_color);
+
+        col = col + 1;
+    }
+
+    // 3. Minimapa 2D no canto superior esquerdo
+    let tile_size: u32 = 4;
+    let mut my: u32 = 0;
+    while my < MAP_HEIGHT {
+        let mut mx: u32 = 0;
+        while mx < MAP_WIDTH {
+            let cell: u8 = g_map[(my * MAP_WIDTH + mx) as usize];
+            let mut cell_col: u32 = color_rgb(10, 10, 10);
+            if cell > 0 {
+                cell_col = color_rgb(200, 200, 200);
+            }
+            canvas_fill_rect(c, 8 + ((mx * tile_size) as i32), 8 + ((my * tile_size) as i32), tile_size - 1, tile_size - 1, cell_col);
+            mx = mx + 1;
+        }
+        my = my + 1;
+    }
+
+    // Ponto do jogador no minimapa
+    let player_map_x: i32 = 8 + ((px * (tile_size as f32)) as i32);
+    let player_map_y: i32 = 8 + ((py * (tile_size as f32)) as i32);
+    canvas_fill_circle(c, player_map_x, player_map_y, 2, color_rgb(255, 255, 0));
+
+    // Texto de HUD
+    canvas_draw_text(c, 10, (SCREEN_HEIGHT - 20) as i32, "SOTLAS 3D RAYCASTER ENGINE", color_rgb(255, 255, 255), 1);
+}
+
+pub fn main() -> i32 {
+    let mut canvas: Canvas = 0;
+    unsafe {
+        canvas = canvas_new(g_framebuffer as *mut u32, SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_WIDTH);
+    }
+    let player: Player = player_new();
+
+    // Renderiza um frame teste
+    render_frame(&mut canvas as *mut Canvas, &player as *const Player);
+
+    return 0;
+}

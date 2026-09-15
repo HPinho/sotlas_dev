@@ -5,8 +5,8 @@ frontend remains importable only as an explicit migration/testing surface; it is
 not a second production compiler.
 """
 
-SOTLAS_VERSION = "0.2.0"
-SOTLAS_LANG_VERSION = "0.2"
+SOTLAS_VERSION = "0.4.0"
+SOTLAS_LANG_VERSION = "0.4"
 
 from .lexer import Lexer, SotlasLexError
 from .parser import Parser, SotlasParseError

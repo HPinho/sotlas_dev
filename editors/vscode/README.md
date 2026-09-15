@@ -1,23 +1,32 @@
-# Sotlas for Visual Studio Code
+# Sotlas for Visual Studio Code & Open VSX
 
-Extensao oficial de suporte para a linguagem de programacao de sistemas **Sotlas** (`.sotlas`, `.sth`).
+Extensão oficial de suporte para a linguagem de programação **Sotlas** (`.sotlas`, `.sth`).
+
+**Sotlas** é uma linguagem de programação moderna, segura e expressiva de propósito geral e sistemas — projetada com infinitas possibilidades, desde o mais baixo nível (bare-metal, kernels monolíticos/microkernels, drivers e embarcados) até o alto nível (engines de jogos, ferramentas de linha de comando, serviços de rede e aplicativos).
 
 ---
 
 ## Recursos Principais
 
+- **Diagnósticos Nativos em Tempo Real (Zero Dependências)**:
+  - Sublinhados vermelhos para erros de sintaxe (chaves/parênteses/colchetes desbalanceados, strings não fechadas, ponto e vírgula ausentes, tipos incorretos).
+  - Sublinhados amarelos para avisos de código e boas práticas de estruturação.
+  - Funciona imediatamente em 100% dos computadores (Windows, Linux, macOS) assim que instalado, sem requerer Python ou binários externos instalados.
+- **Navegação de Símbolos e Outline**:
+  - Árvore de navegação no painel *Outline* do editor e menu rápido de símbolos (`Ctrl+Shift+O`).
+- **Documentação ao Passar o Mouse (Hover Tooltips)**:
+  - Explicações conceituais ricas para palavras-chave (`sole`, `co-owned`, `rawphys`, `barecore`, `quarantine`, `discern`, `guard`, etc.).
 - **Realce de Sintaxe Completo**:
   - Palavras-chave de controle e fluxo: `discern`, `match`, `if`, `guard`, `defer`, etc.
-  - Palavras-chave de declaracao e arquitetura: `forge`, `enclave`, `fn`, `trapfn`, `struct`, `mesh`, `barecore`.
-  - Ponteiros de Topologia e Seguranca Fisica: `*rawphys`, `*virtmap`, `*portwire`, `*dmazone`, `*voidzero`.
+  - Palavras-chave de declaração e arquitetura: `forge`, `enclave`, `fn`, `trapfn`, `struct`, `mesh`, `barecore`.
+  - Ponteiros de Topologia e Segurança Física: `*rawphys`, `*virtmap`, `*portwire`, `*dmazone`, `*voidzero`.
   - Operadores de Registradores e Bits: `.slit[lo..hi]`, `.notch[n]`, `.strand[len]`.
-  - Primitivas SRG & Concorrencia: `pulse`, `probe`, `clinch`, `rebound`, `quarantine`.
+  - Primitivas SRG & Concorrência: `pulse`, `probe`, `clinch`, `rebound`, `quarantine`.
 - **Servidor de Linguagem (LSP) Integrado**:
-  - Diagnosticos em tempo real com verificacao de tipos e checagem de regras de hardware.
-  - Autocompletar inteligente para instrucoes, registradores e funcoes da biblioteca base.
-  - Informacoes de tipo e documentacao ao passar o mouse (*Hover*).
-  - Formatacao automatica de codigo (*Format Document*).
-  - Ir para Definicao (*Go to Definition*).
+  - Autocompletar inteligente para instruções, registradores e funções da biblioteca base.
+  - Informações de tipo e documentação ao passar o mouse (*Hover*).
+  - Formatação automática de código (*Format Document*).
+  - Ir para Definição (*Go to Definition*).
 - **Ferramentas de Desenvolvimento e Comandos Integrados**:
   - `Sotlas: Compilar Pacote Atual` (`sotlas.build`)
   - `Sotlas: Verificar Tipos e Sintaxe` (`sotlas.check`)
@@ -64,10 +73,10 @@ npm run compile
 npx @vscode/vsce package
 ```
 
-Isto gera o arquivo `baken-sotlas-0.3.0.vsix`. Para instalar no seu VS Code imediatamente:
+Isto gera o arquivo `sotlas-0.3.0.vsix`. Para instalar no seu VS Code imediatamente:
 
 ```bash
-code --install-extension baken-sotlas-0.3.0.vsix
+code --install-extension sotlas-0.3.0.vsix
 ```
 
 ---

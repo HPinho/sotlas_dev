@@ -676,6 +676,8 @@ class CodegenC:
         if isinstance(expr, UnaryExprNode):
             if expr.op == TK.KW_AWAIT:
                 return f"/* await */ {self._emit_expr(expr.operand)}"
+            if expr.op == TK.KW_WHISPER:
+                return f"(&({self._emit_expr(expr.operand)}))"
             op = _UNARY_OP_MAP.get(expr.op, "")
             return f"({op}{self._emit_expr(expr.operand)})"
         if isinstance(expr, CallExprNode):

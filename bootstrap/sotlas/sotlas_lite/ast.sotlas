@@ -1,0 +1,104 @@
+module sotlas_compile::ast;
+
+// ============================================================================
+// sotlas_compile::ast — Nós Estruturados da Árvore Sintática (Fase 2)
+// ============================================================================
+//
+// "Text é para humanos. Tokens são para o lexer. Árvores são para o compilador."
+//
+// Este módulo define os tipos fundamentais da AST (Abstract Syntax Tree)
+// para a evolução modular do compilador nativo Sotlas, migrando do modelo
+// de streaming de tokens para uma representação intermediária rica e tipada.
+//
+// Alocação em Pool Indexado (Zero-Alloc / Zero-Malloc).
+// ============================================================================
+
+pub const AST_NONE: u32        = 0;
+pub const AST_IDENT: u32       = 1;
+pub const AST_LITERAL: u32     = 2;
+pub const AST_BINARY_OP: u32   = 3;
+pub const AST_UNARY_OP: u32    = 4;
+pub const AST_CALL: u32        = 5;
+pub const AST_LET_STMT: u32    = 6;
+pub const AST_ASSIGN_STMT: u32 = 7;
+pub const AST_IF_STMT: u32     = 8;
+pub const AST_WHILE_STMT: u32  = 9;
+pub const AST_RETURN_STMT: u32 = 10;
+pub const AST_PROBE_STMT: u32  = 11;
+pub const AST_DEFER_STMT: u32  = 12;
+pub const AST_FN_DECL: u32     = 13;
+pub const AST_STRUCT_DECL: u32 = 14;
+pub const AST_ENUM_DECL: u32   = 15;
+
+pub struct AstNode {
+    pub kind: u32;
+    pub line: u32;
+    pub col: u32;
+    pub left_child: usize;
+    pub right_child: usize;
+    pub next_sibling: usize;
+    pub int_val: i64;
+    pub name: [u8; 64];
+}
+
+pub const MAX_AST_NODES: usize = 16384;
+
+pub struct AstPool {
+    pub count: usize;
+    pub nodes: [AstNode; 16384];
+}
+
+pub fn ast_pool_init(pool: *mut AstPool) {
+    if pool == null {
+        return;
+    }
+    unsafe {
+        (*pool).count = 1; // 0 é reservado para nó nulo/sentinela
+    }
+}
+
+pub fn ast_alloc_node(pool: *mut AstPool, kind: u32, line: u32, col: u32) -> usize {
+    if pool == null {
+        return 0;
+    }
+    unsafe {
+        if (*pool).count >= MAX_AST_NODES {
+            return 0; // Pool esgotado
+        }
+        let idx: usize = (*pool).count;
+        (*pool).count = (*pool).count + 1;
+
+        let node: *mut AstNode = &mut (*pool).nodes[idx];
+        (*node).kind = kind;
+        (*node).line = line;
+        (*node).col = col;
+        (*node).left_child = 0;
+        (*node).right_child = 0;
+        (*node).next_sibling = 0;
+        (*node).int_val = 0;
+        (*node).name[0] = 0;
+
+        return idx;
+    }
+}
+
+pub fn ast_node_count(pool: *const AstPool) -> usize {
+    if pool == null {
+        return 0;
+    }
+    unsafe {
+        if (*pool).count == 0 {
+            return 0;
+        }
+        return (*pool).count - 1;
+    }
+}
+
+pub fn ast_pool_reset(pool: *mut AstPool) {
+    if pool == null {
+        return;
+    }
+    unsafe {
+        (*pool).count = 1;
+    }
+}

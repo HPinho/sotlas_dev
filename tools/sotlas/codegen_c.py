@@ -1,11 +1,11 @@
-"""Sotlas CodeGen C99 — Emissor freestanding a partir da AST Sotlas."""
+"""Sotlas C11 code emitter — transforms AST into freestanding C11 output."""
 from __future__ import annotations
 from io import StringIO
 from typing import List, Optional
 from .token_types import TK, PRIMITIVE_C_MAP
 from .ast_nodes import *
 
-# Preâmbulo C99 freestanding padrão
+# Standard freestanding C11 prelude
 _PRELUDE = """\
 /* sotlas v1.0 — codegen output */
 #include <stdint.h>
@@ -34,7 +34,7 @@ typedef int64_t            ptrdiff_t;
 #endif
 """
 
-# Mapeamento de operadores binários
+# Binary operator mapping
 _BIN_OP_MAP = {
     TK.EQ: "==", TK.NEQ: "!=", TK.AND: "&&", TK.OR: "||",
     TK.LAND: "&", TK.LOR: "|", TK.XOR: "^",
@@ -676,6 +676,8 @@ class CodegenC:
         if isinstance(expr, UnaryExprNode):
             if expr.op == TK.KW_AWAIT:
                 return f"/* await */ {self._emit_expr(expr.operand)}"
+            if expr.op == TK.KW_WHISPER:
+                return f"(&({self._emit_expr(expr.operand)}))"
             op = _UNARY_OP_MAP.get(expr.op, "")
             return f"({op}{self._emit_expr(expr.operand)})"
         if isinstance(expr, CallExprNode):

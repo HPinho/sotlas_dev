@@ -28,6 +28,7 @@ class SotlasLiteTests(unittest.TestCase):
             "core::mem",
             "core::fmt",
             "sotlas_compile::token",
+            "sotlas_compile::ast",
             "sotlas_compile::lexer",
             "sotlas_compile::emitter",
             "sotlas_compile::main"

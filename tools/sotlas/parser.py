@@ -513,11 +513,12 @@ class Parser:
     def _parse_type(self) -> TypeNode:
         span = self._span()
         ownership = None
-        if self._cur().kind in OWNERSHIP_MODS:
-            ownership = self._advance().kind
-
         topology_ptr = None
         topology_mut = False
+        if self._cur().kind in OWNERSHIP_MODS:
+            ownership = self._advance().kind
+            if ownership == TK.KW_WHISPER and self._consume(TK.KW_MUT):
+                topology_mut = True
         if self._match(TK.STAR):
             self._advance()
             if self._cur().kind in TOPOLOGY_MODS:
@@ -991,11 +992,14 @@ class Parser:
     def _parse_unary(self) -> ExprNode:
         span = self._span()
         cur = self._cur().kind
-        if cur in (TK.NOT, TK.MINUS, TK.TILDE, TK.STAR, TK.LAND, TK.KW_AWAIT):
+        if cur in (TK.NOT, TK.MINUS, TK.TILDE, TK.STAR, TK.LAND, TK.KW_AWAIT, TK.KW_WHISPER):
             op = self._advance().kind
+            is_mut = False
             if op == TK.LAND and self._consume(TK.KW_MUT):
-                pass
-            return UnaryExprNode(span, op, self._parse_unary())
+                is_mut = True
+            elif op == TK.KW_WHISPER and self._consume(TK.KW_MUT):
+                is_mut = True
+            return UnaryExprNode(span, op, self._parse_unary(), is_mut=is_mut)
         return self._parse_postfix()
 
     def _parse_postfix(self) -> ExprNode:

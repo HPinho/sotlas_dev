@@ -1,5 +1,11 @@
-/* libsotlas_rt.c — Standalone Freestanding Runtime para Sotlas. */
+/* libsotlas_rt.c — Standalone Dual-Mode Runtime para Sotlas (Hosted & Freestanding). */
 #include "libsotlas_rt.h"
+
+#if defined(_WIN32) || defined(__linux__) || defined(__APPLE__) || (defined(__STDC_HOSTED__) && __STDC_HOSTED__ == 1)
+#define SOTLAS_RT_HOSTED 1
+#include <stdlib.h>
+#include <stdio.h>
+#endif
 
 /* Buffer estático de fallback para ambientes freestanding (1 MB de pool) */
 #define DEFAULT_HEAP_POOL_SIZE (1024 * 1024)
@@ -25,7 +31,26 @@ void* sotlas_rt_alloc_aligned(size_t size, size_t alignment) {
     }
     if (alignment == 0) alignment = 8;
 
-    /* Alinhamento no pool freestanding */
+#ifdef SOTLAS_RT_HOSTED
+    /* Modo Hospedado (Userland): aloca na heap do SO */
+#if defined(_WIN32) && !defined(__GNUC__)
+    return _aligned_malloc(size, alignment);
+#else
+    void *ptr = NULL;
+    if (alignment <= sizeof(void*)) {
+        return malloc(size);
+    }
+#if defined(__posix__) || defined(_POSIX_C_SOURCE) || defined(__linux__) || defined(__APPLE__)
+    if (posix_memalign(&ptr, alignment, size) != 0) {
+        return NULL;
+    }
+    return ptr;
+#else
+    return malloc(size);
+#endif
+#endif
+#else
+    /* Modo Freestanding (Bare-metal / Kernel): Bump allocator no pool estático */
     size_t current = (size_t)(s_freestanding_pool + s_pool_offset);
     size_t remainder = current % alignment;
     size_t padding = (remainder == 0) ? 0 : (alignment - remainder);
@@ -39,6 +64,7 @@ void* sotlas_rt_alloc_aligned(size_t size, size_t alignment) {
     void *ptr = (void*)(s_freestanding_pool + s_pool_offset);
     s_pool_offset += size;
     return ptr;
+#endif
 }
 
 void* sotlas_rt_alloc(size_t size) {
@@ -49,10 +75,15 @@ void* sotlas_rt_realloc(void *ptr, size_t new_size) {
     if (!ptr) {
         return sotlas_rt_alloc(new_size);
     }
+#ifdef SOTLAS_RT_HOSTED
+    if (!s_custom_alloc) {
+        return realloc(ptr, new_size);
+    }
+#endif
     void *new_ptr = sotlas_rt_alloc(new_size);
     if (!new_ptr) return NULL;
 
-    /* Cópia simples (tamanho conservador) */
+    /* Cópia simples preservando dados antigos */
     uint8_t *dst = (uint8_t*)new_ptr;
     uint8_t *src = (uint8_t*)ptr;
     for (size_t i = 0; i < new_size; ++i) {
@@ -62,10 +93,19 @@ void* sotlas_rt_realloc(void *ptr, size_t new_size) {
 }
 
 void sotlas_rt_free(void *ptr) {
-    if (s_custom_free && ptr) {
+    if (!ptr) return;
+    if (s_custom_free) {
         s_custom_free(ptr);
+        return;
     }
-    /* No bump allocator simples freestanding, free é no-op */
+#ifdef SOTLAS_RT_HOSTED
+#if defined(_WIN32) && !defined(__GNUC__)
+    _aligned_free(ptr);
+#else
+    free(ptr);
+#endif
+#endif
+    /* Em freestanding simples, free do bump allocator é no-op seguro */
 }
 
 void sotlas_rt_arc_retain(void *object) {
@@ -91,7 +131,14 @@ void sotlas_rt_panic(const char *message, const char *file, uint32_t line) {
         s_panic_handler(message, file, line);
         return;
     }
-    /* Fallback freestanding: loop infinito de parada */
+#ifdef SOTLAS_RT_HOSTED
+    fprintf(stderr, "\n\033[1;31msotlas panic\033[0m: %s\n  at %s:%u\n",
+            message ? message : "unspecified panic",
+            file ? file : "unknown",
+            (unsigned int)line);
+    abort();
+#else
+    /* Fallback freestanding: loop infinito de parada com halt de hardware */
     (void)message; (void)file; (void)line;
     while (1) {
 #if defined(__x86_64__) || defined(_M_X64) || defined(__i386__)
@@ -100,6 +147,7 @@ void sotlas_rt_panic(const char *message, const char *file, uint32_t line) {
         __asm__ volatile("wfi");
 #endif
     }
+#endif
 }
 
 bool sotlas_rt_slice_eq(const uint8_t *a, size_t a_len, const uint8_t *b, size_t b_len) {

@@ -1,9 +1,9 @@
 {
-  "name": "baken-sotlas",
-  "displayName": "Sotlas Language",
+  "name": "sotlas",
+  "displayName": "Sotlas Programming Language",
   "publisher": "hiagopinho",
   "author": "Hiago Pinho",
-  "description": "Suporte oficial à linguagem Sotlas: realce de sintaxe, LSP, diagnósticos e comandos de compilação",
+  "description": "Suporte oficial à linguagem Sotlas: do baixo nível (bare-metal, drivers, kernels) ao alto nível (aplicações, game engines, ferramentas). Sintaxe, diagnósticos nativos, outline e hover.",
   "version": "0.3.0",
   "icon": "./icons/sotlas-icon.png",
   "engines": {
@@ -18,7 +18,7 @@
     "url": "https://github.com/HPinho/LangSotlas.git"
   },
   "homepage": "https://github.com/HPinho/LangSotlas",
-  "keywords": ["sotlas", "baken", "systems", "kernel", "language"],
+  "keywords": ["sotlas", "systems", "game-engine", "compiler", "language", "bare-metal", "general-purpose"],
   "main": "./out/extension.js",
   "activationEvents": [
     "onLanguage:sotlas"
@@ -35,7 +35,6 @@
         "id": "sotlas",
         "aliases": [
           "Sotlas",
-          "Baken Sotlas",
           "sotlas"
         ],
         "extensions": [
@@ -101,6 +100,11 @@
           "type": "string",
           "default": "sotlas",
           "description": "Caminho para o binário ou comando executável do compilador Sotlas"
+        },
+        "sotlas.enableExternalLsp": {
+          "type": "boolean",
+          "default": false,
+          "description": "Habilitar servidor LSP externo adicional via processo sotlas lsp (opcional quando o compilador nativo estiver instalado)"
         }
       }
     }

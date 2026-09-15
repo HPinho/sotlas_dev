@@ -109,8 +109,9 @@ class BinaryExprNode:
 @dataclass
 class UnaryExprNode:
     span: Span
-    op: TK     # NOT | MINUS | TILDE | STAR | LAND | KW_AWAIT
+    op: TK     # NOT | MINUS | TILDE | STAR | LAND | KW_AWAIT | KW_WHISPER
     operand: "ExprNode"
+    is_mut: bool = False
 
 
 @dataclass

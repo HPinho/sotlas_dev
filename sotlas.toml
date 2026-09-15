@@ -1,0 +1,26 @@
+# Sotlas Language Project Configuration
+[package]
+name = "sotlas-workspace"
+version = "0.4.0"
+authors = ["Hiago Pinho <hiagospinho@gmail.com>"]
+edition = "2026"
+license = "Apache-2.0 WITH LLVM-exception"
+description = "Linguagem de programação moderna, segura e de propósito geral — do bare-metal a jogos e aplicações."
+repository = "https://github.com/HPinho/LangSotlas"
+
+[build]
+target = "native" # Alvos suportados: native, c, wasm, baremetal
+opt_level = 2
+emit_c = true
+warn_unused = true
+
+[dependencies]
+# Bibliotecas padrão e módulos externos
+core = { path = "stdlib/core" }
+foundation = { path = "stdlib/foundation" }
+system = { path = "stdlib/system" }
+graphics = { path = "stdlib/graphics" }
+
+[templates]
+# Templates suportados por 'sotlas new <nome> --template=<tipo>'
+# game, app, kernel, lib, wasm

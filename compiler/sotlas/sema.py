@@ -1,5 +1,6 @@
 """Sotlas Sema — Analisador Semântico e Verificador de Tipos (duas passagens)."""
 from __future__ import annotations
+from enum import Enum
 from typing import Dict, List, Optional, Set, Tuple
 from .token_types import TK, PRIMITIVE_TOKENS
 from .ast_nodes import *
@@ -49,6 +50,92 @@ TOPOLOGY_NAME_MAP: Dict[TK, str] = {
     TK.KW_MUT: "*mut",
     TK.KW_CONST_MOD: "*const",
 }
+
+
+# ---------------------------------------------------------------------------
+# Estados de Ownership (CFG Dataflow) e Efeitos de Hardware
+# ---------------------------------------------------------------------------
+
+class VarState(Enum):
+    LIVE           = "live"
+    MOVED          = "moved"
+    MAYBE_MOVED    = "maybe_moved"
+    BORROWED_IMMUT = "borrowed_immut"
+    BORROWED_MUT   = "borrowed_mut"
+
+
+class Effect(Enum):
+    ALLOC    = "alloc"
+    BLOCKING = "blocking"
+    ASYNC    = "async"
+    MMIO     = "mmio"
+    DMA      = "dma"
+    IRQ      = "irq"
+    UNSAFE   = "unsafe"
+
+
+class FlowContext:
+    """Rastreia estados de variáveis e empréstimos em fluxos com ramificação (CFG)."""
+    def __init__(self, parent: Optional["FlowContext"] = None) -> None:
+        self.parent = parent
+        self.var_states: Dict[str, VarState] = {}
+        self.symbols: Dict[str, Symbol] = {}
+
+    def define(self, sym: Symbol, initial_state: VarState = VarState.LIVE) -> None:
+        self.symbols[sym.name] = sym
+        self.var_states[sym.name] = initial_state
+
+    def get_state(self, name: str) -> Optional[VarState]:
+        if name in self.var_states:
+            return self.var_states[name]
+        if self.parent:
+            return self.parent.get_state(name)
+        return None
+
+    def get_symbol(self, name: str) -> Optional[Symbol]:
+        if name in self.symbols:
+            return self.symbols[name]
+        if self.parent:
+            return self.parent.get_symbol(name)
+        return None
+
+    def set_state(self, name: str, state: VarState) -> None:
+        curr: Optional["FlowContext"] = self
+        while curr:
+            if name in curr.var_states or name in curr.symbols:
+                curr.var_states[name] = state
+                sym = curr.symbols.get(name)
+                if sym:
+                    sym.is_moved = (state in (VarState.MOVED, VarState.MAYBE_MOVED))
+                return
+            curr = curr.parent
+        self.var_states[name] = state
+
+    def snapshot(self) -> Dict[str, VarState]:
+        res: Dict[str, VarState] = {}
+        if self.parent:
+            res.update(self.parent.snapshot())
+        res.update(self.var_states)
+        return res
+
+    def restore_and_merge(self, before: Dict[str, VarState], branch_snapshots: List[Dict[str, VarState]]) -> None:
+        all_vars = set(before.keys())
+        for snap in branch_snapshots:
+            all_vars.update(snap.keys())
+
+        for var in all_vars:
+            initial = before.get(var, VarState.LIVE)
+            branch_states = [snap.get(var, initial) for snap in branch_snapshots]
+
+            if all(s == VarState.MOVED for s in branch_states):
+                self.set_state(var, VarState.MOVED)
+            elif any(s in (VarState.MOVED, VarState.MAYBE_MOVED) for s in branch_states):
+                if initial not in (VarState.MOVED, VarState.MAYBE_MOVED):
+                    self.set_state(var, VarState.MAYBE_MOVED)
+                else:
+                    self.set_state(var, VarState.MOVED)
+            else:
+                self.set_state(var, initial)
 
 
 # ---------------------------------------------------------------------------
@@ -115,6 +202,13 @@ class Sema:
         self._in_method: bool = False
         self._enums: Dict[str, EnumDeclNode] = {}
         self._structs: Dict[str, StructDeclNode] = {}
+        self._flow: FlowContext = FlowContext()
+        self._current_effects: Set[Effect] = set()
+        self._fn_effect_map: Dict[str, Set[Effect]] = {}
+        self._is_system_fn: bool = False
+        self._is_trapfn: bool = False
+        self._is_irqfree_fn: bool = False
+        self._in_clinch: bool = False
 
     def _is_type_sole(self, type_node: Optional[TypeNode]) -> bool:
         if not type_node:
@@ -334,34 +428,99 @@ class Sema:
         if decl.body is None:
             return
         scope = outer.child()
-        for g in getattr(decl, "generics", []):
-            scope.define(Symbol(g, "type", None, decl.span))
-        for param in decl.params:
-            self._check_type(param.type_ann, param.span, scope)
-            if self._is_barecore:
-                self._assert_no_dynamic_alloc(param.type_ann, param.span)
-            sym = Symbol(param.name, "param", param.type_ann, param.span,
-                         is_island=self._type_is_island(param.type_ann))
-            scope.define(sym)
-            if sym.is_island:
-                self._island_vars.add(param.name)
-        if decl.ret:
-            self._check_type(decl.ret, decl.span, scope)
-            if self._is_barecore:
-                self._assert_no_dynamic_alloc(decl.ret, decl.span)
-        for stmt in decl.body:
-            self._check_stmt(stmt, scope)
-        # Limpar variáveis island do escopo ao sair
-        for param in decl.params:
-            self._island_vars.discard(param.name)
+        prev_flow = self._flow
+        prev_effects = self._current_effects
+        prev_is_sys = self._is_system_fn
+        prev_is_trap = self._is_trapfn
+        prev_is_irqfree = self._is_irqfree_fn
+
+        self._flow = FlowContext()
+        self._current_effects = set()
+
+        dir_names = [getattr(d, "name", "") for d in getattr(decl, "directives", []) or []]
+        self._is_system_fn = "system" in dir_names or getattr(decl, "is_system", False)
+        self._is_trapfn = False
+        self._is_irqfree_fn = "irqfree" in dir_names or "irq" in dir_names
+
+        try:
+            for g in getattr(decl, "generics", []):
+                scope.define(Symbol(g, "type", None, decl.span))
+            for param in decl.params:
+                self._check_type(param.type_ann, param.span, scope)
+                if self._is_barecore:
+                    self._assert_no_dynamic_alloc(param.type_ann, param.span)
+                is_sole = self._is_type_sole(param.type_ann)
+                sym = Symbol(param.name, "param", param.type_ann, param.span,
+                             is_island=self._type_is_island(param.type_ann),
+                             is_sole=is_sole)
+                scope.define(sym)
+                self._flow.define(sym, VarState.LIVE)
+                if sym.is_island:
+                    self._island_vars.add(param.name)
+            if decl.ret:
+                self._check_type(decl.ret, decl.span, scope)
+                if self._is_barecore:
+                    self._assert_no_dynamic_alloc(decl.ret, decl.span)
+            for stmt in decl.body:
+                self._check_stmt(stmt, scope)
+
+            self._fn_effect_map[decl.name] = set(self._current_effects)
+
+            if self._is_irqfree_fn:
+                if Effect.ALLOC in self._current_effects:
+                    self._err("error[E0712]: alocação dinâmica (efeito 'alloc') é proibida em contexto irqfree", decl.span)
+                if Effect.BLOCKING in self._current_effects:
+                    self._err("error[E0713]: operação bloqueante (efeito 'blocking') é proibida em contexto irqfree", decl.span)
+                if Effect.ASYNC in self._current_effects:
+                    self._err("error[E0714]: suspensão assíncrona (efeito 'async') é proibida em contexto irqfree", decl.span)
+        finally:
+            for param in decl.params:
+                self._island_vars.discard(param.name)
+            self._flow = prev_flow
+            prev_effects.update(self._current_effects)
+            self._current_effects = prev_effects
+            self._is_system_fn = prev_is_sys
+            self._is_trapfn = prev_is_trap
+            self._is_irqfree_fn = prev_is_irqfree
 
     def _check_trapfn(self, decl: TrapFnDeclNode) -> None:
         scope = self._global.child()
-        for param in decl.params:
-            self._check_type(param.type_ann, param.span, scope)
-            scope.define(Symbol(param.name, "param", param.type_ann, param.span))
-        for stmt in decl.body:
-            self._check_stmt(stmt, scope)
+        prev_flow = self._flow
+        prev_effects = self._current_effects
+        prev_is_sys = self._is_system_fn
+        prev_is_trap = self._is_trapfn
+        prev_is_irqfree = self._is_irqfree_fn
+
+        self._flow = FlowContext()
+        self._current_effects = set([Effect.IRQ])
+        self._is_system_fn = True
+        self._is_trapfn = True
+        self._is_irqfree_fn = True
+
+        try:
+            for param in decl.params:
+                self._check_type(param.type_ann, param.span, scope)
+                is_sole = self._is_type_sole(param.type_ann)
+                sym = Symbol(param.name, "param", param.type_ann, param.span, is_sole=is_sole)
+                scope.define(sym)
+                self._flow.define(sym, VarState.LIVE)
+            for stmt in decl.body:
+                self._check_stmt(stmt, scope)
+
+            self._fn_effect_map[decl.name] = set(self._current_effects)
+
+            if Effect.ALLOC in self._current_effects:
+                self._err("error[E0712]: alocação dinâmica (efeito 'alloc') é terminantemente proibida em contexto de interrupção (trapfn)", decl.span)
+            if Effect.BLOCKING in self._current_effects:
+                self._err("error[E0713]: operação bloqueante (efeito 'blocking') é terminantemente proibida em contexto de interrupção (trapfn)", decl.span)
+            if Effect.ASYNC in self._current_effects:
+                self._err("error[E0714]: suspensão assíncrona (efeito 'async') é terminantemente proibida em contexto de interrupção (trapfn)", decl.span)
+        finally:
+            self._flow = prev_flow
+            self._current_effects = prev_effects
+            self._is_system_fn = prev_is_sys
+            self._is_trapfn = prev_is_trap
+            self._is_irqfree_fn = prev_is_irqfree
 
     def _check_init(self, decl: InitDeclNode, outer: Scope) -> None:
         scope = outer.child()
@@ -469,15 +628,12 @@ class Sema:
             pass
         elif isinstance(stmt, WhileNode):
             self._check_expr(stmt.condition, scope)
-            s = scope.child()
-            for st in stmt.body:
-                self._check_stmt(st, s)
+            self._check_loop(stmt.body, scope, stmt.span)
         elif isinstance(stmt, ForNode):
             self._check_expr(stmt.iterable, scope)
             s = scope.child()
             s.define(Symbol(stmt.var, "let", None, stmt.span))
-            for st in stmt.body:
-                self._check_stmt(st, s)
+            self._check_loop(stmt.body, s, stmt.span)
         elif isinstance(stmt, UnsafeBlockNode):
             s = scope.child()
             self._unsafe_depth += 1
@@ -510,7 +666,11 @@ class Sema:
         covered_variants: Set[str] = set()
         has_wildcard = stmt.default_case is not None
 
+        before = self._flow.snapshot()
+        case_snaps: List[Dict[str, VarState]] = []
+
         for case in stmt.cases:
+            self._flow.restore_and_merge(before, [before])
             s = scope.child()
             if case.pattern.kind == "enum_variant":
                 covered_variants.add(str(case.pattern.value))
@@ -520,11 +680,17 @@ class Sema:
                 self._check_expr(case.guard, s)
             for st in case.body:
                 self._check_stmt(st, s)
+            case_snaps.append(self._flow.snapshot())
 
         if stmt.default_case:
+            self._flow.restore_and_merge(before, [before])
             s = scope.child()
             for st in stmt.default_case:
                 self._check_stmt(st, s)
+            case_snaps.append(self._flow.snapshot())
+
+        if case_snaps:
+            self._flow.restore_and_merge(before, case_snaps)
 
         if enum_decl and not has_wildcard:
             all_variants = {v.name for v in enum_decl.variants}
@@ -532,6 +698,20 @@ class Sema:
             if missing:
                 missing_str = ", ".join(sorted(missing))
                 self._err(f"discern não exaustivo: variantes ausentes: {missing_str}", stmt.span)
+
+    def _check_loop(self, body: List[StmtNode], scope: Scope, span: Span) -> None:
+        before = self._flow.snapshot()
+        s = scope.child()
+        for st in body:
+            self._check_stmt(st, s)
+        after = self._flow.snapshot()
+        for var, prev_st in before.items():
+            if prev_st == VarState.LIVE and after.get(var) in (VarState.MOVED, VarState.MAYBE_MOVED):
+                self._err(
+                    f"recurso 'sole' '{var}' não pode ser transferido dentro de laço sem ser reinicializado a cada iteração",
+                    span
+                )
+        self._flow.restore_and_merge(before, [after, before])
 
     def _check_local_var(self, stmt: LocalVarDeclNode, scope: Scope) -> None:
         if stmt.type_ann:
@@ -547,6 +727,14 @@ class Sema:
                 if stmt.type_ann and src_sym.type_node:
                     self._check_assignment_topology(stmt.type_ann, src_sym.type_node, stmt.span)
                 if self._is_type_sole(src_sym.type_node) or getattr(src_sym, "is_sole", False):
+                    var_st = self._flow.get_state(src_sym.name)
+                    if var_st == VarState.MOVED:
+                        self._err(f"uso inválido de recurso 'sole' '{src_sym.name}' após transferência (handover)", stmt.span)
+                    elif var_st == VarState.MAYBE_MOVED:
+                        self._err(f"uso inválido de recurso 'sole' '{src_sym.name}': recurso pode ter sido transferido em ramo condicional anterior", stmt.span)
+                    elif var_st in (VarState.BORROWED_IMMUT, VarState.BORROWED_MUT):
+                        self._err(f"não é permitido transferir recurso 'sole' '{src_sym.name}' enquanto estiver sob empréstimo ativo (whisper)", stmt.span)
+                    self._flow.set_state(src_sym.name, VarState.MOVED)
                     src_sym.is_moved = True
                     is_sole = True
                     if not stmt.type_ann and src_sym.type_node:
@@ -567,11 +755,11 @@ class Sema:
 
         is_island = stmt.type_ann is not None and self._type_is_island(stmt.type_ann)
         sym = Symbol(stmt.name, "var" if stmt.is_var else "let",
-                     stmt.type_ann, stmt.span, is_island=is_island)
-        sym.is_sole = is_sole
+                     stmt.type_ann, stmt.span, is_island=is_island, is_sole=is_sole)
         if is_sole and sym.type_node:
             sym.type_node.ownership = TK.KW_SOLE
         scope.define(sym)
+        self._flow.define(sym, VarState.LIVE)
         if is_island:
             self._island_vars.add(stmt.name)
 
@@ -579,33 +767,60 @@ class Sema:
         self._check_expr(stmt.target, scope)
         self._check_expr(stmt.value, scope)
         if isinstance(stmt.target, UnaryExprNode) and stmt.target.op == TK.STAR:
-            if self._unsafe_depth <= 0:
+            if self._unsafe_depth <= 0 and not self._is_system_fn:
                 self._err("desreferenciamento de ponteiro cru exige bloco unsafe explícito", stmt.span)
-        # Regra de segurança: rawphys ↔ virtmap ↔ dmazone não podem ser misturados sem cast
         if isinstance(stmt.target, IdentNode):
             dest_sym = scope.lookup(stmt.target.name)
             if dest_sym:
+                if self._is_type_sole(dest_sym.type_node) or getattr(dest_sym, "is_sole", False):
+                    self._flow.set_state(dest_sym.name, VarState.LIVE)
+                    dest_sym.is_moved = False
+
                 src_type = None
                 if isinstance(stmt.value, IdentNode):
                     src_sym = scope.lookup(stmt.value.name)
                     if src_sym:
                         src_type = src_sym.type_node
                         if self._is_type_sole(src_sym.type_node) or getattr(src_sym, "is_sole", False):
+                            var_st = self._flow.get_state(src_sym.name)
+                            if var_st == VarState.MOVED:
+                                self._err(f"uso inválido de recurso 'sole' '{src_sym.name}' após transferência (handover)", stmt.span)
+                            elif var_st == VarState.MAYBE_MOVED:
+                                self._err(f"uso inválido de recurso 'sole' '{src_sym.name}': recurso pode ter sido transferido em ramo condicional anterior", stmt.span)
+                            elif var_st in (VarState.BORROWED_IMMUT, VarState.BORROWED_MUT):
+                                self._err(f"não é permitido transferir recurso 'sole' '{src_sym.name}' enquanto estiver sob empréstimo ativo (whisper)", stmt.span)
+                            self._flow.set_state(src_sym.name, VarState.MOVED)
                             src_sym.is_moved = True
                 if dest_sym.type_node:
                     self._check_assignment_topology(dest_sym.type_node, src_type, stmt.span)
 
     def _check_assignment_topology(self, dest_type: TypeNode, src_type: Optional[TypeNode], span: Span) -> None:
         """Bloqueia atribuição implícita entre *rawphys, *virtmap, *portwire e *dmazone."""
-        if dest_type and dest_type.topology_ptr and src_type and src_type.topology_ptr:
-            if dest_type.topology_ptr != src_type.topology_ptr:
-                src_name = TOPOLOGY_NAME_MAP.get(src_type.topology_ptr, getattr(src_type.topology_ptr, "name", str(src_type.topology_ptr)))
-                dest_name = TOPOLOGY_NAME_MAP.get(dest_type.topology_ptr, getattr(dest_type.topology_ptr, "name", str(dest_type.topology_ptr)))
+        if not dest_type or not src_type:
+            return
+        dest_topo = dest_type.topology_ptr
+        src_topo = src_type.topology_ptr
+        if dest_topo and src_topo:
+            if dest_topo != src_topo:
+                src_name = TOPOLOGY_NAME_MAP.get(src_topo, getattr(src_topo, "name", str(src_topo)))
+                dest_name = TOPOLOGY_NAME_MAP.get(dest_topo, getattr(dest_topo, "name", str(dest_topo)))
                 self._err(
                     f"atribuição de topologia incompatível: tentativa de atribuir "
                     f"'{src_name}' para '{dest_name}' sem conversão explícita",
                     span
                 )
+        elif dest_topo in (TK.KW_RAWPHYS, TK.KW_VIRTMAP, TK.KW_PORTWIRE, TK.KW_DMAZONE) and not src_topo:
+            dest_name = TOPOLOGY_NAME_MAP.get(dest_topo, getattr(dest_topo, "name", str(dest_topo)))
+            self._err(
+                f"atribuição de topologia incompatível: conversão implícita para '{dest_name}' exige cast explícito",
+                span
+            )
+        elif src_topo in (TK.KW_RAWPHYS, TK.KW_VIRTMAP, TK.KW_PORTWIRE, TK.KW_DMAZONE) and not dest_topo:
+            src_name = TOPOLOGY_NAME_MAP.get(src_topo, getattr(src_topo, "name", str(src_topo)))
+            self._err(
+                f"atribuição de topologia incompatível: escape de '{src_name}' para ponteiro comum exige cast explícito",
+                span
+            )
 
     def _check_handover(self, stmt: HandoverNode, scope: Scope) -> None:
         """Verifica que handover é aplicado a uma variável 'sole' e a marca como transferida (moved)."""
@@ -620,6 +835,14 @@ class Sema:
                         f"mas '{stmt.expr.name}' é '{ownership_str}'",
                         stmt.span
                     )
+                var_st = self._flow.get_state(stmt.expr.name)
+                if var_st == VarState.MOVED:
+                    self._err(f"uso inválido de recurso 'sole' '{stmt.expr.name}' após transferência (handover)", stmt.span)
+                elif var_st == VarState.MAYBE_MOVED:
+                    self._err(f"uso inválido de recurso 'sole' '{stmt.expr.name}': recurso pode ter sido transferido em ramo condicional anterior", stmt.span)
+                elif var_st in (VarState.BORROWED_IMMUT, VarState.BORROWED_MUT):
+                    self._err(f"não é permitido transferir recurso 'sole' '{stmt.expr.name}' enquanto estiver sob empréstimo ativo (whisper)", stmt.span)
+                self._flow.set_state(stmt.expr.name, VarState.MOVED)
                 sym.is_moved = True
 
     def _check_quarantine(self, stmt: QuarantineNode, scope: Scope) -> None:
@@ -632,28 +855,47 @@ class Sema:
 
     def _check_clinch(self, stmt: ClinchNode, scope: Scope) -> None:
         """Bloco clínico (seção crítica de hardware) — corpo e revert."""
-        s = scope.child()
-        for st in stmt.body:
-            self._check_stmt(st, s)
-        if stmt.revert:
-            r = scope.child()
-            for st in stmt.revert:
-                self._check_stmt(st, r)
+        prev_clinch = self._in_clinch
+        self._in_clinch = True
+        try:
+            s = scope.child()
+            for st in stmt.body:
+                self._check_stmt(st, s)
+            if stmt.revert:
+                r = scope.child()
+                for st in stmt.revert:
+                    self._check_stmt(st, r)
+        finally:
+            self._in_clinch = prev_clinch
 
     def _check_if(self, stmt: IfNode, scope: Scope) -> None:
         self._check_expr(stmt.condition, scope)
+        before = self._flow.snapshot()
+
         s = scope.child()
         if stmt.let_bind:
-            s.define(Symbol(stmt.let_bind, "let", None, stmt.span))
+            sym = Symbol(stmt.let_bind, "let", None, stmt.span)
+            s.define(sym)
+            self._flow.define(sym, VarState.LIVE)
         for st in stmt.then_body:
             self._check_stmt(st, s)
+        snap_then = self._flow.snapshot()
+
         if stmt.else_body:
+            self._flow.restore_and_merge(before, [before])
             if isinstance(stmt.else_body, IfNode):
                 self._check_if(stmt.else_body, scope)
+                snap_else = self._flow.snapshot()
             elif isinstance(stmt.else_body, list):
                 es = scope.child()
                 for st in stmt.else_body:
                     self._check_stmt(st, es)
+                snap_else = self._flow.snapshot()
+            else:
+                snap_else = before
+            self._flow.restore_and_merge(before, [snap_then, snap_else])
+        else:
+            self._flow.restore_and_merge(before, [snap_then, before])
 
     # ------------------------------------------------------------------
     # Verificação de Expressões
@@ -665,31 +907,110 @@ class Sema:
                 pass  # Acesso a island ou intrínseco de sistema/hardware
             elif not expr.path and not scope.lookup(expr.name):
                 if not self._in_method:
-                    # Fora de métodos de struct/classe: erro de símbolo não declarado
                     self._err(f"símbolo não declarado: '{expr.name}'", expr.span)
-                # Dentro de método: provavelmente campo de self implícito — aceitar no MVP
             else:
                 sym = scope.lookup(expr.name)
-                if sym and getattr(sym, "is_moved", False):
-                    self._err(
-                        f"uso inválido de recurso 'sole' '{expr.name}' após transferência (handover)",
-                        expr.span
-                    )
+                if sym and (self._is_type_sole(sym.type_node) or getattr(sym, "is_sole", False)):
+                    var_st = self._flow.get_state(expr.name)
+                    if var_st == VarState.MOVED:
+                        self._err(
+                            f"uso inválido de recurso 'sole' '{expr.name}' após transferência (handover)",
+                            expr.span
+                        )
+                    elif var_st == VarState.MAYBE_MOVED:
+                        self._err(
+                            f"uso inválido de recurso 'sole' '{expr.name}': recurso pode ter sido transferido em ramo condicional anterior",
+                            expr.span
+                        )
+                    elif var_st == VarState.BORROWED_MUT:
+                        self._err(
+                            f"acesso inválido a '{expr.name}': variável sob empréstimo mutável exclusivo (whisper mut)",
+                            expr.span
+                        )
         elif isinstance(expr, BinaryExprNode):
             self._check_expr(expr.left, scope)
             self._check_expr(expr.right, scope)
         elif isinstance(expr, UnaryExprNode):
             self._check_expr(expr.operand, scope)
-            if expr.op == TK.STAR:
-                if self._unsafe_depth <= 0:
+            if expr.op == TK.KW_AWAIT:
+                self._current_effects.add(Effect.ASYNC)
+                if self._in_clinch:
+                    self._err("suspensão ('await') é terminantemente proibida dentro de seção crítica de hardware ('clinch')", expr.span)
+                if self._is_trapfn or self._is_irqfree_fn:
+                    self._err("error[E0714]: suspensão assíncrona (efeito 'async') é terminantemente proibida em contexto de interrupção (trapfn/irq)", expr.span)
+            elif expr.op == TK.STAR:
+                if self._unsafe_depth <= 0 and not self._is_system_fn:
                     self._err("desreferenciamento de ponteiro cru exige bloco unsafe explícito", expr.span)
+            elif expr.op == TK.KW_WHISPER:
+                if isinstance(expr.operand, IdentNode):
+                    var_name = expr.operand.name
+                    cur_st = self._flow.get_state(var_name)
+                    if cur_st == VarState.MOVED:
+                        self._err(f"uso inválido de recurso 'sole' '{var_name}' após transferência (handover)", expr.span)
+                    elif cur_st == VarState.MAYBE_MOVED:
+                        self._err(f"uso inválido de recurso 'sole' '{var_name}': recurso pode ter sido transferido em ramo condicional anterior", expr.span)
+
+                    if getattr(expr, "is_mut", False):
+                        if cur_st == VarState.BORROWED_IMMUT:
+                            self._err(f"não é permitido criar empréstimo mutável (whisper mut) enquanto houver outros empréstimos ativos (whisper) em '{var_name}'", expr.span)
+                        elif cur_st == VarState.BORROWED_MUT:
+                            self._err(f"conflito de empréstimo: empréstimo mutável exclusivo já ativo em '{var_name}'", expr.span)
+                        self._flow.set_state(var_name, VarState.BORROWED_MUT)
+                    else:
+                        if cur_st == VarState.BORROWED_MUT:
+                            self._err(f"não é permitido criar empréstimo imutável (whisper) enquanto houver empréstimo mutável ativo (whisper mut) em '{var_name}'", expr.span)
+                        self._flow.set_state(var_name, VarState.BORROWED_IMMUT)
         elif isinstance(expr, CallExprNode):
+            callee_name = ""
+            if isinstance(expr.callee, IdentNode):
+                callee_name = expr.callee.name
+                if expr.callee.path:
+                    callee_name = "::".join(expr.callee.path)
+
+            ALLOCATING_NAMES = {
+                "malloc", "calloc", "realloc", "heap_allocate", "heap_alloc",
+                "alloc", "kalloc", "kmalloc", "allocate"
+            }
+            BLOCKING_NAMES = {
+                "sleep", "msleep", "usleep", "yield", "thread_yield",
+                "block_on", "wait_for_event", "mutex_lock", "semaphore_wait"
+            }
+
+            if any(callee_name == a or callee_name.endswith("::" + a) for a in ALLOCATING_NAMES):
+                self._current_effects.add(Effect.ALLOC)
+                if self._is_trapfn or self._is_irqfree_fn:
+                    self._err("error[E0712]: alocação dinâmica (efeito 'alloc') é terminantemente proibida em contexto de interrupção (trapfn/irq)", expr.span)
+            if any(callee_name == b or callee_name.endswith("::" + b) for b in BLOCKING_NAMES):
+                self._current_effects.add(Effect.BLOCKING)
+                if self._is_trapfn or self._is_irqfree_fn:
+                    self._err("error[E0713]: operação bloqueante (efeito 'blocking') é terminantemente proibida em contexto de interrupção (trapfn/irq)", expr.span)
+                if self._in_clinch:
+                    self._err("operação bloqueante é terminantemente proibida dentro de seção crítica de hardware ('clinch')", expr.span)
+            if callee_name in self._fn_effect_map:
+                callee_effects = self._fn_effect_map[callee_name]
+                self._current_effects.update(callee_effects)
+                if Effect.ALLOC in callee_effects and (self._is_trapfn or self._is_irqfree_fn):
+                    self._err("error[E0712]: alocação dinâmica (efeito 'alloc') é terminantemente proibida em contexto de interrupção (trapfn/irq)", expr.span)
+                if Effect.BLOCKING in callee_effects:
+                    if self._is_trapfn or self._is_irqfree_fn:
+                        self._err("error[E0713]: operação bloqueante (efeito 'blocking') é terminantemente proibida em contexto de interrupção (trapfn/irq)", expr.span)
+                    if self._in_clinch:
+                        self._err("operação bloqueante é terminantemente proibida dentro de seção crítica de hardware ('clinch')", expr.span)
+
             self._check_expr(expr.callee, scope)
             for arg in expr.args:
                 self._check_expr(arg.value, scope)
                 if isinstance(arg.value, IdentNode):
                     arg_sym = scope.lookup(arg.value.name)
                     if arg_sym and (self._is_type_sole(arg_sym.type_node) or getattr(arg_sym, "is_sole", False)):
+                        var_st = self._flow.get_state(arg.value.name)
+                        if var_st == VarState.MOVED:
+                            self._err(f"uso inválido de recurso 'sole' '{arg.value.name}' após transferência (handover)", expr.span)
+                        elif var_st == VarState.MAYBE_MOVED:
+                            self._err(f"uso inválido de recurso 'sole' '{arg.value.name}': recurso pode ter sido transferido em ramo condicional anterior", expr.span)
+                        elif var_st in (VarState.BORROWED_IMMUT, VarState.BORROWED_MUT):
+                            self._err(f"não é permitido transferir recurso 'sole' '{arg.value.name}' enquanto estiver sob empréstimo ativo (whisper)", expr.span)
+                        self._flow.set_state(arg.value.name, VarState.MOVED)
                         arg_sym.is_moved = True
         elif isinstance(expr, (SpanOfNode, StrideOfNode, AlignOfNode)):
             self._check_type(expr.target_type, expr.span, scope)

@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sotlas 3D Raycaster Engine — Flagship Demo</title>
+    <style>
+        :root {
+            --bg-color: #0b0e14;
+            --panel-bg: #151922;
+            --accent: #ff6b35;
+            --accent-cyan: #00f0ff;
+            --text-main: #e2e8f0;
+            --text-muted: #8492a6;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .badge {
+            display: inline-block;
+            background: rgba(255, 107, 53, 0.15);
+            color: var(--accent);
+            border: 1px solid var(--accent);
+            border-radius: 9999px;
+            padding: 4px 14px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            margin-bottom: 8px;
+        }
+
+        h1 {
+            font-size: 2.2rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, #ffffff 0%, var(--accent-cyan) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 6px;
+        }
+
+        p.subtitle {
+            color: var(--text-muted);
+            font-size: 0.95rem;
+        }
+
+        .viewport-container {
+            position: relative;
+            background: #000;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8), 0 0 30px rgba(0, 240, 255, 0.15);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        canvas#viewport {
+            image-rendering: pixelated;
+            width: 640px;
+            height: 480px;
+            display: block;
+        }
+
+        .hud-overlay {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background: rgba(11, 14, 20, 0.85);
+            backdrop-filter: blur(8px);
+            padding: 10px 16px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            font-family: monospace;
+            font-size: 0.85rem;
+            color: var(--accent-cyan);
+            line-height: 1.5;
+        }
+
+        .controls-panel {
+            margin-top: 20px;
+            background: var(--panel-bg);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 10px;
+            padding: 16px 24px;
+            display: flex;
+            gap: 30px;
+            align-items: center;
+            max-width: 640px;
+            width: 100%;
+        }
+
+        .key-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
+        kbd {
+            background: #232a38;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 4px;
+            padding: 4px 8px;
+            font-family: monospace;
+            font-weight: 600;
+            color: #fff;
+            box-shadow: 0 2px 0 rgba(0, 0, 0, 0.5);
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="badge">Sotlas Graphics & Game Engine</div>
+        <h1>Sotlas 3D Raycaster</h1>
+        <p class="subtitle">Motor gráfico de software puro com algoritmo DDA, minimapa e iluminação dinâmica</p>
+    </header>
+
+    <div class="viewport-container">
+        <canvas id="viewport" width="320" height="240"></canvas>
+        <div class="hud-overlay" id="hud">
+            FPS: <span id="fps">60</span><br>
+            POS: <span id="pos">2.5, 2.5</span><br>
+            FOV: 66°
+        </div>
+    </div>
+
+    <div class="controls-panel">
+        <div class="key-group">
+            <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>
+            <span>Mover</span>
+        </div>
+        <div class="key-group">
+            <kbd>←</kbd><kbd>→</kbd>
+            <span>Girar Câmera</span>
+        </div>
+        <div class="key-group">
+            <span>Render: <b>Sotlas 320x240 ARGB</b></span>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('viewport');
+        const ctx = canvas.getContext('2d');
+        const W = 320, H = 240;
+        const imgData = ctx.createImageData(W, H);
+        const buf = new Uint32Array(imgData.data.buffer);
+
+        // Mapa do mundo 12x12
+        const map = [
+            1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+            1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+            1, 0, 2, 2, 0, 0, 0, 3, 3, 3, 0, 1,
+            1, 0, 2, 0, 0, 0, 0, 0, 0, 3, 0, 1,
+            1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1,
+            1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1,
+            1, 0, 3, 0, 0, 0, 0, 0, 0, 2, 0, 1,
+            1, 0, 3, 3, 0, 0, 0, 2, 2, 2, 0, 1,
+            1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+            1, 0, 1, 1, 1, 0, 0, 1, 1, 1, 0, 1,
+            1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+            1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
+        ];
+
+        let posX = 2.5, posY = 2.5;
+        let dirX = 1.0, dirY = 0.0;
+        let planeX = 0.0, planeY = 0.66;
+
+        const keys = {};
+        window.addEventListener('keydown', e => keys[e.key.toLowerCase()] = true);
+        window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+
+        function update(dt) {
+            const moveSpeed = 3.5 * dt;
+            const rotSpeed = 2.5 * dt;
+
+            // Movimento Frente / Trás
+            if (keys['w'] || keys['arrowup']) {
+                if (map[Math.floor(posY) * 12 + Math.floor(posX + dirX * moveSpeed)] === 0) posX += dirX * moveSpeed;
+                if (map[Math.floor(posY + dirY * moveSpeed) * 12 + Math.floor(posX)] === 0) posY += dirY * moveSpeed;
+            }
+            if (keys['s'] || keys['arrowdown']) {
+                if (map[Math.floor(posY) * 12 + Math.floor(posX - dirX * moveSpeed)] === 0) posX -= dirX * moveSpeed;
+                if (map[Math.floor(posY - dirY * moveSpeed) * 12 + Math.floor(posX)] === 0) posY -= dirY * moveSpeed;
+            }
+
+            // Rotação da Câmera
+            let rot = 0;
+            if (keys['d'] || keys['arrowright']) rot = -rotSpeed;
+            if (keys['a'] || keys['arrowleft']) rot = rotSpeed;
+
+            if (rot !== 0) {
+                const oldDirX = dirX;
+                dirX = dirX * Math.cos(rot) - dirY * Math.sin(rot);
+                dirY = oldDirX * Math.sin(rot) + dirY * Math.cos(rot);
+                const oldPlaneX = planeX;
+                planeX = planeX * Math.cos(rot) - planeY * Math.sin(rot);
+                planeY = oldPlaneX * Math.sin(rot) + planeY * Math.cos(rot);
+            }
+        }
+
+        function render() {
+            // Teto e Chão
+            const ceilColor = 0xFF3C2D28;
+            const floorColor = 0xFF1E1E1E;
+            for (let i = 0; i < (W * H / 2); i++) buf[i] = ceilColor;
+            for (let i = (W * H / 2); i < (W * H); i++) buf[i] = floorColor;
+
+            // Raycasting DDA
+            for (let x = 0; x < W; x++) {
+                const cameraX = 2 * x / W - 1;
+                const rayDirX = dirX + planeX * cameraX;
+                const rayDirY = dirY + planeY * cameraX;
+
+                let mapX = Math.floor(posX);
+                let mapY = Math.floor(posY);
+
+                const deltaDistX = Math.abs(1 / rayDirX);
+                const deltaDistY = Math.abs(1 / rayDirY);
+
+                let stepX, stepY, sideDistX, sideDistY;
+
+                if (rayDirX < 0) {
+                    stepX = -1;
+                    sideDistX = (posX - mapX) * deltaDistX;
+                } else {
+                    stepX = 1;
+                    sideDistX = (mapX + 1.0 - posX) * deltaDistX;
+                }
+                if (rayDirY < 0) {
+                    stepY = -1;
+                    sideDistY = (posY - mapY) * deltaDistY;
+                } else {
+                    stepY = 1;
+                    sideDistY = (mapY + 1.0 - posY) * deltaDistY;
+                }
+
+                let hit = false, side = 0, wallType = 1;
+                while (!hit) {
+                    if (sideDistX < sideDistY) {
+                        sideDistX += deltaDistX;
+                        mapX += stepX;
+                        side = 0;
+                    } else {
+                        sideDistY += deltaDistY;
+                        mapY += stepY;
+                        side = 1;
+                    }
+                    if (mapX >= 0 && mapX < 12 && mapY >= 0 && mapY < 12) {
+                        const cell = map[mapY * 12 + mapX];
+                        if (cell > 0) {
+                            hit = true;
+                            wallType = cell;
+                        }
+                    } else {
+                        hit = true;
+                    }
+                }
+
+                const perpWallDist = side === 0 ? (sideDistX - deltaDistX) : (sideDistY - deltaDistY);
+                const dist = Math.max(0.1, perpWallDist);
+
+                const lineHeight = Math.floor(H / dist);
+                let drawStart = -lineHeight / 2 + H / 2;
+                if (drawStart < 0) drawStart = 0;
+                let drawEnd = lineHeight / 2 + H / 2;
+                if (drawEnd >= H) drawEnd = H - 1;
+
+                let r = 180, g = 180, b = 180;
+                if (wallType === 1) { r = 60; g = 120; b = 220; }
+                else if (wallType === 2) { r = 220; g = 60; b = 60; }
+                else if (wallType === 3) { r = 60; g = 200; b = 80; }
+
+                if (side === 1) {
+                    r = Math.floor(r * 0.65);
+                    g = Math.floor(g * 0.65);
+                    b = Math.floor(b * 0.65);
+                }
+
+                const colVal = (255 << 24) | (b << 16) | (g << 8) | r;
+                for (let y = drawStart; y <= drawEnd; y++) {
+                    buf[y * W + x] = colVal;
+                }
+            }
+
+            // Minimapa
+            const tileSize = 4;
+            for (let my = 0; my < 12; my++) {
+                for (let mx = 0; mx < 12; mx++) {
+                    const cell = map[my * 12 + mx];
+                    const color = cell > 0 ? 0xFFC8C8C8 : 0xFF0A0A0A;
+                    for (let py = 0; py < tileSize - 1; py++) {
+                        for (let px = 0; px < tileSize - 1; px++) {
+                            buf[(8 + my * tileSize + py) * W + (8 + mx * tileSize + px)] = color;
+                        }
+                    }
+                }
+            }
+            // Ponto do Jogador no minimapa
+            const pmX = Math.floor(8 + posX * tileSize);
+            const pmY = Math.floor(8 + posY * tileSize);
+            buf[pmY * W + pmX] = 0xFF00FFFF;
+
+            ctx.putImageData(imgData, 0, 0);
+
+            document.getElementById('pos').innerText = `${posX.toFixed(1)}, ${posY.toFixed(1)}`;
+        }
+
+        let lastTime = performance.now();
+        let frameCount = 0, fpsTimer = 0;
+
+        function loop(now) {
+            const dt = Math.min((now - lastTime) / 1000, 0.1);
+            lastTime = now;
+
+            update(dt);
+            render();
+
+            frameCount++;
+            fpsTimer += dt;
+            if (fpsTimer >= 1.0) {
+                document.getElementById('fps').innerText = frameCount;
+                frameCount = 0;
+                fpsTimer = 0;
+            }
+
+            requestAnimationFrame(loop);
+        }
+        requestAnimationFrame(loop);
+    </script>
+</body>
+</html>

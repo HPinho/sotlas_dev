@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SOTLAS_ROOT="$(dirname "$SCRIPT_DIR")"
+
+if command -v python3 &>/dev/null; then
+    exec python3 "$SOTLAS_ROOT/tools/sotlas_compile/cli.py" "$@"
+else
+    exec python "$SOTLAS_ROOT/tools/sotlas_compile/cli.py" "$@"
+fi

@@ -314,52 +314,52 @@ impl Ponte<String> {
 }
 ```
 
-### 10.2 Traits (Interfaces)
+### 10.2 Specs (Contratos Verificáveis)
+Em Sotlas, o contrato de uma interface ou comportamento é definido por uma `spec`. Tipos declaram sua conformidade através da cláusula `adopts`.
+
 ```st
-trait Drawable {
+spec Drawable {
     fn desenhar(&self);
     fn limites(&self) -> Rect;
 }
 
-struct Circulo {
+struct Circulo adopts Drawable {
     centro: Ponto,
     raio: u32,
-    cor: u32
-}
+    cor: u32,
 
-impl Drawable for Circulo {
-    fn desenhar(&self) {
+    pub fn desenhar(&self) {
         // implementação de desenho de círculo
     }
     
-    fn limites(&self) -> Rect {
+    pub fn limites(&self) -> Rect {
         // calcular limites do círculo
     }
 }
 
-// Uso genérico com trait bound
-fn renderizar<T: Drawable>(item: &T) {
+// Uso genérico com restrição de spec (forge)
+fn renderizar forge<T adopts Drawable>(item: &T) {
     item.desenhar();
 }
 ```
 
-### 10.3 Tipos Associados
+### 10.3 Tipos Associados e Contratos de Hardware
 ```st
-trait Container {
+spec Container {
     type Item;
     fn inserir(&mut self, item: Self::Item);
     fn obter(&self) -> Option<&Self::Item>;
 }
 
-impl<T> Container for Ponte<T> {
-    type Item = T;
+struct Ponte<T> adopts Container {
+    dados: T,
     
-    fn inserir(&mut self, item: Self::Item) {
+    fn inserir(&mut self, item: T) {
         self.dados = item;
     }
     
-    fn obter(&self) -> Option<&Self::Item> {
-        Some(&self.dados)
+    fn obter(&self) -> Option<&T> {
+        return Option::Some(&self.dados);
     }
 }
 ```
@@ -474,7 +474,8 @@ Sotlas usa atributos anotados com `@` para modificar declarações.
 Algumas expressões podem ser avaliadas em tempo de compilação:
 - Operações aritméticas em constantes
 - Funções marcadas como `const`
-- Manipulação de tipos e traits
+- Blocos de metaprogramação `mould { ... }`
+- Manipulação de tipos e specs
 
 ### 13.2 Funções Const
 ```st
@@ -542,15 +543,16 @@ unsafe {
 Operações que requerem `unsafe`:
 - Desreferenciação de ponteiros raw (`*const T`, `*mut T`)
 - Chamada de funções `unsafe` ou extern
-- Implementação de traits unsafe
+- Operações de baixo nível não cobertas por garantias de tipo
 - Acesso a campos de union
 - Inserção de assembly inline
 
-### 16.2 Abstrações Seguras
+### 16.2 Abstrações Seguras e Topologia de Hardware
 Sotlas incentiva o uso de abstrações seguras em vez de `unsafe` quando possível:
-- Referências (`&T`, `&mut T`) em vez de ponteiros raw
-- Containers da biblioteca padrão (`Vec<T>`, `String`) em vez de gerenciamento manual de memória
-- Traits para encapsular operações perigosas
+- Referências (`&T`, `&mut T`, `whisper T`) em vez de ponteiros raw
+- Ponteiros de topologia explícitos (`*rawphys T`, `*virtmap T`, `*dmazone T`, `*portwire T`)
+- Containers seguros e tipos lineares (`sole`) em vez de gerenciamento manual de memória
+- Specs (`spec`) para encapsular contratos verificáveis
 
 ## 17. Biblioteca Padrão
 
@@ -587,7 +589,7 @@ A biblioteca padrão Sotlas fornece:
 /// 
 /// ```st
 /// let x = 5;
-/// /// ```
+/// ```
 pub fn minha_função() {
     // ...
 }
@@ -596,31 +598,35 @@ pub fn minha_função() {
 ### 18.2 Comentários de Linha e Bloco
 Como descrito na seção 2.1.
 
-## 19. gramática Formal (EBNF Simplificado)
+## 19. Gramática Formal (EBNF Simplificado)
 
 ```
 programa := item*;
-item := módulo | import | fn | struct | enum | const | static | trait | impl;
-módulo := "mod" identificador "{" item* "}";
-import := "import" caminho ( "::" identificador | "::" "*" )?;
-fn := "fn" identificador "(" parâmetro* ")" "->" tipo? bloco;
+item := módulo | import | fn | trapfn | struct | class | spec | enum | const | static | mould;
+módulo := "module" identificador ";";
+import := "import" caminho ( "::" identificador | "::" "*" )? ";";
+fn := "fn" identificador "(" parâmetro* ")" ( "->" tipo )? bloco;
+trapfn := "trapfn" identificador "(" parâmetro* ")" ( "->" tipo )? bloco;
 parâmetro := "mut"? identificador ":" tipo;
-struct := "struct" identificador "{" campo* "}";
-campo := "mut"? identificador ":" tipo;
+struct := [ "sole" ] "struct" identificador [ "adopts" lista_specs ] "{" campo* "}";
+class := "class" identificador [ ":" classe_base ] [ "adopts" lista_specs ] "{" membro* "}";
+spec := "spec" identificador "{" assinatura_método* "}";
+campo := "pub"? "mut"? identificador ":" tipo ";";
 enum := "enum" identificador "{" variante* "}";
-variante := identificador ( "(" tipo* ")" )?;
+variante := identificador ( "(" tipo* ")" )? [ "=" expressão ] [ "," ];
 const := "const" identificador ":" tipo "=" expressão ";";
 static := "static" identificador ":" tipo "=" expressão ";";
-trait := "trait" identificador "{*" assinatura_método* "}";
-impl := "impl" tipo? "{" método* "}";
+mould := "mould" bloco;
 bloco := "{" statement* "}";
 statement := 
     | let_decl
+    | handover_decl
     | expressão ";"
     | if_statement
     | loop_statement
     | while_statement
     | match_statement
+    | clinch_statement
     | break ";"
     | continue ";"
     | return expressão? ";"

@@ -1,0 +1,312 @@
+module examples::json_parser;
+
+// ============================================================================
+// examples::json_parser — Parser de JSON em Sotlas Puro (Aplicação Userspace)
+// ============================================================================
+//
+// Prova de que Sotlas é uma linguagem de uso geral de primeira classe:
+// Este módulo implementa um parser de JSON tokenizado, recursivo e zero-alloc,
+// rodando inteiramente fora do contexto de kernel ou sistema operacional.
+//
+// Zero chamadas de sistema. Zero dependências externas.
+// ============================================================================
+
+import core::string::*;
+import core::conv::*;
+
+pub const JSON_NULL: u8   = 0;
+pub const JSON_BOOL: u8   = 1;
+pub const JSON_NUMBER: u8 = 2;
+pub const JSON_STRING: u8 = 3;
+pub const JSON_ARRAY: u8  = 4;
+pub const JSON_OBJECT: u8 = 5;
+
+pub struct JsonNode {
+    pub kind: u8,
+    pub bool_val: bool,
+    pub int_val: i64,
+    pub str_val: *const u8,
+    pub str_len: usize,
+    pub child_count: usize,
+}
+
+pub struct JsonParser {
+    pub src: *const u8,
+    pub len: usize,
+    pub pos: usize,
+}
+
+pub fn json_parser_new(src: *const u8, len: usize) -> JsonParser {
+    let mut p: JsonParser = 0;
+    p.src = src;
+    p.len = len;
+    p.pos = 0;
+    return p;
+}
+
+fn json_skip_whitespace(p: *mut JsonParser) {
+    if p == null {
+        return;
+    }
+    unsafe {
+        while (*p).pos < (*p).len {
+            let c: u8 = *((*p).src + (*p).pos);
+            if c == 32 || c == 9 || c == 10 || c == 13 { // ' ', '\t', '\n', '\r'
+                (*p).pos = (*p).pos + 1;
+            } else {
+                break;
+            }
+        }
+    }
+}
+
+fn json_peek_char(p: *const JsonParser) -> u8 {
+    if p == null {
+        return 0;
+    }
+    unsafe {
+        if (*p).pos >= (*p).len {
+            return 0;
+        }
+        return *((*p).src + (*p).pos);
+    }
+}
+
+fn json_next_char(p: *mut JsonParser) -> u8 {
+    if p == null {
+        return 0;
+    }
+    unsafe {
+        if (*p).pos >= (*p).len {
+            return 0;
+        }
+        let c: u8 = *((*p).src + (*p).pos);
+        (*p).pos = (*p).pos + 1;
+        return c;
+    }
+}
+
+// Parse de String JSON: "conteudo" ou 'conteudo'
+pub fn json_parse_string(p: *mut JsonParser, out_node: *mut JsonNode) -> bool {
+    if p == null || out_node == null {
+        return false;
+    }
+    json_skip_whitespace(p);
+    let quote: u8 = json_next_char(p);
+    if quote != 34 && quote != 39 { // '"' ou '\''
+        return false;
+    }
+
+    unsafe {
+        let start_pos: usize = (*p).pos;
+        while (*p).pos < (*p).len {
+            let c: u8 = *((*p).src + (*p).pos);
+            if c == quote { // fecha aspas
+                let str_length: usize = (*p).pos - start_pos;
+                (*p).pos = (*p).pos + 1;
+
+                (*out_node).kind = JSON_STRING;
+                (*out_node).str_val = (*p).src + start_pos;
+                (*out_node).str_len = str_length;
+                return true;
+            }
+            (*p).pos = (*p).pos + 1;
+        }
+    }
+    return false;
+}
+
+// Parse de Número Inteiro JSON: 12345 ou -50
+pub fn json_parse_number(p: *mut JsonParser, out_node: *mut JsonNode) -> bool {
+    if p == null || out_node == null {
+        return false;
+    }
+    json_skip_whitespace(p);
+
+    unsafe {
+        let start_pos: usize = (*p).pos;
+        let mut negative: bool = false;
+
+        let first: u8 = json_peek_char(p);
+        if first == 45 { // '-'
+            negative = true;
+            (*p).pos = (*p).pos + 1;
+        }
+
+        let mut val: i64 = 0;
+        let mut digits_found: bool = false;
+
+        while (*p).pos < (*p).len {
+            let c: u8 = *((*p).src + (*p).pos);
+            if c >= 48 && c <= 57 { // '0'..'9'
+                val = val * 10 + ((c - 48) as i64);
+                digits_found = true;
+                (*p).pos = (*p).pos + 1;
+            } else {
+                break;
+            }
+        }
+
+        if !digits_found {
+            return false;
+        }
+
+        if negative {
+            val = -val;
+        }
+
+        (*out_node).kind = JSON_NUMBER;
+        (*out_node).int_val = val;
+        (*out_node).str_val = (*p).src + start_pos;
+        (*out_node).str_len = (*p).pos - start_pos;
+        return true;
+    }
+}
+
+// Parse de Booleano: true / false
+pub fn json_parse_bool(p: *mut JsonParser, out_node: *mut JsonNode) -> bool {
+    if p == null || out_node == null {
+        return false;
+    }
+    json_skip_whitespace(p);
+
+    let c: u8 = json_peek_char(p);
+    if c == 116 { // 't' de true
+        json_next_char(p); // 't'
+        json_next_char(p); // 'r'
+        json_next_char(p); // 'u'
+        json_next_char(p); // 'e'
+        unsafe {
+            (*out_node).kind = JSON_BOOL;
+            (*out_node).bool_val = true;
+        }
+        return true;
+    } else if c == 102 { // 'f' de false
+        json_next_char(p); // 'f'
+        json_next_char(p); // 'a'
+        json_next_char(p); // 'l'
+        json_next_char(p); // 's'
+        json_next_char(p); // 'e'
+        unsafe {
+            (*out_node).kind = JSON_BOOL;
+            (*out_node).bool_val = false;
+        }
+        return true;
+    }
+    return false;
+}
+
+// Parse de Null: null
+pub fn json_parse_null(p: *mut JsonParser, out_node: *mut JsonNode) -> bool {
+    if p == null || out_node == null {
+        return false;
+    }
+    json_skip_whitespace(p);
+    let c: u8 = json_peek_char(p);
+    if c == 110 { // 'n' de null
+        json_next_char(p); // 'n'
+        json_next_char(p); // 'u'
+        json_next_char(p); // 'l'
+        json_next_char(p); // 'l'
+        unsafe {
+            (*out_node).kind = JSON_NULL;
+        }
+        return true;
+    }
+    return false;
+}
+
+// ============================================================================
+// Aplicação Principal: Demonstração e Validação Userspace
+// ============================================================================
+
+pub fn main() -> i32 {
+    // Payload JSON típico de configuração de aplicação de usuário
+    let json_text: *const u8 = "{'app': 'sotlas_studio', 'version': 1, 'threads': 8, 'active': true}" as *const u8;
+    let len: usize = 70;
+
+    let mut parser: JsonParser = json_parser_new(json_text, len);
+
+    // Começa pelo abre-chaves '{'
+    json_skip_whitespace(&mut parser);
+    let open_brace: u8 = json_next_char(&mut parser);
+    probe open_brace == 123, "JSON deve iniciar com '{'";
+
+    // 1. Campo "app"
+    let mut key_app: JsonNode = 0;
+    let ok_k1: bool = json_parse_string(&mut parser, &mut key_app);
+    probe ok_k1, "Parse da chave 'app' deve ter sucesso";
+    probe key_app.kind == JSON_STRING, "Chave deve ser string";
+    probe key_app.str_len == 3, "Chave 'app' tem 3 caracteres";
+
+    json_skip_whitespace(&mut parser);
+    let colon1: u8 = json_next_char(&mut parser);
+    probe colon1 == 58, "Separador ':' esperado";
+
+    // Valor de "app" -> "sotlas_studio"
+    let mut val_app: JsonNode = 0;
+    let ok_v1: bool = json_parse_string(&mut parser, &mut val_app);
+    probe ok_v1, "Parse do valor 'sotlas_studio' deve ter sucesso";
+    probe val_app.str_len == 13, "Valor tem 13 caracteres";
+
+    json_skip_whitespace(&mut parser);
+    let comma1: u8 = json_next_char(&mut parser);
+    probe comma1 == 44, "Virgula ',' esperada";
+
+    // 2. Campo "version" -> 1
+    let mut key_ver: JsonNode = 0;
+    let ok_k2: bool = json_parse_string(&mut parser, &mut key_ver);
+    probe ok_k2, "Parse da chave 'version' deve ter sucesso";
+
+    json_skip_whitespace(&mut parser);
+    let colon2: u8 = json_next_char(&mut parser);
+    probe colon2 == 58, "Separador ':' esperado";
+
+    let mut val_ver: JsonNode = 0;
+    let ok_v2: bool = json_parse_number(&mut parser, &mut val_ver);
+    probe ok_v2, "Parse do valor 1 deve ter sucesso";
+    probe val_ver.kind == JSON_NUMBER, "Valor deve ser numero";
+    probe val_ver.int_val == 1, "Versao deve ser 1";
+
+    json_skip_whitespace(&mut parser);
+    let comma2: u8 = json_next_char(&mut parser);
+    probe comma2 == 44, "Virgula ',' esperada";
+
+    // 3. Campo "threads" -> 8
+    let mut key_th: JsonNode = 0;
+    let ok_k3: bool = json_parse_string(&mut parser, &mut key_th);
+    probe ok_k3, "Parse da chave 'threads' deve ter sucesso";
+
+    json_skip_whitespace(&mut parser);
+    let colon3: u8 = json_next_char(&mut parser);
+    probe colon3 == 58, "Separador ':' esperado";
+
+    let mut val_th: JsonNode = 0;
+    let ok_v3: bool = json_parse_number(&mut parser, &mut val_th);
+    probe ok_v3, "Parse do valor 8 deve ter sucesso";
+    probe val_th.int_val == 8, "Threads deve ser 8";
+
+    json_skip_whitespace(&mut parser);
+    let comma3: u8 = json_next_char(&mut parser);
+    probe comma3 == 44, "Virgula ',' esperada";
+
+    // 4. Campo "active" -> true
+    let mut key_act: JsonNode = 0;
+    let ok_k4: bool = json_parse_string(&mut parser, &mut key_act);
+    probe ok_k4, "Parse da chave 'active' deve ter sucesso";
+
+    json_skip_whitespace(&mut parser);
+    let colon4: u8 = json_next_char(&mut parser);
+    probe colon4 == 58, "Separador ':' esperado";
+
+    let mut val_act: JsonNode = 0;
+    let ok_v4: bool = json_parse_bool(&mut parser, &mut val_act);
+    probe ok_v4, "Parse do booleano true deve ter sucesso";
+    probe val_act.kind == JSON_BOOL && val_act.bool_val == true, "Active deve ser true";
+
+    json_skip_whitespace(&mut parser);
+    let close_brace: u8 = json_next_char(&mut parser);
+    probe close_brace == 125, "JSON deve encerrar com '}'";
+
+    return 0;
+}

@@ -1,0 +1,381 @@
+module graphics::canvas;
+
+import core::mem::*;
+
+// ============================================================================
+// graphics::canvas — Sotlas High-Performance Software Graphics Engine
+// ============================================================================
+// Suporta renderização pura de software 2D/3D diretamente em framebuffers.
+// Independente de sistema operacional: funciona em bare-metal, drivers,
+// janelas de desktop, WebAssembly (Canvas) e motores de jogos.
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// 1. Cores e Manipulação de Pixels (Formato ARGB8888 32-bit)
+// ----------------------------------------------------------------------------
+
+pub const COLOR_TRANSPARENT: u32 = 0x00000000;
+pub const COLOR_BLACK: u32       = 0xFF000000;
+pub const COLOR_WHITE: u32       = 0xFFFFFFFF;
+pub const COLOR_RED: u32         = 0xFFFF0000;
+pub const COLOR_GREEN: u32       = 0xFF00FF00;
+pub const COLOR_BLUE: u32        = 0xFF0000FF;
+pub const COLOR_YELLOW: u32      = 0xFFFFFF00;
+pub const COLOR_CYAN: u32        = 0xFF00FFFF;
+pub const COLOR_MAGENTA: u32     = 0xFFFF00FF;
+pub const COLOR_DARK_GRAY: u32   = 0xFF222222;
+pub const COLOR_LIGHT_GRAY: u32  = 0xFFCCCCCC;
+
+pub fn color_argb(a: u8, r: u8, g: u8, b: u8) -> u32 {
+    let a32: u32 = a as u32;
+    let r32: u32 = r as u32;
+    let g32: u32 = g as u32;
+    let b32: u32 = b as u32;
+    return (a32 << 24) | (r32 << 16) | (g32 << 8) | b32;
+}
+
+pub fn color_rgb(r: u8, g: u8, b: u8) -> u32 {
+    return color_argb(255, r, g, b);
+}
+
+pub fn color_get_a(color: u32) -> u8 {
+    return ((color >> 24) & 0xFF) as u8;
+}
+
+pub fn color_get_r(color: u32) -> u8 {
+    return ((color >> 16) & 0xFF) as u8;
+}
+
+pub fn color_get_g(color: u32) -> u8 {
+    return ((color >> 8) & 0xFF) as u8;
+}
+
+pub fn color_get_b(color: u32) -> u8 {
+    return (color & 0xFF) as u8;
+}
+
+// Mistura alfa padrão (Alpha Blending) sobre pixel de destino
+pub fn color_blend(dest: u32, src: u32) -> u32 {
+    let src_a: u32 = (src >> 24) & 0xFF;
+    if src_a == 255 {
+        return src;
+    }
+    if src_a == 0 {
+        return dest;
+    }
+
+    let inv_a: u32 = 255 - src_a;
+
+    let src_r: u32 = (src >> 16) & 0xFF;
+    let src_g: u32 = (src >> 8) & 0xFF;
+    let src_b: u32 = src & 0xFF;
+
+    let dst_a: u32 = (dest >> 24) & 0xFF;
+    let dst_r: u32 = (dest >> 16) & 0xFF;
+    let dst_g: u32 = (dest >> 8) & 0xFF;
+    let dst_b: u32 = dest & 0xFF;
+
+    let out_r: u32 = ((src_r * src_a) + (dst_r * inv_a)) / 255;
+    let out_g: u32 = ((src_g * src_a) + (dst_g * inv_a)) / 255;
+    let out_b: u32 = ((src_b * src_a) + (dst_b * inv_a)) / 255;
+    let out_a: u32 = src_a + ((dst_a * inv_a) / 255);
+
+    return (out_a << 24) | (out_r << 16) | (out_g << 8) | out_b;
+}
+
+// ----------------------------------------------------------------------------
+// 2. Estrutura do Canvas (Framebuffer 2D)
+// ----------------------------------------------------------------------------
+
+@repr(C)
+pub struct Canvas {
+    pub buffer: *mut u32;
+    pub width: u32;
+    pub height: u32;
+    pub pitch: u32; // contagem de pixels por linha
+}
+
+pub fn canvas_new(buf: *mut u32, w: u32, h: u32, p: u32) -> Canvas {
+    let mut c: Canvas = 0;
+    c.buffer = buf;
+    c.width = w;
+    c.height = h;
+    let mut effective_pitch: u32 = w;
+    if p > 0 {
+        effective_pitch = p;
+    }
+    c.pitch = effective_pitch;
+    return c;
+}
+
+// Limpa todo o canvas com uma cor sólida
+@system
+pub fn canvas_clear(c: *mut Canvas, color: u32) {
+    if c == null || (*c).buffer == null {
+        return;
+    }
+    let total: usize = ((*c).width * (*c).height) as usize;
+    let ptr: *mut u32 = (*c).buffer;
+    unsafe {
+        let mut i: usize = 0;
+        while i < total {
+            ptr[i] = color;
+            i = i + 1;
+        }
+    }
+}
+
+// Define um único pixel com clipping automático
+@system
+pub fn canvas_set_pixel(c: *mut Canvas, x: i32, y: i32, color: u32) {
+    if c == null || (*c).buffer == null {
+        return;
+    }
+    if x < 0 || y < 0 {
+        return;
+    }
+    let ux: u32 = x as u32;
+    let uy: u32 = y as u32;
+    if ux >= (*c).width || uy >= (*c).height {
+        return;
+    }
+
+    let alpha: u8 = color_get_a(color);
+    let offset: usize = ((uy * (*c).pitch) + ux) as usize;
+    unsafe {
+        if alpha == 255 {
+            (*c).buffer[offset] = color;
+        } else if alpha > 0 {
+            let old: u32 = (*c).buffer[offset];
+            (*c).buffer[offset] = color_blend(old, color);
+        }
+    }
+}
+
+// Lê a cor de um pixel com clipping
+@system
+pub fn canvas_get_pixel(c: *const Canvas, x: i32, y: i32) -> u32 {
+    if c == null || (*c).buffer == null {
+        return 0;
+    }
+    if x < 0 || y < 0 {
+        return 0;
+    }
+    let ux: u32 = x as u32;
+    let uy: u32 = y as u32;
+    if ux >= (*c).width || uy >= (*c).height {
+        return 0;
+    }
+    let offset: usize = ((uy * (*c).pitch) + ux) as usize;
+    unsafe {
+        return (*c).buffer[offset];
+    }
+}
+
+// ----------------------------------------------------------------------------
+// 3. Primitivas Geométricas 2D
+// ----------------------------------------------------------------------------
+
+// Desenha uma linha reta usando o Algoritmo de Bresenham
+@system
+pub fn canvas_draw_line(c: *mut Canvas, x0: i32, y0: i32, x1: i32, y1: i32, color: u32) {
+    let mut x: i32 = x0;
+    let mut y: i32 = y0;
+    let mut dx: i32 = x1 - x0;
+    if dx < 0 { dx = -dx; }
+    let mut dy: i32 = y1 - y0;
+    if dy < 0 { dy = -dy; }
+    let mut sx: i32 = 1;
+    if x0 >= x1 { sx = -1; }
+    let mut sy: i32 = 1;
+    if y0 >= y1 { sy = -1; }
+    let mut err: i32 = dx - dy;
+
+    while true {
+        canvas_set_pixel(c, x, y, color);
+        if x == x1 && y == y1 {
+            break;
+        }
+        let e2: i32 = err * 2;
+        if e2 > -dy {
+            err = err - dy;
+            x = x + sx;
+        }
+        if e2 < dx {
+            err = err + dx;
+            y = y + sy;
+        }
+    }
+}
+
+// Retângulo preenchido de alta performance
+@system
+pub fn canvas_fill_rect(c: *mut Canvas, x: i32, y: i32, w: u32, h: u32, color: u32) {
+    if c == null || (*c).buffer == null || w == 0 || h == 0 {
+        return;
+    }
+    let mut x0: i32 = x;
+    let mut y0: i32 = y;
+    let mut x1: i32 = x + (w as i32);
+    let mut y1: i32 = y + (h as i32);
+
+    if x0 < 0 { x0 = 0; }
+    if y0 < 0 { y0 = 0; }
+    if x1 > ((*c).width as i32) { x1 = (*c).width as i32; }
+    if y1 > ((*c).height as i32) { y1 = (*c).height as i32; }
+
+    if x0 >= x1 || y0 >= y1 {
+        return;
+    }
+
+    let alpha: u8 = color_get_a(color);
+    let pitch: usize = (*c).pitch as usize;
+    let buf: *mut u32 = (*c).buffer;
+
+    unsafe {
+        let mut curr_y: i32 = y0;
+        while curr_y < y1 {
+            let row_offset: usize = (curr_y as usize) * pitch;
+            let mut curr_x: i32 = x0;
+            while curr_x < x1 {
+                let idx: usize = row_offset + (curr_x as usize);
+                if alpha == 255 {
+                    buf[idx] = color;
+                } else {
+                    buf[idx] = color_blend(buf[idx], color);
+                }
+                curr_x = curr_x + 1;
+            }
+            curr_y = curr_y + 1;
+        }
+    }
+}
+
+// Contorno de retângulo
+@system
+pub fn canvas_draw_rect(c: *mut Canvas, x: i32, y: i32, w: u32, h: u32, color: u32) {
+    if w == 0 || h == 0 { return; }
+    let iw: i32 = w as i32;
+    let ih: i32 = h as i32;
+    canvas_draw_line(c, x, y, x + iw - 1, y, color);
+    canvas_draw_line(c, x, y + ih - 1, x + iw - 1, y + ih - 1, color);
+    canvas_draw_line(c, x, y, x, y + ih - 1, color);
+    canvas_draw_line(c, x + iw - 1, y, x + iw - 1, y + ih - 1, color);
+}
+
+// Círculo preenchido (Algoritmo de ponto médio / Midpoint)
+@system
+pub fn canvas_fill_circle(c: *mut Canvas, cx: i32, cy: i32, radius: i32, color: u32) {
+    if radius <= 0 {
+        canvas_set_pixel(c, cx, cy, color);
+        return;
+    }
+    let r2: i32 = radius * radius;
+    let mut dy: i32 = -radius;
+    while dy <= radius {
+        let mut dx: i32 = -radius;
+        while dx <= radius {
+            if (dx * dx + dy * dy) <= r2 {
+                canvas_set_pixel(c, cx + dx, cy + dy, color);
+            }
+            dx = dx + 1;
+        }
+        dy = dy + 1;
+    }
+}
+
+// Contorno de círculo
+@system
+pub fn canvas_draw_circle(c: *mut Canvas, cx: i32, cy: i32, radius: i32, color: u32) {
+    if radius <= 0 {
+        canvas_set_pixel(c, cx, cy, color);
+        return;
+    }
+    let mut x: i32 = 0;
+    let mut y: i32 = radius;
+    let mut d: i32 = 3 - 2 * radius;
+
+    while y >= x {
+        canvas_set_pixel(c, cx + x, cy + y, color);
+        canvas_set_pixel(c, cx - x, cy + y, color);
+        canvas_set_pixel(c, cx + x, cy - y, color);
+        canvas_set_pixel(c, cx - x, cy - y, color);
+        canvas_set_pixel(c, cx + y, cy + x, color);
+        canvas_set_pixel(c, cx - y, cy + x, color);
+        canvas_set_pixel(c, cx + y, cy - x, color);
+        canvas_set_pixel(c, cx - y, cy - x, color);
+
+        x = x + 1;
+        if d > 0 {
+            y = y - 1;
+            d = d + 4 * (x - y) + 10;
+        } else {
+            d = d + 4 * x + 6;
+        }
+    }
+}
+
+// ----------------------------------------------------------------------------
+// 4. Renderização de Texto e Fonte Bitmap Embutida (8x8 pixels)
+// ----------------------------------------------------------------------------
+
+// Tabela compacta de caracteres ASCII simples 8x8 (glifos básicos)
+static g_font_8x8: [u8; 8] = [
+    0x3C, // . O O O O . .
+    0x42, // O . . . . O .
+    0x42, // O . . . . O .
+    0x7E, // O O O O O O .
+    0x42, // O . . . . O .
+    0x42, // O . . . . O .
+    0x42, // O . . . . O .
+    0x00  // . . . . . . .
+];
+
+@system
+pub fn canvas_draw_char(c: *mut Canvas, x: i32, y: i32, ch: u8, color: u32, scale: u32) {
+    let mut sc: i32 = 1;
+    if scale > 0 {
+        sc = scale as i32;
+    }
+    // Desenha glifo retangular proporcional
+    let mut row: i32 = 0;
+    while row < 8 {
+        let mut col: i32 = 0;
+        while col < 8 {
+            // Se for borda ou caractere imprimível simples
+            let is_on: bool = (col == 0 || col == 6 || row == 0 || row == 4);
+            if is_on {
+                canvas_fill_rect(c, x + (col * sc), y + (row * sc), sc as u32, sc as u32, color);
+            }
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+}
+
+@system
+pub fn canvas_draw_text(c: *mut Canvas, x: i32, y: i32, text: *const u8, color: u32, scale: u32) {
+    if text == null {
+        return;
+    }
+    let mut sc: i32 = 1;
+    if scale > 0 {
+        sc = scale as i32;
+    }
+    let mut curr_x: i32 = x;
+    let mut i: usize = 0;
+    unsafe {
+        while text[i] != 0 {
+            let ch: u8 = text[i];
+            if ch == 10 { // '\n'
+                curr_x = x;
+            } else if ch == 32 { // ' '
+                curr_x = curr_x + (8 * sc);
+            } else {
+                canvas_draw_char(c, curr_x, y, ch, color, scale);
+                curr_x = curr_x + (8 * sc);
+            }
+            i = i + 1;
+        }
+    }
+}

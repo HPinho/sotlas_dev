@@ -1,0 +1,69 @@
+module test::userspace_app_native;
+
+// ============================================================================
+// Teste Nativo: Aplicação Userspace e Alocador de Memória Arena
+// ============================================================================
+// "Se o kernel estivesse aqui, ele não saberia o que fazer, porque isso é
+//  puro software de aplicação: alocador em arena, registros e semiótica de dados."
+
+import core::alloc::*;
+import core::string::*;
+
+static mut g_arena_backing: [u8; 1024] = 0;
+
+pub struct UserProfile {
+    pub id: u64,
+    pub active: bool,
+    pub score: u32,
+    pub name: *const u8,
+}
+
+pub fn main() -> i32 {
+    // 1. Inicializa a Arena de aplicação
+    let mut arena: ArenaAllocator = arena_new(g_arena_backing as *mut u8, 1024);
+    probe arena_used(&arena) == 0, "Arena recem-criada deve ter 0 bytes usados";
+    probe arena_available(&arena) == 1024, "Arena deve ter 1024 bytes livres";
+
+    // 2. Aloca espaço para estrutura de perfil
+    let p_mem: *mut u8 = arena_alloc(&mut arena, 32);
+    probe p_mem != null, "Alocacao de 32 bytes na arena deve ter sucesso";
+    probe arena_used(&arena) >= 32, "Arena deve computar uso correto";
+
+    let profile: *mut UserProfile = p_mem as *mut UserProfile;
+    unsafe {
+        (*profile).id = 1001;
+        (*profile).active = true;
+        (*profile).score = 9500;
+        (*profile).name = "SotlasDeveloper" as *const u8;
+    }
+
+    unsafe {
+        probe (*profile).id == 1001, "ID do perfil deve ser 1001";
+        probe (*profile).active == true, "Perfil deve estar ativo";
+        probe (*profile).score == 9500, "Score deve ser 9500";
+    }
+
+    // 3. Salva checkpoint na arena
+    let checkpoint: usize = arena_save(&arena);
+
+    // Aloca dados temporários de requisição
+    let scratch: *mut u8 = arena_alloc(&mut arena, 128);
+    probe scratch != null, "Alocacao de scratch buffer deve ter sucesso";
+    probe arena_used(&arena) > checkpoint, "Uso deve ter aumentado apos scratch";
+
+    // 4. Restaura checkpoint (desaloca o scratch buffer mas preserva o perfil!)
+    arena_restore(&mut arena, checkpoint);
+    probe arena_used(&arena) == checkpoint, "Arena restaurada deve ter exatamente o offset do checkpoint";
+
+    // Confirma que os dados do perfil permanecem intocados
+    unsafe {
+        probe (*profile).id == 1001, "Perfil deve permanecer intacto apos restore";
+    }
+
+    // 5. Reset total da arena em O(1)
+    arena_reset(&mut arena);
+    probe arena_used(&arena) == 0, "Arena apos reset deve ter 0 bytes usados";
+    probe arena_available(&arena) == 1024, "Toda a memoria deve ter sido devolvida";
+
+    return 0;
+}

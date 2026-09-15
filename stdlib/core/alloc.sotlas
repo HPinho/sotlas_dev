@@ -1,0 +1,185 @@
+module core::alloc;
+
+// ============================================================================
+// core::alloc — Alocadores de Memória de Alta Performance (Zero-Libc / Zero-OS)
+// ============================================================================
+//
+// "Se você está chamando free() em 10.000 nós de AST um por um, o Garbage
+//  Collector do Java está rindo da sua cara. Use uma Arena e resete tudo
+//  em literalmente 1 ciclo de clock."
+//
+// Na programação de sistemas e aplicações reais, malloc/free genéricos são
+// lentos, causam fragmentação e criam pesadelos de use-after-free.
+//
+// Aqui provemos dois alocadores clássicos, determinísticos e ultrarrápidos:
+// 1. ArenaAllocator: Ideal para compiladores, parsers de JSON/HTML e requisições HTTP.
+//    Alocações sequenciais rápidas (bump pointer). Um único reset libera tudo.
+// 2. BumpAllocator: Alocador linear estrito para scratch buffers e pipelines de dados.
+//
+// Ambos funcionam com buffers fornecidos pelo chamador (estáticos, stack ou heap do SO).
+// Zero dependência de kernel. Zero chamadas de sistema ocultas.
+// ============================================================================
+
+// ============================================================================
+// ArenaAllocator — O melhor amigo dos parsers e compiladores
+// ============================================================================
+
+pub struct ArenaAllocator {
+    pub buffer: *mut u8,
+    pub capacity: usize,
+    pub offset: usize,
+    pub high_water_mark: usize,
+    pub allocation_count: usize,
+}
+
+pub fn arena_new(backing: *mut u8, cap: usize) -> ArenaAllocator {
+    let mut arena: ArenaAllocator = 0;
+    arena.buffer = backing;
+    arena.capacity = cap;
+    arena.offset = 0;
+    arena.high_water_mark = 0;
+    arena.allocation_count = 0;
+    return arena;
+}
+
+pub fn arena_used(arena: *const ArenaAllocator) -> usize {
+    if arena == null {
+        return 0;
+    }
+    unsafe {
+        return (*arena).offset;
+    }
+}
+
+pub fn arena_available(arena: *const ArenaAllocator) -> usize {
+    if arena == null {
+        return 0;
+    }
+    unsafe {
+        if (*arena).offset >= (*arena).capacity {
+            return 0;
+        }
+        return (*arena).capacity - (*arena).offset;
+    }
+}
+
+pub fn arena_alloc_aligned(arena: *mut ArenaAllocator, size: usize, alignment: usize) -> *mut u8 {
+    if arena == null || size == 0 {
+        return null;
+    }
+    let mut align: usize = alignment;
+    if align == 0 {
+        align = 8; // Alinhamento padrão de máquina de 64-bit
+    }
+
+    unsafe {
+        if (*arena).buffer == null {
+            return null;
+        }
+
+        // Calcula o endereço atual e o padding de alinhamento
+        let current_addr: usize = ((*arena).buffer as usize) + (*arena).offset;
+        let remainder: usize = current_addr % align;
+        let mut padding: usize = 0;
+        if remainder != 0 {
+            padding = align - remainder;
+        }
+
+        let needed: usize = padding + size;
+        if (*arena).offset + needed > (*arena).capacity {
+            // Out of memory nesta arena — falha elegante sem quebrar o processo
+            return null;
+        }
+
+        let alloc_offset: usize = (*arena).offset + padding;
+        let result_ptr: *mut u8 = (*arena).buffer + alloc_offset;
+
+        (*arena).offset = (*arena).offset + needed;
+        (*arena).allocation_count = (*arena).allocation_count + 1;
+
+        if (*arena).offset > (*arena).high_water_mark {
+            (*arena).high_water_mark = (*arena).offset;
+        }
+
+        return result_ptr;
+    }
+}
+
+pub fn arena_alloc(arena: *mut ArenaAllocator, size: usize) -> *mut u8 {
+    return arena_alloc_aligned(arena, size, 8);
+}
+
+// Reseta a arena inteira em O(1).
+// Toda a memória volta a estar disponível instantaneamente.
+pub fn arena_reset(arena: *mut ArenaAllocator) {
+    if arena == null {
+        return;
+    }
+    unsafe {
+        (*arena).offset = 0;
+        (*arena).allocation_count = 0;
+    }
+}
+
+// Salva o checkpoint atual da arena para liberação parcial
+pub fn arena_save(arena: *const ArenaAllocator) -> usize {
+    if arena == null {
+        return 0;
+    }
+    unsafe {
+        return (*arena).offset;
+    }
+}
+
+// Restaura a arena para um checkpoint anterior (desaloca tudo feito após o save)
+pub fn arena_restore(arena: *mut ArenaAllocator, checkpoint: usize) {
+    if arena == null {
+        return;
+    }
+    unsafe {
+        if checkpoint <= (*arena).capacity && checkpoint <= (*arena).offset {
+            (*arena).offset = checkpoint;
+        }
+    }
+}
+
+// ============================================================================
+// BumpAllocator — Alocador Linear Puro
+// ============================================================================
+
+pub struct BumpAllocator {
+    pub buffer: *mut u8,
+    pub capacity: usize,
+    pub offset: usize,
+}
+
+pub fn bump_new(backing: *mut u8, cap: usize) -> BumpAllocator {
+    let mut b: BumpAllocator = 0;
+    b.buffer = backing;
+    b.capacity = cap;
+    b.offset = 0;
+    return b;
+}
+
+pub fn bump_alloc(b: *mut BumpAllocator, size: usize) -> *mut u8 {
+    if b == null || size == 0 {
+        return null;
+    }
+    unsafe {
+        if (*b).buffer == null || (*b).offset + size > (*b).capacity {
+            return null;
+        }
+        let ptr: *mut u8 = (*b).buffer + (*b).offset;
+        (*b).offset = (*b).offset + size;
+        return ptr;
+    }
+}
+
+pub fn bump_reset(b: *mut BumpAllocator) {
+    if b == null {
+        return;
+    }
+    unsafe {
+        (*b).offset = 0;
+    }
+}

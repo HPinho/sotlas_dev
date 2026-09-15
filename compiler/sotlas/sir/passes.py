@@ -201,12 +201,29 @@ class UnreachableBlockPass:
         return SIRPassResult(success=True, changed=changed)
 
 
+class HardwareInterruptEffectPass:
+    """Valida no nível SIR que tratadores de interrupção não realizam operações proibidas (alloc/blocking)."""
+    def run(self, module: SIRModule) -> SIRPassResult:
+        errors = []
+        forbidden = {"malloc", "heap_allocate", "alloc", "sleep", "block_on", "wait_for_event"}
+        for fn in module.functions:
+            if getattr(fn, "is_trap", False) or fn.name.startswith("trap_") or fn.name.startswith("isr_"):
+                for block in fn.blocks:
+                    for inst in block.instructions:
+                        if isinstance(inst, CallInst) and inst.callee in forbidden:
+                            errors.append(
+                                f"sir effect error: operação proibida '{inst.callee}' em contexto de interrupção '{fn.name}'"
+                            )
+        return SIRPassResult(success=len(errors) == 0, errors=errors)
+
+
 class SIRPassManager:
     def __init__(self):
         self.passes = [
             DeadCodeEliminationPass(),
             DefiniteInitializationPass(),
             SystemCapabilitySafetyPass(),
+            HardwareInterruptEffectPass(),
             BranchFoldingPass(),
             RedundantLoadPass(),
             UnreachableBlockPass()

@@ -1,0 +1,70 @@
+module system::topology;
+
+// ============================================================================
+// system::topology — Abstrações de Topologia de Memória e Hardware
+// ============================================================================
+//
+// "Ponteiro em C é só um número. Ponteiro em Sotlas sabe exatamente onde
+//  ele pisa na placa-mãe."
+//
+// Em código de aplicação geral (userland), você só precisa de ponteiros
+// normais (*T, *mut T) e referências (&T, &mut T).
+//
+// Mas quando você está escrevendo um kernel, driver PCI-e, ou bootloader,
+// a CPU trata endereços de formas radicalmente distintas:
+// 1. Endereço Físico Bruto (*rawphys) — Não passa pela MMU / paginação
+// 2. Zona de DMA (*dmazone) — Memória física contígua com barreira de cache
+// 3. Mapa Virtual (*virtmap) — Página mapeada na tabela de páginas
+// 4. Barramento de Porta (*portwire) — Espaço de I/O de portas x86 (in/out)
+// 5. Zero Trap (*voidzero) — Sentinela estrito de inicialização nula
+//
+// Este módulo isola e documenta essas abstrações como extensões de sistema
+// (@system), garantindo que a linguagem padrão permaneça limpa e agnóstica.
+// ============================================================================
+
+pub struct PhysRegion {
+    pub base_addr: u64,
+    pub size_bytes: usize,
+    pub flags: u32,
+}
+
+pub fn phys_region_new(base: u64, size: usize) -> PhysRegion {
+    let mut reg: PhysRegion = 0;
+    reg.base_addr = base;
+    reg.size_bytes = size;
+    reg.flags = 0;
+    return reg;
+}
+
+pub fn phys_region_contains(reg: *const PhysRegion, addr: u64) -> bool {
+    if reg == null {
+        return false;
+    }
+    unsafe {
+        return addr >= (*reg).base_addr && addr < ((*reg).base_addr + ((*reg).size_bytes as u64));
+    }
+}
+
+pub struct DmaZoneDescriptor {
+    pub phys_base: u64,
+    pub virt_base: *mut u8,
+    pub size_bytes: usize,
+    pub is_coherent: bool,
+}
+
+pub fn dma_zone_new(phys: u64, virt: *mut u8, size: usize) -> DmaZoneDescriptor {
+    let mut dma: DmaZoneDescriptor = 0;
+    dma.phys_base = phys;
+    dma.virt_base = virt;
+    dma.size_bytes = size;
+    dma.is_coherent = true;
+    return dma;
+}
+
+// Sincroniza cache de CPU para transferências DMA (memory barrier)
+@system
+pub fn dma_barrier() {
+    unsafe {
+        __asm__ volatile ("" ::: "memory");
+    }
+}
