@@ -477,26 +477,39 @@ class Parser:
             default = self._parse_expr()
         return ParamNode(span, label, name, typ, default)
 
-    def _parse_generic_params(self) -> List[str]:
+    def _parse_generic_param_single(self) -> GenericParam:
+        if self._match(TK.KW_CONST_MOD) or (self._cur().kind == TK.IDENT and self._cur().value == "const"):
+            self._advance()
+            name = self._expect_ident_or_keyword()
+            const_type = None
+            if self._consume(TK.COLON):
+                typ = self._parse_type()
+                const_type = typ.display_name() if hasattr(typ, "display_name") else typ.name
+            return GenericParam(name, is_const=True, const_type=const_type)
+        else:
+            name = self._expect_ident_or_keyword()
+            return GenericParam(name, is_const=False)
+
+    def _parse_generic_params(self) -> List[GenericParam]:
         if self._consume(TK.KW_FORGE):
             self._expect(TK.LT)
-            names = [self._expect_ident_or_keyword()]
+            params = [self._parse_generic_param_single()]
             while self._consume(TK.COMMA):
                 if self._match(TK.GT):
                     break
-                names.append(self._expect_ident_or_keyword())
+                params.append(self._parse_generic_param_single())
             self._expect(TK.GT)
-            return names
+            return params
         if not self._match(TK.LT):
             return []
         self._advance()
-        names = [self._expect_ident_or_keyword()]
+        params = [self._parse_generic_param_single()]
         while self._consume(TK.COMMA):
             if self._match(TK.GT):
                 break
-            names.append(self._expect_ident_or_keyword())
+            params.append(self._parse_generic_param_single())
         self._expect(TK.GT)
-        return names
+        return params
 
     def _parse_adopts(self) -> List[str]:
         if not self._consume(TK.KW_ADOPTS):
@@ -509,6 +522,16 @@ class Parser:
     # ------------------------------------------------------------------
     # Tipos
     # ------------------------------------------------------------------
+
+    def _parse_generic_arg(self) -> TypeNode:
+        span = self._span()
+        if self._match(TK.INT_LIT):
+            tok = self._advance()
+            val = int(tok.value, 0) if (tok.value.isdigit() or tok.value.startswith("0x") or tok.value.startswith("0b")) else tok.value
+            return TypeNode(span, None, None, False, None, name=tok.value, is_optional=False,
+                            is_array=False, array_size=None, bounded_lo=None, bounded_hi=None,
+                            generic_args=[], is_const_generic=True, const_val=val)
+        return self._parse_type()
 
     def _parse_type(self) -> TypeNode:
         span = self._span()
@@ -604,19 +627,19 @@ class Parser:
             name = "Enclave" if tok.kind == TK.KW_ENCLAVE else tok.value
             if self._consume(TK.KW_FORGE):
                 self._expect(TK.LT)
-                generic_args.append(self._parse_type())
+                generic_args.append(self._parse_generic_arg())
                 while self._consume(TK.COMMA):
                     if self._match(TK.GT):
                         break
-                    generic_args.append(self._parse_type())
+                    generic_args.append(self._parse_generic_arg())
                 self._expect(TK.GT)
             elif self._match(TK.LT):
                 self._advance()
-                generic_args.append(self._parse_type())
+                generic_args.append(self._parse_generic_arg())
                 while self._consume(TK.COMMA):
                     if self._match(TK.GT):
                         break
-                    generic_args.append(self._parse_type())
+                    generic_args.append(self._parse_generic_arg())
                 self._expect(TK.GT)
         else:
             tok = self._cur()
@@ -1072,6 +1095,27 @@ class Parser:
                 break
         return expr
 
+    def _is_generic_instantiation(self) -> bool:
+        if self._cur().kind != TK.LT:
+            return False
+        depth = 0
+        i = 0
+        while (self._pos + i) < len(self._toks):
+            tok = self._toks[self._pos + i]
+            if tok.kind in (TK.EOF, TK.SEMICOLON, TK.RBRACE):
+                return False
+            if tok.kind == TK.LT:
+                depth += 1
+            elif tok.kind == TK.GT:
+                depth -= 1
+                if depth == 0:
+                    next_idx = self._pos + i + 1
+                    if next_idx < len(self._toks):
+                        return self._toks[next_idx].kind == TK.LBRACE
+                    return False
+            i += 1
+        return False
+
     def _parse_primary(self) -> ExprNode:
         span = self._span()
         cur = self._cur()
@@ -1121,10 +1165,28 @@ class Parser:
                 path.append(self._advance().value)
             name = path[-1]
             prefix = path[:-1]
+            generic_args = []
+            if self._consume(TK.KW_FORGE):
+                self._expect(TK.LT)
+                generic_args.append(self._parse_generic_arg())
+                while self._consume(TK.COMMA):
+                    if self._match(TK.GT):
+                        break
+                    generic_args.append(self._parse_generic_arg())
+                self._expect(TK.GT)
+            elif self._is_generic_instantiation():
+                self._advance()  # consume <
+                generic_args.append(self._parse_generic_arg())
+                while self._consume(TK.COMMA):
+                    if self._match(TK.GT):
+                        break
+                    generic_args.append(self._parse_generic_arg())
+                self._expect(TK.GT)
+
             if self._match(TK.LBRACE):
                 p1 = self._peek(1)
                 p2 = self._peek(2)
-                if p1.kind == TK.RBRACE or (self._is_ident_like(p1) and p2.kind == TK.COLON):
+                if p1.kind == TK.RBRACE or (self._is_ident_like(p1) and p2.kind == TK.COLON) or len(generic_args) > 0:
                     self._advance()  # consume {
                     fields = []
                     while not self._match(TK.RBRACE, TK.EOF):
@@ -1135,7 +1197,7 @@ class Parser:
                         self._consume(TK.COMMA)
                         fields.append(StructLitFieldNode(fs, fname, fval))
                     self._expect(TK.RBRACE)
-                    return StructLitExprNode(span, name, prefix, fields)
+                    return StructLitExprNode(span, name, prefix, fields, generic_args=generic_args)
             return IdentNode(span, name, prefix)
 
         if cur.kind == TK.LPAREN:

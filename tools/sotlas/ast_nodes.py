@@ -42,6 +42,8 @@ class TypeNode:
     is_slice: bool = False            # [T] fatia dinâmica
     inner_type: Optional["TypeNode"] = None
     tuple_elements: List["TypeNode"] = field(default_factory=list)
+    is_const_generic: bool = False
+    const_val: Optional[Union[int, str]] = None
 
     @property
     def is_topology_ptr(self) -> bool:
@@ -58,6 +60,36 @@ class TypeNode:
     @property
     def is_tuple(self) -> bool:
         return len(self.tuple_elements) > 0
+
+    def display_name(self) -> str:
+        res = ""
+        if self.ownership:
+            res += f"{self.ownership.name.lower().replace('kw_', '')} "
+        if self.topology_ptr:
+            t_name = self.topology_ptr.name.lower().replace('kw_', '')
+            res += f"*{t_name} " if t_name != "mut" else "*mut "
+        if self.const_val is not None:
+            res += str(self.const_val)
+        elif self.name:
+            res += self.name
+        elif self.primitive:
+            canon = {
+                TK.KW_UINT8: "u8", TK.KW_UINT16: "u16", TK.KW_UINT32: "u32", TK.KW_UINT64: "u64",
+                TK.KW_INT8: "i8", TK.KW_INT16: "i16", TK.KW_INT32: "i32", TK.KW_INT64: "i64",
+                TK.KW_FLOAT32: "f32", TK.KW_FLOAT64: "f64",
+                TK.KW_USIZE: "usize", TK.KW_ISIZE: "isize",
+                TK.KW_BOOL: "bool", TK.KW_VOID: "void", TK.KW_CHAR: "char", TK.KW_STRING: "string",
+            }
+            res += canon.get(self.primitive, self.primitive.name.lower().replace('kw_', ''))
+        elif self.is_tuple:
+            res += f"({', '.join(e.display_name() for e in self.tuple_elements)})"
+        elif self.inner_type:
+            res += f"[{self.inner_type.display_name()}]"
+        if self.generic_args:
+            res += f"<{', '.join(g.display_name() for g in self.generic_args)}>"
+        if self.is_optional:
+            res += "?"
+        return res.strip()
 
 
 @dataclass
@@ -214,6 +246,7 @@ class StructLitExprNode:
     struct_name: str
     prefix: List[str]
     fields: List[StructLitFieldNode]
+    generic_args: List[TypeNode] = field(default_factory=list)
 
 
 @dataclass
@@ -472,11 +505,28 @@ class PulseStmtNode:
     order: Optional[str] = None  # seq_cst, acquire, release, relaxed
 
 
+class GenericParam(str):
+    """Representa um parâmetro genérico com suporte a const generics, compatível com str."""
+    name: str
+    is_const: bool
+    const_type: Optional[str]
+
+    def __new__(cls, name: str, is_const: bool = False, const_type: Optional[str] = None):
+        val = f"const {name}: {const_type}" if is_const and const_type else name
+        obj = super().__new__(cls, val)
+        obj.name = name
+        obj.is_const = is_const
+        obj.const_type = const_type
+        return obj
+
+
 @dataclass
 class GenericParamNode:
     span: Span
     name: str
     bound: Optional[str] = None
+    is_const: bool = False
+    const_type: Optional[TypeNode] = None
 
 
 StmtNode = Union[

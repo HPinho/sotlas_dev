@@ -209,6 +209,22 @@ class Sema:
         self._is_trapfn: bool = False
         self._is_irqfree_fn: bool = False
         self._in_clinch: bool = False
+        self._in_mould: bool = False
+        self._functions: Dict[str, Union[FnDeclNode, TrapFnDeclNode]] = {}
+
+    def _define_generic_param_in_scope(self, g: Any, scope: Scope, span: Span) -> None:
+        if isinstance(g, GenericParam):
+            if g.is_const:
+                scope.define(Symbol(g.name, "const_generic", None, span))
+            else:
+                scope.define(Symbol(g.name, "type", None, span))
+        elif isinstance(g, str):
+            if g.startswith("const "):
+                parts = g.split()
+                p_name = parts[1].rstrip(":")
+                scope.define(Symbol(p_name, "const_generic", None, span))
+            else:
+                scope.define(Symbol(g, "type", None, span))
 
     def _is_type_sole(self, type_node: Optional[TypeNode]) -> bool:
         if not type_node:
@@ -286,6 +302,7 @@ class Sema:
                                 self._structs[decl.name] = decl
                         elif isinstance(decl, (FnDeclNode, TrapFnDeclNode)):
                             self._global.define(Symbol(decl.name, "fn", None, decl.span))
+                            self._functions[decl.name] = decl
                         elif isinstance(decl, ConstDeclNode):
                             self._global.define(Symbol(decl.name, "let", decl.type_ann, decl.span))
                         elif isinstance(decl, StaticDeclNode):
@@ -301,6 +318,7 @@ class Sema:
         for builtin_t in ("Enclave", "SpinLock", "ShieldClinch", "ShieldGuard", "SpinLockGuard", "Vec", "String", "Option", "Result", "Self"):
             self._global.define(Symbol(builtin_t, "type", None, Span(self._fn, 0, 0)))
         for builtin_fn in (
+            "dma_fence", "dma_barrier",
             "__dma_fence", "__sfence", "__lfence", "__cpu_pause",
             "__atomic_exchange_u32", "__atomic_exchange_u64",
             "__atomic_add_u64", "__atomic_add_u32", "__atomic_sub_u64", "__atomic_sub_u32",
@@ -322,12 +340,19 @@ class Sema:
                     self._enums[decl.name] = decl
                 elif isinstance(decl, StructDeclNode):
                     self._structs[decl.name] = decl
+                    for m in decl.members:
+                        if isinstance(m, FnDeclNode):
+                            self._functions[f"{decl.name}::{m.name}"] = m
+                            if m.name not in self._functions:
+                                self._functions[m.name] = m
             elif isinstance(decl, FnDeclNode):
                 sym = Symbol(decl.name, "fn", None, decl.span)
                 self._global.define(sym)
+                self._functions[decl.name] = decl
             elif isinstance(decl, TrapFnDeclNode):
                 sym = Symbol(decl.name, "fn", None, decl.span)
                 self._global.define(sym)
+                self._functions[decl.name] = decl
             elif isinstance(decl, ConstDeclNode):
                 sym = Symbol(decl.name, "let", decl.type_ann, decl.span)
                 self._global.define(sym)
@@ -359,8 +384,13 @@ class Sema:
                 self._check_expr(decl.value, self._global)
             elif isinstance(decl, MouldBlockNode):
                 scope = self._global.child()
-                for stmt in decl.body:
-                    self._check_stmt(stmt, scope)
+                prev_in_mould = self._in_mould
+                self._in_mould = True
+                try:
+                    for stmt in decl.body:
+                        self._check_stmt(stmt, scope)
+                finally:
+                    self._in_mould = prev_in_mould
 
     # ------------------------------------------------------------------
     # Declarações
@@ -369,7 +399,7 @@ class Sema:
     def _check_struct(self, decl: StructDeclNode) -> None:
         scope = self._global.child()
         for g in getattr(decl, "generics", []):
-            scope.define(Symbol(g, "type", None, decl.span))
+            self._define_generic_param_in_scope(g, scope, decl.span)
         prev_in_method = self._in_method
         for member in decl.members:
             if isinstance(member, FieldDeclNode):
@@ -402,7 +432,7 @@ class Sema:
             )
         scope = self._global.child()
         for g in getattr(decl, "generics", []):
-            scope.define(Symbol(g, "type", None, decl.span))
+            self._define_generic_param_in_scope(g, scope, decl.span)
         prev_in_method = self._in_method
         for member in decl.members:
             if isinstance(member, FieldDeclNode):
@@ -444,7 +474,7 @@ class Sema:
 
         try:
             for g in getattr(decl, "generics", []):
-                scope.define(Symbol(g, "type", None, decl.span))
+                self._define_generic_param_in_scope(g, scope, decl.span)
             for param in decl.params:
                 self._check_type(param.type_ann, param.span, scope)
                 if self._is_barecore:
@@ -543,6 +573,8 @@ class Sema:
     def _check_type(self, t: Optional[TypeNode], span: Span, scope: Optional[Scope] = None) -> None:
         if t is None:
             return
+        if getattr(t, "is_const_generic", False) or getattr(t, "const_val", None) is not None or (t.name and (t.name.isdigit() or t.name.startswith("0x") or t.name.startswith("0b"))):
+            return
         lookup_scope = scope if scope is not None else self._global
         if t.is_topology_ptr:
             self._check_topology_ptr(t, span)
@@ -623,7 +655,7 @@ class Sema:
         elif isinstance(stmt, DiscernStmtNode):
             self._check_discern(stmt, scope)
         elif isinstance(stmt, ProbeStmtNode):
-            self._check_expr(stmt.condition, scope)
+            self._check_probe(stmt, scope)
         elif isinstance(stmt, PulseStmtNode):
             pass
         elif isinstance(stmt, WhileNode):
@@ -742,6 +774,21 @@ class Sema:
         elif isinstance(stmt.init, StructLitExprNode):
             if stmt.init.struct_name in self._structs and self._structs[stmt.init.struct_name].is_sole:
                 is_sole = True
+            if not stmt.type_ann:
+                stmt.type_ann = TypeNode(
+                    span=stmt.span,
+                    ownership=TK.KW_SOLE if is_sole else None,
+                    topology_ptr=None,
+                    topology_mut=False,
+                    primitive=None,
+                    name=stmt.init.struct_name,
+                    is_optional=False,
+                    is_array=False,
+                    array_size=None,
+                    bounded_lo=None,
+                    bounded_hi=None,
+                    generic_args=list(getattr(stmt.init, "generic_args", []) or []),
+                )
         elif isinstance(stmt.init, CallExprNode):
             callee_str = ""
             if isinstance(stmt.init.callee, IdentNode):
@@ -752,6 +799,12 @@ class Sema:
                 if sdecl.is_sole and (callee_str.startswith(sname) or callee_str.endswith(sname)):
                     is_sole = True
                     break
+            if not stmt.type_ann and callee_str in self._functions:
+                fn_decl = self._functions[callee_str]
+                if getattr(fn_decl, "ret", None):
+                    stmt.type_ann = fn_decl.ret
+                    if self._is_type_sole(stmt.type_ann):
+                        is_sole = True
 
         is_island = stmt.type_ann is not None and self._type_is_island(stmt.type_ann)
         sym = Symbol(stmt.name, "var" if stmt.is_var else "let",
@@ -998,6 +1051,34 @@ class Sema:
                         self._err("operação bloqueante é terminantemente proibida dentro de seção crítica de hardware ('clinch')", expr.span)
 
             self._check_expr(expr.callee, scope)
+
+            # Type, Typestate and Island validation for function parameters
+            target_fn = self._functions.get(callee_name)
+            if target_fn and getattr(target_fn, "params", None):
+                for param, arg in zip(target_fn.params, expr.args):
+                    act_type = self._infer_expr_type(arg.value, scope)
+                    exp_type = param.type_ann
+                    if exp_type and act_type:
+                        # 1. Confinamento de island
+                        if getattr(act_type, "ownership", None) == TK.KW_ISLAND or (isinstance(arg.value, IdentNode) and arg.value.name in self._island_vars):
+                            if getattr(exp_type, "ownership", None) != TK.KW_ISLAND:
+                                self._err(f"confinamento de 'island' violado: '{getattr(arg.value, 'name', 'valor')}' não pode escapar do domínio de execução sem 'handover'", arg.value.span)
+
+                        # 2. Verificação de typestate e const generics
+                        exp_name = exp_type.name
+                        act_name = act_type.name
+                        if exp_name and act_name and exp_name == act_name:
+                            exp_g = getattr(exp_type, "generic_args", []) or []
+                            act_g = getattr(act_type, "generic_args", []) or []
+                            for eg, ag in zip(exp_g, act_g):
+                                if getattr(eg, "is_const_generic", False) or getattr(ag, "is_const_generic", False) or getattr(eg, "const_val", None) is not None or getattr(ag, "const_val", None) is not None:
+                                    ev = eg.const_val if getattr(eg, "const_val", None) is not None else eg.name
+                                    av = ag.const_val if getattr(ag, "const_val", None) is not None else ag.name
+                                    if str(ev) != str(av):
+                                        self._err(f"type mismatch: expected '{exp_type.display_name()}', found '{act_type.display_name()}'", arg.value.span)
+                                elif eg.name and ag.name and eg.name != ag.name:
+                                    self._err(f"mismatched typestate: expected '{eg.name}', found '{ag.name}'", arg.value.span)
+
             for arg in expr.args:
                 self._check_expr(arg.value, scope)
                 if isinstance(arg.value, IdentNode):
@@ -1067,3 +1148,130 @@ class Sema:
                 s.define(Symbol(p, "param", None, Span(self._fn, 0, 0)))
             for st in expr.body:
                 self._check_stmt(st, s)
+
+    def _check_probe(self, stmt: ProbeStmtNode, scope: Scope) -> None:
+        self._check_expr(stmt.condition, scope)
+        val = self._eval_comptime_expr(stmt.condition, scope)
+        if val is not None and not val:
+            msg = stmt.message if stmt.message else "invariante de sistema violada"
+            self._err(f"static probe assertion failed: {msg}", stmt.span)
+
+    def _eval_comptime_expr(self, expr: ExprNode, scope: Scope) -> Optional[Any]:
+        if isinstance(expr, LiteralNode):
+            if expr.kind == TK.INT_LIT:
+                try:
+                    return int(expr.value, 0)
+                except ValueError:
+                    return None
+            elif expr.kind == TK.FLOAT_LIT:
+                try:
+                    return float(expr.value)
+                except ValueError:
+                    return None
+            elif expr.kind == TK.STR_LIT:
+                return expr.value
+            elif expr.kind == TK.KW_TRUE:
+                return True
+            elif expr.kind == TK.KW_FALSE:
+                return False
+            elif expr.kind == TK.KW_NIL:
+                return None
+        elif isinstance(expr, (SpanOfNode, StrideOfNode, AlignOfNode)):
+            p = getattr(expr.target_type, "primitive", None)
+            sizes = {
+                TK.KW_UINT8: 1, TK.KW_INT8: 1, TK.KW_BOOL: 1,
+                TK.KW_UINT16: 2, TK.KW_INT16: 2,
+                TK.KW_UINT32: 4, TK.KW_INT32: 4, TK.KW_FLOAT32: 4,
+                TK.KW_UINT64: 8, TK.KW_INT64: 8, TK.KW_FLOAT64: 8,
+                TK.KW_USIZE: 8, TK.KW_ISIZE: 8,
+            }
+            if p in sizes:
+                return sizes[p]
+            return None
+        elif isinstance(expr, BinaryExprNode):
+            l = self._eval_comptime_expr(expr.left, scope)
+            r = self._eval_comptime_expr(expr.right, scope)
+            if l is not None and r is not None:
+                op = expr.op
+                try:
+                    if op == TK.EQ:
+                        return l == r
+                    elif op == TK.NEQ:
+                        return l != r
+                    elif op == TK.LT:
+                        return l < r
+                    elif op == TK.LTE:
+                        return l <= r
+                    elif op == TK.GT:
+                        return l > r
+                    elif op == TK.GTE:
+                        return l >= r
+                    elif op == TK.PLUS:
+                        return l + r
+                    elif op == TK.MINUS:
+                        return l - r
+                    elif op == TK.STAR:
+                        return l * r
+                    elif op == TK.SLASH:
+                        return l // r if r != 0 else None
+                    elif op == TK.AND:
+                        return bool(l and r)
+                    elif op == TK.OR:
+                        return bool(l or r)
+                except Exception:
+                    return None
+        elif isinstance(expr, UnaryExprNode):
+            v = self._eval_comptime_expr(expr.operand, scope)
+            if v is not None:
+                if expr.op in (TK.NOT, TK.BANG):
+                    return not v
+                elif expr.op == TK.MINUS:
+                    return -v
+        elif isinstance(expr, IdentNode):
+            sym = scope.lookup(expr.name)
+            if sym and getattr(sym, "const_value", None) is not None:
+                return sym.const_value
+        return None
+
+    def _infer_expr_type(self, expr: ExprNode, scope: Scope) -> Optional[TypeNode]:
+        if isinstance(expr, IdentNode):
+            sym = scope.lookup(expr.name)
+            return sym.type_node if sym else None
+        elif isinstance(expr, StructLitExprNode):
+            return TypeNode(
+                span=expr.span,
+                ownership=None,
+                topology_ptr=None,
+                topology_mut=False,
+                primitive=None,
+                name=expr.struct_name,
+                is_optional=False,
+                is_array=False,
+                array_size=None,
+                bounded_lo=None,
+                bounded_hi=None,
+                generic_args=list(getattr(expr, "generic_args", []) or []),
+            )
+        elif isinstance(expr, CallExprNode):
+            callee_name = ""
+            if isinstance(expr.callee, IdentNode):
+                callee_name = expr.callee.name
+                if expr.callee.path:
+                    callee_name = "::".join(expr.callee.path)
+            elif isinstance(expr.callee, FieldExprNode):
+                base_t = self._infer_expr_type(expr.callee.base, scope)
+                if base_t and base_t.name:
+                    callee_name = f"{base_t.name}::{expr.callee.field}"
+                else:
+                    callee_name = expr.callee.field
+            if callee_name in self._functions:
+                return getattr(self._functions[callee_name], "ret", None)
+        elif isinstance(expr, UnaryExprNode):
+            if expr.op in (TK.LAND, TK.KW_WHISPER):
+                inner_t = self._infer_expr_type(expr.operand, scope)
+                if inner_t:
+                    import copy
+                    t = copy.copy(inner_t)
+                    t.topology_ptr = TK.KW_MUT if getattr(expr, "is_mut", False) else TK.KW_CONST_MOD
+                    return t
+        return None

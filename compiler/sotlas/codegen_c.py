@@ -166,6 +166,8 @@ class CodegenC:
         return f"{bare} {name}".strip() if name else bare
 
     def _emit_bare_type(self, t: TypeNode) -> str:
+        if getattr(t, "const_val", None) is not None:
+            return str(t.const_val)
         if t.is_tuple:
             if not t.tuple_elements:
                 return "void"
@@ -682,6 +684,8 @@ class CodegenC:
             return f"({op}{self._emit_expr(expr.operand)})"
         if isinstance(expr, CallExprNode):
             callee = self._emit_expr(expr.callee)
+            if callee in ("dma_fence", "dma_barrier", "__dma_fence", "sync_fence"):
+                return "__sync_synchronize()"
             args = ", ".join(self._emit_expr(a.value) for a in expr.args)
             return f"{callee}({args})"
         if isinstance(expr, IndexExprNode):
@@ -713,7 +717,11 @@ class CodegenC:
             return f"{{{elems}}}"
         if isinstance(expr, StructLitExprNode):
             fields_str = ", ".join(f".{f.name} = {self._emit_expr(f.value)}" for f in expr.fields)
-            return f"({expr.struct_name}){{ {fields_str} }}"
+            struct_name = expr.struct_name
+            if getattr(expr, "generic_args", None):
+                args_str = "_".join(self._emit_bare_type(a) for a in expr.generic_args).replace("*", "ptr").replace(" ", "_")
+                struct_name = f"{expr.struct_name}_{args_str}"
+            return f"({struct_name}){{ {fields_str} }}"
         if isinstance(expr, TupleLitExprNode):
             if not expr.elements:
                 return "0"
