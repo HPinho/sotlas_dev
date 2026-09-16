@@ -307,8 +307,8 @@ export class SotlasValidator {
                 });
             }
 
-            // 5. Verificação de 'struct' / 'class' / 'mesh'
-            const structMatch = trimmed.match(/^(?:pub\s+)?(struct|class|mesh)\s+([A-Za-z_][A-Za-z0-9_]*)/);
+            // 5. Verificação de 'struct' / 'class' / 'mesh' / 'register'
+            const structMatch = trimmed.match(/^(?:pub\s+)?(struct|class|mesh|register)\s+([A-Za-z_][A-Za-z0-9_]*)/);
             if (structMatch) {
                 const kindStr = structMatch[1];
                 const sName = structMatch[2];
@@ -316,7 +316,7 @@ export class SotlasValidator {
 
                 symbols.push({
                     name: sName,
-                    kind: kindStr === 'class' ? vscode.SymbolKind.Class : vscode.SymbolKind.Struct,
+                    kind: kindStr === 'class' ? vscode.SymbolKind.Class : (kindStr === 'register' ? vscode.SymbolKind.Interface : vscode.SymbolKind.Struct),
                     range: new vscode.Range(i, 0, i, rawLine.length),
                     selectionRange: new vscode.Range(i, nameCol, i, nameCol + sName.length),
                     detail: kindStr

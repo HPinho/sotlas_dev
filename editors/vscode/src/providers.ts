@@ -60,7 +60,9 @@ export class SotlasHoverProvider implements vscode.HoverProvider {
         'defer': '**defer (Execução Tardia)**\n\nAgenda a execução de uma instrução ou bloco para o momento em que o escopo atual for encerrado.',
         'trapfn': '**trapfn (Manipulador de Interrupção / Trap)**\n\nFunção de baixo nível executada em contexto de interrupção ou exceção de CPU.',
         'fn': '**fn (Função)**\n\nDeclaração padrão de função com tipagem estática e verificação de ownership.',
-        'mesh': '**mesh (Topologia de Módulos)**\n\nDeclaração de interconexão entre módulos e domínios do sistema.'
+        'mesh': '**mesh (Topologia de Módulos)**\n\nDeclaração de interconexão entre módulos e domínios do sistema.',
+        'register': '**register (Registrador de Hardware MMIO)**\n\nDeclaração determinística de registrador de hardware com campos de bits mapeados (`campo: lo..hi;`). Permite leitura e escrita volátil atômica garantida pelo compilador sem necessidade de macros manuais.',
+        'mould': '**mould (Bloco Comptime)**\n\nAvaliação de expressões constantes e asserções estáticas (`probe <cond>, "<msg>";`) diretamente em tempo de compilação.'
     };
 
     public provideHover(

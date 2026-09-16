@@ -66,7 +66,7 @@
         },
         {
           "name": "keyword.declaration.sotlas",
-          "match": "\\b(module|import|pub|priv|internal|fn|trapfn|struct|enum|class|mesh|spec|adopts|moldable|reshape|barecore|const|static|let|var|unsafe|forge|enclave|as|where)\\b"
+          "match": "\\b(module|import|pub|priv|internal|fn|trapfn|struct|enum|class|mesh|spec|register|adopts|moldable|mould|reshape|barecore|const|static|let|var|unsafe|forge|enclave|typealias|as|where)\\b"
         },
         {
           "name": "keyword.srg.sotlas",
@@ -102,7 +102,7 @@
       "patterns": [
         {
           "name": "support.type.primitive.sotlas",
-          "match": "\\b(u8|u16|u32|u64|i8|i16|i32|i64|f32|f64|usize|isize|bool|void|str|char)\\b"
+          "match": "\\b(u8|u16|u32|u64|i8|i16|i32|i64|f32|f64|usize|isize|bool|void|str|char|f32x4|f32x8|f64x2|f64x4|u8x16|u8x32|i32x4|i32x8|i64x2|i64x4)\\b"
         },
         {
           "name": "support.type.sotlas",
