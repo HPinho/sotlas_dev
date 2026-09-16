@@ -63,22 +63,16 @@ curl -fsSL https://raw.githubusercontent.com/HPinho/LangSotlas/main/packaging/in
 
 ---
 
-## Packaging and Local Installation (.vsix)
+## Installation
 
-To package and build the extension locally:
+Install directly from your editor:
 
-```bash
-cd editors/vscode
-npm install
-npm run compile
-npx @vscode/vsce package
-```
-
-This generates `sotlas-0.5.0.vsix`. To install it immediately in VS Code / VSCodium:
-
-```bash
-code --install-extension sotlas-0.5.0.vsix
-```
+1. Open **VS Code**, **VSCodium**, or **Cursor**.
+2. Press `Ctrl+P` (or `Cmd+P` on macOS) and enter:
+   ```text
+   ext install hiagopinho.sotlas
+   ```
+   *Or simply search for **Sotlas** in the Extensions sidebar (`Ctrl+Shift+X`).*
 
 ---
 
