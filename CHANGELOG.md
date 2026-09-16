@@ -5,6 +5,14 @@ All notable changes to the Sotlas programming language and compiler will be docu
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-09-16
+
+### Fixed
+- **Extension & Ecosystem Polish**:
+  - Refactored VS Code and Open VSX extension store presentation and documentation.
+  - Replaced internal development commands with direct editor installation instructions.
+  - Released hotfix package `sotlas-0.5.1.vsix` for Visual Studio Marketplace and Open VSX Registry.
+
 ---
 
 ## [0.5.0] - 2026-09-16

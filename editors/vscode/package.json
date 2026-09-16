@@ -4,7 +4,7 @@
   "publisher": "hiagopinho",
   "author": "Hiago Pinho",
   "description": "Official support for the Sotlas programming language: from low-level systems (bare-metal, drivers, kernels) to high-level applications, game engines, and tools. Syntax highlighting, native diagnostics, outline, and hover.",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "icon": "./icons/sotlas-icon.png",
   "engines": {
     "vscode": "^1.60.0"
