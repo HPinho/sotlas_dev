@@ -4,6 +4,14 @@ Official extension support for the **Sotlas** programming language (`.sotlas`, `
 
 **Sotlas** is a modern, safe, and expressive general-purpose and systems programming language — engineered with infinite possibilities, from the lowest level (bare-metal, monolithic kernels/microkernels, drivers, and embedded systems) to high-level applications (game engines, command-line tools, network services, and desktop apps).
 
+<p align="left">
+  <a href="https://sotlas.org"><strong>🌐 Website</strong></a> &bull;
+  <a href="https://sotlas.org/docs"><strong>📖 Documentation</strong></a> &bull;
+  <a href="https://sotlas.org/playground"><strong>⚡ Interactive Playground</strong></a> &bull;
+  <a href="https://sotlas.org/community"><strong>👥 Community</strong></a> &bull;
+  <a href="https://github.com/HPinho/LangSotlas"><strong>🐙 GitHub</strong></a>
+</p>
+
 ---
 
 ## Key Features
