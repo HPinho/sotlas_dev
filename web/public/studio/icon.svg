@@ -1,0 +1,123 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%" fill="none">
+  <defs>
+    <!-- Background Die Gradient -->
+    <radialGradient id="die-glow" cx="50%" cy="50%" r="60%">
+      <stop offset="0%" stop-color="#1c1917" />
+      <stop offset="60%" stop-color="#0c0e14" />
+      <stop offset="100%" stop-color="#06080c" />
+    </radialGradient>
+
+    <!-- Sotlas Molten Amber/Copper Gradient -->
+    <linearGradient id="amber-core" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FDE047" />
+      <stop offset="35%" stop-color="#F59E0B" />
+      <stop offset="70%" stop-color="#EA580C" />
+      <stop offset="100%" stop-color="#C2410C" />
+    </linearGradient>
+
+    <!-- Sotlas Quantum Cyan Gradient -->
+    <linearGradient id="cyan-accent" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38BDF8" />
+      <stop offset="50%" stop-color="#06B6D4" />
+      <stop offset="100%" stop-color="#0284C7" />
+    </linearGradient>
+
+    <!-- Border Glow Gradient -->
+    <linearGradient id="border-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F59E0B" stop-opacity="0.9" />
+      <stop offset="50%" stop-color="#38BDF8" stop-opacity="0.6" />
+      <stop offset="100%" stop-color="#EA580C" stop-opacity="0.9" />
+    </linearGradient>
+
+    <!-- Shadow / Glow Filter -->
+    <filter id="core-glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#EA580C" flood-opacity="0.4" />
+    </filter>
+  </defs>
+
+  <!-- External Silicon Bus Pins (Hardware Topology) -->
+  <g stroke="url(#amber-core)" stroke-width="4" stroke-linecap="round" opacity="0.65">
+    <!-- Top Pins -->
+    <line x1="200" y1="18" x2="200" y2="46" />
+    <line x1="256" y1="12" x2="256" y2="42" />
+    <line x1="312" y1="18" x2="312" y2="46" />
+    <!-- Bottom Pins -->
+    <line x1="200" y1="466" x2="200" y2="494" />
+    <line x1="256" y1="470" x2="256" y2="500" />
+    <line x1="312" y1="466" x2="312" y2="494" />
+    <!-- Left Pins -->
+    <line x1="18" y1="200" x2="46" y2="200" />
+    <line x1="12" y1="256" x2="42" y2="256" />
+    <line x1="18" y1="312" x2="46" y2="312" />
+    <!-- Right Pins -->
+    <line x1="466" y1="200" x2="494" y2="200" />
+    <line x1="470" y1="256" x2="500" y2="256" />
+    <line x1="466" y1="312" x2="494" y2="312" />
+  </g>
+
+  <!-- Hexagonal Silicon Die (Base Plate) -->
+  <polygon points="256,42 436,116 470,256 436,396 256,470 76,396 42,256 76,116" 
+           fill="url(#die-glow)" 
+           stroke="url(#border-grad)" 
+           stroke-width="7" 
+           stroke-linejoin="round" />
+
+  <!-- Inner Circuit Traces -->
+  <g stroke="#38BDF8" stroke-width="2" opacity="0.25" fill="none">
+    <path d="M 120,150 L 160,150 L 190,120 L 256,120" />
+    <circle cx="120" cy="150" r="3" fill="#38BDF8" />
+    <path d="M 392,150 L 352,150 L 322,120 L 256,120" />
+    <circle cx="392" cy="150" r="3" fill="#38BDF8" />
+    <path d="M 120,362 L 160,362 L 190,392 L 256,392" />
+    <circle cx="120" cy="362" r="3" fill="#38BDF8" />
+    <path d="M 392,362 L 352,362 L 322,392 L 256,392" />
+    <circle cx="392" cy="362" r="3" fill="#38BDF8" />
+  </g>
+
+  <!-- Corner Silicon Markers -->
+  <circle cx="256" cy="74" r="5" fill="#F59E0B" />
+  <circle cx="438" cy="256" r="5" fill="#F59E0B" />
+  <circle cx="256" cy="438" r="5" fill="#F59E0B" />
+  <circle cx="74" cy="256" r="5" fill="#F59E0B" />
+
+  <!-- The Sotlas Geometric 'S' (Silicon Current & Armor) -->
+  <g filter="url(#core-glow)">
+    <!-- Upper Wing of 'S' -->
+    <path d="M 358,154 
+             L 214,154 
+             C 174,154 148,178 148,212 
+             C 148,246 176,268 222,278 
+             L 300,296 
+             C 334,304 350,318 350,336 
+             L 350,300 
+             L 282,284 
+             C 240,274 218,256 218,230 
+             C 218,206 234,196 260,196 
+             L 358,196 
+             Z" 
+          fill="url(#amber-core)" />
+
+    <!-- Lower Wing of 'S' -->
+    <path d="M 154,358 
+             L 298,358 
+             C 338,358 364,334 364,300 
+             C 364,266 336,244 290,234 
+             L 212,216 
+             C 178,208 162,194 162,176 
+             L 162,212 
+             L 230,228 
+             C 272,238 294,256 294,282 
+             C 294,306 278,316 252,316 
+             L 154,316 
+             Z" 
+          fill="url(#amber-core)" />
+
+    <!-- Central High-Voltage Core Lightning (The SRG Deterministic Pivot) -->
+    <polygon points="274,216 238,296 270,296 244,342 292,266 260,266" 
+             fill="url(#cyan-accent)" />
+  </g>
+
+  <!-- Accent Edge Highlights -->
+  <path d="M 214,154 L 358,154" stroke="#FFF" stroke-width="3" stroke-linecap="round" opacity="0.4" />
+  <path d="M 154,358 L 298,358" stroke="#FFF" stroke-width="3" stroke-linecap="round" opacity="0.4" />
+</svg>
