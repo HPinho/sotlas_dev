@@ -11,8 +11,8 @@ interface CliCommand {
 }
 
 const installSteps = [
-  { step: "1", label: "Clone the repository", command: "git clone https://github.com/HPinho/LangSotlas.git" },
-  { step: "2", label: "Enter directory", command: "cd LangSotlas" },
+  { step: "1", label: "Clone the repository", command: "git clone https://github.com/Sotlas/sotlas.git" },
+  { step: "2", label: "Enter directory", command: "cd sotlas" },
   { step: "3", label: "Install in editable mode", command: "pip install -e ." },
 ];
 

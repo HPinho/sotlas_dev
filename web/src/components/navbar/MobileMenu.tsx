@@ -70,7 +70,7 @@ const MobileMenu = () => {
 
             {/* GitHub Link */}
             <a
-              href="https://github.com/HPinho/LangSotlas"
+              href="https://github.com/Sotlas/sotlas"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-3 px-4 py-3 text-base font-medium text-muted-foreground hover:text-foreground hover:bg-secondary/50 rounded-xl transition-colors"

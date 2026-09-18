@@ -133,13 +133,13 @@ export function ProjectStats() {
 
         {/* GitHub Badges */}
         <div className="flex flex-wrap items-center justify-center gap-2 mb-10">
-          <a href="https://github.com/HPinho/LangSotlas/actions" target="_blank" rel="noopener noreferrer" className="hover:opacity-85 transition-opacity">
-            <img src="https://github.com/HPinho/LangSotlas/actions/workflows/ci.yml/badge.svg" alt="CI" className="h-5" />
+          <a href="https://github.com/Sotlas/sotlas/actions" target="_blank" rel="noopener noreferrer" className="hover:opacity-85 transition-opacity">
+            <img src="https://github.com/Sotlas/sotlas/actions/workflows/ci.yml/badge.svg" alt="CI" className="h-5" />
           </a>
           <a href="https://github.com/HPinho" target="_blank" rel="noopener noreferrer" className="hover:opacity-85 transition-opacity">
             <img src="https://img.shields.io/badge/Author-Hiago%20Pinho-8b5cf6.svg" alt="Author: Hiago Pinho" className="h-5" />
           </a>
-          <a href="https://github.com/HPinho/LangSotlas/blob/main/LICENSE" target="_blank" rel="noopener noreferrer" className="hover:opacity-85 transition-opacity">
+          <a href="https://github.com/Sotlas/sotlas/blob/main/LICENSE" target="_blank" rel="noopener noreferrer" className="hover:opacity-85 transition-opacity">
             <img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="Apache 2.0 License" className="h-5" />
           </a>
           <img src="https://img.shields.io/badge/target-x86__64--freestanding-orange.svg" alt="Target" className="h-5" />

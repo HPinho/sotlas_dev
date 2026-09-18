@@ -64,7 +64,7 @@ Este documento apresenta uma análise técnica completa, detalhada e comparativa
      authors = ["Jose Pinho <...>"]
 
      [dependencies]
-     sotlas-core = { git = "https://github.com/HPinho/LangSotlas.git", tag = "v0.3.0" }
+     sotlas-core = { git = "https://github.com/Sotlas/sotlas.git", tag = "v0.3.0" }
      ```
   2. **Comandos de Gerenciamento na CLI:**
      - `sotlas init`: Cria a estrutura de pastas padrão (`src/main.sotlas`, `tests/`, `Sotlas.toml`).

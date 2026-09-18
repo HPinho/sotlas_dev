@@ -27,7 +27,7 @@ const Hero = () => (
         </p>
         <div className="mt-8 flex flex-col gap-3 sm:flex-row">
           <Link to="/docs/installation" className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg bg-primary px-5 py-3 font-bold text-primary-foreground shadow-[0_12px_35px_-14px_hsl(var(--primary))] transition hover:-translate-y-0.5 hover:brightness-105">Install Sotlas <ArrowRight className="h-4 w-4" /></Link>
-          <a href="https://github.com/HPinho/LangSotlas" target="_blank" rel="noopener noreferrer" className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border border-border bg-card px-5 py-3 font-semibold text-foreground transition hover:border-primary/40 hover:bg-primary/5"><Github className="h-4 w-4" /> View on GitHub</a>
+          <a href="https://github.com/Sotlas/sotlas" target="_blank" rel="noopener noreferrer" className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border border-border bg-card px-5 py-3 font-semibold text-foreground transition hover:border-primary/40 hover:bg-primary/5"><Github className="h-4 w-4" /> View on GitHub</a>
         </div>
         <div className="mt-9 grid max-w-xl grid-cols-1 gap-3 sm:grid-cols-3">
           {benefits.map(({ icon: Icon, title, detail }) => (

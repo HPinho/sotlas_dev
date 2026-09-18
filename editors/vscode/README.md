@@ -9,7 +9,8 @@ Official extension support for the **Sotlas** programming language (`.sotlas`, `
   <a href="https://sotlas.org/docs"><strong>📖 Documentation</strong></a> &bull;
   <a href="https://sotlas.org/playground"><strong>⚡ Interactive Playground</strong></a> &bull;
   <a href="https://sotlas.org/community"><strong>👥 Community</strong></a> &bull;
-  <a href="https://github.com/HPinho/LangSotlas"><strong>🐙 GitHub</strong></a>
+  <a href="https://github.com/Sotlas/sotlas"><strong>🐙 GitHub (Core)</strong></a> &bull;
+  <a href="https://github.com/Sotlas/vscode-sotlas"><strong>🔌 GitHub (Extension)</strong></a>
 </p>
 
 ---
@@ -53,12 +54,12 @@ To enable the Language Server (LSP) and compiler commands, install the official 
 
 ```powershell
 # On Windows (PowerShell):
-irm https://raw.githubusercontent.com/HPinho/LangSotlas/main/packaging/install.ps1 | iex
+irm https://raw.githubusercontent.com/Sotlas/sotlas/main/packaging/install.ps1 | iex
 ```
 
 ```bash
 # On Linux / macOS:
-curl -fsSL https://raw.githubusercontent.com/HPinho/LangSotlas/main/packaging/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Sotlas/sotlas/main/packaging/install.sh | bash
 ```
 
 ---

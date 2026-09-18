@@ -26,7 +26,7 @@ const communityLinks = [
     icon: Github,
     title: "GitHub Repository",
     description: "Browse source code, star the project, and track development progress.",
-    href: "https://github.com/HPinho/LangSotlas",
+    href: "https://github.com/Sotlas/sotlas",
     external: true,
     tag: "Source Code",
     tagColor: "bg-zinc-500/10 text-zinc-400 border-zinc-500/20",
@@ -35,7 +35,7 @@ const communityLinks = [
     icon: MessageSquare,
     title: "GitHub Discussions",
     description: "Ask questions, share ideas, and discuss language design decisions with the community.",
-    href: "https://github.com/HPinho/LangSotlas/discussions",
+    href: "https://github.com/Sotlas/sotlas/discussions",
     external: true,
     tag: "Q&A",
     tagColor: "bg-blue-500/10 text-blue-400 border-blue-500/20",
@@ -44,7 +44,7 @@ const communityLinks = [
     icon: Bug,
     title: "Report Issues",
     description: "Found a bug in the compiler or documentation? File an issue and help improve Sotlas.",
-    href: "https://github.com/HPinho/LangSotlas/issues",
+    href: "https://github.com/Sotlas/sotlas/issues",
     external: true,
     tag: "Bug Reports",
     tagColor: "bg-rose-500/10 text-rose-400 border-rose-500/20",
@@ -53,7 +53,7 @@ const communityLinks = [
     icon: GitPullRequest,
     title: "Contribute",
     description: "Submit pull requests for compiler improvements, test coverage, and documentation.",
-    href: "https://github.com/HPinho/LangSotlas/pulls",
+    href: "https://github.com/Sotlas/sotlas/pulls",
     external: true,
     tag: "PRs Welcome",
     tagColor: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
@@ -354,7 +354,7 @@ export default function Community() {
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
               <a
-                href="https://github.com/HPinho/LangSotlas"
+                href="https://github.com/Sotlas/sotlas"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-foreground text-background font-semibold text-sm hover:opacity-90 transition-opacity shadow-md"

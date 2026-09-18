@@ -7,7 +7,7 @@
 **Segura por padrão, assumidamente capaz de sistemas.**  
 *Criada para sanar as lacunas históricas de segurança, modularidade e controle deixadas pelo C, C++ e Objective-C.*
 
-[![CI](https://github.com/HPinho/LangSotlas/actions/workflows/ci.yml/badge.svg)](https://github.com/HPinho/LangSotlas/actions)
+[![CI](https://github.com/Sotlas/sotlas/actions/workflows/ci.yml/badge.svg)](https://github.com/Sotlas/sotlas/actions)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Target](https://img.shields.io/badge/target-x86__64--freestanding-orange.svg)](#)
 [![Architecture](https://img.shields.io/badge/architecture-SIR%20%2F%20C11%20Stage--0-green.svg)](#)
@@ -157,8 +157,8 @@ A biblioteca padrão de Sotlas é implementada inteiramente na própria linguage
 Clone o repositório e configure em modo editável:
 
 ```bash
-git clone https://github.com/HPinho/LangSotlas.git
-cd LangSotlas
+git clone https://github.com/Sotlas/sotlas.git
+cd sotlas
 pip install -e .
 ```
 

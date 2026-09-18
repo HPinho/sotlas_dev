@@ -6,7 +6,7 @@
 #define MyAppName "Sotlas Programming Language"
 #define MyAppVersion "0.2.0"
 #define MyAppPublisher "Equipe Sotlas"
-#define MyAppURL "https://github.com/HPinho/LangSotlas"
+#define MyAppURL "https://github.com/Sotlas/sotlas"
 #define MyAppExeName "sotlas.cmd"
 
 [Setup]

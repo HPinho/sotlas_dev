@@ -15,7 +15,10 @@
   "license": "Apache-2.0 WITH LLVM-exception",
   "repository": {
     "type": "git",
-    "url": "https://github.com/HPinho/LangSotlas.git"
+    "url": "https://github.com/Sotlas/vscode-sotlas.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Sotlas/vscode-sotlas/issues"
   },
   "homepage": "https://sotlas.org",
   "keywords": ["sotlas", "systems", "game-engine", "compiler", "language", "bare-metal", "general-purpose"],

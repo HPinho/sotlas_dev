@@ -28,16 +28,16 @@ const footerSections = [
     title: "Community",
     links: [
       { label: "Community", href: "/community" },
-      { label: "GitHub Repository", href: "https://github.com/HPinho/LangSotlas", external: true },
-      { label: "GitHub Issues", href: "https://github.com/HPinho/LangSotlas/issues", external: true },
-      { label: "Discussions", href: "https://github.com/HPinho/LangSotlas/discussions", external: true },
+      { label: "GitHub Repository", href: "https://github.com/Sotlas/sotlas", external: true },
+      { label: "GitHub Issues", href: "https://github.com/Sotlas/sotlas/issues", external: true },
+      { label: "Discussions", href: "https://github.com/Sotlas/sotlas/discussions", external: true },
       { label: "Contributing", href: "/docs/community" },
     ],
   },
   {
     title: "Legal",
     links: [
-      { label: "Apache 2.0 License", href: "https://github.com/HPinho/LangSotlas/blob/main/LICENSE", external: true },
+      { label: "Apache 2.0 License", href: "https://github.com/Sotlas/sotlas/blob/main/LICENSE", external: true },
       { label: "Privacy Policy", href: "/privacy" },
       { label: "Cookies", href: "/privacy#cookies" },
     ],
@@ -104,7 +104,7 @@ const Footer = () => {
           {/* Right: Social Links */}
           <div className="flex items-center gap-4">
             <a
-              href="https://github.com/HPinho/LangSotlas"
+              href="https://github.com/Sotlas/sotlas"
               target="_blank"
               rel="noopener noreferrer"
               className="text-slate-500 hover:text-slate-200 transition-colors"

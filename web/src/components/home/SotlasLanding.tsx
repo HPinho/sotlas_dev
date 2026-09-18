@@ -570,7 +570,7 @@ export function SotlasLanding() {
           </p>
         </div>
         <a
-          href="https://github.com/HPinho/LangSotlas"
+          href="https://github.com/Sotlas/sotlas"
           target="_blank"
           rel="noopener noreferrer"
           className="sotlas-button sotlas-button--light"

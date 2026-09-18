@@ -6,7 +6,7 @@ authors = ["Hiago Pinho <hiagospinho@gmail.com>"]
 edition = "2026"
 license = "Apache-2.0 WITH LLVM-exception"
 description = "Linguagem de programação moderna, segura e de propósito geral — do bare-metal a jogos e aplicações."
-repository = "https://github.com/HPinho/LangSotlas"
+repository = "https://github.com/Sotlas/sotlas"
 
 [build]
 target = "native" # Alvos suportados: native, c, wasm, baremetal
