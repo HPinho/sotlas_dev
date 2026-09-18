@@ -96,7 +96,7 @@ def main() -> int:
     )
 
     # Subcomando: check
-    chk = sub.add_parser("check", help="Executa lexer, parser, tipos e safety sem gerar código")
+    chk = sub.add_parser("check", help="Valida pelo pipeline canônico completo sem gravar artefatos")
     chk.add_argument("source", help=f"Arquivo fonte {SOTLAS_EXT}")
 
     # Subcomando: run
@@ -244,8 +244,9 @@ def _run_check(source_path: str) -> int:
         return 1
     _, text = loaded
     try:
-        module = production_frontend.parse(text, filename=source_path)
-        production_frontend.check(module)
+        # `check` e `compile` compartilham o mesmo contrato de aceitação.
+        # O C11 gerado permanece apenas em memória neste comando.
+        compile_source(text, source_path)
     except SotlasBootstrapError as error:
         print(f"sotlas: erro: {error}", file=sys.stderr)
         return 1

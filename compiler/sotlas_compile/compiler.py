@@ -554,13 +554,12 @@ def _c_identifier(module: str) -> str:
 def _bootstrap_backend():
     """Carrega lexer/parser/lowering Sotlas e extensões x86 pelo mesmo contrato."""
     try:
-        from tools.sotlas_compile import bootstrap
-        from tools.sotlas_compile import frontend_extensions
-        from tools.sotlas_compile import x86_intrinsics
+        # A rota de produção resolve módulos somente do pacote canônico em compiler/.
+        from . import bootstrap
+        from . import frontend_extensions
+        from . import x86_intrinsics
     except ImportError:
-        # Execução canônica por caminho (`python tools/sotlas_compile/compiler.py`)
-        # não inicializa o pacote `tools.sotlas_compile`; instale explicitamente
-        # as mesmas extensões usadas por imports de pacote antes do backend x86.
+        # Mantém execução direta por caminho apenas para bootstrap/desenvolvimento.
         import bootstrap
         import frontend_extensions
         import x86_intrinsics

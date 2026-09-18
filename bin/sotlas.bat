@@ -14,6 +14,7 @@ if exist "%BIN_DIR%sotlas_native.exe" (
 
 set PYTHONUNBUFFERED=1
 set "SOTLAS_ROOT=%BIN_DIR%.."
-python "%SOTLAS_ROOT%\tools\sotlas_compile\cli.py" %*
+set "PYTHONPATH=%SOTLAS_ROOT%\compiler;%PYTHONPATH%"
+python -m sotlas.cli %*
 exit /b %ERRORLEVEL%
 

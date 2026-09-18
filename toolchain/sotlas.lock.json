@@ -2,7 +2,7 @@
   "schema": 1,
   "toolchain": "sotlas",
   "source_kind": "in-tree",
-  "source_path": "tools/sotlas_compile",
+  "source_path": "compiler/sotlas_compile",
   "repository": null,
   "revision": null,
   "language_version": "0.5.1",

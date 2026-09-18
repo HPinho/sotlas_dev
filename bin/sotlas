@@ -11,10 +11,11 @@ elif [[ -f "$SCRIPT_DIR/sotlas.exe" ]] && command -v wine &>/dev/null; then
     exec wine "$SCRIPT_DIR/sotlas.exe" "$@"
 fi
 
-# 2. Fallback para o bootstrap Python se o binário nativo ainda não foi compilado
+# 2. Fallback para o pacote Python canônico em compiler/.
+export PYTHONPATH="$SOTLAS_ROOT/compiler${PYTHONPATH:+:$PYTHONPATH}"
 if command -v python3 &>/dev/null; then
-    exec python3 "$SOTLAS_ROOT/tools/sotlas_compile/cli.py" "$@"
+    exec python3 -m sotlas.cli "$@"
 else
-    exec python "$SOTLAS_ROOT/tools/sotlas_compile/cli.py" "$@"
+    exec python -m sotlas.cli "$@"
 fi
 
