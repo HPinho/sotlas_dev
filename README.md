@@ -2,10 +2,10 @@
 
 <img src="./assets/logo.svg" alt="Sotlas Logo" width="160" height="160" />
 
-# ⚡ Linguagem de Programação Sotlas
+# ⚡ Sotlas Programming Language
 
-**Segura por padrão, assumidamente capaz de sistemas.**  
-*Criada para sanar as lacunas históricas de segurança, modularidade e controle deixadas pelo C, C++ e Objective-C.*
+**Safe by default, unapologetically systems-capable.**  
+*Engineered to eliminate the historical gaps in safety, modularity, and control left by C, C++, and Objective-C.*
 
 [![CI](https://github.com/Sotlas/sotlas/actions/workflows/ci.yml/badge.svg)](https://github.com/Sotlas/sotlas/actions)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
@@ -13,71 +13,71 @@
 [![Architecture](https://img.shields.io/badge/architecture-SIR%20%2F%20C11%20Stage--0-green.svg)](#)
 [![Language Version](https://img.shields.io/badge/version-0.5.1-purple.svg)](#)
 
-[Visão Geral](#-visão-geral) • [Por que Sotlas?](#-por-que-sotlas-superando-c-c-e-objective-c) • [Tour Guiado](docs/guided_tour.md) • [Arquitetura](#-arquitetura-do-compilador) • [Biblioteca Padrão](#-biblioteca-padrão-stdlib) • [Quickstart](#-quickstart) • [Exemplos](examples/)
+[Overview](#-overview) • [Why Sotlas?](#-why-sotlas-surpassing-c-c-and-objective-c) • [Guided Tour](docs/guided_tour.md) • [Architecture](#-compiler-architecture) • [Standard Library](#-standard-library-stdlib) • [Quickstart](#-quickstart) • [Examples](examples/) • [🇧🇷 Leia em Português](README.pt-BR.md)
 
 </div>
 
 ---
 
-## 🌟 Visão Geral
+## 🌟 Overview
 
-**Sotlas** é uma linguagem de programação de sistemas moderna concebida para o desenvolvimento de **sistemas operacionais (BakenOS)**, **firmware bare-metal**, **drivers de hardware**, **motores gráficos** e **serviços de alto desempenho**.
+**Sotlas** is a modern systems programming language designed for **operating systems (BakenOS)**, **bare-metal firmware**, **hardware drivers**, **graphics engines**, and **high-performance services**.
 
-Sotlas foi desenhada do zero para fornecer abstrações de custo zero (*zero-cost abstractions*), segurança de memória estrita e compilação modular limpa, sem depender de runtimes pesados, coletores de lixo ou pré-processadores frágeis.
-
----
-
-## 🎯 Por que Sotlas? Superando C, C++ e Objective-C
-
-Durante décadas, a engenharia de sistemas e desenvolvimento de sistemas operacionais esteve presa a linguagens legadas que acumularam lacunas críticas:
-
-### 1. As Lacunas do C
-* **Falta de Segurança de Memória**: Acesso irrestrito a ponteiros crus gera vulnerabilidades crônicas (*buffer overflows*, *use-after-free*, *dangling pointers*).
-* **Ausência de Módulos**: Dependência frágil do pré-processador (`#include`), sujeita a colisões globais de nomes e poluição de macros.
-* **Erros Frágeis**: Retorno manual de inteiros mágicos (`-1`, `NULL`), frequentemente ignorados pelos programadores.
-* **Sem Distinção de Privilégios**: Acesso a hardware (portas I/O, registradores de CPU) é indistinguível de simples manipulação de memória local.
-
-### 2. As Lacunas do C++
-* **Complexidade e Sobrecarga Excessiva**: Especificações gigantescas, templates que explodem tempos de compilação e código binário.
-* **Incompatibilidade com Bare-Metal**: Exceções, RTTI e destruidores não-determinísticos impõem um runtime oculto inadequado para o desenvolvimento de kernels de sistemas operacionais.
-* **Pesadelo de ABI**: Falta de uma ABI estável entre compiladores e versões diferentes.
-
-### 3. As Lacunas do Objective-C
-* **Sobrecarga de Despacho Dinâmico**: Mensagens dinâmicas via runtime (`objc_msgSend`) impõem custo proibitivo para laços críticos de renderização e escalonamento de kernel.
-* **Comportamento Ocultador de Bugs**: Enviar mensagens para ponteiros nulos (*nil-messaging*) mascara falhas graves que deveriam ser detectadas em tempo de compilação.
-* **Falta de Abstrações Zero-Cost**: Estruturas de baixo nível puras e semântica de valor são cidadãos de segunda classe frente a objetos dinâmicos.
+Sotlas was designed from scratch to deliver zero-cost abstractions, strict memory safety, and clean modular compilation without relying on heavy runtimes, garbage collectors, or fragile preprocessors.
 
 ---
 
-## 🔬 Matriz de Comparação Técnica
+## 🎯 Why Sotlas? Surpassing C, C++, and Objective-C
 
-| Recurso / Desafio | **Sotlas** | **C11** | **C++20** | **Objective-C** |
+For decades, systems engineering and OS development were constrained by legacy languages with critical limitations:
+
+### 1. The Shortcomings of C
+* **Lack of Memory Safety**: Unrestricted raw pointer access produces chronic vulnerabilities (*buffer overflows*, *use-after-free*, *dangling pointers*).
+* **Absence of Modules**: Fragile reliance on the preprocessor (`#include`), prone to global namespace collisions and macro pollution.
+* **Fragile Error Handling**: Manual return of magic integers (`-1`, `NULL`), frequently ignored by developers.
+* **No Privilege Distinction**: Hardware access (I/O ports, CPU registers) is indistinguishable from local memory manipulation.
+
+### 2. The Shortcomings of C++
+* **Excessive Complexity and Overhead**: Massive specifications, templates that bloat compile times and binary sizes.
+* **Bare-Metal Incompatibility**: Exceptions, RTTI, and non-deterministic destructors impose an implicit runtime unsuitable for OS kernel development.
+* **ABI Nightmare**: Absence of a stable, standardized ABI across different compilers and versions.
+
+### 3. The Shortcomings of Objective-C
+* **Dynamic Dispatch Overhead**: Dynamic message passing via runtime (`objc_msgSend`) imposes prohibitive latency on critical rendering loops and kernel schedulers.
+* **Bug-Masking Behavior**: Messaging nil pointers (*nil-messaging*) hides serious bugs that should be caught at compile time.
+* **Lack of Zero-Cost Abstractions**: Pure low-level structs and value semantics are second-class citizens compared to dynamic heap objects.
+
+---
+
+## 🔬 Technical Comparison Matrix
+
+| Feature / Challenge | **Sotlas** | **C11** | **C++20** | **Objective-C** |
 | :--- | :---: | :---: | :---: | :---: |
-| **Segurança por Padrão** | ✅ Sim | ❌ Não | ❌ Não | ❌ Não |
-| **Separação Privilégio vs Memória** | **`@system` vs `unsafe`** | ❌ Misturado | ❌ Misturado | ❌ Misturado |
-| **Semântica de Valor (Zero-Cost)** | ✅ `struct` de valor | ✅ `struct` básica | ⚠️ Requer cópias manuais | ❌ Quase tudo objeto |
-| **Contagem de Referência (ARC)** | ✅ Nativa e previsível | ❌ Manual | ⚠️ `std::shared_ptr` pesado | ⚠️ ARC acoplado a runtime dinâmico |
-| **Sistema Canônico de Módulos** | ✅ `module` & `import` | ❌ `#include` de texto | ⚠️ Módulos complexos | ❌ `#include` / `#import` |
-| **Contratos e Protocolos** | ✅ `spec` / `adopts` | ❌ Inexistente | ⚠️ Múltipla herança / Concepts | ⚠️ Protocols dinâmicos |
-| **Tratamento de Erros Tipado** | ✅ `Option<T>` / `Result<T, E>` | ❌ Inteiros mágicos | ⚠️ Exceções (proibidas em kernel) | ⚠️ NSError / nil checks |
-| **Target Bare-Metal / Freestanding** | ✅ Cidadão de 1ª classe | ✅ Nativo | ⚠️ Difícil sem runtime | ❌ Incompatível sem runtime GNUstep/Apple |
-| **Intermediário SSA para Análise** | ✅ **SIR (Sotlas IR)** | ❌ Nenhum | ❌ Nenhum | ❌ Nenhum |
-| **ABI C Estável e Bidirecional** | ✅ 100% garantida | ✅ Nativa | ⚠️ Instável (`extern "C"` parcial) | ⚠️ Frágil fora da Apple |
+| **Safe by Default** | ✅ Yes | ❌ No | ❌ No | ❌ No |
+| **Privilege vs Memory Separation** | **`@system` vs `unsafe`** | ❌ Mixed | ❌ Mixed | ❌ Mixed |
+| **Value Semantics (Zero-Cost)** | ✅ Value `struct` | ✅ Basic `struct` | ⚠️ Requires manual copies | ❌ Predominantly heap objects |
+| **Reference Counting (ARC)** | ✅ Native and predictable | ❌ Manual | ⚠️ Heavy `std::shared_ptr` | ⚠️ ARC tied to dynamic runtime |
+| **Canonical Module System** | ✅ `module` & `import` | ❌ Textual `#include` | ⚠️ Complex module spec | ❌ `#include` / `#import` |
+| **Contracts and Protocols** | ✅ `spec` / `adopts` | ❌ None | ⚠️ Multiple inheritance / Concepts | ⚠️ Dynamic protocols |
+| **Typed Error Handling** | ✅ `Option<T>` / `Result<T, E>` | ❌ Magic integers | ⚠️ Exceptions (banned in kernels) | ⚠️ NSError / nil checks |
+| **Bare-Metal / Freestanding Target** | ✅ 1st-class citizen | ✅ Native | ⚠️ Complex without runtime | ❌ Incompatible without GNUstep/Apple runtime |
+| **SSA Intermediate Representation** | ✅ **SIR (Sotlas IR)** | ❌ None | ❌ None | ❌ None |
+| **Stable Bidirectional C ABI** | ✅ 100% guaranteed | ✅ Native | ⚠️ Unstable (partial `extern "C"`) | ⚠️ Fragile outside Apple platforms |
 
 ---
 
-## 🌐 Arquitetura de Interoperabilidade em 3 Camadas (C, C++, Objective-C)
+## 🌐 3-Tier Interoperability Architecture (C, C++, Objective-C)
 
-> **Objetivo Formal de Interoperabilidade:**
-> *"Sotlas deve possuir uma ABI C estável e bidirecional, permitindo interoperabilidade incremental com C, assembly, Objective-C e outras linguagens capazes de consumir C ABI, mantendo toda memória externa e ponteiros FFI atrás de fronteiras explícitas unsafe."*
+> **Formal Interoperability Goal:**
+> *"Sotlas must maintain a stable, bidirectional C ABI, enabling incremental interop with C, assembly, Objective-C, and any language capable of consuming the C ABI, while isolating external memory and FFI pointers behind explicit unsafe boundaries."*
 
-Sotlas foi desenhado para superar as deficiências de linguagens legadas sem virar uma ilha isolada. A linguagem adota uma separação rigorosa em **3 camadas ortogonais**:
+Sotlas overcomes legacy pitfalls without becoming an isolated island, establishing a strict **3-tier orthogonal separation**:
 
 ```text
                 ┌──────────────────────────────────────┐
                 │          Sotlas Safe Layer           │
                 │ Objects / Arrays / Optionals / UI    │
-                │ Totalmente segura e sem ponteiros crus│
+                │ Guaranteed safe, zero raw pointers   │
                 └──────────────────┬───────────────────┘
                                    │
                            explicit @system
@@ -85,7 +85,7 @@ Sotlas foi desenhado para superar as deficiências de linguagens legadas sem vir
                 ┌──────────────────▼───────────────────┐
                 │        Sotlas Systems Layer          │
                 │ Pointers / MMIO / DMA / Interrupts   │
-                │ Isolamento de hardware do BakenOS    │
+                │ BakenOS hardware isolation           │
                 └──────────────────┬───────────────────┘
                                    │
                               extern "C"
@@ -93,68 +93,69 @@ Sotlas foi desenhado para superar as deficiências de linguagens legadas sem vir
             ┌──────────────────────▼──────────────────────┐
             │       C / C++ (extern "C") / Objective-C    │
             │          Assembly & Firmware                │
-            │ Memória externa não confiável (unsafe)      │
+            │ Untrusted external memory (unsafe)          │
             └─────────────────────────────────────────────┘
 ```
 
-### O Pipeline da Fronteira Perigosa:
+### Boundary Pipeline:
+
 ```text
 Objective-C / C / C++ ──► [Unsafe Boundary] ──► Sotlas Systems ──► [Safe Abstractions] ──► Sotlas Safe Layer
 ```
 
-- **Guardrails no Estilo Rust**: `0xDEADBEEF as *mut u32` e desreferenciamento `*ptr` são rejeitados pelo compilador fora de blocos `unsafe { ... }`.
-- **Fronteira FFI Explícita**: Funções em `extern "C"` que manipulam ponteiros crus carregam risco explícito e são consumidas exclusivamente sob blocos `unsafe` na camada `@system`.
-- **Zero Overhead no Kernel**: Sem runtime de *nil-messaging* ou lookups dinâmicos de seletores do Objective-C dentro do kernel; a interoperação é feita via bridges C ABI diretas e sem custo oculto.
+- **Rust-Style Guardrails**: `0xDEADBEEF as *mut u32` and dereferencing `*ptr` are rejected by the compiler outside `unsafe { ... }` blocks.
+- **Explicit FFI Boundary**: Functions declared with `extern "C"` operating on raw pointers carry explicit risk and are consumed exclusively within `unsafe` blocks inside the `@system` tier.
+- **Zero Kernel Overhead**: No *nil-messaging* runtime or dynamic selector lookups in kernel space; interoperability is handled through direct C ABI bridges with zero hidden cost.
 
 ---
 
-## 🏗️ Arquitetura do Compilador
+## 🏗️ Compiler Architecture
 
-O compilador Sotlas adota uma arquitetura em camadas estritas com representação intermediária em formato SSA (**SIR — Sotlas Intermediate Representation**):
+The Sotlas compiler employs a strict layered architecture built around an SSA intermediate representation (**SIR — Sotlas Intermediate Representation**):
 
 ```mermaid
 graph TD
-    SRC[Código Fonte .sotlas] --> LEX[Lexer & Spans]
-    LEX --> PARSE[Parser Canônico EBNF]
+    SRC[Source Code .sotlas] --> LEX[Lexer & Spans]
+    LEX --> PARSE[Canonical EBNF Parser]
     PARSE --> AST[Typed AST]
-    AST --> SEMA[Análise Semântica & Escopos]
-    SEMA --> SAFETY[Segurança Estrita: @system & unsafe]
-    SAFETY --> SIR_GEN[Gerador de SIR SSA]
-    SIR_GEN --> SIR_PASSES[Passes SIR: Definite Init, Ownership, DCE]
-    SIR_PASSES --> CODEGEN[Backend C11 Freestanding]
-    CODEGEN --> OUT[Binário / Objeto de Kernel / C11]
+    AST --> SEMA[Semantic Analysis & Scope Resolution]
+    SEMA --> SAFETY[Strict Safety: @system & unsafe]
+    SAFETY --> SIR_GEN[SSA SIR Generator]
+    SIR_GEN --> SIR_PASSES[SIR Passes: Definite Init, Ownership, DCE]
+    SIR_PASSES --> CODEGEN[Freestanding C11 Backend]
+    CODEGEN --> OUT[Binary / Kernel Object / C11]
 ```
 
-### Principais Componentes:
-- **`compiler/sotlas/frontend/`**: Analisador léxico e sintático canônico com geração de spans precisos de erro.
-- **`compiler/sotlas/sema/`**: Verificação de tipos, checagem de escopos, resolução de nomes e inferência de tipos.
-- **`compiler/sotlas/safety/`**: Sistema ortogonal de segurança: isola capacidades de hardware (`@system`) de blocos de manipulação de memória crua (`unsafe { ... }`).
-- **`compiler/sotlas/sir/`**: **Sotlas Intermediate Representation**, representação SSA para verificações de inicialização definitiva (*definite initialization*), auditoria de privilégios e otimizações de ARC.
-- **`compiler/sotlas/codegen/`**: Backend C11 estrito (Bootstrap Stage 0) que emite código ANSI/ISO C11 portável para compiladores nativos e cross-compilers (GCC, Clang) sem dependências externas.
+### Key Components:
+- **`compiler/sotlas/frontend/`**: Canonical lexer and parser producing precise diagnostic spans.
+- **`compiler/sotlas/sema/`**: Type checking, scope resolution, symbol tables, and type inference.
+- **`compiler/sotlas/safety/`**: Orthogonal safety system: isolates hardware capabilities (`@system`) from raw memory operations (`unsafe { ... }`).
+- **`compiler/sotlas/sir/`**: **Sotlas Intermediate Representation**, SSA form for definite initialization, privilege auditing, and ARC optimization passes.
+- **`compiler/sotlas/codegen/`**: Strict C11 backend (Stage 0 Bootstrap) emitting portable ANSI/ISO C11 for native and cross-compilers (GCC, Clang) with zero external dependencies.
 
 ---
 
-## 📦 Biblioteca Padrão (`stdlib/`)
+## 📦 Standard Library (`stdlib/`)
 
-A biblioteca padrão de Sotlas é implementada inteiramente na própria linguagem (**Sotlas in Sotlas**) com contratos freestanding adequados para kernels e firmware:
+The Sotlas standard library is implemented entirely in the language itself (**Sotlas in Sotlas**) with freestanding guarantees tailored for kernels and firmware:
 
-- **`stdlib/core/primitives.sotlas`**: Constantes e operações puras de tipos inteiros e ponto flutuante.
-- **`stdlib/core/option.sotlas`**: Tipos canônicos `OptionU32`, `OptionI32` e `OptionPtr` eliminando bugs de desreferenciamento nulo.
-- **`stdlib/core/result.sotlas`**: Tipos algébricos de erro `ResultU32`, `ResultI32` com enumeração de status `ResultCode`.
-- **`stdlib/core/mem.sotlas`**: Rotinas de baixo nível freestanding (`zero_memory`, `copy_memory`, `compare_memory`, `Buffer`).
-- **`stdlib/core/arc.sotlas`**: Primitivas de Automatic Reference Counting (`ArcHeader`, `SharedCounter`).
-- **`stdlib/core/slice.sotlas`**: Fatias seguras com bounds checking (`ByteSlice`, `MutByteSlice`).
-- **`stdlib/core/string.sotlas`**: Fatias de string UTF-8 (`StringSlice`, `string_equals`).
-- **`stdlib/core/panic.sotlas`**: Manipulador de parada determinística para sistemas operacionais.
-- **`stdlib/system/intrinsics.sotlas`**: Encapsulamento tipado de instruções de CPU de hardware com efeito `@system` (`inb`, `outb`, `cli`, `sti`, `hlt`).
-- **`stdlib/runtime/`**: Runtime C11 freestanding (`runtime.h`, `runtime.c`) com zero dependências de libc.
+- **`stdlib/core/primitives.sotlas`**: Pure integer and floating-point constants and operations.
+- **`stdlib/core/option.sotlas`**: Canonical `OptionU32`, `OptionI32`, and `OptionPtr` types eliminating null dereference bugs.
+- **`stdlib/core/result.sotlas`**: Algebraic error types `ResultU32`, `ResultI32` with `ResultCode` status enumeration.
+- **`stdlib/core/mem.sotlas`**: Freestanding low-level routines (`zero_memory`, `copy_memory`, `compare_memory`, `Buffer`).
+- **`stdlib/core/arc.sotlas`**: Automatic Reference Counting primitives (`ArcHeader`, `SharedCounter`).
+- **`stdlib/core/slice.sotlas`**: Safe slices with bounds checking (`ByteSlice`, `MutByteSlice`).
+- **`stdlib/core/string.sotlas`**: UTF-8 string slices (`StringSlice`, `string_equals`).
+- **`stdlib/core/panic.sotlas`**: Deterministic panic handler designed for operating systems.
+- **`stdlib/system/intrinsics.sotlas`**: Typed hardware CPU instructions with `@system` effect (`inb`, `outb`, `cli`, `sti`, `hlt`).
+- **`stdlib/runtime/`**: Freestanding C11 runtime (`runtime.h`, `runtime.c`) with zero libc dependencies.
 
 ---
 
 ## 🚀 Quickstart
 
-### 1. Instalação
-Clone o repositório e configure em modo editável:
+### 1. Installation
+Clone the repository and install in editable mode:
 
 ```bash
 git clone https://github.com/Sotlas/sotlas.git
@@ -162,36 +163,36 @@ cd sotlas
 pip install -e .
 ```
 
-### 2. Comandos do Driver CLI (`sotlas`)
+### 2. CLI Driver Commands (`sotlas`)
 
-O driver unificado oferece controle completo sobre o ciclo de vida do código:
+The unified driver provides complete control over the code lifecycle:
 
 ```bash
-# Exibir versão da linguagem
+# Display language version
 sotlas version
 
-# Validar sintaxe, tipos e segurança sem emitir código
+# Validate syntax, types, and safety without code generation
 sotlas check examples/01_hello_systems/main.sotlas
 
-# Inspecionar a AST parsed
+# Inspect parsed AST
 sotlas dump-ast examples/01_hello_systems/main.sotlas
 
-# Inspecionar o SSA SIR (Sotlas Intermediate Representation)
+# Inspect SSA SIR (Sotlas Intermediate Representation)
 sotlas dump-sir examples/01_hello_systems/main.sotlas
 
-# Emitir código C11 intermediário auditável
+# Emit auditable intermediate C11 code
 sotlas compile examples/01_hello_systems/main.sotlas --emit-c
 
-# Compilar para objeto de kernel freestanding (x86_64)
+# Compile to freestanding kernel object (x86_64)
 sotlas compile examples/01_hello_systems/main.sotlas --target x86_64-freestanding
 
-# Executar a suíte completa de testes unitários
+# Run test suite
 sotlas test
 ```
 
 ---
 
-## 💻 Exemplo Idiomático de Código
+## 💻 Idiomatic Code Example
 
 ```sotlas
 module kernel::window_manager;
@@ -200,7 +201,7 @@ import core::option::*;
 import core::result::*;
 import system::intrinsics::*;
 
-// Struct com semântica de valor e visibilidade explícita de campos
+// Value-semantic struct with explicit field visibility
 pub struct Rect {
     pub x: i32;
     pub y: i32;
@@ -208,7 +209,7 @@ pub struct Rect {
     pub height: u32;
 }
 
-// Classe com gerenciamento automático de referências (ARC)
+// Class with Automatic Reference Counting (ARC)
 pub class DesktopSurface {
     bounds: Rect;
     framebuffer: *mut u32;
@@ -235,7 +236,7 @@ pub class DesktopSurface {
     }
 }
 
-// Função com capacidade privilegiada de sistema operacional (@system)
+// Function with privileged operating system capability (@system)
 @system
 pub fn flush_screen_buffer() {
     memory_barrier();
@@ -244,40 +245,40 @@ pub fn flush_screen_buffer() {
 
 ---
 
-## 🧪 Suíte de Testes e Garantia de Integridade do Kernel
+## 🧪 Test Suite & Kernel Integrity Assurance
 
-O compilador Sotlas é submetido a uma suíte exaustiva de testes contínuos para garantir **zero regressões** no kernel do BakenOS:
+The Sotlas compiler undergoes continuous, rigorous testing to ensure **zero regressions** across the BakenOS kernel:
 
 ```bash
-# Executar todos os 298 testes unitários e de integração
+# Run all 298 unit and integration tests
 python -m unittest discover -s tests -p "test_*.py"
 ```
 
-Cobertura dos 298 testes:
-- Lexer, Spans e Resiliência
-- Parser, AST e Gramática Formal EBNF
-- Análise Semântica e Checagem de Tipos (3 Camadas de Isolamento)
-- Modelo Ortogonal de Segurança (`@system` e `unsafe`)
-- Representação Intermediária SIR e Passes de Otimização SSA
-- Lowering C11 e Geração de Código Estrito
-- Emissão de LLVM IR textual preliminar
-- Suporte a Classes, Métodos e ARC
-- Biblioteca Padrão (`stdlib/core` e `stdlib/system`)
-- Interoperabilidade Bidirecional em C ABI (`include/sotlas/sotlas_abi.h`)
-- Compatibilidade e Compilação Modular de 100% dos Módulos do Kernel BakenOS
+Test Coverage (298 tests):
+- Lexer, Spans, and Error Resilience
+- Parser, AST, and Formal EBNF Grammar
+- Semantic Analysis and Type Checking (3-Tier Isolation)
+- Orthogonal Safety Model (`@system` and `unsafe`)
+- SIR Intermediate Representation and SSA Optimization Passes
+- C11 Lowering and Strict Code Generation
+- Preliminary Textual LLVM IR Emission
+- Classes, Methods, and ARC Lifetime Support
+- Standard Library (`stdlib/core` and `stdlib/system`)
+- Bidirectional C ABI Interoperability (`include/sotlas/sotlas_abi.h`)
+- Compatibility and Modular Compilation for 100% of BakenOS Kernel Modules
 
 ---
 
-## 📚 Documentação Adicional
+## 📚 Additional Documentation
 
-- [Guia da Linguagem (Guided Tour)](docs/guided_tour.md)
-- [Arquitetura do Compilador](docs/compiler_architecture.md)
-- [Segurança de Memória e FFI](docs/safety_and_ffi.md)
-- [Interoperabilidade C, C++ e Objective-C](docs/interop_c_cpp_objc.md)
-- [Análise de Ecossistema e Roteiro de Registro](docs/ecosystem_and_registration_roadmap.md)
+- [Language Guided Tour](docs/guided_tour.md)
+- [Compiler Architecture](docs/compiler_architecture.md)
+- [Memory Safety & FFI](docs/safety_and_ffi.md)
+- [C, C++, and Objective-C Interop](docs/interop_c_cpp_objc.md)
+- [Ecosystem & Registration Roadmap](docs/ecosystem_and_registration_roadmap.md)
 
 ---
 
-## 📄 Licença
+## 📄 License
 
-Distribuído sob a licença **Apache 2.0**. Consulte [LICENSE](LICENSE) para mais informações.
+Distributed under the **Apache 2.0** License. See [LICENSE](LICENSE) for details.
