@@ -1,24 +1,37 @@
-# Remix of Compass — Cinematic Docs & Knowledge Hub Template
+# 🌐 Sotlas Official Website & Documentation (sotlas.org)
 
-build a blank lovable project, nothing else just text "blank project"
+This repository contains the source code for [sotlas.org](https://sotlas.org) — the official portal, documentation, interactive playground, and community hub for the **Sotlas** programming language.
 
-This project was built with [Lovable](https://lovable.dev).
+## 🚀 Tech Stack
 
-## Build with Lovable
+- **Framework**: [React](https://react.dev/) + [Vite](https://vitejs.dev/)
+- **Language**: [TypeScript](https://www.typescriptlang.org/)
+- **Styling**: [Tailwind CSS](https://tailwindcss.com/)
+- **UI Components**: [Radix UI](https://www.radix-ui.com/) / [shadcn/ui](https://ui.shadcn.com/)
+- **Icons**: [Lucide React](https://lucide.dev/)
+- **Animations**: [Framer Motion](https://www.framer.com/motion/)
 
-Continue developing this project in the [Lovable editor](https://lovable.dev/projects/afd135cc-6022-4e1f-87bb-6bcbfe191240).
+## 🛠️ Local Development
 
-- **Ship faster**: describe what you want to build and Lovable handles the code.
-- **Stay in sync**: every change made in Lovable is committed straight to this repository.
-- **Full ownership**: this code is yours. Push to `main` on GitHub and your changes sync back into Lovable, ready for your next prompt.
+```bash
+# Clone repository
+git clone https://github.com/Sotlas/docs.git
+cd docs
 
-## Development
+# Install dependencies
+npm install
 
-Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
-
-```sh
-git clone <this-repository-url>
-cd <repository-name>
-npm i
+# Start development server
 npm run dev
 ```
+
+## 📦 Production Build
+
+```bash
+npm run build
+npm run preview
+```
+
+## 🤝 Contributing
+
+Contributions to improve documentation, examples, guide pages, and playground tools are welcome! Please open an issue or pull request.
