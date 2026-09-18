@@ -1,0 +1,14 @@
+# Sotlas Programming Language entry for github-linguist/linguist (lib/linguist/languages.yml)
+Sotlas:
+  type: programming
+  color: "#8b5cf6"
+  aliases:
+    - sotlas
+    - baken-sotlas
+  extensions:
+    - ".sotlas"
+    - ".sth"
+  tm_scope: source.sotlas
+  ace_mode: c_cpp
+  codemirror_mode: clike
+  language_id: 994821

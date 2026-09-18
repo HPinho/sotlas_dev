@@ -34,35 +34,32 @@ exit /b 1
 :FOUND_CC
 echo [OK] Compilador C detectado: %CC%
 
-rem 2. Verificar se ja existe o binario nativo
-if exist "bin\sotlas_native.exe" (
-    echo [INFO] Binario nativo existente detectado em bin\sotlas_native.exe
+rem 2. Verificar se ja existe o binario nativo para auto-hospedagem direta
+if exist "bin\sotlas.exe" (
+    echo [INFO] Binario nativo detectado em bin\sotlas.exe
     echo [INFO] Executando auto-compilacao nativa direta (Zero-Python)
-    "bin\sotlas_native.exe" "bootstrap\sotlas\sotlas_lite\main.sotlas" -o "build\sotlas_compiler_stage2.c"
+    "bin\sotlas.exe" selfhost
     if %ERRORLEVEL% equ 0 (
-        "%CC%" -O2 "build\sotlas_compiler_stage2.c" "bootstrap\sotlas\sotlas_lite\sotlas_native_driver.c" -o "bin\sotlas_native.exe"
-        if %ERRORLEVEL% equ 0 (
-            echo [SUCESSO] Compilador nativo atualizado com sucesso via auto-compilacao nativa!
-            "bin\sotlas_native.exe" --version
-            exit /b 0
-        )
+        echo [SUCESSO] Compilador nativo atualizado com sucesso via auto-compilacao nativa!
+        "bin\sotlas.exe" --version
+        exit /b 0
     )
 )
 
 echo [INFO] Gerando compilador nativo inicial via bootstrap pipeline
-python -c "import sys; from pathlib import Path; sys.path.insert(0, 'compiler'); from sotlas.bootstrap_pipeline import build_self_hosted_compiler; build_self_hosted_compiler(Path('bin/sotlas_native.exe'))"
+py -3 -c "import sys; from pathlib import Path; sys.path.insert(0, 'compiler'); sys.path.insert(0, 'tools'); from sotlas.bootstrap_pipeline import build_self_hosted_compiler; build_self_hosted_compiler(Path('bin/sotlas.exe'))"
 if %ERRORLEVEL% neq 0 (
     echo [ERRO] Falha ao gerar o compilador inicial
     exit /b 1
 )
 
-echo [INFO] Validando auto-compilacao nativa de Stage 2 via sotlas_native.exe
-"bin\sotlas_native.exe" "bootstrap\sotlas\sotlas_lite\main.sotlas" -o "build\sotlas_compiler_stage2.c"
+echo [INFO] Validando auto-compilacao nativa de Stage 2 via sotlas.exe selfhost
+"bin\sotlas.exe" selfhost
 if %ERRORLEVEL% neq 0 (
     echo [ERRO] Falha na auto-compilacao nativa de Stage 2
     exit /b 1
 )
 
-echo [SUCESSO] Compilador nativo Sotlas pronto e verificado: bin\sotlas_native.exe
-"bin\sotlas_native.exe" --version
+echo [SUCESSO] Compilador nativo Sotlas pronto e verificado: bin\sotlas.exe
+"bin\sotlas.exe" --version
 exit /b 0

@@ -28,8 +28,7 @@ echo "[OK] C compiler detected: $CC"
 if [ -x "bin/sotlas_native" ]; then
     echo "[INFO] Existing native binary detected at bin/sotlas_native."
     echo "[INFO] Performing pure self-compilation (Zero-Python)..."
-    bin/sotlas_native "bootstrap/sotlas/sotlas_lite/main.sotlas" -o "build/sotlas_compiler_stage2.c"
-    "$CC" -O2 "build/sotlas_compiler_stage2.c" "bootstrap/sotlas/sotlas_lite/sotlas_native_driver.c" -o "bin/sotlas_native"
+    bin/sotlas_native selfhost
     echo "[SUCCESS] Native compiler updated via pure self-compilation!"
     bin/sotlas_native --version
     exit 0

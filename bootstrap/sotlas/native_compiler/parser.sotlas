@@ -118,6 +118,86 @@ impl Parser {
             self.expect(TokenKind::CloseParen);
             self.expect(TokenKind::SemiColon);
             return asm_node;
+        } else if tok.kind == TokenKind::KwUnsafe {
+            self.advance();
+            let unsafe_node: usize = self.alloc_node(AstKind::UnsafeBlock, tok.span);
+            if self.match_token(TokenKind::OpenBrace) {
+                self.advance();
+                while !self.is_at_end() && !self.match_token(TokenKind::CloseBrace) {
+                    self.parse_statement();
+                }
+                self.expect(TokenKind::CloseBrace);
+            }
+            return unsafe_node;
+        } else if tok.kind == TokenKind::KwClinch {
+            self.advance();
+            let clinch_node: usize = self.alloc_node(AstKind::ClinchStmt, tok.span);
+            if self.match_token(TokenKind::OpenBrace) {
+                self.advance();
+                while !self.is_at_end() && !self.match_token(TokenKind::CloseBrace) {
+                    self.parse_statement();
+                }
+                self.expect(TokenKind::CloseBrace);
+            }
+            if self.match_token(TokenKind::KwRevert) {
+                self.advance();
+                if self.match_token(TokenKind::OpenBrace) {
+                    self.advance();
+                    while !self.is_at_end() && !self.match_token(TokenKind::CloseBrace) {
+                        self.parse_statement();
+                    }
+                    self.expect(TokenKind::CloseBrace);
+                }
+            }
+            return clinch_node;
+        } else if tok.kind == TokenKind::KwDiscern {
+            self.advance();
+            let discern_node: usize = self.alloc_node(AstKind::DiscernStmt, tok.span);
+            let _target: usize = self.parse_expression();
+            if self.match_token(TokenKind::OpenBrace) {
+                self.advance();
+                while !self.is_at_end() && !self.match_token(TokenKind::CloseBrace) {
+                    self.advance();
+                }
+                self.expect(TokenKind::CloseBrace);
+            }
+            return discern_node;
+        } else if tok.kind == TokenKind::KwIf {
+            self.advance();
+            let if_node: usize = self.alloc_node(AstKind::IfStmt, tok.span);
+            let _cond: usize = self.parse_expression();
+            if self.match_token(TokenKind::OpenBrace) {
+                self.advance();
+                while !self.is_at_end() && !self.match_token(TokenKind::CloseBrace) {
+                    self.parse_statement();
+                }
+                self.expect(TokenKind::CloseBrace);
+            }
+            if self.match_token(TokenKind::KwElse) {
+                self.advance();
+                if self.match_token(TokenKind::OpenBrace) {
+                    self.advance();
+                    while !self.is_at_end() && !self.match_token(TokenKind::CloseBrace) {
+                        self.parse_statement();
+                    }
+                    self.expect(TokenKind::CloseBrace);
+                } else if self.match_token(TokenKind::KwIf) {
+                    self.parse_statement();
+                }
+            }
+            return if_node;
+        } else if tok.kind == TokenKind::KwWhile {
+            self.advance();
+            let while_node: usize = self.alloc_node(AstKind::WhileStmt, tok.span);
+            let _cond: usize = self.parse_expression();
+            if self.match_token(TokenKind::OpenBrace) {
+                self.advance();
+                while !self.is_at_end() && !self.match_token(TokenKind::CloseBrace) {
+                    self.parse_statement();
+                }
+                self.expect(TokenKind::CloseBrace);
+            }
+            return while_node;
         }
         // Expressão como statement
         let expr: usize = self.parse_expression();
@@ -125,6 +205,75 @@ impl Parser {
             self.advance();
         }
         return expr;
+    }
+
+    pub fn parse_declaration(mut self: &mut Self) -> usize {
+        let tok: Token = self.current();
+        if tok.kind == TokenKind::KwPub {
+            self.advance();
+        }
+        let inner: Token = self.current();
+        if inner.kind == TokenKind::KwFn || inner.kind == TokenKind::KwTrapfn {
+            self.advance();
+            let fn_node: usize = self.alloc_node(if inner.kind == TokenKind::KwTrapfn { AstKind::TrapfnDecl } else { AstKind::FnDecl }, inner.span);
+            let _name: Token = self.expect(TokenKind::Ident);
+            if self.match_token(TokenKind::OpenParen) {
+                self.advance();
+                while !self.is_at_end() && !self.match_token(TokenKind::CloseParen) {
+                    self.advance();
+                }
+                self.expect(TokenKind::CloseParen);
+            }
+            if self.match_token(TokenKind::Arrow) {
+                self.advance();
+                while !self.is_at_end() && !self.match_token(TokenKind::OpenBrace) && !self.match_token(TokenKind::SemiColon) {
+                    self.advance();
+                }
+            }
+            if self.match_token(TokenKind::OpenBrace) {
+                self.advance();
+                while !self.is_at_end() && !self.match_token(TokenKind::CloseBrace) {
+                    self.parse_statement();
+                }
+                self.expect(TokenKind::CloseBrace);
+            } else if self.match_token(TokenKind::SemiColon) {
+                self.advance();
+            }
+            return fn_node;
+        } else if inner.kind == TokenKind::KwStruct || inner.kind == TokenKind::KwMesh || inner.kind == TokenKind::KwSpec {
+            self.advance();
+            let struct_node: usize = self.alloc_node(if inner.kind == TokenKind::KwMesh { AstKind::MeshDecl } else { AstKind::StructDecl }, inner.span);
+            let _name: Token = self.expect(TokenKind::Ident);
+            if self.match_token(TokenKind::OpenBrace) {
+                self.advance();
+                while !self.is_at_end() && !self.match_token(TokenKind::CloseBrace) {
+                    self.advance();
+                }
+                self.expect(TokenKind::CloseBrace);
+            }
+            return struct_node;
+        } else if inner.kind == TokenKind::KwEnum {
+            self.advance();
+            let enum_node: usize = self.alloc_node(AstKind::EnumDecl, inner.span);
+            let _name: Token = self.expect(TokenKind::Ident);
+            if self.match_token(TokenKind::OpenBrace) {
+                self.advance();
+                while !self.is_at_end() && !self.match_token(TokenKind::CloseBrace) {
+                    self.advance();
+                }
+                self.expect(TokenKind::CloseBrace);
+            }
+            return enum_node;
+        } else if inner.kind == TokenKind::KwImport {
+            self.advance();
+            let imp_node: usize = self.alloc_node(AstKind::Import, inner.span);
+            while !self.is_at_end() && !self.match_token(TokenKind::SemiColon) {
+                self.advance();
+            }
+            self.expect(TokenKind::SemiColon);
+            return imp_node;
+        }
+        return self.parse_statement();
     }
 
     pub fn parse_expression(mut self: &mut Self) -> usize {

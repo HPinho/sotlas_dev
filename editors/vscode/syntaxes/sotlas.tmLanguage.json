@@ -62,11 +62,11 @@
       "patterns": [
         {
           "name": "keyword.control.sotlas",
-          "match": "\\b(if|else|for|while|return|break|continue|in|match|discern|guard|defer)\\b"
+          "match": "\\b(if|else|for|while|loop|return|break|continue|in|match|discern|guard|defer|async|await|comptime)\\b"
         },
         {
           "name": "keyword.declaration.sotlas",
-          "match": "\\b(module|import|pub|priv|internal|fn|trapfn|struct|enum|class|mesh|spec|register|adopts|moldable|mould|reshape|barecore|const|static|let|var|unsafe|forge|enclave|typealias|as|where)\\b"
+          "match": "\\b(module|import|pub|priv|internal|fn|trapfn|struct|enum|class|mesh|spec|register|adopts|moldable|mould|reshape|barecore|const|static|let|var|unsafe|system|asm|volatile|forge|enclave|typealias|as|where)\\b"
         },
         {
           "name": "keyword.srg.sotlas",
@@ -102,7 +102,7 @@
       "patterns": [
         {
           "name": "support.type.primitive.sotlas",
-          "match": "\\b(u8|u16|u32|u64|i8|i16|i32|i64|f32|f64|usize|isize|bool|void|str|char|f32x4|f32x8|f64x2|f64x4|u8x16|u8x32|i32x4|i32x8|i64x2|i64x4)\\b"
+          "match": "\\b(u8|u16|u32|u64|u128|i8|i16|i32|i64|i128|f32|f64|usize|isize|bool|void|str|char|f32x4|f32x8|f64x2|f64x4|u8x16|u8x32|i32x4|i32x8|i64x2|i64x4)\\b"
         },
         {
           "name": "support.type.sotlas",

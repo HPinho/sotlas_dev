@@ -258,6 +258,7 @@ impl Lexer {
             if self.matches_str(offset, 6, "unsafe") { return TokenKind::KwUnsafe; }
             if self.matches_str(offset, 6, "clinch") { return TokenKind::KwClinch; }
             if self.matches_str(offset, 6, "revert") { return TokenKind::KwRevert; }
+            if self.matches_str(offset, 6, "system") { return TokenKind::KwSystem; }
         } else if len == 7 {
             if self.matches_str(offset, 7, "discern") { return TokenKind::KwDiscern; }
             if self.matches_str(offset, 7, "rebound") { return TokenKind::KwRebound; }
@@ -268,6 +269,8 @@ impl Lexer {
             if self.matches_str(offset, 8, "volatile") { return TokenKind::KwVolatile; }
             if self.matches_str(offset, 8, "comptime") { return TokenKind::KwComptime; }
             if self.matches_str(offset, 8, "continue") { return TokenKind::KwContinue; }
+        } else if len == 9 {
+            if self.matches_str(offset, 9, "typealias") { return TokenKind::KwTypealias; }
         }
         return TokenKind::Ident;
     }

@@ -39,7 +39,9 @@ static void print_usage(const char *prog_name) {
     printf("  %s new <project_name> [--lib]\n", prog_name);
     printf("  %s add <dependency> [--version <ver>] [--path <dir>]\n", prog_name);
     printf("  %s compile <file.sotlas ...> [-o <out.exe|out.c>]\n", prog_name);
+    printf("  %s selfhost\n", prog_name);
     printf("  %s --version\n", prog_name);
+    printf("  %s --help\n", prog_name);
 }
 
 static const char* find_c_compiler(void) {
@@ -1228,6 +1230,84 @@ static int run_lint_command(int argc, char **argv) {
     }
 }
 
+static int run_selfhost_command(int argc, char **argv) {
+    (void)argc; (void)argv;
+    printf("============================================================\n");
+    printf("Sotlas Native Self-Hosting Bootstrap Engine (Zero-Python)\n");
+    printf("============================================================\n");
+
+    const char *entry = "bootstrap/sotlas/sotlas_lite/main.sotlas";
+    if (!file_exists(entry)) {
+        fprintf(stderr, "sotlas-selfhost: erro: arquivo de entrada %s nao encontrado\n", entry);
+        return 1;
+    }
+
+    make_dir("build");
+    make_dir("bin");
+
+    uint8_t *src = (uint8_t *)malloc(MAX_SOURCE_SIZE);
+    uint8_t *out = (uint8_t *)malloc(MAX_OUTPUT_SIZE);
+    if (!src || !out) {
+        fprintf(stderr, "sotlas-selfhost: erro de memoria\n");
+        if (src) free(src);
+        if (out) free(out);
+        return 1;
+    }
+
+    g_num_loaded_files = 0;
+    src[0] = 0;
+    size_t src_len = 0;
+    printf("[1/3] Carregando fontes nativos de Sotlas em %s...\n", entry);
+    if (!load_source_file(entry, src, &src_len, MAX_SOURCE_SIZE)) {
+        fprintf(stderr, "sotlas-selfhost: erro ao carregar modulos Sotlas\n");
+        free(src);
+        free(out);
+        return 1;
+    }
+
+    printf("[2/3] Compilando compilador nativo (Stage 2 Self-Host)...\n");
+    memset(out, 0, MAX_OUTPUT_SIZE);
+    size_t out_len = sotlas_compile(src, out, MAX_OUTPUT_SIZE);
+    free(src);
+
+    if (out_len == 0) {
+        fprintf(stderr, "sotlas-selfhost: falha na auto-compilacao nativa\n");
+        free(out);
+        return 1;
+    }
+
+    const char *stage2_c = "build/sotlas_compiler_stage2.c";
+    FILE *f = fopen(stage2_c, "wb");
+    if (!f) {
+        fprintf(stderr, "sotlas-selfhost: erro ao gravar %s\n", stage2_c);
+        free(out);
+        return 1;
+    }
+    fwrite(out, 1, out_len, f);
+    fclose(f);
+    free(out);
+    printf("      -> Emitido %s (%zu bytes)\n", stage2_c, out_len);
+
+    printf("[3/3] Compilando e linkando binario final via Clang nativo...\n");
+    const char *cc = find_c_compiler();
+    const char *driver_path = "bootstrap/sotlas/sotlas_lite/sotlas_native_driver.c";
+    char build_cmd[1024];
+#if defined(_WIN32)
+    snprintf(build_cmd, sizeof(build_cmd), "\"\"%s\" -O2 -Wno-pointer-sign \"%s\" \"%s\" -o \"bin\\sotlas_stage2.exe\"\"", cc, stage2_c, driver_path);
+#else
+    snprintf(build_cmd, sizeof(build_cmd), "\"%s\" -O2 -Wno-pointer-sign \"%s\" \"%s\" -o \"bin/sotlas_stage2\"", cc, stage2_c, driver_path);
+#endif
+    int ret = system(build_cmd);
+    if (ret == 0) {
+        printf("\033[32m[SUCESSO] Compilador nativo Stage-2 auto-hospedado gerado com sucesso (Zero-Python)!\033[0m\n");
+        printf("          -> Binario gerado: bin/sotlas_stage2.exe\n");
+        return 0;
+    } else {
+        fprintf(stderr, "\033[31m[ERRO] Falha na linkedicao do compilador nativo (codigo: %d)\033[0m\n", ret);
+        return ret;
+    }
+}
+
 int main(int argc, char **argv) {
 #if defined(_WIN32)
     HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -1244,9 +1324,18 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    if (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "help") == 0) {
+        print_usage(argv[0]);
+        return 0;
+    }
+
     if (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-v") == 0) {
         printf("sotlas 1.0.0-dev (x86_64-pc-windows-msvc)\n");
         return 0;
+    }
+
+    if (strcmp(argv[1], "selfhost") == 0 || strcmp(argv[1], "bootstrap") == 0) {
+        return run_selfhost_command(argc, argv);
     }
 
     if (strcmp(argv[1], "test") == 0) {

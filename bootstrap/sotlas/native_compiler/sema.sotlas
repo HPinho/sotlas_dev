@@ -17,6 +17,9 @@ pub struct Symbol {
     pub str_offset: usize;
     pub str_len: usize;
     pub is_system: bool;
+    pub is_sole: bool;
+    pub is_borrowed: bool;
+    pub is_moved: bool;
 }
 
 pub struct Sema {
@@ -54,6 +57,22 @@ impl Sema {
 
     pub fn check_system_privilege(mut self: &mut Self) -> bool {
         if !self.is_in_system && !self.is_in_unsafe {
+            self.error_count = self.error_count + 1;
+            return false;
+        }
+        return true;
+    }
+
+    pub fn check_sole_access(mut self: &mut Self, is_moved: bool) -> bool {
+        if is_moved {
+            self.error_count = self.error_count + 1;
+            return false; // Valor já transferido via handover
+        }
+        return true;
+    }
+
+    pub fn can_borrow_whisper(mut self: &mut Self, is_moved: bool) -> bool {
+        if is_moved {
             self.error_count = self.error_count + 1;
             return false;
         }

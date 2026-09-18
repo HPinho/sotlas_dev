@@ -167,8 +167,8 @@ Enquanto a linguagem constrói sua base de repositórios públicos, qualquer rep
        - ".sotlas"
        - ".sth"
      tm_scope: source.sotlas
-     ace_mode: rust
-     codemirror_mode: rust
+     ace_mode: c_cpp
+     codemirror_mode: clike
      language_id: 994821 # ID único alocado sequencialmente pelo mantenedor
    ```
 3. Adicionar o arquivo de gramática TextMate ou referência a ela em `vendor/README.md`.

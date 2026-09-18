@@ -20,7 +20,14 @@ pub enum AstKind {
     ExprUnary = 15,
     ExprCall = 16,
     ExprIdent = 17,
-    ExprLiteral = 18
+    ExprLiteral = 18,
+    EnumDecl = 19,
+    DiscernStmt = 20,
+    UnsafeBlock = 21,
+    ClinchStmt = 22,
+    TrapfnDecl = 23,
+    MeshDecl = 24,
+    SpecDecl = 25
 }
 
 pub struct AstNode {

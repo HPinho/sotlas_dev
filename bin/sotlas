@@ -2,8 +2,19 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOTLAS_ROOT="$(dirname "$SCRIPT_DIR")"
 
+# 1. Prioriza o binário nativo compilado (Zero-Python)
+if [[ -x "$SCRIPT_DIR/sotlas_native" ]]; then
+    exec "$SCRIPT_DIR/sotlas_native" "$@"
+elif [[ -x "$SCRIPT_DIR/sotlas_bin" ]]; then
+    exec "$SCRIPT_DIR/sotlas_bin" "$@"
+elif [[ -f "$SCRIPT_DIR/sotlas.exe" ]] && command -v wine &>/dev/null; then
+    exec wine "$SCRIPT_DIR/sotlas.exe" "$@"
+fi
+
+# 2. Fallback para o bootstrap Python se o binário nativo ainda não foi compilado
 if command -v python3 &>/dev/null; then
     exec python3 "$SOTLAS_ROOT/tools/sotlas_compile/cli.py" "$@"
 else
     exec python "$SOTLAS_ROOT/tools/sotlas_compile/cli.py" "$@"
 fi
+
