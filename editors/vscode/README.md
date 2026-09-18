@@ -79,7 +79,7 @@ Install directly from your editor:
 1. Open **VS Code**, **VSCodium**, or **Cursor**.
 2. Press `Ctrl+P` (or `Cmd+P` on macOS) and enter:
    ```text
-   ext install hiagopinho.sotlas
+   ext install sotlas-lang.sotlas
    ```
    *Or simply search for **Sotlas** in the Extensions sidebar (`Ctrl+Shift+X`).*
 

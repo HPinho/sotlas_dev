@@ -1,7 +1,7 @@
 {
   "name": "sotlas",
   "displayName": "Sotlas Programming Language",
-  "publisher": "hiagopinho",
+  "publisher": "sotlas-lang",
   "author": "Hiago Pinho",
   "description": "Official support for the Sotlas programming language: from low-level systems (bare-metal, drivers, kernels) to high-level applications, game engines, and tools. Syntax highlighting, native diagnostics, outline, and hover.",
   "version": "0.5.2",
