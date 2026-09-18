@@ -29,7 +29,7 @@ export const changelogData: ChangelogEntryData[] = [
         title: "Extension & Installation Documentation",
         items: [
           "Removed internal build commands from user guides in the extension marketplace.",
-          "Streamlined installation instructions for VS Code and Open VSX (`ext install sotlas-lang.sotlas`).",
+          "Streamlined installation instructions for VS Code and Open VSX (`ext install sotlas-lang.vscode-sotlas`).",
           "Standardized documentation for official community distribution.",
         ],
       },
