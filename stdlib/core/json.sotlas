@@ -1,0 +1,450 @@
+/// stdlib::core::json — Parser e Serializer JSON
+///
+/// Fornece parsing de texto JSON para o tipo JsonValue e
+/// serialização de JsonValue de volta para texto JSON.
+module core::json;
+
+import core::collections;
+import core::string;
+import core::option;
+import core::result;
+
+// =============================================================================
+// Tipos de valor JSON
+// =============================================================================
+
+/// Representa qualquer valor JSON.
+pub enum JsonValue {
+    Null,
+    Bool(Bool),
+    Number(Float64),
+    Str(String),
+    Array(Vec forge<JsonValue>),
+    Object(HashMap forge<String, JsonValue>),
+}
+
+// =============================================================================
+// Erros de parsing
+// =============================================================================
+
+pub enum JsonError {
+    UnexpectedChar(Char),
+    UnexpectedEnd,
+    InvalidNumber,
+    InvalidEscape,
+    InvalidUtf8,
+    MaxDepthExceeded,
+}
+
+pub typealias JsonResult = Result forge<JsonValue, JsonError>;
+
+// =============================================================================
+// Parser JSON
+// =============================================================================
+
+const MAX_DEPTH: UInt32 = 128;
+
+/// Parser de texto JSON.
+pub struct JsonParser {
+    priv source: *const UInt8;
+    priv len:    USize;
+    priv pos:    USize;
+    priv depth:  UInt32;
+
+    pub fn new(text: *const UInt8, text_len: USize) -> JsonParser {
+        return JsonParser {
+            source: text,
+            len:    text_len,
+            pos:    0,
+            depth:  0,
+        };
+    }
+
+    /// Parseia o texto JSON e retorna um JsonValue.
+    pub fn parse(self: *mut JsonParser) -> JsonResult {
+        self._skip_whitespace();
+        let result = self._parse_value();
+        self._skip_whitespace();
+        return result;
+    }
+
+    priv fn _peek(self: whisper JsonParser) -> Option forge<UInt8> {
+        if self.pos >= self.len {
+            return Option::None;
+        }
+        unsafe {
+            return Option::Some(*(self.source + self.pos));
+        }
+    }
+
+    priv fn _advance(self: *mut JsonParser) -> Option forge<UInt8> {
+        if self.pos >= self.len {
+            return Option::None;
+        }
+        unsafe {
+            let ch = *(self.source + self.pos);
+            self.pos = self.pos + 1;
+            return Option::Some(ch);
+        }
+    }
+
+    priv fn _skip_whitespace(self: *mut JsonParser) -> Void {
+        loop {
+            match self._peek() {
+                Option::Some(ch) => {
+                    if ch == 0x20 || ch == 0x09 || ch == 0x0A || ch == 0x0D {
+                        self.pos = self.pos + 1;
+                    } else {
+                        return;
+                    }
+                }
+                Option::None => { return; }
+            }
+        }
+    }
+
+    priv fn _parse_value(self: *mut JsonParser) -> JsonResult {
+        if self.depth >= MAX_DEPTH {
+            return Result::Err(JsonError::MaxDepthExceeded);
+        }
+        match self._peek() {
+            Option::None => { return Result::Err(JsonError::UnexpectedEnd); }
+            Option::Some(ch) => {
+                if ch == 0x6E { return self._parse_null(); }   // 'n'
+                if ch == 0x74 { return self._parse_true(); }   // 't'
+                if ch == 0x66 { return self._parse_false(); }  // 'f'
+                if ch == 0x22 { return self._parse_string(); } // '"'
+                if ch == 0x5B { return self._parse_array(); }  // '['
+                if ch == 0x7B { return self._parse_object(); } // '{'
+                // número
+                if ch == 0x2D || (ch >= 0x30 && ch <= 0x39) { // '-' ou digit
+                    return self._parse_number();
+                }
+                return Result::Err(JsonError::UnexpectedChar(ch as Char));
+            }
+        }
+    }
+
+    priv fn _parse_null(self: *mut JsonParser) -> JsonResult {
+        // espera "null"
+        let bytes: [UInt8; 4] = [0x6E, 0x75, 0x6C, 0x6C];
+        let mut i: UInt32 = 0;
+        while i < 4 {
+            match self._advance() {
+                Option::Some(ch) => {
+                    if ch != bytes[i] {
+                        return Result::Err(JsonError::UnexpectedChar(ch as Char));
+                    }
+                }
+                Option::None => { return Result::Err(JsonError::UnexpectedEnd); }
+            }
+            i = i + 1;
+        }
+        return Result::Ok(JsonValue::Null);
+    }
+
+    priv fn _parse_true(self: *mut JsonParser) -> JsonResult {
+        let bytes: [UInt8; 4] = [0x74, 0x72, 0x75, 0x65]; // "true"
+        let mut i: UInt32 = 0;
+        while i < 4 {
+            match self._advance() {
+                Option::Some(ch) => {
+                    if ch != bytes[i] {
+                        return Result::Err(JsonError::UnexpectedChar(ch as Char));
+                    }
+                }
+                Option::None => { return Result::Err(JsonError::UnexpectedEnd); }
+            }
+            i = i + 1;
+        }
+        return Result::Ok(JsonValue::Bool(true));
+    }
+
+    priv fn _parse_false(self: *mut JsonParser) -> JsonResult {
+        let bytes: [UInt8; 5] = [0x66, 0x61, 0x6C, 0x73, 0x65]; // "false"
+        let mut i: UInt32 = 0;
+        while i < 5 {
+            match self._advance() {
+                Option::Some(ch) => {
+                    if ch != bytes[i] {
+                        return Result::Err(JsonError::UnexpectedChar(ch as Char));
+                    }
+                }
+                Option::None => { return Result::Err(JsonError::UnexpectedEnd); }
+            }
+            i = i + 1;
+        }
+        return Result::Ok(JsonValue::Bool(false));
+    }
+
+    priv fn _parse_number(self: *mut JsonParser) -> JsonResult {
+        // Acumula dígitos e delega para conversão
+        // Implementação simplificada: parse inteiro/float como Float64
+        let mut acc: Float64 = 0.0;
+        let mut neg: Bool = false;
+        let mut frac_div: Float64 = 1.0;
+        let mut in_frac: Bool = false;
+
+        match self._peek() {
+            Option::Some(0x2D) => {  // '-'
+                neg = true;
+                self._advance();
+            }
+            _ => {}
+        }
+
+        loop {
+            match self._peek() {
+                Option::None => { break; }
+                Option::Some(ch) => {
+                    if ch >= 0x30 && ch <= 0x39 {  // '0'..'9'
+                        self._advance();
+                        let digit: Float64 = (ch - 0x30) as Float64;
+                        if in_frac {
+                            frac_div = frac_div * 10.0;
+                            acc = acc + digit / frac_div;
+                        } else {
+                            acc = acc * 10.0 + digit;
+                        }
+                    } else if ch == 0x2E && !in_frac {  // '.'
+                        in_frac = true;
+                        self._advance();
+                    } else {
+                        break;
+                    }
+                }
+            }
+        }
+
+        if neg { acc = -acc; }
+        return Result::Ok(JsonValue::Number(acc));
+    }
+
+    priv fn _parse_string(self: *mut JsonParser) -> JsonResult {
+        self._advance(); // consome '"'
+        let mut buf: String = String::new();
+        loop {
+            match self._advance() {
+                Option::None => { return Result::Err(JsonError::UnexpectedEnd); }
+                Option::Some(0x22) => { break; }  // '"' fecha string
+                Option::Some(0x5C) => {             // '\'
+                    match self._advance() {
+                        Option::None => { return Result::Err(JsonError::UnexpectedEnd); }
+                        Option::Some(0x22) => { buf.push(0x22); }   // \"
+                        Option::Some(0x5C) => { buf.push(0x5C); }   // \\
+                        Option::Some(0x6E) => { buf.push(0x0A); }   // \n
+                        Option::Some(0x74) => { buf.push(0x09); }   // \t
+                        Option::Some(0x72) => { buf.push(0x0D); }   // \r
+                        Option::Some(ch)   => {
+                            return Result::Err(JsonError::InvalidEscape);
+                        }
+                    }
+                }
+                Option::Some(ch) => { buf.push(ch); }
+            }
+        }
+        return Result::Ok(JsonValue::Str(buf));
+    }
+
+    priv fn _parse_array(self: *mut JsonParser) -> JsonResult {
+        self._advance();  // consome '['
+        self.depth = self.depth + 1;
+        let mut arr: Vec forge<JsonValue> = Vec::new();
+        self._skip_whitespace();
+
+        match self._peek() {
+            Option::Some(0x5D) => {   // ']' vazio
+                self._advance();
+                self.depth = self.depth - 1;
+                return Result::Ok(JsonValue::Array(arr));
+            }
+            _ => {}
+        }
+
+        loop {
+            self._skip_whitespace();
+            let elem = self._parse_value();
+            match elem {
+                Result::Err(e) => { return Result::Err(e); }
+                Result::Ok(v)  => { arr.push(v); }
+            }
+            self._skip_whitespace();
+            match self._peek() {
+                Option::Some(0x2C) => { self._advance(); }  // ','
+                Option::Some(0x5D) => {                      // ']'
+                    self._advance();
+                    break;
+                }
+                Option::Some(ch) => {
+                    return Result::Err(JsonError::UnexpectedChar(ch as Char));
+                }
+                Option::None => { return Result::Err(JsonError::UnexpectedEnd); }
+            }
+        }
+
+        self.depth = self.depth - 1;
+        return Result::Ok(JsonValue::Array(arr));
+    }
+
+    priv fn _parse_object(self: *mut JsonParser) -> JsonResult {
+        self._advance();  // consome '{'
+        self.depth = self.depth + 1;
+        let mut obj: HashMap forge<String, JsonValue> = HashMap::new();
+        self._skip_whitespace();
+
+        match self._peek() {
+            Option::Some(0x7D) => {   // '}' vazio
+                self._advance();
+                self.depth = self.depth - 1;
+                return Result::Ok(JsonValue::Object(obj));
+            }
+            _ => {}
+        }
+
+        loop {
+            self._skip_whitespace();
+            // Parseia chave
+            let key_result = self._parse_string();
+            let key: String = match key_result {
+                Result::Err(e) => { return Result::Err(e); }
+                Result::Ok(JsonValue::Str(s)) => { s }
+                _ => { return Result::Err(JsonError::UnexpectedChar(':' as Char)); }
+            };
+
+            self._skip_whitespace();
+            // Consome ':'
+            match self._advance() {
+                Option::Some(0x3A) => {}  // ':'
+                Option::Some(ch) => {
+                    return Result::Err(JsonError::UnexpectedChar(ch as Char));
+                }
+                Option::None => { return Result::Err(JsonError::UnexpectedEnd); }
+            }
+
+            self._skip_whitespace();
+            let val_result = self._parse_value();
+            match val_result {
+                Result::Err(e) => { return Result::Err(e); }
+                Result::Ok(v)  => { obj.insert(key, v); }
+            }
+
+            self._skip_whitespace();
+            match self._peek() {
+                Option::Some(0x2C) => { self._advance(); }  // ','
+                Option::Some(0x7D) => {                      // '}'
+                    self._advance();
+                    break;
+                }
+                Option::Some(ch) => {
+                    return Result::Err(JsonError::UnexpectedChar(ch as Char));
+                }
+                Option::None => { return Result::Err(JsonError::UnexpectedEnd); }
+            }
+        }
+
+        self.depth = self.depth - 1;
+        return Result::Ok(JsonValue::Object(obj));
+    }
+}
+
+// =============================================================================
+// API de alto nível
+// =============================================================================
+
+/// Parseia um texto JSON e retorna um JsonValue.
+pub fn parse(text: *const UInt8, len: USize) -> JsonResult {
+    let mut parser = JsonParser::new(text, len);
+    return parser.parse();
+}
+
+/// Serializa um JsonValue para texto JSON compacto.
+pub fn stringify(value: whisper JsonValue) -> String {
+    let mut out: String = String::new();
+    _write_value(value, &mut out);
+    return out;
+}
+
+/// Serializa um JsonValue para texto JSON com indentação.
+pub fn stringify_pretty(value: whisper JsonValue, indent: UInt32) -> String {
+    let mut out: String = String::new();
+    _write_value_indented(value, &mut out, 0, indent);
+    return out;
+}
+
+priv fn _write_value(val: whisper JsonValue, out: *mut String) -> Void {
+    match val {
+        JsonValue::Null      => { out.push_str("null"); }
+        JsonValue::Bool(b)   => {
+            if b { out.push_str("true"); } else { out.push_str("false"); }
+        }
+        JsonValue::Number(n) => { out.push_str(fmt::float_to_str(n)); }
+        JsonValue::Str(s)    => {
+            out.push(0x22);
+            // TODO: escapar caracteres especiais
+            out.push_str(s);
+            out.push(0x22);
+        }
+        JsonValue::Array(arr) => {
+            out.push(0x5B);  // '['
+            let len = arr.len();
+            let mut i: USize = 0;
+            while i < len {
+                match arr.get(i) {
+                    Option::Some(elem) => { _write_value(elem, out); }
+                    Option::None => {}
+                }
+                if i + 1 < len { out.push(0x2C); }  // ','
+                i = i + 1;
+            }
+            out.push(0x5D);  // ']'
+        }
+        JsonValue::Object(_) => {
+            out.push_str("{}");  // TODO: iterar entradas
+        }
+    }
+}
+
+priv fn _write_value_indented(
+    val: whisper JsonValue, out: *mut String, depth: UInt32, indent: UInt32
+) -> Void {
+    match val {
+        JsonValue::Null      => { out.push_str("null"); }
+        JsonValue::Bool(b)   => {
+            if b { out.push_str("true"); } else { out.push_str("false"); }
+        }
+        JsonValue::Number(n) => { out.push_str(fmt::float_to_str(n)); }
+        JsonValue::Str(s)    => {
+            out.push(0x22);
+            out.push_str(s);
+            out.push(0x22);
+        }
+        JsonValue::Array(arr) => {
+            out.push_str("[\n");
+            let len = arr.len();
+            let mut i: USize = 0;
+            while i < len {
+                _indent(out, (depth + 1) * indent);
+                match arr.get(i) {
+                    Option::Some(elem) => { _write_value_indented(elem, out, depth + 1, indent); }
+                    Option::None => {}
+                }
+                if i + 1 < len { out.push(0x2C); }
+                out.push(0x0A);  // '\n'
+                i = i + 1;
+            }
+            _indent(out, depth * indent);
+            out.push(0x5D);
+        }
+        JsonValue::Object(_) => {
+            out.push_str("{}");
+        }
+    }
+}
+
+priv fn _indent(out: *mut String, spaces: UInt32) -> Void {
+    let mut i: UInt32 = 0;
+    while i < spaces {
+        out.push(0x20);  // ' '
+        i = i + 1;
+    }
+}

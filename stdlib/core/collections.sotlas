@@ -1,0 +1,402 @@
+/// stdlib::core::collections — Coleções Genéricas Seguras
+///
+/// Fornece Vec<T>, HashMap<K, V> e LinkedList<T> com semântica de ownership
+/// completa e suporte ao sistema de generics forge<T> de Sotlas.
+module core::collections;
+
+import core::alloc;
+import core::option;
+
+// =============================================================================
+// Vec<T> — Vetor Dinâmico Genérico
+// =============================================================================
+
+/// Um vetor dinâmico que cresce conforme necessário.
+/// A memória é gerenciada pelo alocador padrão.
+///
+/// # Exemplo
+/// ```sotlas
+/// let v: Vec<Int32> = Vec::new();
+/// v.push(1);
+/// v.push(2);
+/// assert(v.len() == 2);
+/// ```
+pub struct Vec forge<T> {
+    priv data:   *mut T;
+    priv length: USize;
+    priv cap:    USize;
+
+    /// Cria um Vec vazio.
+    pub fn new() -> Vec forge<T> {
+        return Vec { data: null, length: 0, cap: 0 };
+    }
+
+    /// Cria um Vec com capacidade inicial pré-alocada.
+    pub fn with_capacity(capacity: USize) -> Vec forge<T> {
+        if capacity == 0 {
+            return Vec::new();
+        }
+        unsafe {
+            let ptr = alloc::alloc_bytes(capacity * sizeof(T)) as *mut T;
+            return Vec { data: ptr, length: 0, cap: capacity };
+        }
+    }
+
+    /// Retorna o número de elementos.
+    pub fn len(self: whisper Vec forge<T>) -> USize {
+        return self.length;
+    }
+
+    /// Retorna true se o vetor estiver vazio.
+    pub fn is_empty(self: whisper Vec forge<T>) -> Bool {
+        return self.length == 0;
+    }
+
+    /// Retorna a capacidade atual (elementos sem realocação).
+    pub fn capacity(self: whisper Vec forge<T>) -> USize {
+        return self.cap;
+    }
+
+    /// Adiciona um elemento ao final.
+    pub fn push(self: *mut Vec forge<T>, value: T) -> Void {
+        if self.length == self.cap {
+            self._grow();
+        }
+        unsafe {
+            let slot = self.data + self.length;
+            *slot = value;
+        }
+        self.length = self.length + 1;
+    }
+
+    /// Remove e retorna o último elemento.
+    pub fn pop(self: *mut Vec forge<T>) -> Option forge<T> {
+        if self.length == 0 {
+            return Option::None;
+        }
+        self.length = self.length - 1;
+        unsafe {
+            let val = *(self.data + self.length);
+            return Option::Some(val);
+        }
+    }
+
+    /// Retorna referência ao elemento na posição `idx`.
+    pub fn get(self: whisper Vec forge<T>, idx: USize) -> Option forge<whisper T> {
+        if idx >= self.length {
+            return Option::None;
+        }
+        unsafe {
+            return Option::Some(*(self.data + idx));
+        }
+    }
+
+    /// Cresce a capacidade (estratégia: duplicar, mínimo 8).
+    priv fn _grow(self: *mut Vec forge<T>) -> Void {
+        let new_cap: USize = if self.cap == 0 { 8 } else { self.cap * 2 };
+        unsafe {
+            let new_data = alloc::realloc_bytes(
+                self.data as *mut UInt8,
+                new_cap * sizeof(T)
+            ) as *mut T;
+            self.data = new_data;
+        }
+        self.cap = new_cap;
+    }
+
+    /// Libera a memória do vetor.
+    pub fn free(self: sole Vec forge<T>) -> Void {
+        if self.data != null {
+            unsafe {
+                alloc::free_bytes(self.data as *mut UInt8);
+            }
+        }
+    }
+}
+
+// =============================================================================
+// HashMap<K, V> — Mapa Hash Aberto (Open Addressing)
+// =============================================================================
+
+/// Uma chave interna para o HashMap com metadados de hash.
+priv struct HashMapEntry forge<K, V> {
+    pub key:     K;
+    pub value:   V;
+    pub occupied: Bool;
+    pub hash:    UInt64;
+}
+
+/// HashMap com endereçamento aberto e sondagem linear.
+///
+/// Requer que K implemente a spec Hashable.
+///
+/// # Exemplo
+/// ```sotlas
+/// let map: HashMap<UInt64, Bool> = HashMap::new();
+/// map.insert(42, true);
+/// let found = map.get(42);
+/// ```
+pub struct HashMap forge<K, V> {
+    priv entries: *mut HashMapEntry forge<K, V>;
+    priv count:   USize;
+    priv cap:     USize;
+
+    const INITIAL_CAP: USize = 16;
+    const LOAD_FACTOR_NUM: USize = 3;    // 75% load factor (3/4)
+    const LOAD_FACTOR_DEN: USize = 4;
+
+    pub fn new() -> HashMap forge<K, V> {
+        return HashMap { entries: null, count: 0, cap: 0 };
+    }
+
+    pub fn len(self: whisper HashMap forge<K, V>) -> USize {
+        return self.count;
+    }
+
+    pub fn is_empty(self: whisper HashMap forge<K, V>) -> Bool {
+        return self.count == 0;
+    }
+
+    /// Insere ou atualiza o par (key, value).
+    pub fn insert(self: *mut HashMap forge<K, V>, key: K, value: V) -> Void {
+        if self.cap == 0 {
+            self._init();
+        }
+        if self.count * HashMap::LOAD_FACTOR_DEN >= self.cap * HashMap::LOAD_FACTOR_NUM {
+            self._rehash();
+        }
+        unsafe {
+            let h = self._hash_key(key);
+            let idx = self._probe_insert(h, key);
+            let entry = self.entries + idx;
+            entry.key      = key;
+            entry.value    = value;
+            entry.hash     = h;
+            entry.occupied = true;
+        }
+        self.count = self.count + 1;
+    }
+
+    /// Retorna referência ao valor associado a `key`, ou None.
+    pub fn get(self: whisper HashMap forge<K, V>, key: K) -> Option forge<whisper V> {
+        if self.cap == 0 {
+            return Option::None;
+        }
+        unsafe {
+            let h = self._hash_key(key);
+            let idx = self._probe_find(h, key);
+            if idx == self.cap {
+                return Option::None;
+            }
+            return Option::Some((self.entries + idx).value);
+        }
+    }
+
+    /// Retorna true se a chave existe no mapa.
+    pub fn contains(self: whisper HashMap forge<K, V>, key: K) -> Bool {
+        match self.get(key) {
+            Option::Some(_) => { return true; }
+            Option::None    => { return false; }
+        }
+    }
+
+    /// Remove a chave do mapa. Retorna true se foi removida.
+    pub fn remove(self: *mut HashMap forge<K, V>, key: K) -> Bool {
+        if self.cap == 0 {
+            return false;
+        }
+        unsafe {
+            let h = self._hash_key(key);
+            let idx = self._probe_find(h, key);
+            if idx == self.cap {
+                return false;
+            }
+            let entry = self.entries + idx;
+            entry.occupied = false;
+            self.count = self.count - 1;
+        }
+        return true;
+    }
+
+    priv fn _hash_key(self: whisper HashMap forge<K, V>, key: K) -> UInt64 {
+        // FNV-1a 64-bit sobre bytes da chave
+        // Nota: em produção, K deve implementar spec Hashable
+        let ptr = &key as *const UInt8;
+        let len = sizeof(K);
+        let mut h: UInt64 = 14695981039346656037;
+        let mut i: USize = 0;
+        while i < len {
+            unsafe { h = (h ^ (*(ptr + i) as UInt64)) * 1099511628211; }
+            i = i + 1;
+        }
+        return h;
+    }
+
+    priv fn _probe_insert(self: whisper HashMap forge<K, V>, hash: UInt64, key: K) -> USize {
+        let mut idx: USize = (hash % self.cap as UInt64) as USize;
+        loop {
+            unsafe {
+                let entry = self.entries + idx;
+                if !entry.occupied {
+                    return idx;
+                }
+            }
+            idx = (idx + 1) % self.cap;
+        }
+    }
+
+    priv fn _probe_find(self: whisper HashMap forge<K, V>, hash: UInt64, key: K) -> USize {
+        let mut idx: USize = (hash % self.cap as UInt64) as USize;
+        let start: USize = idx;
+        loop {
+            unsafe {
+                let entry = self.entries + idx;
+                if !entry.occupied {
+                    return self.cap;  // sentinela: não encontrado
+                }
+                if entry.hash == hash {
+                    return idx;
+                }
+            }
+            idx = (idx + 1) % self.cap;
+            if idx == start {
+                return self.cap;
+            }
+        }
+    }
+
+    priv fn _init(self: *mut HashMap forge<K, V>) -> Void {
+        self.cap = HashMap::INITIAL_CAP;
+        unsafe {
+            self.entries = alloc::alloc_bytes(
+                self.cap * sizeof(HashMapEntry forge<K, V>)
+            ) as *mut HashMapEntry forge<K, V>;
+            // Zera entradas
+            let mut i: USize = 0;
+            while i < self.cap {
+                let e = self.entries + i;
+                e.occupied = false;
+                i = i + 1;
+            }
+        }
+    }
+
+    priv fn _rehash(self: *mut HashMap forge<K, V>) -> Void {
+        let old_entries = self.entries;
+        let old_cap     = self.cap;
+        self.cap    = old_cap * 2;
+        self.count  = 0;
+        unsafe {
+            self.entries = alloc::alloc_bytes(
+                self.cap * sizeof(HashMapEntry forge<K, V>)
+            ) as *mut HashMapEntry forge<K, V>;
+            let mut i: USize = 0;
+            while i < self.cap {
+                let e = self.entries + i;
+                e.occupied = false;
+                i = i + 1;
+            }
+            let mut j: USize = 0;
+            while j < old_cap {
+                let old = old_entries + j;
+                if old.occupied {
+                    self.insert(old.key, old.value);
+                }
+                j = j + 1;
+            }
+            alloc::free_bytes(old_entries as *mut UInt8);
+        }
+    }
+
+    pub fn free(self: sole HashMap forge<K, V>) -> Void {
+        if self.entries != null {
+            unsafe {
+                alloc::free_bytes(self.entries as *mut UInt8);
+            }
+        }
+    }
+}
+
+// =============================================================================
+// LinkedList<T> — Lista Ligada com Ownership
+// =============================================================================
+
+/// Nó interno da lista ligada.
+priv struct ListNode forge<T> {
+    pub value: T;
+    pub next:  *mut ListNode forge<T>;
+}
+
+/// Lista ligada simplesmente encadeada com ownership de nós.
+///
+/// # Exemplo
+/// ```sotlas
+/// let list: LinkedList<Int32> = LinkedList::new();
+/// list.push_front(1);
+/// list.push_front(2);
+/// // list: [2, 1]
+/// ```
+pub struct LinkedList forge<T> {
+    priv head:   *mut ListNode forge<T>;
+    priv length: USize;
+
+    pub fn new() -> LinkedList forge<T> {
+        return LinkedList { head: null, length: 0 };
+    }
+
+    pub fn len(self: whisper LinkedList forge<T>) -> USize {
+        return self.length;
+    }
+
+    pub fn is_empty(self: whisper LinkedList forge<T>) -> Bool {
+        return self.length == 0;
+    }
+
+    /// Insere um elemento no início da lista.
+    pub fn push_front(self: *mut LinkedList forge<T>, value: T) -> Void {
+        unsafe {
+            let node = alloc::alloc_bytes(sizeof(ListNode forge<T>)) as *mut ListNode forge<T>;
+            node.value = value;
+            node.next  = self.head;
+            self.head  = node;
+        }
+        self.length = self.length + 1;
+    }
+
+    /// Remove e retorna o primeiro elemento.
+    pub fn pop_front(self: *mut LinkedList forge<T>) -> Option forge<T> {
+        if self.head == null {
+            return Option::None;
+        }
+        unsafe {
+            let node  = self.head;
+            let value = node.value;
+            self.head = node.next;
+            alloc::free_bytes(node as *mut UInt8);
+            self.length = self.length - 1;
+            return Option::Some(value);
+        }
+    }
+
+    /// Retorna referência ao primeiro elemento.
+    pub fn front(self: whisper LinkedList forge<T>) -> Option forge<whisper T> {
+        if self.head == null {
+            return Option::None;
+        }
+        unsafe {
+            return Option::Some(self.head.value);
+        }
+    }
+
+    /// Libera todos os nós da lista.
+    pub fn free(self: sole LinkedList forge<T>) -> Void {
+        unsafe {
+            let mut cur = self.head;
+            while cur != null {
+                let next = cur.next;
+                alloc::free_bytes(cur as *mut UInt8);
+                cur = next;
+            }
+        }
+    }
+}

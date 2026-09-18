@@ -77,6 +77,23 @@ def main() -> int:
         default="gcc",
         help="Compilador C alternativo a invocar no modo C11 (padrão: gcc)",
     )
+    cp.add_argument(
+        "--linker",
+        choices=["internal", "lld", "gcc", "auto"],
+        default="auto",
+        help=(
+            "Linker a usar na fase final:\n"
+            "  internal — linker ELF64 interno (sem LLVM/binutils, apenas Linux/BakenOS x86_64);\n"
+            "  lld      — usa lld/clang do LLVM;\n"
+            "  gcc      — usa gcc/ld do sistema;\n"
+            "  auto     — detecta o melhor disponível (padrão)"
+        ),
+    )
+    cp.add_argument(
+        "--entry",
+        default="_start",
+        help="Símbolo de entry point para o linker interno (padrão: _start)",
+    )
 
     # Subcomando: check
     chk = sub.add_parser("check", help="Executa lexer, parser, tipos e safety sem gerar código")
@@ -386,6 +403,11 @@ def _run_compile(args) -> int:
         return 1
     src, text = loaded
 
+    # ── Modo linker interno: pipeline completamente autônomo ──────────────
+    linker_mode = getattr(args, "linker", "auto")
+    if linker_mode == "internal":
+        return _run_compile_internal_linker(args, src, text)
+
     try:
         c_code = compile_source(text, args.source)
     except SotlasBootstrapError as error:
@@ -401,7 +423,14 @@ def _run_compile(args) -> int:
         emit_type = "c"
 
     from sotlas.llvm_toolchain import default_toolchain
-    is_llvm = default_toolchain.is_available() and (args.backend == "llvm" or emit_type in ("obj", "llvm"))
+
+    # Se linker == "gcc", força desligar LLVM mesmo quando disponível
+    force_gcc = (linker_mode == "gcc")
+    is_llvm = (
+        not force_gcc
+        and default_toolchain.is_available()
+        and (args.backend == "llvm" or emit_type in ("obj", "llvm"))
+    )
 
     if args.output:
         out_path = Path(args.output)
@@ -462,6 +491,89 @@ def _run_compile(args) -> int:
             file=sys.stderr,
         )
         return 1
+
+
+def _run_compile_internal_linker(args, src: Path, text: str) -> int:
+    """Pipeline de compilação totalmente autônomo usando o linker ELF64 interno.
+
+    Fluxo:
+      Sotlas source → Lexer/Parser/Sema → CodegenC (C11 freestanding) → ELF emitter
+      → elf_linker.py (sem LLVM, sem GCC) → ELF64 ET_EXEC
+
+    Nota: este modo só suporta alvo Linux/BakenOS x86_64 ou aarch64.
+    Para Windows PE/COFF, use --linker=auto (LLVM).
+    """
+    import tempfile
+    import os
+    from sotlas.llvm_toolchain import default_toolchain, LLVMToolchainError
+    from sotlas.elf_linker import ELFLinker, ELFLinkerError
+
+    if args.output:
+        out_path = Path(args.output)
+    else:
+        out_path = src.with_suffix(".bin")
+
+    target = getattr(args, "target", "host")
+    entry  = getattr(args, "entry", "_start")
+
+    if sys.platform == "win32" and target == "host":
+        print(
+            "sotlas: aviso: o linker interno produz binários ELF64 (Linux/BakenOS).\n"
+            "  Para executáveis Windows nativos, use --linker=lld ou --linker=auto.",
+            file=sys.stderr,
+        )
+
+    # Passo 1: compilar código Sotlas → C11 freestanding
+    try:
+        c_code = compile_source(text, args.source)
+    except SotlasBootstrapError as err:
+        print(f"sotlas: erro: {err}", file=sys.stderr)
+        return 1
+
+    # Passo 2: compilar C11 → objeto .o (ainda precisa de clang para este passo intermediário)
+    # Se clang não estiver disponível, emite aviso e sugere --emit-c
+    if not default_toolchain.is_available():
+        print(
+            "sotlas: aviso: Clang não encontrado. O linker interno requer Clang apenas para\n"
+            "  compilar C11 → .o (este passo intermediário usa apenas `clang -c`).\n"
+            "  Alternativamente use --emit-c e compile manualmente com qualquer compilador C.",
+            file=sys.stderr,
+        )
+        return 1
+
+    with tempfile.TemporaryDirectory(prefix="sotlas_link_") as tmpdir:
+        tmp_obj = Path(tmpdir) / (src.stem + ".o")
+        try:
+            is_freestanding = (target == "x86_64-freestanding")
+            default_toolchain.compile_c_to_obj(
+                c_code, tmp_obj,
+                opt_level=2,
+                is_freestanding=is_freestanding,
+                extra_flags=["-fno-pie", "-fno-pic"],  # necessário para relocações estáticas
+            )
+        except LLVMToolchainError as err:
+            print(f"sotlas: erro ao compilar C → .o: {err}", file=sys.stderr)
+            return 1
+
+        # Passo 3: linkar .o → ELF64 executável usando o linker interno
+        triple = "x86_64-linux-gnu" if "x86_64" in target or target == "host" else target
+        if "bakenos" in target:
+            triple = "x86_64-sotlas-bakenos"
+
+        try:
+            linker = ELFLinker(
+                entry_symbol=entry,
+                target_triple=triple,
+                load_address=None,  # usa default: 0x400000
+            )
+            linker.add_object(str(tmp_obj))
+            linker.link(str(out_path))
+        except ELFLinkerError as err:
+            print(f"sotlas: erro de linkagem interna: {err}", file=sys.stderr)
+            return 1
+
+    print(f"sotlas: executável ELF64 gerado via linker interno em {out_path}")
+    return 0
 
 
 def _run_exec(args) -> int:

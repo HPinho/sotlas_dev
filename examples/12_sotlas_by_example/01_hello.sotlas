@@ -1,0 +1,12 @@
+/// Sotlas by Example — 01: Hello, Systems!
+///
+/// O programa mais simples em Sotlas.
+/// Compilar: sotlas compile hello.sotlas -o hello --emit-c
+module examples::hello;
+
+@export
+pub fn main() -> Int32 {
+    // Sotlas tem strings literais e saída via FFI com libc
+    // Em produção, use a stdlib::io module
+    return 0;
+}

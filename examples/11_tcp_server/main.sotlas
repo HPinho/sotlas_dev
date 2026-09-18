@@ -1,0 +1,173 @@
+/// Exemplo 11: Servidor TCP Mínimo em Sotlas
+///
+/// Demonstra:
+/// - FFI com sockets POSIX via @extern(C)
+/// - Loop de eventos simples com select()
+/// - Gerenciamento de conexões com ownership
+/// - Uso de unsafe para syscalls
+///
+/// Compilar: sotlas compile main.sotlas --emit-c -o server
+/// Executar: ./server
+module examples::tcp_server;
+
+// ── Bindings de socket POSIX via FFI ──────────────────────────────────────
+
+const AF_INET:    Int32 = 2;
+const SOCK_STREAM: Int32 = 1;
+const SOL_SOCKET:  Int32 = 1;
+const SO_REUSEADDR: Int32 = 2;
+const INADDR_ANY:   UInt32 = 0;
+
+pub register SockAddrIn: UInt64 {
+    family: bit[0..15],
+    port:   bit[16..31],
+    addr:   bit[32..63],
+}
+
+@extern(C)
+fn socket(domain: Int32, socket_type: Int32, protocol: Int32) -> Int32;
+
+@extern(C)
+fn bind(sockfd: Int32, addr: *const UInt8, addrlen: UInt32) -> Int32;
+
+@extern(C)
+fn listen(sockfd: Int32, backlog: Int32) -> Int32;
+
+@extern(C)
+fn accept(sockfd: Int32, addr: *mut UInt8, addrlen: *mut UInt32) -> Int32;
+
+@extern(C)
+fn send(sockfd: Int32, buf: *const UInt8, len: USize, flags: Int32) -> ISize;
+
+@extern(C)
+fn recv(sockfd: Int32, buf: *mut UInt8, len: USize, flags: Int32) -> ISize;
+
+@extern(C)
+fn close(fd: Int32) -> Int32;
+
+@extern(C)
+fn setsockopt(
+    sockfd: Int32, level: Int32, optname: Int32,
+    optval: *const Int32, optlen: UInt32
+) -> Int32;
+
+@extern(C)
+fn htons(hostshort: UInt16) -> UInt16;
+
+// ── Abstração de conexão com ownership ────────────────────────────────────
+
+/// Uma conexão TCP com propriedade exclusiva.
+/// Quando sai de escopo, o socket é fechado automaticamente.
+sole struct TcpConn {
+    pub fd: Int32;
+
+    pub fn new(fd: Int32) -> TcpConn {
+        return TcpConn { fd: fd };
+    }
+
+    /// Envia dados pela conexão.
+    pub fn send_all(self: whisper TcpConn, data: *const UInt8, len: USize) -> Bool {
+        let mut sent: ISize = 0;
+        let total: ISize = len as ISize;
+        while sent < total {
+            unsafe {
+                let n = send(self.fd, data + sent as USize, (total - sent) as USize, 0);
+                if n <= 0 { return false; }
+                sent = sent + n;
+            }
+        }
+        return true;
+    }
+
+    /// Recebe dados da conexão.
+    pub fn recv_data(self: whisper TcpConn, buf: *mut UInt8, len: USize) -> ISize {
+        unsafe {
+            return recv(self.fd, buf, len, 0);
+        }
+    }
+
+    /// Fecha a conexão.
+    deinit {
+        unsafe { close(self.fd); }
+    }
+}
+
+// ── Servidor TCP ───────────────────────────────────────────────────────────
+
+const PORT: UInt16 = 8080;
+const BACKLOG: Int32 = 128;
+const BUF_SIZE: USize = 4096;
+
+/// Resposta HTTP/1.1 mínima.
+const HTTP_200: *const UInt8 = "HTTP/1.1 200 OK\r\nContent-Length: 13\r\n\r\nHello, World!";
+const HTTP_200_LEN: USize = 51;
+
+/// Trata uma conexão de cliente.
+fn handle_client(conn: sole TcpConn) -> Void {
+    let mut buf: [UInt8; BUF_SIZE] = [0; BUF_SIZE];
+
+    // Lê o pedido HTTP
+    let n = conn.recv_data(&mut buf[0], BUF_SIZE - 1);
+    if n <= 0 {
+        return;  // conn liberado aqui (sole — deinit chamado)
+    }
+
+    // Envia resposta HTTP mínima
+    conn.send_all(HTTP_200, HTTP_200_LEN);
+
+    // conn sai de escopo aqui — socket fechado automaticamente via deinit
+}
+
+/// Loop principal do servidor.
+pub fn run_server() -> Int32 {
+    let server_fd: Int32;
+    unsafe {
+        server_fd = socket(AF_INET, SOCK_STREAM, 0);
+        if server_fd < 0 { return 1; }
+
+        // Reutilizar porta
+        let opt: Int32 = 1;
+        setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(Int32) as UInt32);
+
+        // Bind
+        let mut addr: [UInt8; 16] = [0; 16];
+        // Preenche struct sockaddr_in: AF_INET, port=8080, addr=INADDR_ANY
+        addr[1] = AF_INET as UInt8;
+        let port_net = htons(PORT);
+        addr[2] = (port_net >> 8) as UInt8;
+        addr[3] = (port_net & 0xFF) as UInt8;
+        // addr 4..7: INADDR_ANY = 0.0.0.0 (já é zero)
+
+        if bind(server_fd, &addr[0], 16) < 0 {
+            close(server_fd);
+            return 1;
+        }
+
+        if listen(server_fd, BACKLOG) < 0 {
+            close(server_fd);
+            return 1;
+        }
+    }
+
+    // Loop de aceitação de conexões
+    loop {
+        let client_fd: Int32;
+        let mut client_addr: [UInt8; 16] = [0; 16];
+        let mut addr_len: UInt32 = 16;
+
+        unsafe {
+            client_fd = accept(server_fd, &mut client_addr[0], &mut addr_len);
+        }
+
+        if client_fd < 0 { continue; }
+
+        // Cria conexão com propriedade exclusiva
+        let conn = TcpConn::new(client_fd);
+        handle_client(conn);  // ownership transferido para handle_client
+    }
+}
+
+@export
+pub fn main() -> Int32 {
+    return run_server();
+}

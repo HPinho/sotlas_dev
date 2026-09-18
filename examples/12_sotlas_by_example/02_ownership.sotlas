@@ -1,0 +1,83 @@
+/// Sotlas by Example — 02: Ownership e Move Semantics
+///
+/// Demonstra o sistema SRG de Sotlas: sole, handover, whisper.
+///
+/// Compilar: sotlas compile 02_ownership.sotlas --emit-c
+module examples::ownership;
+
+// ── sole: propriedade exclusiva ────────────────────────────────────────────
+
+/// FileDescriptor tem propriedade exclusiva.
+/// Não pode ser copiado — apenas transferido.
+sole struct FileDescriptor {
+    pub fd: Int32;
+}
+
+/// `close` consome o FileDescriptor (move por valor).
+/// Após a chamada, o descritor original não pode ser usado.
+fn close_fd(fd: sole FileDescriptor) -> Void {
+    // Em produção: syscall close(fd.fd)
+    return;
+}
+
+/// `peek_fd` apenas lê — não consome.
+fn peek_fd(fd: whisper FileDescriptor) -> Int32 {
+    return fd.fd;
+}
+
+pub fn demo_sole() -> Void {
+    let f = FileDescriptor { fd: 3 };
+
+    // whisper: leitura sem transferência
+    let n = peek_fd(f);  // f ainda é válido
+
+    // move: transfere propriedade para close_fd
+    close_fd(f);         // f agora é inválido
+
+    // Tentar usar f aqui seria ERRO de compilação:
+    // let x = f.fd;  // error[E0200]: uso após transferência
+}
+
+// ── handover: transferência explícita e documentada ────────────────────────
+
+sole struct DatabaseConn {
+    pub id: UInt64;
+}
+
+fn start_transaction(conn: sole DatabaseConn) -> DatabaseConn {
+    // processa e devolve propriedade
+    return conn;
+}
+
+pub fn demo_handover() -> Void {
+    let conn = DatabaseConn { id: 42 };
+    handover conn;  // transfere explicitamente — documentado no código
+}
+
+// ── co-owned: compartilhamento com contagem de referência ─────────────────
+
+struct SharedBuffer {
+    pub data: [UInt8; 64];
+    pub len:  USize;
+}
+
+/// Múltiplos leitores podem compartilhar o buffer via co-owned.
+pub fn demo_coowned(buf: co-owned SharedBuffer) -> Void {
+    let reader1 = buf;  // referência compartilhada, sem cópia do conteúdo
+    let reader2 = buf;  // outra referência
+    let n1 = reader1.len;
+    let n2 = reader2.len;
+    // ARC cuida da liberação quando ambas as referências saem de escopo
+}
+
+// ── island: isolamento total para concorrência ────────────────────────────
+
+struct TaskContext {
+    pub stack: [UInt8; 4096];
+    pub id:    UInt64;
+}
+
+/// island garante que TaskContext não cruza fronteiras de enclave/thread.
+pub fn spawn_task(ctx: island TaskContext) -> Void {
+    quarantine ctx;  // isola formalmente
+}

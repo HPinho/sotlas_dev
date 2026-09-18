@@ -1,0 +1,110 @@
+/// Sotlas by Example — 03: Generics com forge<T>
+///
+/// Demonstra o sistema de generics monomorfizados de Sotlas.
+/// forge<T> produz código especializado para cada tipo concreto (zero overhead).
+module examples::generics;
+
+import core::option;
+
+// ── Struct genérica ────────────────────────────────────────────────────────
+
+/// Um par de valores possivelmente de tipos diferentes.
+pub struct Pair forge<A, B> {
+    pub first:  A;
+    pub second: B;
+}
+
+/// Cria um par.
+pub fn make_pair forge<A, B>(a: A, b: B) -> Pair forge<A, B> {
+    return Pair { first: a, second: b };
+}
+
+pub fn demo_pair() -> Void {
+    let p = make_pair(42 as Int32, true);   // Pair<Int32, Bool>
+    let q = make_pair(3.14 as Float64, 0 as UInt8); // Pair<Float64, UInt8>
+}
+
+// ── Função genérica simples ────────────────────────────────────────────────
+
+/// Retorna o maior de dois valores.
+/// Nota: T deve ser comparável — em produção use forge<T: Comparable>
+pub fn max forge<T>(a: T, b: T) -> T {
+    if a > b { return a; }
+    return b;
+}
+
+pub fn demo_max() -> Void {
+    let m1 = max(10 as Int32, 20 as Int32);   // → 20
+    let m2 = max(3.14 as Float64, 2.71 as Float64); // → 3.14
+}
+
+// ── Generics com bounds de spec ────────────────────────────────────────────
+
+/// Spec para tipos que podem ser exibidos como texto.
+pub spec Display {
+    fn display() -> UInt8;  // retorna código do primeiro char para simplificar
+}
+
+pub struct TypedId adopts Display {
+    pub id: UInt32;
+    pub fn display() -> UInt8 { return (self.id % 256) as UInt8; }
+}
+
+/// Aceita apenas tipos que implementam Display.
+pub fn show_all forge<T: Display>(items: [T; 4]) -> Void {
+    let mut i: UInt32 = 0;
+    while i < 4 {
+        let _ = items[i].display();
+        i = i + 1;
+    }
+}
+
+// ── Container genérico com método ─────────────────────────────────────────
+
+/// Caixa genérica com método de acesso.
+pub struct Box forge<T> {
+    priv value: T;
+
+    pub fn new(v: T) -> Box forge<T> {
+        return Box { value: v };
+    }
+
+    pub fn get(self: whisper Box forge<T>) -> whisper T {
+        return self.value;
+    }
+
+    pub fn set(self: *mut Box forge<T>, v: T) -> Void {
+        self.value = v;
+    }
+
+    pub fn map forge<U>(self: whisper Box forge<T>, f: fn(T) -> U) -> Box forge<U> {
+        return Box::new(f(self.value));
+    }
+}
+
+pub fn demo_box() -> Void {
+    let mut b = Box::new(42 as Int32);
+    let v1 = b.get();   // → 42
+    b.set(100 as Int32);
+    let v2 = b.get();   // → 100
+}
+
+// ── Const-generics: arrays de tamanho fixo genérico ───────────────────────
+
+/// Buffer de tamanho N determinado em tempo de compilação.
+pub struct FixedBuf forge<T, const N: USize> {
+    pub data: [T; N];
+    pub len:  USize;
+
+    pub fn new() -> FixedBuf forge<T, N> {
+        return FixedBuf { data: [0 as T; N], len: 0 };  // zero-init
+    }
+
+    pub fn capacity() -> USize { return N; }
+}
+
+pub fn demo_fixed_buf() -> Void {
+    // Array de 16 bytes — tamanho conhecido em compile-time
+    let buf: FixedBuf forge<UInt8, 16> = FixedBuf::new();
+    let cap = FixedBuf forge<UInt8, 16>::capacity();  // → 16
+}
