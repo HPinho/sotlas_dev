@@ -29,6 +29,9 @@ pub enum TokenKind {
     KwEnclave,
     KwProbe,
     KwPulse,
+    KwComptime,
+    KwAsm,
+    KwVolatile,
 
     // Operadores e Pontuação
     Plus,

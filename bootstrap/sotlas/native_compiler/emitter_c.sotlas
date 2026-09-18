@@ -1,0 +1,48 @@
+module sotlas::compiler::emitter_c;
+
+import sotlas::compiler::token::*;
+import sotlas::compiler::ast::*;
+
+pub struct CEmitter {
+    pub out_buf: *mut u8;
+    pub max_len: usize;
+    pub cursor: usize;
+}
+
+impl CEmitter {
+    pub fn new(buf: *mut u8, max: usize) -> CEmitter {
+        return CEmitter {
+            out_buf: buf,
+            max_len: max,
+            cursor: 0
+        };
+    }
+
+    pub fn write_byte(mut self: &mut Self, b: u8) -> bool {
+        if self.cursor >= self.max_len {
+            return false;
+        }
+        unsafe {
+            *(self.out_buf + self.cursor) = b;
+        }
+        self.cursor = self.cursor + 1;
+        return true;
+    }
+
+    pub fn write_str(mut self: &mut Self, s: *const u8, len: usize) -> bool {
+        let mut i: usize = 0;
+        while i < len {
+            let b: u8 = unsafe { *(s + i) };
+            if !self.write_byte(b) {
+                return false;
+            }
+            i = i + 1;
+        }
+        return true;
+    }
+
+    pub fn emit_header(mut self: &mut Self) -> bool {
+        let hdr: *const u8 = "// Compilado nativamente pelo compilador Sotlas in Sotlas (v1.0-selfhost)\n#include <stdint.h>\n#include <stdbool.h>\n\n";
+        return self.write_str(hdr, 110);
+    }
+}

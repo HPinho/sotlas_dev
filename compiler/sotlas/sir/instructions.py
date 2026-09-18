@@ -5,7 +5,7 @@ análises de segurança de baixo nível, definite initialization e otimizações
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Tuple
 
 
 @dataclass
@@ -119,6 +119,50 @@ class SystemOpInst(SIRInstruction):
         prefix = f"{self.result} = " if self.result else ""
         ops_str = ", ".join(str(o) for o in self.operands)
         return f"  {prefix}system_op #{self.operation}({ops_str})"
+
+
+@dataclass
+class AsmInst(SIRInstruction):
+    template: str
+    is_volatile: bool = True
+    arguments: List[SIRValue] = field(default_factory=list)
+    result: Optional[SIRValue] = None
+
+    def __str__(self) -> str:
+        vol = "volatile " if self.is_volatile else ""
+        args_str = ", ".join(str(a) for a in self.arguments)
+        return f"  asm {vol}\"{self.template}\"({args_str})"
+
+
+@dataclass
+class AwaitInst(SIRInstruction):
+    operand: SIRValue
+    result: Optional[SIRValue] = None
+
+    def __str__(self) -> str:
+        prefix = f"{self.result} = " if self.result else ""
+        return f"  {prefix}await {self.operand}"
+
+
+@dataclass
+class PhiInst(SIRInstruction):
+    result: SIRValue
+    incoming: List[Tuple[SIRValue, str]] = field(default_factory=list)
+
+    def __str__(self) -> str:
+        incoming_str = ", ".join(f"[{val}, bb{blk}]" for val, blk in self.incoming)
+        return f"  {self.result} = phi {self.result.type_name} {incoming_str}"
+
+
+@dataclass
+class BoundsCheckInst(SIRInstruction):
+    index: SIRValue
+    length: SIRValue
+    can_eliminate: bool = False
+
+    def __str__(self) -> str:
+        elim = " [bce-eliminated]" if self.can_eliminate else ""
+        return f"  bounds_check {self.index} < {self.length}{elim}"
 
 
 @dataclass

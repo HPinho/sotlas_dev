@@ -1,0 +1,134 @@
+module sotlas::compiler::token;
+
+// Enumeração completa de tipos de tokens da linguagem Sotlas em código nativo
+pub enum TokenKind {
+    Eof = 0,
+    Ident = 1,
+    IntLit = 2,
+    FloatLit = 3,
+    StrLit = 4,
+    ByteStrLit = 5,
+    RawStrLit = 6,
+    CharLit = 7,
+
+    // Palavras-chave estruturais
+    KwModule = 10,
+    KwImport = 11,
+    KwPub = 12,
+    KwAs = 13,
+    KwStruct = 14,
+    KwClass = 15,
+    KwMesh = 16,
+    KwSpec = 17,
+    KwEnum = 18,
+    KwConst = 19,
+    KwStatic = 20,
+    KwFn = 21,
+    KwTrapfn = 22,
+    KwTypealias = 23,
+
+    // Variáveis e posse
+    KwLet = 30,
+    KwVar = 31,
+    KwMut = 32,
+    KwSole = 33,
+    KwHandover = 34,
+    KwWhisper = 35,
+
+    // Controle de fluxo
+    KwIf = 40,
+    KwElse = 41,
+    KwWhile = 42,
+    KwLoop = 43,
+    KwFor = 44,
+    KwIn = 45,
+    KwMatch = 46,
+    KwDiscern = 47,
+    KwReturn = 48,
+    KwBreak = 49,
+    KwContinue = 50,
+    KwDefer = 51,
+
+    // Sistemas e Hardware
+    KwSystem = 60,
+    KwUnsafe = 61,
+    KwClinch = 62,
+    KwRevert = 63,
+    KwRebound = 64,
+    KwGate = 65,
+    KwEmit = 66,
+    KwAsm = 67,
+    KwVolatile = 68,
+    KwPulse = 69,
+    KwProbe = 70,
+    KwComptime = 71,
+    KwAsync = 72,
+    KwAwait = 73,
+    KwForge = 74,
+    KwEnclave = 75,
+
+    // Operadores
+    Plus = 80,
+    Minus = 81,
+    Star = 82,
+    Slash = 83,
+    Percent = 84,
+    Equal = 85,
+    EqEq = 86,
+    BangEq = 87,
+    Lt = 88,
+    LtEq = 89,
+    Gt = 90,
+    GtEq = 91,
+    Amp = 92,
+    Pipe = 93,
+    Caret = 94,
+    Tilde = 95,
+    Shl = 96,
+    Shr = 97,
+    Bang = 98,
+    Qmark = 99,
+    Arrow = 100,
+    FatArrow = 101,
+    Dot = 102,
+    DotDot = 103,
+    Colon = 104,
+    DColon = 105,
+    SemiColon = 106,
+    Comma = 107,
+
+    // Delimitadores
+    OpenParen = 110,
+    CloseParen = 111,
+    OpenBrace = 112,
+    CloseBrace = 113,
+    OpenBracket = 114,
+    CloseBracket = 115
+}
+
+// Representação de localização geográfica no código-fonte
+pub struct Span {
+    pub line: u32;
+    pub col: u32;
+    pub offset: usize;
+    pub length: usize;
+}
+
+// Token canônico com suporte a trivia
+pub struct Token {
+    pub kind: TokenKind;
+    pub span: Span;
+    pub text: [u8; 128];
+    pub text_len: usize;
+}
+
+impl Token {
+    pub fn new(kind: TokenKind, line: u32, col: u32) -> Token {
+        return Token {
+            kind: kind,
+            span: Span { line: line, col: col, offset: 0, length: 0 },
+            text: [0; 128],
+            text_len: 0
+        };
+    }
+}

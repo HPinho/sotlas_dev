@@ -9,6 +9,9 @@ class TK(Enum):
     INT_LIT    = auto()   # 42, 0xFF, 0b1010
     FLOAT_LIT  = auto()   # 3.14
     STR_LIT    = auto()   # "hello"
+    BYTE_STR_LIT = auto() # b"bytes"
+    RAW_STR_LIT  = auto() # r"raw" ou r#"raw"#
+    INTERPOLATED_STR_LIT = auto() # $"base: {x}"
     CHAR_LIT   = auto()   # 'x'
     IDENT      = auto()   # identificadores
 
@@ -162,6 +165,9 @@ class TK(Enum):
     KW_ENCLAVE   = auto()   # enclave (concorrência e isolamento atômico)
     KW_PROBE     = auto()   # probe (sonda de teste e asserção de hardware)
     KW_PULSE     = auto()   # pulse (barreira de memória e sincronização de clock)
+    KW_COMPTIME  = auto()   # comptime (avaliação de código em tempo de compilação)
+    KW_ASM       = auto()   # asm (assembly inline estruturado)
+    KW_VOLATILE  = auto()   # volatile (qualificador de assembly inline sem eliminação de dead-code)
 
     # -------------------------------------------------------------------------
     # Palavras-chave — Valores Literais
@@ -378,6 +384,9 @@ KEYWORDS: dict[str, TK] = {
     "enclave":    TK.KW_ENCLAVE,
     "probe":      TK.KW_PROBE,
     "pulse":      TK.KW_PULSE,
+    "comptime":   TK.KW_COMPTIME,
+    "asm":        TK.KW_ASM,
+    "volatile":   TK.KW_VOLATILE,
 }
 
 # co-owned usa hífen — tratado separadamente no lexer (IDENT "co" seguido de MINUS "owned"

@@ -1,0 +1,287 @@
+module sotlas::compiler::lexer;
+
+import sotlas::compiler::token::*;
+
+pub struct Lexer {
+    pub source: *const u8;
+    pub source_len: usize;
+    pub cursor: usize;
+    pub line: u32;
+    pub col: u32;
+}
+
+impl Lexer {
+    pub fn new(src: *const u8, len: usize) -> Lexer {
+        return Lexer {
+            source: src,
+            source_len: len,
+            cursor: 0,
+            line: 1,
+            col: 1
+        };
+    }
+
+    pub fn is_at_end(self: &Self) -> bool {
+        return self.cursor >= self.source_len;
+    }
+
+    pub fn peek(self: &Self) -> u8 {
+        if self.cursor >= self.source_len {
+            return 0;
+        }
+        unsafe {
+            return *(self.source + self.cursor);
+        }
+    }
+
+    pub fn peek_next(self: &Self) -> u8 {
+        if self.cursor + 1 >= self.source_len {
+            return 0;
+        }
+        unsafe {
+            return *(self.source + self.cursor + 1);
+        }
+    }
+
+    pub fn advance(mut self: &mut Self) -> u8 {
+        if self.cursor >= self.source_len {
+            return 0;
+        }
+        let ch: u8 = unsafe { *(self.source + self.cursor) };
+        self.cursor = self.cursor + 1;
+        if ch == 10 { // '\n'
+            self.line = self.line + 1;
+            self.col = 1;
+        } else {
+            self.col = self.col + 1;
+        }
+        return ch;
+    }
+
+    pub fn skip_whitespace_and_comments(mut self: &mut Self) {
+        while !self.is_at_end() {
+            let ch: u8 = self.peek();
+            // Espaços em branco: espaço, tab, retorno de carro, nova linha
+            if ch == 32 || ch == 9 || ch == 13 || ch == 10 {
+                self.advance();
+            } else if ch == 47 && self.peek_next() == 47 { // // comentário de linha
+                while !self.is_at_end() && self.peek() != 10 {
+                    self.advance();
+                }
+            } else if ch == 47 && self.peek_next() == 42 { // /* comentário de bloco
+                self.advance();
+                self.advance();
+                while !self.is_at_end() {
+                    if self.peek() == 42 && self.peek_next() == 47 {
+                        self.advance();
+                        self.advance();
+                        break;
+                    }
+                    self.advance();
+                }
+            } else {
+                break;
+            }
+        }
+    }
+
+    pub fn next_token(mut self: &mut Self) -> Token {
+        self.skip_whitespace_and_comments();
+        if self.is_at_end() {
+            return Token::new(TokenKind::Eof, self.line, self.col);
+        }
+
+        let start_line: u32 = self.line;
+        let start_col: u32 = self.col;
+        let start_offset: usize = self.cursor;
+        let ch: u8 = self.advance();
+
+        // Identificadores e palavras-chave
+        if (ch >= 65 && ch <= 90) || (ch >= 97 && ch <= 122) || ch == 95 { // A-Z, a-z, _
+            while !self.is_at_end() {
+                let p: u8 = self.peek();
+                if (p >= 65 && p <= 90) || (p >= 97 && p <= 122) || (p >= 48 && p <= 57) || p == 95 {
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+            let length: usize = self.cursor - start_offset;
+            let mut tok: Token = Token::new(TokenKind::Ident, start_line, start_col);
+            tok.span.offset = start_offset;
+            tok.span.length = length;
+            tok.text_len = length;
+            // Classifica palavra-chave
+            tok.kind = self.classify_keyword(start_offset, length);
+            return tok;
+        }
+
+        // Literais numéricos
+        if ch >= 48 && ch <= 57 { // 0-9
+            if ch == 48 && (self.peek() == 120 || self.peek() == 88) { // 0x
+                self.advance();
+                while !self.is_at_end() {
+                    let p: u8 = self.peek();
+                    if (p >= 48 && p <= 57) || (p >= 65 && p <= 70) || (p >= 97 && p <= 102) || p == 95 {
+                        self.advance();
+                    } else {
+                        break;
+                    }
+                }
+            } else {
+                while !self.is_at_end() {
+                    let p: u8 = self.peek();
+                    if (p >= 48 && p <= 57) || p == 95 {
+                        self.advance();
+                    } else {
+                        break;
+                    }
+                }
+            }
+            let length: usize = self.cursor - start_offset;
+            let mut tok: Token = Token::new(TokenKind::IntLit, start_line, start_col);
+            tok.span.offset = start_offset;
+            tok.span.length = length;
+            return tok;
+        }
+
+        // Strings normais "..."
+        if ch == 34 { // '"'
+            while !self.is_at_end() && self.peek() != 34 {
+                if self.peek() == 92 { // '\\'
+                    self.advance();
+                }
+                self.advance();
+            }
+            if !self.is_at_end() {
+                self.advance(); // fecha-aspas
+            }
+            let length: usize = self.cursor - start_offset;
+            let mut tok: Token = Token::new(TokenKind::StrLit, start_line, start_col);
+            tok.span.offset = start_offset;
+            tok.span.length = length;
+            return tok;
+        }
+
+        // Operadores compostos e pontuação
+        if ch == 61 { // '='
+            if self.peek() == 61 { self.advance(); return Token::new(TokenKind::EqEq, start_line, start_col); }
+            if self.peek() == 62 { self.advance(); return Token::new(TokenKind::FatArrow, start_line, start_col); }
+            return Token::new(TokenKind::Equal, start_line, start_col);
+        }
+        if ch == 33 { // '!'
+            if self.peek() == 61 { self.advance(); return Token::new(TokenKind::BangEq, start_line, start_col); }
+            return Token::new(TokenKind::Bang, start_line, start_col);
+        }
+        if ch == 60 { // '<'
+            if self.peek() == 61 { self.advance(); return Token::new(TokenKind::LtEq, start_line, start_col); }
+            if self.peek() == 60 { self.advance(); return Token::new(TokenKind::Shl, start_line, start_col); }
+            return Token::new(TokenKind::Lt, start_line, start_col);
+        }
+        if ch == 62 { // '>'
+            if self.peek() == 61 { self.advance(); return Token::new(TokenKind::GtEq, start_line, start_col); }
+            if self.peek() == 62 { self.advance(); return Token::new(TokenKind::Shr, start_line, start_col); }
+            return Token::new(TokenKind::Gt, start_line, start_col);
+        }
+        if ch == 58 { // ':'
+            if self.peek() == 58 { self.advance(); return Token::new(TokenKind::DColon, start_line, start_col); }
+            return Token::new(TokenKind::Colon, start_line, start_col);
+        }
+        if ch == 46 { // '.'
+            if self.peek() == 46 { self.advance(); return Token::new(TokenKind::DotDot, start_line, start_col); }
+            return Token::new(TokenKind::Dot, start_line, start_col);
+        }
+        if ch == 45 { // '-'
+            if self.peek() == 62 { self.advance(); return Token::new(TokenKind::Arrow, start_line, start_col); }
+            return Token::new(TokenKind::Minus, start_line, start_col);
+        }
+
+        // Operadores simples
+        if ch == 43 { return Token::new(TokenKind::Plus, start_line, start_col); }
+        if ch == 42 { return Token::new(TokenKind::Star, start_line, start_col); }
+        if ch == 47 { return Token::new(TokenKind::Slash, start_line, start_col); }
+        if ch == 37 { return Token::new(TokenKind::Percent, start_line, start_col); }
+        if ch == 59 { return Token::new(TokenKind::SemiColon, start_line, start_col); }
+        if ch == 44 { return Token::new(TokenKind::Comma, start_line, start_col); }
+        if ch == 63 { return Token::new(TokenKind::Qmark, start_line, start_col); }
+        if ch == 40 { return Token::new(TokenKind::OpenParen, start_line, start_col); }
+        if ch == 41 { return Token::new(TokenKind::CloseParen, start_line, start_col); }
+        if ch == 123 { return Token::new(TokenKind::OpenBrace, start_line, start_col); }
+        if ch == 125 { return Token::new(TokenKind::CloseBrace, start_line, start_col); }
+        if ch == 91 { return Token::new(TokenKind::OpenBracket, start_line, start_col); }
+        if ch == 93 { return Token::new(TokenKind::CloseBracket, start_line, start_col); }
+
+        return Token::new(TokenKind::Ident, start_line, start_col);
+    }
+
+    pub fn classify_keyword(self: &Self, offset: usize, len: usize) -> TokenKind {
+        // Comparador eficiente de palavras-chave estáticas em Sotlas
+        if len == 2 {
+            if self.matches_str(offset, 2, "fn") { return TokenKind::KwFn; }
+            if self.matches_str(offset, 2, "if") { return TokenKind::KwIf; }
+            if self.matches_str(offset, 2, "as") { return TokenKind::KwAs; }
+            if self.matches_str(offset, 2, "in") { return TokenKind::KwIn; }
+        } else if len == 3 {
+            if self.matches_str(offset, 3, "pub") { return TokenKind::KwPub; }
+            if self.matches_str(offset, 3, "let") { return TokenKind::KwLet; }
+            if self.matches_str(offset, 3, "var") { return TokenKind::KwVar; }
+            if self.matches_str(offset, 3, "mut") { return TokenKind::KwMut; }
+            if self.matches_str(offset, 3, "asm") { return TokenKind::KwAsm; }
+        } else if len == 4 {
+            if self.matches_str(offset, 4, "else") { return TokenKind::KwElse; }
+            if self.matches_str(offset, 4, "loop") { return TokenKind::KwLoop; }
+            if self.matches_str(offset, 4, "sole") { return TokenKind::KwSole; }
+            if self.matches_str(offset, 4, "mesh") { return TokenKind::KwMesh; }
+            if self.matches_str(offset, 4, "spec") { return TokenKind::KwSpec; }
+            if self.matches_str(offset, 4, "enum") { return TokenKind::KwEnum; }
+            if self.matches_str(offset, 4, "gate") { return TokenKind::KwGate; }
+            if self.matches_str(offset, 4, "emit") { return TokenKind::KwEmit; }
+        } else if len == 5 {
+            if self.matches_str(offset, 5, "while") { return TokenKind::KwWhile; }
+            if self.matches_str(offset, 5, "const") { return TokenKind::KwConst; }
+            if self.matches_str(offset, 5, "class") { return TokenKind::KwClass; }
+            if self.matches_str(offset, 5, "match") { return TokenKind::KwMatch; }
+            if self.matches_str(offset, 5, "break") { return TokenKind::KwBreak; }
+            if self.matches_str(offset, 5, "defer") { return TokenKind::KwDefer; }
+            if self.matches_str(offset, 5, "pulse") { return TokenKind::KwPulse; }
+            if self.matches_str(offset, 5, "probe") { return TokenKind::KwProbe; }
+            if self.matches_str(offset, 5, "forge") { return TokenKind::KwForge; }
+            if self.matches_str(offset, 5, "async") { return TokenKind::KwAsync; }
+            if self.matches_str(offset, 5, "await") { return TokenKind::KwAwait; }
+        } else if len == 6 {
+            if self.matches_str(offset, 6, "module") { return TokenKind::KwModule; }
+            if self.matches_str(offset, 6, "import") { return TokenKind::KwImport; }
+            if self.matches_str(offset, 6, "struct") { return TokenKind::KwStruct; }
+            if self.matches_str(offset, 6, "static") { return TokenKind::KwStatic; }
+            if self.matches_str(offset, 6, "trapfn") { return TokenKind::KwTrapfn; }
+            if self.matches_str(offset, 6, "return") { return TokenKind::KwReturn; }
+            if self.matches_str(offset, 6, "unsafe") { return TokenKind::KwUnsafe; }
+            if self.matches_str(offset, 6, "clinch") { return TokenKind::KwClinch; }
+            if self.matches_str(offset, 6, "revert") { return TokenKind::KwRevert; }
+        } else if len == 7 {
+            if self.matches_str(offset, 7, "discern") { return TokenKind::KwDiscern; }
+            if self.matches_str(offset, 7, "rebound") { return TokenKind::KwRebound; }
+            if self.matches_str(offset, 7, "whisper") { return TokenKind::KwWhisper; }
+            if self.matches_str(offset, 7, "enclave") { return TokenKind::KwEnclave; }
+        } else if len == 8 {
+            if self.matches_str(offset, 8, "handover") { return TokenKind::KwHandover; }
+            if self.matches_str(offset, 8, "volatile") { return TokenKind::KwVolatile; }
+            if self.matches_str(offset, 8, "comptime") { return TokenKind::KwComptime; }
+            if self.matches_str(offset, 8, "continue") { return TokenKind::KwContinue; }
+        }
+        return TokenKind::Ident;
+    }
+
+    pub fn matches_str(self: &Self, offset: usize, len: usize, target: *const u8) -> bool {
+        let mut i: usize = 0;
+        while i < len {
+            let a: u8 = unsafe { *(self.source + offset + i) };
+            let b: u8 = unsafe { *(target + i) };
+            if a != b {
+                return false;
+            }
+            i = i + 1;
+        }
+        return true;
+    }
+}

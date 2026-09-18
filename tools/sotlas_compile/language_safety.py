@@ -43,6 +43,7 @@ def _is_raw_pointer(type_obj) -> bool:
         and getattr(type_obj, "pointer", False)
         and not getattr(type_obj, "is_array", False)
         and not getattr(type_obj, "_sotlas_reference", False)
+        and not getattr(type_obj, "is_reference", False)
     )
 
 

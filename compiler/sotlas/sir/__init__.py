@@ -17,6 +17,8 @@ from .instructions import (
     CondBranchInst,
     ReturnInst,
     SystemOpInst,
+    AsmInst,
+    AwaitInst,
     SIRBasicBlock,
     SIRFunction,
     SIRModule,

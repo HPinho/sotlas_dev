@@ -1,0 +1,139 @@
+module sotlas::compiler::parser;
+
+import sotlas::compiler::token::*;
+import sotlas::compiler::ast::*;
+
+pub const MAX_AST_NODES: usize = 65536;
+
+pub struct Parser {
+    pub tokens: *const Token;
+    pub token_count: usize;
+    pub cursor: usize;
+    pub node_count: usize;
+}
+
+impl Parser {
+    pub fn new(toks: *const Token, count: usize) -> Parser {
+        return Parser {
+            tokens: toks,
+            token_count: count,
+            cursor: 0,
+            node_count: 1 // 0 é reservado como NULL_INDEX
+        };
+    }
+
+    pub fn is_at_end(self: &Self) -> bool {
+        if self.cursor >= self.token_count {
+            return true;
+        }
+        let tok: Token = unsafe { *(self.tokens + self.cursor) };
+        return tok.kind == TokenKind::Eof;
+    }
+
+    pub fn current(self: &Self) -> Token {
+        if self.cursor >= self.token_count {
+            return Token::new(TokenKind::Eof, 0, 0);
+        }
+        unsafe {
+            return *(self.tokens + self.cursor);
+        }
+    }
+
+    pub fn advance(mut self: &mut Self) -> Token {
+        let tok: Token = self.current();
+        if self.cursor < self.token_count {
+            self.cursor = self.cursor + 1;
+        }
+        return tok;
+    }
+
+    pub fn match_token(self: &Self, kind: TokenKind) -> bool {
+        return self.current().kind == kind;
+    }
+
+    pub fn expect(mut self: &mut Self, kind: TokenKind) -> Token {
+        let tok: Token = self.current();
+        if tok.kind == kind {
+            return self.advance();
+        }
+        // Retorna o token atual mesmo em caso de erro para prosseguir análise
+        return self.advance();
+    }
+
+    pub fn alloc_node(mut self: &mut Self, kind: AstKind, span: Span) -> usize {
+        let idx: usize = self.node_count;
+        self.node_count = self.node_count + 1;
+        return idx;
+    }
+
+    pub fn parse_module(mut self: &mut Self) -> usize {
+        let start_tok: Token = self.current();
+        let mod_node: usize = self.alloc_node(AstKind::Module, start_tok.span);
+        if self.match_token(TokenKind::KwModule) {
+            self.advance();
+            // Consome identificadores de módulo separados por ::
+            while !self.is_at_end() && !self.match_token(TokenKind::SemiColon) {
+                self.advance();
+            }
+            if self.match_token(TokenKind::SemiColon) {
+                self.advance();
+            }
+        }
+        return mod_node;
+    }
+
+    pub fn parse_statement(mut self: &mut Self) -> usize {
+        let tok: Token = self.current();
+        if tok.kind == TokenKind::KwLet || tok.kind == TokenKind::KwVar {
+            self.advance();
+            let let_node: usize = self.alloc_node(AstKind::LetStmt, tok.span);
+            // Nome da variável
+            let _name: Token = self.expect(TokenKind::Ident);
+            if self.match_token(TokenKind::Colon) {
+                self.advance();
+                let _typ: Token = self.expect(TokenKind::Ident);
+            }
+            if self.match_token(TokenKind::Equal) {
+                self.advance();
+                let _val: usize = self.parse_expression();
+            }
+            self.expect(TokenKind::SemiColon);
+            return let_node;
+        } else if tok.kind == TokenKind::KwReturn {
+            self.advance();
+            let ret_node: usize = self.alloc_node(AstKind::ReturnStmt, tok.span);
+            if !self.match_token(TokenKind::SemiColon) {
+                let _expr: usize = self.parse_expression();
+            }
+            self.expect(TokenKind::SemiColon);
+            return ret_node;
+        } else if tok.kind == TokenKind::KwAsm {
+            self.advance();
+            let asm_node: usize = self.alloc_node(AstKind::AsmStmt, tok.span);
+            if self.match_token(TokenKind::KwVolatile) {
+                self.advance();
+            }
+            self.expect(TokenKind::OpenParen);
+            self.expect(TokenKind::StrLit);
+            self.expect(TokenKind::CloseParen);
+            self.expect(TokenKind::SemiColon);
+            return asm_node;
+        }
+        // Expressão como statement
+        let expr: usize = self.parse_expression();
+        if self.match_token(TokenKind::SemiColon) {
+            self.advance();
+        }
+        return expr;
+    }
+
+    pub fn parse_expression(mut self: &mut Self) -> usize {
+        let tok: Token = self.advance();
+        if tok.kind == TokenKind::IntLit || tok.kind == TokenKind::StrLit {
+            return self.alloc_node(AstKind::ExprLiteral, tok.span);
+        } else if tok.kind == TokenKind::Ident {
+            return self.alloc_node(AstKind::ExprIdent, tok.span);
+        }
+        return self.alloc_node(AstKind::ExprLiteral, tok.span);
+    }
+}

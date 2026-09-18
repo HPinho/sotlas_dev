@@ -1,0 +1,70 @@
+module sotlas::compiler::sema;
+
+import sotlas::compiler::token::*;
+import sotlas::compiler::ast::*;
+
+pub const MAX_SYMBOLS: usize = 4096;
+
+pub enum SymbolKind {
+    Unknown = 0,
+    Variable = 1,
+    Function = 2,
+    Type = 3
+}
+
+pub struct Symbol {
+    pub kind: SymbolKind;
+    pub str_offset: usize;
+    pub str_len: usize;
+    pub is_system: bool;
+}
+
+pub struct Sema {
+    pub error_count: usize;
+    pub is_in_system: bool;
+    pub is_in_unsafe: bool;
+    pub symbol_count: usize;
+}
+
+impl Sema {
+    pub fn new() -> Sema {
+        return Sema {
+            error_count: 0,
+            is_in_system: false,
+            is_in_unsafe: false,
+            symbol_count: 0
+        };
+    }
+
+    pub fn enter_system(mut self: &mut Self) {
+        self.is_in_system = true;
+    }
+
+    pub fn exit_system(mut self: &mut Self) {
+        self.is_in_system = false;
+    }
+
+    pub fn enter_unsafe(mut self: &mut Self) {
+        self.is_in_unsafe = true;
+    }
+
+    pub fn exit_unsafe(mut self: &mut Self) {
+        self.is_in_unsafe = false;
+    }
+
+    pub fn check_system_privilege(mut self: &mut Self) -> bool {
+        if !self.is_in_system && !self.is_in_unsafe {
+            self.error_count = self.error_count + 1;
+            return false;
+        }
+        return true;
+    }
+
+    pub fn add_symbol(mut self: &mut Self, kind: SymbolKind, offset: usize, len: usize, is_sys: bool) -> bool {
+        if self.symbol_count >= MAX_SYMBOLS {
+            return false;
+        }
+        self.symbol_count = self.symbol_count + 1;
+        return true;
+    }
+}

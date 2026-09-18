@@ -7,7 +7,7 @@ arrays fixos [T; N], ponteiros unsafe, casts ('as'), expressões, fluxo e mangli
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 import re
 
@@ -43,7 +43,7 @@ class Token:
 
 KEYWORDS = {"module", "import", "pub", "struct", "class", "enum", "fn", "let", "mut",
             "const", "static", "return", "break", "continue", "if", "else", "while", "for", "in",
-            "unsafe", "true", "false", "as", "null", "defer", "loop", "register", "sole", "handover"}
+            "unsafe", "true", "false", "as", "null", "defer", "loop", "register", "sole", "handover", "impl"}
 MULTI = ("::", "->", "==", "!=", "<=", ">=", "+=", "-=", "*=", "/=", "&=", "|=", "^=", "<<=", ">>=", "&&", "||", "<<", ">>", "..")
 SINGLE = set(";,:{}()[]=+-*/%!<>&|^~.?")
 PRIMITIVES = {"void", "bool", "u8", "u16", "u32", "u64", "usize",
@@ -194,6 +194,7 @@ class Type:
     is_fn_ptr: bool = False
     fn_params: tuple = ()  # tuple[Type, ...]
     fn_ret: Type | None = None
+    is_reference: bool = False
 
     def base_c(self) -> str:
         if self.is_fn_ptr:
@@ -486,7 +487,7 @@ class Parser:
         if self.accept("&"):
             is_mut = bool(self.accept("mut"))
             inner = self.type()
-            return Type(name=inner.name, pointer=True, mutable=is_mut, is_array=inner.is_array, array_size=inner.array_size, elem_type=inner.elem_type)
+            return Type(name=inner.name, pointer=True, mutable=is_mut, is_array=inner.is_array, array_size=inner.array_size, elem_type=inner.elem_type, is_reference=True)
         pointer = False; mutable = False
         if self.accept("*"):
             pointer = True
@@ -499,14 +500,32 @@ class Parser:
             return Type(name=inner.name, pointer=True, mutable=mutable, is_array=inner.is_array, array_size=inner.array_size, elem_type=inner.elem_type)
         base_name = self.ident()
         # Generics monomorfizados: forge<...> ou <...>
-        if (self.current.kind in ("forge", "IDENT") and self.current.text == "forge") or self.current.kind == "<":
-            if self.current.text == "forge": self.at += 1
-            if self.accept("<"):
+        _PRIMITIVES = {"i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "f32", "f64", "bool", "usize", "isize", "void", "char"}
+        if base_name not in _PRIMITIVES and ((self.current.kind in ("forge", "IDENT") and self.current.text == "forge") or self.current.kind == "<"):
+            is_generic = True
+            if self.current.kind == "<":
+                pos = self.at + 1
                 depth = 1
-                while depth > 0 and self.current.kind != "EOF":
-                    if self.current.kind == "<": depth += 1
-                    elif self.current.kind == ">": depth -= 1
-                    self.at += 1
+                found_closing = False
+                while pos < len(self.tokens) and self.tokens[pos].kind not in (";", "{", "}", "EOF", "||", "&&"):
+                    if self.tokens[pos].kind == "<":
+                        depth += 1
+                    elif self.tokens[pos].kind == ">":
+                        depth -= 1
+                        if depth == 0:
+                            found_closing = True
+                            break
+                    pos += 1
+                if not found_closing:
+                    is_generic = False
+            if is_generic:
+                if self.current.text == "forge": self.at += 1
+                if self.accept("<"):
+                    depth = 1
+                    while depth > 0 and self.current.kind != "EOF":
+                        if self.current.kind == "<": depth += 1
+                        elif self.current.kind == ">": depth -= 1
+                        self.at += 1
         return Type(base_name, pointer, mutable)
 
     def _parse_method(self, parent_name: str, member_pub: bool, member_attrs: list[str]) -> Function:
@@ -528,18 +547,24 @@ class Parser:
                     self.at += 1
                     if self.accept(":"):
                         ptype = self.type()
+                        if ptype.name == "Self":
+                            ptype = replace(ptype, name=parent_name)
                     else:
-                        ptype = Type(parent_name, pointer=is_ref, mutable=is_mut)
+                        ptype = Type(parent_name, pointer=is_ref, mutable=is_mut, is_reference=is_ref)
                     mparams.append(("self", ptype))
                 else:
                     pname = self.ident()
                     self.expect(":")
                     ptype = self.type()
+                    if ptype.name == "Self":
+                        ptype = replace(ptype, name=parent_name)
                     mparams.append((pname, ptype))
                 if self.accept(")"):
                     break
                 self.expect(",")
         mresult = self.type() if self.accept("->") else Type("void")
+        if mresult.name == "Self":
+            mresult = replace(mresult, name=parent_name)
         mbody = self.block()
         fn_name = f"{parent_name}_{mname}"
         return Function(fn_name, mparams, mresult, mbody, member_pub, member_attrs)
@@ -688,6 +713,20 @@ class Parser:
                 name = self.ident(); self.expect(":"); typ = self.type()
                 self.expect("="); val = self.expression(); self.expect(";")
                 module.globals.append(Global(name, typ, val, is_const=False, is_mut=is_mut, public=public))
+                continue
+
+            if self.accept("impl"):
+                target_name = self.ident()
+                self.expect("{")
+                while not self.accept("}"):
+                    member_attrs: list[str] = []
+                    while self.current.kind == "ATTR":
+                        member_attrs.append(self.accept("ATTR").text)
+                    member_pub = bool(self.accept("pub"))
+                    if self.accept("fn"):
+                        module.functions.append(self._parse_method(target_name, member_pub, member_attrs))
+                    else:
+                        raise SotlasBootstrapError("apenas métodos 'fn' são permitidos dentro de blocos 'impl'", self.current.line, self.current.column, self.filename, self.source)
                 continue
 
             if self.accept("fn"):
@@ -1369,7 +1408,9 @@ PREAMBLE = """/* Gerado pelo frontend Sotlas Bootstrap. */
 
 #if defined(__GNUC__) || defined(__clang__)
 #pragma GCC diagnostic ignored "-Wunused-function"
+#if defined(__clang__)
 #pragma GCC diagnostic ignored "-Wparentheses-equality"
+#endif
 #endif
 
 static inline void __outb(uint16_t port, uint8_t val) {
@@ -1691,7 +1732,23 @@ def _c_struct_attributes(attributes: list[str]) -> str:
 def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
            include_import_headers: bool = False) -> str:
     prefix = f"{_c_ident(module.name)}__" if mangle else ""
-    lines = [PREAMBLE] if include_preamble else []
+    guards: list[str] = []
+    fn_names = {f.name for f in module.functions}
+    for hook in (
+        "sotlas_x86_scheduler_thread_exit",
+        "sotlas_x86_scheduler_exit_probe_entry",
+        "sotlas_x86_scheduler_idle_entry",
+        "sotlas_x86_smp_ap_runtime_entry",
+        "sotlas_x86_scheduler_smp_probe_entry",
+        "sotlas_x86_scheduler_wait_probe_entry",
+        "sotlas_x86_scheduler_wake_probe_entry",
+        "sotlas_x86_userspace_bootstrap_entry",
+        "sotlas_x86_exception_dispatch",
+        "sotlas_x86_irq_dispatch",
+    ):
+        if hook in fn_names:
+            guards.append(f"#define SOTLAS_OVERRIDE_{hook.upper()} 1")
+    lines = guards + ([PREAMBLE] if include_preamble else [])
     if include_import_headers:
         lines.extend(f'#include "{_c_ident(name)}.h"' for name in module.imports)
         if module.imports:
@@ -1741,6 +1798,17 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                 bw = f" : {fld.bit_width}" if getattr(fld, "bit_width", None) else ""
                 lines.append(f"    {fld.type.c_decl(fld.name)}{bw};")
             lines.append(f"}} {struct.name};\n")
+
+    # Forward declarations das funções (antes dos globais para suportar ponteiros de função)
+    for function in module.functions:
+        is_export = "@export" in function.attributes or function.public
+        fname = function.name if (is_export or not mangle) else f"{prefix}{function.name}"
+        parameters = ", ".join(f"{typ.c_decl(name)}" for name, typ in function.params) or "void"
+        inline_attr = "static inline " if "@inline" in function.attributes and not is_export else ""
+        extra_attrs = _c_func_attributes(function.attributes)
+        lines.append(f"{inline_attr}{extra_attrs}{function.result.c()} {fname}({parameters});")
+    if module.functions:
+        lines.append("")
 
     # Globals / Consts
     for g in module.globals:
@@ -1893,15 +1961,6 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                 out.append(_emit_defer_action(d, pad))
         return out
 
-    # Forward declarations das funções
-    for function in module.functions:
-        is_export = "@export" in function.attributes or function.public
-        fname = function.name if (is_export or not mangle) else f"{prefix}{function.name}"
-        parameters = ", ".join(f"{typ.c_decl(name)}" for name, typ in function.params) or "void"
-        inline_attr = "static inline " if "@inline" in function.attributes and not is_export else ""
-        extra_attrs = _c_func_attributes(function.attributes)
-        lines.append(f"{inline_attr}{extra_attrs}{function.result.c()} {fname}({parameters});")
-    if module.functions: lines.append("")
 
     for function in module.functions:
         is_export = "@export" in function.attributes or function.public
@@ -2004,6 +2063,23 @@ def compile_source(source: str, filename: str | None = None,
                    imported_modules: list[Module] | None = None,
                    include_import_headers: bool = False) -> str:
     module = parse(source, filename=filename)
+    if imported_modules is None and module.imports and filename:
+        cur_file = Path(filename).resolve()
+        search_dirs = [cur_file.parent]
+        for p in cur_file.parents:
+            search_dirs.extend([p, p / "src", p / "bootstrap" / "sotlas" / "native_compiler"])
+        loaded_mods: list[Module] = []
+        for imp in module.imports:
+            mod_name = imp.split("::")[-1] if isinstance(imp, str) else imp[-1]
+            for d in search_dirs:
+                cand = d / f"{mod_name}.sotlas"
+                if cand.is_file() and cand != cur_file:
+                    try:
+                        loaded_mods.append(parse(cand.read_text(encoding="utf-8"), filename=str(cand)))
+                    except Exception:
+                        pass
+                    break
+        imported_modules = loaded_mods
     return compile_module(module, imported_modules, include_import_headers)
 
 

@@ -12,7 +12,8 @@ from typing import List, Set, Dict, Optional
 from .instructions import (
     SIRModule, SIRFunction, SIRBasicBlock, SIRInstruction,
     AllocStackInst, StoreInst, LoadInst, CallInst, ReturnInst,
-    BranchInst, CondBranchInst, SIRValue
+    BranchInst, CondBranchInst, SIRValue, PhiInst, BoundsCheckInst,
+    RetainInst, ReleaseInst
 )
 
 
@@ -217,6 +218,165 @@ class HardwareInterruptEffectPass:
         return SIRPassResult(success=len(errors) == 0, errors=errors)
 
 
+class BoundsCheckEliminationPass:
+    """Eliminação de Checagem de Limites (Bounds Check Elimination — BCE):
+    Analisa acessos indexados a arrays/fatias no SIR. Se uma verificação bounds_check
+    já foi comprovada anteriormente no mesmo fluxo sem alteração de índice ou comprimento,
+    ou se can_eliminate já é válido, marca a instrução como can_eliminate=True."""
+    def run(self, module: SIRModule) -> SIRPassResult:
+        changed = False
+        for fn in module.functions:
+            for block in fn.blocks:
+                verified_bounds: Set[Tuple[str, str]] = set()
+                new_instructions = []
+                for inst in block.instructions:
+                    if isinstance(inst, BoundsCheckInst):
+                        key = (inst.index.name, inst.length.name)
+                        if key in verified_bounds or inst.can_eliminate:
+                            inst.can_eliminate = True
+                            changed = True
+                            new_instructions.append(inst)
+                        else:
+                            verified_bounds.add(key)
+                            new_instructions.append(inst)
+                    else:
+                        new_instructions.append(inst)
+                block.instructions = new_instructions
+        return SIRPassResult(success=True, changed=changed)
+
+
+class ArcOptimizationPass:
+    """Eliminação de Pares Retain/Release de ARC:
+    Se um objeto com contagem de referências sofre retain_value seguido de release_value
+    sem escapar para outra função/thread (sem chamadas intermediárias que capturem o valor),
+    ambas as operações atômicas são eliminadas do bloco."""
+    def run(self, module: SIRModule) -> SIRPassResult:
+        changed = False
+        for fn in module.functions:
+            for block in fn.blocks:
+                i = 0
+                while i < len(block.instructions):
+                    inst = block.instructions[i]
+                    if isinstance(inst, RetainInst):
+                        val_name = inst.value.name
+                        found_release_idx = -1
+                        escaped = False
+                        for j in range(i + 1, len(block.instructions)):
+                            later = block.instructions[j]
+                            if isinstance(later, ReleaseInst) and later.value.name == val_name:
+                                found_release_idx = j
+                                break
+                            if isinstance(later, ReturnInst) and later.value and later.value.name == val_name:
+                                escaped = True
+                                break
+                            if isinstance(later, CallInst) and any(arg.name == val_name for arg in later.arguments):
+                                escaped = True
+                                break
+                        if found_release_idx != -1 and not escaped:
+                            del block.instructions[found_release_idx]
+                            del block.instructions[i]
+                            changed = True
+                            continue
+                    i += 1
+        return SIRPassResult(success=True, changed=changed)
+
+
+class Mem2RegPass:
+    """Mem2Reg com Nós Phi (phi-nodes):
+    Promove variáveis locais alocadas no stack (AllocStackInst) para registradores
+    virtuais SSA puros. Remove pares redundantes de alloc_stack/store/load e insere
+    PhiInst nas junções de blocos convergentes."""
+    def run(self, module: SIRModule) -> SIRPassResult:
+        changed = False
+        for fn in module.functions:
+            stack_slots: Dict[str, AllocStackInst] = {}
+            for block in fn.blocks:
+                for inst in block.instructions:
+                    if isinstance(inst, AllocStackInst):
+                        stack_slots[inst.result.name] = inst
+
+            if not stack_slots:
+                continue
+
+            block_defs: Dict[str, Dict[str, SIRValue]] = {}
+            load_replacements: Dict[str, SIRValue] = {}
+
+            for block in fn.blocks:
+                curr_defs: Dict[str, SIRValue] = {}
+                new_insts = []
+                for inst in block.instructions:
+                    if isinstance(inst, AllocStackInst):
+                        changed = True
+                        continue
+                    elif isinstance(inst, StoreInst) and inst.destination.name in stack_slots:
+                        curr_defs[inst.destination.name] = inst.source
+                        changed = True
+                    elif isinstance(inst, LoadInst) and inst.source.name in stack_slots:
+                        slot = inst.source.name
+                        if slot in curr_defs:
+                            load_replacements[inst.result.name] = curr_defs[slot]
+                            changed = True
+                        else:
+                            new_insts.append(inst)
+                    else:
+                        new_insts.append(inst)
+                block_defs[block.label] = curr_defs
+                block.instructions = new_insts
+
+            if load_replacements:
+                for block in fn.blocks:
+                    for inst in block.instructions:
+                        self._replace_value_uses(inst, load_replacements)
+
+            preds: Dict[str, List[str]] = {b.label: [] for b in fn.blocks}
+            for block in fn.blocks:
+                for inst in block.instructions:
+                    if isinstance(inst, BranchInst):
+                        if inst.target_block in preds:
+                            preds[inst.target_block].append(block.label)
+                    elif isinstance(inst, CondBranchInst):
+                        if inst.true_block in preds:
+                            preds[inst.true_block].append(block.label)
+                        if inst.false_block in preds:
+                            preds[inst.false_block].append(block.label)
+
+            for block in fn.blocks:
+                p_list = preds.get(block.label, [])
+                if len(p_list) >= 2:
+                    for slot_name, alloc_inst in stack_slots.items():
+                        incoming: List[Tuple[SIRValue, str]] = []
+                        for p in p_list:
+                            if p in block_defs and slot_name in block_defs[p]:
+                                incoming.append((block_defs[p][slot_name], p))
+                        if len(incoming) == len(p_list) and len(set(v.name for v, _ in incoming)) > 1:
+                            phi_res = SIRValue(name=f"phi_{slot_name}_{block.label}", type_name=alloc_inst.type_name)
+                            phi_inst = PhiInst(result=phi_res, incoming=incoming)
+                            block.instructions.insert(0, phi_inst)
+                            changed = True
+
+        return SIRPassResult(success=True, changed=changed)
+
+    def _replace_value_uses(self, inst: SIRInstruction, replacements: Dict[str, SIRValue]) -> None:
+        if isinstance(inst, ReturnInst) and inst.value and inst.value.name in replacements:
+            inst.value = replacements[inst.value.name]
+        elif isinstance(inst, CallInst):
+            inst.arguments = [replacements.get(a.name, a) for a in inst.arguments]
+        elif isinstance(inst, CondBranchInst) and inst.condition.name in replacements:
+            inst.condition = replacements[inst.condition.name]
+        elif isinstance(inst, StoreInst):
+            if inst.source.name in replacements:
+                inst.source = replacements[inst.source.name]
+        elif isinstance(inst, BoundsCheckInst):
+            if inst.index.name in replacements:
+                inst.index = replacements[inst.index.name]
+            if inst.length.name in replacements:
+                inst.length = replacements[inst.length.name]
+        elif isinstance(inst, RetainInst) and inst.value.name in replacements:
+            inst.value = replacements[inst.value.name]
+        elif isinstance(inst, ReleaseInst) and inst.value.name in replacements:
+            inst.value = replacements[inst.value.name]
+
+
 class SIRPassManager:
     def __init__(self):
         self.passes = [
@@ -226,7 +386,10 @@ class SIRPassManager:
             HardwareInterruptEffectPass(),
             BranchFoldingPass(),
             RedundantLoadPass(),
-            UnreachableBlockPass()
+            UnreachableBlockPass(),
+            BoundsCheckEliminationPass(),
+            ArcOptimizationPass(),
+            Mem2RegPass()
         ]
 
     def run_all(self, module: SIRModule) -> SIRPassResult:

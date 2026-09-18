@@ -238,6 +238,10 @@ class CodegenC:
                 return "void"
             if t.name == "!":
                 return "void"
+            if t.name == "Option" and t.generic_args:
+                arg = t.generic_args[0]
+                if getattr(arg, "is_topology_ptr", False) or getattr(arg, "topology_ptr", None) is not None or getattr(arg, "topology_mut", False) or getattr(arg, "is_reference", False):
+                    return self._emit_type(arg)
             if t.generic_args:
                 args_str = "_".join(self._emit_bare_type(a) for a in t.generic_args).replace("*", "ptr").replace(" ", "_")
                 return f"{t.name}_{args_str}"
@@ -528,6 +532,9 @@ class CodegenC:
                 self._emit_stmt(st)
         elif isinstance(stmt, EmitNode):
             self._emit_emit(stmt)
+        elif isinstance(stmt, ComptimeBlockNode):
+            for st in stmt.body:
+                self._emit_stmt(st)
         elif isinstance(stmt, GuardNode):
             cond = self._emit_expr(stmt.condition)
             self._line(f"if (!({cond})) {{")
@@ -547,12 +554,33 @@ class CodegenC:
         elif isinstance(stmt, PulseStmtNode):
             self._emit_pulse(stmt)
         elif isinstance(stmt, WhileNode):
-            self._line(f"while ({self._emit_expr(stmt.condition)}) {{")
-            self._indent_inc()
-            for st in stmt.body:
-                self._emit_stmt(st)
-            self._indent_dec()
-            self._line("}")
+            if getattr(stmt, "pattern", None) and stmt.pattern.kind == "enum_variant":
+                variant_name = stmt.pattern.value
+                self._line("while (1) {")
+                self._indent_inc()
+                cond = self._emit_expr(stmt.condition)
+                self._line(f"__auto_type _let_val = ({cond});")
+                if "None" in variant_name:
+                    check_break = "(__builtin_choose_expr(__builtin_classify_type(_let_val) == 5, (void*)_let_val != 0, _let_val.has_value))"
+                else:
+                    check_break = f"(!(__builtin_choose_expr(__builtin_classify_type(_let_val) == 5, (void*)_let_val != 0, (_let_val.tag == {variant_name} || _let_val.has_value))))"
+                self._line(f"if ({check_break}) break;")
+                if stmt.pattern.sub_patterns:
+                    for sub in stmt.pattern.sub_patterns:
+                        if sub.kind == "ident":
+                            bind_expr = "(__builtin_choose_expr(__builtin_classify_type(_let_val) == 5, _let_val, _let_val.value))"
+                            self._line(f"__auto_type {sub.value} = {bind_expr};")
+                for st in stmt.body:
+                    self._emit_stmt(st)
+                self._indent_dec()
+                self._line("}")
+            else:
+                self._line(f"while ({self._emit_expr(stmt.condition)}) {{")
+                self._indent_inc()
+                for st in stmt.body:
+                    self._emit_stmt(st)
+                self._indent_dec()
+                self._line("}")
         elif isinstance(stmt, ForNode):
             if isinstance(stmt.iterable, BinaryExprNode) and stmt.iterable.op == TK.DOTDOT:
                 start = self._emit_expr(stmt.iterable.left)
@@ -662,6 +690,39 @@ class CodegenC:
         self._line(f'__asm__ volatile({" ".join(parts)});')
 
     def _emit_if(self, stmt: IfNode) -> None:
+        if getattr(stmt, "pattern", None) and stmt.pattern.kind == "enum_variant":
+            variant_name = stmt.pattern.value
+            cond = self._emit_expr(stmt.condition)
+            self._line("{")
+            self._indent_inc()
+            self._line(f"__auto_type _let_val = ({cond});")
+            if "None" in variant_name:
+                check_cond = "(__builtin_choose_expr(__builtin_classify_type(_let_val) == 5, (void*)_let_val == 0, !_let_val.has_value))"
+            else:
+                check_cond = f"(__builtin_choose_expr(__builtin_classify_type(_let_val) == 5, (void*)_let_val != 0, (_let_val.tag == {variant_name} || _let_val.has_value)))"
+            self._line(f"if ({check_cond}) {{")
+            self._indent_inc()
+            if stmt.pattern.sub_patterns:
+                for sub in stmt.pattern.sub_patterns:
+                    if sub.kind == "ident":
+                        bind_expr = "(__builtin_choose_expr(__builtin_classify_type(_let_val) == 5, _let_val, _let_val.value))"
+                        self._line(f"__auto_type {sub.value} = {bind_expr};")
+            for st in stmt.then_body:
+                self._emit_stmt(st)
+            self._indent_dec()
+            if stmt.else_body:
+                self._line("} else {")
+                self._indent_inc()
+                if isinstance(stmt.else_body, IfNode):
+                    self._emit_if(stmt.else_body)
+                else:
+                    for st in stmt.else_body:
+                        self._emit_stmt(st)
+                self._indent_dec()
+            self._line("}")
+            self._indent_dec()
+            self._line("}")
+            return
         cond = self._emit_expr(stmt.condition)
         self._line(f"if ({cond}) {{")
         self._indent_inc()
@@ -758,7 +819,15 @@ class CodegenC:
             return "0"
         if isinstance(expr, LiteralNode):
             return self._emit_literal(expr)
+        if isinstance(expr, ComptimeExprNode):
+            if hasattr(expr, "folded") and expr.folded:
+                return self._emit_expr(expr.folded)
+            return self._emit_expr(expr.expr)
+        if isinstance(expr, AwaitExprNode):
+            return f"/* await */ {self._emit_expr(expr.expr)}"
         if isinstance(expr, IdentNode):
+            if (expr.path == ["Option"] or not expr.path) and expr.name == "None":
+                return "((void*)0)"
             parts = expr.path + [expr.name]
             return "__".join(parts)
         if isinstance(expr, BinaryExprNode):
@@ -772,6 +841,10 @@ class CodegenC:
             op = _UNARY_OP_MAP.get(expr.op, "")
             return f"({op}{self._emit_expr(expr.operand)})"
         if isinstance(expr, CallExprNode):
+            if isinstance(expr.callee, IdentNode) and (expr.callee.path == ["Option"] or not expr.callee.path) and expr.callee.name == "Some":
+                if expr.args:
+                    arg_val = self._emit_expr(expr.args[0].value)
+                    return f"({arg_val})"
             callee = self._emit_expr(expr.callee)
             if callee in ("dma_fence", "dma_barrier", "__dma_fence", "sync_fence"):
                 return "__sync_synchronize()"
@@ -809,8 +882,12 @@ class CodegenC:
         if isinstance(expr, CastExprNode):
             c_type = self._emit_type(expr.target_type)
             return f"(({c_type})({self._emit_expr(expr.expr)}))"
+        if isinstance(expr, OptionalChainExprNode):
+            inner = self._emit_expr(expr.expr)
+            return f"__extension__ ({{ __auto_type _res = ({inner}); __auto_type _try_val = _res; if (_res.status != 0) return _res; _res.value; }})"
         if isinstance(expr, ForceUnwrapExprNode):
-            return self._emit_expr(expr.expr)
+            inner = self._emit_expr(expr.expr)
+            return f"(__builtin_choose_expr(__builtin_classify_type({inner}) == 5, ({inner}), ({inner}).value))"
         if isinstance(expr, ArrayLitExprNode):
             elems = ", ".join(self._emit_expr(e) for e in expr.elements)
             return f"{{{elems}}}"
@@ -873,8 +950,14 @@ class CodegenC:
             return "0"
         if lit.kind == TK.KW_NIL:
             return "((void*)0)"
-        if lit.kind == TK.STR_LIT:
-            return f'"{lit.value}"'
+        if lit.kind in (TK.STR_LIT, TK.RAW_STR_LIT, TK.INTERPOLATED_STR_LIT):
+            escaped = lit.value.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n').replace('\r', '\\r')
+            return f'"{escaped}"'
+        if lit.kind == TK.BYTE_STR_LIT:
+            if not lit.value:
+                return '((const uint8_t[]){0})'
+            byte_vals = ", ".join(str(ord(c)) for c in lit.value)
+            return f"((const uint8_t[]){{{byte_vals}, 0}})"
         if lit.kind == TK.CHAR_LIT:
             return f"'{lit.value}'"
         # INT_LIT e FLOAT_LIT: emite diretamente

@@ -265,17 +265,23 @@ gantt
     title Roteiro de Consolidação e Registro de Sotlas
     dateFormat  YYYY-MM
     section Fase 1: Identidade e Ferramentas
-    Publicação VS Code Marketplace & Open VSX   :2026-09, 2026-10
-    Implementação da CLI sotlas fmt & lint      :2026-10, 2026-11
+    Publicação VS Code Marketplace & Open VSX   :done, 2026-09, 2026-09
     Ativação do .gitattributes global          :done, 2026-09, 2026-09
-    section Fase 2: Distribuição e CI
+    Implementação da CLI sotlas fmt & lint      :done, 2026-09, 2026-09
+    Amostras Canônicas samples/Sotlas/         :done, 2026-09, 2026-09
+    section Fase 2: Capacidade de Sistemas
+    Avaliação Comptime e Constant Folding       :done, 2026-09, 2026-09
+    Inline Assembly Tipado (asm volatile)       :done, 2026-09, 2026-09
+    Async / Corrotinas de Baixo Nível sem Heap  :done, 2026-09, 2026-09
+    Suporte a Linker LLD Embutido               :done, 2026-09, 2026-09
+    section Fase 3: Distribuição e CI
     Nightly Builds no GitHub Actions (.zip/.tar) :2026-10, 2026-11
     Pipeline de Smoke Tests integrado com Baken :2026-11, 2026-12
-    Manifesto de Pacote Sotlas.toml             :2026-11, 2027-01
-    section Fase 3: Backend e Foundation
-    Metadados DWARF no gerador LLVM             :2026-12, 2027-02
+    Manifesto de Pacote Sotlas.toml             :done, 2026-09, 2026-09
+    section Fase 4: Backend e Foundation
+    Metadados DWARF no gerador LLVM             :done, 2026-09, 2026-09
     Biblioteca sotlas-foundation (modo hosted)  :2027-01, 2027-03
-    section Fase 4: Registro Global
+    section Fase 5: Registro Global
     Campanha de Adoção de Repositórios Públicos :2027-01, 2027-06
     Submissão do PR Oficial no GitHub Linguist  :2027-06, 2027-07
 ```

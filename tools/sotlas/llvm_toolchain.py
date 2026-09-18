@@ -177,6 +177,22 @@ class LLVMToolchain:
                 except OSError:
                     pass
 
+    def find_linker(self) -> Optional[Tuple[str, Path]]:
+        """Localiza o linker mais rápido e adequado disponível:
+        1. lld-link / ld.lld / lld (Linker LLVM)
+        2. clang / gcc
+        """
+        if os.name == "nt":
+            candidates = [("clang", "clang"), ("gcc", "gcc"), ("lld-link", "lld-link")]
+        else:
+            candidates = [("clang", "clang"), ("ld.lld", "ld.lld"), ("lld", "lld"), ("gcc", "gcc")]
+
+        for kind, name in candidates:
+            tool = self.find_tool(name)
+            if tool:
+                return (kind, tool)
+        return None
+
     def link_native_binary(
         self,
         obj_files: List[Union[str, Path]],
@@ -184,20 +200,30 @@ class LLVMToolchain:
         extra_flags: Optional[List[str]] = None
     ) -> Path:
         """Linkedita um ou mais arquivos objeto em um executável nativo standalone (.exe / binário)."""
-        clang = self.find_tool("clang")
-        if not clang:
-            raise LLVMToolchainError("Linker Clang / LLVM não encontrado no sistema.")
+        linker_info = self.find_linker()
+        if not linker_info:
+            raise LLVMToolchainError(
+                "Nenhum linker compatível (LLD / Clang / GCC) foi encontrado no sistema.\n"
+                "Para compilar executáveis nativos standalone, instale o LLVM (ex: 'winget install LLVM.LLVM' no Windows "
+                "ou 'sudo apt install lld clang' no Linux) ou defina a variável SOTLAS_LLVM_DIR."
+            )
 
+        kind, linker_bin = linker_info
         out_exe = Path(output_exe_path).resolve()
         out_exe.parent.mkdir(parents=True, exist_ok=True)
 
-        cmd = [str(clang)] + [str(p) for p in obj_files] + ["-o", str(out_exe)]
-        if extra_flags:
-            cmd += extra_flags
+        if kind == "lld-link":
+            cmd = [str(linker_bin)] + [str(p) for p in obj_files] + [f"/out:{out_exe}", "/nologo"]
+            if extra_flags:
+                cmd += extra_flags
+        else:
+            cmd = [str(linker_bin)] + [str(p) for p in obj_files] + ["-o", str(out_exe)]
+            if extra_flags:
+                cmd += extra_flags
 
         res = subprocess.run(cmd, capture_output=True, text=True)
         if res.returncode != 0:
-            raise LLVMToolchainError(f"Falha na linkedição nativa com Clang / LLD:\n{res.stderr}")
+            raise LLVMToolchainError(f"Falha na linkedição nativa com {kind} ({linker_bin}):\n{res.stderr}")
 
         return out_exe
 

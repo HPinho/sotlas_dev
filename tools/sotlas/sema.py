@@ -143,11 +143,12 @@ class FlowContext:
 # ---------------------------------------------------------------------------
 
 class Symbol:
-    __slots__ = ("name", "kind", "type_node", "span", "is_island", "is_moved", "is_sole")
+    __slots__ = ("name", "kind", "type_node", "span", "is_island", "is_moved", "is_sole", "stack_origin", "bound")
 
     def __init__(self, name: str, kind: str, type_node: Optional[TypeNode],
                  span: Span, is_island: bool = False, is_moved: bool = False,
-                 is_sole: bool = False) -> None:
+                 is_sole: bool = False, stack_origin: Optional[str] = None,
+                 bound: Optional[str] = None) -> None:
         self.name = name
         self.kind = kind          # "var" | "let" | "fn" | "type" | "param"
         self.type_node = type_node
@@ -155,6 +156,8 @@ class Symbol:
         self.is_island = is_island
         self.is_moved = is_moved
         self.is_sole = is_sole
+        self.stack_origin = stack_origin
+        self.bound = bound
 
 
 class Scope:
@@ -202,6 +205,7 @@ class Sema:
         self._in_method: bool = False
         self._enums: Dict[str, EnumDeclNode] = {}
         self._structs: Dict[str, StructDeclNode] = {}
+        self._specs: Dict[str, SpecDeclNode] = {}
         self._registers: Dict[str, RegisterDeclNode] = {}
         self._flow: FlowContext = FlowContext()
         self._current_effects: Set[Effect] = set()
@@ -209,6 +213,7 @@ class Sema:
         self._is_system_fn: bool = False
         self._is_trapfn: bool = False
         self._is_irqfree_fn: bool = False
+        self._is_async_fn: bool = False
         self._in_clinch: bool = False
         self._in_mould: bool = False
         self._functions: Dict[str, Union[FnDeclNode, TrapFnDeclNode]] = {}
@@ -218,7 +223,9 @@ class Sema:
             if g.is_const:
                 scope.define(Symbol(g.name, "const_generic", None, span))
             else:
-                scope.define(Symbol(g.name, "type", None, span))
+                sym = Symbol(g.name, "type", None, span)
+                sym.bound = getattr(g, "bound", None)
+                scope.define(sym)
         elif isinstance(g, str):
             if g.startswith("const "):
                 parts = g.split()
@@ -344,6 +351,8 @@ class Sema:
                     self._enums[decl.name] = decl
                 elif isinstance(decl, StructDeclNode):
                     self._structs[decl.name] = decl
+                elif isinstance(decl, SpecDeclNode):
+                    self._specs[decl.name] = decl
                     for m in decl.members:
                         if isinstance(m, FnDeclNode):
                             self._functions[f"{decl.name}::{m.name}"] = m
@@ -407,8 +416,14 @@ class Sema:
     # ------------------------------------------------------------------
 
     def _check_struct(self, decl: StructDeclNode) -> None:
+        for spec_name in getattr(decl, "adopts", []):
+            if not self._global.lookup(spec_name):
+                self._err(f"spec '{spec_name}' não declarado", decl.span)
         scope = self._global.child()
         for g in getattr(decl, "generics", []):
+            if isinstance(g, GenericParam) and getattr(g, "bound", None):
+                if not self._global.lookup(g.bound):
+                    self._err(f"spec bound '{g.bound}' não declarado", decl.span)
             self._define_generic_param_in_scope(g, scope, decl.span)
         prev_in_method = self._in_method
         for member in decl.members:
@@ -531,17 +546,22 @@ class Sema:
         prev_is_sys = self._is_system_fn
         prev_is_trap = self._is_trapfn
         prev_is_irqfree = self._is_irqfree_fn
+        prev_is_async = self._is_async_fn
 
         self._flow = FlowContext()
         self._current_effects = set()
 
         dir_names = [getattr(d, "name", "") for d in getattr(decl, "directives", []) or []]
-        self._is_system_fn = "system" in dir_names or getattr(decl, "is_system", False)
+        self._is_system_fn = "system" in dir_names or getattr(decl, "is_system", False) or "unsafe" in dir_names
         self._is_trapfn = False
         self._is_irqfree_fn = "irqfree" in dir_names or "irq" in dir_names
+        self._is_async_fn = getattr(decl, "is_async", False) or "async" in dir_names
 
         try:
             for g in getattr(decl, "generics", []):
+                if isinstance(g, GenericParam) and getattr(g, "bound", None):
+                    if not self._global.lookup(g.bound):
+                        self._err(f"spec bound '{g.bound}' não declarado", decl.span)
                 self._define_generic_param_in_scope(g, scope, decl.span)
             for param in decl.params:
                 self._check_type(param.type_ann, param.span, scope)
@@ -580,6 +600,7 @@ class Sema:
             self._is_system_fn = prev_is_sys
             self._is_trapfn = prev_is_trap
             self._is_irqfree_fn = prev_is_irqfree
+            self._is_async_fn = prev_is_async
 
     def _check_trapfn(self, decl: TrapFnDeclNode) -> None:
         scope = self._global.child()
@@ -657,6 +678,29 @@ class Sema:
         if t.name and not t.is_primitive and t.name != "()" and t.name != "!":
             if not lookup_scope.lookup(t.name):
                 self._err(f"tipo '{t.name}' não declarado", span)
+            else:
+                if t.name in self._structs and hasattr(t, "generic_args") and t.generic_args:
+                    s_decl = self._structs[t.name]
+                    s_generics = getattr(s_decl, "generics", [])
+                    for param, arg in zip(s_generics, t.generic_args):
+                        bound = getattr(param, "bound", None)
+                        if bound:
+                            arg_name = getattr(arg, "name", None)
+                            satisfies = False
+                            if arg_name and arg_name in self._structs:
+                                satisfies = bound in getattr(self._structs[arg_name], "adopts", [])
+                            elif arg_name and hasattr(self, "_classes") and arg_name in self._classes:
+                                satisfies = bound in getattr(self._classes[arg_name], "adopts", [])
+                            elif arg_name:
+                                sym = lookup_scope.lookup(arg_name)
+                                if sym and getattr(sym, "bound", None) == bound:
+                                    satisfies = True
+                            if not satisfies:
+                                disp = arg.display_name() if hasattr(arg, "display_name") else (arg.name or str(arg))
+                                self._err(
+                                    f"tipo '{disp}' não satisfaz o bound de spec '{bound}' exigido pelo parâmetro '{getattr(param, 'name', str(param))}' em '{t.name}'",
+                                    span
+                                )
 
     def _check_topology_ptr(self, t: TypeNode, span: Span) -> None:
         """Verifica regras de segurança de ponteiros de topologia."""
@@ -704,8 +748,17 @@ class Sema:
             for st in stmt.body:
                 self._check_stmt(st, s)
         elif isinstance(stmt, EmitNode):
+            if self._unsafe_depth <= 0 and not self._is_system_fn:
+                self._err(
+                    "instruções de assembly inline (asm / emit) requerem contexto '@system' ou bloco 'unsafe'",
+                    stmt.span
+                )
             for e in stmt.outputs + stmt.inputs:
                 self._check_expr(e, scope)
+        elif isinstance(stmt, ComptimeBlockNode):
+            s = scope.child()
+            for st in stmt.body:
+                self._check_stmt(st, s)
         elif isinstance(stmt, GuardNode):
             self._check_expr(stmt.condition, scope)
             s = scope.child()
@@ -728,7 +781,16 @@ class Sema:
             pass
         elif isinstance(stmt, WhileNode):
             self._check_expr(stmt.condition, scope)
-            self._check_loop(stmt.body, scope, stmt.span)
+            s = scope.child()
+            if getattr(stmt, "pattern", None):
+                pat = stmt.pattern
+                if pat.sub_patterns:
+                    for sub in pat.sub_patterns:
+                        if sub.kind == "ident" and isinstance(sub.value, str):
+                            sub_sym = Symbol(sub.value, "let", None, stmt.span)
+                            s.define(sub_sym)
+                            self._flow.define(sub_sym, VarState.LIVE)
+            self._check_loop(stmt.body, s, stmt.span)
         elif isinstance(stmt, ForNode):
             self._check_expr(stmt.iterable, scope)
             s = scope.child()
@@ -745,6 +807,7 @@ class Sema:
         elif isinstance(stmt, ReturnNode):
             if stmt.value:
                 self._check_expr(stmt.value, scope)
+                self._check_return_escape(stmt.value, scope, stmt.span)
         elif isinstance(stmt, DeferNode):
             if stmt.expr:
                 self._check_expr(stmt.expr, scope)
@@ -754,6 +817,23 @@ class Sema:
                     self._check_stmt(st, s)
         elif isinstance(stmt, ExprStmtNode):
             self._check_expr(stmt.expr, scope)
+
+    def _check_return_escape(self, expr: ExprNode, scope: Scope, span: Span) -> None:
+        if isinstance(expr, UnaryExprNode) and expr.op in (TK.LAND, TK.KW_WHISPER):
+            if isinstance(expr.operand, IdentNode):
+                sym = scope.lookup(expr.operand.name)
+                if sym and sym.kind in ("let", "var") and not self._global.lookup(expr.operand.name):
+                    self._err(
+                        f"referência a variável local de pilha '{expr.operand.name}' não pode escapar do escopo da função",
+                        span
+                    )
+        elif isinstance(expr, IdentNode):
+            sym = scope.lookup(expr.name)
+            if sym and getattr(sym, "stack_origin", None):
+                self._err(
+                    f"referência a variável local de pilha '{sym.stack_origin}' não pode escapar do escopo da função",
+                    span
+                )
 
     def _check_discern(self, stmt: DiscernStmtNode, scope: Scope) -> None:
         self._check_expr(stmt.subject, scope)
@@ -875,8 +955,20 @@ class Sema:
                         is_sole = True
 
         is_island = stmt.type_ann is not None and self._type_is_island(stmt.type_ann)
+        stack_orig = None
+        if isinstance(stmt.init, UnaryExprNode) and stmt.init.op in (TK.LAND, TK.KW_WHISPER):
+            if isinstance(stmt.init.operand, IdentNode):
+                sym_orig = scope.lookup(stmt.init.operand.name)
+                if sym_orig and sym_orig.kind in ("let", "var") and not self._global.lookup(stmt.init.operand.name):
+                    stack_orig = stmt.init.operand.name
+        elif isinstance(stmt.init, IdentNode):
+            src_sym = scope.lookup(stmt.init.name)
+            if src_sym and getattr(src_sym, "stack_origin", None):
+                stack_orig = src_sym.stack_origin
+
         sym = Symbol(stmt.name, "var" if stmt.is_var else "let",
-                     stmt.type_ann, stmt.span, is_island=is_island, is_sole=is_sole)
+                     stmt.type_ann, stmt.span, is_island=is_island, is_sole=is_sole,
+                     stack_origin=stack_orig)
         if is_sole and sym.type_node:
             sym.type_node.ownership = TK.KW_SOLE
         scope.define(sym)
@@ -1009,6 +1101,14 @@ class Sema:
             sym = Symbol(stmt.let_bind, "let", None, stmt.span)
             s.define(sym)
             self._flow.define(sym, VarState.LIVE)
+        elif getattr(stmt, "pattern", None):
+            pat = stmt.pattern
+            if pat.sub_patterns:
+                for sub in pat.sub_patterns:
+                    if sub.kind == "ident" and isinstance(sub.value, str):
+                        sub_sym = Symbol(sub.value, "let", None, stmt.span)
+                        s.define(sub_sym)
+                        self._flow.define(sub_sym, VarState.LIVE)
         for st in stmt.then_body:
             self._check_stmt(st, s)
         snap_then = self._flow.snapshot()
@@ -1067,15 +1167,33 @@ class Sema:
             if lt and rt and self._is_simd_type(lt) and self._is_simd_type(rt):
                 if lt.display_name() != rt.display_name():
                     self._err(f"type mismatch in vector operation: '{lt.display_name()}' and '{rt.display_name()}'", expr.span)
+        elif (isinstance(expr, UnaryExprNode) and expr.op == TK.KW_AWAIT) or isinstance(expr, AwaitExprNode):
+            self._current_effects.add(Effect.ASYNC)
+            if self._in_clinch:
+                self._err("suspensão ('await') é terminantemente proibida dentro de seção crítica de hardware ('clinch')", expr.span)
+            elif self._is_trapfn or self._is_irqfree_fn:
+                self._err("error[E0714]: suspensão assíncrona (efeito 'async') é terminantemente proibida em contexto de interrupção (trapfn/irq)", expr.span)
+            elif not self._is_async_fn:
+                self._err("expressão 'await' só é permitida dentro de funções assíncronas ('async fn')", expr.span)
+            target = expr.expr if isinstance(expr, AwaitExprNode) else expr.operand
+            self._check_expr(target, scope)
+        elif isinstance(expr, ComptimeExprNode):
+            self._check_expr(expr.expr, scope)
+            val = self._eval_comptime_expr(expr.expr, scope)
+            if val is None:
+                self._err("expressão 'comptime' não pôde ser avaliada em tempo de compilação: depende de valor dinâmico em tempo de execução", expr.span)
+            else:
+                if isinstance(val, bool):
+                    expr.folded = LiteralNode(expr.span, TK.KW_TRUE if val else TK.KW_FALSE, "true" if val else "false")
+                elif isinstance(val, int):
+                    expr.folded = LiteralNode(expr.span, TK.INT_LIT, str(val))
+                elif isinstance(val, float):
+                    expr.folded = LiteralNode(expr.span, TK.FLOAT_LIT, str(val))
+                elif isinstance(val, str):
+                    expr.folded = LiteralNode(expr.span, TK.STR_LIT, val)
         elif isinstance(expr, UnaryExprNode):
             self._check_expr(expr.operand, scope)
-            if expr.op == TK.KW_AWAIT:
-                self._current_effects.add(Effect.ASYNC)
-                if self._in_clinch:
-                    self._err("suspensão ('await') é terminantemente proibida dentro de seção crítica de hardware ('clinch')", expr.span)
-                if self._is_trapfn or self._is_irqfree_fn:
-                    self._err("error[E0714]: suspensão assíncrona (efeito 'async') é terminantemente proibida em contexto de interrupção (trapfn/irq)", expr.span)
-            elif expr.op == TK.STAR:
+            if expr.op == TK.STAR:
                 if self._unsafe_depth <= 0 and not self._is_system_fn:
                     self._err("desreferenciamento de ponteiro cru exige bloco unsafe explícito", expr.span)
             elif expr.op == TK.KW_WHISPER:
@@ -1251,6 +1369,8 @@ class Sema:
             self._err(f"static probe assertion failed: {msg}", stmt.span)
 
     def _eval_comptime_expr(self, expr: ExprNode, scope: Scope) -> Optional[Any]:
+        if isinstance(expr, ComptimeExprNode):
+            return self._eval_comptime_expr(expr.expr, scope)
         if isinstance(expr, LiteralNode):
             if expr.kind == TK.INT_LIT:
                 try:
@@ -1308,6 +1428,18 @@ class Sema:
                         return l * r
                     elif op == TK.SLASH:
                         return l // r if r != 0 else None
+                    elif op == TK.PERCENT:
+                        return l % r if r != 0 else None
+                    elif op == TK.LAND:
+                        return l & r
+                    elif op == TK.LOR:
+                        return l | r
+                    elif op == TK.XOR:
+                        return l ^ r
+                    elif op == TK.SHL:
+                        return l << r
+                    elif op == TK.SHR:
+                        return l >> r
                     elif op == TK.AND:
                         return bool(l and r)
                     elif op == TK.OR:
@@ -1321,6 +1453,8 @@ class Sema:
                     return not v
                 elif expr.op == TK.MINUS:
                     return -v
+                elif expr.op == TK.TILDE:
+                    return ~v
         elif isinstance(expr, IdentNode):
             sym = scope.lookup(expr.name)
             if sym and getattr(sym, "const_value", None) is not None:
@@ -1382,7 +1516,10 @@ class Sema:
                 return lt
             if rt and self._is_simd_type(rt):
                 return rt
-            if lt:
-                return lt
-            return rt
+        elif isinstance(expr, ComptimeExprNode):
+            if hasattr(expr, "folded") and expr.folded:
+                return self._infer_expr_type(expr.folded, scope)
+            return self._infer_expr_type(expr.expr, scope)
+        elif isinstance(expr, AwaitExprNode):
+            return self._infer_expr_type(expr.expr, scope)
         return None

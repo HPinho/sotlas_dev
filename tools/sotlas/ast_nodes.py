@@ -308,6 +308,18 @@ class FieldOffsetNode:
     field_name: str
 
 
+@dataclass
+class ComptimeExprNode:
+    span: Span
+    expr: "ExprNode"
+
+
+@dataclass
+class AwaitExprNode:
+    span: Span
+    expr: "ExprNode"
+
+
 # TryExprNode é alias de OptionalChainExprNode (operador postfix '?')
 TryExprNode = OptionalChainExprNode
 
@@ -320,6 +332,7 @@ ExprNode = Union[
     ArrayLitExprNode, ClosureExprNode, StructLitExprNode, TupleLitExprNode,
     TupleIndexExprNode, SliceExprNode, TryExprNode, IfExprNode, ArgNode,
     SpanOfNode, StrideOfNode, AlignOfNode, FieldOffsetNode,
+    ComptimeExprNode, AwaitExprNode,
 ]
 
 
@@ -402,6 +415,7 @@ class IfNode:
     condition: ExprNode
     then_body: List["StmtNode"]
     else_body: Optional[Union[List["StmtNode"], "IfNode"]]
+    pattern: Optional["MatchPatternNode"] = None
 
 
 @dataclass
@@ -431,6 +445,7 @@ class WhileNode:
     span: Span
     condition: ExprNode
     body: List["StmtNode"]
+    pattern: Optional["MatchPatternNode"] = None
 
 
 @dataclass
@@ -511,17 +526,19 @@ class PulseStmtNode:
 
 
 class GenericParam(str):
-    """Representa um parâmetro genérico com suporte a const generics, compatível com str."""
+    """Representa um parâmetro genérico com suporte a const generics e bounds formais de spec, compatível com str."""
     name: str
     is_const: bool
     const_type: Optional[str]
+    bound: Optional[str]
 
-    def __new__(cls, name: str, is_const: bool = False, const_type: Optional[str] = None):
+    def __new__(cls, name: str, is_const: bool = False, const_type: Optional[str] = None, bound: Optional[str] = None):
         val = f"const {name}: {const_type}" if is_const and const_type else name
         obj = super().__new__(cls, val)
         obj.name = name
         obj.is_const = is_const
         obj.const_type = const_type
+        obj.bound = bound
         return obj
 
 
@@ -534,12 +551,34 @@ class GenericParamNode:
     const_type: Optional[TypeNode] = None
 
 
+@dataclass
+class ComptimeBlockNode:
+    span: Span
+    body: List["StmtNode"]
+
+
+@dataclass
+class AsmOperand:
+    constraint: str
+    expr: "ExprNode"
+
+
+@dataclass
+class AsmStmtNode:
+    span: Span
+    template: str
+    is_volatile: bool = True
+    outputs: List[AsmOperand] = field(default_factory=list)
+    inputs: List[AsmOperand] = field(default_factory=list)
+    clobbers: List[str] = field(default_factory=list)
+
+
 StmtNode = Union[
     LocalVarDeclNode, AssignmentNode, HandoverNode, QuarantineNode,
     ClinchNode, QuenchNode, GateNode, EmitNode, GuardNode,
     IfNode, MatchNode, DiscernStmtNode, WhileNode, ForNode, UnsafeBlockNode,
     ReturnNode, ReboundNode, BreakNode, ContinueNode, DeferNode, ExprStmtNode,
-    ProbeStmtNode, PulseStmtNode,
+    ProbeStmtNode, PulseStmtNode, ComptimeBlockNode, AsmStmtNode,
 ]
 
 

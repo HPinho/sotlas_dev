@@ -1,0 +1,48 @@
+module sotlas::compiler::ast;
+
+import sotlas::compiler::token::*;
+
+pub enum AstKind {
+    Module = 1,
+    Import = 2,
+    StructDecl = 3,
+    FieldDecl = 4,
+    FnDecl = 5,
+    ParamDecl = 6,
+    Block = 7,
+    LetStmt = 8,
+    AssignStmt = 9,
+    ReturnStmt = 10,
+    IfStmt = 11,
+    WhileStmt = 12,
+    AsmStmt = 13,
+    ExprBinary = 14,
+    ExprUnary = 15,
+    ExprCall = 16,
+    ExprIdent = 17,
+    ExprLiteral = 18
+}
+
+pub struct AstNode {
+    pub kind: AstKind;
+    pub span: Span;
+    pub int_value: i64;
+    pub str_offset: usize;
+    pub str_len: usize;
+    pub first_child: usize;
+    pub next_sibling: usize;
+}
+
+impl AstNode {
+    pub fn new(kind: AstKind, span: Span) -> AstNode {
+        return AstNode {
+            kind: kind,
+            span: span,
+            int_value: 0,
+            str_offset: 0,
+            str_len: 0,
+            first_child: 0,
+            next_sibling: 0
+        };
+    }
+}

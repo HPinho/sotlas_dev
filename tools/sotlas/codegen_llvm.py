@@ -10,7 +10,7 @@ from typing import Dict, List, Optional
 from .sir.instructions import (
     SIRModule, SIRFunction, SIRBasicBlock, SIRInstruction, SIRValue,
     AllocStackInst, StoreInst, LoadInst, CallInst, RetainInst, ReleaseInst,
-    BranchInst, CondBranchInst, ReturnInst, SystemOpInst
+    BranchInst, CondBranchInst, ReturnInst, SystemOpInst, AsmInst, AwaitInst
 )
 
 
@@ -180,6 +180,11 @@ class CodegenLLVM:
                 self._out.write(f"  ret void{dbg_suffix}\n")
         elif isinstance(inst, SystemOpInst):
             self._out.write(f"  ; system_op #{inst.operation}\n")
+        elif isinstance(inst, AsmInst):
+            sideeffect = "sideeffect" if inst.is_volatile else ""
+            self._out.write(f"  call void asm {sideeffect} \"{inst.template}\", \"\"(){dbg_suffix}\n")
+        elif isinstance(inst, AwaitInst):
+            self._out.write(f"  ; await %{inst.operand.name}\n")
 
     def _emit_debug_metadata(self) -> None:
         self._out.write("; --- Metadados de Depuração DWARF ---\n")

@@ -153,11 +153,20 @@ class Parser:
         if self._match(TK.KW_SOLE):
             self._advance()
             is_sole = True
+        is_unsafe = self._consume(TK.KW_UNSAFE)
         is_pub = self._consume(TK.KW_PUB)
+        if not is_unsafe and self._match(TK.KW_UNSAFE):
+            self._advance()
+            is_unsafe = True
+        if not is_pub and self._match(TK.KW_PUB):
+            self._advance()
+            is_pub = True
         if not is_sole and self._match(TK.KW_SOLE):
             self._advance()
             is_sole = True
         is_sole = is_sole or any(d.name == "sole" for d in directives)
+        if is_unsafe and not any(d.name == "unsafe" for d in directives):
+            directives.append(DirectiveNode(span, "unsafe", []))
 
         cur = self._cur().kind
         if cur == TK.KW_STRUCT:
@@ -300,9 +309,10 @@ class Parser:
         members = []
         while not self._match(TK.RBRACE, TK.EOF):
             ms = self._span()
+            is_member_pub = self._consume(TK.KW_PUB)
             irqfree = self._consume(TK.KW_IRQFREE)
             async_ = self._consume(TK.KW_ASYNC)
-            fn_decl = self._parse_fn_decl(ms, [], False, moldable=False, reshape=False, signature_only=True)
+            fn_decl = self._parse_fn_decl(ms, [], is_member_pub, moldable=False, reshape=False, signature_only=True)
             members.append(SpecMemberNode(ms, irqfree, async_, fn_decl))
         self._expect(TK.RBRACE)
         return SpecDeclNode(span, directives, is_pub, name, generics, members)
@@ -485,6 +495,7 @@ class Parser:
         span = self._span()
         is_ref = False
         is_mut = False
+        label = None
         if self._consume(TK.LAND):
             is_ref = True
             is_mut = self._consume(TK.KW_MUT)
@@ -494,10 +505,10 @@ class Parser:
         if name == "self" and not self._match(TK.COLON):
             typ = TypeNode(span, None, None, is_mut, None, "Self", False, False, None, None, None)
             return ParamNode(span, None, "self", typ, None)
-        label = None
-        if self._is_ident_like(self._cur()):
-            label = name
-            name = self._advance().value
+        if not self._match(TK.COLON):
+            # Variante de tupla em enum sem nome de campo explícito: Some(u32)
+            typ = TypeNode(span, None, None, is_mut, None, name, False, False, None, None, None)
+            return ParamNode(span, None, "_0", typ, None)
         self._expect(TK.COLON)
         typ = self._parse_type()
         default = None
@@ -516,7 +527,10 @@ class Parser:
             return GenericParam(name, is_const=True, const_type=const_type)
         else:
             name = self._expect_ident_or_keyword()
-            return GenericParam(name, is_const=False)
+            bound = None
+            if self._consume(TK.COLON):
+                bound = self._expect_ident_or_keyword()
+            return GenericParam(name, is_const=False, bound=bound)
 
     def _parse_generic_params(self) -> List[GenericParam]:
         if self._consume(TK.KW_FORGE):
@@ -717,8 +731,16 @@ class Parser:
             return QuenchNode(span, body)
         if cur == TK.KW_GATE:
             return self._parse_gate(span)
-        if cur == TK.KW_EMIT or (cur == TK.IDENT and self._cur().value in ("__asm__", "asm")):
+        if cur in (TK.KW_EMIT, TK.KW_ASM) or (cur == TK.IDENT and self._cur().value in ("__asm__", "asm")):
             return self._parse_emit(span)
+        if cur == TK.KW_COMPTIME:
+            self._advance()
+            if self._match(TK.LBRACE):
+                body = self._parse_block()
+                return ComptimeBlockNode(span, body)
+            expr = self._parse_expr()
+            self._expect(TK.SEMICOLON)
+            return ExprStmtNode(span, ComptimeExprNode(span, expr))
         if cur == TK.KW_GUARD:
             return self._parse_guard(span)
         if cur == TK.KW_IF:
@@ -818,8 +840,8 @@ class Parser:
         return GateNode(span, cond, body)
 
     def _parse_emit(self, span) -> EmitNode:
-        self._advance()  # consume 'emit' or '__asm__' / 'asm'
-        if self._match(TK.IDENT) and self._cur().value in ("volatile", "__volatile__"):
+        self._advance()  # consume 'emit', 'asm' or '__asm__'
+        if self._match(TK.KW_VOLATILE) or (self._match(TK.IDENT) and self._cur().value in ("volatile", "__volatile__")):
             self._advance()
         self._expect(TK.LPAREN)
         tmpl = self._expect(TK.STR_LIT).value
@@ -853,9 +875,12 @@ class Parser:
     def _parse_if(self, span) -> IfNode:
         self._advance()  # consume 'if'
         let_bind = None
+        pattern = None
         if self._match(TK.KW_LET):
             self._advance()
-            let_bind = self._expect(TK.IDENT).value
+            pattern = self._parse_match_pattern()
+            if pattern.kind == "ident" and isinstance(pattern.value, str):
+                let_bind = pattern.value
             self._expect(TK.ASSIGN)
         cond = self._parse_expr()
         then_body = self._parse_block()
@@ -865,7 +890,7 @@ class Parser:
                 else_body = self._parse_if(self._span())
             else:
                 else_body = self._parse_block()
-        return IfNode(span, let_bind, cond, then_body, else_body)
+        return IfNode(span, let_bind, cond, then_body, else_body, pattern=pattern)
 
     def _parse_match(self, span) -> MatchNode:
         self._advance()
@@ -972,13 +997,31 @@ class Parser:
                 self._expect(TK.RPAREN)
             return MatchPatternNode(span, "enum_variant", name, subs)
         name = self._expect_ident_or_keyword()
+        while self._match(TK.DCOLON):
+            self._advance()
+            name = f"{name}::{self._expect_ident_or_keyword()}"
+        subs = []
+        if self._consume(TK.LPAREN):
+            if not self._match(TK.RPAREN):
+                subs.append(self._parse_match_pattern())
+                while self._consume(TK.COMMA):
+                    if self._match(TK.RPAREN):
+                        break
+                    subs.append(self._parse_match_pattern())
+            self._expect(TK.RPAREN)
+            return MatchPatternNode(span, "enum_variant", name, subs)
         return MatchPatternNode(span, "ident", name)
 
     def _parse_while(self, span) -> WhileNode:
         self._advance()
+        pattern = None
+        if self._match(TK.KW_LET):
+            self._advance()
+            pattern = self._parse_match_pattern()
+            self._expect(TK.ASSIGN)
         cond = self._parse_expr()
         body = self._parse_block()
-        return WhileNode(span, cond, body)
+        return WhileNode(span, cond, body, pattern=pattern)
 
     def _parse_for(self, span) -> ForNode:
         self._advance()
@@ -1148,10 +1191,16 @@ class Parser:
         span = self._span()
         cur = self._cur()
 
-        if cur.kind in (TK.INT_LIT, TK.FLOAT_LIT, TK.STR_LIT, TK.CHAR_LIT,
+        if cur.kind in (TK.INT_LIT, TK.FLOAT_LIT, TK.STR_LIT, TK.BYTE_STR_LIT,
+                        TK.RAW_STR_LIT, TK.INTERPOLATED_STR_LIT, TK.CHAR_LIT,
                         TK.KW_TRUE, TK.KW_FALSE, TK.KW_NIL):
             self._advance()
             return LiteralNode(span, cur.kind, cur.value)
+
+        if cur.kind == TK.KW_COMPTIME:
+            self._advance()
+            expr = self._parse_expr()
+            return ComptimeExprNode(span, expr)
 
         if cur.kind in (TK.KW_SELF, TK.KW_SUPER):
             self._advance()

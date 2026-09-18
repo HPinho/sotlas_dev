@@ -20,6 +20,8 @@ class Token:
     value: str        # texto original do token
     line: int
     col: int
+    leading_trivia: str = ""
+    trailing_trivia: str = ""
 
     def __repr__(self) -> str:
         return f"Token({self.kind.name}, {self.value!r}, {self.line}:{self.col})"
@@ -90,7 +92,8 @@ class Lexer:
             self._advance()
         raise SotlasLexError("comentário de bloco não terminado", self._fn, line, col)
 
-    def _skip_whitespace_and_comments(self) -> None:
+    def _skip_whitespace_and_comments(self) -> str:
+        start_pos = self._pos
         while self._pos < len(self._src):
             ch = self._peek()
             if ch in " \t\r\n":
@@ -102,6 +105,7 @@ class Lexer:
                 self._skip_block_comment()
             else:
                 break
+        return self._src[start_pos:self._pos]
 
     @staticmethod
     def _decode_escape(esc: str) -> str:
@@ -116,16 +120,34 @@ class Lexer:
         }.get(esc, esc)
 
     def _next_token(self) -> Token:
-        self._skip_whitespace_and_comments()
+        leading_trivia = self._skip_whitespace_and_comments()
         if self._pos >= len(self._src):
-            return Token(TK.EOF, "", self._line, self._col)
+            return Token(TK.EOF, "", self._line, self._col, leading_trivia=leading_trivia)
 
+        tok = self._dispatch_token()
+        tok.leading_trivia = leading_trivia
+        return tok
+
+    def _dispatch_token(self) -> Token:
         line, col = self._line, self._col
         ch = self._peek()
 
         # Literais numéricos e identificadores/palavras-chave
         if ch.isdigit():
             return self._lex_number(line, col)
+
+        # Byte string b"..."
+        if ch == 'b' and self._peek(1) == '"':
+            return self._lex_byte_string(line, col)
+
+        # Raw string r"..." ou r#"..."#
+        if ch == 'r' and (self._peek(1) == '"' or self._peek(1) == '#'):
+            return self._lex_raw_string(line, col)
+
+        # Interpolated string $"..."
+        if ch == '$' and self._peek(1) == '"':
+            return self._lex_interpolated_string(line, col)
+
         if ch.isalpha() or ch == "_":
             return self._lex_ident_or_keyword(line, col)
 
@@ -333,6 +355,64 @@ class Lexer:
         self._advance()  # consume fecha-aspas
         return Token(TK.STR_LIT, "".join(buf), line, col)
 
+    def _lex_byte_string(self, line: int, col: int) -> Token:
+        self._advance()  # consume 'b'
+        self._advance()  # consume '"'
+        buf = []
+        while self._pos < len(self._src) and self._peek() != '"':
+            if self._peek() == "\\":
+                self._advance()
+                if self._pos >= len(self._src):
+                    raise SotlasLexError("literal de bytes não terminado", self._fn, line, col)
+                esc = self._advance()
+                if esc in ("x", "X") and self._peek(0).lower() in "0123456789abcdef" and self._peek(1).lower() in "0123456789abcdef":
+                    h = self._advance() + self._advance()
+                    buf.append(chr(int(h, 16)))
+                else:
+                    buf.append(self._decode_escape(esc))
+            else:
+                buf.append(self._advance())
+        if self._pos >= len(self._src):
+            raise SotlasLexError("literal de bytes não terminado", self._fn, line, col)
+        self._advance()  # consume '"'
+        return Token(TK.BYTE_STR_LIT, "".join(buf), line, col)
+
+    def _lex_raw_string(self, line: int, col: int) -> Token:
+        self._advance()  # consume 'r'
+        num_hashes = 0
+        while self._peek() == '#':
+            self._advance()
+            num_hashes += 1
+        if self._peek() != '"':
+            raise SotlasLexError("esperado '\"' após prefixo de raw string", self._fn, line, col)
+        self._advance()  # consume '"'
+        closing = '"' + ('#' * num_hashes)
+        buf = []
+        while self._pos < len(self._src):
+            if self._src.startswith(closing, self._pos):
+                for _ in range(len(closing)):
+                    self._advance()
+                return Token(TK.RAW_STR_LIT, "".join(buf), line, col)
+            buf.append(self._advance())
+        raise SotlasLexError("raw string não terminada", self._fn, line, col)
+
+    def _lex_interpolated_string(self, line: int, col: int) -> Token:
+        self._advance()  # consume '$'
+        self._advance()  # consume '"'
+        buf = []
+        while self._pos < len(self._src) and self._peek() != '"':
+            if self._peek() == "\\":
+                self._advance()
+                if self._pos >= len(self._src):
+                    raise SotlasLexError("string interpolada não terminada", self._fn, line, col)
+                buf.append(self._decode_escape(self._advance()))
+            else:
+                buf.append(self._advance())
+        if self._pos >= len(self._src):
+            raise SotlasLexError("string interpolada não terminada", self._fn, line, col)
+        self._advance()  # consume '"'
+        return Token(TK.INTERPOLATED_STR_LIT, "".join(buf), line, col)
+
     def _lex_char(self, line: int, col: int) -> Token:
         self._advance()  # consume abre-aspas simples
         if self._pos >= len(self._src) or self._peek() == "'":
@@ -361,7 +441,7 @@ class Lexer:
                     and tokens[i + 1].kind == TK.MINUS
                     and tokens[i + 2].kind == TK.IDENT
                     and tokens[i + 2].value == "owned"):
-                result.append(Token(TK.KW_CO_OWNED, "co-owned", tok.line, tok.col))
+                result.append(Token(TK.KW_CO_OWNED, "co-owned", tok.line, tok.col, leading_trivia=tok.leading_trivia))
                 i += 3
             else:
                 result.append(tok)
