@@ -80,6 +80,37 @@ class SotlasTypedAstFoundationTests(unittest.TestCase):
         bootstrap.check(module)
         return typed_ast.build_declaration_typed_ast(module)
 
+    def test_sole_move_state_transitions_live_to_moved(self):
+        state = typed_ast.move_state("handle", typed_ast.VarState.LIVE)
+        self.assertIs(state, typed_ast.VarState.MOVED)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"use of sole value 'handle' after move",
+        ):
+            typed_ast.move_state("handle", state)
+
+    def test_branch_merge_marks_one_sided_move_as_maybe_moved(self):
+        state = typed_ast.merge_branch_states(
+            typed_ast.VarState.MOVED,
+            typed_ast.VarState.LIVE,
+        )
+        self.assertIs(state, typed_ast.VarState.MAYBE_MOVED)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"after conditional move",
+        ):
+            typed_ast.require_live("token", state)
+
+    def test_branch_merge_keeps_two_sided_move_as_moved(self):
+        state = typed_ast.merge_branch_states(
+            typed_ast.VarState.MOVED,
+            typed_ast.VarState.MOVED,
+        )
+        self.assertIs(state, typed_ast.VarState.MOVED)
+
+    def test_live_state_remains_usable(self):
+        typed_ast.require_live("value", typed_ast.VarState.LIVE)
+
     def test_unsigned_integer_bounds_are_exact(self):
         u8 = typed_ast.SemanticType("u8")
         self.assertEqual(typed_ast.integer_bounds(u8), (0, 255))

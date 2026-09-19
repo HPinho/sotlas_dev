@@ -9,6 +9,7 @@ Maturity: DECLARATIONS_ONLY.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 
 
 MATURITY = "DECLARATIONS_ONLY"
@@ -16,6 +17,57 @@ MATURITY = "DECLARATIONS_ONLY"
 
 class Phase1SemanticError(ValueError):
     """Raised by isolated Phase-1 semantic validators."""
+
+
+class VarState(str, Enum):
+    LIVE = "LIVE"
+    MOVED = "MOVED"
+    MAYBE_MOVED = "MAYBE_MOVED"
+    BORROWED_IMMUT = "BORROWED_IMMUT"
+    BORROWED_MUT = "BORROWED_MUT"
+
+
+def require_live(name: str, state: VarState) -> None:
+    """Reject uses of values whose ownership is no longer definitely live."""
+    if state is VarState.LIVE:
+        return
+    if state is VarState.MOVED:
+        raise Phase1SemanticError(
+            f"use of sole value {name!r} after move"
+        )
+    if state is VarState.MAYBE_MOVED:
+        raise Phase1SemanticError(
+            f"use of sole value {name!r} after conditional move"
+        )
+    raise Phase1SemanticError(
+        f"use of sole value {name!r} while borrowed as {state.value}"
+    )
+
+
+def move_state(name: str, state: VarState) -> VarState:
+    """Apply one ownership transfer to a sole variable state."""
+    require_live(name, state)
+    return VarState.MOVED
+
+
+def merge_branch_states(left: VarState, right: VarState) -> VarState:
+    """Join ownership facts at an if/else convergence point."""
+    if left is right:
+        return left
+    moved_like = {VarState.MOVED, VarState.MAYBE_MOVED}
+    if left in moved_like or right in moved_like:
+        return VarState.MAYBE_MOVED
+    if {left, right} == {VarState.BORROWED_IMMUT, VarState.LIVE}:
+        return VarState.LIVE
+    if {left, right} == {VarState.BORROWED_MUT, VarState.LIVE}:
+        return VarState.LIVE
+    if left in (VarState.BORROWED_IMMUT, VarState.BORROWED_MUT) or right in (
+        VarState.BORROWED_IMMUT, VarState.BORROWED_MUT
+    ):
+        raise Phase1SemanticError(
+            f"incompatible ownership branch states: {left.value} vs {right.value}"
+        )
+    return VarState.LIVE
 
 
 @dataclass(frozen=True)
@@ -221,7 +273,8 @@ def build_declaration_typed_ast(module) -> TypedModule:
 
 
 __all__ = [
-    "MATURITY", "Phase1SemanticError", "SourceSpan", "SemanticType", "TypedField", "TypedStruct",
+    "MATURITY", "Phase1SemanticError", "VarState", "require_live", "move_state",
+    "merge_branch_states", "SourceSpan", "SemanticType", "TypedField", "TypedStruct",
     "TypedParam", "TypedFunction", "TypedGlobal", "TypedModule",
     "semantic_type", "integer_bounds", "validate_integer_value",
     "validate_no_recursive_value_types",
