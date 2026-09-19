@@ -92,6 +92,43 @@ fn main() -> u8 {
         body = result.semantic.bodies[0]
         self.assertEqual(body.statements[0].expr.type.name, "u8")
 
+    def test_public_phase1_pipeline_rejects_sole_use_after_move(self):
+        source = """module test::phase1_sole_use_after_move;
+sole struct Token { value: u32; }
+
+fn consume(token: Token) -> void { return; }
+fn main(token: Token) -> u32 {
+    consume(move token);
+    return token.value;
+}
+"""
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"use of sole value 'token' after move",
+        ):
+            sotlas_compile.analyze_source_phase1(
+                source, filename="<phase1-sole-use-after-move>"
+            )
+
+    def test_public_phase1_pipeline_accepts_consumed_sole_without_reuse(self):
+        source = """module test::phase1_sole_move_valid;
+sole struct Token { value: u32; }
+
+fn consume(token: Token) -> void { return; }
+fn main(token: Token) -> void {
+    consume(move token);
+    return;
+}
+"""
+        result = sotlas_compile.analyze_source_phase1(
+            source, filename="<phase1-sole-move-valid>"
+        )
+        traces = dict(result.semantic.ownership.traces)
+        self.assertIs(
+            traces["main"].final_env.state_of("token"),
+            typed_ast.VarState.MOVED,
+        )
+
     def test_public_phase1_pipeline_rejects_recursive_value_type(self):
         source = """module test::phase1_recursive_value;
 struct Node {
