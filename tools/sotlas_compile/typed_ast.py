@@ -210,6 +210,25 @@ def _typed_stmt(stmt) -> TypedStmt:
     )
 
 
+def install(bootstrap) -> None:
+    """Attach Typed AST materialization after the canonical semantic checker."""
+    if getattr(bootstrap, "_TYPED_AST_INSTALLED", False):
+        return
+
+    semantic_check = bootstrap.check
+
+    def checked_with_typed_ast(module, imported_fns=None, imported_types=None,
+                               imported_enums=None, imported_globals=None):
+        result = semantic_check(
+            module, imported_fns, imported_types, imported_enums, imported_globals
+        )
+        module.typed_ast = build_typed_module(module)
+        return result
+
+    bootstrap.check = checked_with_typed_ast
+    bootstrap._TYPED_AST_INSTALLED = True
+
+
 def build_typed_module(module) -> TypedModule:
     """Materialize checked semantic information without re-running inference."""
     structs = tuple(
@@ -252,5 +271,5 @@ def build_typed_module(module) -> TypedModule:
 __all__ = [
     "SourceSpan", "TypedType", "TypedExpr", "TypedStmt", "TypedParam",
     "TypedField", "TypedStruct", "TypedGlobal", "TypedFunction", "TypedModule",
-    "build_typed_module",
+    "build_typed_module", "install",
 ]

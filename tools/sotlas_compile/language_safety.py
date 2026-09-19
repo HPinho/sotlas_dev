@@ -439,11 +439,6 @@ def install(bootstrap) -> None:
             bootstrap, module, imported_fns, imported_types, imported_globals
         )
         checker.check()
-        try:
-            from .typed_ast import build_typed_module
-        except ImportError:
-            from typed_ast import build_typed_module
-        module.typed_ast = build_typed_module(module)
         return result
     bootstrap.check = strict_check
 
