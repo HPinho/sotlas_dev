@@ -1027,6 +1027,73 @@ fn main() -> i64 {
         self.assertEqual(indexed.expr.kind, "Index")
         self.assertEqual(indexed.expr.type.name, "i64")
 
+    def test_typed_body_types_array_index_assignment(self):
+        source = """module test::typed_array_assign;
+fn main() -> u8 {
+    let values: [u8; 3] = [1, 2, 3];
+    values[1] = 7;
+    return values[1];
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-array-assign>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "main")
+        assign = body.statements[1]
+        self.assertEqual(assign.kind, "Assign")
+        self.assertEqual(assign.type.name, "u8")
+        self.assertEqual(assign.expr.type.name, "u8")
+
+    def test_typed_body_contextualizes_array_index_assignment_literal(self):
+        source = """module test::typed_array_assign_context;
+fn main() -> u16 {
+    let values: [u16; 2] = [1, 2];
+    values[0] = 65535;
+    return values[0];
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-array-assign-context>"
+        )
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "main")
+        self.assertEqual(body.statements[1].expr.type.name, "u16")
+
+    def test_typed_body_rejects_array_index_assignment_range(self):
+        source = """module test::typed_array_assign_range;
+fn main() -> void {
+    let values: [u8; 2] = [1, 2];
+    values[0] = 256;
+    return;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-array-assign-range>"
+        )
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"integer value 256 out of range for u8",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
+    def test_typed_body_rejects_array_assignment_oob_target(self):
+        source = """module test::typed_array_assign_oob;
+fn main() -> void {
+    let values = [1, 2];
+    values[2] = 3;
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-array-assign-oob>")
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"array index 2 out of bounds for length 2",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
     def test_typed_body_types_repeat_array_literal(self):
         source = """module test::typed_repeat_array;
 fn main() -> u32 {

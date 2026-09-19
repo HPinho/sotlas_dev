@@ -1391,7 +1391,7 @@ def infer_assignment_target_type(
                 f"assignment target {name!r} is not a local binding"
             )
         return TypedExprNode(kind, env[name], name)
-    if kind == "Member":
+    if kind in ("Member", "Index"):
         return infer_expression_type(target, env, typed_module)
     raise Phase1SemanticError(
         f"assignment target typing not implemented for {kind}"
