@@ -6,7 +6,6 @@ those implementations are unified, this suite prevents the kernel-facing
 syntax from silently diverging between them.
 """
 from pathlib import Path
-import importlib.util
 import sys
 import unittest
 
@@ -20,13 +19,7 @@ from sotlas.parser import Parser
 from sotlas.ast_nodes import FnDeclNode, StaticDeclNode
 
 
-COMPILER_SPEC = importlib.util.spec_from_file_location(
-    "sotlas_kernel_contract_compiler",
-    ROOT / "tools" / "sotlas_compile" / "compiler.py",
-)
-assert COMPILER_SPEC is not None and COMPILER_SPEC.loader is not None
-compiler = importlib.util.module_from_spec(COMPILER_SPEC)
-COMPILER_SPEC.loader.exec_module(compiler)
+from sotlas_compile import compiler
 
 
 SYNTAX_PROBE = """
