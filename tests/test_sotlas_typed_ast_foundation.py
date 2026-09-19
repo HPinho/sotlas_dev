@@ -1198,6 +1198,56 @@ fn read(ptr: *mut Point) -> u32 {
         self.assertFalse(member.type.pointer)
         self.assertFalse(member.type.is_array)
 
+    def test_immutable_reference_array_index_assignment_is_rejected(self):
+        source = """module test::immutable_reference_array_write;
+fn write(values: &[u32; 2]) -> void {
+    values[0] = 7u32;
+    return;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-immutable-reference-array-write>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"atribuição por referência imutável não é permitida",
+        ):
+            bootstrap.check(parsed)
+
+    def test_typed_body_independently_rejects_immutable_reference_array_write(self):
+        source = """module test::typed_immutable_reference_array_write;
+fn write(values: &[u32; 2]) -> void {
+    values[0] = 7u32;
+    return;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-typed-immutable-reference-array-write>"
+        )
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"assignment through immutable reference is not allowed",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed_module, "write")
+
+    def test_mut_reference_array_index_assignment_is_valid(self):
+        source = """module test::mut_reference_array_write;
+fn write(values: &mut [u32; 2]) -> void {
+    values[0] = 7u32;
+    return;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-mut-reference-array-write>"
+        )
+        bootstrap.check(parsed)
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed_module, "write")
+        assign = body.statements[0]
+        self.assertEqual(assign.kind, "Assign")
+        self.assertEqual(assign.type.name, "u32")
+
     def test_raw_pointer_to_array_index_requires_unsafe(self):
         source = """module test::raw_pointer_array_index_requires_unsafe;
 fn read(values: *mut [u32; 2]) -> u32 {

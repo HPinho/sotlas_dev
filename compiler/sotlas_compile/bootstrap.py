@@ -1295,6 +1295,15 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
                 declared = item.type or actual
                 scope[item.name] = declared
             elif isinstance(item, Assign):
+                if isinstance(item.target, Index):
+                    container_t = expr_type(
+                        item.target.target, scope, in_unsafe, is_system_fn
+                    )
+                    if container_t.is_reference and not container_t.mutable:
+                        raise SotlasBootstrapError(
+                            "atribuição por referência imutável não é permitida",
+                            item.token.line, item.token.column, filename, source,
+                        )
                 target_type = expr_type(item.target, scope, in_unsafe, is_system_fn)
                 value_type = expr_type(item.value, scope, in_unsafe, is_system_fn)
                 if not assignable(value_type, target_type):

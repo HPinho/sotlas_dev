@@ -2091,7 +2091,16 @@ def infer_assignment_target_type(
                 f"assignment target {name!r} is not a local binding"
             )
         return TypedExprNode(kind, env[name], name)
-    if kind in ("Member", "Index"):
+    if kind == "Index":
+        container = infer_expression_type(
+            getattr(target, "target"), env, typed_module
+        )
+        if container.type.is_reference and not container.type.mutable:
+            raise Phase1SemanticError(
+                "assignment through immutable reference is not allowed"
+            )
+        return infer_expression_type(target, env, typed_module)
+    if kind == "Member":
         return infer_expression_type(target, env, typed_module)
     raise Phase1SemanticError(
         f"assignment target typing not implemented for {kind}"
