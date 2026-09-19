@@ -217,6 +217,12 @@ class _StrictSafetyChecker:
             )
 
     def _infer(self, expr, scope, depth: int, system_context: bool) -> _ExprInfo:
+        info = self._infer_impl(expr, scope, depth, system_context)
+        if expr is not None and info.type_obj is not None:
+            setattr(expr, "_sotlas_type", info.type_obj)
+        return info
+
+    def _infer_impl(self, expr, scope, depth: int, system_context: bool) -> _ExprInfo:
         b = self.b
         if expr is None: return _ExprInfo(None)
         if isinstance(expr, b.UnsafeExpr):
@@ -429,7 +435,15 @@ def install(bootstrap) -> None:
         finally:
             for function in added_system:
                 function.attributes.remove("@system")
-        _StrictSafetyChecker(bootstrap, module, imported_fns, imported_types, imported_globals).check()
+        checker = _StrictSafetyChecker(
+            bootstrap, module, imported_fns, imported_types, imported_globals
+        )
+        checker.check()
+        try:
+            from .typed_ast import build_typed_module
+        except ImportError:
+            from typed_ast import build_typed_module
+        module.typed_ast = build_typed_module(module)
         return result
     bootstrap.check = strict_check
 
