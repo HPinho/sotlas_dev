@@ -65,6 +65,42 @@ class SotlasTypedAstFoundationTests(unittest.TestCase):
         self.assertEqual(handle.fields[0].name, "fd")
         self.assertEqual(handle.fields[0].type.name, "u32")
 
+    def test_class_declaration_is_preserved(self):
+        source = """module test::typed_class;
+@layout(C)
+pub class Counter {
+    value: u32;
+
+    pub fn increment(self: *mut Counter, amount: u32) -> u32 {
+        return amount;
+    }
+}
+fn main() -> void { return; }
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-typed-class>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+
+        self.assertEqual(len(typed.classes), 1)
+        counter = typed.classes[0]
+        self.assertEqual(counter.name, "Counter")
+        self.assertTrue(counter.public)
+        self.assertEqual(counter.attributes, ("@layout(C)",))
+        self.assertEqual(
+            [(field.name, field.type.name) for field in counter.fields],
+            [("value", "u32")],
+        )
+        self.assertEqual(len(counter.methods), 1)
+        method = counter.methods[0]
+        self.assertEqual(method.name, "Counter_increment")
+        self.assertEqual(
+            [(param.name, param.type.name, param.type.pointer)
+             for param in method.params],
+            [("self", "Counter", True), ("amount", "u32", False)],
+        )
+        self.assertEqual(method.result.name, "u32")
+        self.assertTrue(method.public)
+
     def test_function_signature_types_are_frozen(self):
         typed = typed_ast.build_declaration_typed_ast(self.checked_ast())
         consume = typed.functions[0]

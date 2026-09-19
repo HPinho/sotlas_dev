@@ -2104,6 +2104,15 @@ class TypedStruct:
 
 
 @dataclass(frozen=True)
+class TypedClass:
+    name: str
+    fields: tuple[TypedField, ...]
+    methods: tuple["TypedFunction", ...]
+    public: bool
+    attributes: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class TypedEnumVariant:
     name: str
     value: int | None
@@ -2148,6 +2157,7 @@ class TypedModule:
     functions: tuple[TypedFunction, ...]
     filename: str | None
     enums: tuple[TypedEnum, ...] = ()
+    classes: tuple[TypedClass, ...] = ()
     maturity: str = MATURITY
 
 
@@ -2301,6 +2311,31 @@ def build_declaration_typed_ast(module) -> TypedModule:
             )
             for item in getattr(module, "enums", ())
         ),
+        classes=tuple(
+            TypedClass(
+                name=item.name,
+                fields=tuple(
+                    TypedField(field.name, semantic_type(field.type))
+                    for field in item.fields
+                ),
+                methods=tuple(
+                    TypedFunction(
+                        name=method.name,
+                        params=tuple(
+                            TypedParam(name, semantic_type(type_obj))
+                            for name, type_obj in method.params
+                        ),
+                        result=semantic_type(method.result),
+                        public=bool(method.public),
+                        attributes=tuple(method.attributes),
+                    )
+                    for method in item.methods
+                ),
+                public=bool(item.public),
+                attributes=tuple(item.attributes),
+            )
+            for item in getattr(module, "classes", ())
+        ),
     )
 
 
@@ -2319,7 +2354,7 @@ __all__ = [
     "apply_ownership_moves", "merge_conditional_ownership",
     "validate_loop_ownership", "require_live", "move_state", "merge_branch_states",
     "SourceSpan", "SemanticType",
-    "TypedField", "TypedStruct", "TypedEnumVariant", "TypedEnum",
+    "TypedField", "TypedStruct", "TypedClass", "TypedEnumVariant", "TypedEnum",
     "TypedParam", "TypedFunction", "TypedGlobal", "TypedModule",
     "semantic_type", "integer_bounds", "validate_integer_value",
     "validate_no_recursive_value_types",
