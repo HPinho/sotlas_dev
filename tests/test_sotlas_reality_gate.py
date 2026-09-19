@@ -28,6 +28,19 @@ class SotlasRealityGateTests(unittest.TestCase):
         self.assertIn("compile_source = bootstrap.compile_source", package)
         self.assertNotIn("SIRGenerator", package)
         self.assertNotIn("CodegenLLVM", package)
+        self.assertNotIn("from .compiler import", package)
+        self.assertIn("from .errors import SotlasError", package)
+
+    def test_baken_compatibility_adapter_is_not_imported_by_production_package(self):
+        package = (
+            ROOT / "compiler" / "sotlas_compile" / "__init__.py"
+        ).read_text(encoding="utf-8")
+        compatibility = (
+            ROOT / "compiler" / "sotlas_compile" / "compiler.py"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("from .compiler import", package)
+        self.assertIn('root / "kernel"', compatibility)
+        self.assertIn('root / "libbkn"', compatibility)
 
     def test_sir_status_document_records_required_gate(self):
         status = (ROOT / "docs" / "sir-status.md").read_text(encoding="utf-8")
