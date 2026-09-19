@@ -665,6 +665,23 @@ def _analyze_block_ownership(
             events.extend(else_events)
             continue
 
+        if kind == "Unsafe":
+            visible = tuple(binding.name for binding in result.bindings)
+            body_events: list[OwnershipEvent] = []
+            body_env = _analyze_block_ownership(
+                getattr(statement, "body", ()),
+                result,
+                typed_module,
+                typed_function,
+                body_events,
+            )
+            result = _project_ownership_env(body_env, visible)
+            events.append(
+                OwnershipEvent("unsafe", typed_function.name, "block")
+            )
+            events.extend(body_events)
+            continue
+
         if kind in ("While", "Loop", "For"):
             if kind == "While":
                 require_expr_ownership_live(

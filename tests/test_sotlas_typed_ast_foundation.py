@@ -1737,6 +1737,69 @@ fn main(consumer: Consumer) -> void {
         ):
             typed_ast.analyze_function_ownership(parsed, typed, "main")
 
+    def test_ownership_unsafe_block_propagates_move(self):
+        source = """module test::ownership_unsafe_move;
+sole struct Token { value: u32; }
+fn consume(token: Token) -> void { return; }
+fn main(token: Token) -> void {
+    unsafe {
+        consume(move token);
+    }
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-ownership-unsafe-move>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(parsed, typed, "main")
+        self.assertIs(trace.final_env.state_of("token"), typed_ast.VarState.MOVED)
+        self.assertIn(
+            typed_ast.OwnershipEvent("unsafe", "main", "block"),
+            trace.events,
+        )
+        self.assertIn(
+            typed_ast.OwnershipEvent("move", "token", "call:consume"),
+            trace.events,
+        )
+
+    def test_ownership_unsafe_block_rejects_use_after_move(self):
+        source = """module test::ownership_unsafe_reuse;
+sole struct Token { value: u32; }
+fn consume(token: Token) -> void { return; }
+fn main(token: Token) -> void {
+    unsafe {
+        consume(move token);
+        consume(move token);
+    }
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-ownership-unsafe-reuse>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"use of sole value 'token' after move",
+        ):
+            typed_ast.analyze_function_ownership(parsed, typed, "main")
+
+    def test_ownership_unsafe_block_drops_local_bindings(self):
+        source = """module test::ownership_unsafe_scope;
+sole struct Token { value: u32; }
+fn main(token: Token) -> void {
+    unsafe {
+        let local = Token { value: 1 };
+    }
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-ownership-unsafe-scope>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(parsed, typed, "main")
+        self.assertIs(trace.final_env.state_of("token"), typed_ast.VarState.LIVE)
+        self.assertIsNone(trace.final_env.state_of("local"))
+
     def test_ownership_returned_call_moves_sole_argument(self):
         source = """module test::ownership_return_call;
 sole struct Token { value: u32; }
