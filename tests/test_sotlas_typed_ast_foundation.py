@@ -1469,6 +1469,50 @@ fn main(flag: bool) -> bool { return ~flag; }
         ):
             typed_ast.build_linear_typed_body(parsed, typed, "main")
 
+    def test_typed_body_accepts_unary_minus_on_signed_integer(self):
+        source = """module test::typed_signed_unary_minus;
+fn main(value: i32) -> i32 {
+    return -value;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-signed-unary-minus>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "main")
+        self.assertEqual(body.statements[0].expr.type.name, "i32")
+
+    def test_typed_body_rejects_unary_minus_on_unsigned_integer(self):
+        source = """module test::typed_unsigned_unary_minus;
+fn main(value: u32) -> u32 {
+    return -value;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-unsigned-unary-minus>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"unary minus requires signed integer or float, got u32",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
+    def test_typed_body_rejects_explicit_negative_unsigned_literal(self):
+        source = """module test::typed_negative_unsigned_suffix;
+fn main() -> u8 {
+    return -1u8;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-negative-unsigned-suffix>"
+        )
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"unary minus requires signed integer or float, got u8",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
     def test_typed_body_rejects_unary_minus_on_bool_independently(self):
         source = """module test::typed_bad_unary_minus;
 fn main(flag: bool) -> bool { return -flag; }

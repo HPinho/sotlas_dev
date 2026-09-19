@@ -1442,10 +1442,16 @@ def infer_expression_type(
                 )
             return TypedExprNode(kind, inner.type, op)
         if op == "-":
-            numeric_types = set(_INTEGER_WIDTHS) | {"f32", "f64"}
-            if inner.type.pointer or inner.type.name not in numeric_types:
+            signed_numeric_types = {
+                "i8", "i16", "i32", "i64", "isize", "f32", "f64"
+            }
+            if (
+                inner.type.pointer
+                or inner.type.name not in signed_numeric_types
+            ):
                 raise Phase1SemanticError(
-                    f"unary minus requires numeric operand, got {inner.type.name}"
+                    "unary minus requires signed integer or float, got "
+                    f"{inner.type.name}"
                 )
             return TypedExprNode(kind, inner.type, op)
         raise Phase1SemanticError(f"unsupported unary operator {op!r}")
