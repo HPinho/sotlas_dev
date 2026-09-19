@@ -976,10 +976,56 @@ def infer_expression_type(
         return TypedExprNode(kind, SemanticType(name), name)
 
     if kind == "Cast":
-        return TypedExprNode(
-            kind,
-            semantic_type(getattr(expr, "target_type")),
-            None,
+        source = infer_expression_type(
+            getattr(expr, "expr"), env, typed_module
+        )
+        target = semantic_type(getattr(expr, "target_type"))
+
+        if source.type == target:
+            return TypedExprNode(kind, target, "cast")
+
+        integer_names = set(_INTEGER_WIDTHS)
+        numeric_names = integer_names | {"f32", "f64"}
+        source_numeric = (
+            not source.type.pointer
+            and not source.type.is_array
+            and source.type.name in numeric_names
+        )
+        target_numeric = (
+            not target.pointer
+            and not target.is_array
+            and target.name in numeric_names
+        )
+        if source_numeric and target_numeric:
+            return TypedExprNode(kind, target, "cast")
+
+        if source.type.name == "null" and target.pointer:
+            return TypedExprNode(kind, target, "cast")
+
+        if source.type.pointer and target.pointer:
+            return TypedExprNode(kind, target, "cast")
+
+        source_integer = (
+            not source.type.pointer
+            and not source.type.is_array
+            and source.type.name in integer_names
+        )
+        target_integer = (
+            not target.pointer
+            and not target.is_array
+            and target.name in integer_names
+        )
+        if (source_integer and target.pointer) or (
+            source.type.pointer and target_integer
+        ):
+            # Legality and safety are separate. The canonical safety pass still
+            # requires lexical unsafe for creating a raw pointer from an integer
+            # or reference; this node only records that the explicit cast shape
+            # is a supported systems conversion.
+            return TypedExprNode(kind, target, "cast")
+
+        raise Phase1SemanticError(
+            f"invalid cast from {source.type.name} to {target.name}"
         )
 
     if kind == "Member":

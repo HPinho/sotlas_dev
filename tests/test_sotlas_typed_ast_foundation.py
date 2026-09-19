@@ -1231,6 +1231,67 @@ fn is_null(ptr: *const u8) -> bool { return ptr == null; }
         body = typed_ast.build_linear_typed_body(parsed, typed, "is_null")
         self.assertEqual(body.statements[0].expr.type.name, "bool")
 
+    def test_typed_body_validates_explicit_numeric_casts(self):
+        source = """module test::typed_cast_numeric;
+fn widen(value: u16) -> u64 {
+    return value as u64;
+}
+fn to_float(value: i32) -> f64 {
+    return value as f64;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-cast-numeric>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        widen = typed_ast.build_linear_typed_body(parsed, typed, "widen")
+        to_float = typed_ast.build_linear_typed_body(parsed, typed, "to_float")
+        self.assertEqual(widen.statements[0].expr.kind, "Cast")
+        self.assertEqual(widen.statements[0].expr.type.name, "u64")
+        self.assertEqual(to_float.statements[0].expr.type.name, "f64")
+
+    def test_typed_body_validates_pointer_requalification_cast(self):
+        source = """module test::typed_cast_pointer;
+fn readonly(ptr: *mut u32) -> *const u32 {
+    return ptr as *const u32;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-cast-pointer>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "readonly")
+        self.assertTrue(body.statements[0].expr.type.pointer)
+        self.assertFalse(body.statements[0].expr.type.mutable)
+        self.assertEqual(body.statements[0].expr.type.name, "u32")
+
+    def test_typed_body_rejects_bool_to_integer_cast_independently(self):
+        source = """module test::typed_cast_bool;
+fn main(flag: bool) -> u32 {
+    return flag as u32;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-cast-bool>")
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"invalid cast from bool to u32",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
+    def test_typed_body_rejects_struct_to_integer_cast_independently(self):
+        source = """module test::typed_cast_struct;
+struct Point { x: u32; }
+fn main(point: Point) -> u64 {
+    return point as u64;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-cast-struct>")
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"invalid cast from Point to u64",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
     def test_typed_body_types_if_expression(self):
         source = """module test::typed_if_expr;
 fn choose(flag: bool) -> i64 {
