@@ -210,7 +210,11 @@ class SIRModule:
         self.functions.append(fn)
 
     def dump(self) -> str:
-        lines = [\n            "// SIR PROTOTYPE — NOT THE PRODUCTION LOWERING PATH",\n            "// Function bodies and systems semantics are not yet lowered end to end.",\n            f"// Sotlas Intermediate Representation (SIR) — Módulo {self.name}",\n        ]
+        lines = [
+            "// SIR PROTOTYPE — NOT THE PRODUCTION LOWERING PATH",
+            "// Function bodies and systems semantics are not yet lowered end to end.",
+            f"// Sotlas Intermediate Representation (SIR) — Módulo {self.name}",
+        ]
         for fn in self.functions:
             lines.append(str(fn))
         return "\n\n".join(lines)
