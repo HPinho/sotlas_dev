@@ -1737,6 +1737,51 @@ fn main(consumer: Consumer) -> void {
         ):
             typed_ast.analyze_function_ownership(parsed, typed, "main")
 
+    def test_ownership_returned_call_moves_sole_argument(self):
+        source = """module test::ownership_return_call;
+sole struct Token { value: u32; }
+fn relay(token: Token) -> Token { return token; }
+fn main(token: Token) -> Token {
+    return relay(move token);
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-ownership-return-call>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        typed_ast.build_linear_typed_body(parsed, typed, "main")
+        trace = typed_ast.analyze_function_ownership(parsed, typed, "main")
+        self.assertIs(trace.final_env.state_of("token"), typed_ast.VarState.MOVED)
+        self.assertIn(
+            typed_ast.OwnershipEvent("move", "token", "call:relay"),
+            trace.events,
+        )
+
+    def test_ownership_returned_method_moves_sole_argument(self):
+        source = """module test::ownership_return_method;
+sole struct Token { value: u32; }
+struct Consumer { value: u32; }
+impl Consumer {
+    fn relay(self: *mut Consumer, token: Token) -> Token {
+        return token;
+    }
+}
+fn main(consumer: Consumer, token: Token) -> Token {
+    return consumer.relay(move token);
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-ownership-return-method>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        typed_ast.build_linear_typed_body(parsed, typed, "main")
+        trace = typed_ast.analyze_function_ownership(parsed, typed, "main")
+        self.assertIs(trace.final_env.state_of("token"), typed_ast.VarState.MOVED)
+        self.assertIn(
+            typed_ast.OwnershipEvent(
+                "move", "token", "method:Consumer_relay"
+            ),
+            trace.events,
+        )
+
     def test_ownership_assignment_moves_direct_sole_source(self):
         source = """module test::ownership_assign_move;
 sole struct Token { value: u32; }

@@ -621,6 +621,18 @@ def _analyze_block_ownership(
                 events.append(
                     OwnershipEvent("move", moved_value.value, "return")
                 )
+            elif type(value).__name__ == "Call":
+                result = _move_call_arguments(
+                    result, value, typed_module, events
+                )
+            elif type(value).__name__ == "MethodCall":
+                result = _move_method_call_arguments(
+                    result, value, typed_module, events
+                )
+            elif type(value).__name__ == "TryExpr":
+                result = _move_try_wrapped_call_arguments(
+                    result, value, typed_module, events
+                )
             else:
                 require_expr_ownership_live(result, value)
             continue
