@@ -1,0 +1,42 @@
+"""Reality gates for prototype SIR and the canonical production path."""
+from pathlib import Path
+import sys
+import unittest
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "compiler"))
+
+
+class SotlasRealityGateTests(unittest.TestCase):
+    def test_sir_dump_declares_prototype_status(self):
+        instructions = (
+            ROOT / "compiler" / "sotlas" / "sir" / "instructions.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("SIR PROTOTYPE — NOT THE PRODUCTION LOWERING PATH", instructions)
+
+    def test_sir_generator_does_not_claim_complete_body_lowering(self):
+        generator = (
+            ROOT / "compiler" / "sotlas" / "sir" / "generator.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("Emite retorno padrão", generator)
+        self.assertNotIn("production lowering", generator.lower())
+
+    def test_public_production_entrypoint_is_bootstrap_not_sir(self):
+        package = (
+            ROOT / "compiler" / "sotlas_compile" / "__init__.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("compile_source = bootstrap.compile_source", package)
+        self.assertNotIn("SIRGenerator", package)
+        self.assertNotIn("CodegenLLVM", package)
+
+    def test_sir_status_document_records_required_gate(self):
+        status = (ROOT / "docs" / "sir-status.md").read_text(encoding="utf-8")
+        self.assertIn("Maturity: PROTOTYPE", status)
+        self.assertIn("ownership/move facts", status)
+        self.assertIn("effects and system capabilities", status)
+        self.assertIn("state/typestate transitions", status)
+        self.assertIn("causal/flow dependencies", status)
+
+
+if __name__ == "__main__":
+    unittest.main()
