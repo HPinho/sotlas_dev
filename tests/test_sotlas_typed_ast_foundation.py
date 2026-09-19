@@ -1368,6 +1368,68 @@ fn main(counter: Counter, flag: bool) -> u32 {
         ):
             typed_ast.build_linear_typed_body(parsed, typed, "main")
 
+    def test_typed_declarations_preserve_enum_variants(self):
+        source = """module test::typed_enum_decl;
+pub enum Mode {
+    Off = 0,
+    On = 1,
+}
+fn main() -> Mode { return Mode::On; }
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-enum-decl>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        self.assertEqual(len(typed.enums), 1)
+        self.assertEqual(typed.enums[0].name, "Mode")
+        self.assertEqual(
+            [(item.name, item.value) for item in typed.enums[0].variants],
+            [("Off", 0), ("On", 1)],
+        )
+
+    def test_typed_body_types_enum_access(self):
+        source = """module test::typed_enum_access;
+enum Mode {
+    Off,
+    On,
+}
+fn main() -> Mode { return Mode::On; }
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-enum-access>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "main")
+        self.assertEqual(body.statements[0].expr.kind, "EnumAccess")
+        self.assertEqual(body.statements[0].expr.type.name, "Mode")
+        self.assertEqual(body.statements[0].expr.label, "Mode::On")
+
+    def test_typed_body_rejects_unknown_enum_independently(self):
+        source = """module test::typed_enum_unknown;
+fn main() -> Missing { return Missing::Value; }
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-enum-unknown>")
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"unknown enum type 'Missing'",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
+    def test_typed_body_rejects_unknown_enum_variant_independently(self):
+        source = """module test::typed_enum_variant;
+enum Mode {
+    Off,
+    On,
+}
+fn main() -> Mode { return Mode::Missing; }
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-enum-variant>")
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"enum 'Mode' has no variant 'Missing'",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
     def test_typed_body_types_if_expression(self):
         source = """module test::typed_if_expr;
 fn choose(flag: bool) -> i64 {

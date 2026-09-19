@@ -773,6 +773,27 @@ def infer_expression_type(
         )
         return TypedExprNode(kind, inner.type, inner.label)
 
+    if kind == "EnumAccess":
+        enum_name = getattr(expr, "enum_name")
+        variant_name = getattr(expr, "variant")
+        enum = next(
+            (item for item in typed_module.enums if item.name == enum_name),
+            None,
+        )
+        if enum is None:
+            raise Phase1SemanticError(
+                f"unknown enum type {enum_name!r}"
+            )
+        if not any(item.name == variant_name for item in enum.variants):
+            raise Phase1SemanticError(
+                f"enum {enum_name!r} has no variant {variant_name!r}"
+            )
+        return TypedExprNode(
+            kind,
+            SemanticType(enum_name),
+            f"{enum_name}::{variant_name}",
+        )
+
     if kind == "Unary":
         inner = infer_expression_type(
             getattr(expr, "value"), env, typed_module
@@ -1640,6 +1661,19 @@ class TypedStruct:
 
 
 @dataclass(frozen=True)
+class TypedEnumVariant:
+    name: str
+    value: int | None
+
+
+@dataclass(frozen=True)
+class TypedEnum:
+    name: str
+    variants: tuple[TypedEnumVariant, ...]
+    public: bool
+
+
+@dataclass(frozen=True)
 class TypedParam:
     name: str
     type: SemanticType
@@ -1670,6 +1704,7 @@ class TypedModule:
     globals: tuple[TypedGlobal, ...]
     functions: tuple[TypedFunction, ...]
     filename: str | None
+    enums: tuple[TypedEnum, ...] = ()
     maturity: str = MATURITY
 
 
@@ -1812,6 +1847,17 @@ def build_declaration_typed_ast(module) -> TypedModule:
             for item in module.functions
         ),
         filename=module.filename,
+        enums=tuple(
+            TypedEnum(
+                name=item.name,
+                variants=tuple(
+                    TypedEnumVariant(variant.name, variant.value)
+                    for variant in item.variants
+                ),
+                public=bool(item.public),
+            )
+            for item in getattr(module, "enums", ())
+        ),
     )
 
 
@@ -1830,7 +1876,7 @@ __all__ = [
     "apply_ownership_moves", "merge_conditional_ownership",
     "validate_loop_ownership", "require_live", "move_state", "merge_branch_states",
     "SourceSpan", "SemanticType",
-    "TypedField", "TypedStruct",
+    "TypedField", "TypedStruct", "TypedEnumVariant", "TypedEnum",
     "TypedParam", "TypedFunction", "TypedGlobal", "TypedModule",
     "semantic_type", "integer_bounds", "validate_integer_value",
     "validate_no_recursive_value_types",
