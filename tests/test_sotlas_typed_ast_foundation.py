@@ -1822,8 +1822,9 @@ fn main() -> Mode { return Mode::Missing; }
     def test_typed_body_types_try_result_u32(self):
         source = """module test::typed_try_u32;
 fn passthrough(value: ResultU32) -> ResultU32 { return value; }
-fn main(value: ResultU32) -> u32 {
-    return passthrough(value)?;
+fn main(value: ResultU32) -> ResultU32 {
+    let payload: u32 = passthrough(value)?;
+    return value;
 }
 """
         parsed = bootstrap.parse(source, filename="<phase1-typed-try-u32>")
@@ -1836,8 +1837,9 @@ fn main(value: ResultU32) -> u32 {
     def test_typed_body_types_try_result_i32(self):
         source = """module test::typed_try_i32;
 fn passthrough(value: ResultI32) -> ResultI32 { return value; }
-fn main(value: ResultI32) -> i32 {
-    return passthrough(value)?;
+fn main(value: ResultI32) -> ResultI32 {
+    let payload: i32 = passthrough(value)?;
+    return value;
 }
 """
         parsed = bootstrap.parse(source, filename="<phase1-typed-try-i32>")
@@ -1863,11 +1865,48 @@ fn main(value: u32) -> u32 {
         ):
             typed_ast.build_linear_typed_body(parsed, typed, "main")
 
+    def test_typed_body_rejects_try_when_caller_cannot_propagate_result(self):
+        source = """module test::typed_try_bad_caller;
+fn passthrough(value: ResultU32) -> ResultU32 { return value; }
+fn main(value: ResultU32) -> u32 {
+    let payload: u32 = passthrough(value)?;
+    return payload;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-typed-try-bad-caller>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"try operator in 'main' requires enclosing function to return "
+            r"ResultU32, got u32",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
+    def test_typed_body_rejects_try_with_different_result_wrapper(self):
+        source = """module test::typed_try_wrong_wrapper;
+fn passthrough(value: ResultU32) -> ResultU32 { return value; }
+fn main(value: ResultU32, other: ResultI32) -> ResultI32 {
+    let payload: u32 = passthrough(value)?;
+    return other;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-typed-try-wrong-wrapper>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"try operator in 'main' requires enclosing function to return "
+            r"ResultU32, got ResultI32",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
     def test_ownership_summary_records_call_wrapped_by_try(self):
         source = """module test::ownership_try_edge;
 fn passthrough(value: ResultU32) -> ResultU32 { return value; }
-fn main(value: ResultU32) -> u32 {
-    return passthrough(value)?;
+fn main(value: ResultU32) -> ResultU32 {
+    let payload: u32 = passthrough(value)?;
+    return value;
 }
 """
         parsed = bootstrap.parse(source, filename="<phase1-ownership-try-edge>")

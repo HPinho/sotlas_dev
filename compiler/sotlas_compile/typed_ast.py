@@ -1487,6 +1487,118 @@ def infer_expression_type(
     )
 
 
+
+def _try_result_types(
+    expr,
+    env: dict[str, SemanticType],
+    typed_module: TypedModule,
+) -> tuple[SemanticType, ...]:
+    """Collect Result wrapper types propagated by nested try expressions."""
+    if expr is None:
+        return ()
+
+    kind = type(expr).__name__
+    nested: list[SemanticType] = []
+
+    if kind == "TryExpr":
+        inner_expr = getattr(expr, "expr")
+        inner = infer_expression_type(inner_expr, env, typed_module)
+        _try_payload_type(inner.type)
+        nested.append(inner.type)
+        nested.extend(_try_result_types(inner_expr, env, typed_module))
+        return tuple(nested)
+
+    if kind == "Binary":
+        children = (getattr(expr, "left", None), getattr(expr, "right", None))
+    elif kind in ("Unary", "MoveExpr", "UnsafeExpr"):
+        children = (getattr(expr, "value", None),)
+    elif kind == "Cast":
+        children = (getattr(expr, "expr", None),)
+    elif kind == "Index":
+        children = (getattr(expr, "target", None), getattr(expr, "index", None))
+    elif kind == "Member":
+        children = (getattr(expr, "target", None),)
+    elif kind == "Call":
+        children = tuple(getattr(expr, "args", ()))
+    elif kind == "MethodCall":
+        children = (
+            getattr(expr, "target", None),
+            *tuple(getattr(expr, "args", ())),
+        )
+    elif kind == "ArrayLit":
+        children = tuple(getattr(expr, "elements", ()))
+    elif kind == "StructLit":
+        children = tuple(value for _, value in getattr(expr, "fields", ()))
+    elif kind == "IfExpr":
+        children = (
+            getattr(expr, "condition", None),
+            getattr(expr, "then_expr", None),
+            getattr(expr, "else_expr", None),
+        )
+    else:
+        children = ()
+
+    for child in children:
+        nested.extend(_try_result_types(child, env, typed_module))
+    return tuple(nested)
+
+
+def _validate_try_propagation(
+    expr,
+    env: dict[str, SemanticType],
+    typed_module: TypedModule,
+    typed_function: TypedFunction,
+) -> None:
+    """Require every try expression to propagate through a compatible result."""
+    for result_type in _try_result_types(expr, env, typed_module):
+        if result_type != typed_function.result:
+            raise Phase1SemanticError(
+                f"try operator in {typed_function.name!r} requires enclosing "
+                f"function to return {result_type.name}, got "
+                f"{typed_function.result.name}"
+            )
+
+
+def _validate_statement_try_propagation(
+    statement,
+    env: dict[str, SemanticType],
+    typed_module: TypedModule,
+    typed_function: TypedFunction,
+) -> None:
+    """Validate direct expressions owned by one statement before body typing."""
+    kind = type(statement).__name__
+    expressions = []
+
+    if kind in ("Let", "Return", "Expression"):
+        expressions.append(getattr(statement, "value", None))
+    elif kind == "Assign":
+        expressions.extend(
+            (getattr(statement, "target", None), getattr(statement, "value", None))
+        )
+    elif kind in ("If", "While"):
+        expressions.append(getattr(statement, "condition", None))
+    elif kind == "For":
+        expressions.extend(
+            (getattr(statement, "start", None), getattr(statement, "end", None))
+        )
+    elif kind == "Asm":
+        expressions.extend(getattr(statement, "outputs", ()))
+        expressions.extend(getattr(statement, "inputs", ()))
+    elif kind == "Defer":
+        deferred = getattr(statement, "value", None)
+        if type(deferred).__name__ == "Assign":
+            expressions.extend(
+                (getattr(deferred, "target", None), getattr(deferred, "value", None))
+            )
+        else:
+            expressions.append(deferred)
+
+    for expr in expressions:
+        _validate_try_propagation(
+            expr, env, typed_module, typed_function
+        )
+
+
 def infer_assignment_target_type(
     target,
     env: dict[str, SemanticType],
@@ -1518,6 +1630,9 @@ def _build_typed_block(
 
     for statement in statements:
         kind = type(statement).__name__
+        _validate_statement_try_propagation(
+            statement, env, typed_module, typed_function
+        )
 
         if kind == "Let":
             expr = infer_expression_type(
