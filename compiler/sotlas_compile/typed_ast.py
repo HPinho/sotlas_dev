@@ -324,6 +324,150 @@ def analyze_linear_function_ownership(
     return OwnershipTrace(env, tuple(events))
 
 
+def _project_ownership_env(
+    env: OwnershipEnv, names: tuple[str, ...]
+) -> OwnershipEnv:
+    wanted = set(names)
+    return OwnershipEnv(
+        tuple(binding for binding in env.bindings if binding.name in wanted)
+    )
+
+
+def _analyze_block_ownership(
+    statements,
+    env: OwnershipEnv,
+    typed_module: TypedModule,
+    typed_function: TypedFunction,
+    events: list[OwnershipEvent],
+) -> OwnershipEnv:
+    """Analyze ownership events for a canonical AST block.
+
+    Branch-local bindings are allowed while analyzing a branch but are dropped
+    at the merge boundary; only bindings visible on entry participate in the
+    ownership join.
+    """
+    result = env
+    for statement in statements:
+        kind = type(statement).__name__
+
+        if kind == "Let":
+            local_type = _declared_local_type(statement)
+            value = getattr(statement, "value", None)
+            if type(value).__name__ == "Name":
+                source_name = value.value
+                source_type = result.type_of(source_name)
+                if source_type is not None:
+                    result = result.move(source_name)
+                    events.append(
+                        OwnershipEvent("move", source_name, f"let:{statement.name}")
+                    )
+                    if local_type is None:
+                        local_type = source_type
+            elif type(value).__name__ == "Call":
+                result = _move_call_arguments(
+                    result, value, typed_module, events
+                )
+            if local_type is not None:
+                before = result
+                result = result.declare(
+                    statement.name, local_type, typed_module
+                )
+                if result != before:
+                    events.append(
+                        OwnershipEvent("declare", statement.name, "local")
+                    )
+            continue
+
+        if kind == "Expression":
+            value = getattr(statement, "value", None)
+            if type(value).__name__ == "Call":
+                result = _move_call_arguments(
+                    result, value, typed_module, events
+                )
+            continue
+
+        if kind == "Return":
+            value = getattr(statement, "value", None)
+            if (
+                value is not None
+                and type(value).__name__ == "Name"
+                and is_sole_type(typed_function.result, typed_module)
+            ):
+                result = result.move(value.value)
+                events.append(
+                    OwnershipEvent("move", value.value, "return")
+                )
+            continue
+
+        if kind == "If":
+            visible = tuple(binding.name for binding in result.bindings)
+            then_events: list[OwnershipEvent] = []
+            else_events: list[OwnershipEvent] = []
+            then_env = _analyze_block_ownership(
+                getattr(statement, "then_body", ()),
+                result,
+                typed_module,
+                typed_function,
+                then_events,
+            )
+            else_env = _analyze_block_ownership(
+                getattr(statement, "else_body", ()),
+                result,
+                typed_module,
+                typed_function,
+                else_events,
+            )
+            then_env = _project_ownership_env(then_env, visible)
+            else_env = _project_ownership_env(else_env, visible)
+            result = then_env.merge(else_env)
+            events.append(
+                OwnershipEvent("branch", typed_function.name, "if")
+            )
+            events.extend(then_events)
+            events.extend(else_events)
+            continue
+
+        if kind in ("While", "Loop", "For"):
+            events.append(
+                OwnershipEvent("deferred-control-flow", typed_function.name, kind)
+            )
+
+    return result
+
+
+def analyze_function_ownership(
+    parsed_module, typed_module: TypedModule, function_name: str
+) -> OwnershipTrace:
+    """Analyze linear and conditional sole ownership from the canonical AST."""
+    parsed_function = next(
+        (item for item in parsed_module.functions if item.name == function_name),
+        None,
+    )
+    typed_function = next(
+        (item for item in typed_module.functions if item.name == function_name),
+        None,
+    )
+    if parsed_function is None or typed_function is None:
+        raise Phase1SemanticError(
+            f"function {function_name!r} not found for ownership analysis"
+        )
+
+    env = OwnershipEnv()
+    events: list[OwnershipEvent] = []
+    for param in typed_function.params:
+        before = env
+        env = env.declare(param.name, param.type, typed_module)
+        if env != before:
+            events.append(
+                OwnershipEvent("declare", param.name, "parameter")
+            )
+
+    env = _analyze_block_ownership(
+        parsed_function.body, env, typed_module, typed_function, events
+    )
+    return OwnershipTrace(env, tuple(events))
+
+
 def apply_ownership_moves(
     env: OwnershipEnv, names: tuple[str, ...] | list[str]
 ) -> OwnershipEnv:
@@ -617,7 +761,8 @@ __all__ = [
     "MATURITY", "Phase1SemanticError", "VarState", "sole_type_names", "is_sole_type",
     "initial_ownership_state", "require_sole_transfer", "OwnershipBinding", "OwnershipEnv",
     "seed_function_ownership", "OwnershipEvent", "OwnershipTrace",
-    "analyze_linear_function_ownership", "apply_ownership_moves", "merge_conditional_ownership",
+    "analyze_linear_function_ownership", "analyze_function_ownership",
+    "apply_ownership_moves", "merge_conditional_ownership",
     "validate_loop_ownership", "require_live", "move_state", "merge_branch_states",
     "SourceSpan", "SemanticType",
     "TypedField", "TypedStruct",

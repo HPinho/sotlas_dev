@@ -256,6 +256,92 @@ fn main() -> void {
         self.assertIsNone(trace.final_env.state_of("value"))
         self.assertFalse(any(event.kind == "move" for event in trace.events))
 
+    def test_canonical_if_one_sided_move_becomes_maybe_moved(self):
+        source = """module test::if_one_sided;
+sole struct Token { value: u32; }
+
+fn consume(t: Token) -> void { return; }
+fn main(flag: bool) -> void {
+    let token = Token { value: 1 };
+    if flag {
+        consume(token);
+    }
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-if-one-sided>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(parsed, typed, "main")
+        self.assertIs(
+            trace.final_env.state_of("token"),
+            typed_ast.VarState.MAYBE_MOVED,
+        )
+
+    def test_canonical_if_both_branches_move_becomes_moved(self):
+        source = """module test::if_both;
+sole struct Token { value: u32; }
+
+fn consume(t: Token) -> void { return; }
+fn main(flag: bool) -> void {
+    let token = Token { value: 1 };
+    if flag {
+        consume(token);
+    } else {
+        consume(token);
+    }
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-if-both>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(parsed, typed, "main")
+        self.assertIs(
+            trace.final_env.state_of("token"),
+            typed_ast.VarState.MOVED,
+        )
+
+    def test_canonical_if_rejects_use_after_conditional_move(self):
+        source = """module test::if_use_after;
+sole struct Token { value: u32; }
+
+fn consume(t: Token) -> void { return; }
+fn main(flag: bool) -> void {
+    let token = Token { value: 1 };
+    if flag {
+        consume(token);
+    }
+    consume(token);
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-if-use-after>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"use of sole value 'token' after conditional move",
+        ):
+            typed_ast.analyze_function_ownership(parsed, typed, "main")
+
+    def test_branch_local_sole_binding_does_not_escape_merge(self):
+        source = """module test::if_local;
+sole struct Token { value: u32; }
+
+fn main(flag: bool) -> void {
+    if flag {
+        let local = Token { value: 1 };
+    }
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-if-local>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(parsed, typed, "main")
+        self.assertIsNone(trace.final_env.state_of("local"))
+
     def test_conditional_move_in_one_branch_becomes_maybe_moved(self):
         typed = typed_ast.build_declaration_typed_ast(self.checked_ast())
         base = typed_ast.OwnershipEnv().declare(
