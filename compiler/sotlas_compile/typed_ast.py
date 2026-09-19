@@ -1261,6 +1261,20 @@ def _is_unsuffixed_integer_literal_expr(expr) -> bool:
     )
 
 
+def _is_unsuffixed_integer_constant_expr(expr) -> bool:
+    """Return whether a simple integer constant expression has no type suffixes."""
+    if _is_unsuffixed_integer_literal_expr(expr):
+        return True
+    if type(expr).__name__ != "Binary":
+        return False
+    if getattr(expr, "op", None) not in ("+", "-", "*"):
+        return False
+    return (
+        _is_unsuffixed_integer_constant_expr(getattr(expr, "left", None))
+        and _is_unsuffixed_integer_constant_expr(getattr(expr, "right", None))
+    )
+
+
 def _contextual_integer_literal(
     expr,
     inferred: TypedExprNode,
@@ -1275,7 +1289,7 @@ def _contextual_integer_literal(
         return inferred
     if expected.pointer or expected.is_array or expected.name not in _INTEGER_WIDTHS:
         return inferred
-    if not _is_unsuffixed_integer_literal_expr(expr):
+    if not _is_unsuffixed_integer_constant_expr(expr):
         return inferred
 
     value = _integer_constant_value(expr)

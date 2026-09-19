@@ -1185,6 +1185,53 @@ fn main() -> u16 {
         self.assertEqual(body.statements[2].expr.type.name, "u8")
         self.assertEqual(body.statements[-1].expr.type.name, "u16")
 
+    def test_contextual_constant_integer_expression_uses_expected_type(self):
+        source = """module test::typed_integer_expr_context;
+fn main() -> u8 {
+    return 254 + 1;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-int-expr-context>"
+        )
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "main")
+        self.assertEqual(body.statements[0].expr.type.name, "u8")
+
+    def test_contextual_constant_integer_expression_rejects_overflow(self):
+        source = """module test::typed_integer_expr_overflow;
+fn main() -> u8 {
+    return 255 + 1;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-int-expr-overflow>"
+        )
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"integer value 256 out of range for u8",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
+    def test_contextual_constant_integer_expression_respects_explicit_suffix(self):
+        source = """module test::typed_integer_expr_suffix;
+fn main() -> u8 {
+    return 254i64 + 1;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-int-expr-suffix>"
+        )
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"return type mismatch in 'main': expected u8, got i64",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
     def test_contextual_integer_literal_rejects_out_of_range(self):
         source = """module test::typed_integer_range;
 fn main() -> void {
