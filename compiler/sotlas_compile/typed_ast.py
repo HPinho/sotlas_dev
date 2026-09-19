@@ -725,6 +725,50 @@ def _number_type(value: str) -> SemanticType:
     return SemanticType("i64")
 
 
+def _integer_constant_value(expr) -> int | None:
+    """Return a compile-time integer value for simple literal expressions."""
+    kind = type(expr).__name__
+    if kind == "Number":
+        raw = getattr(expr, "value")
+        suffixes = (
+            "usize", "isize", "u64", "i64", "u32", "i32",
+            "u16", "i16", "u8", "i8", "f32", "f64",
+        )
+        for suffix in suffixes:
+            if raw.endswith(suffix):
+                raw = raw[:-len(suffix)]
+                break
+        if "." in raw or "e" in raw.lower():
+            return None
+        try:
+            return int(raw, 0)
+        except ValueError:
+            return None
+    if kind == "Unary" and getattr(expr, "op", None) == "-":
+        inner = _integer_constant_value(getattr(expr, "value", None))
+        return -inner if inner is not None else None
+    return None
+
+
+def _is_unsuffixed_integer_literal_expr(expr) -> bool:
+    kind = type(expr).__name__
+    if kind == "Unary" and getattr(expr, "op", None) == "-":
+        expr = getattr(expr, "value", None)
+        kind = type(expr).__name__
+    if kind != "Number":
+        return False
+    raw = getattr(expr, "value")
+    suffixes = (
+        "usize", "isize", "u64", "i64", "u32", "i32",
+        "u16", "i16", "u8", "i8", "f32", "f64",
+    )
+    return (
+        not any(raw.endswith(suffix) for suffix in suffixes)
+        and "." not in raw
+        and "e" not in raw.lower()
+    )
+
+
 def _contextual_integer_literal(
     expr,
     inferred: TypedExprNode,
@@ -737,24 +781,13 @@ def _contextual_integer_literal(
     """
     if inferred.type == expected:
         return inferred
-    if type(expr).__name__ != "Number":
-        return inferred
     if expected.pointer or expected.is_array or expected.name not in _INTEGER_WIDTHS:
         return inferred
-
-    raw = getattr(expr, "value")
-    suffixes = (
-        "usize", "isize", "u64", "i64", "u32", "i32",
-        "u16", "i16", "u8", "i8", "f32", "f64",
-    )
-    if any(raw.endswith(suffix) for suffix in suffixes):
-        return inferred
-    if "." in raw or "e" in raw.lower():
+    if not _is_unsuffixed_integer_literal_expr(expr):
         return inferred
 
-    try:
-        value = int(raw, 0)
-    except ValueError:
+    value = _integer_constant_value(expr)
+    if value is None:
         return inferred
     validate_integer_value(value, expected)
     return TypedExprNode(inferred.kind, expected, inferred.label)
@@ -944,21 +977,11 @@ def infer_expression_type(
                     mutable=target.type.mutable,
                 )
             index_expr = getattr(expr, "index")
-            if (
-                type(index_expr).__name__ == "Number"
-                and isinstance(target.type.array_size, int)
-            ):
-                raw = getattr(index_expr, "value")
-                literal = raw
-                for suffix in (
-                    "usize", "isize", "u64", "i64", "u32", "i32",
-                    "u16", "i16", "u8", "i8",
+            if isinstance(target.type.array_size, int):
+                value = _integer_constant_value(index_expr)
+                if value is not None and (
+                    value < 0 or value >= target.type.array_size
                 ):
-                    if literal.endswith(suffix):
-                        literal = literal[:-len(suffix)]
-                        break
-                value = int(literal, 0)
-                if value < 0 or value >= target.type.array_size:
                     raise Phase1SemanticError(
                         f"array index {value} out of bounds for length "
                         f"{target.type.array_size}"

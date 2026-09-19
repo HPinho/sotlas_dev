@@ -1368,6 +1368,65 @@ fn main(counter: Counter, flag: bool) -> u32 {
         ):
             typed_ast.build_linear_typed_body(parsed, typed, "main")
 
+    def test_contextual_negative_integer_literal_fits_signed_type(self):
+        source = """module test::typed_negative_context;
+fn main() -> i8 {
+    let value: i8 = -128;
+    return value;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-negative-context>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "main")
+        self.assertEqual(body.statements[0].type.name, "i8")
+        self.assertEqual(body.statements[0].expr.type.name, "i8")
+
+    def test_contextual_negative_integer_literal_rejects_unsigned(self):
+        source = """module test::typed_negative_unsigned;
+fn main() -> void {
+    let value: u8 = -1;
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-negative-unsigned>")
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"integer value -1 out of range for u8",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
+    def test_contextual_negative_integer_literal_rejects_signed_underflow(self):
+        source = """module test::typed_negative_underflow;
+fn main() -> void {
+    let value: i8 = -129;
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-negative-underflow>")
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"integer value -129 out of range for i8",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
+    def test_typed_body_rejects_negative_literal_array_index(self):
+        source = """module test::typed_negative_index;
+fn main() -> i64 {
+    let values = [1, 2, 3];
+    return values[-1];
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-negative-index>")
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"array index -1 out of bounds for length 3",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
     def test_explicit_move_expression_types_sole_value(self):
         source = """module test::typed_move;
 sole struct Token { value: u32; }
