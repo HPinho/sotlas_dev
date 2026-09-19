@@ -438,6 +438,50 @@ fn main(flag: bool) -> void {
         trace = typed_ast.analyze_function_ownership(parsed, typed, "main")
         self.assertIsNone(trace.final_env.state_of("local"))
 
+    def test_ownership_break_stops_unreachable_move_analysis(self):
+        source = """module test::ownership_break_terminator;
+sole struct Token { value: u32; }
+fn consume(token: Token) -> void { return; }
+fn main(token: Token) -> void {
+    loop {
+        break;
+        consume(move token);
+    }
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-ownership-break>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(parsed, typed, "main")
+        self.assertIs(trace.final_env.state_of("token"), typed_ast.VarState.LIVE)
+        self.assertIn(
+            typed_ast.OwnershipEvent("control", "main", "break"),
+            trace.events,
+        )
+
+    def test_ownership_continue_stops_unreachable_move_analysis(self):
+        source = """module test::ownership_continue_terminator;
+sole struct Token { value: u32; }
+fn consume(token: Token) -> void { return; }
+fn main(flag: bool, token: Token) -> void {
+    while flag {
+        continue;
+        consume(move token);
+    }
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-ownership-continue>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(parsed, typed, "main")
+        self.assertIs(trace.final_env.state_of("token"), typed_ast.VarState.LIVE)
+        self.assertIn(
+            typed_ast.OwnershipEvent("control", "main", "continue"),
+            trace.events,
+        )
+
     def test_canonical_while_move_is_rejected(self):
         source = """module test::while_move;
 sole struct Token { value: u32; }

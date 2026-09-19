@@ -754,6 +754,16 @@ def _analyze_block_ownership(
                 require_expr_ownership_live(result, value)
             continue
 
+        if kind in ("Break", "Continue"):
+            events.append(
+                OwnershipEvent(
+                    "control",
+                    typed_function.name,
+                    kind.lower(),
+                )
+            )
+            break
+
         if kind == "If":
             visible = tuple(binding.name for binding in result.bindings)
             then_events: list[OwnershipEvent] = []
