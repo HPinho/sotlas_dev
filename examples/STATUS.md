@@ -2,7 +2,10 @@
 
 `examples/manifest.json` is the machine-readable source of truth.
 
-- **SUPPORTED** examples must satisfy the canonical `sotlas check` contract, C11 lowering, and host C syntax validation in CI.
-- **EXPERIMENTAL** examples may exercise syntax or semantics still being migrated into the canonical frontend.
+- **SUPPORTED** requires the complete project support contract: specification, parser, typed AST, semantic verification, lowering/backend, positive tests, negative tests, and end-to-end tests.
+- **EXPERIMENTAL** means implementation exists, but the complete support contract has not yet been proven.
+- **backend_contract: true** selects an example for the CI smoke `sotlas check -> C11 lowering -> host C syntax validation`.
 
-Promotion to **SUPPORTED** requires the complete project support contract: specification, parser, semantic verification, lowering/backend, positive tests, negative tests, and end-to-end tests.
+Passing the backend-contract smoke does **not** promote an example or language feature to **SUPPORTED**.
+
+At the current Reality Reset baseline, the numbered examples remain **EXPERIMENTAL** until the master-spec support gate is satisfied end to end.
