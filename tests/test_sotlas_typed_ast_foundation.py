@@ -1741,7 +1741,7 @@ fn main(consumer: Consumer) -> void {
         source = """module test::ownership_asm_live;
 sole struct Token { value: u32; }
 fn main(token: Token) -> void {
-    emit("nop" : token.value : token.value);
+    asm("nop" : token.value : token.value);
     return;
 }
 """
@@ -1761,7 +1761,7 @@ sole struct Token { value: u32; }
 fn consume(token: Token) -> void { return; }
 fn main(token: Token) -> void {
     consume(move token);
-    emit("nop" : : token.value);
+    asm("nop" : : token.value);
     return;
 }
 """
@@ -1780,7 +1780,7 @@ sole struct Token { value: u32; }
 fn consume(token: Token) -> void { return; }
 fn main(token: Token) -> void {
     consume(move token);
-    emit("nop" : token.value);
+    asm("nop" : token.value);
     return;
 }
 """
@@ -1797,7 +1797,7 @@ fn main(token: Token) -> void {
         source = """module test::ownership_asm_move;
 sole struct Token { value: u32; }
 fn main(token: Token) -> void {
-    emit("nop" : : move token);
+    asm("nop" : : move token);
     return;
 }
 """
