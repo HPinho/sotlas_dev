@@ -648,7 +648,9 @@ fn main() -> void {
 }
 """
         parsed = bootstrap.parse(source, filename="<phase1-typed-assign-mismatch>")
-        bootstrap.check(parsed)
+        # This negative test intentionally bypasses bootstrap.check because the
+        # production checker already rejects the mismatch first. The isolated
+        # Phase-1 body checker must independently reject the same invalid AST.
         typed = typed_ast.build_declaration_typed_ast(parsed)
         with self.assertRaisesRegex(
             typed_ast.Phase1SemanticError,
