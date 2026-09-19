@@ -987,6 +987,64 @@ fn choose(flag: bool) -> i64 {
         ):
             typed_ast.build_linear_typed_body(parsed, typed, "choose")
 
+    def test_struct_literal_validates_field_shape(self):
+        source = """module test::typed_struct_shape;
+struct Pair { left: u32; right: u32; }
+fn main() -> Pair {
+    return Pair { left: 1, right: 2 };
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-typed-struct-shape>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "main")
+        self.assertEqual(body.statements[0].expr.type.name, "Pair")
+
+    def test_struct_literal_rejects_unknown_field_independently(self):
+        source = """module test::typed_struct_unknown;
+struct Pair { left: u32; right: u32; }
+fn main() -> Pair {
+    return Pair { left: 1, wrong: 2 };
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-typed-struct-unknown>")
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"unknown field 'wrong' in struct literal 'Pair'",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
+    def test_struct_literal_rejects_missing_field_independently(self):
+        source = """module test::typed_struct_missing;
+struct Pair { left: u32; right: u32; }
+fn main() -> Pair {
+    return Pair { left: 1 };
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-typed-struct-missing>")
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"missing field\(s\) in struct literal 'Pair': right",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
+    def test_struct_literal_rejects_duplicate_field_independently(self):
+        source = """module test::typed_struct_duplicate;
+struct Pair { left: u32; right: u32; }
+fn main() -> Pair {
+    return Pair { left: 1, left: 2, right: 3 };
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-typed-struct-duplicate>")
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"duplicate field 'left' in struct literal 'Pair'",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
     def test_conditional_move_in_one_branch_becomes_maybe_moved(self):
         typed = typed_ast.build_declaration_typed_ast(self.checked_ast())
         base = typed_ast.OwnershipEnv().declare(

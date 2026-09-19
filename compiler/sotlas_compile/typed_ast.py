@@ -795,9 +795,36 @@ def infer_expression_type(
 
     if kind == "StructLit":
         name = getattr(expr, "struct_name")
-        known = {item.name for item in typed_module.structs}
-        if name not in known:
+        struct = next(
+            (item for item in typed_module.structs if item.name == name),
+            None,
+        )
+        if struct is None:
             raise Phase1SemanticError(f"unknown struct literal type {name!r}")
+
+        declared_fields = {field.name for field in struct.fields}
+        seen_fields: set[str] = set()
+        for field_name, field_expr in getattr(expr, "fields", ()):
+            if field_name in seen_fields:
+                raise Phase1SemanticError(
+                    f"duplicate field {field_name!r} in struct literal {name!r}"
+                )
+            if field_name not in declared_fields:
+                raise Phase1SemanticError(
+                    f"unknown field {field_name!r} in struct literal {name!r}"
+                )
+            seen_fields.add(field_name)
+            # Materialize the field expression type now, but do not yet impose
+            # literal-coercion rules. Phase 1 still needs an explicit integer
+            # coercion model before comparing unsuffixed literals to u32/u16/etc.
+            infer_expression_type(field_expr, env, typed_module)
+
+        missing = declared_fields - seen_fields
+        if missing:
+            ordered = ", ".join(sorted(missing))
+            raise Phase1SemanticError(
+                f"missing field(s) in struct literal {name!r}: {ordered}"
+            )
         return TypedExprNode(kind, SemanticType(name), name)
 
     if kind == "Cast":
