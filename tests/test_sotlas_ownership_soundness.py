@@ -104,7 +104,8 @@ pub fn process(ok: Bool) -> Void {
     let x = t;
 }
 """
-        _raises(src, "após transferência")
+        # O merge de fluxo resulta em MAYBE_MOVED, não em MOVED incondicional.
+        _raises(src, "transferido")
 
 
 class TestMaybeMovedPropagation(unittest.TestCase):

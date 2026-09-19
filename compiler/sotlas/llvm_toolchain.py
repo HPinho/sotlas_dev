@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -224,6 +225,13 @@ class LLVMToolchain:
         res = subprocess.run(cmd, capture_output=True, text=True)
         if res.returncode != 0:
             raise LLVMToolchainError(f"Falha na linkedição nativa com {kind} ({linker_bin}):\n{res.stderr}")
+
+        # Em POSIX, alguns linkers/ambientes de CI podem produzir o arquivo
+        # sem bits de execução. O contrato de `link_native_binary` é retornar
+        # um executável pronto para `subprocess.run`.
+        if os.name != "nt":
+            mode = out_exe.stat().st_mode
+            out_exe.chmod(mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
         return out_exe
 

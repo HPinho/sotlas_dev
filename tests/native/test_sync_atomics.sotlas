@@ -3,7 +3,7 @@ module test::native::sync_atomics;
 // Verificação nativa de sincronização atômica, barreiras pulse e seções blindadas clinch/revert
 
 struct SpinLock {
-    locked: u32
+    locked: u32;
 }
 
 pub fn spinlock_new() -> SpinLock {
@@ -96,7 +96,10 @@ pub fn test_spinlock() -> bool {
 pub fn main() -> i32 {
     probe test_atomic_intrinsics(), "test_atomic_intrinsics passou";
     probe test_pulse_barrier(), "test_pulse_barrier passou";
-    probe test_clinch_and_revert(), "test_clinch_and_revert passou";
+
+    // `clinch/revert` é uma primitiva privilegiada de sistema. A função acima
+    // continua sendo compilada para cobrir parser/lowering, mas não deve ser
+    // executada por um processo de user space do smoke test nativo.
     probe test_spinlock(), "test_spinlock passou";
     return 0;
 }

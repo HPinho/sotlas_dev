@@ -1,4 +1,7 @@
 """Testes do sistema de empacotamento, distribuição e instalação oficial do Sotlas."""
+import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -39,11 +42,35 @@ class TestSotlasPackaging(unittest.TestCase):
         self.assertIn("package.py", text)
 
     def test_bundle_artifacts_exist(self):
-        dist_dir = ROOT / "dist"
-        self.assertTrue(dist_dir.is_dir(), "dist/ deve existir apos build")
-        self.assertTrue(any(dist_dir.glob("*.zip")), "Arquivo .zip deve ser gerado")
-        self.assertTrue(any(dist_dir.glob("*.tar.gz")), "Arquivo .tar.gz deve ser gerado")
-        self.assertTrue((dist_dir / "SHA256SUMS.txt").is_file(), "SHA256SUMS.txt deve ser gerado")
+        # O teste deve ser hermético: gera seu próprio bundle em vez de assumir
+        # que outro job/etapa já criou ROOT/dist.
+        with tempfile.TemporaryDirectory(prefix="sotlas_packaging_") as tmp:
+            dist_dir = Path(tmp) / "dist"
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "packaging" / "package.py"),
+                    "--dist-dir",
+                    str(dist_dir),
+                    "--target",
+                    "all",
+                ],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(
+                result.returncode,
+                0,
+                f"packaging/package.py falhou:\n{result.stdout}\n{result.stderr}",
+            )
+            self.assertTrue(dist_dir.is_dir(), "dist temporário deve ser criado")
+            self.assertTrue(any(dist_dir.glob("*.zip")), "Arquivo .zip deve ser gerado")
+            self.assertTrue(any(dist_dir.glob("*.tar.gz")), "Arquivo .tar.gz deve ser gerado")
+            self.assertTrue(
+                (dist_dir / "SHA256SUMS.txt").is_file(),
+                "SHA256SUMS.txt deve ser gerado",
+            )
 
 if __name__ == "__main__":
     unittest.main()
