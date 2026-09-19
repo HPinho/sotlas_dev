@@ -952,6 +952,29 @@ fn main(flag: bool) -> void {
         self.assertEqual(body.statements[2].extra_expr.type.name, "usize")
         self.assertEqual(body.statements[2].body[0].type.name, "usize")
 
+    def test_typed_body_for_variable_inherits_range_type(self):
+        source = """module test::typed_for_range_type;
+fn main() -> i32 {
+    let result: i32 = 0;
+    for i in 0i32..3i32 {
+        let copy: i32 = i;
+    }
+    return result;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-typed-for-range-type>"
+        )
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "main")
+        loop = body.statements[1]
+        self.assertEqual(loop.type.name, "i32")
+        self.assertEqual(loop.expr.type.name, "i32")
+        self.assertEqual(loop.extra_expr.type.name, "i32")
+        self.assertEqual(loop.body[0].type.name, "i32")
+        self.assertEqual(loop.body[0].expr.type.name, "i32")
+
     def test_typed_body_rejects_non_bool_while_condition_independently(self):
         source = """module test::typed_while_bad;
 fn main() -> void {

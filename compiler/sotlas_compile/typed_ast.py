@@ -2278,7 +2278,7 @@ def _build_typed_block(
                     f"{start.type.name} vs {end.type.name}"
                 )
             loop_env = dict(env)
-            loop_env[getattr(statement, "var_name")] = SemanticType("usize")
+            loop_env[getattr(statement, "var_name")] = start.type
             body = _build_typed_block(
                 getattr(statement, "body", ()),
                 loop_env,
@@ -2289,7 +2289,7 @@ def _build_typed_block(
                 TypedStmtNode(
                     "For",
                     getattr(statement, "var_name"),
-                    SemanticType("usize"),
+                    start.type,
                     start,
                     body,
                     (),
