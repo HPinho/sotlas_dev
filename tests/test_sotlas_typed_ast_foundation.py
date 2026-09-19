@@ -402,6 +402,88 @@ fn main(flag: bool) -> void {
         trace = typed_ast.analyze_function_ownership(parsed, typed, "main")
         self.assertIsNone(trace.final_env.state_of("local"))
 
+    def test_canonical_while_move_is_rejected(self):
+        source = """module test::while_move;
+sole struct Token { value: u32; }
+
+fn consume(t: Token) -> void { return; }
+fn main(flag: bool) -> void {
+    let token = Token { value: 1 };
+    while flag {
+        consume(token);
+    }
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-while-move>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"sole value 'token' moved inside loop without reinitialization",
+        ):
+            typed_ast.analyze_function_ownership(parsed, typed, "main")
+
+    def test_canonical_loop_move_is_rejected(self):
+        source = """module test::loop_move;
+sole struct Token { value: u32; }
+
+fn consume(t: Token) -> void { return; }
+fn main() -> void {
+    let token = Token { value: 1 };
+    loop {
+        consume(token);
+    }
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-loop-move>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"sole value 'token' moved inside loop without reinitialization",
+        ):
+            typed_ast.analyze_function_ownership(parsed, typed, "main")
+
+    def test_canonical_while_without_move_preserves_owner(self):
+        source = """module test::while_read;
+sole struct Token { value: u32; }
+
+fn inspect(value: u32) -> void { return; }
+fn main(flag: bool) -> void {
+    let token = Token { value: 1 };
+    while flag {
+        inspect(token.value);
+    }
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-while-read>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(parsed, typed, "main")
+        self.assertIs(
+            trace.final_env.state_of("token"),
+            typed_ast.VarState.LIVE,
+        )
+
+    def test_loop_local_sole_binding_does_not_escape(self):
+        source = """module test::loop_local;
+sole struct Token { value: u32; }
+
+fn main(flag: bool) -> void {
+    while flag {
+        let local = Token { value: 1 };
+    }
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-loop-local>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(parsed, typed, "main")
+        self.assertIsNone(trace.final_env.state_of("local"))
+
     def test_conditional_move_in_one_branch_becomes_maybe_moved(self):
         typed = typed_ast.build_declaration_typed_ast(self.checked_ast())
         base = typed_ast.OwnershipEnv().declare(

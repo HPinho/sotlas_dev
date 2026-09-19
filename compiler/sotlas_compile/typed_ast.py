@@ -468,9 +468,42 @@ def _analyze_block_ownership(
             continue
 
         if kind in ("While", "Loop", "For"):
-            events.append(
-                OwnershipEvent("deferred-control-flow", typed_function.name, kind)
+            if kind == "While":
+                require_expr_ownership_live(
+                    result, getattr(statement, "condition", None)
+                )
+            elif kind == "For":
+                require_expr_ownership_live(
+                    result, getattr(statement, "start", None)
+                )
+                require_expr_ownership_live(
+                    result, getattr(statement, "end", None)
+                )
+
+            visible = tuple(binding.name for binding in result.bindings)
+            body_events: list[OwnershipEvent] = []
+            body_env = _analyze_block_ownership(
+                getattr(statement, "body", ()),
+                result,
+                typed_module,
+                typed_function,
+                body_events,
             )
+            body_env = _project_ownership_env(body_env, visible)
+
+            for name in visible:
+                before = result.state_of(name)
+                after = body_env.state_of(name)
+                if before != after:
+                    raise Phase1SemanticError(
+                        f"sole value {name!r} moved inside loop without reinitialization"
+                    )
+
+            events.append(
+                OwnershipEvent("loop", typed_function.name, kind)
+            )
+            events.extend(body_events)
+            continue
 
     return result
 
@@ -478,7 +511,7 @@ def _analyze_block_ownership(
 def analyze_function_ownership(
     parsed_module, typed_module: TypedModule, function_name: str
 ) -> OwnershipTrace:
-    """Analyze linear and conditional sole ownership from the canonical AST."""
+    """Analyze linear, conditional, field and loop sole ownership from the canonical AST."""
     parsed_function = next(
         (item for item in parsed_module.functions if item.name == function_name),
         None,
