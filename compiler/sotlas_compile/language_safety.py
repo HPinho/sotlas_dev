@@ -13,15 +13,14 @@ _EXTERN_ATTR = "@extern(C)"
 _UNSAFE_ATTR = "@unsafe"
 _EXPORT_ATTR = "@export"
 
-# Bounds-checked accessors for immutable embedded assets and pure colour LUTs.
-# Returning a raw pointer is safe; dereferencing it still needs lexical unsafe.
-_SAFE_ASSET_BUILTINS = frozenset({
-    "baken_get_font_advances", "baken_get_font_alpha", "baken_get_font_width",
-    "baken_get_font_height", "baken_get_font_px", "baken_get_cjk_width",
-    "baken_get_cjk_height", "baken_get_cjk_alpha", "baken_get_logo_pixels",
-    "baken_get_logo_size", "baken_srgb_to_linear", "baken_linear_to_srgb",
-    "baken_get_app_icon_alpha", "baken_get_motion_icon_alpha",
-})
+# Compatibility adapters may register narrowly audited @system builtins that
+# are safe to call from ordinary code. Canonical safety policy itself remains
+# platform/project agnostic; concrete names belong to adapters, not this module.
+_SAFE_SYSTEM_BUILTINS: set[str] = set()
+
+
+def register_safe_system_builtins(names) -> None:
+    _SAFE_SYSTEM_BUILTINS.update(names)
 
 
 def _attr(function, name: str) -> bool:
@@ -279,7 +278,7 @@ class _StrictSafetyChecker:
             is_privileged_builtin = (
                 expr.callee in getattr(b, "BUILTIN_FUNCTIONS", {})
                 and _attr(function, "@system")
-                and expr.callee not in _SAFE_ASSET_BUILTINS
+                and expr.callee not in _SAFE_SYSTEM_BUILTINS
             )
             if is_extern and not system_context:
                 self.error('chamada a FFI extern "C" exige função @system', expr.token)
@@ -459,4 +458,4 @@ def install(bootstrap) -> None:
     bootstrap._LANGUAGE_SAFETY_INSTALLED = True
 
 
-__all__ = ["install"]
+__all__ = ["install", "register_safe_system_builtins"]
