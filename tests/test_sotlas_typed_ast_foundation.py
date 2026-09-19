@@ -1766,6 +1766,54 @@ fn strengthen(value: &u32) -> &mut u32 {
         ):
             typed_ast.build_linear_typed_body(parsed, typed, "strengthen")
 
+    def test_bootstrap_rejects_reference_null_comparison(self):
+        source = """module test::reference_null_comparison;
+fn is_null(value: &u32) -> bool {
+    return value == null;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-reference-null-comparison>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"referência segura não pode ser comparada a null",
+        ):
+            bootstrap.check(parsed)
+
+    def test_typed_body_independently_rejects_reference_null_comparison(self):
+        source = """module test::typed_reference_null_comparison;
+fn is_null(value: &u32) -> bool {
+    return value == null;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-typed-reference-null-comparison>"
+        )
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"comparison operator '==' type mismatch",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "is_null")
+
+    def test_typed_body_accepts_raw_pointer_null_comparison(self):
+        source = """module test::typed_raw_pointer_null_comparison;
+fn is_null(value: *const u32) -> bool {
+    return value == null;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-typed-raw-pointer-null-comparison>"
+        )
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "is_null")
+        returned = body.statements[0].expr.type
+        self.assertEqual(returned.name, "bool")
+        self.assertFalse(returned.pointer)
+        self.assertFalse(returned.is_reference)
+
     def test_bootstrap_rejects_null_reference_return(self):
         source = """module test::null_reference;
 fn bad() -> &u32 {

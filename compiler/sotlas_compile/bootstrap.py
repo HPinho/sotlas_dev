@@ -1209,7 +1209,17 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
             return inner
         if isinstance(expr, Binary):
             left = expr_type(expr.left, scope, in_unsafe, is_system_fn)
-            expr_type(expr.right, scope, in_unsafe, is_system_fn)
+            right = expr_type(expr.right, scope, in_unsafe, is_system_fn)
+            if expr.op in ("==", "!="):
+                reference_null = (
+                    (left.is_reference and right.name == "null")
+                    or (right.is_reference and left.name == "null")
+                )
+                if reference_null:
+                    raise SotlasBootstrapError(
+                        "referência segura não pode ser comparada a null",
+                        expr.token.line, expr.token.column, filename, source,
+                    )
             return Type("bool") if expr.op in ("==", "!=", "<", "<=", ">", ">=", "&&", "||") else left
         if isinstance(expr, Call):
             for argument in expr.args:

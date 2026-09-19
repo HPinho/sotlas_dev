@@ -1883,8 +1883,16 @@ def infer_expression_type(
 
         if op in ("==", "!="):
             pointer_null = (
-                (left.type.pointer and right.type.name == "null")
-                or (right.type.pointer and left.type.name == "null")
+                (
+                    left.type.pointer
+                    and not left.type.is_reference
+                    and right.type.name == "null"
+                )
+                or (
+                    right.type.pointer
+                    and not right.type.is_reference
+                    and left.type.name == "null"
+                )
             )
             if left.type != right.type and not pointer_null:
                 raise Phase1SemanticError(

@@ -263,6 +263,20 @@ fn text() -> *const u8 {
         self.assertFalse(returned.mutable)
         self.assertFalse(returned.is_reference)
 
+    def test_public_phase1_pipeline_rejects_reference_null_comparison(self):
+        source = """module test::phase1_reference_null_comparison;
+fn is_null(value: &u32) -> bool {
+    return value == null;
+}
+"""
+        with self.assertRaisesRegex(
+            sotlas_compile.SotlasBootstrapError,
+            r"referência segura não pode ser comparada a null",
+        ):
+            sotlas_compile.analyze_source_phase1(
+                source, filename="<phase1-reference-null-comparison>"
+            )
+
     def test_public_phase1_pipeline_accepts_null_raw_pointer_return(self):
         source = """module test::phase1_null_raw_pointer;
 fn empty() -> *mut u32 {
