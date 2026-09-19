@@ -1198,6 +1198,39 @@ fn read(ptr: *mut Point) -> u32 {
         self.assertFalse(member.type.pointer)
         self.assertFalse(member.type.is_array)
 
+    def test_raw_pointer_to_array_index_requires_unsafe(self):
+        source = """module test::raw_pointer_array_index_requires_unsafe;
+fn read(values: *mut [u32; 2]) -> u32 {
+    return values[0];
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-raw-pointer-array-index-requires-unsafe>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"indexação de ponteiro exige bloco unsafe",
+        ):
+            bootstrap.check(parsed)
+
+    def test_reference_to_array_index_does_not_require_unsafe(self):
+        source = """module test::reference_array_index_safe;
+fn read(values: &[u32; 2]) -> u32 {
+    return values[0];
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-reference-array-index-safe>"
+        )
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "read")
+        indexed = body.statements[0].expr
+        self.assertEqual(indexed.kind, "Index")
+        self.assertEqual(indexed.type.name, "u32")
+        self.assertFalse(indexed.type.pointer)
+        self.assertFalse(indexed.type.is_reference)
+
     def test_pointer_index_requires_unsafe(self):
         source = """module test::pointer_index_requires_unsafe;
 fn read(ptr: *mut u32) -> u32 {

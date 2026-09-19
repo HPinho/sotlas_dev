@@ -1195,13 +1195,17 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
         if isinstance(expr, Index):
             target_t = expr_type(expr.target, scope, in_unsafe, is_system_fn)
             expr_type(expr.index, scope, in_unsafe, is_system_fn)
-            if target_t.is_array and target_t.elem_type:
-                return target_t.elem_type
-            if target_t.pointer and not in_unsafe:
+            if (
+                target_t.pointer
+                and not target_t.is_reference
+                and not in_unsafe
+            ):
                 raise SotlasBootstrapError(
                     "indexação de ponteiro exige bloco unsafe",
                     expr.token.line, expr.token.column, filename, source,
                 )
+            if target_t.is_array and target_t.elem_type:
+                return target_t.elem_type
             return Type(target_t.name, pointer=False, mutable=target_t.mutable)
         if isinstance(expr, Member):
             target_t = expr_type(expr.target, scope, in_unsafe, is_system_fn)
