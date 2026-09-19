@@ -772,6 +772,27 @@ def infer_expression_type(
             return TypedExprNode(kind, SemanticType("bool"), op)
         return TypedExprNode(kind, inner.type, op)
 
+    if kind == "IfExpr":
+        condition = infer_expression_type(
+            getattr(expr, "condition"), env, typed_module
+        )
+        if condition.type != SemanticType("bool"):
+            raise Phase1SemanticError(
+                f"if expression condition must be bool, got {condition.type.name}"
+            )
+        then_expr = infer_expression_type(
+            getattr(expr, "then_expr"), env, typed_module
+        )
+        else_expr = infer_expression_type(
+            getattr(expr, "else_expr"), env, typed_module
+        )
+        if then_expr.type != else_expr.type:
+            raise Phase1SemanticError(
+                f"if expression branch type mismatch: "
+                f"{then_expr.type.name} vs {else_expr.type.name}"
+            )
+        return TypedExprNode(kind, then_expr.type, "if")
+
     if kind == "StructLit":
         name = getattr(expr, "struct_name")
         known = {item.name for item in typed_module.structs}

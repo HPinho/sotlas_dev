@@ -941,6 +941,52 @@ fn main(value: u32) -> u32 {
         ):
             typed_ast.build_linear_typed_body(parsed, typed, "main")
 
+    def test_typed_body_types_if_expression(self):
+        source = """module test::typed_if_expr;
+fn choose(flag: bool) -> i64 {
+    let value = if flag { 1 } else { 2 };
+    return value;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-typed-if-expr>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "choose")
+        self.assertEqual(body.statements[0].expr.kind, "IfExpr")
+        self.assertEqual(body.statements[0].expr.type.name, "i64")
+
+    def test_typed_body_rejects_non_bool_if_expression_condition_independently(self):
+        source = """module test::typed_if_expr_bad_condition;
+fn choose() -> i64 {
+    return if 1 { 1 } else { 2 };
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-typed-if-expr-bad-condition>"
+        )
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"if expression condition must be bool, got i64",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "choose")
+
+    def test_typed_body_rejects_if_expression_branch_mismatch_independently(self):
+        source = """module test::typed_if_expr_bad_branches;
+fn choose(flag: bool) -> i64 {
+    return if flag { 1 } else { true };
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-typed-if-expr-bad-branches>"
+        )
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"if expression branch type mismatch: i64 vs bool",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "choose")
+
     def test_conditional_move_in_one_branch_becomes_maybe_moved(self):
         typed = typed_ast.build_declaration_typed_ast(self.checked_ast())
         base = typed_ast.OwnershipEnv().declare(
