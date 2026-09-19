@@ -75,6 +75,50 @@ class SotlasTypedAstFoundationTests(unittest.TestCase):
         )
         self.assertEqual(consume.result.name, "bool")
 
+    def typed_from(self, source: str):
+        module = bootstrap.parse(source, filename="<phase1-recursion>")
+        bootstrap.check(module)
+        return typed_ast.build_declaration_typed_ast(module)
+
+    def test_direct_recursive_value_type_is_rejected(self):
+        typed = self.typed_from("""module test::recursive;
+struct Node {
+    next: Node;
+}
+fn main() -> void { return; }
+""")
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"recursive value type: Node -> Node",
+        ):
+            typed_ast.validate_no_recursive_value_types(typed)
+
+    def test_indirect_recursive_value_type_is_rejected(self):
+        typed = self.typed_from("""module test::recursive_indirect;
+struct Left {
+    right: Right;
+}
+struct Right {
+    left: Left;
+}
+fn main() -> void { return; }
+""")
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"recursive value type: (Left -> Right -> Left|Right -> Left -> Right)",
+        ):
+            typed_ast.validate_no_recursive_value_types(typed)
+
+    def test_pointer_indirection_breaks_recursive_value_cycle(self):
+        typed = self.typed_from("""module test::recursive_pointer;
+struct Node {
+    next: *mut Node;
+}
+fn main() -> void { return; }
+""")
+        typed_ast.validate_no_recursive_value_types(typed)
+        self.assertTrue(typed.structs[0].fields[0].type.pointer)
+
     def test_global_type_and_storage_facts_are_preserved(self):
         typed = typed_ast.build_declaration_typed_ast(self.checked_ast())
         limit = typed.globals[0]

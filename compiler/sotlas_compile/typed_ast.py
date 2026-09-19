@@ -14,6 +14,10 @@ from dataclasses import dataclass
 MATURITY = "DECLARATIONS_ONLY"
 
 
+class Phase1SemanticError(ValueError):
+    """Raised by isolated Phase-1 semantic validators."""
+
+
 @dataclass(frozen=True)
 class SourceSpan:
     line: int
@@ -91,6 +95,50 @@ def semantic_type(type_obj) -> SemanticType:
     )
 
 
+def validate_no_recursive_value_types(module: TypedModule) -> None:
+    """Reject infinitely-sized struct cycles while allowing indirection.
+
+    Only by-value struct fields participate in the dependency graph. Raw
+    pointers and references break the size cycle and are therefore permitted.
+    Fixed arrays remain by-value and keep their element-type dependency.
+    """
+    structs = {item.name: item for item in module.structs}
+    edges: dict[str, tuple[str, ...]] = {}
+    for item in module.structs:
+        deps = []
+        for field in item.fields:
+            type_info = field.type
+            if type_info.pointer or type_info.is_reference:
+                continue
+            if type_info.name in structs:
+                deps.append(type_info.name)
+        edges[item.name] = tuple(deps)
+
+    visiting: list[str] = []
+    active: set[str] = set()
+    done: set[str] = set()
+
+    def visit(name: str) -> None:
+        if name in done:
+            return
+        if name in active:
+            start = visiting.index(name)
+            cycle = visiting[start:] + [name]
+            raise Phase1SemanticError(
+                "recursive value type: " + " -> ".join(cycle)
+            )
+        active.add(name)
+        visiting.append(name)
+        for dependency in edges.get(name, ()):
+            visit(dependency)
+        visiting.pop()
+        active.remove(name)
+        done.add(name)
+
+    for name in edges:
+        visit(name)
+
+
 def build_declaration_typed_ast(module) -> TypedModule:
     """Build the Phase-1 declaration snapshot from an already parsed module.
 
@@ -141,7 +189,8 @@ def build_declaration_typed_ast(module) -> TypedModule:
 
 
 __all__ = [
-    "MATURITY", "SourceSpan", "SemanticType", "TypedField", "TypedStruct",
+    "MATURITY", "Phase1SemanticError", "SourceSpan", "SemanticType", "TypedField", "TypedStruct",
     "TypedParam", "TypedFunction", "TypedGlobal", "TypedModule",
-    "semantic_type", "build_declaration_typed_ast",
+    "semantic_type", "validate_no_recursive_value_types",
+    "build_declaration_typed_ast",
 ]
