@@ -221,6 +221,8 @@ class _StrictSafetyChecker:
         if expr is None: return _ExprInfo(None)
         if isinstance(expr, b.UnsafeExpr):
             return self._infer(expr.value, scope, depth + 1, system_context)
+        if isinstance(expr, b.MoveExpr):
+            return self._infer(expr.value, scope, depth, system_context)
         if isinstance(expr, b.Number):
             try: return _ExprInfo(b.Type(b.numeric_literal_type(expr.value)))
             except Exception: return _ExprInfo(b.Type("u64"))

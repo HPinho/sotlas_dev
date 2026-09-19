@@ -240,7 +240,7 @@ def require_expr_ownership_live(env: OwnershipEnv, expr) -> None:
     if kind == "Binary":
         require_expr_ownership_live(env, getattr(expr, "left", None))
         require_expr_ownership_live(env, getattr(expr, "right", None))
-    elif kind == "Unary":
+    elif kind in ("Unary", "MoveExpr"):
         require_expr_ownership_live(env, getattr(expr, "value", None))
     elif kind == "Cast":
         require_expr_ownership_live(env, getattr(expr, "expr", None))
@@ -261,8 +261,11 @@ def _move_call_arguments(
     result = env
     for argument, parameter in zip(getattr(call, "args", ()), callee.params):
         if is_sole_type(parameter.type, typed_module):
-            if type(argument).__name__ == "Name":
-                name = argument.value
+            moved_argument = argument
+            if type(argument).__name__ == "MoveExpr":
+                moved_argument = getattr(argument, "value", None)
+            if type(moved_argument).__name__ == "Name":
+                name = moved_argument.value
                 result = result.move(name)
                 events.append(OwnershipEvent("move", name, f"call:{callee.name}"))
                 continue
@@ -308,8 +311,13 @@ def analyze_linear_function_ownership(
         if kind == "Let":
             local_type = _declared_local_type(statement)
             value = getattr(statement, "value", None)
-            if type(value).__name__ == "Name":
-                source_name = value.value
+            moved_value = (
+                getattr(value, "value", None)
+                if type(value).__name__ == "MoveExpr"
+                else value
+            )
+            if type(moved_value).__name__ == "Name":
+                source_name = moved_value.value
                 source_type = env.type_of(source_name)
                 if source_type is not None:
                     env = env.move(source_name)
@@ -320,7 +328,7 @@ def analyze_linear_function_ownership(
                         local_type = source_type
             if type(value).__name__ == "Call":
                 env = _move_call_arguments(env, value, typed_module, events)
-            if type(value).__name__ not in ("Name", "Call"):
+            if type(value).__name__ not in ("Name", "MoveExpr", "Call"):
                 require_expr_ownership_live(env, value)
             if local_type is not None:
                 before = env
@@ -341,12 +349,21 @@ def analyze_linear_function_ownership(
             value = getattr(statement, "value", None)
             if (
                 value is not None
-                and type(value).__name__ == "Name"
+                and type(
+                    getattr(value, "value", None)
+                    if type(value).__name__ == "MoveExpr"
+                    else value
+                ).__name__ == "Name"
                 and is_sole_type(typed_function.result, typed_module)
             ):
-                env = env.move(value.value)
+                moved_value = (
+                    getattr(value, "value")
+                    if type(value).__name__ == "MoveExpr"
+                    else value
+                )
+                env = env.move(moved_value.value)
                 events.append(
-                    OwnershipEvent("move", value.value, "return")
+                    OwnershipEvent("move", moved_value.value, "return")
                 )
             continue
 
@@ -387,8 +404,13 @@ def _analyze_block_ownership(
         if kind == "Let":
             local_type = _declared_local_type(statement)
             value = getattr(statement, "value", None)
-            if type(value).__name__ == "Name":
-                source_name = value.value
+            moved_value = (
+                getattr(value, "value", None)
+                if type(value).__name__ == "MoveExpr"
+                else value
+            )
+            if type(moved_value).__name__ == "Name":
+                source_name = moved_value.value
                 source_type = result.type_of(source_name)
                 if source_type is not None:
                     result = result.move(source_name)
@@ -428,12 +450,21 @@ def _analyze_block_ownership(
             value = getattr(statement, "value", None)
             if (
                 value is not None
-                and type(value).__name__ == "Name"
+                and type(
+                    getattr(value, "value", None)
+                    if type(value).__name__ == "MoveExpr"
+                    else value
+                ).__name__ == "Name"
                 and is_sole_type(typed_function.result, typed_module)
             ):
-                result = result.move(value.value)
+                moved_value = (
+                    getattr(value, "value")
+                    if type(value).__name__ == "MoveExpr"
+                    else value
+                )
+                result = result.move(moved_value.value)
                 events.append(
-                    OwnershipEvent("move", value.value, "return")
+                    OwnershipEvent("move", moved_value.value, "return")
                 )
             else:
                 require_expr_ownership_live(result, value)
@@ -575,7 +606,7 @@ def _collect_calls_from_expr(expr, calls: list[str]) -> None:
     if kind == "Binary":
         _collect_calls_from_expr(getattr(expr, "left", None), calls)
         _collect_calls_from_expr(getattr(expr, "right", None), calls)
-    elif kind == "Unary":
+    elif kind in ("Unary", "MoveExpr"):
         _collect_calls_from_expr(getattr(expr, "value", None), calls)
     elif kind == "Cast":
         _collect_calls_from_expr(getattr(expr, "expr", None), calls)
@@ -772,6 +803,19 @@ def infer_expression_type(
             getattr(expr, "value"), env, typed_module
         )
         return TypedExprNode(kind, inner.type, inner.label)
+
+    if kind == "MoveExpr":
+        inner_expr = getattr(expr, "value")
+        inner = infer_expression_type(inner_expr, env, typed_module)
+        if not is_sole_type(inner.type, typed_module):
+            raise Phase1SemanticError(
+                f"move requires sole value, got {inner.type.name}"
+            )
+        if type(inner_expr).__name__ != "Name":
+            raise Phase1SemanticError(
+                "move currently requires a direct sole binding"
+            )
+        return TypedExprNode(kind, inner.type, getattr(inner_expr, "value"))
 
     if kind == "EnumAccess":
         enum_name = getattr(expr, "enum_name")

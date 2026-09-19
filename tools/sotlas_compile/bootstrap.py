@@ -40,7 +40,7 @@ class Token:
 
 KEYWORDS = {"module", "import", "pub", "struct", "class", "enum", "fn", "let", "mut",
             "const", "static", "return", "break", "continue", "if", "else", "while", "for", "in",
-            "unsafe", "true", "false", "as", "null", "defer", "loop", "register", "sole", "handover", "impl"}
+            "unsafe", "true", "false", "as", "null", "defer", "loop", "register", "sole", "move", "handover", "impl"}
 MULTI = ("::", "->", "==", "!=", "<=", ">=", "+=", "-=", "*=", "/=", "&=", "|=", "^=", "<<=", ">>=", "&&", "||", "<<", ">>", "..")
 SINGLE = set(";,:{}()[]=+-*/%!<>&|^~.?")
 PRIMITIVES = {"void", "bool", "u8", "u16", "u32", "u64", "usize",
@@ -251,6 +251,8 @@ class CharLit(Expr): value: str
 class NullLit(Expr): pass
 @dataclass
 class UnsafeExpr(Expr): value: Expr
+@dataclass
+class MoveExpr(Expr): value: Expr
 @dataclass
 class Name(Expr): value: str
 @dataclass
@@ -1009,6 +1011,8 @@ class Parser:
 
     def prefix(self) -> Expr:
         token = self.current
+        if self.accept("move"):
+            return MoveExpr(token, self.prefix())
         if self.current.kind in ("!", "-", "*", "&", "~"):
             op = self.current.kind
             self.at += 1
@@ -1117,6 +1121,8 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
     def expr_type(expr: Expr, scope: dict[str, Type], in_unsafe: bool, is_system_fn: bool) -> Type:
         if isinstance(expr, UnsafeExpr):
             return expr_type(expr.value, scope, True, is_system_fn)
+        if isinstance(expr, MoveExpr):
+            return expr_type(expr.value, scope, in_unsafe, is_system_fn)
         if isinstance(expr, Number):
             try:
                 return Type(numeric_literal_type(expr.value))
@@ -1302,6 +1308,8 @@ def _c_ident(name: str) -> str:
 
 def _emit_expr(expr: Expr, mod_prefix: str = "") -> str:
     if isinstance(expr, UnsafeExpr):
+        return _emit_expr(expr.value, mod_prefix)
+    if isinstance(expr, MoveExpr):
         return _emit_expr(expr.value, mod_prefix)
     if isinstance(expr, Number):
         base, suffix = numeric_literal_parts(expr.value)

@@ -1368,6 +1368,62 @@ fn main(counter: Counter, flag: bool) -> u32 {
         ):
             typed_ast.build_linear_typed_body(parsed, typed, "main")
 
+    def test_explicit_move_expression_types_sole_value(self):
+        source = """module test::typed_move;
+sole struct Token { value: u32; }
+fn consume(token: Token) -> void { return; }
+fn main() -> void {
+    let token = Token { value: 1 };
+    consume(move token);
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-explicit-move>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "main")
+        call = body.statements[1].expr
+        self.assertEqual(call.kind, "Call")
+        trace = typed_ast.analyze_function_ownership(parsed, typed, "main")
+        self.assertIs(trace.final_env.state_of("token"), typed_ast.VarState.MOVED)
+
+    def test_explicit_move_rejects_non_sole_value_independently(self):
+        source = """module test::typed_move_nonsole;
+fn consume(value: u32) -> void { return; }
+fn main() -> void {
+    let value: u32 = 1;
+    consume(move value);
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-move-nonsole>")
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"move requires sole value, got u32",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
+    def test_explicit_move_detects_use_after_move(self):
+        source = """module test::typed_move_after;
+sole struct Token { value: u32; }
+fn consume(token: Token) -> void { return; }
+fn main() -> void {
+    let token = Token { value: 1 };
+    consume(move token);
+    consume(move token);
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-move-after>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"use of sole value 'token' after move",
+        ):
+            typed_ast.analyze_function_ownership(parsed, typed, "main")
+
     def test_typed_declarations_preserve_enum_variants(self):
         source = """module test::typed_enum_decl;
 pub enum Mode {
