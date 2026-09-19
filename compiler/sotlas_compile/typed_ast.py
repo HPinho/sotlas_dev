@@ -1611,6 +1611,16 @@ def _build_typed_block(
             )
             continue
 
+        if kind == "Asm":
+            for output in getattr(statement, "outputs", ()):
+                infer_assignment_target_type(output, env, typed_module)
+            for input_expr in getattr(statement, "inputs", ()):
+                infer_expression_type(input_expr, env, typed_module)
+            typed_statements.append(
+                TypedStmtNode("Asm", None, None, None)
+            )
+            continue
+
         if kind == "Defer":
             deferred_body = getattr(statement, "body", None)
             deferred_value = getattr(statement, "value", None)

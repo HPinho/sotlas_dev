@@ -1027,6 +1027,51 @@ fn main() -> i64 {
         self.assertEqual(indexed.expr.kind, "Index")
         self.assertEqual(indexed.expr.type.name, "i64")
 
+    def test_inline_asm_requires_explicit_unsafe(self):
+        source = """module test::asm_requires_unsafe;
+fn main() -> void {
+    asm("nop");
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-asm-unsafe>")
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"asm inline exige bloco unsafe explícito; @system não substitui unsafe",
+        ):
+            bootstrap.check(parsed)
+
+    def test_system_function_does_not_bypass_inline_asm_unsafe(self):
+        source = """module test::asm_system_still_unsafe;
+@system
+fn main() -> void {
+    asm("nop");
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-asm-system>")
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"asm inline exige bloco unsafe explícito; @system não substitui unsafe",
+        ):
+            bootstrap.check(parsed)
+
+    def test_typed_body_types_inline_asm_inside_unsafe(self):
+        source = """module test::typed_asm;
+fn main() -> void {
+    unsafe {
+        asm("nop");
+    }
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-typed-asm>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "main")
+        self.assertEqual(body.statements[0].kind, "Unsafe")
+        self.assertEqual(body.statements[0].body[0].kind, "Asm")
+
     def test_typed_body_types_defer_expression(self):
         source = """module test::typed_defer_expr;
 fn cleanup() -> void { return; }

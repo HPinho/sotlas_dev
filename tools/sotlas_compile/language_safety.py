@@ -361,6 +361,12 @@ class _StrictSafetyChecker:
                 self._statements(item.body, nested, depth, system_context)
             elif isinstance(item, b.Unsafe):
                 self._statements(item.body, dict(scope), depth + 1, system_context)
+            elif isinstance(item, b.Asm):
+                self._require_unsafe(item.token, depth, "asm inline")
+                for expr in item.outputs:
+                    self._infer(expr, scope, depth, system_context)
+                for expr in item.inputs:
+                    self._infer(expr, scope, depth, system_context)
             elif isinstance(item, b.Defer):
                 if item.body is not None:
                     self._statements(item.body, dict(scope), depth, system_context)
