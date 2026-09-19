@@ -850,6 +850,60 @@ fn main() -> void {
         ):
             typed_ast.build_linear_typed_body(parsed, typed, "main")
 
+    def test_immutable_reference_member_assignment_is_rejected(self):
+        source = """module test::immutable_reference_member_write;
+struct Point { x: u32; }
+fn write(point: &Point) -> void {
+    point.x = 7u32;
+    return;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-immutable-reference-member-write>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"atribuição por referência imutável não é permitida",
+        ):
+            bootstrap.check(parsed)
+
+    def test_typed_body_independently_rejects_immutable_reference_member_write(self):
+        source = """module test::typed_immutable_reference_member_write;
+struct Point { x: u32; }
+fn write(point: &Point) -> void {
+    point.x = 7u32;
+    return;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-typed-immutable-reference-member-write>"
+        )
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"assignment through immutable reference is not allowed",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed_module, "write")
+
+    def test_mut_reference_member_assignment_is_valid(self):
+        source = """module test::mut_reference_member_write;
+struct Point { x: u32; }
+fn write(point: &mut Point) -> void {
+    point.x = 7u32;
+    return;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-mut-reference-member-write>"
+        )
+        bootstrap.check(parsed)
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed_module, "write")
+        assign = body.statements[0]
+        self.assertEqual(assign.kind, "Assign")
+        self.assertEqual(assign.name, "x")
+        self.assertEqual(assign.type.name, "u32")
+
     def test_linear_typed_body_checks_member_assignment(self):
         source = """module test::typed_member_assign;
 struct Point { x: u32; }

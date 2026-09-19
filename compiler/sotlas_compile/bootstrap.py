@@ -1295,7 +1295,7 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
                 declared = item.type or actual
                 scope[item.name] = declared
             elif isinstance(item, Assign):
-                if isinstance(item.target, Index):
+                if isinstance(item.target, (Index, Member)):
                     container_t = expr_type(
                         item.target.target, scope, in_unsafe, is_system_fn
                     )
