@@ -1560,6 +1560,48 @@ fn bits(value: u16) -> u16 { return value | 1; }
             "u16",
         )
 
+    def test_typed_body_rejects_shift_equal_to_integer_width(self):
+        source = """module test::typed_shift_width;
+fn main(value: u32) -> u32 {
+    return value << 32;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-shift-width>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"shift count 32 out of range for u32 width 32",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
+    def test_typed_body_rejects_negative_shift_count(self):
+        source = """module test::typed_negative_shift;
+fn main(value: i32) -> i32 {
+    return value >> -1;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-negative-shift>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"shift count -1 out of range for i32 width 32",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
+    def test_typed_body_accepts_shift_below_integer_width(self):
+        source = """module test::typed_shift_in_range;
+fn main(value: u32) -> u32 {
+    return value << 31;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-shift-in-range>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "main")
+        self.assertEqual(body.statements[0].expr.type.name, "u32")
+
     def test_typed_body_rejects_logical_operator_on_integer_independently(self):
         source = """module test::typed_bad_logic;
 fn main(value: u32) -> bool { return value && value; }

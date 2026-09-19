@@ -1875,6 +1875,14 @@ def infer_expression_type(
                 raise Phase1SemanticError(
                     f"shift operator {op!r} requires integer operands"
                 )
+            shift = _integer_constant_value(right_expr)
+            if shift is not None:
+                width, _ = _INTEGER_WIDTHS[left.type.name]
+                if shift < 0 or shift >= width:
+                    raise Phase1SemanticError(
+                        f"shift count {shift} out of range for "
+                        f"{left.type.name} width {width}"
+                    )
             return TypedExprNode(kind, left.type, op)
 
         raise Phase1SemanticError(f"unsupported binary operator {op!r}")
