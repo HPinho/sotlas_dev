@@ -1837,6 +1837,16 @@ def infer_expression_type(
                     raise Phase1SemanticError(
                         f"integer {operation} by zero is not allowed"
                     )
+                left_value = _integer_constant_value(left_expr)
+                _, signed = _INTEGER_WIDTHS[left.type.name]
+                if signed and divisor == -1 and left_value is not None:
+                    minimum, _ = integer_bounds(left.type)
+                    if left_value == minimum:
+                        operation = "division" if op == "/" else "modulo"
+                        raise Phase1SemanticError(
+                            f"integer {operation} overflow for "
+                            f"{left.type.name} minimum divided by -1"
+                        )
             if op in ("+", "-", "*") and left.type.name in integer_names:
                 left_value = _integer_constant_value(left_expr)
                 right_value = _integer_constant_value(right_expr)

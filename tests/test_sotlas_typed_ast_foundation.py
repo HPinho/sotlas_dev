@@ -1704,6 +1704,48 @@ fn main() -> u8 {
         body = typed_ast.build_linear_typed_body(parsed, typed, "main")
         self.assertEqual(body.statements[0].expr.type.name, "u8")
 
+    def test_typed_body_rejects_signed_minimum_division_by_minus_one(self):
+        source = """module test::typed_i8_div_overflow;
+fn main() -> i8 {
+    return -128i8 / -1i8;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-i8-div-overflow>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"integer division overflow for i8 minimum divided by -1",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
+    def test_typed_body_rejects_signed_minimum_modulo_by_minus_one(self):
+        source = """module test::typed_i8_mod_overflow;
+fn main() -> i8 {
+    return -128i8 % -1i8;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-i8-mod-overflow>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"integer modulo overflow for i8 minimum divided by -1",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
+    def test_typed_body_accepts_signed_minimum_division_by_one(self):
+        source = """module test::typed_i8_div_in_range;
+fn main() -> i8 {
+    return -128i8 / 1i8;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-i8-div-in-range>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "main")
+        self.assertEqual(body.statements[0].expr.type.name, "i8")
+
     def test_typed_body_rejects_integer_division_by_literal_zero(self):
         source = """module test::typed_integer_div_zero;
 fn main(value: u32) -> u32 {
