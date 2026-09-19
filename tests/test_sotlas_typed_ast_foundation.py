@@ -1043,6 +1043,40 @@ fn main() -> void {
         ):
             typed_ast.build_linear_typed_body(parsed, typed, "main")
 
+    def test_pointer_index_requires_unsafe(self):
+        source = """module test::pointer_index_requires_unsafe;
+fn read(ptr: *mut u32) -> u32 {
+    return ptr[0];
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-pointer-index-requires-unsafe>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"indexação de ponteiro exige bloco unsafe",
+        ):
+            bootstrap.check(parsed)
+
+    def test_pointer_index_inside_unsafe_is_valid(self):
+        source = """module test::pointer_index_unsafe;
+fn read(ptr: *mut u32) -> u32 {
+    unsafe {
+        return ptr[0];
+    }
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-pointer-index-unsafe>"
+        )
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "read")
+        unsafe_node = body.statements[0]
+        self.assertEqual(unsafe_node.kind, "Unsafe")
+        self.assertEqual(unsafe_node.body[0].expr.kind, "Index")
+        self.assertEqual(unsafe_node.body[0].expr.type.name, "u32")
+
     def test_system_function_does_not_replace_unsafe_for_pointer_deref(self):
         source = """module test::system_requires_unsafe;
 @system
