@@ -1405,6 +1405,43 @@ fn write(value: &mut u32) -> void {
         self.assertIsInstance(assign.target, bootstrap.Unary)
         self.assertEqual(assign.target.op, "*")
 
+    def test_typed_body_independently_rejects_immutable_reference_deref_write(self):
+        source = """module test::typed_immutable_reference_deref_write;
+fn write(value: &u32) -> void {
+    *value = 7u32;
+    return;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-typed-immutable-reference-deref-write>"
+        )
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"assignment through immutable reference is not allowed",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed_module, "write")
+
+    def test_typed_body_accepts_mut_reference_deref_write(self):
+        source = """module test::typed_mut_reference_deref_write;
+fn write(value: &mut u32) -> void {
+    *value = 7u32;
+    return;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-typed-mut-reference-deref-write>"
+        )
+        bootstrap.check(parsed)
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed_module, "write")
+        assign = body.statements[0]
+        self.assertEqual(assign.kind, "Assign")
+        self.assertEqual(assign.name, "*")
+        self.assertEqual(assign.type.name, "u32")
+        self.assertFalse(assign.type.pointer)
+        self.assertFalse(assign.type.is_reference)
+
     def test_reference_deref_does_not_require_unsafe(self):
         source = """module test::reference_deref_safe;
 fn read(value: &u32) -> u32 {

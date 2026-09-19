@@ -2109,6 +2109,28 @@ def infer_assignment_target_type(
                 "assignment through immutable reference is not allowed"
             )
         return infer_expression_type(target, env, typed_module)
+    if kind == "Unary" and getattr(target, "op", None) == "*":
+        reference = infer_expression_type(
+            getattr(target, "value"), env, typed_module
+        )
+        if not reference.type.is_reference:
+            raise Phase1SemanticError(
+                "dereference assignment target must be a reference"
+            )
+        if not reference.type.mutable:
+            raise Phase1SemanticError(
+                "assignment through immutable reference is not allowed"
+            )
+        return TypedExprNode(
+            kind,
+            SemanticType(
+                reference.type.name,
+                pointer=False,
+                mutable=False,
+                is_reference=False,
+            ),
+            "*",
+        )
     raise Phase1SemanticError(
         f"assignment target typing not implemented for {kind}"
     )
