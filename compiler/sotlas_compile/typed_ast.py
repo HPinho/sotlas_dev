@@ -670,13 +670,14 @@ class TypedStmtNode:
     expr: TypedExprNode | None
     body: tuple["TypedStmtNode", ...] = ()
     else_body: tuple["TypedStmtNode", ...] = ()
+    extra_expr: TypedExprNode | None = None
 
 
 @dataclass(frozen=True)
 class TypedFunctionBody:
     name: str
     statements: tuple[TypedStmtNode, ...]
-    maturity: str = "LINEAR_BODY_TYPES"
+    maturity: str = "STRUCTURED_BODY_TYPES"
 
 
 def _number_type(value: str) -> SemanticType:
@@ -934,7 +935,7 @@ def _build_typed_block(
 def build_linear_typed_body(
     parsed_module, typed_module: TypedModule, function_name: str
 ) -> TypedFunctionBody:
-    """Materialize typed facts for linear statements and canonical if blocks."""
+    """Materialize typed facts for canonical structured function bodies."""
     parsed_function = next(
         (item for item in parsed_module.functions if item.name == function_name),
         None,

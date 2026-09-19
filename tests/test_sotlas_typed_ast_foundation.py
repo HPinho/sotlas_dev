@@ -567,7 +567,7 @@ fn main() -> i64 {
         bootstrap.check(parsed)
         typed = typed_ast.build_declaration_typed_ast(parsed)
         body = typed_ast.build_linear_typed_body(parsed, typed, "main")
-        self.assertEqual(body.maturity, "LINEAR_BODY_TYPES")
+        self.assertEqual(body.maturity, "STRUCTURED_BODY_TYPES")
         self.assertEqual(
             [(item.kind, item.name, item.type.name) for item in body.statements],
             [
@@ -728,6 +728,69 @@ fn main(flag: bool) -> void {
         body = typed_ast.build_linear_typed_body(parsed, typed, "main")
         self.assertEqual(body.statements[0].body[0].name, "branch_value")
         self.assertEqual(body.statements[-1].kind, "Return")
+
+    def test_typed_body_materializes_while_loop_and_for(self):
+        source = """module test::typed_loops;
+fn main(flag: bool) -> void {
+    while flag {
+        let a: i64 = 1;
+    }
+    loop {
+        let b: i64 = 2;
+        break;
+    }
+    for i in 0usize..3usize {
+        let copy: usize = i;
+    }
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-typed-loops>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "main")
+        self.assertEqual(
+            [item.kind for item in body.statements],
+            ["While", "Loop", "For", "Return"],
+        )
+        self.assertEqual(body.statements[0].expr.type.name, "bool")
+        self.assertEqual(body.statements[1].body[0].name, "b")
+        self.assertEqual(body.statements[2].name, "i")
+        self.assertEqual(body.statements[2].type.name, "usize")
+        self.assertEqual(body.statements[2].extra_expr.type.name, "usize")
+        self.assertEqual(body.statements[2].body[0].type.name, "usize")
+
+    def test_typed_body_rejects_non_bool_while_condition_independently(self):
+        source = """module test::typed_while_bad;
+fn main() -> void {
+    while 1 {
+        return;
+    }
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-typed-while-bad>")
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"while condition must be bool, got i64",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
+    def test_typed_body_rejects_mixed_for_bound_types_independently(self):
+        source = """module test::typed_for_bad;
+fn main() -> void {
+    for i in 0usize..3u32 {
+        return;
+    }
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-typed-for-bad>")
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"for range bound type mismatch: usize vs u32",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
 
     def test_conditional_move_in_one_branch_becomes_maybe_moved(self):
         typed = typed_ast.build_declaration_typed_ast(self.checked_ast())
