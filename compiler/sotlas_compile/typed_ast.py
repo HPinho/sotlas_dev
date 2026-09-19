@@ -1830,6 +1830,13 @@ def infer_expression_type(
                     f"binary operator {op!r} type mismatch: "
                     f"{left.type.name} vs {right.type.name}"
                 )
+            if op in ("/", "%") and left.type.name in integer_names:
+                divisor = _integer_constant_value(right_expr)
+                if divisor == 0:
+                    operation = "division" if op == "/" else "modulo"
+                    raise Phase1SemanticError(
+                        f"integer {operation} by zero is not allowed"
+                    )
             return TypedExprNode(kind, left.type, op)
 
         if op in ("&", "|", "^"):

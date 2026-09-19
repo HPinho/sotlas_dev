@@ -1572,6 +1572,36 @@ fn main(value: u32) -> bool { return value && value; }
         ):
             typed_ast.build_linear_typed_body(parsed, typed, "main")
 
+    def test_typed_body_rejects_integer_division_by_literal_zero(self):
+        source = """module test::typed_integer_div_zero;
+fn main(value: u32) -> u32 {
+    return value / 0;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-integer-div-zero>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"integer division by zero is not allowed",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
+    def test_typed_body_rejects_integer_modulo_by_literal_zero(self):
+        source = """module test::typed_integer_mod_zero;
+fn main(value: i32) -> i32 {
+    return value % 0;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-integer-mod-zero>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"integer modulo by zero is not allowed",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
     def test_typed_body_rejects_arithmetic_on_bool_independently(self):
         source = """module test::typed_bad_arithmetic;
 fn main(flag: bool) -> bool { return flag + flag; }
