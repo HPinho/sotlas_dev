@@ -606,6 +606,31 @@ def _block_definitely_terminates(statements) -> bool:
     return False
 
 
+def _statement_definitely_returns(statement) -> bool:
+    """Return whether one statement exits the current function on every path."""
+    kind = type(statement).__name__
+    if kind == "Return":
+        return True
+    if kind == "Unsafe":
+        return _block_definitely_returns(
+            getattr(statement, "body", ())
+        )
+    if kind == "If":
+        else_body = getattr(statement, "else_body", ())
+        return bool(else_body) and _block_definitely_returns(
+            getattr(statement, "then_body", ())
+        ) and _block_definitely_returns(else_body)
+    return False
+
+
+def _block_definitely_returns(statements) -> bool:
+    """Return whether the canonical AST block definitely returns from its function."""
+    for statement in statements:
+        if _statement_definitely_returns(statement):
+            return True
+    return False
+
+
 def _analyze_block_ownership(
     statements,
     env: OwnershipEnv,
@@ -811,12 +836,14 @@ def _analyze_block_ownership(
             )
             then_env = _project_ownership_env(then_env, visible)
             else_env = _project_ownership_env(else_env, visible)
+            then_returns = _block_definitely_returns(then_body)
+            else_returns = _block_definitely_returns(else_body)
             then_terminates = _block_definitely_terminates(then_body)
             else_terminates = _block_definitely_terminates(else_body)
 
-            if then_terminates and not else_terminates:
+            if then_returns and not else_returns:
                 result = else_env
-            elif else_terminates and not then_terminates:
+            elif else_returns and not then_returns:
                 result = then_env
             else:
                 result = then_env.merge(else_env)

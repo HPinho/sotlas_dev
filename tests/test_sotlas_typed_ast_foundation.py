@@ -588,6 +588,34 @@ fn main(flag: bool) -> void {
         ):
             typed_ast.analyze_function_ownership(parsed, typed, "main")
 
+    def test_conditional_break_move_is_not_discarded_from_loop_ownership(self):
+        source = """module test::loop_conditional_break_move;
+sole struct Token { value: u32; }
+
+fn consume(t: Token) -> void { return; }
+fn main(flag: bool, token: Token) -> void {
+    loop {
+        if flag {
+            consume(move token);
+            break;
+        } else {
+            break;
+        }
+    }
+    return;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-loop-conditional-break-move>"
+        )
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"sole value 'token' moved inside loop without reinitialization",
+        ):
+            typed_ast.analyze_function_ownership(parsed, typed, "main")
+
     def test_canonical_loop_move_is_rejected(self):
         source = """module test::loop_move;
 sole struct Token { value: u32; }
