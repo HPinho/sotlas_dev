@@ -240,6 +240,27 @@ fn expose(value: *mut u32) -> *const u32 {
         self.assertFalse(returned.mutable)
         self.assertEqual(returned.name, "u32")
 
+    def test_public_phase1_pipeline_accepts_raw_void_pointer_compatibility(self):
+        source = """module test::phase1_raw_void_pointer_compatibility;
+fn erase(value: *const void) -> *const void {
+    return value;
+}
+fn expose(value: *mut u32) -> *const void {
+    return erase(value);
+}
+"""
+        result = sotlas_compile.analyze_source_phase1(
+            source, filename="<phase1-raw-void-pointer-compatibility>"
+        )
+        body = next(
+            item for item in result.semantic.bodies if item.name == "expose"
+        )
+        returned = body.statements[0].expr.type
+        self.assertTrue(returned.pointer)
+        self.assertFalse(returned.is_reference)
+        self.assertFalse(returned.mutable)
+        self.assertEqual(returned.name, "void")
+
     def test_public_phase1_pipeline_rejects_recursive_value_type(self):
         source = """module test::phase1_recursive_value;
 struct Node {

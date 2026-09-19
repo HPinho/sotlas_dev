@@ -1314,12 +1314,29 @@ def _contextualize_expression(
     if (
         inferred.type.pointer
         and expected.pointer
-        and inferred.type.is_reference == expected.is_reference
+        and inferred.type.is_reference
+        and expected.is_reference
         and inferred.type.name == expected.name
         and not inferred.type.is_array
         and not expected.is_array
         and inferred.type.mutable
         and not expected.mutable
+    ):
+        return TypedExprNode(inferred.kind, expected, inferred.label)
+
+    if (
+        inferred.type.pointer
+        and expected.pointer
+        and not inferred.type.is_reference
+        and not expected.is_reference
+        and not inferred.type.is_array
+        and not expected.is_array
+        and (
+            inferred.type.name == expected.name
+            or inferred.type.name == "void"
+            or expected.name == "void"
+        )
+        and not (expected.mutable and not inferred.type.mutable)
     ):
         return TypedExprNode(inferred.kind, expected, inferred.label)
 

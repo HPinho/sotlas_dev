@@ -1753,6 +1753,58 @@ fn strengthen(value: *const u32) -> *mut u32 {
         ):
             typed_ast.build_linear_typed_body(parsed, typed, "strengthen")
 
+    def test_typed_body_accepts_raw_pointer_to_void_pointer(self):
+        source = """module test::typed_raw_pointer_to_void;
+fn erase(value: *mut u32) -> *const void {
+    return value;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-typed-raw-pointer-to-void>"
+        )
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "erase")
+        returned = body.statements[0].expr.type
+        self.assertTrue(returned.pointer)
+        self.assertFalse(returned.is_reference)
+        self.assertFalse(returned.mutable)
+        self.assertEqual(returned.name, "void")
+
+    def test_typed_body_accepts_void_pointer_to_raw_pointer(self):
+        source = """module test::typed_void_to_raw_pointer;
+fn restore(value: *const void) -> *const u32 {
+    return value;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-typed-void-to-raw-pointer>"
+        )
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "restore")
+        returned = body.statements[0].expr.type
+        self.assertTrue(returned.pointer)
+        self.assertFalse(returned.is_reference)
+        self.assertFalse(returned.mutable)
+        self.assertEqual(returned.name, "u32")
+
+    def test_typed_body_independently_rejects_void_pointer_mutability_strengthening(self):
+        source = """module test::typed_void_pointer_strengthening;
+fn strengthen(value: *const void) -> *mut u32 {
+    return value;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-typed-void-pointer-strengthening>"
+        )
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"return type mismatch",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "strengthen")
+
     def test_typed_body_independently_rejects_null_reference_return(self):
         source = """module test::typed_null_reference;
 fn bad() -> &u32 {
