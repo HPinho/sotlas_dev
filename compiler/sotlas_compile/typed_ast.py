@@ -1324,6 +1324,14 @@ def _contextualize_expression(
     ):
         return TypedExprNode(inferred.kind, expected, inferred.label)
 
+    if (
+        type(expr).__name__ == "NullLit"
+        and expected.pointer
+        and not expected.is_reference
+        and not expected.is_array
+    ):
+        return TypedExprNode(inferred.kind, expected, inferred.label)
+
     if type(expr).__name__ != "ArrayLit" or not expected.is_array:
         return inferred
 

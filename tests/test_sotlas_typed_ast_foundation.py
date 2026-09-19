@@ -1701,6 +1701,40 @@ fn bad() -> &u32 {
         ):
             bootstrap.check(parsed)
 
+    def test_typed_body_accepts_null_raw_pointer_return(self):
+        source = """module test::typed_null_raw_pointer;
+fn empty() -> *const u32 {
+    return null;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-typed-null-raw-pointer>"
+        )
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "empty")
+        returned = body.statements[0].expr.type
+        self.assertTrue(returned.pointer)
+        self.assertFalse(returned.is_reference)
+        self.assertFalse(returned.mutable)
+        self.assertEqual(returned.name, "u32")
+
+    def test_typed_body_independently_rejects_null_reference_return(self):
+        source = """module test::typed_null_reference;
+fn bad() -> &u32 {
+    return null;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-typed-null-reference>"
+        )
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"return type mismatch",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "bad")
+
     def test_reference_deref_does_not_require_unsafe(self):
         source = """module test::reference_deref_safe;
 fn read(value: &u32) -> u32 {

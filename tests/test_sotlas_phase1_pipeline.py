@@ -204,6 +204,21 @@ fn view(value: &mut u32) -> &u32 {
         self.assertFalse(returned.mutable)
         self.assertEqual(returned.name, "u32")
 
+    def test_public_phase1_pipeline_accepts_null_raw_pointer_return(self):
+        source = """module test::phase1_null_raw_pointer;
+fn empty() -> *mut u32 {
+    return null;
+}
+"""
+        result = sotlas_compile.analyze_source_phase1(
+            source, filename="<phase1-null-raw-pointer>"
+        )
+        returned = result.semantic.bodies[0].statements[0].expr.type
+        self.assertTrue(returned.pointer)
+        self.assertFalse(returned.is_reference)
+        self.assertTrue(returned.mutable)
+        self.assertEqual(returned.name, "u32")
+
     def test_public_phase1_pipeline_rejects_recursive_value_type(self):
         source = """module test::phase1_recursive_value;
 struct Node {
