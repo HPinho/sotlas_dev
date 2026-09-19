@@ -54,6 +54,10 @@ def install(bootstrap) -> None:
         install_language_safety(bootstrap)
         return
 
+    # Statement-level low-level forms must survive the canonical
+    # ExtendedParser instead of falling through to ordinary call parsing.
+    bootstrap.KEYWORDS.add("emit")
+
     required_multi = ("<<=", ">>=", "^=", "%=")
     bootstrap.MULTI = required_multi + tuple(
         token for token in bootstrap.MULTI if token not in required_multi
@@ -135,6 +139,15 @@ def install(bootstrap) -> None:
                     return bootstrap.Defer(token, assignment)
                 self.expect(";")
                 return bootstrap.Defer(token, expr)
+
+            if (
+                token.kind == "emit"
+                or (
+                    token.kind == "IDENT"
+                    and token.text in ("asm", "__asm__")
+                )
+            ):
+                return super().statement()
 
             if token.kind in {
                 "return", "break", "continue", "if", "while", "loop", "for", "unsafe"

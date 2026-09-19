@@ -158,6 +158,20 @@ fn read(value: &u32) -> u32 { return *value; }
         parse_check(source)
 
 
+    def test_canonical_frontend_preserves_inline_asm_statement(self):
+        source = """
+module contract::asm_parse;
+fn main() -> void {
+    unsafe {
+        asm("nop");
+    }
+}
+"""
+        module = bootstrap.parse(source, filename="<unsafe-ffi>")
+        statement = module.functions[0].body[0].body[0]
+        self.assertIsInstance(statement, bootstrap.Asm)
+        self.assertEqual(statement.code, '"nop"')
+
     def test_inline_asm_requires_explicit_unsafe(self):
         source = """
 module contract::asm_unsafe;
