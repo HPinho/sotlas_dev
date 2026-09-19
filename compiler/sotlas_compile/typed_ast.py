@@ -217,6 +217,38 @@ def _typed_function_map(module: TypedModule) -> dict[str, TypedFunction]:
     return {item.name: item for item in module.functions}
 
 
+def _root_owned_name(expr) -> str | None:
+    """Return the tracked owner whose field/index access depends on this expr."""
+    kind = type(expr).__name__
+    if kind == "Name":
+        return getattr(expr, "value", None)
+    if kind in ("Member", "Index"):
+        return _root_owned_name(getattr(expr, "target", None))
+    return None
+
+
+def require_expr_ownership_live(env: OwnershipEnv, expr) -> None:
+    """Reject reads through a moved or maybe-moved sole owner."""
+    if expr is None:
+        return
+    owner = _root_owned_name(expr)
+    if owner is not None and env.state_of(owner) is not None:
+        env.require_live(owner)
+        return
+
+    kind = type(expr).__name__
+    if kind == "Binary":
+        require_expr_ownership_live(env, getattr(expr, "left", None))
+        require_expr_ownership_live(env, getattr(expr, "right", None))
+    elif kind == "Unary":
+        require_expr_ownership_live(env, getattr(expr, "value", None))
+    elif kind == "Cast":
+        require_expr_ownership_live(env, getattr(expr, "expr", None))
+    elif kind == "Call":
+        for argument in getattr(expr, "args", ()):
+            require_expr_ownership_live(env, argument)
+
+
 def _move_call_arguments(
     env: OwnershipEnv,
     call,
@@ -228,13 +260,13 @@ def _move_call_arguments(
         return env
     result = env
     for argument, parameter in zip(getattr(call, "args", ()), callee.params):
-        if not is_sole_type(parameter.type, typed_module):
-            continue
-        if type(argument).__name__ != "Name":
-            continue
-        name = argument.value
-        result = result.move(name)
-        events.append(OwnershipEvent("move", name, f"call:{callee.name}"))
+        if is_sole_type(parameter.type, typed_module):
+            if type(argument).__name__ == "Name":
+                name = argument.value
+                result = result.move(name)
+                events.append(OwnershipEvent("move", name, f"call:{callee.name}"))
+                continue
+        require_expr_ownership_live(result, argument)
     return result
 
 
@@ -288,6 +320,8 @@ def analyze_linear_function_ownership(
                         local_type = source_type
             if type(value).__name__ == "Call":
                 env = _move_call_arguments(env, value, typed_module, events)
+            if type(value).__name__ not in ("Name", "Call"):
+                require_expr_ownership_live(result, value)
             if local_type is not None:
                 before = env
                 env = env.declare(statement.name, local_type, typed_module)
@@ -363,6 +397,8 @@ def _analyze_block_ownership(
                     )
                     if local_type is None:
                         local_type = source_type
+                else:
+                    require_expr_ownership_live(result, value)
             elif type(value).__name__ == "Call":
                 result = _move_call_arguments(
                     result, value, typed_module, events
@@ -384,6 +420,8 @@ def _analyze_block_ownership(
                 result = _move_call_arguments(
                     result, value, typed_module, events
                 )
+            else:
+                require_expr_ownership_live(result, value)
             continue
 
         if kind == "Return":
@@ -397,6 +435,8 @@ def _analyze_block_ownership(
                 events.append(
                     OwnershipEvent("move", value.value, "return")
                 )
+            else:
+                require_expr_ownership_live(result, value)
             continue
 
         if kind == "If":
@@ -761,6 +801,7 @@ __all__ = [
     "MATURITY", "Phase1SemanticError", "VarState", "sole_type_names", "is_sole_type",
     "initial_ownership_state", "require_sole_transfer", "OwnershipBinding", "OwnershipEnv",
     "seed_function_ownership", "OwnershipEvent", "OwnershipTrace",
+    "require_expr_ownership_live",
     "analyze_linear_function_ownership", "analyze_function_ownership",
     "apply_ownership_moves", "merge_conditional_ownership",
     "validate_loop_ownership", "require_live", "move_state", "merge_branch_states",

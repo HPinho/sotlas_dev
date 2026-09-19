@@ -256,6 +256,66 @@ fn main() -> void {
         self.assertIsNone(trace.final_env.state_of("value"))
         self.assertFalse(any(event.kind == "move" for event in trace.events))
 
+    def test_field_read_after_move_is_rejected(self):
+        source = """module test::field_after_move;
+sole struct Token { value: u32; }
+
+fn consume(t: Token) -> void { return; }
+fn main() -> u32 {
+    let token = Token { value: 1 };
+    consume(token);
+    return token.value;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-field-after-move>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"use of sole value 'token' after move",
+        ):
+            typed_ast.analyze_function_ownership(parsed, typed, "main")
+
+    def test_field_read_after_conditional_move_is_rejected(self):
+        source = """module test::field_after_maybe_move;
+sole struct Token { value: u32; }
+
+fn consume(t: Token) -> void { return; }
+fn main(flag: bool) -> u32 {
+    let token = Token { value: 1 };
+    if flag {
+        consume(token);
+    }
+    return token.value;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-field-after-maybe>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"use of sole value 'token' after conditional move",
+        ):
+            typed_ast.analyze_function_ownership(parsed, typed, "main")
+
+    def test_field_read_from_live_sole_owner_is_valid(self):
+        source = """module test::field_live;
+sole struct Token { value: u32; }
+
+fn main() -> u32 {
+    let token = Token { value: 7 };
+    return token.value;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-field-live>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(parsed, typed, "main")
+        self.assertIs(
+            trace.final_env.state_of("token"),
+            typed_ast.VarState.LIVE,
+        )
+
     def test_canonical_if_one_sided_move_becomes_maybe_moved(self):
         source = """module test::if_one_sided;
 sole struct Token { value: u32; }
