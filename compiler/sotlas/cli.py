@@ -109,11 +109,11 @@ def main() -> int:
     dast.add_argument("source", help=f"Arquivo fonte {SOTLAS_EXT}")
 
     # Subcomando: dump-sir
-    dsir = sub.add_parser("dump-sir", help="Exibe as instruções em formato SIR SSA")
+    dsir = sub.add_parser("dump-sir", help="Exibe o protótipo SIR (não é lowering de produção)")
     dsir.add_argument("source", help=f"Arquivo fonte {SOTLAS_EXT}")
 
     # Subcomando: dump-llvm
-    dllvm = sub.add_parser("dump-llvm", help="Emite código intermediário LLVM IR (.ll) a partir do SIR")
+    dllvm = sub.add_parser("dump-llvm", help="Emite LLVM IR experimental a partir do protótipo SIR")
     dllvm.add_argument("source", help=f"Arquivo fonte {SOTLAS_EXT}")
     dllvm.add_argument("--debug", action="store_true", help="Emite metadados de depuração DWARF")
 
