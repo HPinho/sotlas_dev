@@ -1076,6 +1076,9 @@ fn read(ptr: *mut u32) -> u32 {
         self.assertEqual(unsafe_node.kind, "Unsafe")
         self.assertEqual(unsafe_node.body[0].expr.kind, "Index")
         self.assertEqual(unsafe_node.body[0].expr.type.name, "u32")
+        self.assertFalse(unsafe_node.body[0].expr.type.pointer)
+        self.assertFalse(unsafe_node.body[0].expr.type.mutable)
+        self.assertFalse(unsafe_node.body[0].expr.type.is_reference)
 
     def test_system_function_does_not_replace_unsafe_for_pointer_deref(self):
         source = """module test::system_requires_unsafe;

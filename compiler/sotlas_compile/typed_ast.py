@@ -1581,7 +1581,9 @@ def infer_expression_type(
                 kind,
                 SemanticType(
                     target.type.name,
-                    mutable=target.type.mutable,
+                    pointer=False,
+                    mutable=False,
+                    is_reference=False,
                 ),
                 "index",
             )
