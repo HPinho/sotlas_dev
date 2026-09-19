@@ -10,7 +10,7 @@ from .language_safety import install as _install_language_safety
 _install_frontend_extensions(bootstrap)
 _install_language_safety(bootstrap)
 
-from .compiler import SotlasError
+from .errors import SotlasError
 
 SotlasBootstrapError = bootstrap.SotlasBootstrapError
 compile_source = bootstrap.compile_source
