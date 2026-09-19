@@ -1430,6 +1430,38 @@ fn main() -> i64 {
         ):
             typed_ast.build_linear_typed_body(parsed, typed, "main")
 
+    def test_typed_body_rejects_constant_expression_array_index_oob(self):
+        source = """module test::typed_array_constant_expr_bounds;
+fn main() -> i64 {
+    let values = [1, 2, 3];
+    return values[1 + 2];
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-array-constant-expr-bounds>"
+        )
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"array index 3 out of bounds for length 3",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
+    def test_typed_body_accepts_constant_expression_array_index_in_range(self):
+        source = """module test::typed_array_constant_expr_in_range;
+fn main() -> i64 {
+    let values = [1, 2, 3];
+    return values[1 + 1];
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-array-constant-expr-in-range>"
+        )
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "main")
+        self.assertEqual(body.statements[-1].expr.type.name, "i64")
+
     def test_typed_body_rejects_literal_array_index_out_of_bounds(self):
         source = """module test::typed_array_bounds;
 fn main() -> i64 {

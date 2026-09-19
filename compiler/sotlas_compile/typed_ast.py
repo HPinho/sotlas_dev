@@ -1226,6 +1226,19 @@ def _integer_constant_value(expr) -> int | None:
     if kind == "Unary" and getattr(expr, "op", None) == "-":
         inner = _integer_constant_value(getattr(expr, "value", None))
         return -inner if inner is not None else None
+    if kind == "Binary":
+        op = getattr(expr, "op", None)
+        if op not in ("+", "-", "*"):
+            return None
+        left = _integer_constant_value(getattr(expr, "left", None))
+        right = _integer_constant_value(getattr(expr, "right", None))
+        if left is None or right is None:
+            return None
+        if op == "+":
+            return left + right
+        if op == "-":
+            return left - right
+        return left * right
     return None
 
 
