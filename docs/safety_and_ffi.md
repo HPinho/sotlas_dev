@@ -3,8 +3,8 @@
 **Status:** normativo para o frontend de produção do Sotlas.
 
 Este documento define a separação entre código seguro, acesso privilegiado de
-sistema e interoperabilidade externa. Quando houver conflito com documentação
-histórica, este contrato prevalece para o compilador usado pelo kernel Baken.
+sistema e interoperabilidade externa. Quando houver conflito com documentação histórica, este contrato prevalece
+para o frontend de produção da linguagem.
 
 ## 1. Princípio de linguagem
 
@@ -45,7 +45,7 @@ guardrails de memória.
 ## 2. `@system` é uma capability boundary
 
 `@system` marca implementações que podem alcançar intrínsecos privilegiados e
-recursos de baixo nível do Baken. Uma função `@system` pode expor uma abstração
+recursos privilegiados de baixo nível. Uma função `@system` pode expor uma abstração
 segura para a camada superior; o chamador não precisa tornar-se `@system` apenas
 porque a implementação interna usa hardware.
 
@@ -169,7 +169,7 @@ C estável:
 
 ```sotlas
 @export
-pub fn baken_driver_entry() -> u32 {
+pub fn driver_entry() -> u32 {
     return 0;
 }
 ```
@@ -256,7 +256,7 @@ Objective-C implícita no núcleo da linguagem Sotlas.
 
 ## 9. Frontend canônico
 
-O frontend de produção é o pipeline instalado por `tools.sotlas_compile`:
+O frontend de produção é o pipeline canônico em `compiler/sotlas_compile`:
 
 ```text
 source Sotlas
@@ -270,12 +270,11 @@ source Sotlas
 
 Nenhum parser auxiliar pode gerar corpos C ou possuir semântica de produção
 independente. Parsers/ASTs históricos podem permanecer temporariamente para
-migração de tooling e testes de sintaxe, mas o kernel e o CLI oficial devem
-convergir para este pipeline.
+migração de tooling e testes de sintaxe, mas o CLI oficial e todos os consumidores devem convergir para este pipeline.
 
-## 10. Regra para o kernel Baken
+## 10. Regra para código de sistemas e bare-metal
 
-Código do kernel deve seguir a seguinte disciplina:
+Código de sistemas deve seguir a seguinte disciplina:
 
 1. usar abstrações seguras quando possível;
 2. marcar implementações que alcançam serviços privilegiados com `@system`;

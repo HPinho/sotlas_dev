@@ -21,7 +21,7 @@
 
 ## 🌟 Visão Geral
 
-**Sotlas** é uma linguagem de programação de sistemas moderna concebida para o desenvolvimento de **sistemas operacionais (BakenOS)**, **firmware bare-metal**, **drivers de hardware**, **motores gráficos** e **serviços de alto desempenho**.
+**Sotlas** é uma linguagem de programação de sistemas moderna concebida para o desenvolvimento de **sistemas operacionais**, **firmware bare-metal**, **drivers de hardware**, **motores gráficos** e **serviços de alto desempenho**.
 
 Sotlas é um projeto experimental de linguagem de sistemas que evolui em direção a abstrações de custo zero (*zero-cost abstractions*), fronteiras explícitas de segurança, ownership verificável e compilação modular limpa sem exigir um garbage collector de rastreamento. O caminho de produção atual ainda é um compilador Stage 0, e nem todo recurso de pesquisa descrito pelo projeto está implementado de ponta a ponta.
 
@@ -101,7 +101,7 @@ Sotlas foi desenhado para superar as deficiências de linguagens legadas sem vir
                 ┌──────────────────▼───────────────────┐
                 │        Sotlas Systems Layer          │
                 │ Pointers / MMIO / DMA / Interrupts   │
-                │ Isolamento de hardware do BakenOS    │
+                │ Isolamento tipado de hardware        │
                 └──────────────────┬───────────────────┘
                                    │
                               extern "C"
@@ -262,7 +262,7 @@ pub fn flush_screen_buffer() {
 
 ## 🧪 Suíte de Testes e Garantia de Integridade do Kernel
 
-O compilador Sotlas é submetido a uma suíte exaustiva de testes contínuos para garantir **zero regressões** no kernel do BakenOS:
+O compilador Sotlas é submetido a uma suíte contínua de testes para prevenir regressões na linguagem e no toolchain:
 
 ```bash
 # Executar todos os 298 testes unitários e de integração
@@ -280,7 +280,7 @@ Cobertura dos 298 testes:
 - Suporte a Classes, Métodos e ARC
 - Biblioteca Padrão (`stdlib/core` e `stdlib/system`)
 - Interoperabilidade Bidirecional em C ABI (`include/sotlas/sotlas_abi.h`)
-- Compatibilidade e Compilação Modular de 100% dos Módulos do Kernel BakenOS
+- Compilação modular e contratos para alvos freestanding
 
 ---
 

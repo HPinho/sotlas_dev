@@ -178,7 +178,7 @@ Sotlas foi desenhado para interoperar de forma nativa e bidirecional com C, C++ 
                 ┌──────────────────▼───────────────────┐
                 │        Sotlas Systems Layer          │
                 │ Pointers / MMIO / DMA / Interrupts   │
-                │ Isolamento de hardware do BakenOS    │
+                │ Isolamento tipado de hardware        │
                 └──────────────────┬───────────────────┘
                                    │
                               extern "C"
@@ -193,4 +193,3 @@ Sotlas foi desenhado para interoperar de forma nativa e bidirecional com C, C++ 
 Operações perigosas sobre ponteiros crus (como `0xDEADBEEF as *mut u32` ou `*ptr = 42;`) são **proibidas fora de blocos `unsafe { ... }`**. A camada `@system` atua como guardião, encapsulando dados externos em abstrações seguras (`SafePacket`, `ByteSlice`, `Option`) antes de entregá-los à aplicação.
 
 Para detalhes completos, consulte o [Guia de Interoperabilidade C / C++ / Objective-C](interop_c_cpp_objc.md).
-

@@ -1,11 +1,11 @@
 # Sotlas Compiler Architecture
 
-**Status:** target architecture for extracting Sotlas into its own repository.
+**Status:** target architecture for the standalone Sotlas language and toolchain.
 
-Sotlas is a systems language first and a BakenOS implementation language second.
-The compiler must therefore be independently versioned, testable and usable
-without importing any BakenOS source tree. BakenOS consumes a pinned Sotlas
-toolchain; Sotlas never imports BakenOS internals.
+Sotlas is a standalone systems language. The compiler must be independently
+versioned, testable and usable without importing source trees or policy from any
+downstream product. Operating systems, firmware and other consumers depend on
+Sotlas; the Sotlas compiler does not depend on their internals.
 
 The repository organization is designed for modern systems programming and operating system development, with strict phase boundaries specific to Sotlas and its bare-metal requirements.
 
@@ -23,8 +23,8 @@ The repository organization is designed for modern systems programming and opera
    promotes a raw pointer into a safe reference.
 6. **Deterministic lowering.** The same source + compiler revision + target
    description must produce equivalent IR and object code.
-7. **No target-specific UI or Baken policy in the compiler.** Drivers, widgets,
-   wallpaper, filesystem policy and boot protocol belong to BakenOS libraries.
+7. **No product-specific UI or policy in the compiler.** Drivers, widgets,
+   filesystem policy and boot protocols belong to downstream products or libraries.
 
 ## 2. Target standalone repository
 
@@ -51,7 +51,7 @@ sotlas/
 ├── stdlib/
 │   ├── core/                      # zero-runtime primitives
 │   ├── collections/               # hosted/optional pieces
-│   └── system/                    # typed systems abstractions, no Baken policy
+│   └── system/                    # typed systems abstractions, no product policy
 ├── runtime/                       # optional runtime components only
 ├── include/
 │   └── sotlas/capi/               # stable compiler/tooling C API
@@ -79,8 +79,8 @@ sotlas/
     └── release/
 ```
 
-The old `tools/sotlas` modules in the Baken repository are migration material,
-not a second production frontend. Features that exist only there must either be
+Historical duplicate frontend/tooling modules are migration material, not a
+second production frontend. Features that exist only there must either be
 ported into the canonical pipeline with tests or explicitly retired.
 
 ## 3. Canonical compilation pipeline
@@ -263,45 +263,23 @@ help: wrap only the memory operation: unsafe { *ptr }
 
 Tests should assert diagnostic codes rather than fragile full prose.
 
-## 10. BakenOS integration after repository split
+## 10. Downstream consumer contract
 
-BakenOS should contain no compiler implementation. It should contain only a
-pinned toolchain contract and build integration:
+Sotlas must remain independent from any operating system, firmware image,
+application framework or other product built with it. Downstream projects may
+pin a Sotlas release or commit and declare required language, ABI and target
+features, but no downstream source tree or product-specific policy belongs in
+the compiler repository.
 
-```text
-bakenos/
-├── boot/
-├── kernel/
-├── drivers/
-├── userland/
-├── sdk/
-├── tests/
-└── toolchain/
-    └── sotlas.lock
-```
+A consumer-side toolchain lock should record, as appropriate:
 
-`sotlas.lock` records at least:
-
-- Sotlas repository URL;
-- exact compiler commit or signed release;
+- Sotlas repository or release source;
+- exact compiler revision or signed release;
 - language version;
 - C ABI version;
 - SIR/object ABI version when those stabilize;
-- required target/features.
+- required targets and language features.
 
-CI must fail if a different compiler is silently used.
-
-## 11. Cross-repository validation
-
-A Sotlas compiler change is not considered Baken-compatible merely because the
-compiler test suite passes. The release pipeline should have two levels:
-
-1. Sotlas self-tests: lexer/parser/sema/safety/SIR/codegen;
-2. Baken compatibility: build BakenOS at its declared compatibility fixture and
-   run its QEMU hardware smoke tests.
-
-Conversely, BakenOS CI uses only its pinned known-good Sotlas revision unless it
-is explicitly running a toolchain-compatibility job.
-
-This prevents compiler development from randomly breaking the operating system
-while still allowing both repositories to evolve independently.
+Cross-project compatibility testing belongs to the downstream consumer or to a
+separate integration environment. Sotlas CI itself verifies the language,
+compiler, standard library, runtime and generic target contracts.

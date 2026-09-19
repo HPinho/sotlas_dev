@@ -21,7 +21,7 @@
 
 ## 🌟 Overview
 
-**Sotlas** is a modern systems programming language designed for **operating systems (BakenOS)**, **bare-metal firmware**, **hardware drivers**, **graphics engines**, and **high-performance services**.
+**Sotlas** is a modern systems programming language designed for **operating systems**, **bare-metal firmware**, **hardware drivers**, **graphics engines**, and **high-performance services**.
 
 Sotlas is an experimental systems-language project evolving toward zero-cost abstractions, explicit safety boundaries, verifiable ownership, and clean modular compilation without requiring a tracing garbage collector. The current production path is still a Stage-0 compiler, and not every research feature described by the project is implemented end-to-end yet.
 
@@ -101,7 +101,7 @@ Sotlas overcomes legacy pitfalls without becoming an isolated island, establishi
                 ┌──────────────────▼───────────────────┐
                 │        Sotlas Systems Layer          │
                 │ Pointers / MMIO / DMA / Interrupts   │
-                │ BakenOS hardware isolation           │
+                │ Typed hardware isolation             │
                 └──────────────────┬───────────────────┘
                                    │
                               extern "C"
@@ -263,7 +263,7 @@ pub fn flush_screen_buffer() {
 
 ## 🧪 Test Suite & Kernel Integrity Assurance
 
-The Sotlas compiler undergoes continuous, rigorous testing to ensure **zero regressions** across the BakenOS kernel:
+The Sotlas compiler undergoes continuous, rigorous testing to prevent regressions across the language and toolchain:
 
 ```bash
 # Run all 298 unit and integration tests
@@ -281,7 +281,7 @@ Test Coverage (298 tests):
 - Classes, Methods, and ARC Lifetime Support
 - Standard Library (`stdlib/core` and `stdlib/system`)
 - Bidirectional C ABI Interoperability (`include/sotlas/sotlas_abi.h`)
-- Compatibility and Modular Compilation for 100% of BakenOS Kernel Modules
+- Modular compilation and freestanding target contracts
 
 ---
 
