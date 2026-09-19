@@ -66,5 +66,46 @@ pub fn add(left: u32, right: u32) -> u32 {
         self.assertEqual(contract["compatibility_entry"], "kernel/src/main.sotlas")
 
 
+
+    def test_native_driver_treats_extensionless_output_as_binary(self):
+        for base in ("compiler", "tools"):
+            bootstrap_pipeline = (
+                ROOT / base / "sotlas" / "bootstrap_pipeline.py"
+            ).read_text(encoding="utf-8")
+            self.assertIn(
+                'bool is_c_target = ends_with(output_file, ".c");',
+                bootstrap_pipeline,
+            )
+            self.assertIn(
+                "bool is_binary_target = !emit_c_only && !is_c_target;",
+                bootstrap_pipeline,
+            )
+
+    def test_x86_default_dispatch_callbacks_are_translation_unit_local(self):
+        for base in ("compiler", "tools"):
+            intrinsics = (
+                ROOT / base / "sotlas_compile" / "x86_intrinsics.py"
+            ).read_text(encoding="utf-8")
+            self.assertIn(
+                "static uint64_t sotlas_x86_exception_dispatch",
+                intrinsics,
+            )
+            self.assertIn(
+                "static uint64_t sotlas_x86_irq_dispatch",
+                intrinsics,
+            )
+            self.assertIn(
+                "static void sotlas_x86_scheduler_thread_exit",
+                intrinsics,
+            )
+            self.assertNotIn(
+                "__attribute__((weak)) uint64_t sotlas_x86_exception_dispatch",
+                intrinsics,
+            )
+            self.assertNotIn(
+                "__attribute__((weak)) uint64_t sotlas_x86_irq_dispatch",
+                intrinsics,
+            )
+
 if __name__ == "__main__":
     unittest.main()

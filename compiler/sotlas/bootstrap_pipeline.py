@@ -1506,10 +1506,15 @@ int main(int argc, char **argv) {
     }
 
     if (output_file) {
-        bool is_binary_target = ends_with(output_file, ".exe") || ends_with(output_file, ".obj") ||
-                                 ends_with(output_file, ".o") || ends_with(output_file, ".bin");
+        /* CLI contract:
+         * - --emit-c or an explicit .c target means textual C output;
+         * - every other -o target is a native artifact, including extensionless
+         *   POSIX executable paths such as /tmp/app.
+         */
+        bool is_c_target = ends_with(output_file, ".c");
+        bool is_binary_target = !emit_c_only && !is_c_target;
 
-        if (is_binary_target && !emit_c_only) {
+        if (is_binary_target) {
             char temp_c[512];
             snprintf(temp_c, sizeof(temp_c), "%s.tmp.c", output_file);
             FILE *out_f = fopen(temp_c, "wb");
