@@ -1006,6 +1006,18 @@ def _build_typed_block(
             )
             continue
 
+        if kind == "Unsafe":
+            body = _build_typed_block(
+                getattr(statement, "body", ()),
+                dict(env),
+                typed_module,
+                typed_function,
+            )
+            typed_statements.append(
+                TypedStmtNode("Unsafe", None, None, None, body)
+            )
+            continue
+
         raise Phase1SemanticError(
             f"body typing not implemented for statement {kind}"
         )

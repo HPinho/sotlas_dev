@@ -792,6 +792,42 @@ fn main() -> void {
         ):
             typed_ast.build_linear_typed_body(parsed, typed, "main")
 
+    def test_typed_body_materializes_unsafe_block(self):
+        source = """module test::typed_unsafe;
+fn main() -> i64 {
+    unsafe {
+        let value: i64 = 7;
+        return value;
+    }
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-typed-unsafe>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "main")
+        unsafe_node = body.statements[0]
+        self.assertEqual(unsafe_node.kind, "Unsafe")
+        self.assertEqual(unsafe_node.body[0].kind, "Let")
+        self.assertEqual(unsafe_node.body[0].type.name, "i64")
+        self.assertEqual(unsafe_node.body[1].kind, "Return")
+
+    def test_typed_unsafe_block_keeps_type_rules_active(self):
+        source = """module test::typed_unsafe_mismatch;
+fn main() -> void {
+    unsafe {
+        let value: bool = 1;
+    }
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-typed-unsafe-mismatch>")
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"let 'value' type mismatch",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
     def test_conditional_move_in_one_branch_becomes_maybe_moved(self):
         typed = typed_ast.build_declaration_typed_ast(self.checked_ast())
         base = typed_ast.OwnershipEnv().declare(
