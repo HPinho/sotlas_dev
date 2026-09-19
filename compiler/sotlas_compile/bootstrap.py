@@ -1232,10 +1232,21 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
                 )
             expr.is_pointer_target = target_t.pointer
             struct_def = struct_map.get(target_t.name)
-            if struct_def:
-                fld = next((f for f in struct_def.fields if f.name == expr.field), None)
-                if fld: return fld.type
-            return Type("u32")
+            if struct_def is None:
+                raise SotlasBootstrapError(
+                    f"acesso a campo exige struct conhecido: {target_t.name}",
+                    expr.token.line, expr.token.column, filename, source,
+                )
+            fld = next(
+                (f for f in struct_def.fields if f.name == expr.field),
+                None,
+            )
+            if fld is None:
+                raise SotlasBootstrapError(
+                    f"campo não declarado: {target_t.name}.{expr.field}",
+                    expr.token.line, expr.token.column, filename, source,
+                )
+            return fld.type
         if isinstance(expr, MethodCall):
             target_t = expr_type(expr.target, scope, in_unsafe, is_system_fn)
             for argument in expr.args:

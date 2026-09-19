@@ -1177,6 +1177,54 @@ fn invoke(ptr: *mut Dispatch) -> u32 {
         self.assertEqual(call.target_type.name, "Dispatch")
         self.assertTrue(call.target_type.pointer)
 
+    def test_bootstrap_rejects_unknown_member_field(self):
+        source = """module test::bootstrap_unknown_member_field;
+struct Point { x: u32; }
+fn read(point: Point) -> u32 {
+    return point.y;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-unknown-member-field>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"campo não declarado: Point\.y",
+        ):
+            bootstrap.check(parsed)
+
+    def test_typed_body_rejects_unknown_member_field_independently(self):
+        source = """module test::typed_unknown_member_field;
+struct Point { x: u32; }
+fn read(point: Point) -> u32 {
+    return point.y;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-typed-unknown-member-field>"
+        )
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"struct 'Point' has no field 'y'",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed_module, "read")
+
+    def test_bootstrap_rejects_member_access_on_non_struct(self):
+        source = """module test::bootstrap_scalar_member_target;
+fn read(value: u32) -> u32 {
+    return value.x;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-scalar-member-target>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"acesso a campo exige struct conhecido: u32",
+        ):
+            bootstrap.check(parsed)
+
     def test_reference_member_access_does_not_require_unsafe(self):
         source = """module test::reference_member_safe;
 struct Point { x: u32; }
