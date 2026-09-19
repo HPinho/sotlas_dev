@@ -55,7 +55,8 @@ fn read(t: Token) -> u32 {
     def test_public_phase1_pipeline_reuses_canonical_parse_and_check(self):
         source = """module test::phase1_public_invalid;
 fn main() -> void {
-    let value: bool = 1;
+    let value: i64 = 1;
+    value = true;
     return;
 }
 """
