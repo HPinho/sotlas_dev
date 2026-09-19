@@ -1547,13 +1547,9 @@ def infer_expression_type(
         index = infer_expression_type(
             getattr(expr, "index"), env, typed_module
         )
-        integer_types = {
-            "u8", "u16", "u32", "u64", "usize",
-            "i8", "i16", "i32", "i64", "isize",
-        }
-        if index.type.pointer or index.type.name not in integer_types:
+        if not _is_scalar_integer_type(index.type):
             raise Phase1SemanticError(
-                f"array index must be integer, got {index.type.name}"
+                f"array index must be scalar integer, got {index.type.name}"
             )
 
         if target.type.is_array:

@@ -2072,6 +2072,68 @@ fn main() -> void {
         ):
             typed_ast.build_linear_typed_body(parsed, typed, "main")
 
+    def test_bootstrap_rejects_array_as_index(self):
+        source = """module test::bootstrap_array_index_shape;
+fn read(values: [u32; 2], index: [u32; 2]) -> u32 {
+    return values[index];
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-array-index-shape>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"índice deve ser inteiro escalar",
+        ):
+            bootstrap.check(parsed)
+
+    def test_bootstrap_rejects_reference_as_index(self):
+        source = """module test::bootstrap_reference_index_shape;
+fn read(values: [u32; 2], index: &u32) -> u32 {
+    return values[index];
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-reference-index-shape>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"índice deve ser inteiro escalar",
+        ):
+            bootstrap.check(parsed)
+
+    def test_typed_body_rejects_array_as_index_independently(self):
+        source = """module test::typed_array_index_shape;
+fn read(values: [u32; 2], index: [u32; 2]) -> u32 {
+    return values[index];
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-typed-array-index-shape>"
+        )
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"array index must be scalar integer, got u32",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed_module, "read")
+
+    def test_typed_body_rejects_reference_as_index_independently(self):
+        source = """module test::typed_reference_index_shape;
+fn read(values: [u32; 2], index: &u32) -> u32 {
+    return values[index];
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-typed-reference-index-shape>"
+        )
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"array index must be scalar integer, got u32",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed_module, "read")
+
     def test_typed_body_rejects_non_integer_array_index_independently(self):
         source = """module test::typed_array_bad_index;
 fn main() -> i64 {
@@ -2083,7 +2145,7 @@ fn main() -> i64 {
         typed = typed_ast.build_declaration_typed_ast(parsed)
         with self.assertRaisesRegex(
             typed_ast.Phase1SemanticError,
-            r"array index must be integer, got bool",
+            r"array index must be scalar integer, got bool",
         ):
             typed_ast.build_linear_typed_body(parsed, typed, "main")
 

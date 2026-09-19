@@ -1194,7 +1194,18 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
             )
         if isinstance(expr, Index):
             target_t = expr_type(expr.target, scope, in_unsafe, is_system_fn)
-            expr_type(expr.index, scope, in_unsafe, is_system_fn)
+            index_t = expr_type(expr.index, scope, in_unsafe, is_system_fn)
+            index_is_scalar_integer = (
+                not index_t.pointer
+                and not index_t.is_array
+                and not index_t.is_reference
+                and index_t.name in INTEGER_LITERAL_SUFFIXES
+            )
+            if not index_is_scalar_integer:
+                raise SotlasBootstrapError(
+                    "índice deve ser inteiro escalar",
+                    expr.token.line, expr.token.column, filename, source,
+                )
             if (
                 target_t.pointer
                 and not target_t.is_reference
