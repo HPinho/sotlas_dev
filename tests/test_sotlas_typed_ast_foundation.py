@@ -1158,6 +1158,42 @@ fn read(ptr: *mut u32) -> u32 {
         self.assertFalse(unsafe_node.body[0].expr.type.mutable)
         self.assertFalse(unsafe_node.body[0].expr.type.is_reference)
 
+    def test_reference_deref_does_not_require_unsafe(self):
+        source = """module test::reference_deref_safe;
+fn read(value: &u32) -> u32 {
+    return *value;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-reference-deref-safe>"
+        )
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "read")
+        expr = body.statements[0].expr
+        self.assertEqual(expr.kind, "Unary")
+        self.assertEqual(expr.type.name, "u32")
+        self.assertFalse(expr.type.pointer)
+        self.assertFalse(expr.type.is_reference)
+
+    def test_mut_reference_deref_does_not_require_unsafe(self):
+        source = """module test::mut_reference_deref_safe;
+fn read(value: &mut u32) -> u32 {
+    return *value;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-mut-reference-deref-safe>"
+        )
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "read")
+        expr = body.statements[0].expr
+        self.assertEqual(expr.kind, "Unary")
+        self.assertEqual(expr.type.name, "u32")
+        self.assertFalse(expr.type.pointer)
+        self.assertFalse(expr.type.mutable)
+
     def test_system_function_does_not_replace_unsafe_for_pointer_deref(self):
         source = """module test::system_requires_unsafe;
 @system
