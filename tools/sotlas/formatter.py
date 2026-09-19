@@ -54,7 +54,7 @@ def format_code(source: str) -> str:
             # Espaçamento antes de chave de abertura {
             line = re.sub(r"([)a-zA-Z0-9_])\{", r"\1 {", line)
             # Espaçamento de operadores de atribuição simples
-            line = re.sub(r"([a-zA-Z0-9_])\s*=\s*", r"\1 = ", line)
+            line = re.sub(r"\s*(?<![=!<>])=(?!=)\s*", " = ", line)
             # Espaçamento de operadores aritméticos binários (+, -, *, /)
             line = re.sub(r"([a-zA-Z0-9_])\s*\+\s*([a-zA-Z0-9_])", r"\1 + \2", line)
             line = re.sub(r"([a-zA-Z0-9_])\s*-\s*([a-zA-Z0-9_])", r"\1 - \2", line)
