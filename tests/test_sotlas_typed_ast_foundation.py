@@ -1606,6 +1606,86 @@ fn write(value: &mut u32) -> void {
         self.assertFalse(assign.type.pointer)
         self.assertFalse(assign.type.is_reference)
 
+    def test_address_of_forms_immutable_reference(self):
+        source = """module test::address_of_reference;
+fn read(value: &u32) -> u32 {
+    return *value;
+}
+fn main() -> u32 {
+    let value: u32 = 7u32;
+    return read(&value);
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-address-of-reference>"
+        )
+        bootstrap.check(parsed)
+        main = next(item for item in parsed.functions if item.name == "main")
+        call = main.body[-1].value
+        argument = call.args[0]
+        self.assertIsInstance(argument, bootstrap.Unary)
+        self.assertEqual(argument.op, "&")
+        self.assertFalse(argument.mutable)
+
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed_module, "main")
+        self.assertEqual(body.statements[-1].expr.type.name, "u32")
+
+    def test_address_of_mut_preserves_exclusive_reference(self):
+        source = """module test::address_of_mut_reference;
+fn write(value: &mut u32) -> void {
+    *value = 9u32;
+    return;
+}
+fn main() -> u32 {
+    let mut value: u32 = 7u32;
+    write(&mut value);
+    return value;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-address-of-mut-reference>"
+        )
+        bootstrap.check(parsed)
+        main = next(item for item in parsed.functions if item.name == "main")
+        call = main.body[1].value
+        argument = call.args[0]
+        self.assertIsInstance(argument, bootstrap.Unary)
+        self.assertEqual(argument.op, "&")
+        self.assertTrue(argument.mutable)
+
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        inferred = typed_ast.infer_expression_type(
+            argument,
+            {"value": typed_ast.SemanticType("u32")},
+            typed_module,
+        )
+        self.assertTrue(inferred.type.is_reference)
+        self.assertTrue(inferred.type.mutable)
+        self.assertEqual(inferred.type.name, "u32")
+
+    def test_typed_body_rejects_address_of_reference_as_raw_pointer(self):
+        source = """module test::address_of_not_raw_pointer;
+fn inspect(value: *const u32) -> u32 {
+    unsafe {
+        return *value;
+    }
+}
+fn main() -> u32 {
+    let value: u32 = 7u32;
+    return inspect(&value);
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-address-of-not-raw-pointer>"
+        )
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"argument type mismatch",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed_module, "main")
+
     def test_bootstrap_rejects_implicit_reference_to_raw_pointer_return(self):
         source = """module test::implicit_reference_to_raw_pointer;
 fn expose(value: &u32) -> *const u32 {

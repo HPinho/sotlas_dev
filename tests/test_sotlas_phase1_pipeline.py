@@ -189,6 +189,44 @@ fn read(ptr: *mut u32) -> u32 {
         self.assertEqual(body.statements[0].body[0].kind, "Return")
         self.assertEqual(body.statements[0].body[0].expr.type.name, "u32")
 
+    def test_public_phase1_pipeline_forms_safe_references_with_address_of(self):
+        source = """module test::phase1_address_of_reference;
+fn read(value: &u32) -> u32 {
+    return *value;
+}
+fn main() -> u32 {
+    let value: u32 = 7u32;
+    return read(&value);
+}
+"""
+        result = sotlas_compile.analyze_source_phase1(
+            source, filename="<phase1-address-of-reference>"
+        )
+        main = next(
+            item for item in result.semantic.bodies if item.name == "main"
+        )
+        self.assertEqual(main.statements[-1].expr.type.name, "u32")
+
+    def test_public_phase1_pipeline_forms_mut_references_with_address_of_mut(self):
+        source = """module test::phase1_address_of_mut_reference;
+fn write(value: &mut u32) -> void {
+    *value = 9u32;
+    return;
+}
+fn main() -> u32 {
+    let mut value: u32 = 7u32;
+    write(&mut value);
+    return value;
+}
+"""
+        result = sotlas_compile.analyze_source_phase1(
+            source, filename="<phase1-address-of-mut-reference>"
+        )
+        main = next(
+            item for item in result.semantic.bodies if item.name == "main"
+        )
+        self.assertEqual(main.statements[-1].expr.type.name, "u32")
+
     def test_public_phase1_pipeline_accepts_reference_mutability_weakening(self):
         source = """module test::phase1_reference_mutability_weakening;
 fn view(value: &mut u32) -> &u32 {

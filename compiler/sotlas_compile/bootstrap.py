@@ -258,7 +258,10 @@ class Name(Expr): value: str
 @dataclass
 class EnumAccess(Expr): enum_name: str; variant: str
 @dataclass
-class Unary(Expr): op: str; value: Expr
+class Unary(Expr):
+    op: str
+    value: Expr
+    mutable: bool = False
 @dataclass
 class Binary(Expr): left: Expr; op: str; right: Expr
 @dataclass
@@ -1015,9 +1018,8 @@ class Parser:
         if self.current.kind in ("!", "-", "*", "&", "~"):
             op = self.current.kind
             self.at += 1
-            if op == "&":
-                self.accept("mut")
-            return Unary(token, op, self.prefix())
+            is_mut = bool(self.accept("mut")) if op == "&" else False
+            return Unary(token, op, self.prefix(), mutable=is_mut)
         return self.primary()
 
 
@@ -1193,7 +1195,15 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
                     )
                 return Type(inner.name, pointer=False, mutable=inner.mutable)
             if expr.op == "&":
-                return Type(inner.name, pointer=True, mutable=inner.mutable)
+                return Type(
+                    inner.name,
+                    pointer=True,
+                    mutable=expr.mutable,
+                    is_array=inner.is_array,
+                    array_size=inner.array_size,
+                    elem_type=inner.elem_type,
+                    is_reference=True,
+                )
             if expr.op == "!":
                 return Type("bool")
             return inner

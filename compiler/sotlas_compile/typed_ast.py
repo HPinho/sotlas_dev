@@ -1516,7 +1516,11 @@ def infer_expression_type(
                 SemanticType(
                     inner.type.name,
                     pointer=True,
-                    mutable=inner.type.mutable,
+                    mutable=bool(getattr(expr, "mutable", False)),
+                    is_array=inner.type.is_array,
+                    array_size=inner.type.array_size,
+                    is_reference=True,
+                    elem_type=inner.type.elem_type,
                 ),
                 op,
             )
