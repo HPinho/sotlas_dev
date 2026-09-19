@@ -66,6 +66,32 @@ fn main() -> void {
                 source, filename="<phase1-public-invalid>"
             )
 
+    def test_public_phase1_pipeline_rejects_constant_integer_overflow(self):
+        source = """module test::phase1_integer_overflow;
+fn main() -> u8 {
+    return 255u8 + 1u8;
+}
+"""
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"integer value 256 out of range for u8",
+        ):
+            sotlas_compile.analyze_source_phase1(
+                source, filename="<phase1-integer-overflow>"
+            )
+
+    def test_public_phase1_pipeline_accepts_in_range_constant_integer_arithmetic(self):
+        source = """module test::phase1_integer_in_range;
+fn main() -> u8 {
+    return 254u8 + 1u8;
+}
+"""
+        result = sotlas_compile.analyze_source_phase1(
+            source, filename="<phase1-integer-in-range>"
+        )
+        body = result.semantic.bodies[0]
+        self.assertEqual(body.statements[0].expr.type.name, "u8")
+
     def test_public_phase1_pipeline_rejects_recursive_value_type(self):
         source = """module test::phase1_recursive_value;
 struct Node {
