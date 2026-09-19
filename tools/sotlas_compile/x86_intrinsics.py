@@ -335,7 +335,7 @@ __enter_user(uint64_t entry, uint64_t user_stack) {
 }
 
 #ifndef SOTLAS_OVERRIDE_SOTLAS_X86_SCHEDULER_THREAD_EXIT
-static void sotlas_x86_scheduler_thread_exit(void) {}
+__attribute__((weak, used)) void sotlas_x86_scheduler_thread_exit(void) {}
 #else
 extern void sotlas_x86_scheduler_thread_exit(void);
 #endif
@@ -357,50 +357,50 @@ static inline uint64_t __scheduler_thread_trampoline_address(void) {
     return (uint64_t)(uintptr_t)&__scheduler_thread_trampoline;
 }
 #ifndef SOTLAS_OVERRIDE_SOTLAS_X86_SCHEDULER_EXIT_PROBE_ENTRY
-static void sotlas_x86_scheduler_exit_probe_entry(void) {}
+__attribute__((weak, used)) void sotlas_x86_scheduler_exit_probe_entry(void) {}
 #else
 extern void sotlas_x86_scheduler_exit_probe_entry(void);
 #endif
 static inline uint64_t __scheduler_exit_probe_entry_address(void) { return (uint64_t)(uintptr_t)&sotlas_x86_scheduler_exit_probe_entry; }
 #ifndef SOTLAS_OVERRIDE_SOTLAS_X86_SCHEDULER_IDLE_ENTRY
-static void sotlas_x86_scheduler_idle_entry(void) {}
+__attribute__((weak, used)) void sotlas_x86_scheduler_idle_entry(void) {}
 #else
 extern void sotlas_x86_scheduler_idle_entry(void);
 #endif
 static inline uint64_t __scheduler_idle_entry_address(void) { return (uint64_t)(uintptr_t)&sotlas_x86_scheduler_idle_entry; }
 #ifndef SOTLAS_OVERRIDE_SOTLAS_X86_SMP_AP_RUNTIME_ENTRY
-static void sotlas_x86_smp_ap_runtime_entry(void) {}
+__attribute__((weak, used)) void sotlas_x86_smp_ap_runtime_entry(void) {}
 #else
 extern void sotlas_x86_smp_ap_runtime_entry(void);
 #endif
 static inline uint64_t __smp_ap_runtime_entry_address(void) { return (uint64_t)(uintptr_t)&sotlas_x86_smp_ap_runtime_entry; }
 #ifndef SOTLAS_OVERRIDE_SOTLAS_X86_SCHEDULER_SMP_PROBE_ENTRY
-static void sotlas_x86_scheduler_smp_probe_entry(void) {}
+__attribute__((weak, used)) void sotlas_x86_scheduler_smp_probe_entry(void) {}
 #else
 extern void sotlas_x86_scheduler_smp_probe_entry(void);
 #endif
 static inline uint64_t __scheduler_smp_probe_entry_address(void) { return (uint64_t)(uintptr_t)&sotlas_x86_scheduler_smp_probe_entry; }
 #ifndef SOTLAS_OVERRIDE_SOTLAS_X86_SCHEDULER_WAIT_PROBE_ENTRY
-static void sotlas_x86_scheduler_wait_probe_entry(void) {}
+__attribute__((weak, used)) void sotlas_x86_scheduler_wait_probe_entry(void) {}
 #else
 extern void sotlas_x86_scheduler_wait_probe_entry(void);
 #endif
 static inline uint64_t __scheduler_wait_probe_entry_address(void) { return (uint64_t)(uintptr_t)&sotlas_x86_scheduler_wait_probe_entry; }
 #ifndef SOTLAS_OVERRIDE_SOTLAS_X86_SCHEDULER_WAKE_PROBE_ENTRY
-static void sotlas_x86_scheduler_wake_probe_entry(void) {}
+__attribute__((weak, used)) void sotlas_x86_scheduler_wake_probe_entry(void) {}
 #else
 extern void sotlas_x86_scheduler_wake_probe_entry(void);
 #endif
 static inline uint64_t __scheduler_wake_probe_entry_address(void) { return (uint64_t)(uintptr_t)&sotlas_x86_scheduler_wake_probe_entry; }
 #ifndef SOTLAS_OVERRIDE_SOTLAS_X86_USERSPACE_BOOTSTRAP_ENTRY
-static void sotlas_x86_userspace_bootstrap_entry(void) {}
+__attribute__((weak, used)) void sotlas_x86_userspace_bootstrap_entry(void) {}
 #else
 extern void sotlas_x86_userspace_bootstrap_entry(void);
 #endif
 static inline uint64_t __userspace_bootstrap_entry_address(void) { return (uint64_t)(uintptr_t)&sotlas_x86_userspace_bootstrap_entry; }
 
 #ifndef SOTLAS_OVERRIDE_SOTLAS_X86_EXCEPTION_DISPATCH
-static uint64_t sotlas_x86_exception_dispatch(uint64_t frame_address) { (void)frame_address; return 0; }
+__attribute__((weak, used)) uint64_t sotlas_x86_exception_dispatch(uint64_t frame_address) { (void)frame_address; return 0; }
 #else
 extern uint64_t sotlas_x86_exception_dispatch(uint64_t frame_address);
 #endif
@@ -498,7 +498,7 @@ static inline uint64_t __exception_stub_address(uint16_t vector) {
 }
 
 #ifndef SOTLAS_OVERRIDE_SOTLAS_X86_IRQ_DISPATCH
-static uint64_t sotlas_x86_irq_dispatch(uint64_t vector, uint64_t frame_address) { (void)vector; (void)frame_address; return 0; }
+__attribute__((weak, used)) uint64_t sotlas_x86_irq_dispatch(uint64_t vector, uint64_t frame_address) { (void)vector; (void)frame_address; return 0; }
 #else
 extern uint64_t sotlas_x86_irq_dispatch(uint64_t vector, uint64_t frame_address);
 #endif
