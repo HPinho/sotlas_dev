@@ -560,13 +560,16 @@ def _bootstrap_backend():
         from . import bootstrap
         from . import frontend_extensions
         from . import x86_intrinsics
+        from . import baken_compat
     except ImportError:
         # Mantém execução direta por caminho apenas para bootstrap/desenvolvimento.
         import bootstrap
         import frontend_extensions
         import x86_intrinsics
+        import baken_compat
     frontend_extensions.install(bootstrap)
     x86_intrinsics.install(bootstrap)
+    baken_compat.install(bootstrap)
     return bootstrap
 
 def emit_c_header(ast: SotlasModuleAst, output: Path, unit: dict | None = None) -> Path:
