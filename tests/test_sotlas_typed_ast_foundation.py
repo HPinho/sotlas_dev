@@ -1043,6 +1043,46 @@ fn main() -> void {
         ):
             typed_ast.build_linear_typed_body(parsed, typed, "main")
 
+    def test_pointer_function_field_call_requires_unsafe(self):
+        source = """module test::pointer_fn_field_requires_unsafe;
+struct Dispatch {
+    call: fn(u32) -> u32;
+}
+fn invoke(ptr: *mut Dispatch) -> u32 {
+    return ptr.call(7u32);
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-pointer-fn-field-requires-unsafe>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"chamada de campo de função via ponteiro exige bloco unsafe",
+        ):
+            bootstrap.check(parsed)
+
+    def test_pointer_function_field_call_inside_unsafe_is_valid(self):
+        source = """module test::pointer_fn_field_unsafe;
+struct Dispatch {
+    call: fn(u32) -> u32;
+}
+fn invoke(ptr: *mut Dispatch) -> u32 {
+    unsafe {
+        return ptr.call(7u32);
+    }
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-pointer-fn-field-unsafe>"
+        )
+        bootstrap.check(parsed)
+        invoke = next(item for item in parsed.functions if item.name == "invoke")
+        call = invoke.body[0].body[0].value
+        self.assertTrue(call.is_vtable_call)
+        self.assertTrue(call.is_arrow)
+        self.assertEqual(call.target_type.name, "Dispatch")
+        self.assertTrue(call.target_type.pointer)
+
     def test_pointer_member_access_requires_unsafe(self):
         source = """module test::pointer_member_requires_unsafe;
 struct Point { x: u32; }

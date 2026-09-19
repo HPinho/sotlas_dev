@@ -1231,6 +1231,11 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
             if s_def:
                 fld = next((f for f in s_def.fields if f.name == expr.method), None)
                 if fld and getattr(fld.type, "is_fn_ptr", False):
+                    if target_t.pointer and not in_unsafe:
+                        raise SotlasBootstrapError(
+                            "chamada de campo de função via ponteiro exige bloco unsafe",
+                            expr.token.line, expr.token.column, filename, source,
+                        )
                     expr.is_vtable_call = True
                     expr.is_arrow = target_t.pointer
                     return fld.type.fn_ret or Type("void")
