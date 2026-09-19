@@ -752,7 +752,7 @@ def _analyze_block_ownership(
                 )
             else:
                 require_expr_ownership_live(result, value)
-            continue
+            break
 
         if kind in ("Break", "Continue"):
             events.append(

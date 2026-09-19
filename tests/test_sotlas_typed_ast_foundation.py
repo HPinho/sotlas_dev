@@ -438,6 +438,25 @@ fn main(flag: bool) -> void {
         trace = typed_ast.analyze_function_ownership(parsed, typed, "main")
         self.assertIsNone(trace.final_env.state_of("local"))
 
+    def test_ownership_return_stops_unreachable_move_analysis(self):
+        source = """module test::ownership_return_terminator;
+sole struct Token { value: u32; }
+fn consume(token: Token) -> void { return; }
+fn main(token: Token) -> void {
+    return;
+    consume(move token);
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-ownership-return>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(parsed, typed, "main")
+        self.assertIs(trace.final_env.state_of("token"), typed_ast.VarState.LIVE)
+        self.assertNotIn(
+            typed_ast.OwnershipEvent("move", "token", "call:consume"),
+            trace.events,
+        )
+
     def test_ownership_break_stops_unreachable_move_analysis(self):
         source = """module test::ownership_break_terminator;
 sole struct Token { value: u32; }
