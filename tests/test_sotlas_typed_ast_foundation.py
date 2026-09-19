@@ -1737,6 +1737,66 @@ fn main(consumer: Consumer) -> void {
         ):
             typed_ast.analyze_function_ownership(parsed, typed, "main")
 
+    def test_ownership_defer_reserves_moved_sole_value(self):
+        source = """module test::ownership_defer_move;
+sole struct Token { value: u32; }
+fn consume(token: Token) -> void { return; }
+fn main(token: Token) -> void {
+    defer consume(move token);
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-ownership-defer-move>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(parsed, typed, "main")
+        self.assertIs(trace.final_env.state_of("token"), typed_ast.VarState.MOVED)
+        self.assertIn(
+            typed_ast.OwnershipEvent("defer", "main", "call"),
+            trace.events,
+        )
+        self.assertIn(
+            typed_ast.OwnershipEvent("move", "token", "call:consume"),
+            trace.events,
+        )
+
+    def test_ownership_defer_rejects_use_after_reserved_move(self):
+        source = """module test::ownership_defer_reuse;
+sole struct Token { value: u32; }
+fn consume(token: Token) -> void { return; }
+fn main(token: Token) -> void {
+    defer consume(move token);
+    consume(move token);
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-ownership-defer-reuse>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"use of sole value 'token' after move",
+        ):
+            typed_ast.analyze_function_ownership(parsed, typed, "main")
+
+    def test_ownership_defer_rejects_read_only_sole_capture(self):
+        source = """module test::ownership_defer_read;
+sole struct Token { value: u32; }
+fn inspect(value: u32) -> void { return; }
+fn main(token: Token) -> void {
+    defer inspect(token.value);
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-ownership-defer-read>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"defer captures sole value 'token' without ownership transfer",
+        ):
+            typed_ast.analyze_function_ownership(parsed, typed, "main")
+
     def test_ownership_unsafe_block_propagates_move(self):
         source = """module test::ownership_unsafe_move;
 sole struct Token { value: u32; }

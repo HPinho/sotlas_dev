@@ -227,6 +227,123 @@ def _root_owned_name(expr) -> str | None:
     return None
 
 
+def _referenced_owned_names(
+    env: OwnershipEnv, expr
+) -> frozenset[str]:
+    """Collect tracked sole owners referenced by an expression."""
+    if expr is None:
+        return frozenset()
+
+    names: set[str] = set()
+    owner = _root_owned_name(expr)
+    if owner is not None and env.state_of(owner) is not None:
+        names.add(owner)
+
+    kind = type(expr).__name__
+    if kind == "Binary":
+        children = (
+            getattr(expr, "left", None),
+            getattr(expr, "right", None),
+        )
+    elif kind in ("Unary", "MoveExpr", "UnsafeExpr"):
+        children = (getattr(expr, "value", None),)
+    elif kind == "Cast":
+        children = (getattr(expr, "expr", None),)
+    elif kind == "Index":
+        children = (
+            getattr(expr, "target", None),
+            getattr(expr, "index", None),
+        )
+    elif kind == "Member":
+        children = (getattr(expr, "target", None),)
+    elif kind == "Call":
+        children = tuple(getattr(expr, "args", ()))
+    elif kind == "MethodCall":
+        children = (
+            getattr(expr, "target", None),
+            *tuple(getattr(expr, "args", ())),
+        )
+    elif kind == "ArrayLit":
+        children = tuple(getattr(expr, "elements", ()))
+    elif kind == "StructLit":
+        children = tuple(
+            value for _, value in getattr(expr, "fields", ())
+        )
+    elif kind == "IfExpr":
+        children = (
+            getattr(expr, "condition", None),
+            getattr(expr, "then_expr", None),
+            getattr(expr, "else_expr", None),
+        )
+    elif kind == "TryExpr":
+        children = (getattr(expr, "expr", None),)
+    else:
+        children = ()
+
+    for child in children:
+        names.update(_referenced_owned_names(env, child))
+    return frozenset(names)
+
+
+def _statement_referenced_owned_names(
+    env: OwnershipEnv, statement
+) -> frozenset[str]:
+    """Collect outer sole owners captured by a statement tree."""
+    if statement is None:
+        return frozenset()
+
+    kind = type(statement).__name__
+    names: set[str] = set()
+
+    if kind in ("Let", "Return", "Expression"):
+        names.update(
+            _referenced_owned_names(env, getattr(statement, "value", None))
+        )
+    elif kind == "Assign":
+        names.update(
+            _referenced_owned_names(env, getattr(statement, "target", None))
+        )
+        names.update(
+            _referenced_owned_names(env, getattr(statement, "value", None))
+        )
+    elif kind in ("If", "While"):
+        names.update(
+            _referenced_owned_names(env, getattr(statement, "condition", None))
+        )
+    elif kind == "For":
+        names.update(
+            _referenced_owned_names(env, getattr(statement, "start", None))
+        )
+        names.update(
+            _referenced_owned_names(env, getattr(statement, "end", None))
+        )
+    elif kind == "Asm":
+        for expr in getattr(statement, "outputs", ()):
+            names.update(_referenced_owned_names(env, expr))
+        for expr in getattr(statement, "inputs", ()):
+            names.update(_referenced_owned_names(env, expr))
+    elif kind == "Defer":
+        deferred = getattr(statement, "value", None)
+        if type(deferred).__name__ == "Assign":
+            names.update(_statement_referenced_owned_names(env, deferred))
+        else:
+            names.update(_referenced_owned_names(env, deferred))
+
+    body_attrs = {
+        "If": ("then_body", "else_body"),
+        "While": ("body",),
+        "Loop": ("body",),
+        "For": ("body",),
+        "Unsafe": ("body",),
+        "Defer": ("body",),
+    }
+    for attr in body_attrs.get(kind, ()):
+        for nested in getattr(statement, attr, ()) or ():
+            names.update(_statement_referenced_owned_names(env, nested))
+
+    return frozenset(names)
+
+
 def require_expr_ownership_live(env: OwnershipEnv, expr) -> None:
     """Reject reads through a moved or maybe-moved sole owner."""
     if expr is None:
@@ -680,6 +797,78 @@ def _analyze_block_ownership(
                 OwnershipEvent("unsafe", typed_function.name, "block")
             )
             events.extend(body_events)
+            continue
+
+        if kind == "Defer":
+            visible = tuple(binding.name for binding in result.bindings)
+            captured = _statement_referenced_owned_names(result, statement)
+            deferred_body = getattr(statement, "body", None)
+            deferred_value = getattr(statement, "value", None)
+            deferred_events: list[OwnershipEvent] = []
+
+            if deferred_body is not None:
+                deferred_env = _analyze_block_ownership(
+                    deferred_body,
+                    result,
+                    typed_module,
+                    typed_function,
+                    deferred_events,
+                )
+                deferred_env = _project_ownership_env(
+                    deferred_env, visible
+                )
+                via = "block"
+            elif type(deferred_value).__name__ == "Assign":
+                deferred_env = _analyze_block_ownership(
+                    (deferred_value,),
+                    result,
+                    typed_module,
+                    typed_function,
+                    deferred_events,
+                )
+                via = "assign"
+            elif type(deferred_value).__name__ == "Call":
+                deferred_env = _move_call_arguments(
+                    result,
+                    deferred_value,
+                    typed_module,
+                    deferred_events,
+                )
+                via = "call"
+            elif type(deferred_value).__name__ == "MethodCall":
+                deferred_env = _move_method_call_arguments(
+                    result,
+                    deferred_value,
+                    typed_module,
+                    deferred_events,
+                )
+                via = "method"
+            elif type(deferred_value).__name__ == "TryExpr":
+                deferred_env = _move_try_wrapped_call_arguments(
+                    result,
+                    deferred_value,
+                    typed_module,
+                    deferred_events,
+                )
+                via = "try"
+            else:
+                require_expr_ownership_live(result, deferred_value)
+                deferred_env = result
+                via = "expression"
+
+            for name in captured:
+                before = result.state_of(name)
+                after = deferred_env.state_of(name)
+                if before is after:
+                    raise Phase1SemanticError(
+                        f"defer captures sole value {name!r} without ownership transfer"
+                    )
+
+            result = deferred_env
+            events.append(
+                OwnershipEvent("defer", typed_function.name, via)
+            )
+            events.extend(deferred_events)
             continue
 
         if kind in ("While", "Loop", "For"):
