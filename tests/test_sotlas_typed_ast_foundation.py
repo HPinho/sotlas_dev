@@ -1405,6 +1405,47 @@ fn write(value: &mut u32) -> void {
         self.assertIsInstance(assign.target, bootstrap.Unary)
         self.assertEqual(assign.target.op, "*")
 
+    def test_typed_body_rejects_raw_pointer_deref_write_outside_unsafe(self):
+        source = """module test::typed_raw_pointer_deref_write_requires_unsafe;
+fn write(ptr: *mut u32) -> void {
+    *ptr = 7u32;
+    return;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-typed-raw-pointer-deref-write-requires-unsafe>"
+        )
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"raw pointer dereference assignment requires unsafe",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed_module, "write")
+
+    def test_typed_body_accepts_raw_pointer_deref_write_inside_unsafe(self):
+        source = """module test::typed_raw_pointer_deref_write_unsafe;
+fn write(ptr: *mut u32) -> void {
+    unsafe {
+        *ptr = 7u32;
+    }
+    return;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-typed-raw-pointer-deref-write-unsafe>"
+        )
+        bootstrap.check(parsed)
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed_module, "write")
+        unsafe_node = body.statements[0]
+        self.assertEqual(unsafe_node.kind, "Unsafe")
+        assign = unsafe_node.body[0]
+        self.assertEqual(assign.kind, "Assign")
+        self.assertEqual(assign.name, "*")
+        self.assertEqual(assign.type.name, "u32")
+        self.assertFalse(assign.type.pointer)
+        self.assertFalse(assign.type.is_reference)
+
     def test_typed_body_independently_rejects_immutable_reference_deref_write(self):
         source = """module test::typed_immutable_reference_deref_write;
 fn write(value: &u32) -> void {

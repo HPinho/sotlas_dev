@@ -2081,6 +2081,7 @@ def infer_assignment_target_type(
     target,
     env: dict[str, SemanticType],
     typed_module: TypedModule,
+    in_unsafe: bool = False,
 ) -> TypedExprNode:
     """Resolve a writable target's semantic type without inventing lvalue rules."""
     kind = type(target).__name__
@@ -2110,21 +2111,27 @@ def infer_assignment_target_type(
             )
         return infer_expression_type(target, env, typed_module)
     if kind == "Unary" and getattr(target, "op", None) == "*":
-        reference = infer_expression_type(
+        pointee = infer_expression_type(
             getattr(target, "value"), env, typed_module
         )
-        if not reference.type.is_reference:
-            raise Phase1SemanticError(
-                "dereference assignment target must be a reference"
-            )
-        if not reference.type.mutable:
-            raise Phase1SemanticError(
-                "assignment through immutable reference is not allowed"
-            )
+        if pointee.type.is_reference:
+            if not pointee.type.mutable:
+                raise Phase1SemanticError(
+                    "assignment through immutable reference is not allowed"
+                )
+        else:
+            if not pointee.type.pointer:
+                raise Phase1SemanticError(
+                    "dereference assignment target must be a pointer or reference"
+                )
+            if not in_unsafe:
+                raise Phase1SemanticError(
+                    "raw pointer dereference assignment requires unsafe"
+                )
         return TypedExprNode(
             kind,
             SemanticType(
-                reference.type.name,
+                pointee.type.name,
                 pointer=False,
                 mutable=False,
                 is_reference=False,
@@ -2141,6 +2148,7 @@ def _build_typed_block(
     env: dict[str, SemanticType],
     typed_module: TypedModule,
     typed_function: TypedFunction,
+    in_unsafe: bool = False,
 ) -> tuple[TypedStmtNode, ...]:
     typed_statements: list[TypedStmtNode] = []
 
@@ -2177,7 +2185,7 @@ def _build_typed_block(
 
         if kind == "Assign":
             target = infer_assignment_target_type(
-                getattr(statement, "target"), env, typed_module
+                getattr(statement, "target"), env, typed_module, in_unsafe
             )
             value_expr = getattr(statement, "value")
             value = infer_expression_type(
@@ -2244,12 +2252,14 @@ def _build_typed_block(
                 dict(env),
                 typed_module,
                 typed_function,
+                in_unsafe,
             )
             else_body = _build_typed_block(
                 getattr(statement, "else_body", ()),
                 dict(env),
                 typed_module,
                 typed_function,
+                in_unsafe,
             )
             typed_statements.append(
                 TypedStmtNode(
@@ -2272,6 +2282,7 @@ def _build_typed_block(
                 dict(env),
                 typed_module,
                 typed_function,
+                in_unsafe,
             )
             typed_statements.append(
                 TypedStmtNode(
@@ -2286,6 +2297,7 @@ def _build_typed_block(
                 dict(env),
                 typed_module,
                 typed_function,
+                in_unsafe,
             )
             typed_statements.append(
                 TypedStmtNode("Loop", None, None, None, body)
@@ -2322,6 +2334,7 @@ def _build_typed_block(
                 loop_env,
                 typed_module,
                 typed_function,
+                in_unsafe,
             )
             typed_statements.append(
                 TypedStmtNode(
@@ -2348,6 +2361,7 @@ def _build_typed_block(
                 dict(env),
                 typed_module,
                 typed_function,
+                True,
             )
             typed_statements.append(
                 TypedStmtNode("Unsafe", None, None, None, body)
@@ -2356,7 +2370,9 @@ def _build_typed_block(
 
         if kind == "Asm":
             for output in getattr(statement, "outputs", ()):
-                infer_assignment_target_type(output, env, typed_module)
+                infer_assignment_target_type(
+                    output, env, typed_module, in_unsafe
+                )
             for input_expr in getattr(statement, "inputs", ()):
                 infer_expression_type(input_expr, env, typed_module)
             typed_statements.append(
@@ -2374,6 +2390,7 @@ def _build_typed_block(
                     dict(env),
                     typed_module,
                     typed_function,
+                    in_unsafe,
                 )
                 typed_statements.append(
                     TypedStmtNode("Defer", None, None, None, body)
@@ -2385,7 +2402,10 @@ def _build_typed_block(
 
             if type(deferred_value).__name__ == "Assign":
                 target = infer_assignment_target_type(
-                    getattr(deferred_value, "target"), env, typed_module
+                    getattr(deferred_value, "target"),
+                    env,
+                    typed_module,
+                    in_unsafe,
                 )
                 value_expr = getattr(deferred_value, "value")
                 value = infer_expression_type(
