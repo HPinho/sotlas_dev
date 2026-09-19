@@ -804,8 +804,25 @@ def infer_expression_type(
                 op,
             )
         if op == "!":
+            if inner.type != SemanticType("bool"):
+                raise Phase1SemanticError(
+                    f"logical not requires bool, got {inner.type.name}"
+                )
             return TypedExprNode(kind, SemanticType("bool"), op)
-        return TypedExprNode(kind, inner.type, op)
+        if op == "~":
+            if inner.type.pointer or inner.type.name not in _INTEGER_WIDTHS:
+                raise Phase1SemanticError(
+                    f"bitwise not requires integer, got {inner.type.name}"
+                )
+            return TypedExprNode(kind, inner.type, op)
+        if op == "-":
+            numeric_types = set(_INTEGER_WIDTHS) | {"f32", "f64"}
+            if inner.type.pointer or inner.type.name not in numeric_types:
+                raise Phase1SemanticError(
+                    f"unary minus requires numeric operand, got {inner.type.name}"
+                )
+            return TypedExprNode(kind, inner.type, op)
+        raise Phase1SemanticError(f"unsupported unary operator {op!r}")
 
     if kind == "ArrayLit":
         elements = tuple(getattr(expr, "elements", ()))

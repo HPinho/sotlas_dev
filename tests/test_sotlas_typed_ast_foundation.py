@@ -1086,6 +1086,70 @@ fn main() -> i64 {
         ):
             typed_ast.build_linear_typed_body(parsed, typed, "main")
 
+    def test_typed_body_enforces_unary_operator_types(self):
+        source = """module test::typed_unary_rules;
+fn invert(bits: u32) -> u32 { return ~bits; }
+fn negate(value: f64) -> f64 { return -value; }
+fn flip(flag: bool) -> bool { return !flag; }
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-unary-rules>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        self.assertEqual(
+            typed_ast.build_linear_typed_body(
+                parsed, typed, "invert"
+            ).statements[0].expr.type.name,
+            "u32",
+        )
+        self.assertEqual(
+            typed_ast.build_linear_typed_body(
+                parsed, typed, "negate"
+            ).statements[0].expr.type.name,
+            "f64",
+        )
+        self.assertEqual(
+            typed_ast.build_linear_typed_body(
+                parsed, typed, "flip"
+            ).statements[0].expr.type.name,
+            "bool",
+        )
+
+    def test_typed_body_rejects_logical_not_on_integer_independently(self):
+        source = """module test::typed_bad_logical_not;
+fn main(value: u32) -> bool { return !value; }
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-bad-logical-not>")
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"logical not requires bool, got u32",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
+    def test_typed_body_rejects_bitwise_not_on_bool_independently(self):
+        source = """module test::typed_bad_bitwise_not;
+fn main(flag: bool) -> bool { return ~flag; }
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-bad-bitwise-not>")
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"bitwise not requires integer, got bool",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
+    def test_typed_body_rejects_unary_minus_on_bool_independently(self):
+        source = """module test::typed_bad_unary_minus;
+fn main(flag: bool) -> bool { return -flag; }
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-bad-unary-minus>")
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"unary minus requires numeric operand, got bool",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
     def test_typed_body_types_if_expression(self):
         source = """module test::typed_if_expr;
 fn choose(flag: bool) -> i64 {
