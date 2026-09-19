@@ -1043,6 +1043,46 @@ fn main() -> void {
         ):
             typed_ast.build_linear_typed_body(parsed, typed, "main")
 
+    def test_reference_function_field_call_does_not_require_unsafe(self):
+        source = """module test::reference_fn_field_safe;
+struct Dispatch {
+    call: fn(u32) -> u32;
+}
+fn invoke(dispatch: &Dispatch) -> u32 {
+    return dispatch.call(7u32);
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-reference-fn-field-safe>"
+        )
+        bootstrap.check(parsed)
+        invoke = next(item for item in parsed.functions if item.name == "invoke")
+        call = invoke.body[0].value
+        self.assertTrue(call.is_vtable_call)
+        self.assertTrue(call.is_arrow)
+        self.assertTrue(call.target_type.is_reference)
+        self.assertEqual(call.target_type.name, "Dispatch")
+
+    def test_mut_reference_function_field_call_does_not_require_unsafe(self):
+        source = """module test::mut_reference_fn_field_safe;
+struct Dispatch {
+    call: fn(u32) -> u32;
+}
+fn invoke(dispatch: &mut Dispatch) -> u32 {
+    return dispatch.call(7u32);
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-mut-reference-fn-field-safe>"
+        )
+        bootstrap.check(parsed)
+        invoke = next(item for item in parsed.functions if item.name == "invoke")
+        call = invoke.body[0].value
+        self.assertTrue(call.is_vtable_call)
+        self.assertTrue(call.is_arrow)
+        self.assertTrue(call.target_type.is_reference)
+        self.assertTrue(call.target_type.mutable)
+
     def test_pointer_function_field_call_requires_unsafe(self):
         source = """module test::pointer_fn_field_requires_unsafe;
 struct Dispatch {
