@@ -1,0 +1,69 @@
+{
+  "schema": 1,
+  "support_contract": {
+    "SUPPORTED": "spec+parser+semantic+lowering+backend+positive+negative+e2e",
+    "EXPERIMENTAL": "implementation exists but the complete support contract is not yet proven"
+  },
+  "examples": [
+    {
+      "id": "01_hello_systems",
+      "entry": "examples/01_hello_systems/main.sotlas",
+      "status": "SUPPORTED"
+    },
+    {
+      "id": "02_safe_structures",
+      "entry": "examples/02_safe_structures/main.sotlas",
+      "status": "SUPPORTED"
+    },
+    {
+      "id": "03_systems_and_intrinsics",
+      "entry": "examples/03_systems_and_intrinsics/main.sotlas",
+      "status": "SUPPORTED"
+    },
+    {
+      "id": "04_raw_memory_and_unsafe",
+      "entry": "examples/04_raw_memory_and_unsafe/main.sotlas",
+      "status": "SUPPORTED"
+    },
+    {
+      "id": "05_c_cpp_objc_interop",
+      "entry": "examples/05_c_cpp_objc_interop/main.sotlas",
+      "status": "EXPERIMENTAL"
+    },
+    {
+      "id": "06_game_loop",
+      "entry": "examples/06_game_loop/main.sotlas",
+      "status": "EXPERIMENTAL"
+    },
+    {
+      "id": "07_cli_tool",
+      "entry": "examples/07_cli_tool/main.sotlas",
+      "status": "EXPERIMENTAL"
+    },
+    {
+      "id": "08_data_structures",
+      "entry": "examples/08_data_structures/main.sotlas",
+      "status": "EXPERIMENTAL"
+    },
+    {
+      "id": "09_json_parser",
+      "entry": "examples/09_json_parser/main.sotlas",
+      "status": "EXPERIMENTAL"
+    },
+    {
+      "id": "10_game_raycaster",
+      "entry": "examples/10_game_raycaster/main.sotlas",
+      "status": "EXPERIMENTAL"
+    },
+    {
+      "id": "11_tcp_server",
+      "entry": "examples/11_tcp_server/main.sotlas",
+      "status": "EXPERIMENTAL"
+    },
+    {
+      "id": "12_sotlas_by_example",
+      "entry": "examples/12_sotlas_by_example",
+      "status": "EXPERIMENTAL"
+    }
+  ]
+}

@@ -23,7 +23,23 @@
 
 **Sotlas** é uma linguagem de programação de sistemas moderna concebida para o desenvolvimento de **sistemas operacionais (BakenOS)**, **firmware bare-metal**, **drivers de hardware**, **motores gráficos** e **serviços de alto desempenho**.
 
-Sotlas foi desenhada do zero para fornecer abstrações de custo zero (*zero-cost abstractions*), segurança de memória estrita e compilação modular limpa, sem depender de runtimes pesados, coletores de lixo ou pré-processadores frágeis.
+Sotlas é um projeto experimental de linguagem de sistemas que evolui em direção a abstrações de custo zero (*zero-cost abstractions*), fronteiras explícitas de segurança, ownership verificável e compilação modular limpa sem exigir um garbage collector de rastreamento. O caminho de produção atual ainda é um compilador Stage 0, e nem todo recurso de pesquisa descrito pelo projeto está implementado de ponta a ponta.
+
+---
+
+## 🧭 Maturidade de Implementação
+
+Sotlas usa rótulos explícitos de maturidade para que a documentação não fique à frente da implementação:
+
+| Status | Significado |
+| :--- | :--- |
+| **SUPPORTED** | Especificação, parser, verificação semântica, lowering/backend, testes positivos, negativos e end-to-end estão presentes |
+| **EXPERIMENTAL** | Existe implementação, mas o contrato completo de suporte ainda não foi comprovado |
+| **PROTOTYPE** | Implementação de pesquisa/tooling fora do contrato de compilação de produção |
+| **DESIGNED** | Especificado, porém ainda não implementado de ponta a ponta |
+| **PLANNED** | Item de roadmap |
+
+A rota de produção atual é o frontend Stage 0 canônico em `compiler/sotlas_compile`, seguido pelas verificações semânticas e lowering C11. SIR é uma arquitetura-alvo em desenvolvimento ativo, ainda não a rota de lowering de produção.
 
 ---
 
@@ -53,16 +69,16 @@ Durante décadas, a engenharia de sistemas e desenvolvimento de sistemas operaci
 
 | Recurso / Desafio | **Sotlas** | **C11** | **C++20** | **Objective-C** |
 | :--- | :---: | :---: | :---: | :---: |
-| **Segurança por Padrão** | ✅ Sim | ❌ Não | ❌ Não | ❌ Não |
+| **Segurança por Padrão** | 🧪 Em evolução / parcial | ❌ Não | ❌ Não | ❌ Não |
 | **Separação Privilégio vs Memória** | **`@system` vs `unsafe`** | ❌ Misturado | ❌ Misturado | ❌ Misturado |
 | **Semântica de Valor (Zero-Cost)** | ✅ `struct` de valor | ✅ `struct` básica | ⚠️ Requer cópias manuais | ❌ Quase tudo objeto |
-| **Contagem de Referência (ARC)** | ✅ Nativa e previsível | ❌ Manual | ⚠️ `std::shared_ptr` pesado | ⚠️ ARC acoplado a runtime dinâmico |
+| **Contagem de Referência (ARC)** | 🧪 Primitivas disponíveis; garantia completa ainda não comprovada | ❌ Manual | ⚠️ `std::shared_ptr` pesado | ⚠️ ARC acoplado a runtime dinâmico |
 | **Sistema Canônico de Módulos** | ✅ `module` & `import` | ❌ `#include` de texto | ⚠️ Módulos complexos | ❌ `#include` / `#import` |
-| **Contratos e Protocolos** | ✅ `spec` / `adopts` | ❌ Inexistente | ⚠️ Múltipla herança / Concepts | ⚠️ Protocols dinâmicos |
+| **Contratos e Protocolos** | 🧪 `spec` / `adopts` experimental | ❌ Inexistente | ⚠️ Múltipla herança / Concepts | ⚠️ Protocols dinâmicos |
 | **Tratamento de Erros Tipado** | ✅ `Option<T>` / `Result<T, E>` | ❌ Inteiros mágicos | ⚠️ Exceções (proibidas em kernel) | ⚠️ NSError / nil checks |
 | **Target Bare-Metal / Freestanding** | ✅ Cidadão de 1ª classe | ✅ Nativo | ⚠️ Difícil sem runtime | ❌ Incompatível sem runtime GNUstep/Apple |
-| **Intermediário SSA para Análise** | ✅ **SIR (Sotlas IR)** | ❌ Nenhum | ❌ Nenhum | ❌ Nenhum |
-| **ABI C Estável e Bidirecional** | ✅ 100% garantida | ✅ Nativa | ⚠️ Instável (`extern "C"` parcial) | ⚠️ Frágil fora da Apple |
+| **Intermediário SSA para Análise** | 🧪 **Protótipo SIR**; ainda não é o lowering de produção | ❌ Nenhum | ❌ Nenhum | ❌ Nenhum |
+| **ABI C Estável e Bidirecional** | 🚧 Objetivo de design; contrato completo de estabilidade ainda não congelado | ✅ Nativa | ⚠️ Instável (`extern "C"` parcial) | ⚠️ Frágil fora da Apple |
 
 ---
 
@@ -110,7 +126,7 @@ Objective-C / C / C++ ──► [Unsafe Boundary] ──► Sotlas Systems ─�
 
 ## 🏗️ Arquitetura do Compilador
 
-O compilador Sotlas adota uma arquitetura em camadas estritas com representação intermediária em formato SSA (**SIR — Sotlas Intermediate Representation**):
+Sotlas evolui em direção a uma arquitetura em camadas estritas centrada em uma representação intermediária SSA (**SIR — Sotlas Intermediate Representation**). Hoje, a rota Stage 0 de produção ainda faz lowering pelo frontend canônico diretamente para C11, enquanto SIR permanece uma rota de protótipo/tooling:
 
 ```mermaid
 graph TD

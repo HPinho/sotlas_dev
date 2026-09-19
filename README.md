@@ -23,7 +23,23 @@
 
 **Sotlas** is a modern systems programming language designed for **operating systems (BakenOS)**, **bare-metal firmware**, **hardware drivers**, **graphics engines**, and **high-performance services**.
 
-Sotlas was designed from scratch to deliver zero-cost abstractions, strict memory safety, and clean modular compilation without relying on heavy runtimes, garbage collectors, or fragile preprocessors.
+Sotlas is an experimental systems-language project evolving toward zero-cost abstractions, explicit safety boundaries, verifiable ownership, and clean modular compilation without requiring a tracing garbage collector. The current production path is still a Stage-0 compiler, and not every research feature described by the project is implemented end-to-end yet.
+
+---
+
+## 🧭 Implementation Maturity
+
+Sotlas uses explicit maturity labels so documentation does not outrun implementation:
+
+| Status | Meaning |
+| :--- | :--- |
+| **SUPPORTED** | Specification, parser, semantic verification, lowering/backend, positive tests, negative tests, and end-to-end tests are all present |
+| **EXPERIMENTAL** | Some implementation exists, but the complete support contract is not yet proven |
+| **PROTOTYPE** | Research/tooling implementation outside the production compilation contract |
+| **DESIGNED** | Specified, but not yet implemented end-to-end |
+| **PLANNED** | Roadmap item |
+
+The current production route is the canonical Stage-0 frontend under `compiler/sotlas_compile`, followed by semantic checks and C11 lowering. SIR is a target architecture under active development, not yet the production lowering route.
 
 ---
 
@@ -53,16 +69,16 @@ For decades, systems engineering and OS development were constrained by legacy l
 
 | Feature / Challenge | **Sotlas** | **C11** | **C++20** | **Objective-C** |
 | :--- | :---: | :---: | :---: | :---: |
-| **Safe by Default** | ✅ Yes | ❌ No | ❌ No | ❌ No |
+| **Safe by Default** | 🧪 Evolving / partial | ❌ No | ❌ No | ❌ No |
 | **Privilege vs Memory Separation** | **`@system` vs `unsafe`** | ❌ Mixed | ❌ Mixed | ❌ Mixed |
 | **Value Semantics (Zero-Cost)** | ✅ Value `struct` | ✅ Basic `struct` | ⚠️ Requires manual copies | ❌ Predominantly heap objects |
-| **Reference Counting (ARC)** | ✅ Native and predictable | ❌ Manual | ⚠️ Heavy `std::shared_ptr` | ⚠️ ARC tied to dynamic runtime |
+| **Reference Counting (ARC)** | 🧪 Primitives available; full language guarantee not yet proven | ❌ Manual | ⚠️ Heavy `std::shared_ptr` | ⚠️ ARC tied to dynamic runtime |
 | **Canonical Module System** | ✅ `module` & `import` | ❌ Textual `#include` | ⚠️ Complex module spec | ❌ `#include` / `#import` |
-| **Contracts and Protocols** | ✅ `spec` / `adopts` | ❌ None | ⚠️ Multiple inheritance / Concepts | ⚠️ Dynamic protocols |
+| **Contracts and Protocols** | 🧪 `spec` / `adopts` experimental | ❌ None | ⚠️ Multiple inheritance / Concepts | ⚠️ Dynamic protocols |
 | **Typed Error Handling** | ✅ `Option<T>` / `Result<T, E>` | ❌ Magic integers | ⚠️ Exceptions (banned in kernels) | ⚠️ NSError / nil checks |
 | **Bare-Metal / Freestanding Target** | ✅ 1st-class citizen | ✅ Native | ⚠️ Complex without runtime | ❌ Incompatible without GNUstep/Apple runtime |
-| **SSA Intermediate Representation** | ✅ **SIR (Sotlas IR)** | ❌ None | ❌ None | ❌ None |
-| **Stable Bidirectional C ABI** | ✅ 100% guaranteed | ✅ Native | ⚠️ Unstable (partial `extern "C"`) | ⚠️ Fragile outside Apple platforms |
+| **SSA Intermediate Representation** | 🧪 **SIR prototype**; not yet the production lowering path | ❌ None | ❌ None | ❌ None |
+| **Stable Bidirectional C ABI** | 🚧 Design goal; full stability contract not yet frozen | ✅ Native | ⚠️ Unstable (partial `extern "C"`) | ⚠️ Fragile outside Apple platforms |
 
 ---
 
@@ -111,7 +127,7 @@ Objective-C / C / C++ ──► [Unsafe Boundary] ──► Sotlas Systems ─�
 
 ## 🏗️ Compiler Architecture
 
-The Sotlas compiler employs a strict layered architecture built around an SSA intermediate representation (**SIR — Sotlas Intermediate Representation**):
+Sotlas is evolving toward a strict layered architecture centered on an SSA intermediate representation (**SIR — Sotlas Intermediate Representation**). Today, the production Stage-0 path still lowers through the canonical frontend directly to C11, while SIR remains a prototype/tooling path:
 
 ```mermaid
 graph TD
