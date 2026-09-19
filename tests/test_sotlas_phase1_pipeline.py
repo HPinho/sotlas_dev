@@ -1,7 +1,37 @@
 """Public opt-in Phase-1 pipeline integration tests."""
+import importlib.util
+from pathlib import Path
+import sys
 import unittest
 
-import sotlas_compile
+ROOT = Path(__file__).resolve().parents[1]
+PACKAGE_DIR = ROOT / "compiler" / "sotlas_compile"
+
+
+def _load_canonical_package():
+    """Load the production package under a unique test name.
+
+    Some legacy tests prepend ROOT/tools to sys.path, where a compatibility
+    package with the same top-level name exists. Loading by explicit package
+    path keeps this integration test pinned to compiler/sotlas_compile without
+    mutating or depending on global test discovery order.
+    """
+    name = "sotlas_phase1_public_package"
+    if name in sys.modules:
+        return sys.modules[name]
+    spec = importlib.util.spec_from_file_location(
+        name,
+        PACKAGE_DIR / "__init__.py",
+        submodule_search_locations=[str(PACKAGE_DIR)],
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+sotlas_compile = _load_canonical_package()
 
 
 class SotlasPhase1PipelineTests(unittest.TestCase):
