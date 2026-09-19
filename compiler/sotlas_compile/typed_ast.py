@@ -1030,17 +1030,103 @@ def infer_expression_type(
         return TypedExprNode(kind, function.result, callee)
 
     if kind == "Binary":
-        left = infer_expression_type(getattr(expr, "left"), env, typed_module)
-        right = infer_expression_type(getattr(expr, "right"), env, typed_module)
+        left_expr = getattr(expr, "left")
+        right_expr = getattr(expr, "right")
+        left = infer_expression_type(left_expr, env, typed_module)
+        right = infer_expression_type(right_expr, env, typed_module)
         op = getattr(expr, "op")
-        if op in ("==", "!=", "<", "<=", ">", ">=", "&&", "||"):
-            return TypedExprNode(kind, SemanticType("bool"), op)
+
         if left.type != right.type:
-            raise Phase1SemanticError(
-                f"binary operator {op!r} type mismatch: "
-                f"{left.type.name} vs {right.type.name}"
+            right = _contextual_integer_literal(
+                right_expr, right, left.type
             )
-        return TypedExprNode(kind, left.type, op)
+        if left.type != right.type:
+            left = _contextual_integer_literal(
+                left_expr, left, right.type
+            )
+
+        integer_names = set(_INTEGER_WIDTHS)
+        numeric_names = integer_names | {"f32", "f64"}
+
+        if op in ("&&", "||"):
+            if left.type != SemanticType("bool") or right.type != SemanticType("bool"):
+                raise Phase1SemanticError(
+                    f"logical operator {op!r} requires bool operands"
+                )
+            return TypedExprNode(kind, SemanticType("bool"), op)
+
+        if op in ("==", "!="):
+            pointer_null = (
+                (left.type.pointer and right.type.name == "null")
+                or (right.type.pointer and left.type.name == "null")
+            )
+            if left.type != right.type and not pointer_null:
+                raise Phase1SemanticError(
+                    f"comparison operator {op!r} type mismatch: "
+                    f"{left.type.name} vs {right.type.name}"
+                )
+            return TypedExprNode(kind, SemanticType("bool"), op)
+
+        if op in ("<", "<=", ">", ">="):
+            if (
+                left.type.pointer or right.type.pointer
+                or left.type.name not in numeric_names
+                or right.type.name not in numeric_names
+            ):
+                raise Phase1SemanticError(
+                    f"relational operator {op!r} requires numeric operands"
+                )
+            if left.type != right.type:
+                raise Phase1SemanticError(
+                    f"relational operator {op!r} type mismatch: "
+                    f"{left.type.name} vs {right.type.name}"
+                )
+            return TypedExprNode(kind, SemanticType("bool"), op)
+
+        if op in ("+", "-", "*", "/", "%"):
+            if (
+                left.type.pointer or right.type.pointer
+                or left.type.name not in numeric_names
+                or right.type.name not in numeric_names
+            ):
+                raise Phase1SemanticError(
+                    f"arithmetic operator {op!r} requires numeric operands"
+                )
+            if left.type != right.type:
+                raise Phase1SemanticError(
+                    f"binary operator {op!r} type mismatch: "
+                    f"{left.type.name} vs {right.type.name}"
+                )
+            return TypedExprNode(kind, left.type, op)
+
+        if op in ("&", "|", "^"):
+            if (
+                left.type.pointer or right.type.pointer
+                or left.type.name not in integer_names
+                or right.type.name not in integer_names
+            ):
+                raise Phase1SemanticError(
+                    f"bitwise operator {op!r} requires integer operands"
+                )
+            if left.type != right.type:
+                raise Phase1SemanticError(
+                    f"binary operator {op!r} type mismatch: "
+                    f"{left.type.name} vs {right.type.name}"
+                )
+            return TypedExprNode(kind, left.type, op)
+
+        if op in ("<<", ">>"):
+            if (
+                left.type.pointer or right.type.pointer
+                or left.type.name not in integer_names
+                or right.type.name not in integer_names
+            ):
+                raise Phase1SemanticError(
+                    f"shift operator {op!r} requires integer operands"
+                )
+            return TypedExprNode(kind, left.type, op)
+
+        raise Phase1SemanticError(f"unsupported binary operator {op!r}")
 
     raise Phase1SemanticError(
         f"expression typing not implemented for {kind}"

@@ -1150,6 +1150,87 @@ fn main(flag: bool) -> bool { return -flag; }
         ):
             typed_ast.build_linear_typed_body(parsed, typed, "main")
 
+    def test_typed_body_enforces_binary_operator_types(self):
+        source = """module test::typed_binary_rules;
+fn arithmetic(value: u32) -> u32 { return value + 1; }
+fn compare(value: usize) -> bool { return value > 0; }
+fn logic(a: bool, b: bool) -> bool { return a && b; }
+fn bits(value: u16) -> u16 { return value | 1; }
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-binary-rules>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        self.assertEqual(
+            typed_ast.build_linear_typed_body(
+                parsed, typed, "arithmetic"
+            ).statements[0].expr.type.name,
+            "u32",
+        )
+        self.assertEqual(
+            typed_ast.build_linear_typed_body(
+                parsed, typed, "compare"
+            ).statements[0].expr.type.name,
+            "bool",
+        )
+        self.assertEqual(
+            typed_ast.build_linear_typed_body(
+                parsed, typed, "logic"
+            ).statements[0].expr.type.name,
+            "bool",
+        )
+        self.assertEqual(
+            typed_ast.build_linear_typed_body(
+                parsed, typed, "bits"
+            ).statements[0].expr.type.name,
+            "u16",
+        )
+
+    def test_typed_body_rejects_logical_operator_on_integer_independently(self):
+        source = """module test::typed_bad_logic;
+fn main(value: u32) -> bool { return value && value; }
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-bad-logic>")
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"logical operator '&&' requires bool operands",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
+    def test_typed_body_rejects_arithmetic_on_bool_independently(self):
+        source = """module test::typed_bad_arithmetic;
+fn main(flag: bool) -> bool { return flag + flag; }
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-bad-arithmetic>")
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"arithmetic operator '\+' requires numeric operands",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
+    def test_typed_body_rejects_relational_mixed_explicit_integer_types(self):
+        source = """module test::typed_bad_compare;
+fn main(left: u32, right: u64) -> bool { return left < right; }
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-bad-compare>")
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"relational operator '<' type mismatch: u32 vs u64",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
+    def test_typed_body_allows_pointer_equality_with_null(self):
+        source = """module test::typed_pointer_null;
+fn is_null(ptr: *const u8) -> bool { return ptr == null; }
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-pointer-null>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "is_null")
+        self.assertEqual(body.statements[0].expr.type.name, "bool")
+
     def test_typed_body_types_if_expression(self):
         source = """module test::typed_if_expr;
 fn choose(flag: bool) -> i64 {
