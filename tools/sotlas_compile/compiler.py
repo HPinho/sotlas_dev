@@ -35,8 +35,10 @@ POST_CUTOVER_ENTRY_RE = re.compile(
 # e, por isso, ficam fora desta regra deliberadamente.
 C_PREPROCESSOR_RE = re.compile(r"^\s*#\s*(?:include|define|if|ifdef|ifndef|pragma)\b", re.MULTILINE)
 
-class SotlasError(Exception):
-    pass
+try:
+    from .errors import SotlasError
+except ImportError:
+    from errors import SotlasError
 
 def project_root(entry):
     for candidate in (entry.parent, *entry.parents):
