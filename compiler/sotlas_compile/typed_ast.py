@@ -694,6 +694,41 @@ def _number_type(value: str) -> SemanticType:
     return SemanticType("i64")
 
 
+def _contextual_integer_literal(
+    expr,
+    inferred: TypedExprNode,
+    expected: SemanticType,
+) -> TypedExprNode:
+    """Contextualize an unsuffixed integer literal to an expected integer type.
+
+    Explicit suffixes remain authoritative. Contextual conversion is accepted
+    only when the literal value fits the destination type exactly.
+    """
+    if inferred.type == expected:
+        return inferred
+    if type(expr).__name__ != "Number":
+        return inferred
+    if expected.pointer or expected.is_array or expected.name not in _INTEGER_WIDTHS:
+        return inferred
+
+    raw = getattr(expr, "value")
+    suffixes = (
+        "usize", "isize", "u64", "i64", "u32", "i32",
+        "u16", "i16", "u8", "i8", "f32", "f64",
+    )
+    if any(raw.endswith(suffix) for suffix in suffixes):
+        return inferred
+    if "." in raw or "e" in raw.lower():
+        return inferred
+
+    try:
+        value = int(raw, 0)
+    except ValueError:
+        return inferred
+    validate_integer_value(value, expected)
+    return TypedExprNode(inferred.kind, expected, inferred.label)
+
+
 def infer_expression_type(
     expr,
     env: dict[str, SemanticType],
@@ -904,10 +939,16 @@ def infer_expression_type(
                     f"unknown field {field_name!r} in struct literal {name!r}"
                 )
             seen_fields.add(field_name)
-            # Materialize the field expression type now, but do not yet impose
-            # literal-coercion rules. Phase 1 still needs an explicit integer
-            # coercion model before comparing unsuffixed literals to u32/u16/etc.
-            infer_expression_type(field_expr, env, typed_module)
+            field = next(item for item in struct.fields if item.name == field_name)
+            inferred = infer_expression_type(field_expr, env, typed_module)
+            contextual = _contextual_integer_literal(
+                field_expr, inferred, field.type
+            )
+            if contextual.type != field.type:
+                raise Phase1SemanticError(
+                    f"struct literal {name!r} field {field_name!r} type mismatch: "
+                    f"expected {field.type.name}, got {contextual.type.name}"
+                )
 
         missing = declared_fields - seen_fields
         if missing:
@@ -960,13 +1001,14 @@ def infer_expression_type(
                 f"call {callee!r} has wrong argument count"
             )
         for argument, parameter in zip(getattr(expr, "args", ()), function.params):
-            argument_type = infer_expression_type(
-                argument, env, typed_module
-            ).type
-            if argument_type != parameter.type:
+            inferred = infer_expression_type(argument, env, typed_module)
+            contextual = _contextual_integer_literal(
+                argument, inferred, parameter.type
+            )
+            if contextual.type != parameter.type:
                 raise Phase1SemanticError(
                     f"call {callee!r} argument type mismatch: "
-                    f"expected {parameter.type.name}, got {argument_type.name}"
+                    f"expected {parameter.type.name}, got {contextual.type.name}"
                 )
         return TypedExprNode(kind, function.result, callee)
 
@@ -1026,6 +1068,10 @@ def _build_typed_block(
             )
             explicit = getattr(statement, "type", None)
             declared = semantic_type(explicit) if explicit is not None else expr.type
+            if explicit is not None:
+                expr = _contextual_integer_literal(
+                    getattr(statement, "value"), expr, declared
+                )
             if declared != expr.type:
                 raise Phase1SemanticError(
                     f"let {statement.name!r} type mismatch: "
@@ -1041,8 +1087,12 @@ def _build_typed_block(
             target = infer_assignment_target_type(
                 getattr(statement, "target"), env, typed_module
             )
+            value_expr = getattr(statement, "value")
             value = infer_expression_type(
-                getattr(statement, "value"), env, typed_module
+                value_expr, env, typed_module
+            )
+            value = _contextual_integer_literal(
+                value_expr, value, target.type
             )
             if target.type != value.type:
                 raise Phase1SemanticError(
@@ -1061,6 +1111,10 @@ def _build_typed_block(
                 if value is not None
                 else None
             )
+            if expr is not None:
+                expr = _contextual_integer_literal(
+                    value, expr, typed_function.result
+                )
             actual = expr.type if expr is not None else SemanticType("void")
             if actual != typed_function.result:
                 raise Phase1SemanticError(

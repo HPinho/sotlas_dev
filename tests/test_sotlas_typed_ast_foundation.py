@@ -941,6 +941,72 @@ fn main(value: u32) -> u32 {
         ):
             typed_ast.build_linear_typed_body(parsed, typed, "main")
 
+    def test_contextual_integer_literal_fits_declared_type(self):
+        source = """module test::typed_integer_context;
+struct Pixel { channel: u8; }
+fn take(value: u16) -> u16 { return value; }
+fn main() -> u16 {
+    let pixel = Pixel { channel: 255 };
+    let local: u8 = 7;
+    local = 8;
+    take(9);
+    return 10;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-int-context>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "main")
+        self.assertEqual(body.statements[1].type.name, "u8")
+        self.assertEqual(body.statements[1].expr.type.name, "u8")
+        self.assertEqual(body.statements[2].expr.type.name, "u8")
+        self.assertEqual(body.statements[-1].expr.type.name, "u16")
+
+    def test_contextual_integer_literal_rejects_out_of_range(self):
+        source = """module test::typed_integer_range;
+fn main() -> void {
+    let value: u8 = 256;
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-int-range>")
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"integer value 256 out of range for u8",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
+    def test_contextual_integer_literal_respects_explicit_suffix(self):
+        source = """module test::typed_integer_suffix;
+fn main() -> void {
+    let value: u32 = 1i64;
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-int-suffix>")
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"let 'value' type mismatch: declared u32, got i64",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
+    def test_struct_literal_checks_contextual_integer_field_range(self):
+        source = """module test::typed_struct_field_range;
+struct Pixel { channel: u8; }
+fn main() -> Pixel {
+    return Pixel { channel: 256 };
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-struct-field-range>")
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"integer value 256 out of range for u8",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
     def test_typed_body_types_array_literal_and_index(self):
         source = """module test::typed_array;
 fn main() -> i64 {
