@@ -6,11 +6,9 @@
 from . import bootstrap as bootstrap
 from .frontend_extensions import install as _install_frontend_extensions
 from .language_safety import install as _install_language_safety
-from .typed_ast import install as _install_typed_ast
 
 _install_frontend_extensions(bootstrap)
 _install_language_safety(bootstrap)
-_install_typed_ast(bootstrap)
 
 from .errors import SotlasError
 
