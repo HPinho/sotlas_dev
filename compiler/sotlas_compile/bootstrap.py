@@ -1165,9 +1165,9 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
         if isinstance(expr, Unary):
             inner = expr_type(expr.value, scope, in_unsafe, is_system_fn)
             if expr.op == "*":
-                if not in_unsafe and not is_system_fn:
+                if not in_unsafe:
                     raise SotlasBootstrapError(
-                        "desreferenciamento de ponteiro exige bloco unsafe ou função @system",
+                        "desreferenciamento de ponteiro exige bloco unsafe",
                         expr.token.line, expr.token.column, filename, source,
                     )
                 return Type(inner.name, pointer=False, mutable=inner.mutable)

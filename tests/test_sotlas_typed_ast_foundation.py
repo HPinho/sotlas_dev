@@ -956,6 +956,37 @@ fn main() -> void {
         ):
             typed_ast.build_linear_typed_body(parsed, typed, "main")
 
+    def test_system_function_does_not_replace_unsafe_for_pointer_deref(self):
+        source = """module test::system_requires_unsafe;
+@system
+fn read(ptr: *mut u32) -> u32 {
+    return *ptr;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-system-requires-unsafe>")
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"desreferenciamento de ponteiro exige bloco unsafe",
+        ):
+            bootstrap.check(parsed)
+
+    def test_system_function_accepts_pointer_deref_inside_unsafe(self):
+        source = """module test::system_with_unsafe;
+@system
+fn read(ptr: *mut u32) -> u32 {
+    unsafe {
+        return *ptr;
+    }
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-system-with-unsafe>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "read")
+        self.assertEqual(body.statements[0].kind, "Unsafe")
+        self.assertEqual(body.statements[0].body[0].kind, "Return")
+        self.assertEqual(body.statements[0].body[0].expr.type.name, "u32")
+
     def test_typed_body_materializes_unsafe_block(self):
         source = """module test::typed_unsafe;
 fn main() -> i64 {
