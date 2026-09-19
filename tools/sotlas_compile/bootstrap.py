@@ -1,7 +1,6 @@
 """Frontend Sotlas Bootstrap: lexer, parser recursivo, tipagem, verificação unsafe e emissor C11.
 
-Este módulo é deliberadamente independente do shell legado do Baken OS. Ele é
-o contrato executável do subconjunto procedural da linguagem Sotlas:
+Este módulo define o contrato executável do subconjunto procedural da linguagem Sotlas:
 módulos, structs com atributos, enums, globais/constantes, funções, tipos fixos,
 arrays fixos [T; N], ponteiros unsafe, casts ('as'), expressões, fluxo e mangling.
 """
@@ -29,8 +28,6 @@ class SotlasBootstrapError(Exception):
                 snippet = f"\n  {src_line}\n  {pointer}"
         super().__init__(f"{loc}: {message}{snippet}")
 
-# Alias de compatibilidade
-Cq01Error = SotlasBootstrapError
 
 
 @dataclass(frozen=True)
@@ -1058,37 +1055,11 @@ BUILTIN_FUNCTIONS: dict[str, Function] = {
     "__inw": Function("__inw", [("port", Type("u16"))], Type("u16"), [], public=True, attributes=["@system"]),
     "__outl": Function("__outl", [("port", Type("u16")), ("val", Type("u32"))], Type("void"), [], public=True, attributes=["@system"]),
     "__inl": Function("__inl", [("port", Type("u16"))], Type("u32"), [], public=True, attributes=["@system"]),
-    "baken_pci_out32": Function("baken_pci_out32", [("port", Type("u16")), ("val", Type("u32"))], Type("void"), [], public=True, attributes=["@system"]),
-    "baken_pci_in32": Function("baken_pci_in32", [("port", Type("u16"))], Type("u32"), [], public=True, attributes=["@system"]),
-    "baken_pci_out16": Function("baken_pci_out16", [("port", Type("u16")), ("val", Type("u16"))], Type("void"), [], public=True, attributes=["@system"]),
-    "baken_pci_in16": Function("baken_pci_in16", [("port", Type("u16"))], Type("u16"), [], public=True, attributes=["@system"]),
-    "baken_pci_out8": Function("baken_pci_out8", [("port", Type("u16")), ("val", Type("u8"))], Type("void"), [], public=True, attributes=["@system"]),
-    "baken_pci_in8": Function("baken_pci_in8", [("port", Type("u16"))], Type("u8"), [], public=True, attributes=["@system"]),
     "__rdmsr": Function("__rdmsr", [("msr", Type("u32"))], Type("u64"), [], public=True, attributes=["@system"]),
     "__wrmsr": Function("__wrmsr", [("msr", Type("u32")), ("val", Type("u64"))], Type("void"), [], public=True, attributes=["@system"]),
-    "baken_io_wait": Function("baken_io_wait", [], Type("void"), [], public=True, attributes=["@system"]),
     "__cli": Function("__cli", [], Type("void"), [], public=True, attributes=["@system"]),
     "__sti": Function("__sti", [], Type("void"), [], public=True, attributes=["@system"]),
     "__hlt": Function("__hlt", [], Type("void"), [], public=True, attributes=["@system"]),
-    "baken_fast_memcpy": Function("baken_fast_memcpy", [("dst", Type("void", pointer=True)), ("src", Type("void", pointer=True)), ("n", Type("usize"))], Type("void"), [], public=True, attributes=["@system"]),
-    "baken_fast_fill_rect": Function("baken_fast_fill_rect", [("fb", Type("u32", pointer=True)), ("pitch", Type("u32")), ("x", Type("u32")), ("y", Type("u32")), ("w", Type("u32")), ("h", Type("u32")), ("color", Type("u32"))], Type("void"), [], public=True, attributes=["@system"]),
-    "baken_rdtsc": Function("baken_rdtsc", [], Type("u64"), [], public=True, attributes=["@system"]),
-    "baken_bind_all_assets": Function("baken_bind_all_assets", [], Type("void"), [], public=True, attributes=["@system"]),
-    "baken_serial_print": Function("baken_serial_print", [("s", Type("u8", pointer=True))], Type("void"), [], public=True, attributes=["@system"]),
-    "baken_get_font_advances": Function("baken_get_font_advances", [("idx", Type("u32"))], Type("u8", pointer=True), [], public=True, attributes=["@system"]),
-    "baken_get_font_alpha": Function("baken_get_font_alpha", [("idx", Type("u32"))], Type("u8", pointer=True), [], public=True, attributes=["@system"]),
-    "baken_get_font_width": Function("baken_get_font_width", [("idx", Type("u32"))], Type("u32"), [], public=True, attributes=["@system"]),
-    "baken_get_font_height": Function("baken_get_font_height", [("idx", Type("u32"))], Type("u32"), [], public=True, attributes=["@system"]),
-    "baken_get_font_px": Function("baken_get_font_px", [("idx", Type("u32"))], Type("u32"), [], public=True, attributes=["@system"]),
-    "baken_get_cjk_width": Function("baken_get_cjk_width", [("idx", Type("u32"))], Type("u32"), [], public=True, attributes=["@system"]),
-    "baken_get_cjk_height": Function("baken_get_cjk_height", [("idx", Type("u32"))], Type("u32"), [], public=True, attributes=["@system"]),
-    "baken_get_cjk_alpha": Function("baken_get_cjk_alpha", [("idx", Type("u32"))], Type("u8", pointer=True), [], public=True, attributes=["@system"]),
-    "baken_get_logo_pixels": Function("baken_get_logo_pixels", [], Type("u32", pointer=True), [], public=True, attributes=["@system"]),
-    "baken_get_logo_size": Function("baken_get_logo_size", [], Type("u32"), [], public=True, attributes=["@system"]),
-    "baken_srgb_to_linear": Function("baken_srgb_to_linear", [("c", Type("u8"))], Type("u32"), [], public=True, attributes=["@system"]),
-    "baken_linear_to_srgb": Function("baken_linear_to_srgb", [("lin", Type("u32"))], Type("u8"), [], public=True, attributes=["@system"]),
-    "baken_get_app_icon_alpha": Function("baken_get_app_icon_alpha", [("app_id", Type("u32")), ("size_px", Type("u32"))], Type("u8", pointer=True), [], public=True, attributes=["@system"]),
-    "baken_get_motion_icon_alpha": Function("baken_get_motion_icon_alpha", [("motion_id", Type("u32")), ("size_px", Type("u32"))], Type("u8", pointer=True), [], public=True, attributes=["@system"]),
     "__dma_fence": Function("__dma_fence", [], Type("void"), [], public=True, attributes=["@system"]),
     "__sfence": Function("__sfence", [], Type("void"), [], public=True, attributes=["@system"]),
     "__lfence": Function("__lfence", [], Type("void"), [], public=True, attributes=["@system"]),
@@ -1210,7 +1181,7 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
             function = functions.get(expr.callee)
             if function:
                 return function.result
-            if expr.callee.startswith("__") or expr.callee.startswith("baken_"):
+            if expr.callee.startswith("__"):
                 return Type("u64")
             raise SotlasBootstrapError(
                 f"função não declarada: {expr.callee}", expr.token.line,
@@ -1467,13 +1438,6 @@ static inline uint32_t __inl(uint16_t port) {
 #endif
 }
 
-static inline void baken_pci_out32(uint16_t port, uint32_t val) { __outl(port, val); }
-static inline uint32_t baken_pci_in32(uint16_t port) { return __inl(port); }
-static inline void baken_pci_out16(uint16_t port, uint16_t val) { __outw(port, val); }
-static inline uint16_t baken_pci_in16(uint16_t port) { return __inw(port); }
-static inline void baken_pci_out8(uint16_t port, uint8_t val) { __outb(port, val); }
-static inline uint8_t baken_pci_in8(uint16_t port) { return __inb(port); }
-
 #ifndef __rdmsr_defined
 #define __rdmsr_defined
 static inline uint64_t __rdmsr(uint32_t msr) {
@@ -1497,12 +1461,6 @@ static inline void __wrmsr(uint32_t msr, uint64_t val) {
 }
 #endif
 
-static inline void baken_io_wait(void) {
-#if defined(__x86_64__) || defined(__i386__)
-    __asm__ volatile ("outb %%al, $0x80" : : "a"(0));
-#endif
-}
-
 static inline void __cli(void) {
 #if defined(__x86_64__) || defined(__i386__)
     __asm__ volatile ("cli");
@@ -1521,174 +1479,6 @@ static inline void __hlt(void) {
 #endif
 }
 
-static inline void baken_fast_memcpy(void *dst, const void *src, size_t n) {
-#if defined(__x86_64__)
-    size_t qwords = n / 8;
-    size_t bytes = n % 8;
-    __asm__ volatile (
-        "cld\\n\\t"
-        "rep movsq"
-        : "+D"(dst), "+S"(src), "+c"(qwords)
-        :
-        : "memory"
-    );
-    uint8_t *d = (uint8_t *)dst;
-    const uint8_t *s = (const uint8_t *)src;
-    for (size_t i = 0; i < bytes; i++) d[i] = s[i];
-#else
-    uint64_t *d64 = (uint64_t *)dst;
-    const uint64_t *s64 = (const uint64_t *)src;
-    size_t q = n / 8;
-    for (size_t i = 0; i < q; i++) d64[i] = s64[i];
-#endif
-}
-
-static inline void baken_fast_fill_rect(uint32_t *fb, uint32_t pitch, uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t color) {
-    if (!fb || w == 0 || h == 0) return;
-    for (uint32_t row = 0; row < h; row++) {
-        uint32_t *dst = fb + (y + row) * pitch + x;
-#if defined(__x86_64__) || defined(__i386__)
-        size_t q = w;
-        __asm__ volatile (
-            "cld\\n\\t"
-            "rep stosl"
-            : "+D"(dst), "+c"(q)
-            : "a"(color)
-            : "memory"
-        );
-#else
-        for (uint32_t i = 0; i < w; i++) dst[i] = color;
-#endif
-    }
-}
-
-static inline uint64_t baken_rdtsc(void) {
-#if defined(__x86_64__) || defined(__i386__)
-    uint32_t low, high;
-    __asm__ volatile ("rdtsc" : "=a"(low), "=d"(high));
-    return ((uint64_t)high << 32) | low;
-#else
-    return 0;
-#endif
-}
-
-static inline void baken_serial_print(const uint8_t *s) {
-    if (!s) return;
-    while (*s) {
-        if (*s == 10) {
-            while ((__inb(0x3FD) & 0x20) == 0);
-            __outb(0x3F8, 13);
-        }
-        while ((__inb(0x3FD) & 0x20) == 0);
-        __outb(0x3F8, *s++);
-    }
-}
-
-#if defined(__has_include)
-#if __has_include("font_google_sans_flex_atlas.h")
-#include "font_google_sans_flex_atlas.h"
-#include "baken_cjk_atlas.h"
-#include "baken_logo_atlas.h"
-#include "baken_color_lut.h"
-#include "baken_app_icons_atlas.h"
-#include "baken_motion_icons_atlas.h"
-
-static inline const uint8_t *baken_get_font_advances(uint32_t idx) {
-    if (idx < 9) return sotlas_font_atlases[idx].advances;
-    return 0;
-}
-static inline const uint8_t *baken_get_font_alpha(uint32_t idx) {
-    if (idx < 9) return sotlas_font_atlases[idx].alpha;
-    return 0;
-}
-static inline uint32_t baken_get_font_width(uint32_t idx) {
-    if (idx < 9) return (uint32_t)sotlas_font_atlases[idx].width;
-    return 0;
-}
-static inline uint32_t baken_get_font_height(uint32_t idx) {
-    if (idx < 9) return (uint32_t)sotlas_font_atlases[idx].height;
-    return 0;
-}
-static inline uint32_t baken_get_font_px(uint32_t idx) {
-    if (idx < 9) return (uint32_t)sotlas_font_atlases[idx].px;
-    return 0;
-}
-
-static inline uint32_t baken_get_cjk_width(uint32_t idx) {
-    if (idx < BAKEN_CJK_COUNT) return g_baken_cjk_items[idx].width;
-    return 0;
-}
-static inline uint32_t baken_get_cjk_height(uint32_t idx) {
-    if (idx < BAKEN_CJK_COUNT) return g_baken_cjk_items[idx].height;
-    return 0;
-}
-static inline const uint8_t *baken_get_cjk_alpha(uint32_t idx) {
-    if (idx < BAKEN_CJK_COUNT) return g_baken_cjk_items[idx].alpha;
-    return 0;
-}
-
-static inline const uint32_t *baken_get_logo_pixels(void) {
-    return g_baken_logo_atlases[0].pixels;
-}
-static inline uint32_t baken_get_logo_size(void) {
-    return g_baken_logo_atlases[0].size;
-}
-
-static inline uint32_t baken_srgb_to_linear(uint8_t c) {
-    return (uint32_t)bkn_srgb_to_linear_16[c];
-}
-static inline uint8_t baken_linear_to_srgb(uint32_t lin) {
-    uint32_t idx = lin >> 4;
-    if (idx > 4096) idx = 4096;
-    return bkn_linear_16_to_srgb[idx];
-}
-
-static inline const uint8_t *baken_get_app_icon_alpha(uint32_t app_id, uint32_t size_px) {
-    if (app_id >= 16) return 0;
-    if (size_px == 32) return baken_app_icons_32[app_id];
-    if (size_px == 48) return baken_app_icons_48[app_id];
-    if (size_px == 64) return baken_app_icons_64[app_id];
-    if (size_px == 96) return baken_app_icons_96[app_id];
-    return baken_app_icons_32[app_id];
-}
-
-static inline const uint8_t *baken_get_motion_icon_alpha(uint32_t motion_id, uint32_t size_px) {
-    if (motion_id >= 5) return 0;
-    if (size_px == 24) return baken_motion_icons_24[motion_id];
-    return baken_motion_icons_32[motion_id];
-}
-#else
-static inline const uint8_t *baken_get_font_advances(uint32_t idx) { (void)idx; return 0; }
-static inline const uint8_t *baken_get_font_alpha(uint32_t idx) { (void)idx; return 0; }
-static inline uint32_t baken_get_font_width(uint32_t idx) { (void)idx; return 0; }
-static inline uint32_t baken_get_font_height(uint32_t idx) { (void)idx; return 0; }
-static inline uint32_t baken_get_font_px(uint32_t idx) { (void)idx; return 0; }
-static inline uint32_t baken_get_cjk_width(uint32_t idx) { (void)idx; return 0; }
-static inline uint32_t baken_get_cjk_height(uint32_t idx) { (void)idx; return 0; }
-static inline const uint8_t *baken_get_cjk_alpha(uint32_t idx) { (void)idx; return 0; }
-static inline const uint32_t *baken_get_logo_pixels(void) { return 0; }
-static inline uint32_t baken_get_logo_size(void) { return 0; }
-static inline uint32_t baken_srgb_to_linear(uint8_t c) { return (uint32_t)c * 257; }
-static inline uint8_t baken_linear_to_srgb(uint32_t lin) { return (uint8_t)(lin / 257); }
-static inline const uint8_t *baken_get_app_icon_alpha(uint32_t app_id, uint32_t size_px) { (void)app_id; (void)size_px; return 0; }
-static inline const uint8_t *baken_get_motion_icon_alpha(uint32_t motion_id, uint32_t size_px) { (void)motion_id; (void)size_px; return 0; }
-#endif
-#else
-static inline const uint8_t *baken_get_font_advances(uint32_t idx) { (void)idx; return 0; }
-static inline const uint8_t *baken_get_font_alpha(uint32_t idx) { (void)idx; return 0; }
-static inline uint32_t baken_get_font_width(uint32_t idx) { (void)idx; return 0; }
-static inline uint32_t baken_get_font_height(uint32_t idx) { (void)idx; return 0; }
-static inline uint32_t baken_get_font_px(uint32_t idx) { (void)idx; return 0; }
-static inline uint32_t baken_get_cjk_width(uint32_t idx) { (void)idx; return 0; }
-static inline uint32_t baken_get_cjk_height(uint32_t idx) { (void)idx; return 0; }
-static inline const uint8_t *baken_get_cjk_alpha(uint32_t idx) { (void)idx; return 0; }
-static inline const uint32_t *baken_get_logo_pixels(void) { return 0; }
-static inline uint32_t baken_get_logo_size(void) { return 0; }
-static inline uint32_t baken_srgb_to_linear(uint8_t c) { return (uint32_t)c * 257; }
-static inline uint8_t baken_linear_to_srgb(uint32_t lin) { return (uint8_t)(lin / 257); }
-static inline const uint8_t *baken_get_app_icon_alpha(uint32_t app_id, uint32_t size_px) { (void)app_id; (void)size_px; return 0; }
-static inline const uint8_t *baken_get_motion_icon_alpha(uint32_t motion_id, uint32_t size_px) { (void)motion_id; (void)size_px; return 0; }
-#endif
 """
 
 

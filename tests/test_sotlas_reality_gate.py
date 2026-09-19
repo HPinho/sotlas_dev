@@ -32,6 +32,18 @@ class SotlasRealityGateTests(unittest.TestCase):
         self.assertIn("from .errors import SotlasError", package)
 
 
+    def test_canonical_bootstrap_has_no_product_or_cq_compatibility_names(self):
+        for path in (
+            ROOT / "compiler" / "sotlas_compile" / "bootstrap.py",
+            ROOT / "tools" / "sotlas_compile" / "bootstrap.py",
+        ):
+            source = path.read_text(encoding="utf-8").lower()
+            for forbidden in (
+                "baken", "libbkn", "projeto-bkn", "cq01error",
+                ".cq", ".cqh", "vortexc",
+            ):
+                self.assertNotIn(forbidden, source, f"{forbidden} leaked into {path}")
+
     def test_x86_inline_assembly_uses_platform_c_symbol_spelling(self):
         intrinsics = (
             ROOT / "compiler" / "sotlas_compile" / "x86_intrinsics.py"
