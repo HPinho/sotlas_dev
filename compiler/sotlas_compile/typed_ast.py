@@ -1414,7 +1414,7 @@ def infer_expression_type(
                 SemanticType(
                     inner.type.name,
                     pointer=False,
-                    mutable=inner.type.mutable,
+                    mutable=False,
                     is_reference=False,
                 ),
                 op,
