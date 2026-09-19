@@ -1292,6 +1292,82 @@ fn main(point: Point) -> u64 {
         ):
             typed_ast.build_linear_typed_body(parsed, typed, "main")
 
+    def test_typed_body_resolves_declared_method_call(self):
+        source = """module test::typed_method;
+struct Counter {
+    value: u32;
+    fn add(self: *mut Counter, amount: u32) -> u32 {
+        unsafe { return self.value + amount; }
+    }
+}
+fn main() -> u32 {
+    let counter = Counter { value: 1 };
+    return counter.add(2);
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-method>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "main")
+        call = body.statements[-1].expr
+        self.assertEqual(call.kind, "MethodCall")
+        self.assertEqual(call.type.name, "u32")
+        self.assertEqual(call.label, "Counter.add")
+
+    def test_typed_body_contextualizes_method_integer_argument(self):
+        source = """module test::typed_method_arg;
+struct Counter {
+    value: u32;
+    fn add(self: *mut Counter, amount: u16) -> u16 {
+        return amount;
+    }
+}
+fn main() -> u16 {
+    let counter = Counter { value: 1 };
+    return counter.add(7);
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-method-arg>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "main")
+        self.assertEqual(body.statements[-1].expr.type.name, "u16")
+
+    def test_typed_body_rejects_unknown_method_independently(self):
+        source = """module test::typed_method_unknown;
+struct Counter { value: u32; }
+fn main(counter: Counter) -> u32 {
+    return counter.missing();
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-method-unknown>")
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"cannot type unknown method Counter\.missing",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
+    def test_typed_body_rejects_method_argument_mismatch_independently(self):
+        source = """module test::typed_method_bad_arg;
+struct Counter {
+    value: u32;
+    fn add(self: *mut Counter, amount: u32) -> u32 {
+        return amount;
+    }
+}
+fn main(counter: Counter, flag: bool) -> u32 {
+    return counter.add(flag);
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-method-bad-arg>")
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"method Counter\.add argument type mismatch: expected u32, got bool",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
     def test_typed_body_types_if_expression(self):
         source = """module test::typed_if_expr;
 fn choose(flag: bool) -> i64 {

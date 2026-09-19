@@ -565,6 +565,64 @@ def _collect_calls_from_expr(expr, calls: list[str]) -> None:
     if expr is None:
         return
     kind = type(expr).__name__
+    if kind == "MethodCall":
+        target_expr = getattr(expr, "target")
+        target = infer_expression_type(target_expr, env, typed_module)
+        method_name = getattr(expr, "method")
+        owner_name = target.type.name
+        method = next(
+            (
+                item for item in typed_module.functions
+                if item.name == f"{owner_name}_{method_name}"
+            ),
+            None,
+        )
+        if method is None:
+            raise Phase1SemanticError(
+                f"cannot type unknown method {owner_name}.{method_name}"
+            )
+
+        params = method.params
+        if not params:
+            raise Phase1SemanticError(
+                f"method {owner_name}.{method_name} has no self parameter"
+            )
+
+        self_param = params[0].type
+        if self_param.name != owner_name:
+            raise Phase1SemanticError(
+                f"method {owner_name}.{method_name} has incompatible self type "
+                f"{self_param.name}"
+            )
+        if target.type.pointer and not self_param.pointer:
+            raise Phase1SemanticError(
+                f"method {owner_name}.{method_name} expects value self, got pointer"
+            )
+
+        arguments = tuple(getattr(expr, "args", ()))
+        user_params = params[1:]
+        if len(arguments) != len(user_params):
+            raise Phase1SemanticError(
+                f"method {owner_name}.{method_name} has wrong argument count"
+            )
+
+        for argument, parameter in zip(arguments, user_params):
+            inferred = infer_expression_type(argument, env, typed_module)
+            contextual = _contextual_integer_literal(
+                argument, inferred, parameter.type
+            )
+            if contextual.type != parameter.type:
+                raise Phase1SemanticError(
+                    f"method {owner_name}.{method_name} argument type mismatch: "
+                    f"expected {parameter.type.name}, got {contextual.type.name}"
+                )
+
+        return TypedExprNode(
+            kind,
+            method.result,
+            f"{owner_name}.{method_name}",
+        )
+
     if kind == "Call":
         callee = getattr(expr, "callee", None)
         if isinstance(callee, str):
