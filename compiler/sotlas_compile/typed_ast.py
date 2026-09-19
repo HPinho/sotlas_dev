@@ -801,6 +801,27 @@ def infer_expression_type(
     )
 
 
+def infer_assignment_target_type(
+    target,
+    env: dict[str, SemanticType],
+    typed_module: TypedModule,
+) -> TypedExprNode:
+    """Resolve a writable target's semantic type without inventing lvalue rules."""
+    kind = type(target).__name__
+    if kind == "Name":
+        name = getattr(target, "value")
+        if name not in env:
+            raise Phase1SemanticError(
+                f"assignment target {name!r} is not a local binding"
+            )
+        return TypedExprNode(kind, env[name], name)
+    if kind == "Member":
+        return infer_expression_type(target, env, typed_module)
+    raise Phase1SemanticError(
+        f"assignment target typing not implemented for {kind}"
+    )
+
+
 def build_linear_typed_body(
     parsed_module, typed_module: TypedModule, function_name: str
 ) -> TypedFunctionBody:
@@ -855,6 +876,23 @@ def build_linear_typed_body(
                 )
             statements.append(
                 TypedStmtNode("Return", None, actual, expr)
+            )
+            continue
+
+        if kind == "Assign":
+            target = infer_assignment_target_type(
+                getattr(statement, "target"), env, typed_module
+            )
+            value = infer_expression_type(
+                getattr(statement, "value"), env, typed_module
+            )
+            if target.type != value.type:
+                raise Phase1SemanticError(
+                    f"assignment type mismatch for {target.label!r}: "
+                    f"expected {target.type.name}, got {value.type.name}"
+                )
+            statements.append(
+                TypedStmtNode("Assign", target.label, target.type, value)
             )
             continue
 
@@ -1172,7 +1210,8 @@ __all__ = [
     "OwnershipParamContract", "OwnershipFunctionSummary",
     "OwnershipModuleAnalysis", "summarize_module_ownership",
     "analyze_module_ownership", "TypedExprNode", "TypedStmtNode",
-    "TypedFunctionBody", "infer_expression_type", "build_linear_typed_body",
+    "TypedFunctionBody", "infer_expression_type",
+    "infer_assignment_target_type", "build_linear_typed_body",
     "apply_ownership_moves", "merge_conditional_ownership",
     "validate_loop_ownership", "require_live", "move_state", "merge_branch_states",
     "SourceSpan", "SemanticType",

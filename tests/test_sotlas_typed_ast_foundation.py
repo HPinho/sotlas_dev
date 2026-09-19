@@ -622,6 +622,58 @@ fn main() -> void {
         ):
             typed_ast.build_linear_typed_body(parsed, typed, "main")
 
+    def test_linear_typed_body_checks_name_assignment(self):
+        source = """module test::typed_assign;
+fn main() -> i64 {
+    let value: i64 = 1;
+    value = 2;
+    return value;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-typed-assign>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "main")
+        assign = body.statements[1]
+        self.assertEqual(assign.kind, "Assign")
+        self.assertEqual(assign.name, "value")
+        self.assertEqual(assign.type.name, "i64")
+
+    def test_linear_typed_body_rejects_assignment_type_mismatch(self):
+        source = """module test::typed_assign_mismatch;
+fn main() -> void {
+    let value: i64 = 1;
+    value = true;
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-typed-assign-mismatch>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"assignment type mismatch for 'value': expected i64, got bool",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
+    def test_linear_typed_body_checks_member_assignment(self):
+        source = """module test::typed_member_assign;
+struct Point { x: u32; }
+fn main() -> u32 {
+    let point = Point { x: 1 };
+    point.x = 2u32;
+    return point.x;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-typed-member-assign>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "main")
+        assign = body.statements[1]
+        self.assertEqual(assign.kind, "Assign")
+        self.assertEqual(assign.name, "x")
+        self.assertEqual(assign.type.name, "u32")
+
     def test_conditional_move_in_one_branch_becomes_maybe_moved(self):
         typed = typed_ast.build_declaration_typed_ast(self.checked_ast())
         base = typed_ast.OwnershipEnv().declare(
