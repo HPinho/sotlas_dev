@@ -542,6 +542,65 @@ def _analyze_block_ownership(
                 require_expr_ownership_live(result, value)
             continue
 
+        if kind == "Assign":
+            target = getattr(statement, "target", None)
+            value = getattr(statement, "value", None)
+            target_name = (
+                getattr(target, "value", None)
+                if type(target).__name__ == "Name"
+                else None
+            )
+            target_is_owned = (
+                target_name is not None
+                and result.state_of(target_name) is not None
+            )
+
+            if target_is_owned:
+                result.require_live(target_name)
+            elif type(target).__name__ in ("Member", "Index"):
+                require_expr_ownership_live(result, target)
+
+            moved_value = (
+                getattr(value, "value", None)
+                if type(value).__name__ == "MoveExpr"
+                else value
+            )
+            if type(moved_value).__name__ == "Name":
+                source_name = moved_value.value
+                source_type = result.type_of(source_name)
+                if source_type is not None:
+                    if not target_is_owned:
+                        raise Phase1SemanticError(
+                            "sole assignment requires a direct owned target"
+                        )
+                    if source_name == target_name:
+                        raise Phase1SemanticError(
+                            f"sole value {source_name!r} cannot be assigned to itself"
+                        )
+                    result = result.move(source_name)
+                    events.append(
+                        OwnershipEvent(
+                            "move", source_name, f"assign:{target_name}"
+                        )
+                    )
+                else:
+                    require_expr_ownership_live(result, value)
+            elif type(value).__name__ == "Call":
+                result = _move_call_arguments(
+                    result, value, typed_module, events
+                )
+            elif type(value).__name__ == "MethodCall":
+                result = _move_method_call_arguments(
+                    result, value, typed_module, events
+                )
+            elif type(value).__name__ == "TryExpr":
+                result = _move_try_wrapped_call_arguments(
+                    result, value, typed_module, events
+                )
+            else:
+                require_expr_ownership_live(result, value)
+            continue
+
         if kind == "Return":
             value = getattr(statement, "value", None)
             if (

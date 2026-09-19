@@ -1737,6 +1737,64 @@ fn main(consumer: Consumer) -> void {
         ):
             typed_ast.analyze_function_ownership(parsed, typed, "main")
 
+    def test_ownership_assignment_moves_direct_sole_source(self):
+        source = """module test::ownership_assign_move;
+sole struct Token { value: u32; }
+fn main(first: Token, second: Token) -> void {
+    first = move second;
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-ownership-assign-move>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(parsed, typed, "main")
+        self.assertIs(trace.final_env.state_of("first"), typed_ast.VarState.LIVE)
+        self.assertIs(trace.final_env.state_of("second"), typed_ast.VarState.MOVED)
+        self.assertIn(
+            typed_ast.OwnershipEvent("move", "second", "assign:first"),
+            trace.events,
+        )
+
+    def test_ownership_assignment_rejects_reinitializing_moved_target(self):
+        source = """module test::ownership_assign_reinit;
+sole struct Token { value: u32; }
+fn consume(token: Token) -> void { return; }
+fn main(first: Token, second: Token) -> void {
+    consume(move first);
+    first = move second;
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-ownership-assign-reinit>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"use of sole value 'first' after move",
+        ):
+            typed_ast.analyze_function_ownership(parsed, typed, "main")
+
+    def test_ownership_assignment_rejects_read_from_moved_owner(self):
+        source = """module test::ownership_assign_read;
+sole struct Token { value: u32; }
+fn consume(token: Token) -> void { return; }
+fn main(token: Token) -> void {
+    let value: u32 = 0;
+    consume(move token);
+    value = token.value;
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-ownership-assign-read>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"use of sole value 'token' after move",
+        ):
+            typed_ast.analyze_function_ownership(parsed, typed, "main")
+
     def test_ownership_try_wrapped_call_moves_sole_argument(self):
         source = """module test::ownership_try_call_move;
 sole struct Token { value: u32; }
