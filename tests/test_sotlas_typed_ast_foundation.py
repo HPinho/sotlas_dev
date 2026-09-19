@@ -1521,7 +1521,7 @@ fn main(flag: bool) -> bool { return -flag; }
         typed = typed_ast.build_declaration_typed_ast(parsed)
         with self.assertRaisesRegex(
             typed_ast.Phase1SemanticError,
-            r"unary minus requires numeric operand, got bool",
+            r"unary minus requires signed integer or float, got bool",
         ):
             typed_ast.build_linear_typed_body(parsed, typed, "main")
 
