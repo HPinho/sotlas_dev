@@ -925,6 +925,87 @@ def _build_typed_block(
             )
             continue
 
+        if kind == "While":
+            condition = infer_expression_type(
+                getattr(statement, "condition"), env, typed_module
+            )
+            if condition.type != SemanticType("bool"):
+                raise Phase1SemanticError(
+                    f"while condition must be bool, got {condition.type.name}"
+                )
+            body = _build_typed_block(
+                getattr(statement, "body", ()),
+                dict(env),
+                typed_module,
+                typed_function,
+            )
+            typed_statements.append(
+                TypedStmtNode(
+                    "While", None, SemanticType("bool"), condition, body
+                )
+            )
+            continue
+
+        if kind == "Loop":
+            body = _build_typed_block(
+                getattr(statement, "body", ()),
+                dict(env),
+                typed_module,
+                typed_function,
+            )
+            typed_statements.append(
+                TypedStmtNode("Loop", None, None, None, body)
+            )
+            continue
+
+        if kind == "For":
+            start = infer_expression_type(
+                getattr(statement, "start"), env, typed_module
+            )
+            end = infer_expression_type(
+                getattr(statement, "end"), env, typed_module
+            )
+            integer_types = {
+                "u8", "u16", "u32", "u64", "usize",
+                "i8", "i16", "i32", "i64", "isize",
+            }
+            if start.type.name not in integer_types or end.type.name not in integer_types:
+                raise Phase1SemanticError(
+                    f"for range bounds must be integers, got "
+                    f"{start.type.name} and {end.type.name}"
+                )
+            if start.type != end.type:
+                raise Phase1SemanticError(
+                    f"for range bound type mismatch: "
+                    f"{start.type.name} vs {end.type.name}"
+                )
+            loop_env = dict(env)
+            loop_env[getattr(statement, "var_name")] = SemanticType("usize")
+            body = _build_typed_block(
+                getattr(statement, "body", ()),
+                loop_env,
+                typed_module,
+                typed_function,
+            )
+            typed_statements.append(
+                TypedStmtNode(
+                    "For",
+                    getattr(statement, "var_name"),
+                    SemanticType("usize"),
+                    start,
+                    body,
+                    (),
+                    end,
+                )
+            )
+            continue
+
+        if kind in ("Break", "Continue"):
+            typed_statements.append(
+                TypedStmtNode(kind, None, None, None)
+            )
+            continue
+
         raise Phase1SemanticError(
             f"body typing not implemented for statement {kind}"
         )
