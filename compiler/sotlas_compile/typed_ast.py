@@ -793,6 +793,58 @@ def _contextual_integer_literal(
     return TypedExprNode(inferred.kind, expected, inferred.label)
 
 
+def _contextualize_expression(
+    expr,
+    inferred: TypedExprNode,
+    expected: SemanticType,
+    env: dict[str, SemanticType],
+    typed_module: TypedModule,
+) -> TypedExprNode:
+    """Apply only explicit Phase-1 contextual typing rules."""
+    integer = _contextual_integer_literal(expr, inferred, expected)
+    if integer.type == expected:
+        return integer
+
+    if type(expr).__name__ != "ArrayLit" or not expected.is_array:
+        return inferred
+
+    elements = tuple(getattr(expr, "elements", ()))
+    expected_elem = expected.elem_type or SemanticType(
+        expected.name,
+        pointer=expected.pointer,
+        mutable=expected.mutable,
+    )
+    actual_size = (
+        getattr(expr, "repeat_size")
+        if getattr(expr, "is_repeat", False)
+        else len(elements)
+    )
+    if str(actual_size) != str(expected.array_size):
+        raise Phase1SemanticError(
+            f"array length mismatch: expected {expected.array_size}, got {actual_size}"
+        )
+
+    if not elements:
+        raise Phase1SemanticError(
+            "cannot contextualize empty array literal"
+        )
+
+    for element in elements:
+        element_type = infer_expression_type(
+            element, env, typed_module
+        )
+        contextual = _contextual_integer_literal(
+            element, element_type, expected_elem
+        )
+        if contextual.type != expected_elem:
+            raise Phase1SemanticError(
+                f"array element type mismatch: expected {expected_elem.name}, "
+                f"got {contextual.type.name}"
+            )
+
+    return TypedExprNode("ArrayLit", expected, "array")
+
+
 def infer_expression_type(
     expr,
     env: dict[str, SemanticType],
@@ -1046,8 +1098,8 @@ def infer_expression_type(
             seen_fields.add(field_name)
             field = next(item for item in struct.fields if item.name == field_name)
             inferred = infer_expression_type(field_expr, env, typed_module)
-            contextual = _contextual_integer_literal(
-                field_expr, inferred, field.type
+            contextual = _contextualize_expression(
+                field_expr, inferred, field.type, env, typed_module
             )
             if contextual.type != field.type:
                 raise Phase1SemanticError(
@@ -1182,8 +1234,8 @@ def infer_expression_type(
 
         for argument, parameter in zip(arguments, user_params):
             inferred = infer_expression_type(argument, env, typed_module)
-            contextual = _contextual_integer_literal(
-                argument, inferred, parameter.type
+            contextual = _contextualize_expression(
+                argument, inferred, parameter.type, env, typed_module
             )
             if contextual.type != parameter.type:
                 raise Phase1SemanticError(
@@ -1211,8 +1263,8 @@ def infer_expression_type(
             )
         for argument, parameter in zip(getattr(expr, "args", ()), function.params):
             inferred = infer_expression_type(argument, env, typed_module)
-            contextual = _contextual_integer_literal(
-                argument, inferred, parameter.type
+            contextual = _contextualize_expression(
+                argument, inferred, parameter.type, env, typed_module
             )
             if contextual.type != parameter.type:
                 raise Phase1SemanticError(
@@ -1364,8 +1416,12 @@ def _build_typed_block(
             explicit = getattr(statement, "type", None)
             declared = semantic_type(explicit) if explicit is not None else expr.type
             if explicit is not None:
-                expr = _contextual_integer_literal(
-                    getattr(statement, "value"), expr, declared
+                expr = _contextualize_expression(
+                    getattr(statement, "value"),
+                    expr,
+                    declared,
+                    env,
+                    typed_module,
                 )
             if declared != expr.type:
                 raise Phase1SemanticError(
@@ -1386,8 +1442,8 @@ def _build_typed_block(
             value = infer_expression_type(
                 value_expr, env, typed_module
             )
-            value = _contextual_integer_literal(
-                value_expr, value, target.type
+            value = _contextualize_expression(
+                value_expr, value, target.type, env, typed_module
             )
             if target.type != value.type:
                 raise Phase1SemanticError(
@@ -1407,8 +1463,12 @@ def _build_typed_block(
                 else None
             )
             if expr is not None:
-                expr = _contextual_integer_literal(
-                    value, expr, typed_function.result
+                expr = _contextualize_expression(
+                    value,
+                    expr,
+                    typed_function.result,
+                    env,
+                    typed_module,
                 )
             actual = expr.type if expr is not None else SemanticType("void")
             if actual != typed_function.result:

@@ -1368,6 +1368,69 @@ fn main(counter: Counter, flag: bool) -> u32 {
         ):
             typed_ast.build_linear_typed_body(parsed, typed, "main")
 
+    def test_contextual_array_literal_fits_declared_element_type(self):
+        source = """module test::typed_array_context;
+fn main() -> [u8; 3] {
+    let values: [u8; 3] = [1, 2, 3];
+    return values;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-array-context>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "main")
+        array_type = body.statements[0].type
+        self.assertTrue(array_type.is_array)
+        self.assertEqual(array_type.array_size, 3)
+        self.assertIsNotNone(array_type.elem_type)
+        self.assertEqual(array_type.elem_type.name, "u8")
+        self.assertEqual(body.statements[0].expr.type, array_type)
+
+    def test_contextual_array_literal_rejects_length_mismatch(self):
+        source = """module test::typed_array_length;
+fn main() -> void {
+    let values: [u8; 3] = [1, 2];
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-array-length>")
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"array length mismatch: expected 3, got 2",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
+    def test_contextual_array_literal_rejects_element_range(self):
+        source = """module test::typed_array_element_range;
+fn main() -> void {
+    let values: [u8; 2] = [1, 256];
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-array-element-range>")
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"integer value 256 out of range for u8",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
+    def test_contextual_array_literal_applies_to_call_argument(self):
+        source = """module test::typed_array_call;
+fn consume(values: [u16; 2]) -> u16 {
+    return values[0];
+}
+fn main() -> u16 {
+    return consume([1, 2]);
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-array-call>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "main")
+        self.assertEqual(body.statements[0].expr.type.name, "u16")
+
     def test_contextual_negative_integer_literal_fits_signed_type(self):
         source = """module test::typed_negative_context;
 fn main() -> i8 {
