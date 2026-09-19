@@ -1,14 +1,18 @@
 """Testes da Biblioteca Padrão (stdlib) da Linguagem Sotlas."""
 from pathlib import Path
 import importlib.util
+import sys
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-SPEC = importlib.util.spec_from_file_location("compiler", ROOT / "tools" / "sotlas_compile" / "compiler.py")
+BOOTSTRAP_PATH = ROOT / "compiler" / "sotlas_compile" / "bootstrap.py"
+SPEC = importlib.util.spec_from_file_location(
+    "sotlas_stdlib_canonical_bootstrap", BOOTSTRAP_PATH
+)
 assert SPEC is not None and SPEC.loader is not None
-compiler = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(compiler)
-bootstrap = compiler._bootstrap_backend()
+bootstrap = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = bootstrap
+SPEC.loader.exec_module(bootstrap)
 
 
 class SotlasStdlibTests(unittest.TestCase):

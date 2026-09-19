@@ -3,12 +3,19 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import shutil
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools" / "sotlas_compile"))
 import bootstrap
-import compiler as sotlas_compile
+
+
+def _host_c_compiler() -> Path:
+    resolved = shutil.which("gcc") or shutil.which("clang")
+    if resolved is None:
+        raise unittest.SkipTest("host C compiler not available")
+    return Path(resolved)
 
 
 class SotlasClassesAndArcTests(unittest.TestCase):
@@ -68,7 +75,7 @@ class SotlasClassesAndArcTests(unittest.TestCase):
         bootstrap.emit_c_project(entry, self.output_c)
         self.assertTrue(self.output_c.exists())
 
-        gcc = sotlas_compile.find_gcc(ROOT)
+        gcc = _host_c_compiler()
         env = dict(os.environ)
         env["PATH"] = str(gcc.parent) + os.pathsep + env.get("PATH", "")
         cmd = [str(gcc), "-std=c11", "-Wall", "-Wextra", "-Werror", "-c", str(self.output_c), "-o", str(self.output_o)]
@@ -79,7 +86,7 @@ class SotlasClassesAndArcTests(unittest.TestCase):
         for subpath in ["option.sotlas", "result.sotlas"]:
             entry = ROOT / "bootstrap" / "sotlas" / "core" / subpath
             bootstrap.emit_c_project(entry, self.output_c)
-            gcc = sotlas_compile.find_gcc(ROOT)
+            gcc = _host_c_compiler()
             env = dict(os.environ)
             env["PATH"] = str(gcc.parent) + os.pathsep + env.get("PATH", "")
             cmd = [str(gcc), "-std=c11", "-Wall", "-Wextra", "-Werror", "-c", str(self.output_c), "-o", str(self.output_o)]
@@ -133,7 +140,7 @@ int main(void) {
 }
 """, encoding="utf-8")
 
-        gcc = sotlas_compile.find_gcc(ROOT)
+        gcc = _host_c_compiler()
         env = dict(os.environ)
         env["PATH"] = str(gcc.parent) + os.pathsep + env.get("PATH", "")
         cmd = [str(gcc), "-std=c11", str(self.output_c), str(driver_c), "-o", str(driver_exe)]
@@ -151,4 +158,3 @@ int main(void) {
 
 if __name__ == "__main__":
     unittest.main()
-
