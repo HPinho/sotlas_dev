@@ -157,6 +157,38 @@ fn main() -> i64 {
         body = result.semantic.bodies[0]
         self.assertEqual(body.statements[-1].expr.type.name, "i64")
 
+    def test_public_phase1_pipeline_system_does_not_replace_unsafe(self):
+        source = """module test::phase1_system_requires_unsafe;
+@system
+fn read(ptr: *mut u32) -> u32 {
+    return *ptr;
+}
+"""
+        with self.assertRaisesRegex(
+            sotlas_compile.SotlasBootstrapError,
+            r"desreferenciamento de ponteiro exige bloco unsafe",
+        ):
+            sotlas_compile.analyze_source_phase1(
+                source, filename="<phase1-system-requires-unsafe>"
+            )
+
+    def test_public_phase1_pipeline_accepts_system_pointer_deref_inside_unsafe(self):
+        source = """module test::phase1_system_with_unsafe;
+@system
+fn read(ptr: *mut u32) -> u32 {
+    unsafe {
+        return *ptr;
+    }
+}
+"""
+        result = sotlas_compile.analyze_source_phase1(
+            source, filename="<phase1-system-with-unsafe>"
+        )
+        body = result.semantic.bodies[0]
+        self.assertEqual(body.statements[0].kind, "Unsafe")
+        self.assertEqual(body.statements[0].body[0].kind, "Return")
+        self.assertEqual(body.statements[0].body[0].expr.type.name, "u32")
+
     def test_public_phase1_pipeline_rejects_recursive_value_type(self):
         source = """module test::phase1_recursive_value;
 struct Node {
