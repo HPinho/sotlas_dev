@@ -158,6 +158,45 @@ fn read(value: &u32) -> u32 { return *value; }
         parse_check(source)
 
 
+    def test_inline_asm_requires_explicit_unsafe(self):
+        source = """
+module contract::asm_unsafe;
+fn main() -> void {
+    asm("nop");
+}
+"""
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            "asm inline exige bloco unsafe explícito",
+        ):
+            parse_check(source)
+
+    def test_system_function_does_not_bypass_inline_asm_unsafe(self):
+        source = """
+module contract::asm_system;
+@system
+fn main() -> void {
+    asm("nop");
+}
+"""
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            "asm inline exige bloco unsafe explícito",
+        ):
+            parse_check(source)
+
+    def test_inline_asm_is_accepted_inside_explicit_unsafe(self):
+        source = """
+module contract::asm_ok;
+fn main() -> void {
+    unsafe {
+        asm("nop");
+    }
+}
+"""
+        parse_check(source)
+
+
 class SotlasCAbiTests(unittest.TestCase):
     def test_extern_c_single_declaration_parses_and_emits_prototype_only(self):
         source = """
