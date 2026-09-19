@@ -1364,7 +1364,7 @@ fn main(counter: Counter, flag: bool) -> u32 {
         typed = typed_ast.build_declaration_typed_ast(parsed)
         with self.assertRaisesRegex(
             typed_ast.Phase1SemanticError,
-            r"method Counter\.add argument type mismatch: expected u32, got bool",
+            r"method Counter\.increment argument type mismatch: expected u32, got bool",
         ):
             typed_ast.build_linear_typed_body(parsed, typed, "main")
 
