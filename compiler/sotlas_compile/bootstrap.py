@@ -1254,8 +1254,20 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
                 return Type(val_t_name)
             return Type("u32")
         if isinstance(expr, Cast):
-            expr_type(expr.expr, scope, in_unsafe, is_system_fn)
-            return expr.target_type
+            source_t = expr_type(expr.expr, scope, in_unsafe, is_system_fn)
+            target_t = expr.target_type
+            source_is_integer = (
+                not source_t.pointer
+                and not source_t.is_array
+                and not source_t.is_reference
+                and source_t.name in INTEGER_LITERAL_SUFFIXES
+            )
+            if source_is_integer and target_t.pointer and not in_unsafe:
+                raise SotlasBootstrapError(
+                    "conversão de inteiro para ponteiro exige bloco unsafe",
+                    expr.token.line, expr.token.column, filename, source,
+                )
+            return target_t
         raise AssertionError(type(expr))
 
     def statements(items: list[Stmt], scope: dict[str, Type], expected_return: Type, in_unsafe: bool, is_system_fn: bool) -> None:
