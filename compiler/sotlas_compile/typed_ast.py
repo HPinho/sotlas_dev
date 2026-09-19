@@ -60,6 +60,94 @@ def require_sole_transfer(
     return move_state(name, state)
 
 
+@dataclass(frozen=True)
+class OwnershipBinding:
+    name: str
+    type: SemanticType
+    state: VarState
+
+
+@dataclass(frozen=True)
+class OwnershipEnv:
+    bindings: tuple[OwnershipBinding, ...] = ()
+
+    def state_of(self, name: str) -> VarState | None:
+        for binding in reversed(self.bindings):
+            if binding.name == name:
+                return binding.state
+        return None
+
+    def type_of(self, name: str) -> SemanticType | None:
+        for binding in reversed(self.bindings):
+            if binding.name == name:
+                return binding.type
+        return None
+
+    def declare(
+        self, name: str, type_info: SemanticType, module: TypedModule
+    ) -> "OwnershipEnv":
+        state = initial_ownership_state(type_info, module)
+        if state is None:
+            return self
+        if self.state_of(name) is not None:
+            raise Phase1SemanticError(
+                f"ownership binding {name!r} already declared"
+            )
+        return OwnershipEnv(
+            self.bindings + (OwnershipBinding(name, type_info, state),)
+        )
+
+    def require_live(self, name: str) -> None:
+        state = self.state_of(name)
+        if state is None:
+            raise Phase1SemanticError(
+                f"ownership binding {name!r} is not tracked"
+            )
+        require_live(name, state)
+
+    def move(self, name: str) -> "OwnershipEnv":
+        state = self.state_of(name)
+        if state is None:
+            raise Phase1SemanticError(
+                f"ownership binding {name!r} is not tracked"
+            )
+        next_state = move_state(name, state)
+        updated = []
+        replaced = False
+        for binding in self.bindings:
+            if binding.name == name and not replaced:
+                updated.append(
+                    OwnershipBinding(binding.name, binding.type, next_state)
+                )
+                replaced = True
+            else:
+                updated.append(binding)
+        return OwnershipEnv(tuple(updated))
+
+    def merge(self, other: "OwnershipEnv") -> "OwnershipEnv":
+        left = {binding.name: binding for binding in self.bindings}
+        right = {binding.name: binding for binding in other.bindings}
+        if left.keys() != right.keys():
+            raise Phase1SemanticError(
+                "ownership environments have incompatible bindings"
+            )
+        merged = []
+        for binding in self.bindings:
+            peer = right[binding.name]
+            if binding.type != peer.type:
+                raise Phase1SemanticError(
+                    f"ownership binding {binding.name!r} changed type across branches"
+                )
+            merged.append(
+                OwnershipBinding(
+                    binding.name,
+                    binding.type,
+                    merge_branch_states(binding.state, peer.state),
+                )
+            )
+        return OwnershipEnv(tuple(merged))
+
+
 def require_live(name: str, state: VarState) -> None:
     """Reject uses of values whose ownership is no longer definitely live."""
     if state is VarState.LIVE:
@@ -307,8 +395,9 @@ def build_declaration_typed_ast(module) -> TypedModule:
 
 __all__ = [
     "MATURITY", "Phase1SemanticError", "VarState", "sole_type_names", "is_sole_type",
-    "initial_ownership_state", "require_sole_transfer", "require_live", "move_state",
-    "merge_branch_states", "SourceSpan", "SemanticType", "TypedField", "TypedStruct",
+    "initial_ownership_state", "require_sole_transfer", "OwnershipBinding", "OwnershipEnv",
+    "require_live", "move_state", "merge_branch_states", "SourceSpan", "SemanticType",
+    "TypedField", "TypedStruct",
     "TypedParam", "TypedFunction", "TypedGlobal", "TypedModule",
     "semantic_type", "integer_bounds", "validate_integer_value",
     "validate_no_recursive_value_types",

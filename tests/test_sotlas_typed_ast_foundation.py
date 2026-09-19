@@ -114,6 +114,46 @@ class SotlasTypedAstFoundationTests(unittest.TestCase):
         )
         self.assertIs(state, typed_ast.VarState.MOVED)
 
+    def test_ownership_env_tracks_only_sole_bindings(self):
+        typed = typed_ast.build_declaration_typed_ast(self.checked_ast())
+        env = typed_ast.OwnershipEnv()
+        env = env.declare("handle", typed_ast.SemanticType("Handle"), typed)
+        env2 = env.declare("count", typed_ast.SemanticType("u32"), typed)
+        self.assertIs(env2.state_of("handle"), typed_ast.VarState.LIVE)
+        self.assertIsNone(env2.state_of("count"))
+
+    def test_ownership_env_move_invalidates_only_source_binding(self):
+        typed = typed_ast.build_declaration_typed_ast(self.checked_ast())
+        env = typed_ast.OwnershipEnv().declare(
+            "handle", typed_ast.SemanticType("Handle"), typed
+        )
+        moved = env.move("handle")
+        self.assertIs(env.state_of("handle"), typed_ast.VarState.LIVE)
+        self.assertIs(moved.state_of("handle"), typed_ast.VarState.MOVED)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"use of sole value 'handle' after move",
+        ):
+            moved.require_live("handle")
+
+    def test_ownership_env_branch_merge_produces_maybe_moved(self):
+        typed = typed_ast.build_declaration_typed_ast(self.checked_ast())
+        base = typed_ast.OwnershipEnv().declare(
+            "handle", typed_ast.SemanticType("Handle"), typed
+        )
+        merged = base.move("handle").merge(base)
+        self.assertIs(
+            merged.state_of("handle"),
+            typed_ast.VarState.MAYBE_MOVED,
+        )
+
+    def test_ownership_env_rejects_untracked_move(self):
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"ownership binding 'x' is not tracked",
+        ):
+            typed_ast.OwnershipEnv().move("x")
+
     def test_sole_move_state_transitions_live_to_moved(self):
         state = typed_ast.move_state("handle", typed_ast.VarState.LIVE)
         self.assertIs(state, typed_ast.VarState.MOVED)
