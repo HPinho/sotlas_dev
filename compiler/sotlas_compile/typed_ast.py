@@ -1314,8 +1314,7 @@ def _contextualize_expression(
     if (
         inferred.type.pointer
         and expected.pointer
-        and inferred.type.is_reference
-        and expected.is_reference
+        and inferred.type.is_reference == expected.is_reference
         and inferred.type.name == expected.name
         and not inferred.type.is_array
         and not expected.is_array

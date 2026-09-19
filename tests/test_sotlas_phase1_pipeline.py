@@ -219,6 +219,27 @@ fn empty() -> *mut u32 {
         self.assertTrue(returned.mutable)
         self.assertEqual(returned.name, "u32")
 
+    def test_public_phase1_pipeline_accepts_raw_pointer_mutability_weakening(self):
+        source = """module test::phase1_raw_pointer_mutability_weakening;
+fn view(value: *const u32) -> *const u32 {
+    return value;
+}
+fn expose(value: *mut u32) -> *const u32 {
+    return view(value);
+}
+"""
+        result = sotlas_compile.analyze_source_phase1(
+            source, filename="<phase1-raw-pointer-mutability-weakening>"
+        )
+        body = next(
+            item for item in result.semantic.bodies if item.name == "expose"
+        )
+        returned = body.statements[0].expr.type
+        self.assertTrue(returned.pointer)
+        self.assertFalse(returned.is_reference)
+        self.assertFalse(returned.mutable)
+        self.assertEqual(returned.name, "u32")
+
     def test_public_phase1_pipeline_rejects_recursive_value_type(self):
         source = """module test::phase1_recursive_value;
 struct Node {

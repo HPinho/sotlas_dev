@@ -1719,6 +1719,40 @@ fn empty() -> *const u32 {
         self.assertFalse(returned.mutable)
         self.assertEqual(returned.name, "u32")
 
+    def test_typed_body_accepts_raw_pointer_mutability_weakening(self):
+        source = """module test::typed_raw_pointer_mutability_weakening;
+fn view(value: *mut u32) -> *const u32 {
+    return value;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-typed-raw-pointer-mutability-weakening>"
+        )
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "view")
+        returned = body.statements[0].expr.type
+        self.assertTrue(returned.pointer)
+        self.assertFalse(returned.is_reference)
+        self.assertFalse(returned.mutable)
+        self.assertEqual(returned.name, "u32")
+
+    def test_typed_body_independently_rejects_raw_pointer_mutability_strengthening(self):
+        source = """module test::typed_raw_pointer_mutability_strengthening;
+fn strengthen(value: *const u32) -> *mut u32 {
+    return value;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-typed-raw-pointer-mutability-strengthening>"
+        )
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"return type mismatch",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "strengthen")
+
     def test_typed_body_independently_rejects_null_reference_return(self):
         source = """module test::typed_null_reference;
 fn bad() -> &u32 {
