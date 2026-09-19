@@ -2267,9 +2267,21 @@ def _build_typed_block(
                 "u8", "u16", "u32", "u64", "usize",
                 "i8", "i16", "i32", "i64", "isize",
             }
-            if start.type.name not in integer_types or end.type.name not in integer_types:
+            start_is_integer = (
+                not start.type.pointer
+                and not start.type.is_array
+                and not start.type.is_reference
+                and start.type.name in integer_types
+            )
+            end_is_integer = (
+                not end.type.pointer
+                and not end.type.is_array
+                and not end.type.is_reference
+                and end.type.name in integer_types
+            )
+            if not start_is_integer or not end_is_integer:
                 raise Phase1SemanticError(
-                    f"for range bounds must be integers, got "
+                    f"for range bounds must be scalar integers, got "
                     f"{start.type.name} and {end.type.name}"
                 )
             if start.type != end.type:

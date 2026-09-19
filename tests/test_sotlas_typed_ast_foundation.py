@@ -991,6 +991,42 @@ fn main() -> void {
         ):
             typed_ast.build_linear_typed_body(parsed, typed, "main")
 
+    def test_typed_body_rejects_pointer_for_range_bounds(self):
+        source = """module test::typed_for_pointer_bounds;
+fn main(start: *mut u32, end: *mut u32) -> void {
+    for i in start..end {
+        return;
+    }
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-typed-for-pointer-bounds>"
+        )
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"for range bounds must be scalar integers, got u32 and u32",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
+    def test_typed_body_rejects_array_for_range_bounds(self):
+        source = """module test::typed_for_array_bounds;
+fn main(start: [u32; 2], end: [u32; 2]) -> void {
+    for i in start..end {
+        return;
+    }
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-typed-for-array-bounds>"
+        )
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"for range bounds must be scalar integers, got u32 and u32",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
     def test_typed_body_rejects_mixed_for_bound_types_independently(self):
         source = """module test::typed_for_bad;
 fn main() -> void {
