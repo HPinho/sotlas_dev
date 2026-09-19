@@ -1737,6 +1737,79 @@ fn main(consumer: Consumer) -> void {
         ):
             typed_ast.analyze_function_ownership(parsed, typed, "main")
 
+    def test_ownership_asm_requires_live_sole_operands(self):
+        source = """module test::ownership_asm_live;
+sole struct Token { value: u32; }
+fn main(token: Token) -> void {
+    emit("nop" : token.value : token.value);
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-ownership-asm-live>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(parsed, typed, "main")
+        self.assertIs(trace.final_env.state_of("token"), typed_ast.VarState.LIVE)
+        self.assertIn(
+            typed_ast.OwnershipEvent("asm", "main", "operands"),
+            trace.events,
+        )
+
+    def test_ownership_asm_rejects_input_from_moved_owner(self):
+        source = """module test::ownership_asm_input_moved;
+sole struct Token { value: u32; }
+fn consume(token: Token) -> void { return; }
+fn main(token: Token) -> void {
+    consume(move token);
+    emit("nop" : : token.value);
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-ownership-asm-input-moved>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"use of sole value 'token' after move",
+        ):
+            typed_ast.analyze_function_ownership(parsed, typed, "main")
+
+    def test_ownership_asm_rejects_output_through_moved_owner(self):
+        source = """module test::ownership_asm_output_moved;
+sole struct Token { value: u32; }
+fn consume(token: Token) -> void { return; }
+fn main(token: Token) -> void {
+    consume(move token);
+    emit("nop" : token.value);
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-ownership-asm-output-moved>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"use of sole value 'token' after move",
+        ):
+            typed_ast.analyze_function_ownership(parsed, typed, "main")
+
+    def test_ownership_asm_rejects_explicit_sole_move(self):
+        source = """module test::ownership_asm_move;
+sole struct Token { value: u32; }
+fn main(token: Token) -> void {
+    emit("nop" : : move token);
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-ownership-asm-move>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"inline asm cannot transfer sole ownership",
+        ):
+            typed_ast.analyze_function_ownership(parsed, typed, "main")
+
     def test_ownership_defer_reserves_moved_sole_value(self):
         source = """module test::ownership_defer_move;
 sole struct Token { value: u32; }

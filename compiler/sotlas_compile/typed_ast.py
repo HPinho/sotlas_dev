@@ -799,6 +799,26 @@ def _analyze_block_ownership(
             events.extend(body_events)
             continue
 
+        if kind == "Asm":
+            operands = (
+                *tuple(getattr(statement, "outputs", ())),
+                *tuple(getattr(statement, "inputs", ())),
+            )
+            for operand in operands:
+                if (
+                    type(operand).__name__ == "MoveExpr"
+                    and _referenced_owned_names(result, operand)
+                ):
+                    raise Phase1SemanticError(
+                        "inline asm cannot transfer sole ownership"
+                    )
+                require_expr_ownership_live(result, operand)
+
+            events.append(
+                OwnershipEvent("asm", typed_function.name, "operands")
+            )
+            continue
+
         if kind == "Defer":
             visible = tuple(binding.name for binding in result.bindings)
             captured = _statement_referenced_owned_names(result, statement)
