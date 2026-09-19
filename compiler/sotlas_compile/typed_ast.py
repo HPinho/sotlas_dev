@@ -668,6 +668,8 @@ class TypedStmtNode:
     name: str | None
     type: SemanticType | None
     expr: TypedExprNode | None
+    body: tuple["TypedStmtNode", ...] = ()
+    else_body: tuple["TypedStmtNode", ...] = ()
 
 
 @dataclass(frozen=True)
@@ -822,28 +824,17 @@ def infer_assignment_target_type(
     )
 
 
-def build_linear_typed_body(
-    parsed_module, typed_module: TypedModule, function_name: str
-) -> TypedFunctionBody:
-    """Materialize typed facts for top-level straight-line statements only."""
-    parsed_function = next(
-        (item for item in parsed_module.functions if item.name == function_name),
-        None,
-    )
-    typed_function = next(
-        (item for item in typed_module.functions if item.name == function_name),
-        None,
-    )
-    if parsed_function is None or typed_function is None:
-        raise Phase1SemanticError(
-            f"function {function_name!r} not found for body typing"
-        )
+def _build_typed_block(
+    statements,
+    env: dict[str, SemanticType],
+    typed_module: TypedModule,
+    typed_function: TypedFunction,
+) -> tuple[TypedStmtNode, ...]:
+    typed_statements: list[TypedStmtNode] = []
 
-    env = {param.name: param.type for param in typed_function.params}
-    statements: list[TypedStmtNode] = []
-
-    for statement in parsed_function.body:
+    for statement in statements:
         kind = type(statement).__name__
+
         if kind == "Let":
             expr = infer_expression_type(
                 getattr(statement, "value"), env, typed_module
@@ -856,26 +847,8 @@ def build_linear_typed_body(
                     f"declared {declared.name}, got {expr.type.name}"
                 )
             env[statement.name] = declared
-            statements.append(
+            typed_statements.append(
                 TypedStmtNode("Let", statement.name, declared, expr)
-            )
-            continue
-
-        if kind == "Return":
-            value = getattr(statement, "value", None)
-            expr = (
-                infer_expression_type(value, env, typed_module)
-                if value is not None
-                else None
-            )
-            actual = expr.type if expr is not None else SemanticType("void")
-            if actual != typed_function.result:
-                raise Phase1SemanticError(
-                    f"return type mismatch in {function_name!r}: "
-                    f"expected {typed_function.result.name}, got {actual.name}"
-                )
-            statements.append(
-                TypedStmtNode("Return", None, actual, expr)
             )
             continue
 
@@ -891,8 +864,26 @@ def build_linear_typed_body(
                     f"assignment type mismatch for {target.label!r}: "
                     f"expected {target.type.name}, got {value.type.name}"
                 )
-            statements.append(
+            typed_statements.append(
                 TypedStmtNode("Assign", target.label, target.type, value)
+            )
+            continue
+
+        if kind == "Return":
+            value = getattr(statement, "value", None)
+            expr = (
+                infer_expression_type(value, env, typed_module)
+                if value is not None
+                else None
+            )
+            actual = expr.type if expr is not None else SemanticType("void")
+            if actual != typed_function.result:
+                raise Phase1SemanticError(
+                    f"return type mismatch in {typed_function.name!r}: "
+                    f"expected {typed_function.result.name}, got {actual.name}"
+                )
+            typed_statements.append(
+                TypedStmtNode("Return", None, actual, expr)
             )
             continue
 
@@ -900,8 +891,36 @@ def build_linear_typed_body(
             expr = infer_expression_type(
                 getattr(statement, "value"), env, typed_module
             )
-            statements.append(
+            typed_statements.append(
                 TypedStmtNode("Expression", None, expr.type, expr)
+            )
+            continue
+
+        if kind == "If":
+            condition = infer_expression_type(
+                getattr(statement, "condition"), env, typed_module
+            )
+            if condition.type != SemanticType("bool"):
+                raise Phase1SemanticError(
+                    f"if condition must be bool, got {condition.type.name}"
+                )
+            then_body = _build_typed_block(
+                getattr(statement, "then_body", ()),
+                dict(env),
+                typed_module,
+                typed_function,
+            )
+            else_body = _build_typed_block(
+                getattr(statement, "else_body", ()),
+                dict(env),
+                typed_module,
+                typed_function,
+            )
+            typed_statements.append(
+                TypedStmtNode(
+                    "If", None, SemanticType("bool"), condition,
+                    then_body, else_body,
+                )
             )
             continue
 
@@ -909,7 +928,31 @@ def build_linear_typed_body(
             f"body typing not implemented for statement {kind}"
         )
 
-    return TypedFunctionBody(function_name, tuple(statements))
+    return tuple(typed_statements)
+
+
+def build_linear_typed_body(
+    parsed_module, typed_module: TypedModule, function_name: str
+) -> TypedFunctionBody:
+    """Materialize typed facts for linear statements and canonical if blocks."""
+    parsed_function = next(
+        (item for item in parsed_module.functions if item.name == function_name),
+        None,
+    )
+    typed_function = next(
+        (item for item in typed_module.functions if item.name == function_name),
+        None,
+    )
+    if parsed_function is None or typed_function is None:
+        raise Phase1SemanticError(
+            f"function {function_name!r} not found for body typing"
+        )
+
+    env = {param.name: param.type for param in typed_function.params}
+    statements = _build_typed_block(
+        parsed_function.body, env, typed_module, typed_function
+    )
+    return TypedFunctionBody(function_name, statements)
 
 
 def apply_ownership_moves(

@@ -676,6 +676,59 @@ fn main() -> u32 {
         self.assertEqual(assign.name, "x")
         self.assertEqual(assign.type.name, "u32")
 
+    def test_typed_body_materializes_if_branches(self):
+        source = """module test::typed_if;
+fn main(flag: bool) -> i64 {
+    if flag {
+        return 1;
+    } else {
+        return 2;
+    }
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-typed-if>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "main")
+        branch = body.statements[0]
+        self.assertEqual(branch.kind, "If")
+        self.assertEqual(branch.expr.type.name, "bool")
+        self.assertEqual(branch.body[0].kind, "Return")
+        self.assertEqual(branch.else_body[0].kind, "Return")
+
+    def test_typed_body_rejects_non_bool_if_condition_independently(self):
+        source = """module test::typed_if_bad;
+fn main() -> void {
+    if 1 {
+        return;
+    }
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-typed-if-bad>")
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"if condition must be bool, got i64",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
+    def test_typed_body_branch_local_does_not_escape_type_env(self):
+        source = """module test::typed_if_scope;
+fn main(flag: bool) -> void {
+    if flag {
+        let branch_value: i64 = 1;
+    }
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-typed-if-scope>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "main")
+        self.assertEqual(body.statements[0].body[0].name, "branch_value")
+        self.assertEqual(body.statements[-1].kind, "Return")
+
     def test_conditional_move_in_one_branch_becomes_maybe_moved(self):
         typed = typed_ast.build_declaration_typed_ast(self.checked_ast())
         base = typed_ast.OwnershipEnv().declare(
