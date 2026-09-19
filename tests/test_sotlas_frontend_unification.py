@@ -81,29 +81,21 @@ pub fn add(left: u32, right: u32) -> u32 {
                 bootstrap_pipeline,
             )
 
-    def test_x86_default_dispatch_callbacks_are_translation_unit_local(self):
+    def test_x86_default_dispatch_callbacks_are_weak_and_retained(self):
         for base in ("compiler", "tools"):
             intrinsics = (
                 ROOT / base / "sotlas_compile" / "x86_intrinsics.py"
             ).read_text(encoding="utf-8")
             self.assertIn(
-                "static uint64_t sotlas_x86_exception_dispatch",
+                "__attribute__((weak, used)) uint64_t sotlas_x86_exception_dispatch",
                 intrinsics,
             )
             self.assertIn(
-                "static uint64_t sotlas_x86_irq_dispatch",
+                "__attribute__((weak, used)) uint64_t sotlas_x86_irq_dispatch",
                 intrinsics,
             )
             self.assertIn(
-                "static void sotlas_x86_scheduler_thread_exit",
-                intrinsics,
-            )
-            self.assertNotIn(
-                "__attribute__((weak)) uint64_t sotlas_x86_exception_dispatch",
-                intrinsics,
-            )
-            self.assertNotIn(
-                "__attribute__((weak)) uint64_t sotlas_x86_irq_dispatch",
+                "__attribute__((weak, used)) void sotlas_x86_scheduler_thread_exit",
                 intrinsics,
             )
 
