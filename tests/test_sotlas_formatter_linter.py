@@ -23,6 +23,19 @@ return x;
         self.assertIn("    let x = a + b;", formatted)
         self.assertIn("    return x;", formatted)
 
+    def test_formatter_preserves_equality_operator(self):
+        source = """module foo;
+fn main() -> i32 {
+    let x: i32 = 120;
+    if x == 120 {
+        return 0;
+    }
+    return 1;
+}"""
+        formatted = format_code(source)
+        self.assertIn("if x == 120 {", formatted)
+        self.assertNotIn("= =", formatted)
+
     def test_linter_detects_naming_conventions_and_tabs(self):
         bad_code = """
 module bad_style;
