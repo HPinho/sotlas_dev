@@ -1973,6 +1973,70 @@ fn main(value: i32) -> i32 {
         ):
             typed_ast.build_linear_typed_body(parsed, typed, "main")
 
+    def test_typed_body_rejects_arithmetic_on_integer_arrays(self):
+        source = """module test::typed_array_arithmetic;
+fn main(left: [u32; 2], right: [u32; 2]) -> [u32; 2] {
+    return left + right;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-array-arithmetic>"
+        )
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"arithmetic operator '\+' requires numeric operands",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
+    def test_typed_body_rejects_relational_integer_arrays(self):
+        source = """module test::typed_array_relational;
+fn main(left: [u32; 2], right: [u32; 2]) -> bool {
+    return left < right;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-array-relational>"
+        )
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"relational operator '<' requires numeric operands",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
+    def test_typed_body_rejects_bitwise_integer_arrays(self):
+        source = """module test::typed_array_bitwise;
+fn main(left: [u32; 2], right: [u32; 2]) -> [u32; 2] {
+    return left & right;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-array-bitwise>"
+        )
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"bitwise operator '&' requires integer operands",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
+    def test_typed_body_rejects_shift_on_integer_arrays(self):
+        source = """module test::typed_array_shift;
+fn main(left: [u32; 2], right: [u32; 2]) -> [u32; 2] {
+    return left << right;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-array-shift>"
+        )
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"shift operator '<<' requires integer operands",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
     def test_typed_body_rejects_arithmetic_on_bool_independently(self):
         source = """module test::typed_bad_arithmetic;
 fn main(flag: bool) -> bool { return flag + flag; }

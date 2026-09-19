@@ -1490,7 +1490,7 @@ def infer_expression_type(
                 )
             return TypedExprNode(kind, SemanticType("bool"), op)
         if op == "~":
-            if inner.type.pointer or inner.type.name not in _INTEGER_WIDTHS:
+            if not _is_scalar_integer_type(inner.type):
                 raise Phase1SemanticError(
                     f"bitwise not requires integer, got {inner.type.name}"
                 )
@@ -1500,7 +1500,7 @@ def infer_expression_type(
                 "i8", "i16", "i32", "i64", "isize", "f32", "f64"
             }
             if (
-                inner.type.pointer
+                not _is_scalar_numeric_type(inner.type)
                 or inner.type.name not in signed_numeric_types
             ):
                 raise Phase1SemanticError(
@@ -1856,9 +1856,8 @@ def infer_expression_type(
 
         if op in ("<", "<=", ">", ">="):
             if (
-                left.type.pointer or right.type.pointer
-                or left.type.name not in numeric_names
-                or right.type.name not in numeric_names
+                not _is_scalar_numeric_type(left.type)
+                or not _is_scalar_numeric_type(right.type)
             ):
                 raise Phase1SemanticError(
                     f"relational operator {op!r} requires numeric operands"
@@ -1872,9 +1871,8 @@ def infer_expression_type(
 
         if op in ("+", "-", "*", "/", "%"):
             if (
-                left.type.pointer or right.type.pointer
-                or left.type.name not in numeric_names
-                or right.type.name not in numeric_names
+                not _is_scalar_numeric_type(left.type)
+                or not _is_scalar_numeric_type(right.type)
             ):
                 raise Phase1SemanticError(
                     f"arithmetic operator {op!r} requires numeric operands"
@@ -1916,9 +1914,8 @@ def infer_expression_type(
 
         if op in ("&", "|", "^"):
             if (
-                left.type.pointer or right.type.pointer
-                or left.type.name not in integer_names
-                or right.type.name not in integer_names
+                not _is_scalar_integer_type(left.type)
+                or not _is_scalar_integer_type(right.type)
             ):
                 raise Phase1SemanticError(
                     f"bitwise operator {op!r} requires integer operands"
@@ -1932,9 +1929,8 @@ def infer_expression_type(
 
         if op in ("<<", ">>"):
             if (
-                left.type.pointer or right.type.pointer
-                or left.type.name not in integer_names
-                or right.type.name not in integer_names
+                not _is_scalar_integer_type(left.type)
+                or not _is_scalar_integer_type(right.type)
             ):
                 raise Phase1SemanticError(
                     f"shift operator {op!r} requires integer operands"
@@ -2267,18 +2263,8 @@ def _build_typed_block(
                 "u8", "u16", "u32", "u64", "usize",
                 "i8", "i16", "i32", "i64", "isize",
             }
-            start_is_integer = (
-                not start.type.pointer
-                and not start.type.is_array
-                and not start.type.is_reference
-                and start.type.name in integer_types
-            )
-            end_is_integer = (
-                not end.type.pointer
-                and not end.type.is_array
-                and not end.type.is_reference
-                and end.type.name in integer_types
-            )
+            start_is_integer = _is_scalar_integer_type(start.type)
+            end_is_integer = _is_scalar_integer_type(end.type)
             if not start_is_integer or not end_is_integer:
                 raise Phase1SemanticError(
                     f"for range bounds must be scalar integers, got "
@@ -2648,6 +2634,27 @@ _INTEGER_WIDTHS = {
     "i8": (8, True), "i16": (16, True), "i32": (32, True),
     "i64": (64, True), "isize": (64, True),
 }
+
+
+def _is_scalar_integer_type(type_info: SemanticType) -> bool:
+    return (
+        not type_info.pointer
+        and not type_info.is_array
+        and not type_info.is_reference
+        and type_info.name in _INTEGER_WIDTHS
+    )
+
+
+def _is_scalar_numeric_type(type_info: SemanticType) -> bool:
+    return (
+        _is_scalar_integer_type(type_info)
+        or (
+            not type_info.pointer
+            and not type_info.is_array
+            and not type_info.is_reference
+            and type_info.name in {"f32", "f64"}
+        )
+    )
 
 
 def integer_bounds(type_info: SemanticType) -> tuple[int, int]:
