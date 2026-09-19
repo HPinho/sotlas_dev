@@ -2072,6 +2072,37 @@ fn main() -> void {
         ):
             typed_ast.build_linear_typed_body(parsed, typed, "main")
 
+    def test_bootstrap_rejects_scalar_index_target(self):
+        source = """module test::bootstrap_scalar_index_target;
+fn read(value: u32) -> u32 {
+    return value[0];
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-scalar-index-target>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"indexação exige array ou ponteiro",
+        ):
+            bootstrap.check(parsed)
+
+    def test_typed_body_rejects_scalar_index_target_independently(self):
+        source = """module test::typed_scalar_index_target;
+fn read(value: u32) -> u32 {
+    return value[0];
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-typed-scalar-index-target>"
+        )
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"indexing requires array or pointer, got u32",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed_module, "read")
+
     def test_bootstrap_rejects_array_as_index(self):
         source = """module test::bootstrap_array_index_shape;
 fn read(values: [u32; 2], index: [u32; 2]) -> u32 {

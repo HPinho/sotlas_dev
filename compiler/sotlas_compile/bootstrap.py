@@ -1215,6 +1215,11 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
                     "indexação de ponteiro exige bloco unsafe",
                     expr.token.line, expr.token.column, filename, source,
                 )
+            if not target_t.is_array and not target_t.pointer:
+                raise SotlasBootstrapError(
+                    "indexação exige array ou ponteiro",
+                    expr.token.line, expr.token.column, filename, source,
+                )
             if target_t.is_array and target_t.elem_type:
                 return target_t.elem_type
             return Type(target_t.name, pointer=False, mutable=target_t.mutable)
