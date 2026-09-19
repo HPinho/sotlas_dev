@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Testes do resolvedor Sotlas: grafo real, import ausente e ciclos."""
 
-import importlib.util
 import json
 import os
 import sys
@@ -12,10 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 KERNEL_ROOT = ROOT if (ROOT / "kernel").is_dir() else (ROOT.parent / "projeto-bkn")
 KERNEL_MAIN = KERNEL_ROOT / "kernel" / "src" / "main.sotlas"
-SPEC = importlib.util.spec_from_file_location("compiler", ROOT / "tools" / "sotlas_compile" / "compiler.py")
-assert SPEC is not None and SPEC.loader is not None
-sotlas_compile = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(sotlas_compile)
+from sotlas_compile import compiler as sotlas_compile
 
 
 class SotlasResolverTests(unittest.TestCase):
