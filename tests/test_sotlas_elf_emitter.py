@@ -17,7 +17,7 @@ from sotlas.elf_emitter import (
 
 class TestSotlasElfEmitter(unittest.TestCase):
     def test_elf_header_magic_and_fields(self):
-        emitter = ElfEmitter(target_triple="x86_64-sotlas-bakenos")
+        emitter = ElfEmitter(target_triple="x86_64-unknown-elf")
         # Emite alguns bytes de máquina simples (x86_64: nop; ret)
         text_off = emitter.emit_text(bytes([0x90, 0xC3]))
         emitter.add_symbol("kernel_entry", ".text", text_off, 2, is_global=True, is_func=True)
@@ -39,20 +39,20 @@ class TestSotlasElfEmitter(unittest.TestCase):
         self.assertIn(".rodata", section_names)
         self.assertIn(".data", section_names)
         self.assertIn(".bss", section_names)
-        self.assertIn(".bkn_tcb", section_names)  # Seção customizada BakenOS
+        self.assertNotIn(".bkn_tcb", section_names)
         self.assertIn(".symtab", section_names)
         self.assertIn(".strtab", section_names)
         self.assertIn(".shstrtab", section_names)
 
     def test_elf_aarch64_target_triple(self):
-        emitter = ElfEmitter(target_triple="aarch64-sotlas-bakenos")
+        emitter = ElfEmitter(target_triple="aarch64-unknown-elf")
         self.assertEqual(emitter.machine, EM_AARCH64)
         raw = emitter.build_bytes()
         self.assertGreater(len(raw), 64)
 
     def test_elf_write_to_file(self, tmp_path=None):
         import tempfile
-        emitter = ElfEmitter(target_triple="x86_64-sotlas-bakenos")
+        emitter = ElfEmitter(target_triple="x86_64-unknown-elf")
         emitter.emit_text(b"\x90\x90\xC3")
         with tempfile.NamedTemporaryFile(suffix=".o", delete=False) as tmp:
             tmp_path = tmp.name

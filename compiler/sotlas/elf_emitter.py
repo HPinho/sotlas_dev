@@ -2,10 +2,9 @@
 
 Suporta:
   - Cabeçalho canônico Elf64_Ehdr (64-bit Little Endian)
-  - Target triples: x86_64-sotlas-bakenos, aarch64-sotlas-bakenos, x86_64-unknown-elf
+  - Target triples genéricos: x86_64-unknown-elf, aarch64-unknown-elf
   - Seções estruturadas: .text, .rodata, .data, .bss, .shstrtab, .symtab, .strtab
   - Tabela de símbolos ELF64 (Elf64_Sym) com visibilidade STB_LOCAL e STB_GLOBAL
-  - Suporte a ABI BakenOS: convenções de contexto de kernel e seções especiais
 """
 from __future__ import annotations
 import struct
@@ -88,10 +87,10 @@ class ElfSection:
 class ElfEmitter:
     """Emissor direto de código objeto ELF64 de alta performance."""
 
-    def __init__(self, target_triple: str = "x86_64-sotlas-bakenos") -> None:
+    def __init__(self, target_triple: str = "x86_64-unknown-elf") -> None:
         self.target_triple = target_triple
         self.machine = EM_X86_64 if "x86_64" in target_triple else EM_AARCH64
-        self.osabi = ELFOSABI_STANDALONE if "bakenos" in target_triple else ELFOSABI_SYSV
+        self.osabi = ELFOSABI_STANDALONE if "unknown-elf" in target_triple else ELFOSABI_SYSV
 
         # Seções padrão
         self.sections: List[ElfSection] = []
@@ -107,11 +106,7 @@ class ElfEmitter:
         self.data_idx = self._add_section(".data", SHT_PROGBITS, SHF_ALLOC | SHF_WRITE, addr_align=8)
         self.bss_idx = self._add_section(".bss", SHT_NOBITS, SHF_ALLOC | SHF_WRITE, addr_align=8)
 
-        # 2. Seções de BakenOS para drivers e TCB
-        if "bakenos" in target_triple:
-            self.tcb_idx = self._add_section(".bkn_tcb", SHT_PROGBITS, SHF_ALLOC | SHF_WRITE, addr_align=64)
-
-        # 3. Metadados e strings
+        # 2. Metadados e strings
         self.shstrtab_idx = self._add_section(".shstrtab", SHT_STRTAB, 0, addr_align=1)
         self.symtab_idx = self._add_section(".symtab", SHT_SYMTAB, 0, addr_align=8, ent_size=24)
         self.strtab_idx = self._add_section(".strtab", SHT_STRTAB, 0, addr_align=1)

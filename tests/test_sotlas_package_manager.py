@@ -26,11 +26,11 @@ version = "0.2.1"
 edition = "2026"
 license = "MIT"
 target_type = "bin"
-authors = ["Dev Team <dev@bakenos.org>"]
+authors = ["Sotlas Team <dev@sotlas.dev>"]
 
 [dependencies]
 sotlas-core = "^0.3.0"
-baken-driver = "1.0"
+example-driver = "1.0"
 """
         manifest = PackageManifest.from_toml_text(toml_content)
         self.assertEqual(manifest.name, "my_app")
@@ -38,7 +38,7 @@ baken-driver = "1.0"
         self.assertEqual(manifest.license, "MIT")
         self.assertEqual(manifest.target_type, "bin")
         self.assertEqual(manifest.dependencies["sotlas-core"], "^0.3.0")
-        self.assertEqual(manifest.dependencies["baken-driver"], "1.0")
+        self.assertEqual(manifest.dependencies["example-driver"], "1.0")
 
     def test_init_binary_package(self):
         pkg_dir = self.temp_dir / "sample_app"

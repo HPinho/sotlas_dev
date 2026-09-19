@@ -2,7 +2,7 @@
 """Testes de migração do frontend histórico: tuplas, slices, ? e defer.
 
 Esses testes exercitam recursos ainda não portados ao frontend canônico. Eles
-não definem a rota pública de compilação usada pelo BakenOS.
+não definem a rota pública de compilação usada por consumidores externos.
 """
 
 import unittest

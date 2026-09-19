@@ -1,7 +1,7 @@
 """Sotlas ELF64 Internal Linker — Linkagem nativa sem dependências externas.
 
 Combina múltiplos arquivos objeto ELF64 relocatable (.o) em um executável
-ELF64 estático (ET_EXEC) para alvos Linux/BakenOS x86_64 e aarch64.
+ELF64 estático (ET_EXEC) para alvos Linux e bare-metal x86_64/aarch64.
 
 Suporta:
   - Leitura de arquivos .o ELF64 (relocatable, little-endian)
@@ -298,7 +298,7 @@ class ELFLinker:
         self.target_triple = target_triple
         self.page_size = page_size
         self.machine = EM_X86_64 if "x86_64" in target_triple else EM_AARCH64
-        self.osabi = ELFOSABI_STANDALONE if "bakenos" in target_triple else ELFOSABI_SYSV
+        self.osabi = ELFOSABI_STANDALONE if "unknown-elf" in target_triple else ELFOSABI_SYSV
 
         self._objects: List[ObjectFile] = []
         # Tabela de símbolos global: nome → (ObjSymbol, arquivo_objeto, índice_seção_global)

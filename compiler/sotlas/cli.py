@@ -83,7 +83,7 @@ def main() -> int:
         default="auto",
         help=(
             "Linker a usar na fase final:\n"
-            "  internal — linker ELF64 interno (sem LLVM/binutils, apenas Linux/BakenOS x86_64);\n"
+            "  internal — linker ELF64 interno (sem LLVM/binutils, Linux ou bare-metal x86_64);\n"
             "  lld      — usa lld/clang do LLVM;\n"
             "  gcc      — usa gcc/ld do sistema;\n"
             "  auto     — detecta o melhor disponível (padrão)"
@@ -501,7 +501,7 @@ def _run_compile_internal_linker(args, src: Path, text: str) -> int:
       Sotlas source → Lexer/Parser/Sema → CodegenC (C11 freestanding) → ELF emitter
       → elf_linker.py (sem LLVM, sem GCC) → ELF64 ET_EXEC
 
-    Nota: este modo só suporta alvo Linux/BakenOS x86_64 ou aarch64.
+    Nota: este modo só suporta alvos Linux ou bare-metal x86_64/aarch64.
     Para Windows PE/COFF, use --linker=auto (LLVM).
     """
     import tempfile
@@ -519,7 +519,7 @@ def _run_compile_internal_linker(args, src: Path, text: str) -> int:
 
     if sys.platform == "win32" and target == "host":
         print(
-            "sotlas: aviso: o linker interno produz binários ELF64 (Linux/BakenOS).\n"
+            "sotlas: aviso: o linker interno produz binários ELF64 (Linux/bare-metal).\n"
             "  Para executáveis Windows nativos, use --linker=lld ou --linker=auto.",
             file=sys.stderr,
         )
@@ -558,9 +558,6 @@ def _run_compile_internal_linker(args, src: Path, text: str) -> int:
 
         # Passo 3: linkar .o → ELF64 executável usando o linker interno
         triple = "x86_64-linux-gnu" if "x86_64" in target or target == "host" else target
-        if "bakenos" in target:
-            triple = "x86_64-sotlas-bakenos"
-
         try:
             linker = ELFLinker(
                 entry_symbol=entry,

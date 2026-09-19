@@ -44,7 +44,7 @@ def compile_source(source: str, filename: str = "<stdin>") -> str:
 def compile_legacy_source(source: str, filename: str = "<stdin>") -> str:
     """Historical frontend kept only for language-feature migration tests.
 
-    New code, the CLI, BakenOS and external consumers must use
+    New code, the CLI, and external consumers must use
     :func:`compile_source`.  Once the remaining legacy-only syntax is ported or
     retired, this function and the old parser/sema/codegen modules can be
     removed without changing the public production compiler API.
