@@ -1311,6 +1311,19 @@ def _contextualize_expression(
     if integer.type == expected:
         return integer
 
+    if (
+        inferred.type.pointer
+        and expected.pointer
+        and inferred.type.is_reference
+        and expected.is_reference
+        and inferred.type.name == expected.name
+        and not inferred.type.is_array
+        and not expected.is_array
+        and inferred.type.mutable
+        and not expected.mutable
+    ):
+        return TypedExprNode(inferred.kind, expected, inferred.label)
+
     if type(expr).__name__ != "ArrayLit" or not expected.is_array:
         return inferred
 

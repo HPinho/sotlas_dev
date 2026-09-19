@@ -1663,6 +1663,28 @@ fn view(value: &mut u32) -> &u32 {
             source, filename="<phase1-reference-mutability-weakening>"
         )
         bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "view")
+        result = body.statements[0]
+        self.assertEqual(result.kind, "Return")
+        self.assertTrue(result.expr.type.is_reference)
+        self.assertFalse(result.expr.type.mutable)
+
+    def test_typed_body_independently_rejects_reference_mutability_strengthening(self):
+        source = """module test::typed_reference_mutability_strengthening;
+fn strengthen(value: &u32) -> &mut u32 {
+    return value;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-typed-reference-mutability-strengthening>"
+        )
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"return type mismatch",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "strengthen")
 
     def test_bootstrap_rejects_null_reference_return(self):
         source = """module test::null_reference;

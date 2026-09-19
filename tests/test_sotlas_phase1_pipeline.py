@@ -189,6 +189,21 @@ fn read(ptr: *mut u32) -> u32 {
         self.assertEqual(body.statements[0].body[0].kind, "Return")
         self.assertEqual(body.statements[0].body[0].expr.type.name, "u32")
 
+    def test_public_phase1_pipeline_accepts_reference_mutability_weakening(self):
+        source = """module test::phase1_reference_mutability_weakening;
+fn view(value: &mut u32) -> &u32 {
+    return value;
+}
+"""
+        result = sotlas_compile.analyze_source_phase1(
+            source, filename="<phase1-reference-mutability-weakening>"
+        )
+        body = result.semantic.bodies[0]
+        returned = body.statements[0].expr.type
+        self.assertTrue(returned.is_reference)
+        self.assertFalse(returned.mutable)
+        self.assertEqual(returned.name, "u32")
+
     def test_public_phase1_pipeline_rejects_recursive_value_type(self):
         source = """module test::phase1_recursive_value;
 struct Node {
