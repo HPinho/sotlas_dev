@@ -925,8 +925,8 @@ def _contextualize_expression(
 
 
 _TRY_RESULT_PAYLOADS = {
-    "ResultU32": SemanticType("u32"),
-    "ResultI32": SemanticType("i32"),
+    "ResultU32": "u32",
+    "ResultI32": "i32",
 }
 
 
@@ -940,12 +940,12 @@ def _try_payload_type(type_info: SemanticType) -> SemanticType:
         raise Phase1SemanticError(
             f"try operator requires Result value, got {type_info.name}"
         )
-    payload = _TRY_RESULT_PAYLOADS.get(type_info.name)
-    if payload is None:
+    payload_name = _TRY_RESULT_PAYLOADS.get(type_info.name)
+    if payload_name is None:
         raise Phase1SemanticError(
             f"try operator requires Result value, got {type_info.name}"
         )
-    return payload
+    return SemanticType(payload_name)
 
 
 def infer_expression_type(
