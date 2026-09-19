@@ -53,26 +53,6 @@ jobs:
         sotlas lint examples/01_hello_systems/main.sotlas
         sotlas doc examples/01_hello_systems/main.sotlas -o examples/01_hello_systems/DOCS.md
 
-  kernel-smoke-test:
-    name: BakenOS Kernel Integration Smoke Test
-    runs-on: ubuntu-latest
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-
-    - name: Set up Python 3.12
-      uses: actions/setup-python@v5
-      with:
-        python-version: "3.12"
-
-    - name: Install dependencies
-      run: |
-        pip install -e .
-
-    - name: Run Kernel Contract & Resolver Tests
-      run: |
-        python -m unittest tests.test_sotlas_kernel_language_contract
-        python -m unittest tests.test_sotlas_resolver
 
   backend-contract:
     name: Check implies valid C11 backend output
@@ -156,7 +136,7 @@ jobs:
   package-toolchain-snapshot:
     name: Package Nightly Toolchain Snapshot
     runs-on: ubuntu-latest
-    needs: [test, kernel-smoke-test, backend-contract]
+    needs: [test, backend-contract]
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4

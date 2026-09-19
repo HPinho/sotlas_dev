@@ -8,8 +8,6 @@ import unittest
 from tools.sotlas_compile import bootstrap
 
 ROOT = Path(__file__).resolve().parents[1]
-COMPILER = ROOT / "tools" / "sotlas_compile" / "compiler.py"
-
 
 class SotlasFrontendExtensionTests(unittest.TestCase):
     def test_lexer_and_parser_accept_complete_compound_assignment_family(self):
@@ -72,7 +70,7 @@ class SotlasFrontendExtensionTests(unittest.TestCase):
         emitted = bootstrap.emit_c(module, include_preamble=False)
         self.assertIn("value = (value << 1);", emitted)
 
-    def test_direct_compiler_cli_installs_the_same_frontend_extensions(self):
+    def test_canonical_cli_installs_the_same_frontend_extensions(self):
         source = """
         module test::direct_cli;
         pub fn exercise() -> u16 {
@@ -88,7 +86,11 @@ class SotlasFrontendExtensionTests(unittest.TestCase):
             output_path = temp / "direct_cli.c"
             source_path.write_text(source, encoding="utf-8")
             result = subprocess.run(
-                [sys.executable, str(COMPILER), "bootstrap-emit-c", str(source_path), "-o", str(output_path)],
+                [
+                    sys.executable, "-m", "sotlas.cli", "compile",
+                    str(source_path), "--backend", "c11", "--emit-c",
+                    "-o", str(output_path),
+                ],
                 cwd=temp,
                 capture_output=True,
                 text=True,

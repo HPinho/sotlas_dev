@@ -3,6 +3,7 @@ import importlib.util
 from pathlib import Path
 import subprocess
 import sys
+import shutil
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -12,10 +13,11 @@ bootstrap = importlib.util.module_from_spec(SPEC)
 sys.modules["bootstrap"] = bootstrap
 SPEC.loader.exec_module(bootstrap)
 
-SPEC_COMPILER = importlib.util.spec_from_file_location("compiler", ROOT / "tools" / "sotlas_compile" / "compiler.py")
-assert SPEC_COMPILER is not None and SPEC_COMPILER.loader is not None
-sotlas_compile = importlib.util.module_from_spec(SPEC_COMPILER)
-SPEC_COMPILER.loader.exec_module(sotlas_compile)
+def _host_c_compiler() -> Path:
+    resolved = shutil.which("gcc") or shutil.which("clang")
+    if resolved is None:
+        raise unittest.SkipTest("host C compiler not available")
+    return Path(resolved)
 
 
 SOURCE = """
@@ -264,7 +266,7 @@ class SotlasFrontendCompatTests(unittest.TestCase):
 
         # Validação real de compilação via GCC
         import os
-        gcc = sotlas_compile.find_gcc(ROOT)
+        gcc = _host_c_compiler()
         obj = ROOT / "build" / "test_bootstrap_project.o"
         env = dict(os.environ)
         env["PATH"] = str(gcc.parent) + os.pathsep + env.get("PATH", "")
@@ -377,7 +379,7 @@ class SotlasFrontendCompatTests(unittest.TestCase):
         temp_c.write_text(full_code, encoding="utf-8")
 
         import os
-        gcc = sotlas_compile.find_gcc(ROOT)
+        gcc = _host_c_compiler()
         env = dict(os.environ)
         env["PATH"] = str(gcc.parent) + os.pathsep + env.get("PATH", "")
         compile_res = subprocess.run([str(gcc), "-std=c11", str(temp_c), "-o", str(temp_exe)],

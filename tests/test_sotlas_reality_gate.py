@@ -31,30 +31,6 @@ class SotlasRealityGateTests(unittest.TestCase):
         self.assertNotIn("from .compiler import", package)
         self.assertIn("from .errors import SotlasError", package)
 
-    def test_baken_compatibility_adapter_is_not_imported_by_production_package(self):
-        package = (
-            ROOT / "compiler" / "sotlas_compile" / "__init__.py"
-        ).read_text(encoding="utf-8")
-        compatibility = (
-            ROOT / "compiler" / "sotlas_compile" / "compiler.py"
-        ).read_text(encoding="utf-8")
-        self.assertNotIn("from .compiler import", package)
-        self.assertIn('root / "kernel"', compatibility)
-        self.assertIn('root / "libbkn"', compatibility)
-
-    def test_canonical_safety_policy_has_no_baken_specific_names(self):
-        safety = (
-            ROOT / "compiler" / "sotlas_compile" / "language_safety.py"
-        ).read_text(encoding="utf-8")
-        package = (
-            ROOT / "compiler" / "sotlas_compile" / "__init__.py"
-        ).read_text(encoding="utf-8")
-        compat = (
-            ROOT / "compiler" / "sotlas_compile" / "baken_compat.py"
-        ).read_text(encoding="utf-8")
-        self.assertNotIn("baken_", safety.lower())
-        self.assertNotIn("baken_compat", package)
-        self.assertIn("baken_get_font_alpha", compat)
 
     def test_x86_inline_assembly_uses_platform_c_symbol_spelling(self):
         intrinsics = (

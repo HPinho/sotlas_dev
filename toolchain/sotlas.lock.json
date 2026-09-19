@@ -15,6 +15,5 @@
     "extern-c",
     "foreign-pointer-provenance",
     "modular-compilation"
-  ],
-  "compatibility_entry": "kernel/src/main.sotlas"
+  ]
 }
