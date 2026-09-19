@@ -1304,6 +1304,18 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
                             "atribuição por referência imutável não é permitida",
                             item.token.line, item.token.column, filename, source,
                         )
+                elif (
+                    isinstance(item.target, Unary)
+                    and item.target.op == "*"
+                ):
+                    pointee_t = expr_type(
+                        item.target.value, scope, in_unsafe, is_system_fn
+                    )
+                    if pointee_t.is_reference and not pointee_t.mutable:
+                        raise SotlasBootstrapError(
+                            "atribuição por referência imutável não é permitida",
+                            item.token.line, item.token.column, filename, source,
+                        )
                 target_type = expr_type(item.target, scope, in_unsafe, is_system_fn)
                 value_type = expr_type(item.value, scope, in_unsafe, is_system_fn)
                 if not assignable(value_type, target_type):

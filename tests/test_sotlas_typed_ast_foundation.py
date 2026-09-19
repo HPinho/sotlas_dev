@@ -1372,6 +1372,39 @@ fn read(ptr: *mut u32) -> u32 {
         self.assertFalse(unsafe_node.body[0].expr.type.mutable)
         self.assertFalse(unsafe_node.body[0].expr.type.is_reference)
 
+    def test_immutable_reference_deref_assignment_is_rejected(self):
+        source = """module test::immutable_reference_deref_write;
+fn write(value: &u32) -> void {
+    *value = 7u32;
+    return;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-immutable-reference-deref-write>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"atribuição por referência imutável não é permitida",
+        ):
+            bootstrap.check(parsed)
+
+    def test_mut_reference_deref_assignment_is_valid(self):
+        source = """module test::mut_reference_deref_write;
+fn write(value: &mut u32) -> void {
+    *value = 7u32;
+    return;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-mut-reference-deref-write>"
+        )
+        bootstrap.check(parsed)
+        write = next(item for item in parsed.functions if item.name == "write")
+        assign = write.body[0]
+        self.assertIsInstance(assign, bootstrap.Assign)
+        self.assertIsInstance(assign.target, bootstrap.Unary)
+        self.assertEqual(assign.target.op, "*")
+
     def test_reference_deref_does_not_require_unsafe(self):
         source = """module test::reference_deref_safe;
 fn read(value: &u32) -> u32 {
