@@ -244,6 +244,8 @@ def require_expr_ownership_live(env: OwnershipEnv, expr) -> None:
         require_expr_ownership_live(env, getattr(expr, "value", None))
     elif kind == "Cast":
         require_expr_ownership_live(env, getattr(expr, "expr", None))
+    elif kind == "TryExpr":
+        require_expr_ownership_live(env, getattr(expr, "expr", None))
     elif kind == "Call":
         for argument in getattr(expr, "args", ()):
             require_expr_ownership_live(env, argument)
@@ -676,6 +678,8 @@ def _collect_calls_from_expr(expr, calls: list[str]) -> None:
         _collect_calls_from_expr(getattr(expr, "value", None), calls)
     elif kind == "Cast":
         _collect_calls_from_expr(getattr(expr, "expr", None), calls)
+    elif kind == "TryExpr":
+        _collect_calls_from_expr(getattr(expr, "expr", None), calls)
     elif kind == "Index":
         _collect_calls_from_expr(getattr(expr, "target", None), calls)
         _collect_calls_from_expr(getattr(expr, "index", None), calls)
@@ -918,6 +922,30 @@ def _contextualize_expression(
             )
 
     return TypedExprNode("ArrayLit", expected, "array")
+
+
+_TRY_RESULT_PAYLOADS = {
+    "ResultU32": SemanticType("u32"),
+    "ResultI32": SemanticType("i32"),
+}
+
+
+def _try_payload_type(type_info: SemanticType) -> SemanticType:
+    """Resolve the payload type of the concrete pre-generic Result ABI.
+
+    Phase 1 recognizes only Result wrappers that exist in stdlib/core/result.sotlas.
+    Unknown shapes fail closed instead of inheriting bootstrap's legacy u32 fallback.
+    """
+    if type_info.pointer or type_info.is_array or type_info.is_reference:
+        raise Phase1SemanticError(
+            f"try operator requires Result value, got {type_info.name}"
+        )
+    payload = _TRY_RESULT_PAYLOADS.get(type_info.name)
+    if payload is None:
+        raise Phase1SemanticError(
+            f"try operator requires Result value, got {type_info.name}"
+        )
+    return payload
 
 
 def infer_expression_type(
@@ -1347,6 +1375,13 @@ def infer_expression_type(
                     f"expected {parameter.type.name}, got {contextual.type.name}"
                 )
         return TypedExprNode(kind, function.result, callee)
+
+    if kind == "TryExpr":
+        inner = infer_expression_type(
+            getattr(expr, "expr"), env, typed_module
+        )
+        payload = _try_payload_type(inner.type)
+        return TypedExprNode(kind, payload, "?")
 
     if kind == "Binary":
         left_expr = getattr(expr, "left")

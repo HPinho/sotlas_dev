@@ -1819,6 +1819,66 @@ fn main() -> Mode { return Mode::Missing; }
         ):
             typed_ast.build_linear_typed_body(parsed, typed, "main")
 
+    def test_typed_body_types_try_result_u32(self):
+        source = """module test::typed_try_u32;
+fn passthrough(value: ResultU32) -> ResultU32 { return value; }
+fn main(value: ResultU32) -> u32 {
+    return passthrough(value)?;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-typed-try-u32>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "main")
+        self.assertEqual(body.statements[0].expr.kind, "TryExpr")
+        self.assertEqual(body.statements[0].expr.type.name, "u32")
+
+    def test_typed_body_types_try_result_i32(self):
+        source = """module test::typed_try_i32;
+fn passthrough(value: ResultI32) -> ResultI32 { return value; }
+fn main(value: ResultI32) -> i32 {
+    return passthrough(value)?;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-typed-try-i32>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "main")
+        self.assertEqual(body.statements[0].expr.kind, "TryExpr")
+        self.assertEqual(body.statements[0].expr.type.name, "i32")
+
+    def test_typed_body_rejects_try_on_non_result_independently(self):
+        source = """module test::typed_try_non_result;
+fn passthrough(value: u32) -> u32 { return value; }
+fn main(value: u32) -> u32 {
+    return passthrough(value)?;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-typed-try-non-result>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"try operator requires Result value, got u32",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
+    def test_ownership_summary_records_call_wrapped_by_try(self):
+        source = """module test::ownership_try_edge;
+fn passthrough(value: ResultU32) -> ResultU32 { return value; }
+fn main(value: ResultU32) -> u32 {
+    return passthrough(value)?;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-ownership-try-edge>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        summaries = {
+            item.name: item
+            for item in typed_ast.summarize_module_ownership(parsed, typed)
+        }
+        self.assertIn("passthrough", summaries["main"].calls)
+
     def test_typed_body_types_if_expression(self):
         source = """module test::typed_if_expr;
 fn choose(flag: bool) -> i64 {
