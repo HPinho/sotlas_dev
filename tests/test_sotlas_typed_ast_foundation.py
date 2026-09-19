@@ -1671,7 +1671,7 @@ fn main(consumer: Consumer) -> void {
             any(
                 event.kind == "move"
                 and event.name == "token"
-                and event.detail == "method:Consumer_take"
+                and event.via == "method:Consumer_take"
                 for event in trace.events
             )
         )
