@@ -2096,18 +2096,28 @@ def infer_assignment_target_type(
         container = infer_expression_type(
             getattr(target, "target"), env, typed_module
         )
-        if container.type.is_reference and not container.type.mutable:
+        if container.type.is_reference:
+            if not container.type.mutable:
+                raise Phase1SemanticError(
+                    "assignment through immutable reference is not allowed"
+                )
+        elif container.type.pointer and not in_unsafe:
             raise Phase1SemanticError(
-                "assignment through immutable reference is not allowed"
+                "raw pointer index assignment requires unsafe"
             )
         return infer_expression_type(target, env, typed_module)
     if kind == "Member":
         container = infer_expression_type(
             getattr(target, "target"), env, typed_module
         )
-        if container.type.is_reference and not container.type.mutable:
+        if container.type.is_reference:
+            if not container.type.mutable:
+                raise Phase1SemanticError(
+                    "assignment through immutable reference is not allowed"
+                )
+        elif container.type.pointer and not in_unsafe:
             raise Phase1SemanticError(
-                "assignment through immutable reference is not allowed"
+                "raw pointer member assignment requires unsafe"
             )
         return infer_expression_type(target, env, typed_module)
     if kind == "Unary" and getattr(target, "op", None) == "*":
