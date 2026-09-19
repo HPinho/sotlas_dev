@@ -164,6 +164,98 @@ fn main(t: Token) -> void {
         self.assertIs(env.state_of("t"), typed_ast.VarState.LIVE)
         self.assertIsNone(env.state_of("copy"))
 
+    def test_linear_body_moves_sole_value_into_by_value_call(self):
+        source = """module test::linear_call;
+sole struct Token { value: u32; }
+
+fn consume(t: Token) -> void { return; }
+fn main() -> void {
+    let token = Token { value: 1 };
+    consume(token);
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-linear-call>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_linear_function_ownership(
+            parsed, typed, "main"
+        )
+        self.assertIs(
+            trace.final_env.state_of("token"),
+            typed_ast.VarState.MOVED,
+        )
+        self.assertIn(
+            typed_ast.OwnershipEvent("move", "token", "call:consume"),
+            trace.events,
+        )
+
+    def test_linear_body_move_assignment_transfers_owner(self):
+        source = """module test::linear_let;
+sole struct Token { value: u32; }
+
+fn main() -> void {
+    let first = Token { value: 1 };
+    let second = first;
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-linear-let>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_linear_function_ownership(
+            parsed, typed, "main"
+        )
+        self.assertIs(
+            trace.final_env.state_of("first"),
+            typed_ast.VarState.MOVED,
+        )
+        self.assertIs(
+            trace.final_env.state_of("second"),
+            typed_ast.VarState.LIVE,
+        )
+
+    def test_linear_body_detects_double_move(self):
+        source = """module test::linear_double;
+sole struct Token { value: u32; }
+
+fn consume(t: Token) -> void { return; }
+fn main() -> void {
+    let token = Token { value: 1 };
+    consume(token);
+    consume(token);
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-linear-double>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"use of sole value 'token' after move",
+        ):
+            typed_ast.analyze_linear_function_ownership(
+                parsed, typed, "main"
+            )
+
+    def test_linear_body_does_not_move_copyable_argument(self):
+        source = """module test::linear_copy;
+fn consume(value: u32) -> void { return; }
+fn main() -> void {
+    let value: u32 = 1;
+    consume(value);
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-linear-copy>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_linear_function_ownership(
+            parsed, typed, "main"
+        )
+        self.assertIsNone(trace.final_env.state_of("value"))
+        self.assertFalse(any(event.kind == "move" for event in trace.events))
+
     def test_conditional_move_in_one_branch_becomes_maybe_moved(self):
         typed = typed_ast.build_declaration_typed_ast(self.checked_ast())
         base = typed_ast.OwnershipEnv().declare(
