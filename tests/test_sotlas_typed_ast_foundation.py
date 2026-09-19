@@ -1083,6 +1083,43 @@ fn invoke(ptr: *mut Dispatch) -> u32 {
         self.assertEqual(call.target_type.name, "Dispatch")
         self.assertTrue(call.target_type.pointer)
 
+    def test_reference_member_access_does_not_require_unsafe(self):
+        source = """module test::reference_member_safe;
+struct Point { x: u32; }
+fn read(point: &Point) -> u32 {
+    return point.x;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-reference-member-safe>"
+        )
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "read")
+        member = body.statements[0].expr
+        self.assertEqual(member.kind, "Member")
+        self.assertEqual(member.type.name, "u32")
+        self.assertFalse(member.type.pointer)
+        self.assertFalse(member.type.is_reference)
+
+    def test_mut_reference_member_access_does_not_require_unsafe(self):
+        source = """module test::mut_reference_member_safe;
+struct Point { x: u32; }
+fn read(point: &mut Point) -> u32 {
+    return point.x;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-mut-reference-member-safe>"
+        )
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "read")
+        member = body.statements[0].expr
+        self.assertEqual(member.kind, "Member")
+        self.assertEqual(member.type.name, "u32")
+        self.assertFalse(member.type.pointer)
+
     def test_pointer_member_access_requires_unsafe(self):
         source = """module test::pointer_member_requires_unsafe;
 struct Point { x: u32; }
