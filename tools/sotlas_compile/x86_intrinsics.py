@@ -7,18 +7,17 @@ freestanding mínimos, que o GCC reduz para instruções reais da CPU.
 
 from __future__ import annotations
 
-_MARKER = "/* SOTLAS_X86_64_PRIVILEGED_INTRINSICS */
+_MARKER = "/* SOTLAS_X86_64_PRIVILEGED_INTRINSICS */"
+
+_C_INTRINSICS = r'''
+
+/* SOTLAS_X86_64_PRIVILEGED_INTRINSICS */
 /* C symbol spelling differs on Mach-O. Keep inline assembly portable. */
 #if defined(__APPLE__)
 #define SOTLAS_ASM_CSYM(name) "_" #name
 #else
 #define SOTLAS_ASM_CSYM(name) #name
 #endif
-"
-
-_C_INTRINSICS = r'''
-
-/* SOTLAS_X86_64_PRIVILEGED_INTRINSICS */
 typedef struct __attribute__((packed)) {
     uint16_t limit;
     uint64_t base;
