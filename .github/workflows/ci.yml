@@ -127,17 +127,17 @@ jobs:
                 )
         PY
 
-    - name: Verify SUPPORTED examples satisfy check -> C11 contract
+    - name: Verify backend-contract examples satisfy check -> C11 contract
       shell: bash
       run: |
         set -euo pipefail
         mkdir -p build/check-contract
 
-        python - <<'PY' > build/check-contract/supported.txt
+        python - <<'PY' > build/check-contract/backend-contract.txt
         import json
         data = json.load(open("examples/manifest.json", encoding="utf-8"))
         for item in data["examples"]:
-            if item["status"] == "SUPPORTED":
+            if item.get("backend_contract") is True:
                 print(item["entry"])
         PY
 
@@ -151,7 +151,7 @@ jobs:
           sotlas compile "$source" --backend c11 --emit-c -o "$output"
           cc -std=c11 -Wall -Wextra -fsyntax-only "$output"
           echo "::endgroup::"
-        done < build/check-contract/supported.txt
+        done < build/check-contract/backend-contract.txt
 
   package-toolchain-snapshot:
     name: Package Nightly Toolchain Snapshot
