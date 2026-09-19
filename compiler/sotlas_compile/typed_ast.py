@@ -1877,12 +1877,23 @@ def infer_expression_type(
                 )
             shift = _integer_constant_value(right_expr)
             if shift is not None:
-                width, _ = _INTEGER_WIDTHS[left.type.name]
+                width, signed = _INTEGER_WIDTHS[left.type.name]
                 if shift < 0 or shift >= width:
                     raise Phase1SemanticError(
                         f"shift count {shift} out of range for "
                         f"{left.type.name} width {width}"
                     )
+                if op == "<<":
+                    left_value = _integer_constant_value(left_expr)
+                    if left_value is not None:
+                        if signed and left_value < 0:
+                            raise Phase1SemanticError(
+                                "left shift of negative signed integer "
+                                "is not allowed"
+                            )
+                        validate_integer_value(
+                            left_value << shift, left.type
+                        )
             return TypedExprNode(kind, left.type, op)
 
         raise Phase1SemanticError(f"unsupported binary operator {op!r}")

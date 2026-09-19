@@ -1560,6 +1560,54 @@ fn bits(value: u16) -> u16 { return value | 1; }
             "u16",
         )
 
+    def test_typed_body_rejects_constant_left_shift_overflow(self):
+        source = """module test::typed_left_shift_overflow;
+fn main() -> u8 {
+    return 128u8 << 1u8;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-left-shift-overflow>"
+        )
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"integer value 256 out of range for u8",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
+    def test_typed_body_rejects_negative_signed_left_shift(self):
+        source = """module test::typed_negative_left_shift;
+fn main() -> i8 {
+    return -1i8 << 1i8;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-negative-left-shift>"
+        )
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"left shift of negative signed integer is not allowed",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
+    def test_typed_body_accepts_constant_left_shift_in_range(self):
+        source = """module test::typed_left_shift_in_range;
+fn main() -> u8 {
+    return 1u8 << 7u8;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-left-shift-in-range>"
+        )
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "main")
+        self.assertEqual(body.statements[0].expr.type.name, "u8")
+
     def test_typed_body_rejects_shift_equal_to_integer_width(self):
         source = """module test::typed_shift_width;
 fn main(value: u32) -> u32 {
