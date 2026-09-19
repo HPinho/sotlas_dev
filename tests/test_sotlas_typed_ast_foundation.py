@@ -114,6 +114,56 @@ class SotlasTypedAstFoundationTests(unittest.TestCase):
         )
         self.assertIs(state, typed_ast.VarState.MOVED)
 
+    def test_function_ownership_seeds_sole_parameter_and_local(self):
+        source = """module test::ownership_seed;
+sole struct Handle { fd: u32; }
+
+fn consume(h: Handle) -> void {
+    let local = Handle { fd: 1 };
+    let count: u32 = 2;
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-ownership-seed>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        env = typed_ast.seed_function_ownership(parsed, typed, "consume")
+        self.assertIs(env.state_of("h"), typed_ast.VarState.LIVE)
+        self.assertIs(env.state_of("local"), typed_ast.VarState.LIVE)
+        self.assertIsNone(env.state_of("count"))
+
+    def test_function_ownership_accepts_explicit_sole_local_type(self):
+        source = """module test::ownership_explicit;
+sole struct Token { value: u32; }
+
+fn main() -> void {
+    let first: Token = Token { value: 7 };
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-ownership-explicit>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        env = typed_ast.seed_function_ownership(parsed, typed, "main")
+        self.assertIs(env.state_of("first"), typed_ast.VarState.LIVE)
+
+    def test_function_ownership_does_not_guess_arbitrary_expression_types(self):
+        source = """module test::ownership_conservative;
+sole struct Token { value: u32; }
+
+fn identity(t: Token) -> Token { return t; }
+fn main(t: Token) -> void {
+    let copy = t;
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-ownership-conservative>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        env = typed_ast.seed_function_ownership(parsed, typed, "main")
+        self.assertIs(env.state_of("t"), typed_ast.VarState.LIVE)
+        self.assertIsNone(env.state_of("copy"))
+
     def test_ownership_env_tracks_only_sole_bindings(self):
         typed = typed_ast.build_declaration_typed_ast(self.checked_ast())
         env = typed_ast.OwnershipEnv()

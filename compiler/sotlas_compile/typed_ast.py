@@ -148,6 +148,58 @@ class OwnershipEnv:
         return OwnershipEnv(tuple(merged))
 
 
+def _declared_local_type(statement) -> SemanticType | None:
+    """Resolve a local declaration type without running a second typechecker.
+
+    Explicit annotations are authoritative. For an unannotated local, the only
+    inference admitted at this Phase-1 slice is a direct struct literal, whose
+    declared struct name is syntactically unambiguous.
+    """
+    if type(statement).__name__ != "Let":
+        return None
+    explicit = getattr(statement, "type", None)
+    if explicit is not None:
+        return semantic_type(explicit)
+    value = getattr(statement, "value", None)
+    if type(value).__name__ == "StructLit":
+        return SemanticType(getattr(value, "struct_name"))
+    return None
+
+
+def seed_function_ownership(
+    parsed_module, typed_module: TypedModule, function_name: str
+) -> OwnershipEnv:
+    """Seed sole ownership for parameters and top-level locals of one function.
+
+    This is intentionally an isolated Phase-1 adapter. It does not mutate the
+    parsed module, does not walk control flow, and does not replace semantic
+    checking. Nested-block dataflow is a later slice.
+    """
+    parsed_function = next(
+        (item for item in parsed_module.functions if item.name == function_name),
+        None,
+    )
+    typed_function = next(
+        (item for item in typed_module.functions if item.name == function_name),
+        None,
+    )
+    if parsed_function is None or typed_function is None:
+        raise Phase1SemanticError(
+            f"function {function_name!r} not found for ownership seeding"
+        )
+
+    env = OwnershipEnv()
+    for param in typed_function.params:
+        env = env.declare(param.name, param.type, typed_module)
+
+    for statement in parsed_function.body:
+        local_type = _declared_local_type(statement)
+        if local_type is None:
+            continue
+        env = env.declare(statement.name, local_type, typed_module)
+    return env
+
+
 def require_live(name: str, state: VarState) -> None:
     """Reject uses of values whose ownership is no longer definitely live."""
     if state is VarState.LIVE:
@@ -396,6 +448,7 @@ def build_declaration_typed_ast(module) -> TypedModule:
 __all__ = [
     "MATURITY", "Phase1SemanticError", "VarState", "sole_type_names", "is_sole_type",
     "initial_ownership_state", "require_sole_transfer", "OwnershipBinding", "OwnershipEnv",
+    "seed_function_ownership",
     "require_live", "move_state", "merge_branch_states", "SourceSpan", "SemanticType",
     "TypedField", "TypedStruct",
     "TypedParam", "TypedFunction", "TypedGlobal", "TypedModule",
