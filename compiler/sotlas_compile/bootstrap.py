@@ -1026,10 +1026,17 @@ def parse(source: str, filename: str | None = None) -> Module:
 
 
 def same_type(left: Type, right: Type) -> bool:
-    return (left.name == right.name and
-            left.pointer == right.pointer and
-            left.is_array == right.is_array and
-            (not left.is_array or str(left.array_size) == str(right.array_size)))
+    return (
+        left.name == right.name
+        and left.pointer == right.pointer
+        and left.mutable == right.mutable
+        and left.is_reference == right.is_reference
+        and left.is_array == right.is_array
+        and (
+            not left.is_array
+            or str(left.array_size) == str(right.array_size)
+        )
+    )
 
 
 def assignable(actual: Type, expected: Type) -> bool:
@@ -1044,9 +1051,23 @@ def assignable(actual: Type, expected: Type) -> bool:
             return True
         if actual.name in {"f32", "f64"} and expected.name in {"f32", "f64"}:
             return True
-    if actual.name == "null" and expected.pointer:
+    if (
+        actual.name == "null"
+        and expected.pointer
+        and not expected.is_reference
+    ):
         return True
-    if actual.pointer and expected.pointer and (actual.name == expected.name or actual.name == "void" or expected.name == "void"):
+    if actual.pointer and expected.pointer:
+        if actual.is_reference != expected.is_reference:
+            return False
+        if not (
+            actual.name == expected.name
+            or actual.name == "void"
+            or expected.name == "void"
+        ):
+            return False
+        if expected.mutable and not actual.mutable:
+            return False
         return True
     return False
 

@@ -1606,6 +1606,79 @@ fn write(value: &mut u32) -> void {
         self.assertFalse(assign.type.pointer)
         self.assertFalse(assign.type.is_reference)
 
+    def test_bootstrap_rejects_implicit_reference_to_raw_pointer_return(self):
+        source = """module test::implicit_reference_to_raw_pointer;
+fn expose(value: &u32) -> *const u32 {
+    return value;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-implicit-reference-to-raw-pointer>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"retorno incompatível",
+        ):
+            bootstrap.check(parsed)
+
+    def test_bootstrap_rejects_implicit_raw_pointer_to_reference_return(self):
+        source = """module test::implicit_raw_pointer_to_reference;
+fn expose(value: *const u32) -> &u32 {
+    unsafe {
+        return value;
+    }
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-implicit-raw-pointer-to-reference>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"retorno incompatível",
+        ):
+            bootstrap.check(parsed)
+
+    def test_bootstrap_rejects_immutable_to_mutable_reference_return(self):
+        source = """module test::implicit_reference_mutability_strengthening;
+fn strengthen(value: &u32) -> &mut u32 {
+    return value;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-reference-mutability-strengthening>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"retorno incompatível",
+        ):
+            bootstrap.check(parsed)
+
+    def test_bootstrap_allows_mutable_to_immutable_reference_return(self):
+        source = """module test::reference_mutability_weakening;
+fn view(value: &mut u32) -> &u32 {
+    return value;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-reference-mutability-weakening>"
+        )
+        bootstrap.check(parsed)
+
+    def test_bootstrap_rejects_null_reference_return(self):
+        source = """module test::null_reference;
+fn bad() -> &u32 {
+    return null;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-null-reference>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"retorno incompatível",
+        ):
+            bootstrap.check(parsed)
+
     def test_reference_deref_does_not_require_unsafe(self):
         source = """module test::reference_deref_safe;
 fn read(value: &u32) -> u32 {
