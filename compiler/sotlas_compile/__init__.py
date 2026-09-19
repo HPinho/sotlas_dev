@@ -11,6 +11,11 @@ _install_frontend_extensions(bootstrap)
 _install_language_safety(bootstrap)
 
 from .errors import SotlasError
+from .phase1_pipeline import (
+    Phase1CheckedModule,
+    analyze_module_phase1,
+    analyze_source_phase1,
+)
 
 SotlasBootstrapError = bootstrap.SotlasBootstrapError
 compile_source = bootstrap.compile_source
@@ -19,5 +24,6 @@ emit_c_project = bootstrap.emit_c_project
 
 __all__ = [
     "bootstrap", "SotlasError", "SotlasBootstrapError", "compile_source",
-    "compile_project", "emit_c_project",
+    "compile_project", "emit_c_project", "Phase1CheckedModule",
+    "analyze_module_phase1", "analyze_source_phase1",
 ]
