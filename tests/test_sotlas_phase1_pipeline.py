@@ -129,6 +129,34 @@ fn main(token: Token) -> void {
             typed_ast.VarState.MOVED,
         )
 
+    def test_public_phase1_pipeline_rejects_constant_array_index_oob(self):
+        source = """module test::phase1_bounds_oob;
+fn main() -> i64 {
+    let values = [1, 2, 3];
+    return values[1 + 2];
+}
+"""
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"array index 3 out of bounds for length 3",
+        ):
+            sotlas_compile.analyze_source_phase1(
+                source, filename="<phase1-bounds-oob>"
+            )
+
+    def test_public_phase1_pipeline_accepts_constant_array_index_in_range(self):
+        source = """module test::phase1_bounds_in_range;
+fn main() -> i64 {
+    let values = [1, 2, 3];
+    return values[1 + 1];
+}
+"""
+        result = sotlas_compile.analyze_source_phase1(
+            source, filename="<phase1-bounds-in-range>"
+        )
+        body = result.semantic.bodies[0]
+        self.assertEqual(body.statements[-1].expr.type.name, "i64")
+
     def test_public_phase1_pipeline_rejects_recursive_value_type(self):
         source = """module test::phase1_recursive_value;
 struct Node {
