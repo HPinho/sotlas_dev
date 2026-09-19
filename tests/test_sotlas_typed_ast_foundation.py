@@ -1043,6 +1043,44 @@ fn main() -> void {
         ):
             typed_ast.build_linear_typed_body(parsed, typed, "main")
 
+    def test_pointer_member_access_requires_unsafe(self):
+        source = """module test::pointer_member_requires_unsafe;
+struct Point { x: u32; }
+fn read(ptr: *mut Point) -> u32 {
+    return ptr.x;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-pointer-member-requires-unsafe>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"acesso a campo via ponteiro exige bloco unsafe",
+        ):
+            bootstrap.check(parsed)
+
+    def test_pointer_member_access_inside_unsafe_is_valid(self):
+        source = """module test::pointer_member_unsafe;
+struct Point { x: u32; }
+fn read(ptr: *mut Point) -> u32 {
+    unsafe {
+        return ptr.x;
+    }
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-pointer-member-unsafe>"
+        )
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "read")
+        unsafe_node = body.statements[0]
+        member = unsafe_node.body[0].expr
+        self.assertEqual(member.kind, "Member")
+        self.assertEqual(member.type.name, "u32")
+        self.assertFalse(member.type.pointer)
+        self.assertFalse(member.type.is_array)
+
     def test_pointer_index_requires_unsafe(self):
         source = """module test::pointer_index_requires_unsafe;
 fn read(ptr: *mut u32) -> u32 {

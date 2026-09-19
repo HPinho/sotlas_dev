@@ -1205,6 +1205,11 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
             return Type(target_t.name, pointer=False, mutable=target_t.mutable)
         if isinstance(expr, Member):
             target_t = expr_type(expr.target, scope, in_unsafe, is_system_fn)
+            if target_t.pointer and not in_unsafe:
+                raise SotlasBootstrapError(
+                    "acesso a campo via ponteiro exige bloco unsafe",
+                    expr.token.line, expr.token.column, filename, source,
+                )
             expr.is_pointer_target = target_t.pointer
             struct_def = struct_map.get(target_t.name)
             if struct_def:
