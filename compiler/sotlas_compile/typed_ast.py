@@ -1837,6 +1837,17 @@ def infer_expression_type(
                     raise Phase1SemanticError(
                         f"integer {operation} by zero is not allowed"
                     )
+            if op in ("+", "-", "*") and left.type.name in integer_names:
+                left_value = _integer_constant_value(left_expr)
+                right_value = _integer_constant_value(right_expr)
+                if left_value is not None and right_value is not None:
+                    if op == "+":
+                        constant_value = left_value + right_value
+                    elif op == "-":
+                        constant_value = left_value - right_value
+                    else:
+                        constant_value = left_value * right_value
+                    validate_integer_value(constant_value, left.type)
             return TypedExprNode(kind, left.type, op)
 
         if op in ("&", "|", "^"):
