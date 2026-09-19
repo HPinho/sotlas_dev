@@ -247,6 +247,10 @@ def require_expr_ownership_live(env: OwnershipEnv, expr) -> None:
     elif kind == "Call":
         for argument in getattr(expr, "args", ()):
             require_expr_ownership_live(env, argument)
+    elif kind == "MethodCall":
+        require_expr_ownership_live(env, getattr(expr, "target", None))
+        for argument in getattr(expr, "args", ()):
+            require_expr_ownership_live(env, argument)
 
 
 def _move_call_arguments(
@@ -268,6 +272,48 @@ def _move_call_arguments(
                 name = moved_argument.value
                 result = result.move(name)
                 events.append(OwnershipEvent("move", name, f"call:{callee.name}"))
+                continue
+        require_expr_ownership_live(result, argument)
+    return result
+
+
+def _move_method_call_arguments(
+    env: OwnershipEnv,
+    call,
+    typed_module: TypedModule,
+    events: list[OwnershipEvent],
+) -> OwnershipEnv:
+    target_type = getattr(call, "target_type", None)
+    owner_name = getattr(target_type, "name", None)
+    method_name = getattr(call, "method", "")
+    if not owner_name or not method_name:
+        require_expr_ownership_live(env, getattr(call, "target", None))
+        for argument in getattr(call, "args", ()):
+            require_expr_ownership_live(env, argument)
+        return env
+
+    callee_name = f"{owner_name}_{method_name}"
+    callee = _typed_function_map(typed_module).get(callee_name)
+    if callee is None:
+        require_expr_ownership_live(env, getattr(call, "target", None))
+        for argument in getattr(call, "args", ()):
+            require_expr_ownership_live(env, argument)
+        return env
+
+    result = env
+    require_expr_ownership_live(result, getattr(call, "target", None))
+    user_params = callee.params[1:] if callee.params else ()
+    for argument, parameter in zip(getattr(call, "args", ()), user_params):
+        if is_sole_type(parameter.type, typed_module):
+            moved_argument = argument
+            if type(argument).__name__ == "MoveExpr":
+                moved_argument = getattr(argument, "value", None)
+            if type(moved_argument).__name__ == "Name":
+                name = moved_argument.value
+                result = result.move(name)
+                events.append(
+                    OwnershipEvent("move", name, f"method:{callee.name}")
+                )
                 continue
         require_expr_ownership_live(result, argument)
     return result
@@ -328,7 +374,13 @@ def analyze_linear_function_ownership(
                         local_type = source_type
             if type(value).__name__ == "Call":
                 env = _move_call_arguments(env, value, typed_module, events)
-            if type(value).__name__ not in ("Name", "MoveExpr", "Call"):
+            elif type(value).__name__ == "MethodCall":
+                env = _move_method_call_arguments(
+                    env, value, typed_module, events
+                )
+            if type(value).__name__ not in (
+                "Name", "MoveExpr", "Call", "MethodCall"
+            ):
                 require_expr_ownership_live(env, value)
             if local_type is not None:
                 before = env
@@ -343,6 +395,12 @@ def analyze_linear_function_ownership(
             value = getattr(statement, "value", None)
             if type(value).__name__ == "Call":
                 env = _move_call_arguments(env, value, typed_module, events)
+            elif type(value).__name__ == "MethodCall":
+                env = _move_method_call_arguments(
+                    env, value, typed_module, events
+                )
+            else:
+                require_expr_ownership_live(env, value)
             continue
 
         if kind == "Return":
@@ -425,6 +483,10 @@ def _analyze_block_ownership(
                 result = _move_call_arguments(
                     result, value, typed_module, events
                 )
+            elif type(value).__name__ == "MethodCall":
+                result = _move_method_call_arguments(
+                    result, value, typed_module, events
+                )
             if local_type is not None:
                 before = result
                 result = result.declare(
@@ -440,6 +502,10 @@ def _analyze_block_ownership(
             value = getattr(statement, "value", None)
             if type(value).__name__ == "Call":
                 result = _move_call_arguments(
+                    result, value, typed_module, events
+                )
+            elif type(value).__name__ == "MethodCall":
+                result = _move_method_call_arguments(
                     result, value, typed_module, events
                 )
             else:
@@ -615,6 +681,15 @@ def _collect_calls_from_expr(expr, calls: list[str]) -> None:
         _collect_calls_from_expr(getattr(expr, "index", None), calls)
     elif kind == "Member":
         _collect_calls_from_expr(getattr(expr, "target", None), calls)
+    elif kind == "MethodCall":
+        target_type = getattr(expr, "target_type", None)
+        owner_name = getattr(target_type, "name", None)
+        method_name = getattr(expr, "method", None)
+        if owner_name and method_name:
+            calls.append(f"{owner_name}_{method_name}")
+        _collect_calls_from_expr(getattr(expr, "target", None), calls)
+        for argument in getattr(expr, "args", ()):
+            _collect_calls_from_expr(argument, calls)
 
 
 def _collect_calls_from_statements(statements, calls: list[str]) -> None:

@@ -1626,6 +1626,81 @@ fn main() -> i64 {
         ):
             typed_ast.build_linear_typed_body(parsed, typed, "main")
 
+    def test_ownership_summary_records_method_call_edge(self):
+        source = """module test::ownership_method_edge;
+struct Counter { value: u32; }
+impl Counter {
+    fn increment(self: *mut Counter, amount: u32) -> u32 {
+        return amount;
+    }
+}
+fn main(counter: Counter) -> u32 {
+    return counter.increment(1);
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-method-edge>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        summaries = {
+            item.name: item
+            for item in typed_ast.summarize_module_ownership(parsed, typed)
+        }
+        self.assertIn("Counter_increment", summaries["main"].calls)
+
+    def test_ownership_method_call_moves_sole_argument(self):
+        source = """module test::ownership_method_move;
+sole struct Token { value: u32; }
+struct Consumer { value: u32; }
+impl Consumer {
+    fn take(self: *mut Consumer, token: Token) -> void {
+        return;
+    }
+}
+fn main(consumer: Consumer) -> void {
+    let token = Token { value: 1 };
+    consumer.take(move token);
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-method-move>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(parsed, typed, "main")
+        self.assertIs(trace.final_env.state_of("token"), typed_ast.VarState.MOVED)
+        self.assertTrue(
+            any(
+                event.kind == "move"
+                and event.name == "token"
+                and event.detail == "method:Consumer_take"
+                for event in trace.events
+            )
+        )
+
+    def test_ownership_method_call_rejects_reusing_moved_argument(self):
+        source = """module test::ownership_method_reuse;
+sole struct Token { value: u32; }
+struct Consumer { value: u32; }
+impl Consumer {
+    fn take(self: *mut Consumer, token: Token) -> void {
+        return;
+    }
+}
+fn main(consumer: Consumer) -> void {
+    let token = Token { value: 1 };
+    consumer.take(move token);
+    consumer.take(move token);
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-method-reuse>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"use of sole value 'token' after move",
+        ):
+            typed_ast.analyze_function_ownership(parsed, typed, "main")
+
     def test_explicit_move_expression_types_sole_value(self):
         source = """module test::typed_move;
 sole struct Token { value: u32; }
