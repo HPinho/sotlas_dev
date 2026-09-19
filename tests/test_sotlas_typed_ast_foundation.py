@@ -484,6 +484,77 @@ fn main(flag: bool) -> void {
         trace = typed_ast.analyze_function_ownership(parsed, typed, "main")
         self.assertIsNone(trace.final_env.state_of("local"))
 
+    def test_module_ownership_summary_exposes_call_contracts(self):
+        source = """module test::summary;
+sole struct Token { value: u32; }
+
+fn forward(t: Token) -> Token { return t; }
+fn consume(t: Token) -> void { return; }
+fn main() -> void {
+    let token = Token { value: 1 };
+    consume(token);
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-summary>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        summaries = {
+            item.name: item
+            for item in typed_ast.summarize_module_ownership(parsed, typed)
+        }
+
+        self.assertTrue(summaries["forward"].params[0].takes_ownership)
+        self.assertTrue(summaries["forward"].returns_sole)
+        self.assertTrue(summaries["consume"].params[0].takes_ownership)
+        self.assertFalse(summaries["consume"].returns_sole)
+        self.assertEqual(summaries["main"].calls, ("consume",))
+
+    def test_module_ownership_summary_collects_nested_call_edges(self):
+        source = """module test::nested_calls;
+fn ping() -> void { return; }
+fn main(flag: bool) -> void {
+    if flag {
+        ping();
+    }
+    while flag {
+        ping();
+    }
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-nested-calls>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        summaries = {
+            item.name: item
+            for item in typed_ast.summarize_module_ownership(parsed, typed)
+        }
+        self.assertEqual(summaries["main"].calls, ("ping", "ping"))
+
+    def test_module_ownership_analysis_keeps_per_function_traces(self):
+        source = """module test::module_analysis;
+sole struct Token { value: u32; }
+
+fn consume(t: Token) -> void { return; }
+fn main() -> void {
+    let token = Token { value: 1 };
+    consume(token);
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-module-analysis>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        analysis = typed_ast.analyze_module_ownership(parsed, typed)
+        traces = dict(analysis.traces)
+        self.assertIn("consume", traces)
+        self.assertIn("main", traces)
+        self.assertIs(
+            traces["main"].final_env.state_of("token"),
+            typed_ast.VarState.MOVED,
+        )
+
     def test_conditional_move_in_one_branch_becomes_maybe_moved(self):
         typed = typed_ast.build_declaration_typed_ast(self.checked_ast())
         base = typed_ast.OwnershipEnv().declare(

@@ -541,6 +541,120 @@ def analyze_function_ownership(
     return OwnershipTrace(env, tuple(events))
 
 
+@dataclass(frozen=True)
+class OwnershipParamContract:
+    name: str
+    takes_ownership: bool
+
+
+@dataclass(frozen=True)
+class OwnershipFunctionSummary:
+    name: str
+    params: tuple[OwnershipParamContract, ...]
+    returns_sole: bool
+    calls: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class OwnershipModuleAnalysis:
+    summaries: tuple[OwnershipFunctionSummary, ...]
+    traces: tuple[tuple[str, OwnershipTrace], ...]
+
+
+def _collect_calls_from_expr(expr, calls: list[str]) -> None:
+    if expr is None:
+        return
+    kind = type(expr).__name__
+    if kind == "Call":
+        callee = getattr(expr, "callee", None)
+        if isinstance(callee, str):
+            calls.append(callee)
+        for argument in getattr(expr, "args", ()):
+            _collect_calls_from_expr(argument, calls)
+        return
+    if kind == "Binary":
+        _collect_calls_from_expr(getattr(expr, "left", None), calls)
+        _collect_calls_from_expr(getattr(expr, "right", None), calls)
+    elif kind == "Unary":
+        _collect_calls_from_expr(getattr(expr, "value", None), calls)
+    elif kind == "Cast":
+        _collect_calls_from_expr(getattr(expr, "expr", None), calls)
+    elif kind == "Index":
+        _collect_calls_from_expr(getattr(expr, "target", None), calls)
+        _collect_calls_from_expr(getattr(expr, "index", None), calls)
+    elif kind == "Member":
+        _collect_calls_from_expr(getattr(expr, "target", None), calls)
+
+
+def _collect_calls_from_statements(statements, calls: list[str]) -> None:
+    for statement in statements:
+        kind = type(statement).__name__
+        if kind in ("Let", "Expression", "Return"):
+            _collect_calls_from_expr(getattr(statement, "value", None), calls)
+        elif kind == "If":
+            _collect_calls_from_expr(getattr(statement, "condition", None), calls)
+            _collect_calls_from_statements(
+                getattr(statement, "then_body", ()), calls
+            )
+            _collect_calls_from_statements(
+                getattr(statement, "else_body", ()), calls
+            )
+        elif kind in ("While", "Loop", "For"):
+            _collect_calls_from_expr(
+                getattr(statement, "condition", None), calls
+            )
+            _collect_calls_from_expr(getattr(statement, "start", None), calls)
+            _collect_calls_from_expr(getattr(statement, "end", None), calls)
+            _collect_calls_from_statements(
+                getattr(statement, "body", ()), calls
+            )
+
+
+def summarize_module_ownership(
+    parsed_module, typed_module: TypedModule
+) -> tuple[OwnershipFunctionSummary, ...]:
+    """Build explicit ownership contracts and call edges for module functions."""
+    parsed_functions = {item.name: item for item in parsed_module.functions}
+    summaries = []
+    for function in typed_module.functions:
+        calls: list[str] = []
+        parsed = parsed_functions.get(function.name)
+        if parsed is not None:
+            _collect_calls_from_statements(parsed.body, calls)
+        summaries.append(
+            OwnershipFunctionSummary(
+                name=function.name,
+                params=tuple(
+                    OwnershipParamContract(
+                        param.name,
+                        is_sole_type(param.type, typed_module),
+                    )
+                    for param in function.params
+                ),
+                returns_sole=is_sole_type(function.result, typed_module),
+                calls=tuple(calls),
+            )
+        )
+    return tuple(summaries)
+
+
+def analyze_module_ownership(
+    parsed_module, typed_module: TypedModule
+) -> OwnershipModuleAnalysis:
+    """Run isolated ownership analysis across every canonical module function."""
+    summaries = summarize_module_ownership(parsed_module, typed_module)
+    traces = tuple(
+        (
+            function.name,
+            analyze_function_ownership(
+                parsed_module, typed_module, function.name
+            ),
+        )
+        for function in typed_module.functions
+    )
+    return OwnershipModuleAnalysis(summaries, traces)
+
+
 def apply_ownership_moves(
     env: OwnershipEnv, names: tuple[str, ...] | list[str]
 ) -> OwnershipEnv:
@@ -836,6 +950,9 @@ __all__ = [
     "seed_function_ownership", "OwnershipEvent", "OwnershipTrace",
     "require_expr_ownership_live",
     "analyze_linear_function_ownership", "analyze_function_ownership",
+    "OwnershipParamContract", "OwnershipFunctionSummary",
+    "OwnershipModuleAnalysis", "summarize_module_ownership",
+    "analyze_module_ownership",
     "apply_ownership_moves", "merge_conditional_ownership",
     "validate_loop_ownership", "require_live", "move_state", "merge_branch_states",
     "SourceSpan", "SemanticType",
