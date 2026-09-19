@@ -2,7 +2,7 @@
 
 ## 1. Overview & Design Architecture
 
-**Sotlas** is a deterministic, high-performance systems programming language designed for baremetal operating systems (BakenOS), real-time game engines, hardware drivers, AI/tensor accelerators, and low-latency systems software.
+**Sotlas** is a deterministic, high-performance systems programming language designed for baremetal operating systems , real-time game engines, hardware drivers, AI/tensor accelerators, and low-latency systems software.
 
 ### Core Architectural Tenets
 1. **Zero Mandatory Runtime**: Zero garbage collection, zero hidden runtime thread pools, and direct ABI compatibility with C11, C++, and Objective-C.

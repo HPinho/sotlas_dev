@@ -32,7 +32,7 @@ Para garantir que o código de aplicação permaneça inviolável enquanto o ker
                 ┌──────────────────▼───────────────────┐
                 │        Sotlas Systems Layer          │
                 │ Pointers / MMIO / DMA / Interrupts   │
-                │ Isolamento de hardware do BakenOS    │
+                │ Isolamento tipado de hardware        │
                 └──────────────────┬───────────────────┘
                                    │
                               extern "C"

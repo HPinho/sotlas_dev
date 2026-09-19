@@ -11,7 +11,7 @@ Este documento apresenta uma análise técnica completa, detalhada e comparativa
 | :--- | :--- | :--- | :--- |
 | **1. Compilador & Runtime** | [`swiftlang/swift`](https://github.com/swiftlang/swift)<br>• Frontend nativo C++/Swift<br>• SIL (SSA IR de alto nível)<br>• Runtime C++ determinístico<br>• Driver multi-alvo | `compiler/sotlas/` & `tools/`<br>• Frontend Python/Bootstrap<br>• SIR (SSA com passes de safety)<br>• C11 backend freestanding<br>• LLVM IR textual preliminar | • Compilador auto-hospedado (*self-hosting* em Sotlas puro)<br>• Backend nativo embutido sem dependência de Python ou GCC externo<br>• Runtime estático modular |
 | **2. Biblioteca Base / Foundation** | [`swiftlang/swift-foundation`](https://github.com/swiftlang/swift-foundation)<br>• Camada hosted independente de SO<br>• JSON, Dates, Files, Networking<br>• Zero dependência de Obj-C | `stdlib/core/` & `stdlib/system/`<br>• Freestanding/Bare-metal puro<br>• Primitives, Option, Result, Slices<br>• ARC Header, Memory, Panic, I/O | • Repositório/módulo `sotlas-foundation` para modo Hosted (alocador heap, `Vec<T>`, `HashMap<K,V>`, arquivos, sockets, threads) |
-| **3. CI & Build Farm** | [`ci.swift.org`](https://ci.swift.org/)<br>• Farm distribuído multi-SO<br>• Snapshots noturnos automáticos<br>• Testes de regressão de ABI | `.github/workflows/ci.yml`<br>• Testes unitários no GitHub Actions<br>• Matriz de SO (Linux, Win, Mac)<br>• 298 testes unitários passando | • Builds noturnos (*nightly snapshots*) com binários autocontidos<br>• Testes de compilação cruzada para bare-metal e kernel BakenOS no CI |
+| **3. CI & Build Farm** | [`ci.swift.org`](https://ci.swift.org/)<br>• Farm distribuído multi-SO<br>• Snapshots noturnos automáticos<br>• Testes de regressão de ABI | `.github/workflows/ci.yml`<br>• Testes unitários no GitHub Actions<br>• Matriz de SO (Linux, Win, Mac)<br>• 298 testes unitários passando | • Builds noturnos (*nightly snapshots*) com binários autocontidos<br>• Testes de compilação cruzada para bare-metal e alvos freestanding no CI |
 | **4. Backend LLVM & Debugging** | [`swiftlang/llvm-project`](https://github.com/swiftlang/llvm-project)<br>• Fork com SwiftCallingConv<br>• Clang Importer nativo<br>• Integração LLDB para inspeção | `compiler/sotlas/codegen_llvm.py`<br>• Emissão de LLVM IR textual<br>• Target `x86_64-unknown-none-elf`<br>• C ABI bridge bidirecional | • Metadados DWARF (`!DILocation`, `!DISubprogram`) para debugging linha a linha<br>• Suporte a `lld` (linker) embutido no driver |
 | **5. Gerenciador de Pacotes** | [`swift-package-manager`](https://github.com/swiftlang/swift-package-manager)<br>• `Package.swift` declarativo<br>• Resolução SemVer descentralizada<br>• Múltiplos alvos e C-interop | `toolchain/sotlas.lock.json`<br>• Resolvedor modular em Python<br>• Resolução local para kernel | • CLI de pacotes (`sotlas pkg` / `sotlas new`)<br>• Manifesto declarativo (`Sotlas.toml`)<br>• Cache global de dependências (`~/.sotlas/`) |
 | **6. Integração com IDEs** | [`swiftlang/vscode-swift`](https://github.com/swiftlang/vscode-swift)<br>• Extensão TS conectada ao LSP<br>• Depurador gráfico integrado<br>• Runner de testes na IDE | `editors/vscode/`<br>• Gramática TextMate completa<br>• Ícones de arquivos e temas<br>• Servidor LSP (`compiler/sotlas_compile/lsp.py`) | • Cliente TypeScript de ativação da extensão<br>• Integração direta de depuração (GDB/CodeLLDB)<br>• Publicação no VS Marketplace e Open VSX |
@@ -52,13 +52,13 @@ Este documento apresenta uma análise técnica completa, detalhada e comparativa
 ### 2.3. O Gerenciador de Pacotes (`swift-package-manager` vs `sotlas`)
 - **No Swift:** O `swift-package-manager` revolucionou o desenvolvimento em Swift ao introduzir um formato declarativo (`Package.swift`) que suporta compilação de código Swift misturado com C e C++, resolução de dependências por tags semânticas (SemVer), download direto de repositórios Git, e geração de travas de compilação (`Package.resolved`).
 - **Em Sotlas Hoje:**
-  - Existe o resolvedor modular embutido no compilador (`tools/sotlas_compile/compiler.py`), que analisa importações locais e dependências de módulos para gerar o mapa de compilação do kernel do BakenOS.
+  - Existe o resolvedor modular embutido no compilador (`tools/sotlas_compile/compiler.py`), que analisa importações locais e dependências de módulos para gerar o mapa de compilação do projeto.
   - Existe o arquivo `toolchain/sotlas.lock.json` que registra as capacidades exigidas do compilador.
 - **O Que Falta:**
   1. **Manifesto de Pacote Padronizado:** Definir um formato limpo, por exemplo `Sotlas.toml` ou `Package.sotlas`:
      ```toml
      [package]
-     name = "baken_driver_e1000"
+     name = "example_driver_e1000"
      version = "0.1.0"
      edition = "2026"
      authors = ["Jose Pinho <...>"]
@@ -81,8 +81,8 @@ Este documento apresenta uma análise técnica completa, detalhada e comparativa
 - **O Que Falta:**
   1. **Pipeline de Snapshots e Releases Noturnos (*Nightly Builds*):**
      - Workflow de GitHub Actions agendado (`cron: '0 2 * * *'`) que empacota o compilador e suas ferramentas em binários portáteis `.zip` (Windows) e `.tar.gz` (Linux/macOS), criando releases automáticas com a tag `nightly`.
-  2. **Pipeline de Teste Integrado com o Kernel BakenOS:**
-     - Um workflow de CI que clona o repositório do BakenOS (`HPinho/projeto-bkn`), roda a compilação modular de todos os 136 módulos e garante que nenhuma alteração no compilador quebrou o sistema operacional.
+  2. **Pipeline de Teste Integrado com o Kernel sistemas operacionais downstream:**
+     - Um workflow de CI que clona o repositório do sistemas operacionais downstream (`HPinho/projeto consumidor`), roda a compilação modular de todos os 136 módulos e garante que nenhuma alteração no compilador quebrou o sistema operacional.
   3. **Smoke Tests e Benchmarks de Desempenho:**
      - Verificação do tempo de compilação e do tamanho do binário emitido para detectar regressões de performance.
 
@@ -144,7 +144,7 @@ O **GitHub Linguist** é a biblioteca aberta usada pelo GitHub para detectar lin
 3. **Gramática TextMate Pública:** Uma gramática TextMate JSON/YAML hospedada em repositório aberto com licença permissiva (como MIT ou Apache 2.0).
 
 #### Como Ter Suporte Imediato Hoje (Solução via `.gitattributes`):
-Enquanto a linguagem constrói sua base de repositórios públicos, qualquer repositório (incluindo o `LangSotlas` e o `projeto-bkn`) pode forçar o GitHub a identificar, contabilizar e colorir arquivos `.sotlas` imediatamente adicionando uma regra no arquivo `.gitattributes` na raiz do projeto:
+Enquanto a linguagem constrói sua base de repositórios públicos, qualquer repositório (incluindo o `LangSotlas` e o `projeto consumidor`) pode forçar o GitHub a identificar, contabilizar e colorir arquivos `.sotlas` imediatamente adicionando uma regra no arquivo `.gitattributes` na raiz do projeto:
 
 ```gitattributes
 # .gitattributes
@@ -162,7 +162,7 @@ Enquanto a linguagem constrói sua base de repositórios públicos, qualquer rep
      color: "#3880ff"
      aliases:
        - sotlas
-       - baken-sotlas
+       - sotlas-lang
      extensions:
        - ".sotlas"
        - ".sth"
@@ -183,11 +183,11 @@ A publicação oficial da extensão permite que qualquer programador no mundo di
 #### Passo a Passo de Registro e Publicação:
 1. **Criação do Publisher ID na Microsoft:**
    - Acessar o portal [Visual Studio Marketplace Management](https://marketplace.visualstudio.com/manage).
-   - Fazer login com uma conta Microsoft e criar um Publisher ID (exemplo: `bakenos` ou `sotlas-lang`).
+   - Fazer login com uma conta Microsoft e criar um Publisher ID (exemplo: `sotlas` ou `sotlas-lang`).
    - Gerar um **Personal Access Token (PAT)** no Azure DevOps com escopo de permissão `Marketplace (Publish)`.
 2. **Criação do Publisher ID no Open VSX (Eclipse Foundation):**
    - Acessar [open-vsx.org](https://open-vsx.org/).
-   - Fazer login via GitHub e criar o mesmo namespace (`bakenos` ou `sotlas-lang`), gerando um Access Token.
+   - Fazer login via GitHub e criar o mesmo namespace (`sotlas` ou `sotlas-lang`), gerando um Access Token.
 3. **Instalação das Ferramentas de Empacotamento:**
    ```bash
    npm install -g @vscode/vsce ovsx
@@ -196,7 +196,7 @@ A publicação oficial da extensão permite que qualquer programador no mundo di
    Na pasta `c:\Projetos\LangSotlas\editors\vscode`:
    ```bash
    npx @vscode/vsce package
-   # Isso gera o arquivo instalável: baken-sotlas-0.3.0.vsix
+   # Isso gera o arquivo instalável: sotlas-lang-0.3.0.vsix
    ```
 5. **Publicação nos Registros:**
    ```bash
@@ -222,8 +222,8 @@ A publicação oficial da extensão permite que qualquer programador no mundo di
    - Quando o compilador estiver com backend nativo maduro, uma solicitação formal pode ser submetida ao comitê DWARF para alocar uma constante oficial (ex: `DW_LANG_Sotlas`).
 3. **Padronização de Target Triples:**
    - Formalizar no compilador as triplas padrão para cada ambiente:
-     - `x86_64-sotlas-freestanding`: Modo bare-metal e kernel do BakenOS.
-     - `x86_64-sotlas-bakenos`: Aplicações e bibliotecas de usuário dentro do BakenOS.
+     - `x86_64-sotlas-freestanding`: Modo bare-metal e kernel do sistemas operacionais downstream.
+     - `x86_64-sotlas-sotlas`: Aplicações e bibliotecas de usuário dentro do sistemas operacionais downstream.
      - `x86_64-unknown-linux-gnu` / `x86_64-pc-windows-msvc`: Modo hospedado com suporte a sistemas operacionais existentes.
 
 ---
@@ -244,13 +244,13 @@ Para evitar o caos de dependências manuais, a linguagem deve definir o padrão 
 ### Registro 5: Governança, Identidade Institucional e RFCs
 
 1. **Criação da Organização GitHub Dedicada:**
-   - Assim como a Apple separou o Swift da organização `apple` e criou a organização independente `swiftlang`, é altamente recomendável criar a organização GitHub `sotlas-lang` (ou `baken-lang`).
-   - Isso permite desacoplar a evolução da linguagem das especificidades do kernel BakenOS, transmitindo maturidade e atraindo desenvolvedores externos de sistemas operacionais.
+   - Assim como a Apple separou o Swift da organização `apple` e criou a organização independente `swiftlang`, é altamente recomendável criar a organização GitHub `sotlas-lang` (ou `sotlas-lang`).
+   - Isso permite desacoplar a evolução da linguagem das especificidades do kernel sistemas operacionais downstream, transmitindo maturidade e atraindo desenvolvedores externos de sistemas operacionais.
 2. **Processo de Evolução Aberto (SEP - Sotlas Evolution Process):**
    - Criação de um repositório `sotlas-lang/evolution` inspirado no *Swift Evolution* (`swiftlang/swift-evolution`).
    - Qualquer nova palavra-chave, mudança na semântica de memória SRG ou novo atributo do compilador é discutido publicamente através de propostas numeradas (`SEP-0001`, `SEP-0002`), garantindo estabilidade e governança profissional.
 3. **Portal Oficial da Linguagem:**
-   - Criação do site oficial (ex: `sotlas-lang.org` ou `sotlas.bakenos.org`), contendo:
+   - Criação do site oficial (ex: `sotlas-lang.org` ou `sotlas.sotlas.org`), contendo:
      - Documentação navegável gerada automaticamente;
      - Guia interativo da linguagem (*Guided Tour*);
      - Playground em WebAssembly compilando Sotlas diretamente no navegador;
@@ -276,7 +276,7 @@ gantt
     Suporte a Linker LLD Embutido               :done, 2026-09, 2026-09
     section Fase 3: Distribuição e CI
     Nightly Builds no GitHub Actions (.zip/.tar) :2026-10, 2026-11
-    Pipeline de Smoke Tests integrado com Baken :2026-11, 2026-12
+    Pipeline de Smoke Tests integrado com consumidores downstream :2026-11, 2026-12
     Manifesto de Pacote Sotlas.toml             :done, 2026-09, 2026-09
     section Fase 4: Backend e Foundation
     Metadados DWARF no gerador LLVM             :done, 2026-09, 2026-09
@@ -286,4 +286,4 @@ gantt
     Submissão do PR Oficial no GitHub Linguist  :2027-06, 2027-07
 ```
 
-Este roteiro estabelece o caminho exato para transformar Sotlas de uma linguagem de sistemas interna do BakenOS em um ecossistema internacional de ponta, robusto, reconhecido e independente.
+Este roteiro estabelece o caminho exato para transformar Sotlas de uma linguagem de sistemas interna do sistemas operacionais downstream em um ecossistema internacional de ponta, robusto, reconhecido e independente.

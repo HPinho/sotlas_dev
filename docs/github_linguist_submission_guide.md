@@ -26,7 +26,7 @@ Para aceitar uma nova linguagem no arquivo central `lib/linguist/languages.yml`,
 
 ## 2. Como Ter Reconhecimento Imediato Hoje (Regra `.gitattributes`)
 
-Enquanto a comunidade externa de desenvolvedores cria repositórios públicos na linguagem, qualquer projeto no GitHub (incluindo repositórios do BakenOS e de bibliotecas Sotlas) pode forçar o GitHub a identificar, contabilizar nas estatísticas do repositório e colorir os arquivos `.sotlas` imediatamente adicionando um arquivo `.gitattributes` na raiz:
+Enquanto a comunidade externa de desenvolvedores cria repositórios públicos na linguagem, qualquer projeto no GitHub (incluindo repositórios do projetos consumidores e de bibliotecas Sotlas) pode forçar o GitHub a identificar, contabilizar nas estatísticas do repositório e colorir os arquivos `.sotlas` imediatamente adicionando um arquivo `.gitattributes` na raiz:
 
 ```gitattributes
 # .gitattributes
@@ -67,7 +67,7 @@ Sotlas:
   color: "#8b5cf6"
   aliases:
     - sotlas
-    - baken-sotlas
+    - sotlas-lang
   extensions:
     - ".sotlas"
     - ".sth"

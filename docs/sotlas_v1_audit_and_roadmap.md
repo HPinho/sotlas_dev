@@ -62,7 +62,7 @@ Sotlas is uniquely architected to replace C, C++, Swift, and C# across four dema
 │                           THE UNIVERSAL SPECTRUM                                │
 ├───────────────────────────────┬─────────────────────────────────────────────────┤
 │ 1. Kernel / OS / Baremetal    │ target barecore;                                │
-│    (BakenOS, UEFI, Drivers)   │ Zero runtime, zero heap, topology pointers, MMIO│
+│    (Baremetal, UEFI, Drivers)   │ Zero runtime, zero heap, topology pointers, MMIO│
 ├───────────────────────────────┼─────────────────────────────────────────────────┤
 │ 2. Game Engines & Graphics    │ Value structs, mesh alignment, custom arenas,   │
 │    (AAA Renderers, ECS)       │ zero GC latency spikes, SIMD intrinsics         │
@@ -284,7 +284,7 @@ pub class HttpClient {
 
 #### 2.4 Multi-Target Cross-Compilation
 * Standardize on target triples:
-  - `x86_64-unknown-none-elf` (BakenOS / Baremetal)
+  - `x86_64-unknown-none-elf` (Baremetal / Baremetal)
   - `x86_64-pc-windows-msvc` (Windows Native)
   - `x86_64-unknown-linux-gnu` (Linux Native)
   - `aarch64-unknown-linux-gnu` (ARM64 Server)
@@ -380,7 +380,7 @@ The standard library is structured into three strictly isolated layers:
 * **After:**
   ```text
   $ sotlas build src/main.sotlas -o bin/kernel.elf
-  Compiling baken_kernel (142 modules) [0.38s]
+  Compiling example_kernel (142 modules) [0.38s]
   Finished release [optimized] target(s) in 0.42s
   ```
 
@@ -418,7 +418,7 @@ The standard library is structured into three strictly isolated layers:
 ### Phase 4: Industrial Tooling & Ecosystem Launch
 - [ ] Implement incremental build caching (`.sotlas-cache/`).
 - [ ] Expand native test suite (`sotlas test`) to 100+ native test cases.
-- [ ] Author "The Sotlas Book" (Chapters 1–10: Getting Started, Systems Programming, BakenOS Architecture, Game Engine Development).
+- [ ] Author "The Sotlas Book" (Chapters 1–10: Getting Started, Systems Programming, Baremetal Architecture, Game Engine Development).
 - [ ] Release production VS Code extension on Visual Studio Marketplace and Open VSX.
 - [ ] Launch interactive WebAssembly playground on GitHub Pages.
 

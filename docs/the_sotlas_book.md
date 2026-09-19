@@ -15,7 +15,7 @@ For decades, systems programming has forced developers into an uncomfortable com
 - **Zig**: Pragmatic, but lacks formal compile-time ownership tracking and memory topology semantics.
 
 **Sotlas** was born to solve this. It is a language built from the silicon up for:
-1. Baremetal Operating System Kernels (like **BakenOS**).
+1. Baremetal Operating System Kernels.
 2. Hard Real-Time Game Engines & Simulators.
 3. High-Throughput Network & Storage Engines.
 4. AI / Tensor Compute Acceleration.

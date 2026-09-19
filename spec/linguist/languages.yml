@@ -4,8 +4,7 @@ Sotlas:
   color: "#8b5cf6"
   aliases:
     - sotlas
-    - baken-sotlas
-  extensions:
+extensions:
     - ".sotlas"
     - ".sth"
   tm_scope: source.sotlas
