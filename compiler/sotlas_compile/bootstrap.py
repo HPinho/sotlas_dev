@@ -1267,6 +1267,16 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
                     "conversão de inteiro para ponteiro exige bloco unsafe",
                     expr.token.line, expr.token.column, filename, source,
                 )
+            reference_to_raw_pointer = (
+                source_t.is_reference
+                and target_t.pointer
+                and not target_t.is_reference
+            )
+            if reference_to_raw_pointer and not in_unsafe:
+                raise SotlasBootstrapError(
+                    "conversão de referência para ponteiro cru exige bloco unsafe",
+                    expr.token.line, expr.token.column, filename, source,
+                )
             return target_t
         raise AssertionError(type(expr))
 

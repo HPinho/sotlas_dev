@@ -2204,6 +2204,42 @@ fn to_float(value: i32) -> f64 {
         self.assertEqual(widen.statements[0].expr.type.name, "u64")
         self.assertEqual(to_float.statements[0].expr.type.name, "f64")
 
+    def test_reference_to_raw_pointer_cast_requires_unsafe(self):
+        source = """module test::reference_pointer_cast_requires_unsafe;
+fn expose(value: &mut u32) -> *mut u32 {
+    return value as *mut u32;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-reference-pointer-cast-requires-unsafe>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"conversão de referência para ponteiro cru exige bloco unsafe",
+        ):
+            bootstrap.check(parsed)
+
+    def test_reference_to_raw_pointer_cast_inside_unsafe_is_valid(self):
+        source = """module test::reference_pointer_cast_unsafe;
+fn expose(value: &mut u32) -> *mut u32 {
+    unsafe {
+        return value as *mut u32;
+    }
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-reference-pointer-cast-unsafe>"
+        )
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "expose")
+        cast = body.statements[0].body[0].expr
+        self.assertEqual(cast.kind, "Cast")
+        self.assertEqual(cast.type.name, "u32")
+        self.assertTrue(cast.type.pointer)
+        self.assertTrue(cast.type.mutable)
+        self.assertFalse(cast.type.is_reference)
+
     def test_integer_to_pointer_cast_requires_unsafe(self):
         source = """module test::integer_pointer_cast_requires_unsafe;
 fn from_addr(addr: usize) -> *mut u32 {
