@@ -32,6 +32,7 @@ def _load_canonical_package():
 
 
 sotlas_compile = _load_canonical_package()
+typed_ast = importlib.import_module(f"{sotlas_compile.__name__}.typed_ast")
 
 
 class SotlasPhase1PipelineTests(unittest.TestCase):
@@ -64,6 +65,35 @@ fn main() -> void {
             sotlas_compile.analyze_source_phase1(
                 source, filename="<phase1-public-invalid>"
             )
+
+    def test_public_phase1_pipeline_rejects_recursive_value_type(self):
+        source = """module test::phase1_recursive_value;
+struct Node {
+    next: Node;
+}
+fn main() -> void { return; }
+"""
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"recursive value type: Node -> Node",
+        ):
+            sotlas_compile.analyze_source_phase1(
+                source, filename="<phase1-recursive-value>"
+            )
+
+    def test_public_phase1_pipeline_allows_recursive_pointer_indirection(self):
+        source = """module test::phase1_recursive_pointer;
+struct Node {
+    next: *mut Node;
+}
+fn main() -> void { return; }
+"""
+        result = sotlas_compile.analyze_source_phase1(
+            source, filename="<phase1-recursive-pointer>"
+        )
+        field_type = result.semantic.typed_module.structs[0].fields[0].type
+        self.assertTrue(field_type.pointer)
+        self.assertEqual(field_type.name, "Node")
 
     def test_normal_package_import_does_not_auto_attach_phase1_state(self):
         source = """module test::phase1_no_side_effect;
