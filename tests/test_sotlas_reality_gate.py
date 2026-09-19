@@ -42,6 +42,25 @@ class SotlasRealityGateTests(unittest.TestCase):
         self.assertIn('root / "kernel"', compatibility)
         self.assertIn('root / "libbkn"', compatibility)
 
+    def test_x86_inline_assembly_uses_platform_c_symbol_spelling(self):
+        intrinsics = (
+            ROOT / "compiler" / "sotlas_compile" / "x86_intrinsics.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("#define SOTLAS_ASM_CSYM(name)", intrinsics)
+        self.assertIn("__APPLE__", intrinsics)
+        self.assertIn(
+            "SOTLAS_ASM_CSYM(sotlas_x86_exception_dispatch)",
+            intrinsics,
+        )
+        self.assertIn(
+            "SOTLAS_ASM_CSYM(sotlas_x86_irq_dispatch)",
+            intrinsics,
+        )
+        self.assertIn(
+            "SOTLAS_ASM_CSYM(sotlas_x86_scheduler_thread_exit)",
+            intrinsics,
+        )
+
     def test_sir_status_document_records_required_gate(self):
         status = (ROOT / "docs" / "sir-status.md").read_text(encoding="utf-8")
         self.assertIn("Maturity: PROTOTYPE", status)
