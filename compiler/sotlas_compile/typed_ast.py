@@ -27,6 +27,39 @@ class VarState(str, Enum):
     BORROWED_MUT = "BORROWED_MUT"
 
 
+def sole_type_names(module: TypedModule) -> frozenset[str]:
+    """Return declaration names that carry exclusive sole ownership."""
+    return frozenset(item.name for item in module.structs if item.is_sole)
+
+
+def is_sole_type(type_info: SemanticType, module: TypedModule) -> bool:
+    """Resolve a semantic type against the module's sole declarations."""
+    return (
+        not type_info.pointer
+        and not type_info.is_reference
+        and type_info.name in sole_type_names(module)
+    )
+
+
+def initial_ownership_state(
+    type_info: SemanticType, module: TypedModule
+) -> VarState | None:
+    """Create ownership tracking only for declarations that are actually sole."""
+    return VarState.LIVE if is_sole_type(type_info, module) else None
+
+
+def require_sole_transfer(
+    name: str, type_info: SemanticType, module: TypedModule
+) -> VarState:
+    """Validate an explicit ownership transfer target from declaration facts."""
+    state = initial_ownership_state(type_info, module)
+    if state is None:
+        raise Phase1SemanticError(
+            f"handover target {name!r} is not a sole value"
+        )
+    return move_state(name, state)
+
+
 def require_live(name: str, state: VarState) -> None:
     """Reject uses of values whose ownership is no longer definitely live."""
     if state is VarState.LIVE:
@@ -273,7 +306,8 @@ def build_declaration_typed_ast(module) -> TypedModule:
 
 
 __all__ = [
-    "MATURITY", "Phase1SemanticError", "VarState", "require_live", "move_state",
+    "MATURITY", "Phase1SemanticError", "VarState", "sole_type_names", "is_sole_type",
+    "initial_ownership_state", "require_sole_transfer", "require_live", "move_state",
     "merge_branch_states", "SourceSpan", "SemanticType", "TypedField", "TypedStruct",
     "TypedParam", "TypedFunction", "TypedGlobal", "TypedModule",
     "semantic_type", "integer_bounds", "validate_integer_value",

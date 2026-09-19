@@ -80,6 +80,40 @@ class SotlasTypedAstFoundationTests(unittest.TestCase):
         bootstrap.check(module)
         return typed_ast.build_declaration_typed_ast(module)
 
+    def test_sole_declaration_drives_initial_ownership_state(self):
+        typed = typed_ast.build_declaration_typed_ast(self.checked_ast())
+        handle_type = typed_ast.SemanticType("Handle")
+        self.assertIn("Handle", typed_ast.sole_type_names(typed))
+        self.assertTrue(typed_ast.is_sole_type(handle_type, typed))
+        self.assertIs(
+            typed_ast.initial_ownership_state(handle_type, typed),
+            typed_ast.VarState.LIVE,
+        )
+
+    def test_non_sole_type_has_no_move_state(self):
+        typed = typed_ast.build_declaration_typed_ast(self.checked_ast())
+        plain = typed_ast.SemanticType("u32")
+        self.assertFalse(typed_ast.is_sole_type(plain, typed))
+        self.assertIsNone(typed_ast.initial_ownership_state(plain, typed))
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"handover target 'count' is not a sole value",
+        ):
+            typed_ast.require_sole_transfer("count", plain, typed)
+
+    def test_pointer_to_sole_is_not_an_owning_value(self):
+        typed = typed_ast.build_declaration_typed_ast(self.checked_ast())
+        pointer = typed_ast.SemanticType("Handle", pointer=True, mutable=True)
+        self.assertFalse(typed_ast.is_sole_type(pointer, typed))
+        self.assertIsNone(typed_ast.initial_ownership_state(pointer, typed))
+
+    def test_explicit_sole_transfer_starts_live_then_moves(self):
+        typed = typed_ast.build_declaration_typed_ast(self.checked_ast())
+        state = typed_ast.require_sole_transfer(
+            "handle", typed_ast.SemanticType("Handle"), typed
+        )
+        self.assertIs(state, typed_ast.VarState.MOVED)
+
     def test_sole_move_state_transitions_live_to_moved(self):
         state = typed_ast.move_state("handle", typed_ast.VarState.LIVE)
         self.assertIs(state, typed_ast.VarState.MOVED)
