@@ -941,6 +941,85 @@ fn main(value: u32) -> u32 {
         ):
             typed_ast.build_linear_typed_body(parsed, typed, "main")
 
+    def test_typed_body_types_array_literal_and_index(self):
+        source = """module test::typed_array;
+fn main() -> i64 {
+    let values = [1, 2, 3];
+    return values[1];
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-typed-array>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "main")
+        values = body.statements[0]
+        indexed = body.statements[1]
+        self.assertTrue(values.type.is_array)
+        self.assertEqual(values.type.array_size, 3)
+        self.assertIsNotNone(values.type.elem_type)
+        self.assertEqual(values.type.elem_type.name, "i64")
+        self.assertEqual(indexed.expr.kind, "Index")
+        self.assertEqual(indexed.expr.type.name, "i64")
+
+    def test_typed_body_types_repeat_array_literal(self):
+        source = """module test::typed_repeat_array;
+fn main() -> u32 {
+    let values = [7u32; 4];
+    return values[0];
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-typed-repeat-array>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "main")
+        self.assertEqual(body.statements[0].type.array_size, 4)
+        self.assertEqual(body.statements[1].expr.type.name, "u32")
+
+    def test_typed_body_rejects_mixed_array_elements_independently(self):
+        source = """module test::typed_array_mixed;
+fn main() -> void {
+    let values = [1, true];
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-typed-array-mixed>")
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"array literal element type mismatch: i64 vs bool",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
+    def test_typed_body_rejects_non_integer_array_index_independently(self):
+        source = """module test::typed_array_bad_index;
+fn main() -> i64 {
+    let values = [1, 2];
+    return values[true];
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-typed-array-bad-index>")
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"array index must be integer, got bool",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
+    def test_typed_body_rejects_literal_array_index_out_of_bounds(self):
+        source = """module test::typed_array_bounds;
+fn main() -> i64 {
+    let values = [1, 2, 3];
+    return values[3];
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-typed-array-bounds>")
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"array index 3 out of bounds for length 3",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
     def test_typed_body_types_if_expression(self):
         source = """module test::typed_if_expr;
 fn choose(flag: bool) -> i64 {

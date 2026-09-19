@@ -772,6 +772,96 @@ def infer_expression_type(
             return TypedExprNode(kind, SemanticType("bool"), op)
         return TypedExprNode(kind, inner.type, op)
 
+    if kind == "ArrayLit":
+        elements = tuple(getattr(expr, "elements", ()))
+        if not elements:
+            raise Phase1SemanticError(
+                "cannot infer type of empty array literal"
+            )
+        first = infer_expression_type(elements[0], env, typed_module)
+        for element in elements[1:]:
+            current = infer_expression_type(element, env, typed_module)
+            if current.type != first.type:
+                raise Phase1SemanticError(
+                    f"array literal element type mismatch: "
+                    f"{first.type.name} vs {current.type.name}"
+                )
+        size = (
+            getattr(expr, "repeat_size")
+            if getattr(expr, "is_repeat", False)
+            else len(elements)
+        )
+        array_type = SemanticType(
+            first.type.name,
+            pointer=first.type.pointer,
+            mutable=first.type.mutable,
+            is_array=True,
+            array_size=size,
+            is_reference=False,
+            elem_type=first.type,
+        )
+        return TypedExprNode(kind, array_type, "array")
+
+    if kind == "Index":
+        target = infer_expression_type(
+            getattr(expr, "target"), env, typed_module
+        )
+        index = infer_expression_type(
+            getattr(expr, "index"), env, typed_module
+        )
+        integer_types = {
+            "u8", "u16", "u32", "u64", "usize",
+            "i8", "i16", "i32", "i64", "isize",
+        }
+        if index.type.pointer or index.type.name not in integer_types:
+            raise Phase1SemanticError(
+                f"array index must be integer, got {index.type.name}"
+            )
+
+        if target.type.is_array:
+            element_type = target.type.elem_type
+            if element_type is None:
+                element_type = SemanticType(
+                    target.type.name,
+                    pointer=target.type.pointer,
+                    mutable=target.type.mutable,
+                )
+            index_expr = getattr(expr, "index")
+            if (
+                type(index_expr).__name__ == "Number"
+                and isinstance(target.type.array_size, int)
+            ):
+                raw = getattr(index_expr, "value")
+                literal = raw
+                for suffix in (
+                    "usize", "isize", "u64", "i64", "u32", "i32",
+                    "u16", "i16", "u8", "i8",
+                ):
+                    if literal.endswith(suffix):
+                        literal = literal[:-len(suffix)]
+                        break
+                value = int(literal, 0)
+                if value < 0 or value >= target.type.array_size:
+                    raise Phase1SemanticError(
+                        f"array index {value} out of bounds for length "
+                        f"{target.type.array_size}"
+                    )
+            return TypedExprNode(kind, element_type, "index")
+
+        if target.type.pointer:
+            return TypedExprNode(
+                kind,
+                SemanticType(
+                    target.type.name,
+                    mutable=target.type.mutable,
+                ),
+                "index",
+            )
+
+        raise Phase1SemanticError(
+            f"indexing requires array or pointer, got {target.type.name}"
+        )
+
     if kind == "IfExpr":
         condition = infer_expression_type(
             getattr(expr, "condition"), env, typed_module
@@ -1270,6 +1360,7 @@ class SemanticType:
     is_array: bool = False
     array_size: int | str = 0
     is_reference: bool = False
+    elem_type: "SemanticType | None" = None
 
 
 @dataclass(frozen=True)
@@ -1330,6 +1421,11 @@ def semantic_type(type_obj) -> SemanticType:
         is_array=bool(type_obj.is_array),
         array_size=type_obj.array_size,
         is_reference=bool(getattr(type_obj, "is_reference", False)),
+        elem_type=(
+            semantic_type(type_obj.elem_type)
+            if getattr(type_obj, "elem_type", None) is not None
+            else None
+        ),
     )
 
 
