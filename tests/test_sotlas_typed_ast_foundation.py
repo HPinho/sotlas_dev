@@ -1296,13 +1296,13 @@ fn main(point: Point) -> u64 {
         source = """module test::typed_method;
 struct Counter {
     value: u32;
-    fn add(self: *mut Counter, amount: u32) -> u32 {
+    fn increment(self: *mut Counter, amount: u32) -> u32 {
         unsafe { return self.value + amount; }
     }
 }
 fn main() -> u32 {
     let counter = Counter { value: 1 };
-    return counter.add(2);
+    return counter.increment(2);
 }
 """
         parsed = bootstrap.parse(source, filename="<phase1-method>")
@@ -1312,19 +1312,19 @@ fn main() -> u32 {
         call = body.statements[-1].expr
         self.assertEqual(call.kind, "MethodCall")
         self.assertEqual(call.type.name, "u32")
-        self.assertEqual(call.label, "Counter.add")
+        self.assertEqual(call.label, "Counter.increment")
 
     def test_typed_body_contextualizes_method_integer_argument(self):
         source = """module test::typed_method_arg;
 struct Counter {
     value: u32;
-    fn add(self: *mut Counter, amount: u16) -> u16 {
+    fn increment(self: *mut Counter, amount: u16) -> u16 {
         return amount;
     }
 }
 fn main() -> u16 {
     let counter = Counter { value: 1 };
-    return counter.add(7);
+    return counter.increment(7);
 }
 """
         parsed = bootstrap.parse(source, filename="<phase1-method-arg>")
@@ -1352,12 +1352,12 @@ fn main(counter: Counter) -> u32 {
         source = """module test::typed_method_bad_arg;
 struct Counter {
     value: u32;
-    fn add(self: *mut Counter, amount: u32) -> u32 {
+    fn increment(self: *mut Counter, amount: u32) -> u32 {
         return amount;
     }
 }
 fn main(counter: Counter, flag: bool) -> u32 {
-    return counter.add(flag);
+    return counter.increment(flag);
 }
 """
         parsed = bootstrap.parse(source, filename="<phase1-method-bad-arg>")
