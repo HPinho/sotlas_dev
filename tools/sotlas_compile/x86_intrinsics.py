@@ -7,7 +7,14 @@ freestanding mínimos, que o GCC reduz para instruções reais da CPU.
 
 from __future__ import annotations
 
-_MARKER = "/* SOTLAS_X86_64_PRIVILEGED_INTRINSICS */"
+_MARKER = "/* SOTLAS_X86_64_PRIVILEGED_INTRINSICS */
+/* C symbol spelling differs on Mach-O. Keep inline assembly portable. */
+#if defined(__APPLE__)
+#define SOTLAS_ASM_CSYM(name) "_" #name
+#else
+#define SOTLAS_ASM_CSYM(name) #name
+#endif
+"
 
 _C_INTRINSICS = r'''
 
@@ -314,7 +321,7 @@ __stack_switch_to_post_cutover(uint64_t stack_top, uint64_t argument) {
         "andq $-16, %rsp\n\t"
         "movq %rdx, %rcx\n\t"
         "subq $32, %rsp\n\t"
-        "call sotlas_x86_post_cutover_entry\n\t"
+        "call " SOTLAS_ASM_CSYM(sotlas_x86_post_cutover_entry) "\n\t"
         "cli\n\t"
         "1: hlt\n\t"
         "jmp 1b\n\t"
@@ -346,7 +353,7 @@ __attribute__((naked, noreturn, used)) static void __scheduler_thread_trampoline
         "subq $32, %rsp\n\t"
         "sti\n\t"
         "call *%r11\n\t"
-        "call sotlas_x86_scheduler_thread_exit\n\t"
+        "call " SOTLAS_ASM_CSYM(sotlas_x86_scheduler_thread_exit) "\n\t"
         "cli\n\t"
         "1: hlt\n\t"
         "jmp 1b\n\t"
@@ -409,7 +416,7 @@ __attribute__((naked, used)) static void __sotlas_x86_exception_common(void) {
         "movq %rsp, %rcx\n\t"
         "andq $-16, %rsp\n\t"
         "subq $32, %rsp\n\t"
-        "call sotlas_x86_exception_dispatch\n\t"
+        "call " SOTLAS_ASM_CSYM(sotlas_x86_exception_dispatch) "\n\t"
         "cli\n\t"
         "1: hlt\n\t"
         "jmp 1b\n\t"
@@ -524,7 +531,7 @@ __attribute__((naked, used)) static void __sotlas_x86_irq_common(void) {
         "movq %r12, %rdx\n\t"
         "andq $-16, %rsp\n\t"
         "subq $32, %rsp\n\t"
-        "call sotlas_x86_irq_dispatch\n\t"
+        "call " SOTLAS_ASM_CSYM(sotlas_x86_irq_dispatch) "\n\t"
         "testq %rax, %rax\n\t"
         "jnz 1f\n\t"
         "movq %r12, %rax\n\t"
