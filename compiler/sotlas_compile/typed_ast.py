@@ -723,8 +723,54 @@ def infer_expression_type(
     if kind == "Boolean":
         return TypedExprNode(kind, SemanticType("bool"), str(getattr(expr, "value")))
 
+    if kind == "CharLit":
+        return TypedExprNode(kind, SemanticType("u8"), getattr(expr, "value"))
+
+    if kind == "NullLit":
+        return TypedExprNode(kind, SemanticType("null", pointer=True), None)
+
     if kind == "StringLit":
         return TypedExprNode(kind, SemanticType("str", pointer=True), None)
+
+    if kind == "UnsafeExpr":
+        inner = infer_expression_type(
+            getattr(expr, "value"), env, typed_module
+        )
+        return TypedExprNode(kind, inner.type, inner.label)
+
+    if kind == "Unary":
+        inner = infer_expression_type(
+            getattr(expr, "value"), env, typed_module
+        )
+        op = getattr(expr, "op")
+        if op == "*":
+            if not inner.type.pointer:
+                raise Phase1SemanticError(
+                    f"cannot dereference non-pointer type {inner.type.name}"
+                )
+            return TypedExprNode(
+                kind,
+                SemanticType(
+                    inner.type.name,
+                    pointer=False,
+                    mutable=inner.type.mutable,
+                    is_reference=False,
+                ),
+                op,
+            )
+        if op == "&":
+            return TypedExprNode(
+                kind,
+                SemanticType(
+                    inner.type.name,
+                    pointer=True,
+                    mutable=inner.type.mutable,
+                ),
+                op,
+            )
+        if op == "!":
+            return TypedExprNode(kind, SemanticType("bool"), op)
+        return TypedExprNode(kind, inner.type, op)
 
     if kind == "StructLit":
         name = getattr(expr, "struct_name")

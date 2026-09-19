@@ -886,6 +886,61 @@ fn main() -> void {
         ):
             typed_ast.build_phase1_semantic_snapshot(parsed)
 
+    def test_typed_body_types_char_and_unary_expressions(self):
+        source = """module test::typed_unary;
+fn negate(value: i64) -> i64 {
+    let result = -value;
+    return result;
+}
+fn flip(flag: bool) -> bool {
+    return !flag;
+}
+fn char_code() -> u8 {
+    return 'A';
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-typed-unary>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        negate = typed_ast.build_linear_typed_body(parsed, typed, "negate")
+        flip = typed_ast.build_linear_typed_body(parsed, typed, "flip")
+        char_code = typed_ast.build_linear_typed_body(parsed, typed, "char_code")
+        self.assertEqual(negate.statements[0].expr.type.name, "i64")
+        self.assertEqual(flip.statements[0].expr.type.name, "bool")
+        self.assertEqual(char_code.statements[0].expr.type.name, "u8")
+
+    def test_typed_body_types_address_and_deref_inside_unsafe(self):
+        source = """module test::typed_ptr_unary;
+fn roundtrip(value: u32) -> u32 {
+    unsafe {
+        let ptr = &value;
+        return *ptr;
+    }
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-typed-ptr-unary>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "roundtrip")
+        unsafe_node = body.statements[0]
+        self.assertTrue(unsafe_node.body[0].type.pointer)
+        self.assertEqual(unsafe_node.body[1].expr.type.name, "u32")
+        self.assertFalse(unsafe_node.body[1].expr.type.pointer)
+
+    def test_typed_body_rejects_deref_of_non_pointer_independently(self):
+        source = """module test::typed_bad_deref;
+fn main(value: u32) -> u32 {
+    return *value;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-typed-bad-deref>")
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"cannot dereference non-pointer type u32",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
     def test_conditional_move_in_one_branch_becomes_maybe_moved(self):
         typed = typed_ast.build_declaration_typed_ast(self.checked_ast())
         base = typed_ast.OwnershipEnv().declare(
