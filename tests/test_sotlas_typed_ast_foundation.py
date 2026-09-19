@@ -828,6 +828,64 @@ fn main() -> void {
         ):
             typed_ast.build_linear_typed_body(parsed, typed, "main")
 
+    def test_phase1_snapshot_composes_typed_bodies_and_ownership(self):
+        source = """module test::phase1_snapshot;
+sole struct Token { value: u32; }
+
+fn inspect(value: u32) -> void { return; }
+fn main(flag: bool) -> u32 {
+    let token = Token { value: 7 };
+    if flag {
+        inspect(token.value);
+    }
+    return token.value;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-snapshot>")
+        bootstrap.check(parsed)
+        snapshot = typed_ast.build_phase1_semantic_snapshot(parsed)
+        self.assertEqual(snapshot.maturity, "ISOLATED_PHASE1")
+        self.assertEqual(snapshot.typed_module.structs[0].name, "Token")
+        bodies = {body.name: body for body in snapshot.bodies}
+        self.assertEqual(bodies["main"].statements[1].kind, "If")
+        traces = dict(snapshot.ownership.traces)
+        self.assertIs(
+            traces["main"].final_env.state_of("token"),
+            typed_ast.VarState.LIVE,
+        )
+
+    def test_phase1_snapshot_rejects_recursive_value_type(self):
+        source = """module test::phase1_snapshot_recursive;
+struct Node { next: Node; }
+fn main() -> void { return; }
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-snapshot-recursive>")
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"recursive value type: Node -> Node",
+        ):
+            typed_ast.build_phase1_semantic_snapshot(parsed)
+
+    def test_phase1_snapshot_rejects_double_move(self):
+        source = """module test::phase1_snapshot_move;
+sole struct Token { value: u32; }
+
+fn consume(t: Token) -> void { return; }
+fn main() -> void {
+    let token = Token { value: 1 };
+    consume(token);
+    consume(token);
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-snapshot-move>")
+        bootstrap.check(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"use of sole value 'token' after move",
+        ):
+            typed_ast.build_phase1_semantic_snapshot(parsed)
+
     def test_conditional_move_in_one_branch_becomes_maybe_moved(self):
         typed = typed_ast.build_declaration_typed_ast(self.checked_ast())
         base = typed_ast.OwnershipEnv().declare(

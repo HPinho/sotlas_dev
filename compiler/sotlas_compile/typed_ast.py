@@ -1049,6 +1049,32 @@ def build_linear_typed_body(
     return TypedFunctionBody(function_name, statements)
 
 
+@dataclass(frozen=True)
+class Phase1ModuleSnapshot:
+    typed_module: TypedModule
+    bodies: tuple[TypedFunctionBody, ...]
+    ownership: OwnershipModuleAnalysis
+    maturity: str = "ISOLATED_PHASE1"
+
+
+def build_phase1_semantic_snapshot(parsed_module) -> Phase1ModuleSnapshot:
+    """Compose the isolated Phase-1 semantic passes without patching bootstrap.
+
+    This deliberately remains an explicit API: it freezes declarations,
+    rejects recursive by-value types, materializes supported structured bodies,
+    and runs sole ownership analysis across the module. It neither mutates the
+    canonical AST nor installs itself into bootstrap.check.
+    """
+    typed_module = build_declaration_typed_ast(parsed_module)
+    validate_no_recursive_value_types(typed_module)
+    bodies = tuple(
+        build_linear_typed_body(parsed_module, typed_module, function.name)
+        for function in typed_module.functions
+    )
+    ownership = analyze_module_ownership(parsed_module, typed_module)
+    return Phase1ModuleSnapshot(typed_module, bodies, ownership)
+
+
 def apply_ownership_moves(
     env: OwnershipEnv, names: tuple[str, ...] | list[str]
 ) -> OwnershipEnv:
@@ -1349,6 +1375,7 @@ __all__ = [
     "analyze_module_ownership", "TypedExprNode", "TypedStmtNode",
     "TypedFunctionBody", "infer_expression_type",
     "infer_assignment_target_type", "build_linear_typed_body",
+    "Phase1ModuleSnapshot", "build_phase1_semantic_snapshot",
     "apply_ownership_moves", "merge_conditional_ownership",
     "validate_loop_ownership", "require_live", "move_state", "merge_branch_states",
     "SourceSpan", "SemanticType",
