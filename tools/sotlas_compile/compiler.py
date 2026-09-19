@@ -559,6 +559,7 @@ def _bootstrap_backend():
         from tools.sotlas_compile import bootstrap
         from tools.sotlas_compile import frontend_extensions
         from tools.sotlas_compile import x86_intrinsics
+        from tools.sotlas_compile import baken_compat
     except ImportError:
         # Execução canônica por caminho (`python tools/sotlas_compile/compiler.py`)
         # não inicializa o pacote `tools.sotlas_compile`; instale explicitamente
@@ -566,8 +567,10 @@ def _bootstrap_backend():
         import bootstrap
         import frontend_extensions
         import x86_intrinsics
+        import baken_compat
     frontend_extensions.install(bootstrap)
     x86_intrinsics.install(bootstrap)
+    baken_compat.install(bootstrap)
     return bootstrap
 
 def emit_c_header(ast: SotlasModuleAst, output: Path, unit: dict | None = None) -> Path:
