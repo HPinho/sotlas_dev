@@ -1448,7 +1448,7 @@ def infer_expression_type(
         return TypedExprNode(kind, SemanticType("null", pointer=True), None)
 
     if kind == "StringLit":
-        return TypedExprNode(kind, SemanticType("str", pointer=True), None)
+        return TypedExprNode(kind, SemanticType("u8", pointer=True), None)
 
     if kind == "UnsafeExpr":
         inner = infer_expression_type(

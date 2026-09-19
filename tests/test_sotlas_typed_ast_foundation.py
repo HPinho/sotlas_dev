@@ -1701,6 +1701,40 @@ fn bad() -> &u32 {
         ):
             bootstrap.check(parsed)
 
+    def test_typed_body_types_string_literal_as_const_u8_pointer(self):
+        source = """module test::typed_string_literal;
+fn text() -> *const u8 {
+    return "sotlas";
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-typed-string-literal>"
+        )
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "text")
+        returned = body.statements[0].expr.type
+        self.assertEqual(returned.name, "u8")
+        self.assertTrue(returned.pointer)
+        self.assertFalse(returned.mutable)
+        self.assertFalse(returned.is_reference)
+
+    def test_typed_body_independently_rejects_string_literal_as_mut_pointer(self):
+        source = """module test::typed_string_literal_mut;
+fn text() -> *mut u8 {
+    return "sotlas";
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-typed-string-literal-mut>"
+        )
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"return type mismatch",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "text")
+
     def test_typed_body_accepts_null_raw_pointer_return(self):
         source = """module test::typed_null_raw_pointer;
 fn empty() -> *const u32 {

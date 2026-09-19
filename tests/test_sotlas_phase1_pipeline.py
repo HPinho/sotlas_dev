@@ -204,6 +204,27 @@ fn view(value: &mut u32) -> &u32 {
         self.assertFalse(returned.mutable)
         self.assertEqual(returned.name, "u32")
 
+    def test_public_phase1_pipeline_accepts_string_literal_const_u8_pointer(self):
+        source = """module test::phase1_string_literal;
+fn consume(value: *const u8) -> *const u8 {
+    return value;
+}
+fn text() -> *const u8 {
+    return consume("sotlas");
+}
+"""
+        result = sotlas_compile.analyze_source_phase1(
+            source, filename="<phase1-string-literal>"
+        )
+        body = next(
+            item for item in result.semantic.bodies if item.name == "text"
+        )
+        returned = body.statements[0].expr.type
+        self.assertEqual(returned.name, "u8")
+        self.assertTrue(returned.pointer)
+        self.assertFalse(returned.mutable)
+        self.assertFalse(returned.is_reference)
+
     def test_public_phase1_pipeline_accepts_null_raw_pointer_return(self):
         source = """module test::phase1_null_raw_pointer;
 fn empty() -> *mut u32 {
