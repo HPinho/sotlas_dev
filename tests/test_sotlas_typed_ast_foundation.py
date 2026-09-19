@@ -555,6 +555,73 @@ fn main() -> void {
             typed_ast.VarState.MOVED,
         )
 
+    def test_linear_typed_body_infers_local_and_return_types(self):
+        source = """module test::typed_body;
+fn main() -> i64 {
+    let value = 41;
+    let result: i64 = value + 1;
+    return result;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-typed-body>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "main")
+        self.assertEqual(body.maturity, "LINEAR_BODY_TYPES")
+        self.assertEqual(
+            [(item.kind, item.name, item.type.name) for item in body.statements],
+            [
+                ("Let", "value", "i64"),
+                ("Let", "result", "i64"),
+                ("Return", None, "i64"),
+            ],
+        )
+
+    def test_linear_typed_body_resolves_struct_member_type(self):
+        source = """module test::typed_member;
+struct Point { x: u32; }
+fn main() -> u32 {
+    let point = Point { x: 7 };
+    return point.x;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-typed-member>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "main")
+        self.assertEqual(body.statements[-1].expr.type.name, "u32")
+
+    def test_linear_typed_body_resolves_known_call_result(self):
+        source = """module test::typed_call;
+fn answer() -> i64 { return 42; }
+fn main() -> i64 {
+    let value = answer();
+    return value;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-typed-call>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "main")
+        self.assertEqual(body.statements[0].type.name, "i64")
+        self.assertEqual(body.statements[0].expr.type.name, "i64")
+
+    def test_linear_typed_body_rejects_local_type_mismatch(self):
+        source = """module test::typed_mismatch;
+fn main() -> void {
+    let value: bool = 1;
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-typed-mismatch>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"let 'value' type mismatch",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
     def test_conditional_move_in_one_branch_becomes_maybe_moved(self):
         typed = typed_ast.build_declaration_typed_ast(self.checked_ast())
         base = typed_ast.OwnershipEnv().declare(

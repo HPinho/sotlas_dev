@@ -655,6 +655,225 @@ def analyze_module_ownership(
     return OwnershipModuleAnalysis(summaries, traces)
 
 
+@dataclass(frozen=True)
+class TypedExprNode:
+    kind: str
+    type: SemanticType
+    label: str | None = None
+
+
+@dataclass(frozen=True)
+class TypedStmtNode:
+    kind: str
+    name: str | None
+    type: SemanticType | None
+    expr: TypedExprNode | None
+
+
+@dataclass(frozen=True)
+class TypedFunctionBody:
+    name: str
+    statements: tuple[TypedStmtNode, ...]
+    maturity: str = "LINEAR_BODY_TYPES"
+
+
+def _number_type(value: str) -> SemanticType:
+    integer_suffixes = (
+        "usize", "isize", "u64", "i64", "u32", "i32",
+        "u16", "i16", "u8", "i8",
+    )
+    float_suffixes = ("f32", "f64")
+    for suffix in integer_suffixes + float_suffixes:
+        if value.endswith(suffix):
+            return SemanticType(suffix)
+    if "." in value or "e" in value.lower():
+        return SemanticType("f64")
+    return SemanticType("i64")
+
+
+def infer_expression_type(
+    expr,
+    env: dict[str, SemanticType],
+    typed_module: TypedModule,
+) -> TypedExprNode:
+    """Infer a conservative semantic type for a canonical expression.
+
+    This intentionally covers only declarations whose type is locally
+    demonstrable. Unsupported expressions fail closed instead of fabricating
+    a type.
+    """
+    kind = type(expr).__name__
+
+    if kind == "Name":
+        name = getattr(expr, "value")
+        if name in env:
+            return TypedExprNode(kind, env[name], name)
+        for item in typed_module.globals:
+            if item.name == name:
+                return TypedExprNode(kind, item.type, name)
+        raise Phase1SemanticError(f"cannot type unresolved name {name!r}")
+
+    if kind == "Number":
+        value = getattr(expr, "value")
+        return TypedExprNode(kind, _number_type(value), value)
+
+    if kind == "Boolean":
+        return TypedExprNode(kind, SemanticType("bool"), str(getattr(expr, "value")))
+
+    if kind == "StringLit":
+        return TypedExprNode(kind, SemanticType("str", pointer=True), None)
+
+    if kind == "StructLit":
+        name = getattr(expr, "struct_name")
+        known = {item.name for item in typed_module.structs}
+        if name not in known:
+            raise Phase1SemanticError(f"unknown struct literal type {name!r}")
+        return TypedExprNode(kind, SemanticType(name), name)
+
+    if kind == "Cast":
+        return TypedExprNode(
+            kind,
+            semantic_type(getattr(expr, "target_type")),
+            None,
+        )
+
+    if kind == "Member":
+        target = infer_expression_type(
+            getattr(expr, "target"), env, typed_module
+        )
+        struct = next(
+            (item for item in typed_module.structs if item.name == target.type.name),
+            None,
+        )
+        if struct is None:
+            raise Phase1SemanticError(
+                f"member access requires known struct type, got {target.type.name}"
+            )
+        field_name = getattr(expr, "field")
+        field = next(
+            (item for item in struct.fields if item.name == field_name),
+            None,
+        )
+        if field is None:
+            raise Phase1SemanticError(
+                f"struct {struct.name!r} has no field {field_name!r}"
+            )
+        return TypedExprNode(kind, field.type, field_name)
+
+    if kind == "Call":
+        callee = getattr(expr, "callee")
+        function = next(
+            (item for item in typed_module.functions if item.name == callee),
+            None,
+        )
+        if function is None:
+            raise Phase1SemanticError(f"cannot type unknown call {callee!r}")
+        if len(getattr(expr, "args", ())) != len(function.params):
+            raise Phase1SemanticError(
+                f"call {callee!r} has wrong argument count"
+            )
+        for argument, parameter in zip(getattr(expr, "args", ()), function.params):
+            argument_type = infer_expression_type(
+                argument, env, typed_module
+            ).type
+            if argument_type != parameter.type:
+                raise Phase1SemanticError(
+                    f"call {callee!r} argument type mismatch: "
+                    f"expected {parameter.type.name}, got {argument_type.name}"
+                )
+        return TypedExprNode(kind, function.result, callee)
+
+    if kind == "Binary":
+        left = infer_expression_type(getattr(expr, "left"), env, typed_module)
+        right = infer_expression_type(getattr(expr, "right"), env, typed_module)
+        op = getattr(expr, "op")
+        if op in ("==", "!=", "<", "<=", ">", ">=", "&&", "||"):
+            return TypedExprNode(kind, SemanticType("bool"), op)
+        if left.type != right.type:
+            raise Phase1SemanticError(
+                f"binary operator {op!r} type mismatch: "
+                f"{left.type.name} vs {right.type.name}"
+            )
+        return TypedExprNode(kind, left.type, op)
+
+    raise Phase1SemanticError(
+        f"expression typing not implemented for {kind}"
+    )
+
+
+def build_linear_typed_body(
+    parsed_module, typed_module: TypedModule, function_name: str
+) -> TypedFunctionBody:
+    """Materialize typed facts for top-level straight-line statements only."""
+    parsed_function = next(
+        (item for item in parsed_module.functions if item.name == function_name),
+        None,
+    )
+    typed_function = next(
+        (item for item in typed_module.functions if item.name == function_name),
+        None,
+    )
+    if parsed_function is None or typed_function is None:
+        raise Phase1SemanticError(
+            f"function {function_name!r} not found for body typing"
+        )
+
+    env = {param.name: param.type for param in typed_function.params}
+    statements: list[TypedStmtNode] = []
+
+    for statement in parsed_function.body:
+        kind = type(statement).__name__
+        if kind == "Let":
+            expr = infer_expression_type(
+                getattr(statement, "value"), env, typed_module
+            )
+            explicit = getattr(statement, "type", None)
+            declared = semantic_type(explicit) if explicit is not None else expr.type
+            if declared != expr.type:
+                raise Phase1SemanticError(
+                    f"let {statement.name!r} type mismatch: "
+                    f"declared {declared.name}, got {expr.type.name}"
+                )
+            env[statement.name] = declared
+            statements.append(
+                TypedStmtNode("Let", statement.name, declared, expr)
+            )
+            continue
+
+        if kind == "Return":
+            value = getattr(statement, "value", None)
+            expr = (
+                infer_expression_type(value, env, typed_module)
+                if value is not None
+                else None
+            )
+            actual = expr.type if expr is not None else SemanticType("void")
+            if actual != typed_function.result:
+                raise Phase1SemanticError(
+                    f"return type mismatch in {function_name!r}: "
+                    f"expected {typed_function.result.name}, got {actual.name}"
+                )
+            statements.append(
+                TypedStmtNode("Return", None, actual, expr)
+            )
+            continue
+
+        if kind == "Expression":
+            expr = infer_expression_type(
+                getattr(statement, "value"), env, typed_module
+            )
+            statements.append(
+                TypedStmtNode("Expression", None, expr.type, expr)
+            )
+            continue
+
+        raise Phase1SemanticError(
+            f"body typing not implemented for statement {kind}"
+        )
+
+    return TypedFunctionBody(function_name, tuple(statements))
+
+
 def apply_ownership_moves(
     env: OwnershipEnv, names: tuple[str, ...] | list[str]
 ) -> OwnershipEnv:
@@ -952,7 +1171,8 @@ __all__ = [
     "analyze_linear_function_ownership", "analyze_function_ownership",
     "OwnershipParamContract", "OwnershipFunctionSummary",
     "OwnershipModuleAnalysis", "summarize_module_ownership",
-    "analyze_module_ownership",
+    "analyze_module_ownership", "TypedExprNode", "TypedStmtNode",
+    "TypedFunctionBody", "infer_expression_type", "build_linear_typed_body",
     "apply_ownership_moves", "merge_conditional_ownership",
     "validate_loop_ownership", "require_live", "move_state", "merge_branch_states",
     "SourceSpan", "SemanticType",
