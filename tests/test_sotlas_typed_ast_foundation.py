@@ -1027,6 +1027,75 @@ fn main() -> i64 {
         self.assertEqual(indexed.expr.kind, "Index")
         self.assertEqual(indexed.expr.type.name, "i64")
 
+    def test_typed_body_types_defer_expression(self):
+        source = """module test::typed_defer_expr;
+fn cleanup() -> void { return; }
+fn main() -> void {
+    defer cleanup();
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-defer-expr>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "main")
+        self.assertEqual(body.statements[0].kind, "Defer")
+        self.assertIsNotNone(body.statements[0].expr)
+        self.assertEqual(body.statements[0].expr.kind, "Call")
+        self.assertEqual(body.statements[0].expr.type.name, "void")
+
+    def test_typed_body_types_defer_assignment(self):
+        source = """module test::typed_defer_assign;
+fn main() -> u8 {
+    let value: u8 = 1;
+    defer value = 2;
+    return value;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-defer-assign>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "main")
+        deferred = body.statements[1]
+        self.assertEqual(deferred.kind, "DeferAssign")
+        self.assertEqual(deferred.type.name, "u8")
+        self.assertEqual(deferred.expr.type.name, "u8")
+
+    def test_typed_body_types_defer_block(self):
+        source = """module test::typed_defer_block;
+fn cleanup() -> void { return; }
+fn main() -> void {
+    defer {
+        cleanup();
+    }
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-defer-block>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "main")
+        deferred = body.statements[0]
+        self.assertEqual(deferred.kind, "Defer")
+        self.assertEqual(len(deferred.body), 1)
+        self.assertEqual(deferred.body[0].kind, "Expression")
+
+    def test_typed_body_rejects_defer_assignment_range(self):
+        source = """module test::typed_defer_range;
+fn main() -> void {
+    let value: u8 = 1;
+    defer value = 256;
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-defer-range>")
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"integer value 256 out of range for u8",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
     def test_typed_body_types_array_index_assignment(self):
         source = """module test::typed_array_assign;
 fn main() -> u8 {

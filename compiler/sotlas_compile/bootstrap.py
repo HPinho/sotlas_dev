@@ -803,9 +803,8 @@ class Parser:
             return For(token, var_name, start_expr, end_expr, body, is_mut)
         if self.accept("unsafe"): return Unsafe(token, self.block())
         if self.accept("defer"):
-            if self.accept("{"):
+            if self.current.kind == "{":
                 body = self.block()
-                self.expect("}")
                 return Defer(token, body=body)
             else:
                 expr = self.expression()

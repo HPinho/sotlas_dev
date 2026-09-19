@@ -1611,6 +1611,59 @@ def _build_typed_block(
             )
             continue
 
+        if kind == "Defer":
+            deferred_body = getattr(statement, "body", None)
+            deferred_value = getattr(statement, "value", None)
+
+            if deferred_body is not None:
+                body = _build_typed_block(
+                    deferred_body,
+                    dict(env),
+                    typed_module,
+                    typed_function,
+                )
+                typed_statements.append(
+                    TypedStmtNode("Defer", None, None, None, body)
+                )
+                continue
+
+            if deferred_value is None:
+                raise Phase1SemanticError("defer has no action")
+
+            if type(deferred_value).__name__ == "Assign":
+                target = infer_assignment_target_type(
+                    getattr(deferred_value, "target"), env, typed_module
+                )
+                value_expr = getattr(deferred_value, "value")
+                value = infer_expression_type(
+                    value_expr, env, typed_module
+                )
+                value = _contextualize_expression(
+                    value_expr, value, target.type, env, typed_module
+                )
+                if target.type != value.type:
+                    raise Phase1SemanticError(
+                        f"defer assignment type mismatch for {target.label!r}: "
+                        f"expected {target.type.name}, got {value.type.name}"
+                    )
+                typed_statements.append(
+                    TypedStmtNode(
+                        "DeferAssign",
+                        target.label,
+                        target.type,
+                        value,
+                    )
+                )
+                continue
+
+            expr = infer_expression_type(
+                deferred_value, env, typed_module
+            )
+            typed_statements.append(
+                TypedStmtNode("Defer", None, expr.type, expr)
+            )
+            continue
+
         raise Phase1SemanticError(
             f"body typing not implemented for statement {kind}"
         )
