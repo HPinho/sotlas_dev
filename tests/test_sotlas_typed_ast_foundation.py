@@ -352,6 +352,71 @@ fn main() -> u32 {
             typed_ast.VarState.LIVE,
         )
 
+    def test_ownership_if_returning_move_branch_does_not_poison_fallthrough(self):
+        source = """module test::if_return_move;
+sole struct Token { value: u32; }
+fn consume(token: Token) -> void { return; }
+fn inspect(value: u32) -> void { return; }
+fn main(flag: bool, token: Token) -> void {
+    if flag {
+        consume(move token);
+        return;
+    }
+    inspect(token.value);
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-if-return-move>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(parsed, typed, "main")
+        self.assertIs(trace.final_env.state_of("token"), typed_ast.VarState.LIVE)
+
+    def test_ownership_if_else_returning_move_branch_preserves_then_fallthrough(self):
+        source = """module test::if_else_return_move;
+sole struct Token { value: u32; }
+fn consume(token: Token) -> void { return; }
+fn inspect(value: u32) -> void { return; }
+fn main(flag: bool, token: Token) -> void {
+    if flag {
+        inspect(token.value);
+    } else {
+        consume(move token);
+        return;
+    }
+    inspect(token.value);
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-if-else-return-move>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(parsed, typed, "main")
+        self.assertIs(trace.final_env.state_of("token"), typed_ast.VarState.LIVE)
+
+    def test_ownership_if_both_terminating_branches_stop_fallthrough(self):
+        source = """module test::if_both_return;
+sole struct Token { value: u32; }
+fn consume(token: Token) -> void { return; }
+fn main(flag: bool, token: Token) -> void {
+    if flag {
+        return;
+    } else {
+        return;
+    }
+    consume(move token);
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-if-both-return>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(parsed, typed, "main")
+        self.assertIs(trace.final_env.state_of("token"), typed_ast.VarState.LIVE)
+        self.assertNotIn(
+            typed_ast.OwnershipEvent("move", "token", "call:consume"),
+            trace.events,
+        )
+
     def test_canonical_if_one_sided_move_becomes_maybe_moved(self):
         source = """module test::if_one_sided;
 sole struct Token { value: u32; }

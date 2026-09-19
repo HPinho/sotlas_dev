@@ -581,6 +581,31 @@ def _project_ownership_env(
     )
 
 
+def _statement_definitely_terminates(statement) -> bool:
+    """Return whether one statement prevents fallthrough in its block."""
+    kind = type(statement).__name__
+    if kind in ("Return", "Break", "Continue"):
+        return True
+    if kind == "Unsafe":
+        return _block_definitely_terminates(
+            getattr(statement, "body", ())
+        )
+    if kind == "If":
+        else_body = getattr(statement, "else_body", ())
+        return bool(else_body) and _block_definitely_terminates(
+            getattr(statement, "then_body", ())
+        ) and _block_definitely_terminates(else_body)
+    return False
+
+
+def _block_definitely_terminates(statements) -> bool:
+    """Return whether control cannot fall through the canonical AST block."""
+    for statement in statements:
+        if _statement_definitely_terminates(statement):
+            return True
+    return False
+
+
 def _analyze_block_ownership(
     statements,
     env: OwnershipEnv,
@@ -766,17 +791,19 @@ def _analyze_block_ownership(
 
         if kind == "If":
             visible = tuple(binding.name for binding in result.bindings)
+            then_body = getattr(statement, "then_body", ())
+            else_body = getattr(statement, "else_body", ())
             then_events: list[OwnershipEvent] = []
             else_events: list[OwnershipEvent] = []
             then_env = _analyze_block_ownership(
-                getattr(statement, "then_body", ()),
+                then_body,
                 result,
                 typed_module,
                 typed_function,
                 then_events,
             )
             else_env = _analyze_block_ownership(
-                getattr(statement, "else_body", ()),
+                else_body,
                 result,
                 typed_module,
                 typed_function,
@@ -784,12 +811,23 @@ def _analyze_block_ownership(
             )
             then_env = _project_ownership_env(then_env, visible)
             else_env = _project_ownership_env(else_env, visible)
-            result = then_env.merge(else_env)
+            then_terminates = _block_definitely_terminates(then_body)
+            else_terminates = _block_definitely_terminates(else_body)
+
+            if then_terminates and not else_terminates:
+                result = else_env
+            elif else_terminates and not then_terminates:
+                result = then_env
+            else:
+                result = then_env.merge(else_env)
+
             events.append(
                 OwnershipEvent("branch", typed_function.name, "if")
             )
             events.extend(then_events)
             events.extend(else_events)
+            if then_terminates and else_terminates:
+                break
             continue
 
         if kind == "Unsafe":
