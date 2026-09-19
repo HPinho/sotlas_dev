@@ -1701,6 +1701,86 @@ fn main(consumer: Consumer) -> void {
         ):
             typed_ast.analyze_function_ownership(parsed, typed, "main")
 
+    def test_ownership_try_wrapped_call_moves_sole_argument(self):
+        source = """module test::ownership_try_call_move;
+sole struct Token { value: u32; }
+fn consume(token: Token, result: ResultU32) -> ResultU32 { return result; }
+fn main(result: ResultU32) -> ResultU32 {
+    let token = Token { value: 1 };
+    let payload: u32 = consume(move token, result)?;
+    return result;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-try-call-move>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        typed_ast.build_linear_typed_body(parsed, typed, "main")
+        trace = typed_ast.analyze_function_ownership(parsed, typed, "main")
+        self.assertIs(trace.final_env.state_of("token"), typed_ast.VarState.MOVED)
+        self.assertTrue(
+            any(
+                event.kind == "move"
+                and event.name == "token"
+                and event.via == "call:consume"
+                for event in trace.events
+            )
+        )
+
+    def test_ownership_try_wrapped_method_moves_sole_argument(self):
+        source = """module test::ownership_try_method_move;
+sole struct Token { value: u32; }
+struct Consumer { value: u32; }
+impl Consumer {
+    fn take(
+        self: *mut Consumer,
+        token: Token,
+        result: ResultU32
+    ) -> ResultU32 {
+        return result;
+    }
+}
+fn main(consumer: Consumer, result: ResultU32) -> ResultU32 {
+    let token = Token { value: 1 };
+    let payload: u32 = consumer.take(move token, result)?;
+    return result;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-try-method-move>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        typed_ast.build_linear_typed_body(parsed, typed, "main")
+        trace = typed_ast.analyze_function_ownership(parsed, typed, "main")
+        self.assertIs(trace.final_env.state_of("token"), typed_ast.VarState.MOVED)
+        self.assertTrue(
+            any(
+                event.kind == "move"
+                and event.name == "token"
+                and event.via == "method:Consumer_take"
+                for event in trace.events
+            )
+        )
+
+    def test_ownership_try_wrapped_call_rejects_reuse(self):
+        source = """module test::ownership_try_call_reuse;
+sole struct Token { value: u32; }
+fn consume(token: Token, result: ResultU32) -> ResultU32 { return result; }
+fn main(result: ResultU32) -> ResultU32 {
+    let token = Token { value: 1 };
+    let first: u32 = consume(move token, result)?;
+    let second: u32 = consume(move token, result)?;
+    return result;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<phase1-try-call-reuse>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        typed_ast.build_linear_typed_body(parsed, typed, "main")
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"use of sole value 'token' after move",
+        ):
+            typed_ast.analyze_function_ownership(parsed, typed, "main")
+
     def test_explicit_move_expression_types_sole_value(self):
         source = """module test::typed_move;
 sole struct Token { value: u32; }

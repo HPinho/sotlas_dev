@@ -321,6 +321,26 @@ def _move_method_call_arguments(
     return result
 
 
+def _move_try_wrapped_call_arguments(
+    env: OwnershipEnv,
+    expr,
+    typed_module: TypedModule,
+    events: list[OwnershipEvent],
+) -> OwnershipEnv:
+    """Apply call ownership effects hidden behind one or more try operators."""
+    inner = expr
+    while type(inner).__name__ == "TryExpr":
+        inner = getattr(inner, "expr", None)
+
+    if type(inner).__name__ == "Call":
+        return _move_call_arguments(env, inner, typed_module, events)
+    if type(inner).__name__ == "MethodCall":
+        return _move_method_call_arguments(env, inner, typed_module, events)
+
+    require_expr_ownership_live(env, expr)
+    return env
+
+
 def analyze_linear_function_ownership(
     parsed_module, typed_module: TypedModule, function_name: str
 ) -> OwnershipTrace:
@@ -489,6 +509,10 @@ def _analyze_block_ownership(
                 result = _move_method_call_arguments(
                     result, value, typed_module, events
                 )
+            elif type(value).__name__ == "TryExpr":
+                result = _move_try_wrapped_call_arguments(
+                    result, value, typed_module, events
+                )
             if local_type is not None:
                 before = result
                 result = result.declare(
@@ -508,6 +532,10 @@ def _analyze_block_ownership(
                 )
             elif type(value).__name__ == "MethodCall":
                 result = _move_method_call_arguments(
+                    result, value, typed_module, events
+                )
+            elif type(value).__name__ == "TryExpr":
+                result = _move_try_wrapped_call_arguments(
                     result, value, typed_module, events
                 )
             else:
