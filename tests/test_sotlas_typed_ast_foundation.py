@@ -164,6 +164,49 @@ fn main(t: Token) -> void {
         self.assertIs(env.state_of("t"), typed_ast.VarState.LIVE)
         self.assertIsNone(env.state_of("copy"))
 
+    def test_conditional_move_in_one_branch_becomes_maybe_moved(self):
+        typed = typed_ast.build_declaration_typed_ast(self.checked_ast())
+        base = typed_ast.OwnershipEnv().declare(
+            "handle", typed_ast.SemanticType("Handle"), typed
+        )
+        merged = typed_ast.merge_conditional_ownership(
+            base, ("handle",), ()
+        )
+        self.assertIs(
+            merged.state_of("handle"),
+            typed_ast.VarState.MAYBE_MOVED,
+        )
+
+    def test_conditional_move_in_both_branches_becomes_moved(self):
+        typed = typed_ast.build_declaration_typed_ast(self.checked_ast())
+        base = typed_ast.OwnershipEnv().declare(
+            "handle", typed_ast.SemanticType("Handle"), typed
+        )
+        merged = typed_ast.merge_conditional_ownership(
+            base, ("handle",), ("handle",)
+        )
+        self.assertIs(merged.state_of("handle"), typed_ast.VarState.MOVED)
+
+    def test_loop_move_is_rejected_without_reinitialization(self):
+        typed = typed_ast.build_declaration_typed_ast(self.checked_ast())
+        base = typed_ast.OwnershipEnv().declare(
+            "handle", typed_ast.SemanticType("Handle"), typed
+        )
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"sole value 'handle' moved inside loop without reinitialization",
+        ):
+            typed_ast.validate_loop_ownership(base, ("handle",))
+        self.assertIs(base.state_of("handle"), typed_ast.VarState.LIVE)
+
+    def test_empty_loop_body_preserves_ownership(self):
+        typed = typed_ast.build_declaration_typed_ast(self.checked_ast())
+        base = typed_ast.OwnershipEnv().declare(
+            "handle", typed_ast.SemanticType("Handle"), typed
+        )
+        result = typed_ast.validate_loop_ownership(base, ())
+        self.assertEqual(result, base)
+
     def test_ownership_env_tracks_only_sole_bindings(self):
         typed = typed_ast.build_declaration_typed_ast(self.checked_ast())
         env = typed_ast.OwnershipEnv()

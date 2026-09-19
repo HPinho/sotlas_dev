@@ -200,6 +200,50 @@ def seed_function_ownership(
     return env
 
 
+def apply_ownership_moves(
+    env: OwnershipEnv, names: tuple[str, ...] | list[str]
+) -> OwnershipEnv:
+    """Apply a deterministic sequence of sole transfers to an environment."""
+    result = env
+    for name in names:
+        result = result.move(name)
+    return result
+
+
+def merge_conditional_ownership(
+    base: OwnershipEnv,
+    then_moves: tuple[str, ...] | list[str],
+    else_moves: tuple[str, ...] | list[str] = (),
+) -> OwnershipEnv:
+    """Model an if/else ownership join from an immutable incoming state."""
+    then_env = apply_ownership_moves(base, then_moves)
+    else_env = apply_ownership_moves(base, else_moves)
+    return then_env.merge(else_env)
+
+
+def validate_loop_ownership(
+    base: OwnershipEnv, body_moves: tuple[str, ...] | list[str]
+) -> OwnershipEnv:
+    """Reject a sole move that could repeat on a subsequent loop iteration.
+
+    Phase 1 currently has no reinitialization model, so any tracked move in a
+    repeating body is rejected rather than unsafely pretending the next
+    iteration starts LIVE.
+    """
+    probe = base
+    for name in body_moves:
+        state = probe.state_of(name)
+        if state is None:
+            raise Phase1SemanticError(
+                f"ownership binding {name!r} is not tracked"
+            )
+        require_live(name, state)
+        raise Phase1SemanticError(
+            f"sole value {name!r} moved inside loop without reinitialization"
+        )
+    return base
+
+
 def require_live(name: str, state: VarState) -> None:
     """Reject uses of values whose ownership is no longer definitely live."""
     if state is VarState.LIVE:
@@ -448,8 +492,9 @@ def build_declaration_typed_ast(module) -> TypedModule:
 __all__ = [
     "MATURITY", "Phase1SemanticError", "VarState", "sole_type_names", "is_sole_type",
     "initial_ownership_state", "require_sole_transfer", "OwnershipBinding", "OwnershipEnv",
-    "seed_function_ownership",
-    "require_live", "move_state", "merge_branch_states", "SourceSpan", "SemanticType",
+    "seed_function_ownership", "apply_ownership_moves", "merge_conditional_ownership",
+    "validate_loop_ownership", "require_live", "move_state", "merge_branch_states",
+    "SourceSpan", "SemanticType",
     "TypedField", "TypedStruct",
     "TypedParam", "TypedFunction", "TypedGlobal", "TypedModule",
     "semantic_type", "integer_bounds", "validate_integer_value",
