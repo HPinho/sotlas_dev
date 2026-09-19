@@ -321,7 +321,7 @@ def analyze_linear_function_ownership(
             if type(value).__name__ == "Call":
                 env = _move_call_arguments(env, value, typed_module, events)
             if type(value).__name__ not in ("Name", "Call"):
-                require_expr_ownership_live(result, value)
+                require_expr_ownership_live(env, value)
             if local_type is not None:
                 before = env
                 env = env.declare(statement.name, local_type, typed_module)
