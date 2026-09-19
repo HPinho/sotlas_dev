@@ -95,6 +95,38 @@ def semantic_type(type_obj) -> SemanticType:
     )
 
 
+_INTEGER_WIDTHS = {
+    "u8": (8, False), "u16": (16, False), "u32": (32, False),
+    "u64": (64, False), "usize": (64, False),
+    "i8": (8, True), "i16": (16, True), "i32": (32, True),
+    "i64": (64, True), "isize": (64, True),
+}
+
+
+def integer_bounds(type_info: SemanticType) -> tuple[int, int]:
+    """Return the inclusive range for a fixed-width Sotlas integer type."""
+    try:
+        width, signed = _INTEGER_WIDTHS[type_info.name]
+    except KeyError as error:
+        raise Phase1SemanticError(
+            f"integer type expected, got {type_info.name}"
+        ) from error
+    if signed:
+        limit = 1 << (width - 1)
+        return -limit, limit - 1
+    return 0, (1 << width) - 1
+
+
+def validate_integer_value(value: int, type_info: SemanticType) -> None:
+    """Reject a compile-time integer value that cannot fit its declared type."""
+    lower, upper = integer_bounds(type_info)
+    if value < lower or value > upper:
+        raise Phase1SemanticError(
+            f"integer value {value} out of range for {type_info.name} "
+            f"[{lower}, {upper}]"
+        )
+
+
 def validate_no_recursive_value_types(module: TypedModule) -> None:
     """Reject infinitely-sized struct cycles while allowing indirection.
 
@@ -191,6 +223,7 @@ def build_declaration_typed_ast(module) -> TypedModule:
 __all__ = [
     "MATURITY", "Phase1SemanticError", "SourceSpan", "SemanticType", "TypedField", "TypedStruct",
     "TypedParam", "TypedFunction", "TypedGlobal", "TypedModule",
-    "semantic_type", "validate_no_recursive_value_types",
+    "semantic_type", "integer_bounds", "validate_integer_value",
+    "validate_no_recursive_value_types",
     "build_declaration_typed_ast",
 ]

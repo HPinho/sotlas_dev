@@ -80,6 +80,35 @@ class SotlasTypedAstFoundationTests(unittest.TestCase):
         bootstrap.check(module)
         return typed_ast.build_declaration_typed_ast(module)
 
+    def test_unsigned_integer_bounds_are_exact(self):
+        u8 = typed_ast.SemanticType("u8")
+        self.assertEqual(typed_ast.integer_bounds(u8), (0, 255))
+        typed_ast.validate_integer_value(0, u8)
+        typed_ast.validate_integer_value(255, u8)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"integer value 256 out of range for u8",
+        ):
+            typed_ast.validate_integer_value(256, u8)
+
+    def test_signed_integer_bounds_are_exact(self):
+        i8 = typed_ast.SemanticType("i8")
+        self.assertEqual(typed_ast.integer_bounds(i8), (-128, 127))
+        typed_ast.validate_integer_value(-128, i8)
+        typed_ast.validate_integer_value(127, i8)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"integer value -129 out of range for i8",
+        ):
+            typed_ast.validate_integer_value(-129, i8)
+
+    def test_integer_validator_rejects_non_integer_type(self):
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"integer type expected, got bool",
+        ):
+            typed_ast.integer_bounds(typed_ast.SemanticType("bool"))
+
     def test_direct_recursive_value_type_is_rejected(self):
         typed = self.typed_from("""module test::recursive;
 struct Node {
