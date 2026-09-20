@@ -1421,9 +1421,13 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
                     and scalar_integer(left)
                     and integer_constant_value(expr.right) == 0
                 ):
-                    operation = "divisão" if expr.op == "/" else "módulo"
+                    message = (
+                        "divisão inteira por zero não é permitida"
+                        if expr.op == "/"
+                        else "módulo inteiro por zero não é permitida"
+                    )
                     raise SotlasBootstrapError(
-                        f"{operation} inteira por zero não é permitida",
+                        message,
                         expr.token.line, expr.token.column, filename, source,
                     )
             if expr.op in ("&", "|", "^"):
