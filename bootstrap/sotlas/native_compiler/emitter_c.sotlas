@@ -115,6 +115,16 @@ impl CEmitter {
             return self.write_source_slice(node.str_offset, node.str_len);
         }
 
+        if node.kind == AstKind::TryExpr {
+            // Parsing and context validation are intentionally separate from
+            // lowering. Until Result<T,E> has a native C11 ABI, emitting '?'
+            // would invent semantics, so this path remains fail-closed.
+            if !self.try_context_returns_result(index) {
+                return false;
+            }
+            return false;
+        }
+
         if node.kind == AstKind::ExprUnary {
             if node.first_child == 0 || !self.valid_node(node.first_child) {
                 return false;
@@ -507,6 +517,12 @@ impl CEmitter {
         }
         let typ: AstNode = unsafe { *(self.nodes + type_index) };
         if typ.kind != AstKind::TypeRef || typ.str_len == 0 {
+            return false;
+        }
+
+        // Result<T,E> requires its own ABI lowering. Never leak the Sotlas
+        // generic spelling into C11 as though it were a valid C type.
+        if self.type_ref_is_result(type_index) {
             return false;
         }
 

@@ -297,6 +297,17 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         self.assertIn("parent_node.kind == AstKind::WhileStmt", text)
         self.assertIn("A loop jump outside a loop is structurally invalid", text)
 
+    def test_native_emitter_fails_closed_before_result_abi_exists(self):
+        emitter_file = (
+            ROOT / "bootstrap" / "sotlas" / "native_compiler" / "emitter_c.sotlas"
+        )
+        text = emitter_file.read_text(encoding="utf-8")
+        self.assertIn("node.kind == AstKind::TryExpr", text)
+        self.assertIn("self.try_context_returns_result(index)", text)
+        self.assertIn("Until Result<T,E> has a native C11 ABI", text)
+        self.assertIn("if self.type_ref_is_result(type_index)", text)
+        self.assertIn("Never leak the Sotlas", text)
+
     def test_native_emitter_recognizes_result_try_context(self):
         emitter_file = (
             ROOT / "bootstrap" / "sotlas" / "native_compiler" / "emitter_c.sotlas"
