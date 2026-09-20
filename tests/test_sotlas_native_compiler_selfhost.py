@@ -232,6 +232,18 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         self.assertLess(capture_at, cleanup_at)
         self.assertLess(cleanup_at, final_return_at)
 
+    def test_native_emitter_lowers_while_body_as_lexical_scope(self):
+        emitter_file = (
+            ROOT / "bootstrap" / "sotlas" / "native_compiler" / "emitter_c.sotlas"
+        )
+        text = emitter_file.read_text(encoding="utf-8")
+        self.assertIn("pub fn emit_while_statement", text)
+        self.assertIn("node.kind != AstKind::WhileStmt", text)
+        self.assertIn("self.emit_expression(cond_index)", text)
+        self.assertIn("return self.emit_braced_block(body_index);", text)
+        self.assertIn("node.kind == AstKind::WhileStmt", text)
+        self.assertIn("return self.emit_while_statement(index);", text)
+
     def test_native_emitter_lowers_if_else_blocks(self):
         emitter_file = (
             ROOT / "bootstrap" / "sotlas" / "native_compiler" / "emitter_c.sotlas"

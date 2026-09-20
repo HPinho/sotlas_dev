@@ -509,6 +509,41 @@ impl CEmitter {
         return self.write_str("}\n", 2);
     }
 
+    pub fn emit_while_statement(mut self: &mut Self, index: usize) -> bool {
+        if !self.valid_node(index) {
+            return false;
+        }
+        let node: AstNode = unsafe { *(self.nodes + index) };
+        if node.kind != AstKind::WhileStmt {
+            return false;
+        }
+
+        let cond_index: usize = node.first_child;
+        if !self.valid_node(cond_index) {
+            return false;
+        }
+        let cond: AstNode = unsafe { *(self.nodes + cond_index) };
+        let body_index: usize = cond.next_sibling;
+        if !self.valid_node(body_index) {
+            return false;
+        }
+        let body: AstNode = unsafe { *(self.nodes + body_index) };
+        if body.kind != AstKind::Block {
+            return false;
+        }
+
+        if !self.write_str("while (", 7) {
+            return false;
+        }
+        if !self.emit_expression(cond_index) {
+            return false;
+        }
+        if !self.write_str(") ", 2) {
+            return false;
+        }
+        return self.emit_braced_block(body_index);
+    }
+
     pub fn emit_if_statement(mut self: &mut Self, index: usize) -> bool {
         if !self.valid_node(index) {
             return false;
@@ -603,6 +638,9 @@ impl CEmitter {
         }
         if node.kind == AstKind::IfStmt {
             return self.emit_if_statement(index);
+        }
+        if node.kind == AstKind::WhileStmt {
+            return self.emit_while_statement(index);
         }
 
         if node.kind == AstKind::AssignStmt
