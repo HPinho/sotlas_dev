@@ -177,6 +177,42 @@ fn main(flag: bool) -> bool {
                 source, filename="<phase1-numeric-operator-domain>"
             )
 
+    def test_public_phase1_pipeline_types_valid_function_field_call(self):
+        source = """module test::phase1_fn_field_valid;
+struct Dispatch {
+    call: fn(u16) -> u32;
+}
+fn invoke(dispatch: &Dispatch) -> u32 {
+    return dispatch.call(7);
+}
+"""
+        result = sotlas_compile.analyze_source_phase1(
+            source, filename="<phase1-fn-field-valid>"
+        )
+        body = next(
+            item for item in result.semantic.bodies
+            if item.name == "invoke"
+        )
+        self.assertEqual(body.statements[0].expr.type.name, "u32")
+
+    def test_public_phase1_pipeline_rejects_function_field_contract_in_bootstrap(self):
+        source = """module test::phase1_fn_field_bad_type;
+struct Dispatch {
+    call: fn(u32) -> u32;
+}
+fn invoke(dispatch: &Dispatch, flag: bool) -> u32 {
+    return dispatch.call(flag);
+}
+"""
+        with self.assertRaisesRegex(
+            sotlas_compile.SotlasBootstrapError,
+            r"argumento 1 incompatível em campo de função "
+            r"Dispatch\.call: esperado u32, recebido bool",
+        ):
+            sotlas_compile.analyze_source_phase1(
+                source, filename="<phase1-fn-field-bad-type>"
+            )
+
     def test_public_phase1_pipeline_rejects_method_contract_mismatch_in_bootstrap(self):
         source = """module test::phase1_method_contract;
 struct Counter {

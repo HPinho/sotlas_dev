@@ -1245,6 +1245,119 @@ fn main() -> void {
         ):
             typed_ast.build_linear_typed_body(parsed, typed, "main")
 
+    def test_bootstrap_rejects_function_field_wrong_argument_count(self):
+        source = """module test::fn_field_bad_arity;
+struct Dispatch {
+    call: fn(u32) -> u32;
+}
+fn invoke(dispatch: &Dispatch) -> u32 {
+    return dispatch.call();
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-fn-field-bad-arity>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"quantidade de argumentos incompatível em campo de função "
+            r"Dispatch\.call: esperado 1, recebido 0",
+        ):
+            bootstrap.check(parsed)
+
+    def test_bootstrap_rejects_function_field_argument_type_mismatch(self):
+        source = """module test::fn_field_bad_type;
+struct Dispatch {
+    call: fn(u32) -> u32;
+}
+fn invoke(dispatch: &Dispatch, flag: bool) -> u32 {
+    return dispatch.call(flag);
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-fn-field-bad-type>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"argumento 1 incompatível em campo de função "
+            r"Dispatch\.call: esperado u32, recebido bool",
+        ):
+            bootstrap.check(parsed)
+
+    def test_bootstrap_accepts_function_field_contextual_integer_argument(self):
+        source = """module test::fn_field_integer_context;
+struct Dispatch {
+    call: fn(u16) -> u16;
+}
+fn invoke(dispatch: &Dispatch) -> u16 {
+    return dispatch.call(7);
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-fn-field-integer-context>"
+        )
+        bootstrap.check(parsed)
+
+    def test_typed_body_types_function_field_call_independently(self):
+        source = """module test::typed_fn_field_valid;
+struct Dispatch {
+    call: fn(u32) -> u32;
+}
+fn invoke(dispatch: &Dispatch) -> u32 {
+    return dispatch.call(7u32);
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-typed-fn-field-valid>"
+        )
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(
+            parsed, typed_module, "invoke"
+        )
+        self.assertEqual(body.statements[0].expr.type.name, "u32")
+
+    def test_typed_body_rejects_function_field_wrong_argument_count_independently(self):
+        source = """module test::typed_fn_field_bad_arity;
+struct Dispatch {
+    call: fn(u32) -> u32;
+}
+fn invoke(dispatch: &Dispatch) -> u32 {
+    return dispatch.call();
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-typed-fn-field-bad-arity>"
+        )
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"function field Dispatch\.call has wrong argument count",
+        ):
+            typed_ast.build_linear_typed_body(
+                parsed, typed_module, "invoke"
+            )
+
+    def test_typed_body_rejects_function_field_argument_type_mismatch_independently(self):
+        source = """module test::typed_fn_field_bad_type;
+struct Dispatch {
+    call: fn(u32) -> u32;
+}
+fn invoke(dispatch: &Dispatch, flag: bool) -> u32 {
+    return dispatch.call(flag);
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-typed-fn-field-bad-type>"
+        )
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"function field Dispatch\.call argument type mismatch: "
+            r"expected u32, got bool",
+        ):
+            typed_ast.build_linear_typed_body(
+                parsed, typed_module, "invoke"
+            )
+
     def test_reference_function_field_call_does_not_require_unsafe(self):
         source = """module test::reference_fn_field_safe;
 struct Dispatch {

@@ -1772,6 +1772,54 @@ def infer_expression_type(
         target = infer_expression_type(target_expr, env, typed_module)
         method_name = getattr(expr, "method")
         owner_name = target.type.name
+        owner_struct = next(
+            (
+                item for item in typed_module.structs
+                if item.name == owner_name
+            ),
+            None,
+        )
+        function_field = None
+        if owner_struct is not None:
+            function_field = next(
+                (
+                    item for item in owner_struct.fields
+                    if item.name == method_name and item.type.is_fn_ptr
+                ),
+                None,
+            )
+        if function_field is not None:
+            arguments = tuple(getattr(expr, "args", ()))
+            expected_params = function_field.type.fn_params
+            if len(arguments) != len(expected_params):
+                raise Phase1SemanticError(
+                    f"function field {owner_name}.{method_name} "
+                    "has wrong argument count"
+                )
+            for argument, expected in zip(arguments, expected_params):
+                inferred = infer_expression_type(
+                    argument, env, typed_module
+                )
+                contextual = _contextualize_expression(
+                    argument, inferred, expected, env, typed_module
+                )
+                if contextual.type != expected:
+                    raise Phase1SemanticError(
+                        f"function field {owner_name}.{method_name} "
+                        "argument type mismatch: "
+                        f"expected {expected.name}, got "
+                        f"{contextual.type.name}"
+                    )
+            result_type = (
+                function_field.type.fn_ret
+                or SemanticType("void")
+            )
+            return TypedExprNode(
+                kind,
+                result_type,
+                f"{owner_name}.{method_name}",
+            )
+
         method = next(
             (
                 item for item in typed_module.functions
@@ -2835,6 +2883,9 @@ class SemanticType:
     array_size: int | str = 0
     is_reference: bool = False
     elem_type: "SemanticType | None" = None
+    is_fn_ptr: bool = False
+    fn_params: tuple["SemanticType", ...] = ()
+    fn_ret: "SemanticType | None" = None
 
 
 @dataclass(frozen=True)
@@ -2922,6 +2973,16 @@ def semantic_type(type_obj) -> SemanticType:
         elem_type=(
             semantic_type(type_obj.elem_type)
             if getattr(type_obj, "elem_type", None) is not None
+            else None
+        ),
+        is_fn_ptr=bool(getattr(type_obj, "is_fn_ptr", False)),
+        fn_params=tuple(
+            semantic_type(item)
+            for item in getattr(type_obj, "fn_params", ())
+        ),
+        fn_ret=(
+            semantic_type(type_obj.fn_ret)
+            if getattr(type_obj, "fn_ret", None) is not None
             else None
         ),
     )

@@ -1861,6 +1861,32 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
                             "chamada de campo de função via ponteiro exige bloco unsafe",
                             expr.token.line, expr.token.column, filename, source,
                         )
+                    expected_params = tuple(fld.type.fn_params)
+                    if len(expr.args) != len(expected_params):
+                        raise SotlasBootstrapError(
+                            f"quantidade de argumentos incompatível em campo de função "
+                            f"{target_t.name}.{expr.method}: esperado "
+                            f"{len(expected_params)}, recebido {len(expr.args)}",
+                            expr.token.line, expr.token.column, filename, source,
+                        )
+                    for index, (argument, actual, expected) in enumerate(
+                        zip(expr.args, argument_types, expected_params), start=1
+                    ):
+                        if not contextual_type_matches(
+                            argument,
+                            actual,
+                            expected,
+                            scope,
+                            in_unsafe,
+                            is_system_fn,
+                        ):
+                            raise SotlasBootstrapError(
+                                f"argumento {index} incompatível em campo de função "
+                                f"{target_t.name}.{expr.method}: esperado "
+                                f"{expected.name}, recebido {actual.name}",
+                                argument.token.line, argument.token.column,
+                                filename, source,
+                            )
                     expr.is_vtable_call = True
                     expr.is_arrow = target_t.pointer
                     return fld.type.fn_ret or Type("void")
