@@ -321,20 +321,17 @@ impl CEmitter {
         return self.emit_defer_prefix_lifo(block.first_child, stop_before);
     }
 
-    pub fn emit_return_scope_defers(
+    pub fn emit_function_exit_defers(
         mut self: &mut Self,
-        return_index: usize
+        exit_index: usize
     ) -> bool {
-        if !self.valid_node(return_index) {
+        if !self.valid_node(exit_index) {
             return false;
         }
-        let return_node: AstNode = unsafe { *(self.nodes + return_index) };
-        if return_node.kind != AstKind::ReturnStmt {
-            return false;
-        }
+        let exit_node: AstNode = unsafe { *(self.nodes + exit_index) };
 
-        let mut child_on_path: usize = return_index;
-        let mut parent_index: usize = return_node.parent;
+        let mut child_on_path: usize = exit_index;
+        let mut parent_index: usize = exit_node.parent;
 
         while parent_index != 0 {
             if !self.valid_node(parent_index) {
@@ -356,6 +353,20 @@ impl CEmitter {
         }
 
         return false;
+    }
+
+    pub fn emit_return_scope_defers(
+        mut self: &mut Self,
+        return_index: usize
+    ) -> bool {
+        if !self.valid_node(return_index) {
+            return false;
+        }
+        let return_node: AstNode = unsafe { *(self.nodes + return_index) };
+        if return_node.kind != AstKind::ReturnStmt {
+            return false;
+        }
+        return self.emit_function_exit_defers(return_index);
     }
 
     pub fn emit_loop_jump_scope_defers(
