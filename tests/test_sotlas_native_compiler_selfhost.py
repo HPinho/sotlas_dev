@@ -88,6 +88,22 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         self.assertIn("let module_node: usize = p.parse_module();", text)
         self.assertIn("if module_node == 0", text)
 
+    def test_native_parser_persists_defer_payload_ast(self):
+        ast_file = ROOT / "bootstrap" / "sotlas" / "native_compiler" / "ast.sotlas"
+        parser_file = (
+            ROOT / "bootstrap" / "sotlas" / "native_compiler" / "parser.sotlas"
+        )
+        ast_text = ast_file.read_text(encoding="utf-8")
+        parser_text = parser_file.read_text(encoding="utf-8")
+        self.assertIn("DeferStmt = 26", ast_text)
+        self.assertIn("tok.kind == TokenKind::KwDefer", parser_text)
+        self.assertIn("AstKind::DeferStmt", parser_text)
+        self.assertIn("payload_node = self.parse_expression_statement();", parser_text)
+        self.assertIn("AstKind::AssignStmt", parser_text)
+        self.assertIn("AstKind::ExprCall", parser_text)
+        self.assertIn("AstKind::ExprBinary", parser_text)
+        self.assertIn("self.append_child(defer_node, payload_node)", parser_text)
+
     def test_native_sema_module_compiles(self):
         sema_file = ROOT / "bootstrap" / "sotlas" / "native_compiler" / "sema.sotlas"
         self.assertTrue(sema_file.is_file())

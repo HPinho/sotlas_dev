@@ -27,7 +27,8 @@ pub enum AstKind {
     ClinchStmt = 22,
     TrapfnDecl = 23,
     MeshDecl = 24,
-    SpecDecl = 25
+    SpecDecl = 25,
+    DeferStmt = 26
 }
 
 pub struct AstNode {

@@ -183,6 +183,84 @@ impl Parser {
         return block_node;
     }
 
+    pub fn operator_tag(self: &Self, kind: TokenKind) -> i64 {
+        if kind == TokenKind::Plus { return 80; }
+        if kind == TokenKind::Minus { return 81; }
+        if kind == TokenKind::Star { return 82; }
+        if kind == TokenKind::Slash { return 83; }
+        if kind == TokenKind::Percent { return 84; }
+        if kind == TokenKind::EqEq { return 86; }
+        if kind == TokenKind::BangEq { return 87; }
+        if kind == TokenKind::Lt { return 88; }
+        if kind == TokenKind::LtEq { return 89; }
+        if kind == TokenKind::Gt { return 90; }
+        if kind == TokenKind::GtEq { return 91; }
+        return 0;
+    }
+
+    pub fn make_binary(
+        mut self: &mut Self,
+        left: usize,
+        op: Token,
+        right: usize
+    ) -> usize {
+        if left == 0 || right == 0 {
+            return 0;
+        }
+        let node: usize = self.alloc_node(AstKind::ExprBinary, op.span);
+        if node == 0 {
+            return 0;
+        }
+        let mut ast_node: AstNode = unsafe { *(self.nodes + node) };
+        ast_node.int_value = self.operator_tag(op.kind);
+        unsafe {
+            *(self.nodes + node) = ast_node;
+        }
+        if !self.append_child(node, left) {
+            return 0;
+        }
+        if !self.append_child(node, right) {
+            return 0;
+        }
+        return node;
+    }
+
+    pub fn parse_expression_statement(mut self: &mut Self) -> usize {
+        let left: usize = self.parse_expression();
+        if left == 0 {
+            return 0;
+        }
+
+        if self.match_token(TokenKind::Equal) {
+            let assign_tok: Token = self.advance();
+            let assign_node: usize = self.alloc_node(AstKind::AssignStmt, assign_tok.span);
+            if assign_node == 0 {
+                return 0;
+            }
+            let right: usize = self.parse_expression();
+            if right == 0 {
+                return 0;
+            }
+            if !self.append_child(assign_node, left) {
+                return 0;
+            }
+            if !self.append_child(assign_node, right) {
+                return 0;
+            }
+            if !self.match_token(TokenKind::SemiColon) {
+                return 0;
+            }
+            self.advance();
+            return assign_node;
+        }
+
+        if !self.match_token(TokenKind::SemiColon) {
+            return 0;
+        }
+        self.advance();
+        return left;
+    }
+
     pub fn parse_statement(mut self: &mut Self) -> usize {
         let tok: Token = self.current();
         if tok.kind == TokenKind::KwLet || tok.kind == TokenKind::KwVar {
@@ -299,13 +377,28 @@ impl Parser {
                 self.expect(TokenKind::CloseBrace);
             }
             return while_node;
-        }
-        // Expressão como statement
-        let expr: usize = self.parse_expression();
-        if self.match_token(TokenKind::SemiColon) {
+        } else if tok.kind == TokenKind::KwDefer {
             self.advance();
+            let defer_node: usize = self.alloc_node(AstKind::DeferStmt, tok.span);
+            if defer_node == 0 {
+                return 0;
+            }
+
+            let payload_node: usize;
+            if self.match_token(TokenKind::OpenBrace) {
+                payload_node = self.parse_block();
+            } else {
+                payload_node = self.parse_expression_statement();
+            }
+            if payload_node == 0 {
+                return 0;
+            }
+            if !self.append_child(defer_node, payload_node) {
+                return 0;
+            }
+            return defer_node;
         }
-        return expr;
+        return self.parse_expression_statement();
     }
 
     pub fn parse_declaration(mut self: &mut Self) -> usize {
@@ -382,13 +475,107 @@ impl Parser {
         return self.parse_statement();
     }
 
-    pub fn parse_expression(mut self: &mut Self) -> usize {
+    pub fn parse_primary_expression(mut self: &mut Self) -> usize {
         let tok: Token = self.advance();
         if tok.kind == TokenKind::IntLit || tok.kind == TokenKind::StrLit {
             return self.alloc_node(AstKind::ExprLiteral, tok.span);
-        } else if tok.kind == TokenKind::Ident {
-            return self.alloc_node(AstKind::ExprIdent, tok.span);
         }
+
+        if tok.kind == TokenKind::Ident {
+            let ident_node: usize = self.alloc_node(AstKind::ExprIdent, tok.span);
+            if ident_node == 0 {
+                return 0;
+            }
+            if !self.match_token(TokenKind::OpenParen) {
+                return ident_node;
+            }
+
+            let call_node: usize = self.alloc_node(AstKind::ExprCall, tok.span);
+            if call_node == 0 {
+                return 0;
+            }
+            if !self.append_child(call_node, ident_node) {
+                return 0;
+            }
+
+            self.advance();
+            while !self.is_at_end() && !self.match_token(TokenKind::CloseParen) {
+                let arg_node: usize = self.parse_expression();
+                if arg_node == 0 {
+                    return 0;
+                }
+                if !self.append_child(call_node, arg_node) {
+                    return 0;
+                }
+                if self.match_token(TokenKind::Comma) {
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+            if !self.match_token(TokenKind::CloseParen) {
+                return 0;
+            }
+            self.advance();
+            return call_node;
+        }
+
+        if tok.kind == TokenKind::OpenParen {
+            let inner: usize = self.parse_expression();
+            if inner == 0 || !self.match_token(TokenKind::CloseParen) {
+                return 0;
+            }
+            self.advance();
+            return inner;
+        }
+
         return self.alloc_node(AstKind::ExprLiteral, tok.span);
+    }
+
+    pub fn parse_multiplicative_expression(mut self: &mut Self) -> usize {
+        let mut left: usize = self.parse_primary_expression();
+        while self.match_token(TokenKind::Star)
+            || self.match_token(TokenKind::Slash)
+            || self.match_token(TokenKind::Percent) {
+            let op: Token = self.advance();
+            let right: usize = self.parse_primary_expression();
+            left = self.make_binary(left, op, right);
+            if left == 0 {
+                return 0;
+            }
+        }
+        return left;
+    }
+
+    pub fn parse_additive_expression(mut self: &mut Self) -> usize {
+        let mut left: usize = self.parse_multiplicative_expression();
+        while self.match_token(TokenKind::Plus)
+            || self.match_token(TokenKind::Minus) {
+            let op: Token = self.advance();
+            let right: usize = self.parse_multiplicative_expression();
+            left = self.make_binary(left, op, right);
+            if left == 0 {
+                return 0;
+            }
+        }
+        return left;
+    }
+
+    pub fn parse_expression(mut self: &mut Self) -> usize {
+        let mut left: usize = self.parse_additive_expression();
+        while self.match_token(TokenKind::EqEq)
+            || self.match_token(TokenKind::BangEq)
+            || self.match_token(TokenKind::Lt)
+            || self.match_token(TokenKind::LtEq)
+            || self.match_token(TokenKind::Gt)
+            || self.match_token(TokenKind::GtEq) {
+            let op: Token = self.advance();
+            let right: usize = self.parse_additive_expression();
+            left = self.make_binary(left, op, right);
+            if left == 0 {
+                return 0;
+            }
+        }
+        return left;
     }
 }
