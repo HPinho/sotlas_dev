@@ -1163,6 +1163,7 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
         "u8": 8, "u16": 16, "u32": 32, "u64": 64, "usize": 64,
         "i8": 8, "i16": 16, "i32": 32, "i64": 64, "isize": 64,
     }
+    signed_integer_types = {"i8", "i16", "i32", "i64", "isize"}
 
     def scalar_integer(type_obj: Type) -> bool:
         return (
@@ -1435,6 +1436,20 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
                         message,
                         expr.token.line, expr.token.column, filename, source,
                     )
+                if (
+                    expr.op in ("/", "%")
+                    and left.name in signed_integer_types
+                    and integer_constant_value(expr.right) == -1
+                ):
+                    left_value = integer_constant_value(expr.left)
+                    minimum = -(1 << (integer_widths[left.name] - 1))
+                    if left_value == minimum:
+                        operation = "divisão" if expr.op == "/" else "módulo"
+                        raise SotlasBootstrapError(
+                            f"overflow de {operation} inteira para mínimo de "
+                            f"{left.name} dividido por -1",
+                            expr.token.line, expr.token.column, filename, source,
+                        )
             if expr.op in ("&", "|", "^"):
                 if not scalar_integer(left) or not scalar_integer(right):
                     raise SotlasBootstrapError(

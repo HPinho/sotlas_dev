@@ -3318,6 +3318,36 @@ fn main() -> u8 {
         body = typed_ast.build_linear_typed_body(parsed, typed, "main")
         self.assertEqual(body.statements[0].expr.type.name, "u8")
 
+    def test_bootstrap_rejects_signed_minimum_division_by_minus_one(self):
+        source = """module test::bootstrap_i8_div_overflow;
+fn main() -> i8 {
+    return -128i8 / -1i8;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-i8-div-overflow>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"overflow de divisão inteira para mínimo de i8 dividido por -1",
+        ):
+            bootstrap.check(parsed)
+
+    def test_bootstrap_rejects_signed_minimum_modulo_by_minus_one(self):
+        source = """module test::bootstrap_i8_mod_overflow;
+fn main() -> i8 {
+    return -128i8 % -1i8;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-i8-mod-overflow>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"overflow de módulo inteira para mínimo de i8 dividido por -1",
+        ):
+            bootstrap.check(parsed)
+
     def test_typed_body_rejects_signed_minimum_division_by_minus_one(self):
         source = """module test::typed_i8_div_overflow;
 fn main() -> i8 {
@@ -3325,7 +3355,6 @@ fn main() -> i8 {
 }
 """
         parsed = bootstrap.parse(source, filename="<phase1-i8-div-overflow>")
-        bootstrap.check(parsed)
         typed = typed_ast.build_declaration_typed_ast(parsed)
         with self.assertRaisesRegex(
             typed_ast.Phase1SemanticError,
@@ -3340,7 +3369,6 @@ fn main() -> i8 {
 }
 """
         parsed = bootstrap.parse(source, filename="<phase1-i8-mod-overflow>")
-        bootstrap.check(parsed)
         typed = typed_ast.build_declaration_typed_ast(parsed)
         with self.assertRaisesRegex(
             typed_ast.Phase1SemanticError,
