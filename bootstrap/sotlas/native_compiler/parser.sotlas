@@ -81,9 +81,45 @@ impl Parser {
         return idx;
     }
 
+    pub fn append_child(mut self: &mut Self, parent: usize, child: usize) -> bool {
+        if self.nodes == null || parent == 0 || child == 0 {
+            return false;
+        }
+        if parent >= self.node_count || child >= self.node_count {
+            return false;
+        }
+
+        let mut parent_node: AstNode = unsafe { *(self.nodes + parent) };
+        if parent_node.first_child == 0 {
+            parent_node.first_child = child;
+            unsafe {
+                *(self.nodes + parent) = parent_node;
+            }
+            return true;
+        }
+
+        let mut current: usize = parent_node.first_child;
+        while current != 0 {
+            let mut current_node: AstNode = unsafe { *(self.nodes + current) };
+            if current_node.next_sibling == 0 {
+                current_node.next_sibling = child;
+                unsafe {
+                    *(self.nodes + current) = current_node;
+                }
+                return true;
+            }
+            current = current_node.next_sibling;
+        }
+        return false;
+    }
+
     pub fn parse_module(mut self: &mut Self) -> usize {
         let start_tok: Token = self.current();
         let mod_node: usize = self.alloc_node(AstKind::Module, start_tok.span);
+        if mod_node == 0 {
+            return 0;
+        }
+
         if self.match_token(TokenKind::KwModule) {
             self.advance();
             // Consome identificadores de módulo separados por ::
@@ -91,6 +127,23 @@ impl Parser {
                 self.advance();
             }
             if self.match_token(TokenKind::SemiColon) {
+                self.advance();
+            }
+        }
+
+        // Persiste todas as declarações de topo como filhos do módulo.
+        while !self.is_at_end() {
+            let before: usize = self.cursor;
+            let decl_node: usize = self.parse_declaration();
+            if decl_node == 0 {
+                return 0;
+            }
+            if !self.append_child(mod_node, decl_node) {
+                return 0;
+            }
+
+            // Guarda de progresso: um parser malformado nunca pode travar o compilador.
+            if self.cursor <= before {
                 self.advance();
             }
         }

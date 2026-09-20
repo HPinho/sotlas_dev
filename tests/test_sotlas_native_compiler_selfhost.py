@@ -58,6 +58,18 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         self.assertIn("*(self.nodes + idx) = AstNode::new(kind, span);", text)
         self.assertIn("self.node_count >= self.node_capacity", text)
 
+    def test_native_parser_links_module_declarations(self):
+        parser_file = (
+            ROOT / "bootstrap" / "sotlas" / "native_compiler" / "parser.sotlas"
+        )
+        text = parser_file.read_text(encoding="utf-8")
+        self.assertIn("pub fn append_child", text)
+        self.assertIn("parent_node.first_child = child;", text)
+        self.assertIn("current_node.next_sibling = child;", text)
+        self.assertIn("let decl_node: usize = self.parse_declaration();", text)
+        self.assertIn("self.append_child(mod_node, decl_node)", text)
+        self.assertIn("if self.cursor <= before", text)
+
     def test_native_sema_module_compiles(self):
         sema_file = ROOT / "bootstrap" / "sotlas" / "native_compiler" / "sema.sotlas"
         self.assertTrue(sema_file.is_file())
