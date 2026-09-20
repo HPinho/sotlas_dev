@@ -189,6 +189,24 @@ fn read(ptr: *mut u32) -> u32 {
         self.assertEqual(body.statements[0].body[0].kind, "Return")
         self.assertEqual(body.statements[0].body[0].expr.type.name, "u32")
 
+    def test_public_phase1_pipeline_preserves_mutable_local_metadata(self):
+        source = """module test::phase1_binding_mutability_metadata;
+fn main() -> u32 {
+    let mut value: u32 = 7u32;
+    return value;
+}
+"""
+        result = sotlas_compile.analyze_source_phase1(
+            source, filename="<phase1-binding-mutability-metadata>"
+        )
+        body = next(
+            item for item in result.semantic.bodies if item.name == "main"
+        )
+        binding = body.statements[0]
+        self.assertEqual(binding.kind, "Let")
+        self.assertTrue(binding.is_mut)
+        self.assertEqual(binding.name, "value")
+
     def test_public_phase1_pipeline_forms_safe_references_with_address_of(self):
         source = """module test::phase1_address_of_reference;
 fn read(value: &u32) -> u32 {

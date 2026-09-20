@@ -302,7 +302,13 @@ class TryExpr(Expr):
 @dataclass
 class Stmt: token: Token
 @dataclass
-class Let(Stmt): name: str; type: Type | None; value: Expr
+class Let(Stmt):
+    name: str
+    type: Type | None
+    value: Expr
+    is_mut: bool = False
+    is_const: bool = False
+    is_static: bool = False
 @dataclass
 class Assign(Stmt): target: Expr; value: Expr
 @dataclass
@@ -761,19 +767,27 @@ class Parser:
             name = self.ident(); typ = None
             if self.accept(":"): typ = self.type()
             self.expect("="); value = self.expression(); self.expect(";")
-            return Let(token, name, typ, value)
+            return Let(token, name, typ, value, is_mut=is_mut)
         if self.accept("const"):
             name = self.ident(); typ = None
             if self.accept(":"): typ = self.type()
             self.expect("="); value = self.expression(); self.expect(";")
-            return Let(token, name, typ, value)
+            return Let(token, name, typ, value, is_const=True)
         if self.accept("static"):
-            self.accept("const")
-            self.accept("mut")
+            is_const = bool(self.accept("const"))
+            is_mut = bool(self.accept("mut"))
             name = self.ident(); typ = None
             if self.accept(":"): typ = self.type()
             self.expect("="); value = self.expression(); self.expect(";")
-            return Let(token, name, typ, value)
+            return Let(
+                token,
+                name,
+                typ,
+                value,
+                is_mut=is_mut,
+                is_const=is_const,
+                is_static=True,
+            )
         if self.accept("return"):
             value = None if self.current.kind == ";" else self.expression()
             self.expect(";"); return Return(token, value)

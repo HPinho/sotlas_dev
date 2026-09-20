@@ -814,6 +814,56 @@ fn main() -> void {
         ):
             typed_ast.build_linear_typed_body(parsed, typed, "main")
 
+    def test_base_parser_preserves_local_binding_mutability(self):
+        source = """module test::binding_mutability_metadata;
+fn main() -> u32 {
+    let mut value: u32 = 7u32;
+    const frozen: u32 = 8u32;
+    static mut cache: u32 = 9u32;
+    return value;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-binding-mutability-metadata>"
+        )
+        function = parsed.functions[0]
+        mutable_local = function.body[0]
+        constant_local = function.body[1]
+        static_local = function.body[2]
+
+        self.assertTrue(mutable_local.is_mut)
+        self.assertFalse(mutable_local.is_const)
+        self.assertFalse(mutable_local.is_static)
+
+        self.assertFalse(constant_local.is_mut)
+        self.assertTrue(constant_local.is_const)
+        self.assertFalse(constant_local.is_static)
+
+        self.assertTrue(static_local.is_mut)
+        self.assertFalse(static_local.is_const)
+        self.assertTrue(static_local.is_static)
+
+    def test_typed_body_preserves_mutable_local_metadata(self):
+        source = """module test::typed_binding_mutability_metadata;
+fn main() -> u32 {
+    let mut value: u32 = 7u32;
+    return value;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-typed-binding-mutability-metadata>"
+        )
+        bootstrap.check(parsed)
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(
+            parsed, typed_module, "main"
+        )
+        binding = body.statements[0]
+        self.assertEqual(binding.kind, "Let")
+        self.assertTrue(binding.is_mut)
+        self.assertEqual(binding.name, "value")
+        self.assertEqual(binding.type.name, "u32")
+
     def test_linear_typed_body_checks_name_assignment(self):
         source = """module test::typed_assign;
 fn main() -> i64 {

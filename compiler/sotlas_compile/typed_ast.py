@@ -1181,6 +1181,7 @@ class TypedStmtNode:
     body: tuple["TypedStmtNode", ...] = ()
     else_body: tuple["TypedStmtNode", ...] = ()
     extra_expr: TypedExprNode | None = None
+    is_mut: bool = False
 
 
 @dataclass(frozen=True)
@@ -2234,7 +2235,13 @@ def _build_typed_block(
                 )
             env[statement.name] = declared
             typed_statements.append(
-                TypedStmtNode("Let", statement.name, declared, expr)
+                TypedStmtNode(
+                    "Let",
+                    statement.name,
+                    declared,
+                    expr,
+                    is_mut=bool(getattr(statement, "is_mut", False)),
+                )
             )
             continue
 
