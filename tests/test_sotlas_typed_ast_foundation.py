@@ -3548,6 +3548,65 @@ fn main(counter: Counter) -> u32 {
         ):
             typed_ast.build_linear_typed_body(parsed, typed, "main")
 
+    def test_bootstrap_rejects_method_argument_count_mismatch(self):
+        source = """module test::bootstrap_method_bad_arity;
+struct Counter {
+    value: u32;
+    fn increment(self: *mut Counter, amount: u32) -> u32 {
+        return amount;
+    }
+}
+fn main(counter: Counter) -> u32 {
+    return counter.increment();
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-method-bad-arity>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"quantidade de argumentos incompatível em método Counter\.increment",
+        ):
+            bootstrap.check(parsed)
+
+    def test_bootstrap_rejects_method_argument_type_mismatch(self):
+        source = """module test::bootstrap_method_bad_arg;
+struct Counter {
+    value: u32;
+    fn increment(self: *mut Counter, amount: u32) -> u32 {
+        return amount;
+    }
+}
+fn main(counter: Counter, flag: bool) -> u32 {
+    return counter.increment(flag);
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-method-bad-arg>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"argumento 1 incompatível em método Counter\.increment",
+        ):
+            bootstrap.check(parsed)
+
+    def test_bootstrap_accepts_method_contextual_integer_argument(self):
+        source = """module test::bootstrap_method_integer_arg;
+struct Counter {
+    value: u32;
+    fn increment(self: *mut Counter, amount: u16) -> u16 {
+        return amount;
+    }
+}
+fn main(counter: Counter) -> u16 {
+    return counter.increment(7);
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-method-integer-arg>"
+        )
+        bootstrap.check(parsed)
+
     def test_typed_body_rejects_method_argument_mismatch_independently(self):
         source = """module test::typed_method_bad_arg;
 struct Counter {

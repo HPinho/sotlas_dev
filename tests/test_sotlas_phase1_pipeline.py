@@ -70,6 +70,26 @@ fn main() -> void {
                 source, filename="<phase1-bool-control-flow>"
             )
 
+    def test_public_phase1_pipeline_rejects_method_contract_mismatch_in_bootstrap(self):
+        source = """module test::phase1_method_contract;
+struct Counter {
+    value: u32;
+    fn increment(self: *mut Counter, amount: u32) -> u32 {
+        return amount;
+    }
+}
+fn main(counter: Counter, flag: bool) -> u32 {
+    return counter.increment(flag);
+}
+"""
+        with self.assertRaisesRegex(
+            sotlas_compile.SotlasBootstrapError,
+            r"argumento 1 incompatível em método Counter\.increment",
+        ):
+            sotlas_compile.analyze_source_phase1(
+                source, filename="<phase1-method-contract>"
+            )
+
     def test_public_phase1_pipeline_rejects_call_contract_mismatch_in_bootstrap(self):
         source = """module test::phase1_call_contract;
 fn consume(value: u32) -> void {

@@ -1383,8 +1383,10 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
             return fld.type
         if isinstance(expr, MethodCall):
             target_t = expr_type(expr.target, scope, in_unsafe, is_system_fn)
-            for argument in expr.args:
+            argument_types = [
                 expr_type(argument, scope, in_unsafe, is_system_fn)
+                for argument in expr.args
+            ]
             expr.target_type = target_t
             if expr.method == "as_ptr":
                 return Type(target_t.name if not target_t.is_array else (target_t.elem_type.name if target_t.elem_type else "u8"), pointer=True)
@@ -1410,7 +1412,45 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
                     return fld.type.fn_ret or Type("void")
             method = functions.get(f"{target_t.name}_{expr.method}")
             if method:
-                expr.pass_by_ref = bool(method.params and method.params[0][1].pointer and not target_t.pointer)
+                if not method.params:
+                    raise SotlasBootstrapError(
+                        f"método {target_t.name}.{expr.method} não possui parâmetro self",
+                        expr.token.line, expr.token.column, filename, source,
+                    )
+                self_name, self_type = method.params[0]
+                if self_name != "self" or self_type.name != target_t.name:
+                    raise SotlasBootstrapError(
+                        f"self incompatível em método {target_t.name}.{expr.method}",
+                        expr.token.line, expr.token.column, filename, source,
+                    )
+                if target_t.pointer and not self_type.pointer:
+                    raise SotlasBootstrapError(
+                        f"receiver incompatível em método {target_t.name}.{expr.method}",
+                        expr.token.line, expr.token.column, filename, source,
+                    )
+
+                user_params = method.params[1:]
+                if len(argument_types) != len(user_params):
+                    raise SotlasBootstrapError(
+                        f"quantidade de argumentos incompatível em método "
+                        f"{target_t.name}.{expr.method}: esperado {len(user_params)}, "
+                        f"recebido {len(argument_types)}",
+                        expr.token.line, expr.token.column, filename, source,
+                    )
+                for index, (actual, (_, expected)) in enumerate(
+                    zip(argument_types, user_params), start=1
+                ):
+                    if not assignable(actual, expected):
+                        raise SotlasBootstrapError(
+                            f"argumento {index} incompatível em método "
+                            f"{target_t.name}.{expr.method}: esperado {expected.name}, "
+                            f"recebido {actual.name}",
+                            expr.token.line, expr.token.column, filename, source,
+                        )
+
+                expr.pass_by_ref = bool(
+                    self_type.pointer and not target_t.pointer
+                )
                 return method.result
             raise SotlasBootstrapError(
                 f"método não declarado: {target_t.name}.{expr.method}",
