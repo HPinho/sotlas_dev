@@ -122,7 +122,22 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         self.assertIn("pub source: *const u8;", emitter_text)
         self.assertIn("pub fn write_source_slice", emitter_text)
         self.assertIn("len > self.source_len - offset", emitter_text)
-        self.assertIn("CEmitter::new(out_buf, max_out, source, len)", main_text)
+        self.assertIn("source_len: usize", emitter_text)
+        self.assertIn("p.node_count", main_text)
+
+    def test_native_emitter_can_serialize_defer_payload_ast(self):
+        emitter_file = (
+            ROOT / "bootstrap" / "sotlas" / "native_compiler" / "emitter_c.sotlas"
+        )
+        text = emitter_file.read_text(encoding="utf-8")
+        self.assertIn("pub nodes: *const AstNode;", text)
+        self.assertIn("pub fn emit_expression", text)
+        self.assertIn("AstKind::ExprBinary", text)
+        self.assertIn("AstKind::ExprCall", text)
+        self.assertIn("pub fn emit_statement_payload", text)
+        self.assertIn("AstKind::AssignStmt", text)
+        self.assertIn("pub fn emit_defer_payload", text)
+        self.assertIn("node.kind != AstKind::DeferStmt", text)
 
     def test_native_sema_module_compiles(self):
         sema_file = ROOT / "bootstrap" / "sotlas" / "native_compiler" / "sema.sotlas"

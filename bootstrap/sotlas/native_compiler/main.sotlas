@@ -61,7 +61,14 @@ pub fn sotlas_native_compile(source: *const u8, len: usize, out_buf: *mut u8, ma
     let _is_safe: bool = sem.check_system_privilege();
 
     // 4. Inicializa o Emissor C11 em Sotlas puro
-    let mut emitter: CEmitter = CEmitter::new(out_buf, max_out, source, len);
+    let mut emitter: CEmitter = CEmitter::new(
+        out_buf,
+        max_out,
+        source,
+        len,
+        node_ptr,
+        p.node_count
+    );
     if !emitter.emit_header() {
         return 0;
     }

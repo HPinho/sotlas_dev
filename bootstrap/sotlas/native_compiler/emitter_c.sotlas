@@ -9,6 +9,8 @@ pub struct CEmitter {
     pub cursor: usize;
     pub source: *const u8;
     pub source_len: usize;
+    pub nodes: *const AstNode;
+    pub node_count: usize;
 }
 
 impl CEmitter {
@@ -16,14 +18,18 @@ impl CEmitter {
         buf: *mut u8,
         max: usize,
         source: *const u8,
-        source_len: usize
+        source_len: usize,
+        nodes: *const AstNode,
+        node_count: usize
     ) -> CEmitter {
         return CEmitter {
             out_buf: buf,
             max_len: max,
             cursor: 0,
             source: source,
-            source_len: source_len
+            source_len: source_len,
+            nodes: nodes,
+            node_count: node_count
         };
     }
 
@@ -62,6 +68,141 @@ impl CEmitter {
             return false;
         }
         return self.write_str(self.source + offset, len);
+    }
+
+    pub fn valid_node(self: &Self, index: usize) -> bool {
+        return self.nodes != null && index > 0 && index < self.node_count;
+    }
+
+    pub fn emit_binary_operator(mut self: &mut Self, tag: i64) -> bool {
+        if tag == 80 { return self.write_byte(43); } // +
+        if tag == 81 { return self.write_byte(45); } // -
+        if tag == 82 { return self.write_byte(42); } // *
+        if tag == 83 { return self.write_byte(47); } // /
+        if tag == 84 { return self.write_byte(37); } // %
+        if tag == 86 {
+            return self.write_byte(61) && self.write_byte(61);
+        }
+        if tag == 87 {
+            return self.write_byte(33) && self.write_byte(61);
+        }
+        if tag == 88 { return self.write_byte(60); }
+        if tag == 89 {
+            return self.write_byte(60) && self.write_byte(61);
+        }
+        if tag == 90 { return self.write_byte(62); }
+        if tag == 91 {
+            return self.write_byte(62) && self.write_byte(61);
+        }
+        return false;
+    }
+
+    pub fn emit_expression(mut self: &mut Self, index: usize) -> bool {
+        if !self.valid_node(index) {
+            return false;
+        }
+        let node: AstNode = unsafe { *(self.nodes + index) };
+
+        if node.kind == AstKind::ExprIdent || node.kind == AstKind::ExprLiteral {
+            return self.write_source_slice(node.str_offset, node.str_len);
+        }
+
+        if node.kind == AstKind::ExprBinary {
+            let left: usize = node.first_child;
+            if !self.valid_node(left) {
+                return false;
+            }
+            let left_node: AstNode = unsafe { *(self.nodes + left) };
+            let right: usize = left_node.next_sibling;
+            if !self.valid_node(right) {
+                return false;
+            }
+            if !self.write_byte(40) { return false; }
+            if !self.emit_expression(left) { return false; }
+            if !self.write_byte(32) { return false; }
+            if !self.emit_binary_operator(node.int_value) { return false; }
+            if !self.write_byte(32) { return false; }
+            if !self.emit_expression(right) { return false; }
+            return self.write_byte(41);
+        }
+
+        if node.kind == AstKind::ExprCall {
+            let callee: usize = node.first_child;
+            if !self.valid_node(callee) {
+                return false;
+            }
+            if !self.emit_expression(callee) { return false; }
+            if !self.write_byte(40) { return false; }
+
+            let callee_node: AstNode = unsafe { *(self.nodes + callee) };
+            let mut arg: usize = callee_node.next_sibling;
+            let mut first: bool = true;
+            while arg != 0 {
+                if !self.valid_node(arg) {
+                    return false;
+                }
+                if !first {
+                    if !self.write_byte(44) || !self.write_byte(32) {
+                        return false;
+                    }
+                }
+                if !self.emit_expression(arg) {
+                    return false;
+                }
+                let arg_node: AstNode = unsafe { *(self.nodes + arg) };
+                arg = arg_node.next_sibling;
+                first = false;
+            }
+            return self.write_byte(41);
+        }
+
+        return false;
+    }
+
+    pub fn emit_statement_payload(mut self: &mut Self, index: usize) -> bool {
+        if !self.valid_node(index) {
+            return false;
+        }
+        let node: AstNode = unsafe { *(self.nodes + index) };
+
+        if node.kind == AstKind::AssignStmt {
+            let left: usize = node.first_child;
+            if !self.valid_node(left) {
+                return false;
+            }
+            let left_node: AstNode = unsafe { *(self.nodes + left) };
+            let right: usize = left_node.next_sibling;
+            if !self.valid_node(right) {
+                return false;
+            }
+            if !self.emit_expression(left) { return false; }
+            if !self.write_str(" = ", 3) { return false; }
+            if !self.emit_expression(right) { return false; }
+            return self.write_str(";\n", 2);
+        }
+
+        if node.kind == AstKind::ExprCall
+            || node.kind == AstKind::ExprBinary
+            || node.kind == AstKind::ExprIdent
+            || node.kind == AstKind::ExprLiteral {
+            if !self.emit_expression(index) {
+                return false;
+            }
+            return self.write_str(";\n", 2);
+        }
+
+        return false;
+    }
+
+    pub fn emit_defer_payload(mut self: &mut Self, index: usize) -> bool {
+        if !self.valid_node(index) {
+            return false;
+        }
+        let node: AstNode = unsafe { *(self.nodes + index) };
+        if node.kind != AstKind::DeferStmt || node.first_child == 0 {
+            return false;
+        }
+        return self.emit_statement_payload(node.first_child);
     }
 
     pub fn emit_header(mut self: &mut Self) -> bool {
