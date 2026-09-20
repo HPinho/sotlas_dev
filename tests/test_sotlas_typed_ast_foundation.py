@@ -2335,6 +2335,79 @@ fn is_null(value: *const u32) -> bool {
         self.assertFalse(returned.pointer)
         self.assertFalse(returned.is_reference)
 
+    def test_bootstrap_rejects_explicit_integer_return_type_mismatch(self):
+        source = """module test::bootstrap_return_explicit_integer_mismatch;
+fn main() -> u32 {
+    return 1u64;
+}
+"""
+        parsed = bootstrap.parse(
+            source,
+            filename="<phase1-bootstrap-return-explicit-integer-mismatch>",
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"retorno incompatível",
+        ):
+            bootstrap.check(parsed)
+
+    def test_bootstrap_accepts_contextual_integer_return(self):
+        source = """module test::bootstrap_return_contextual_integer;
+fn main() -> u16 {
+    return 65535;
+}
+"""
+        parsed = bootstrap.parse(
+            source,
+            filename="<phase1-bootstrap-return-contextual-integer>",
+        )
+        bootstrap.check(parsed)
+
+    def test_bootstrap_accepts_mutable_pointer_deref_value_return(self):
+        source = """module test::bootstrap_return_mut_pointer_deref;
+fn read(ptr: *mut u32) -> u32 {
+    unsafe {
+        return *ptr;
+    }
+}
+"""
+        parsed = bootstrap.parse(
+            source,
+            filename="<phase1-bootstrap-return-mut-pointer-deref>",
+        )
+        bootstrap.check(parsed)
+
+    def test_bootstrap_accepts_mutable_pointer_index_value_return(self):
+        source = """module test::bootstrap_return_mut_pointer_index;
+fn read(ptr: *mut u32) -> u32 {
+    unsafe {
+        return ptr[0];
+    }
+}
+"""
+        parsed = bootstrap.parse(
+            source,
+            filename="<phase1-bootstrap-return-mut-pointer-index>",
+        )
+        bootstrap.check(parsed)
+
+    def test_typed_body_rejects_explicit_integer_return_type_mismatch_independently(self):
+        source = """module test::typed_return_explicit_integer_mismatch;
+fn main() -> u32 {
+    return 1u64;
+}
+"""
+        parsed = bootstrap.parse(
+            source,
+            filename="<phase1-typed-return-explicit-integer-mismatch>",
+        )
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"return type mismatch",
+        ):
+            typed_ast.build_linear_typed_body(parsed, typed, "main")
+
     def test_bootstrap_rejects_null_reference_return(self):
         source = """module test::null_reference;
 fn bad() -> &u32 {

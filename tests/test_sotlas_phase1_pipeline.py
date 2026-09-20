@@ -292,6 +292,21 @@ fn main(flag: bool) -> void {
                 source, filename="<phase1-call-contract>"
             )
 
+    def test_public_phase1_pipeline_rejects_explicit_return_numeric_mismatch_in_bootstrap(self):
+        source = """module test::phase1_return_explicit_numeric_mismatch;
+fn main() -> u32 {
+    return 1u64;
+}
+"""
+        with self.assertRaisesRegex(
+            sotlas_compile.SotlasBootstrapError,
+            r"retorno incompatível",
+        ):
+            sotlas_compile.analyze_source_phase1(
+                source,
+                filename="<phase1-return-explicit-numeric-mismatch>",
+            )
+
     def test_public_phase1_pipeline_rejects_explicit_assignment_numeric_mismatch_in_bootstrap(self):
         source = """module test::phase1_assignment_explicit_numeric_mismatch;
 fn main() -> void {

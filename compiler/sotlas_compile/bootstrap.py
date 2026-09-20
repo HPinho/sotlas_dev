@@ -2051,8 +2051,33 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
                     )
             elif isinstance(item, Return):
                 if item.value is not None:
-                    actual = expr_type(item.value, scope, in_unsafe, is_system_fn)
-                    if not assignable(actual, expected_return):
+                    actual = expr_type(
+                        item.value, scope, in_unsafe, is_system_fn
+                    )
+                    actual_value_type = actual
+                    return_carries_lvalue_mutability = (
+                        isinstance(item.value, Index)
+                        or (
+                            isinstance(item.value, Unary)
+                            and item.value.op == "*"
+                        )
+                    )
+                    if (
+                        return_carries_lvalue_mutability
+                        and not actual.pointer
+                        and not actual.is_reference
+                    ):
+                        actual_value_type = replace(
+                            actual, mutable=False
+                        )
+                    if not contextual_type_matches(
+                        item.value,
+                        actual_value_type,
+                        expected_return,
+                        scope,
+                        in_unsafe,
+                        is_system_fn,
+                    ):
                         raise SotlasBootstrapError(
                             "retorno incompatível", item.token.line,
                             item.token.column, filename, source,
