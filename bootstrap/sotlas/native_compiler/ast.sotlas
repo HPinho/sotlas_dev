@@ -31,7 +31,8 @@ pub enum AstKind {
     DeferStmt = 26,
     TypeRef = 27,
     BreakStmt = 28,
-    ContinueStmt = 29
+    ContinueStmt = 29,
+    TryExpr = 30
 }
 
 pub struct AstNode {

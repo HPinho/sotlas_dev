@@ -814,7 +814,27 @@ impl Parser {
             }
             return node;
         }
-        return self.parse_primary_expression();
+        return self.parse_postfix_expression();
+    }
+
+    pub fn parse_postfix_expression(mut self: &mut Self) -> usize {
+        let mut expr: usize = self.parse_primary_expression();
+        if expr == 0 {
+            return 0;
+        }
+
+        while self.match_token(TokenKind::Qmark) {
+            let qmark: Token = self.advance();
+            let try_node: usize = self.alloc_node(AstKind::TryExpr, qmark.span);
+            if try_node == 0 {
+                return 0;
+            }
+            if !self.append_child(try_node, expr) {
+                return 0;
+            }
+            expr = try_node;
+        }
+        return expr;
     }
 
     pub fn parse_multiplicative_expression(mut self: &mut Self) -> usize {

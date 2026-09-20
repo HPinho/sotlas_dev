@@ -448,6 +448,20 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         self.assertLess(return_branch, statement_emit)
         self.assertLess(statement_emit, fallthrough_cleanup)
 
+    def test_native_parser_persists_try_propagation_expression(self):
+        ast_file = ROOT / "bootstrap" / "sotlas" / "native_compiler" / "ast.sotlas"
+        parser_file = (
+            ROOT / "bootstrap" / "sotlas" / "native_compiler" / "parser.sotlas"
+        )
+        ast_text = ast_file.read_text(encoding="utf-8")
+        parser_text = parser_file.read_text(encoding="utf-8")
+        self.assertIn("TryExpr = 30", ast_text)
+        self.assertIn("pub fn parse_postfix_expression", parser_text)
+        self.assertIn("self.match_token(TokenKind::Qmark)", parser_text)
+        self.assertIn("AstKind::TryExpr", parser_text)
+        self.assertIn("self.append_child(try_node, expr)", parser_text)
+        self.assertIn("return self.parse_postfix_expression();", parser_text)
+
     def test_native_parser_and_emitter_support_unary_expressions(self):
         parser_file = (
             ROOT / "bootstrap" / "sotlas" / "native_compiler" / "parser.sotlas"
