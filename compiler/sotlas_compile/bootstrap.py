@@ -2018,13 +2018,29 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
                 target_type = expr_type(
                     item.target, scope, in_unsafe, is_system_fn
                 )
+                expected_value_type = target_type
+                target_carries_lvalue_mutability = (
+                    isinstance(item.target, Index)
+                    or (
+                        isinstance(item.target, Unary)
+                        and item.target.op == "*"
+                    )
+                )
+                if (
+                    target_carries_lvalue_mutability
+                    and not target_type.pointer
+                    and not target_type.is_reference
+                ):
+                    expected_value_type = replace(
+                        target_type, mutable=False
+                    )
                 value_type = expr_type(
                     item.value, scope, in_unsafe, is_system_fn
                 )
                 if not contextual_type_matches(
                     item.value,
                     value_type,
-                    target_type,
+                    expected_value_type,
                     scope,
                     in_unsafe,
                     is_system_fn,

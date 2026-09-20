@@ -881,6 +881,22 @@ fn main() -> i64 {
         self.assertEqual(assign.name, "value")
         self.assertEqual(assign.type.name, "i64")
 
+    def test_bootstrap_assignment_separates_lvalue_mutability_from_value_type(self):
+        source = """module test::bootstrap_assignment_lvalue_mutability;
+fn copy(dest: *mut u8, src: *const u8) -> void {
+    unsafe {
+        dest[0] = src[0];
+        *dest = 7u8;
+    }
+    return;
+}
+"""
+        parsed = bootstrap.parse(
+            source,
+            filename="<phase1-bootstrap-assignment-lvalue-mutability>",
+        )
+        bootstrap.check(parsed)
+
     def test_bootstrap_rejects_explicit_integer_assignment_type_mismatch(self):
         source = """module test::bootstrap_assign_explicit_integer_mismatch;
 fn main() -> void {
