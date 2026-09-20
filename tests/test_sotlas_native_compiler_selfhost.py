@@ -296,7 +296,9 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         self.assertIn("pub fn emit_unsafe_block", text)
         self.assertIn("node.kind != AstKind::UnsafeBlock", text)
         self.assertIn("body.kind != AstKind::Block", text)
-        self.assertIn("self.emit_block_normal_exit(body_index)", text)
+        self.assertIn("return self.emit_braced_block(body_index);", text)
+        self.assertIn("pub fn emit_braced_block", text)
+        self.assertIn("self.emit_block_normal_exit(block_index)", text)
         self.assertIn("node.kind == AstKind::UnsafeBlock", text)
         self.assertIn("return self.emit_unsafe_block(index);", text)
 
