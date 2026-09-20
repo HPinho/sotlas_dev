@@ -105,6 +105,31 @@ impl Parser {
         return node;
     }
 
+    pub fn set_node_text_range(
+        mut self: &mut Self,
+        index: usize,
+        first: Token,
+        last: Token
+    ) -> bool {
+        if self.nodes == null || index == 0 || index >= self.node_count {
+            return false;
+        }
+        if last.span.offset < first.span.offset {
+            return false;
+        }
+        let end_offset: usize = last.span.offset + last.span.length;
+        if end_offset < first.span.offset {
+            return false;
+        }
+        let mut node: AstNode = unsafe { *(self.nodes + index) };
+        node.str_offset = first.span.offset;
+        node.str_len = end_offset - first.span.offset;
+        unsafe {
+            *(self.nodes + index) = node;
+        }
+        return true;
+    }
+
     pub fn append_child(mut self: &mut Self, parent: usize, child: usize) -> bool {
         if self.nodes == null || parent == 0 || child == 0 {
             return false;
@@ -474,8 +499,30 @@ impl Parser {
             }
             if self.match_token(TokenKind::Arrow) {
                 self.advance();
-                while !self.is_at_end() && !self.match_token(TokenKind::OpenBrace) && !self.match_token(TokenKind::SemiColon) {
-                    self.advance();
+                if self.is_at_end()
+                    || self.match_token(TokenKind::OpenBrace)
+                    || self.match_token(TokenKind::SemiColon) {
+                    return 0;
+                }
+
+                let type_start: Token = self.current();
+                let mut type_end: Token = type_start;
+                let type_node: usize = self.alloc_node(AstKind::TypeRef, type_start.span);
+                if type_node == 0 {
+                    return 0;
+                }
+
+                while !self.is_at_end()
+                    && !self.match_token(TokenKind::OpenBrace)
+                    && !self.match_token(TokenKind::SemiColon) {
+                    type_end = self.advance();
+                }
+
+                if !self.set_node_text_range(type_node, type_start, type_end) {
+                    return 0;
+                }
+                if !self.append_child(fn_node, type_node) {
+                    return 0;
                 }
             }
             if fn_node == 0 {

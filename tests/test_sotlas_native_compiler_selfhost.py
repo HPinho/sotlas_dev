@@ -70,6 +70,22 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         self.assertIn("self.append_child(mod_node, decl_node)", text)
         self.assertIn("if self.cursor <= before", text)
 
+    def test_native_parser_persists_function_return_type_slice(self):
+        ast_file = ROOT / "bootstrap" / "sotlas" / "native_compiler" / "ast.sotlas"
+        parser_file = (
+            ROOT / "bootstrap" / "sotlas" / "native_compiler" / "parser.sotlas"
+        )
+        ast_text = ast_file.read_text(encoding="utf-8")
+        parser_text = parser_file.read_text(encoding="utf-8")
+        self.assertIn("TypeRef = 27", ast_text)
+        self.assertIn("pub fn set_node_text_range", parser_text)
+        self.assertIn("let type_node: usize = self.alloc_node(AstKind::TypeRef", parser_text)
+        self.assertIn(
+            "self.set_node_text_range(type_node, type_start, type_end)",
+            parser_text,
+        )
+        self.assertIn("self.append_child(fn_node, type_node)", parser_text)
+
     def test_native_parser_persists_function_body_blocks(self):
         parser_file = (
             ROOT / "bootstrap" / "sotlas" / "native_compiler" / "parser.sotlas"
