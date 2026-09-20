@@ -202,7 +202,17 @@ impl CEmitter {
         if node.kind != AstKind::DeferStmt || node.first_child == 0 {
             return false;
         }
-        return self.emit_statement_payload(node.first_child);
+
+        let payload_index: usize = node.first_child;
+        if !self.valid_node(payload_index) {
+            return false;
+        }
+        let payload: AstNode = unsafe { *(self.nodes + payload_index) };
+
+        if payload.kind == AstKind::Block {
+            return self.emit_braced_block(payload_index);
+        }
+        return self.emit_statement_payload(payload_index);
     }
 
     pub fn emit_defer_chain_lifo(mut self: &mut Self, index: usize) -> bool {

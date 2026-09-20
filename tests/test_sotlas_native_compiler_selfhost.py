@@ -194,6 +194,17 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         self.assertIn("pub fn emit_defer_payload", text)
         self.assertIn("node.kind != AstKind::DeferStmt", text)
 
+    def test_native_emitter_can_lower_deferred_block_payload(self):
+        emitter_file = (
+            ROOT / "bootstrap" / "sotlas" / "native_compiler" / "emitter_c.sotlas"
+        )
+        text = emitter_file.read_text(encoding="utf-8")
+        self.assertIn("let payload_index: usize = node.first_child;", text)
+        self.assertIn("let payload: AstNode = unsafe", text)
+        self.assertIn("payload.kind == AstKind::Block", text)
+        self.assertIn("return self.emit_braced_block(payload_index);", text)
+        self.assertIn("return self.emit_statement_payload(payload_index);", text)
+
     def test_native_emitter_collects_block_defers_in_lifo_order(self):
         emitter_file = (
             ROOT / "bootstrap" / "sotlas" / "native_compiler" / "emitter_c.sotlas"
