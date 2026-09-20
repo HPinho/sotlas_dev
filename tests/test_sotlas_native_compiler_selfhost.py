@@ -83,6 +83,19 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         self.assertIn("self.append_child(mod_node, decl_node)", text)
         self.assertIn("if self.cursor <= before", text)
 
+    def test_native_parser_persists_function_parameters(self):
+        parser_file = (
+            ROOT / "bootstrap" / "sotlas" / "native_compiler" / "parser.sotlas"
+        )
+        text = parser_file.read_text(encoding="utf-8")
+        self.assertIn("let mut param_mutable: bool = false;", text)
+        self.assertIn("let param_node: usize = self.alloc_node(AstKind::ParamDecl", text)
+        self.assertIn("self.set_node_text(param_node, param_name)", text)
+        self.assertIn("stored_param.int_value = 1;", text)
+        self.assertIn("let param_type: usize = self.alloc_node(AstKind::TypeRef", text)
+        self.assertIn("self.append_child(param_node, param_type)", text)
+        self.assertIn("self.append_child(fn_node, param_node)", text)
+
     def test_native_parser_persists_function_return_type_slice(self):
         ast_file = ROOT / "bootstrap" / "sotlas" / "native_compiler" / "ast.sotlas"
         parser_file = (

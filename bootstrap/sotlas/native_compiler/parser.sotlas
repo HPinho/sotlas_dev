@@ -573,10 +573,75 @@ impl Parser {
             }
             if self.match_token(TokenKind::OpenParen) {
                 self.advance();
+
                 while !self.is_at_end() && !self.match_token(TokenKind::CloseParen) {
+                    let mut param_mutable: bool = false;
+                    if self.match_token(TokenKind::KwMut) {
+                        self.advance();
+                        param_mutable = true;
+                    }
+
+                    let param_name: Token = self.current();
+                    if param_name.kind != TokenKind::Ident {
+                        return 0;
+                    }
                     self.advance();
+
+                    let param_node: usize = self.alloc_node(AstKind::ParamDecl, param_name.span);
+                    if param_node == 0 || !self.set_node_text(param_node, param_name) {
+                        return 0;
+                    }
+                    if param_mutable {
+                        let mut stored_param: AstNode = unsafe { *(self.nodes + param_node) };
+                        stored_param.int_value = 1;
+                        unsafe {
+                            *(self.nodes + param_node) = stored_param;
+                        }
+                    }
+
+                    if !self.match_token(TokenKind::Colon) {
+                        return 0;
+                    }
+                    self.advance();
+                    if self.is_at_end()
+                        || self.match_token(TokenKind::Comma)
+                        || self.match_token(TokenKind::CloseParen) {
+                        return 0;
+                    }
+
+                    let type_start: Token = self.current();
+                    let mut type_end: Token = type_start;
+                    while !self.is_at_end()
+                        && !self.match_token(TokenKind::Comma)
+                        && !self.match_token(TokenKind::CloseParen) {
+                        type_end = self.advance();
+                    }
+
+                    let param_type: usize = self.alloc_node(AstKind::TypeRef, type_start.span);
+                    if param_type == 0 {
+                        return 0;
+                    }
+                    if !self.set_node_text_range(param_type, type_start, type_end) {
+                        return 0;
+                    }
+                    if !self.append_child(param_node, param_type) {
+                        return 0;
+                    }
+                    if !self.append_child(fn_node, param_node) {
+                        return 0;
+                    }
+
+                    if self.match_token(TokenKind::Comma) {
+                        self.advance();
+                    } else {
+                        break;
+                    }
                 }
-                self.expect(TokenKind::CloseParen);
+
+                if !self.match_token(TokenKind::CloseParen) {
+                    return 0;
+                }
+                self.advance();
             }
             if self.match_token(TokenKind::Arrow) {
                 self.advance();
