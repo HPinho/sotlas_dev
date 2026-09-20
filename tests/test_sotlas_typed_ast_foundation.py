@@ -2828,6 +2828,21 @@ fn main() -> u8 {
         body = typed_ast.build_linear_typed_body(parsed, typed, "main")
         self.assertEqual(body.statements[0].expr.type.name, "u8")
 
+    def test_bootstrap_rejects_contextual_constant_integer_return_overflow(self):
+        source = """module test::bootstrap_integer_expr_overflow;
+fn main() -> u8 {
+    return 255 + 1;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-int-expr-overflow>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"valor inteiro 256 fora do intervalo para u8 \[0, 255\]",
+        ):
+            bootstrap.check(parsed)
+
     def test_contextual_constant_integer_expression_rejects_overflow(self):
         source = """module test::typed_integer_expr_overflow;
 fn main() -> u8 {
@@ -2837,7 +2852,6 @@ fn main() -> u8 {
         parsed = bootstrap.parse(
             source, filename="<phase1-int-expr-overflow>"
         )
-        bootstrap.check(parsed)
         typed = typed_ast.build_declaration_typed_ast(parsed)
         with self.assertRaisesRegex(
             typed_ast.Phase1SemanticError,
