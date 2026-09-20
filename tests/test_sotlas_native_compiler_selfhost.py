@@ -124,6 +124,20 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         self.assertIn("let body_node: usize = self.parse_block();", text)
         self.assertIn("self.append_child(fn_node, body_node)", text)
 
+    def test_native_main_emits_parsed_module_tree(self):
+        emitter_file = (
+            ROOT / "bootstrap" / "sotlas" / "native_compiler" / "emitter_c.sotlas"
+        )
+        main_file = ROOT / "bootstrap" / "sotlas" / "native_compiler" / "main.sotlas"
+        emitter_text = emitter_file.read_text(encoding="utf-8")
+        main_text = main_file.read_text(encoding="utf-8")
+        self.assertIn("pub fn emit_module", emitter_text)
+        self.assertIn("module_node.kind != AstKind::Module", emitter_text)
+        self.assertIn("node.kind == AstKind::Import", emitter_text)
+        self.assertIn("node.kind == AstKind::FnDecl", emitter_text)
+        self.assertIn("self.emit_function(child)", emitter_text)
+        self.assertIn("if !emitter.emit_module(module_node)", main_text)
+
     def test_native_main_fails_closed_on_parser_failure(self):
         main_file = ROOT / "bootstrap" / "sotlas" / "native_compiler" / "main.sotlas"
         text = main_file.read_text(encoding="utf-8")

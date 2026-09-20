@@ -927,6 +927,42 @@ impl CEmitter {
         return self.emit_block_exit_defers(block_index);
     }
 
+    pub fn emit_module(mut self: &mut Self, module_index: usize) -> bool {
+        if !self.valid_node(module_index) {
+            return false;
+        }
+        let module_node: AstNode = unsafe { *(self.nodes + module_index) };
+        if module_node.kind != AstKind::Module {
+            return false;
+        }
+
+        let mut child: usize = module_node.first_child;
+        while child != 0 {
+            if !self.valid_node(child) {
+                return false;
+            }
+            let node: AstNode = unsafe { *(self.nodes + child) };
+
+            if node.kind == AstKind::Import {
+                // Native imports are resolved by the compiler/module graph;
+                // they do not become textual C preprocessor includes here.
+            } else if node.kind == AstKind::FnDecl {
+                if !self.emit_function(child) {
+                    return false;
+                }
+                if !self.write_byte(10) {
+                    return false;
+                }
+            } else {
+                // Unsupported top-level forms must not disappear silently.
+                return false;
+            }
+
+            child = node.next_sibling;
+        }
+        return true;
+    }
+
     pub fn emit_header(mut self: &mut Self) -> bool {
         let hdr: *const u8 = "// Compilado nativamente pelo compilador Sotlas in Sotlas (v1.0-selfhost)\n#include <stdint.h>\n#include <stdbool.h>\n#include <stddef.h>\n\n";
         return self.write_str(hdr, 136);
