@@ -98,10 +98,13 @@ typedef struct {
 /**
  * Representação estável C ABI para Result<T, E>
  */
+#ifndef SOTLAS_RESULT_U64_DEFINED
+#define SOTLAS_RESULT_U64_DEFINED 1
 typedef struct {
     int32_t status;  /* 0 = OK, negativo/positivo = código de erro */
     uint64_t value;
 } SotlasResultU64;
+#endif
 
 /* ---------------------------------------------------------------------------
  * Ponteiros de Topologia Físico-Semântica em C/C++

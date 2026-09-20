@@ -446,6 +446,38 @@ impl CEmitter {
         return true;
     }
 
+    pub fn type_ref_is_result_u64_i32(self: &Self, type_index: usize) -> bool {
+        if !self.valid_node(type_index) {
+            return false;
+        }
+        let typ: AstNode = unsafe { *(self.nodes + type_index) };
+        if typ.kind != AstKind::TypeRef || typ.str_len == 0 || self.source == null {
+            return false;
+        }
+
+        let expected: *const u8 = "Result<u64,i32>";
+        let expected_len: usize = 15;
+        let mut source_i: usize = 0;
+        let mut expected_i: usize = 0;
+
+        while source_i < typ.str_len {
+            let ch: u8 = unsafe { *(self.source + typ.str_offset + source_i) };
+            source_i = source_i + 1;
+            if ch == 32 || ch == 9 || ch == 10 || ch == 13 {
+                continue;
+            }
+            if expected_i >= expected_len {
+                return false;
+            }
+            let want: u8 = unsafe { *(expected + expected_i) };
+            if ch != want {
+                return false;
+            }
+            expected_i = expected_i + 1;
+        }
+        return expected_i == expected_len;
+    }
+
     pub fn type_ref_is_result(self: &Self, type_index: usize) -> bool {
         if !self.valid_node(type_index) {
             return false;
@@ -522,6 +554,9 @@ impl CEmitter {
 
         // Result<T,E> requires its own ABI lowering. Never leak the Sotlas
         // generic spelling into C11 as though it were a valid C type.
+        if self.type_ref_is_result_u64_i32(type_index) {
+            return self.write_str("SotlasResultU64", 15);
+        }
         if self.type_ref_is_result(type_index) {
             return false;
         }
@@ -1064,7 +1099,7 @@ impl CEmitter {
     }
 
     pub fn emit_header(mut self: &mut Self) -> bool {
-        let hdr: *const u8 = "// Compilado nativamente pelo compilador Sotlas in Sotlas (v1.0-selfhost)\n#include <stdint.h>\n#include <stdbool.h>\n#include <stddef.h>\n\n";
-        return self.write_str(hdr, 136);
+        let hdr: *const u8 = "// Compilado nativamente pelo compilador Sotlas in Sotlas (v1.0-selfhost)\n#include <stdint.h>\n#include <stdbool.h>\n#include <stddef.h>\n#ifndef SOTLAS_RESULT_U64_DEFINED\n#define SOTLAS_RESULT_U64_DEFINED 1\ntypedef struct { int32_t status; uint64_t value; } SotlasResultU64;\n#endif\n\n";
+        return self.write_str(hdr, 281);
     }
 }

@@ -308,6 +308,20 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         self.assertIn("if self.type_ref_is_result(type_index)", text)
         self.assertIn("Never leak the Sotlas", text)
 
+    def test_native_emitter_uses_stable_result_u64_abi(self):
+        abi_file = ROOT / "include" / "sotlas" / "sotlas_abi.h"
+        emitter_file = (
+            ROOT / "bootstrap" / "sotlas" / "native_compiler" / "emitter_c.sotlas"
+        )
+        abi_text = abi_file.read_text(encoding="utf-8")
+        emitter_text = emitter_file.read_text(encoding="utf-8")
+        self.assertIn("SOTLAS_RESULT_U64_DEFINED", abi_text)
+        self.assertIn("SotlasResultU64", abi_text)
+        self.assertIn("pub fn type_ref_is_result_u64_i32", emitter_text)
+        self.assertIn('"Result<u64,i32>"', emitter_text)
+        self.assertIn('return self.write_str("SotlasResultU64", 15);', emitter_text)
+        self.assertIn("SOTLAS_RESULT_U64_DEFINED", emitter_text)
+
     def test_native_emitter_recognizes_result_try_context(self):
         emitter_file = (
             ROOT / "bootstrap" / "sotlas" / "native_compiler" / "emitter_c.sotlas"
