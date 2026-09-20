@@ -684,6 +684,52 @@ impl CEmitter {
         return self.emit_braced_block(body_index);
     }
 
+    pub fn emit_let_statement(mut self: &mut Self, index: usize) -> bool {
+        if !self.valid_node(index) {
+            return false;
+        }
+        let node: AstNode = unsafe { *(self.nodes + index) };
+        if node.kind != AstKind::LetStmt || node.str_len == 0 {
+            return false;
+        }
+
+        let type_index: usize = node.first_child;
+        if !self.valid_node(type_index) {
+            // Strict C11 has no native local type inference. Untyped locals
+            // must remain fail-closed until typed SIR lowering is available.
+            return false;
+        }
+        let type_node: AstNode = unsafe { *(self.nodes + type_index) };
+        if type_node.kind != AstKind::TypeRef {
+            return false;
+        }
+
+        if !self.emit_c_type(type_index) {
+            return false;
+        }
+        if !self.write_byte(32) {
+            return false;
+        }
+        if !self.write_source_slice(node.str_offset, node.str_len) {
+            return false;
+        }
+
+        let init_index: usize = type_node.next_sibling;
+        if init_index != 0 {
+            if !self.valid_node(init_index) {
+                return false;
+            }
+            if !self.write_str(" = ", 3) {
+                return false;
+            }
+            if !self.emit_expression(init_index) {
+                return false;
+            }
+        }
+
+        return self.write_str(";\n", 2);
+    }
+
     pub fn emit_normal_statement(mut self: &mut Self, index: usize) -> bool {
         if !self.valid_node(index) {
             return false;
@@ -696,6 +742,9 @@ impl CEmitter {
             return true;
         }
 
+        if node.kind == AstKind::LetStmt {
+            return self.emit_let_statement(index);
+        }
         if node.kind == AstKind::UnsafeBlock {
             return self.emit_unsafe_block(index);
         }

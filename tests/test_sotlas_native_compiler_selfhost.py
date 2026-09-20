@@ -273,6 +273,20 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         self.assertLess(capture_at, cleanup_at)
         self.assertLess(cleanup_at, final_return_at)
 
+    def test_native_emitter_lowers_typed_local_declarations(self):
+        emitter_file = (
+            ROOT / "bootstrap" / "sotlas" / "native_compiler" / "emitter_c.sotlas"
+        )
+        text = emitter_file.read_text(encoding="utf-8")
+        self.assertIn("pub fn emit_let_statement", text)
+        self.assertIn("node.kind != AstKind::LetStmt", text)
+        self.assertIn("type_node.kind != AstKind::TypeRef", text)
+        self.assertIn("self.emit_c_type(type_index)", text)
+        self.assertIn("self.write_source_slice(node.str_offset, node.str_len)", text)
+        self.assertIn("let init_index: usize = type_node.next_sibling;", text)
+        self.assertIn("self.emit_expression(init_index)", text)
+        self.assertIn("return self.emit_let_statement(index);", text)
+
     def test_native_emitter_lowers_while_body_as_lexical_scope(self):
         emitter_file = (
             ROOT / "bootstrap" / "sotlas" / "native_compiler" / "emitter_c.sotlas"
