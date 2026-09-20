@@ -253,6 +253,8 @@ impl Parser {
         if kind == TokenKind::LtEq { return 89; }
         if kind == TokenKind::Gt { return 90; }
         if kind == TokenKind::GtEq { return 91; }
+        if kind == TokenKind::Tilde { return 95; }
+        if kind == TokenKind::Bang { return 98; }
         return 0;
     }
 
@@ -788,13 +790,40 @@ impl Parser {
         return self.alloc_node(AstKind::ExprLiteral, tok.span);
     }
 
+    pub fn parse_unary_expression(mut self: &mut Self) -> usize {
+        if self.match_token(TokenKind::Bang)
+            || self.match_token(TokenKind::Minus)
+            || self.match_token(TokenKind::Plus)
+            || self.match_token(TokenKind::Tilde) {
+            let op: Token = self.advance();
+            let operand: usize = self.parse_unary_expression();
+            if operand == 0 {
+                return 0;
+            }
+            let node: usize = self.alloc_node(AstKind::ExprUnary, op.span);
+            if node == 0 {
+                return 0;
+            }
+            let mut unary_node: AstNode = unsafe { *(self.nodes + node) };
+            unary_node.int_value = self.operator_tag(op.kind);
+            unsafe {
+                *(self.nodes + node) = unary_node;
+            }
+            if !self.append_child(node, operand) {
+                return 0;
+            }
+            return node;
+        }
+        return self.parse_primary_expression();
+    }
+
     pub fn parse_multiplicative_expression(mut self: &mut Self) -> usize {
-        let mut left: usize = self.parse_primary_expression();
+        let mut left: usize = self.parse_unary_expression();
         while self.match_token(TokenKind::Star)
             || self.match_token(TokenKind::Slash)
             || self.match_token(TokenKind::Percent) {
             let op: Token = self.advance();
-            let right: usize = self.parse_primary_expression();
+            let right: usize = self.parse_unary_expression();
             left = self.make_binary(left, op, right);
             if left == 0 {
                 return 0;

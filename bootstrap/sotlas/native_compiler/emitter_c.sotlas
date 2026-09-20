@@ -97,6 +97,14 @@ impl CEmitter {
         return false;
     }
 
+    pub fn emit_unary_operator(mut self: &mut Self, tag: i64) -> bool {
+        if tag == 80 { return self.write_byte(43); } // +
+        if tag == 81 { return self.write_byte(45); } // -
+        if tag == 95 { return self.write_byte(126); } // ~
+        if tag == 98 { return self.write_byte(33); } // !
+        return false;
+    }
+
     pub fn emit_expression(mut self: &mut Self, index: usize) -> bool {
         if !self.valid_node(index) {
             return false;
@@ -105,6 +113,16 @@ impl CEmitter {
 
         if node.kind == AstKind::ExprIdent || node.kind == AstKind::ExprLiteral {
             return self.write_source_slice(node.str_offset, node.str_len);
+        }
+
+        if node.kind == AstKind::ExprUnary {
+            if node.first_child == 0 || !self.valid_node(node.first_child) {
+                return false;
+            }
+            if !self.emit_unary_operator(node.int_value) {
+                return false;
+            }
+            return self.emit_expression(node.first_child);
         }
 
         if node.kind == AstKind::ExprBinary {
@@ -183,6 +201,7 @@ impl CEmitter {
 
         if node.kind == AstKind::ExprCall
             || node.kind == AstKind::ExprBinary
+            || node.kind == AstKind::ExprUnary
             || node.kind == AstKind::ExprIdent
             || node.kind == AstKind::ExprLiteral {
             if !self.emit_expression(index) {

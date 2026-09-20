@@ -448,6 +448,22 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         self.assertLess(return_branch, statement_emit)
         self.assertLess(statement_emit, fallthrough_cleanup)
 
+    def test_native_parser_and_emitter_support_unary_expressions(self):
+        parser_file = (
+            ROOT / "bootstrap" / "sotlas" / "native_compiler" / "parser.sotlas"
+        )
+        emitter_file = (
+            ROOT / "bootstrap" / "sotlas" / "native_compiler" / "emitter_c.sotlas"
+        )
+        parser_text = parser_file.read_text(encoding="utf-8")
+        emitter_text = emitter_file.read_text(encoding="utf-8")
+        self.assertIn("pub fn parse_unary_expression", parser_text)
+        self.assertIn("AstKind::ExprUnary", parser_text)
+        self.assertIn("self.parse_unary_expression()", parser_text)
+        self.assertIn("pub fn emit_unary_operator", emitter_text)
+        self.assertIn("node.kind == AstKind::ExprUnary", emitter_text)
+        self.assertIn("self.emit_unary_operator(node.int_value)", emitter_text)
+
     def test_native_parser_persists_nested_statement_tree(self):
         parser_file = (
             ROOT / "bootstrap" / "sotlas" / "native_compiler" / "parser.sotlas"
