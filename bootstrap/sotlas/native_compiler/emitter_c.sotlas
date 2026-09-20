@@ -241,6 +241,84 @@ impl CEmitter {
         return self.emit_defer_chain_lifo(block.first_child);
     }
 
+    pub fn emit_defer_prefix_lifo(
+        mut self: &mut Self,
+        index: usize,
+        stop_before: usize
+    ) -> bool {
+        if index == stop_before {
+            return true;
+        }
+        if index == 0 {
+            return stop_before == 0;
+        }
+        if !self.valid_node(index) {
+            return false;
+        }
+
+        let node: AstNode = unsafe { *(self.nodes + index) };
+        if !self.emit_defer_prefix_lifo(node.next_sibling, stop_before) {
+            return false;
+        }
+        if node.kind == AstKind::DeferStmt {
+            return self.emit_defer_payload(index);
+        }
+        return true;
+    }
+
+    pub fn emit_scope_defers_before(
+        mut self: &mut Self,
+        block_index: usize,
+        stop_before: usize
+    ) -> bool {
+        if !self.valid_node(block_index) || !self.valid_node(stop_before) {
+            return false;
+        }
+        let block: AstNode = unsafe { *(self.nodes + block_index) };
+        let stop: AstNode = unsafe { *(self.nodes + stop_before) };
+        if block.kind != AstKind::Block || stop.parent != block_index {
+            return false;
+        }
+        return self.emit_defer_prefix_lifo(block.first_child, stop_before);
+    }
+
+    pub fn emit_return_scope_defers(
+        mut self: &mut Self,
+        return_index: usize
+    ) -> bool {
+        if !self.valid_node(return_index) {
+            return false;
+        }
+        let return_node: AstNode = unsafe { *(self.nodes + return_index) };
+        if return_node.kind != AstKind::ReturnStmt {
+            return false;
+        }
+
+        let mut child_on_path: usize = return_index;
+        let mut parent_index: usize = return_node.parent;
+
+        while parent_index != 0 {
+            if !self.valid_node(parent_index) {
+                return false;
+            }
+            let parent_node: AstNode = unsafe { *(self.nodes + parent_index) };
+
+            if parent_node.kind == AstKind::Block {
+                if !self.emit_scope_defers_before(parent_index, child_on_path) {
+                    return false;
+                }
+            } else if parent_node.kind == AstKind::FnDecl
+                || parent_node.kind == AstKind::TrapfnDecl {
+                return true;
+            }
+
+            child_on_path = parent_index;
+            parent_index = parent_node.parent;
+        }
+
+        return false;
+    }
+
     pub fn emit_normal_statement(mut self: &mut Self, index: usize) -> bool {
         if !self.valid_node(index) {
             return false;

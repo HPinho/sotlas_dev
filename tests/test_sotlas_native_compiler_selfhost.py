@@ -189,6 +189,24 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         emit_at = text.index("return self.emit_defer_payload(index);", recurse_at)
         self.assertLess(recurse_at, emit_at)
 
+    def test_native_emitter_collects_only_active_return_defers(self):
+        emitter_file = (
+            ROOT / "bootstrap" / "sotlas" / "native_compiler" / "emitter_c.sotlas"
+        )
+        text = emitter_file.read_text(encoding="utf-8")
+        self.assertIn("pub fn emit_defer_prefix_lifo", text)
+        self.assertIn("if index == stop_before", text)
+        self.assertIn("pub fn emit_scope_defers_before", text)
+        self.assertIn("stop.parent != block_index", text)
+        self.assertIn("pub fn emit_return_scope_defers", text)
+        self.assertIn("let mut child_on_path: usize = return_index;", text)
+        self.assertIn("let mut parent_index: usize = return_node.parent;", text)
+        self.assertIn(
+            "self.emit_scope_defers_before(parent_index, child_on_path)",
+            text,
+        )
+        self.assertIn("parent_node.kind == AstKind::FnDecl", text)
+
     def test_native_emitter_runs_block_defers_after_normal_statements(self):
         emitter_file = (
             ROOT / "bootstrap" / "sotlas" / "native_compiler" / "emitter_c.sotlas"
