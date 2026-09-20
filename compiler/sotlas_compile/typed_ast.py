@@ -1,10 +1,11 @@
-"""Phase-1 Typed AST foundation.
+"""Phase-1 Typed AST and semantic-core foundation.
 
-This module is intentionally isolated from the production bootstrap pipeline.
-It materializes the *declared* semantic types that already exist on the parsed
-canonical AST. Function-body expression typing is not claimed here yet.
+This module remains intentionally isolated from the production bootstrap
+pipeline. It freezes canonical declarations, materializes structured
+function-body types, validates contextual expression contracts, and records
+ownership facts without mutating or replacing the production checker.
 
-Maturity: DECLARATIONS_ONLY.
+Maturity: ISOLATED_PHASE1.
 """
 from __future__ import annotations
 
@@ -12,7 +13,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 
-MATURITY = "DECLARATIONS_ONLY"
+MATURITY = "ISOLATED_PHASE1"
 
 
 class Phase1SemanticError(ValueError):
@@ -2760,7 +2761,7 @@ class Phase1ModuleSnapshot:
     typed_module: TypedModule
     bodies: tuple[TypedFunctionBody, ...]
     ownership: OwnershipModuleAnalysis
-    maturity: str = "ISOLATED_PHASE1"
+    maturity: str = MATURITY
 
 
 def build_phase1_semantic_snapshot(parsed_module) -> Phase1ModuleSnapshot:

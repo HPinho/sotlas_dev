@@ -49,7 +49,10 @@ fn read(t: Token) -> u32 {
             source, filename="<phase1-public>"
         )
         self.assertIs(sotlas_compile.bootstrap.check, check_before)
-        self.assertEqual(result.semantic.maturity, "ISOLATED_PHASE1")
+        self.assertEqual(result.semantic.maturity, typed_ast.MATURITY)
+        self.assertEqual(
+            result.semantic.typed_module.maturity, typed_ast.MATURITY
+        )
         self.assertEqual(result.semantic.typed_module.structs[0].name, "Token")
         self.assertEqual(result.semantic.bodies[0].name, "read")
 

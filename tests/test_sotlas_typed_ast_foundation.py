@@ -55,7 +55,8 @@ class SotlasTypedAstFoundationTests(unittest.TestCase):
         typed = typed_ast.build_declaration_typed_ast(module)
         self.assertIs(bootstrap.check, check_before)
         self.assertFalse(hasattr(module, "typed_ast"))
-        self.assertEqual(typed.maturity, "DECLARATIONS_ONLY")
+        self.assertEqual(typed_ast.MATURITY, "ISOLATED_PHASE1")
+        self.assertEqual(typed.maturity, typed_ast.MATURITY)
 
     def test_declared_struct_and_sole_fact_are_preserved(self):
         typed = typed_ast.build_declaration_typed_ast(self.checked_ast())
@@ -2696,7 +2697,10 @@ fn main(flag: bool) -> u32 {
         parsed = bootstrap.parse(source, filename="<phase1-snapshot>")
         bootstrap.check(parsed)
         snapshot = typed_ast.build_phase1_semantic_snapshot(parsed)
-        self.assertEqual(snapshot.maturity, "ISOLATED_PHASE1")
+        self.assertEqual(snapshot.maturity, typed_ast.MATURITY)
+        self.assertEqual(
+            snapshot.typed_module.maturity, typed_ast.MATURITY
+        )
         self.assertEqual(snapshot.typed_module.structs[0].name, "Token")
         bodies = {body.name: body for body in snapshot.bodies}
         self.assertEqual(bodies["main"].statements[1].kind, "If")
