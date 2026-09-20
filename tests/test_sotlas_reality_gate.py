@@ -1,4 +1,5 @@
 """Reality gates for prototype SIR and the canonical production path."""
+import ast
 from pathlib import Path
 import sys
 import unittest
@@ -70,6 +71,42 @@ class SotlasRealityGateTests(unittest.TestCase):
         self.assertIn("effects and system capabilities", status)
         self.assertIn("state/typestate transitions", status)
         self.assertIn("causal/flow dependencies", status)
+
+
+    def test_phase1_semantic_core_status_records_certification_scope(self):
+        status = (
+            ROOT / "docs" / "phase1-semantic-core-status.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn("Status: CERTIFIED", status)
+        self.assertIn("Maturity: ISOLATED_PHASE1", status)
+        self.assertIn("not a claim of full language production support", status)
+        self.assertIn("bootstrap.check", status)
+        self.assertIn("Typed AST", status)
+        self.assertIn("ownership", status)
+
+    def test_phase1_semantic_core_maturity_does_not_regress(self):
+        source = (
+            ROOT / "compiler" / "sotlas_compile" / "typed_ast.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn('MATURITY = "ISOLATED_PHASE1"', source)
+        self.assertNotIn("DECLARATIONS_ONLY", source)
+        self.assertIn("maturity: str = MATURITY", source)
+
+    def test_phase1_legacy_assignable_is_not_in_semantic_use(self):
+        path = ROOT / "compiler" / "sotlas_compile" / "bootstrap.py"
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        calls = [
+            node.lineno
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "assignable"
+        ]
+        self.assertEqual(
+            calls,
+            [],
+            "legacy assignable() must not re-enter certified Phase-1 semantics",
+        )
 
 
 if __name__ == "__main__":
