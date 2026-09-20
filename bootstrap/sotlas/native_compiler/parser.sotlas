@@ -150,6 +150,39 @@ impl Parser {
         return mod_node;
     }
 
+    pub fn parse_block(mut self: &mut Self) -> usize {
+        let open_tok: Token = self.current();
+        if !self.match_token(TokenKind::OpenBrace) {
+            return 0;
+        }
+        self.advance();
+
+        let block_node: usize = self.alloc_node(AstKind::Block, open_tok.span);
+        if block_node == 0 {
+            return 0;
+        }
+
+        while !self.is_at_end() && !self.match_token(TokenKind::CloseBrace) {
+            let before: usize = self.cursor;
+            let stmt_node: usize = self.parse_statement();
+            if stmt_node == 0 {
+                return 0;
+            }
+            if !self.append_child(block_node, stmt_node) {
+                return 0;
+            }
+            if self.cursor <= before {
+                self.advance();
+            }
+        }
+
+        if !self.match_token(TokenKind::CloseBrace) {
+            return 0;
+        }
+        self.advance();
+        return block_node;
+    }
+
     pub fn parse_statement(mut self: &mut Self) -> usize {
         let tok: Token = self.current();
         if tok.kind == TokenKind::KwLet || tok.kind == TokenKind::KwVar {
@@ -298,12 +331,17 @@ impl Parser {
                     self.advance();
                 }
             }
+            if fn_node == 0 {
+                return 0;
+            }
             if self.match_token(TokenKind::OpenBrace) {
-                self.advance();
-                while !self.is_at_end() && !self.match_token(TokenKind::CloseBrace) {
-                    self.parse_statement();
+                let body_node: usize = self.parse_block();
+                if body_node == 0 {
+                    return 0;
                 }
-                self.expect(TokenKind::CloseBrace);
+                if !self.append_child(fn_node, body_node) {
+                    return 0;
+                }
             } else if self.match_token(TokenKind::SemiColon) {
                 self.advance();
             }

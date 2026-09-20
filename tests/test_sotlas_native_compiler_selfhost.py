@@ -70,6 +70,24 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         self.assertIn("self.append_child(mod_node, decl_node)", text)
         self.assertIn("if self.cursor <= before", text)
 
+    def test_native_parser_persists_function_body_blocks(self):
+        parser_file = (
+            ROOT / "bootstrap" / "sotlas" / "native_compiler" / "parser.sotlas"
+        )
+        text = parser_file.read_text(encoding="utf-8")
+        self.assertIn("pub fn parse_block", text)
+        self.assertIn("AstKind::Block", text)
+        self.assertIn("let stmt_node: usize = self.parse_statement();", text)
+        self.assertIn("self.append_child(block_node, stmt_node)", text)
+        self.assertIn("let body_node: usize = self.parse_block();", text)
+        self.assertIn("self.append_child(fn_node, body_node)", text)
+
+    def test_native_main_fails_closed_on_parser_failure(self):
+        main_file = ROOT / "bootstrap" / "sotlas" / "native_compiler" / "main.sotlas"
+        text = main_file.read_text(encoding="utf-8")
+        self.assertIn("let module_node: usize = p.parse_module();", text)
+        self.assertIn("if module_node == 0", text)
+
     def test_native_sema_module_compiles(self):
         sema_file = ROOT / "bootstrap" / "sotlas" / "native_compiler" / "sema.sotlas"
         self.assertTrue(sema_file.is_file())
