@@ -361,6 +361,17 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         self.assertLess(capture_at, cleanup_at)
         self.assertLess(cleanup_at, final_return_at)
 
+    def test_native_emitter_supports_function_prototypes(self):
+        emitter_file = (
+            ROOT / "bootstrap" / "sotlas" / "native_compiler" / "emitter_c.sotlas"
+        )
+        text = emitter_file.read_text(encoding="utf-8")
+        self.assertIn("let body_index: usize = self.find_function_body(fn_index);", text)
+        self.assertIn('return self.write_str(");\\n", 3);', text)
+        prototype_at = text.index('return self.write_str(");\\n", 3);')
+        body_at = text.index("return self.emit_braced_block(body_index);", prototype_at)
+        self.assertLess(prototype_at, body_at)
+
     def test_native_emitter_lowers_function_signature_and_body(self):
         emitter_file = (
             ROOT / "bootstrap" / "sotlas" / "native_compiler" / "emitter_c.sotlas"

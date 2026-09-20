@@ -799,11 +799,11 @@ impl CEmitter {
             child = node.next_sibling;
         }
 
-        if !self.write_str(") ", 2) {
-            return false;
-        }
         let body_index: usize = self.find_function_body(fn_index);
         if body_index == 0 {
+            return self.write_str(");\n", 3);
+        }
+        if !self.write_str(") ", 2) {
             return false;
         }
         return self.emit_braced_block(body_index);
