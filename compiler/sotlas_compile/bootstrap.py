@@ -1175,6 +1175,27 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
             and type_obj.name in FLOAT_LITERAL_SUFFIXES
         )
 
+    def integer_constant_value(expr: Expr) -> int | None:
+        if isinstance(expr, Number):
+            try:
+                return integer_literal_value(expr.value)
+            except ValueError:
+                return None
+        if isinstance(expr, Unary) and expr.op == "-":
+            inner = integer_constant_value(expr.value)
+            return -inner if inner is not None else None
+        if isinstance(expr, Binary) and expr.op in ("+", "-", "*"):
+            left_value = integer_constant_value(expr.left)
+            right_value = integer_constant_value(expr.right)
+            if left_value is None or right_value is None:
+                return None
+            if expr.op == "+":
+                return left_value + right_value
+            if expr.op == "-":
+                return left_value - right_value
+            return left_value * right_value
+        return None
+
     def unsuffixed_integer_constant(expr: Expr) -> bool:
         if isinstance(expr, Number):
             base, suffix = numeric_literal_parts(expr.value)
@@ -1393,6 +1414,16 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
                     raise SotlasBootstrapError(
                         f"tipos incompatíveis em operador aritmético {expr.op}: "
                         f"{left.name} vs {right.name}",
+                        expr.token.line, expr.token.column, filename, source,
+                    )
+                if (
+                    expr.op in ("/", "%")
+                    and scalar_integer(left)
+                    and integer_constant_value(expr.right) == 0
+                ):
+                    operation = "divisão" if expr.op == "/" else "módulo"
+                    raise SotlasBootstrapError(
+                        f"{operation} inteira por zero não é permitida",
                         expr.token.line, expr.token.column, filename, source,
                     )
             if expr.op in ("&", "|", "^"):

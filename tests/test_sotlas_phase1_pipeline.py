@@ -184,6 +184,20 @@ fn main() -> void {
                 source, filename="<phase1-public-invalid>"
             )
 
+    def test_public_phase1_pipeline_rejects_constant_integer_division_by_zero_in_bootstrap(self):
+        source = """module test::phase1_integer_div_zero;
+fn main(value: u32) -> u32 {
+    return value / (2 - 2);
+}
+"""
+        with self.assertRaisesRegex(
+            sotlas_compile.SotlasBootstrapError,
+            r"divisão inteira por zero não é permitida",
+        ):
+            sotlas_compile.analyze_source_phase1(
+                source, filename="<phase1-integer-div-zero>"
+            )
+
     def test_public_phase1_pipeline_rejects_constant_integer_overflow(self):
         source = """module test::phase1_integer_overflow;
 fn main() -> u8 {

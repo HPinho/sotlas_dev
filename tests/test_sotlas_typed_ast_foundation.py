@@ -3321,6 +3321,36 @@ fn main() -> i8 {
         body = typed_ast.build_linear_typed_body(parsed, typed, "main")
         self.assertEqual(body.statements[0].expr.type.name, "i8")
 
+    def test_bootstrap_rejects_integer_division_by_constant_zero(self):
+        source = """module test::bootstrap_integer_div_zero;
+fn main(value: u32) -> u32 {
+    return value / (1 - 1);
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-integer-div-zero>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"divisão inteira por zero não é permitida",
+        ):
+            bootstrap.check(parsed)
+
+    def test_bootstrap_rejects_integer_modulo_by_constant_zero(self):
+        source = """module test::bootstrap_integer_mod_zero;
+fn main(value: i32) -> i32 {
+    return value % 0;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-integer-mod-zero>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"módulo inteiro por zero não é permitida",
+        ):
+            bootstrap.check(parsed)
+
     def test_typed_body_rejects_integer_division_by_literal_zero(self):
         source = """module test::typed_integer_div_zero;
 fn main(value: u32) -> u32 {
@@ -3328,7 +3358,6 @@ fn main(value: u32) -> u32 {
 }
 """
         parsed = bootstrap.parse(source, filename="<phase1-integer-div-zero>")
-        bootstrap.check(parsed)
         typed = typed_ast.build_declaration_typed_ast(parsed)
         with self.assertRaisesRegex(
             typed_ast.Phase1SemanticError,
@@ -3343,7 +3372,6 @@ fn main(value: i32) -> i32 {
 }
 """
         parsed = bootstrap.parse(source, filename="<phase1-integer-mod-zero>")
-        bootstrap.check(parsed)
         typed = typed_ast.build_declaration_typed_ast(parsed)
         with self.assertRaisesRegex(
             typed_ast.Phase1SemanticError,
