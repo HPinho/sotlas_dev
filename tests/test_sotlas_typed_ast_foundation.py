@@ -992,6 +992,56 @@ fn main(flag: bool) -> i64 {
         self.assertEqual(branch.body[0].kind, "Return")
         self.assertEqual(branch.else_body[0].kind, "Return")
 
+    def test_bootstrap_rejects_non_bool_if_condition(self):
+        source = """module test::bootstrap_if_bad;
+fn main() -> void {
+    if 1 {
+        return;
+    }
+    return;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-if-bad>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"condição de if deve ser bool",
+        ):
+            bootstrap.check(parsed)
+
+    def test_bootstrap_rejects_non_bool_while_condition(self):
+        source = """module test::bootstrap_while_bad;
+fn main() -> void {
+    while 1 {
+        return;
+    }
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-while-bad>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"condição de while deve ser bool",
+        ):
+            bootstrap.check(parsed)
+
+    def test_bootstrap_rejects_non_bool_logical_operands(self):
+        source = """module test::bootstrap_logical_bad;
+fn main() -> bool {
+    return 1 && 2;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-logical-bad>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"operador lógico && exige operandos bool",
+        ):
+            bootstrap.check(parsed)
+
     def test_typed_body_rejects_non_bool_if_condition_independently(self):
         source = """module test::typed_if_bad;
 fn main() -> void {
@@ -4324,6 +4374,36 @@ fn choose(flag: bool) -> i64 {
         body = typed_ast.build_linear_typed_body(parsed, typed, "choose")
         self.assertEqual(body.statements[0].expr.kind, "IfExpr")
         self.assertEqual(body.statements[0].expr.type.name, "i64")
+
+    def test_bootstrap_rejects_non_bool_if_expression_condition(self):
+        source = """module test::bootstrap_if_expr_bad_condition;
+fn choose() -> i64 {
+    return if 1 { 1 } else { 2 };
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-if-expr-bad-condition>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"condição de expressão if deve ser bool",
+        ):
+            bootstrap.check(parsed)
+
+    def test_bootstrap_rejects_if_expression_branch_type_mismatch(self):
+        source = """module test::bootstrap_if_expr_bad_branches;
+fn choose(flag: bool) -> i64 {
+    return if flag { 1 } else { true };
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-if-expr-bad-branches>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"ramos da expressão if devem ter o mesmo tipo",
+        ):
+            bootstrap.check(parsed)
 
     def test_typed_body_rejects_non_bool_if_expression_condition_independently(self):
         source = """module test::typed_if_expr_bad_condition;

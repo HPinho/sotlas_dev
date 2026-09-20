@@ -1209,9 +1209,26 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
                 expr_type(value, scope, in_unsafe, is_system_fn)
             return Type(expr.struct_name)
         if isinstance(expr, IfExpr):
-            expr_type(expr.condition, scope, in_unsafe, is_system_fn)
-            expr_type(expr.else_expr, scope, in_unsafe, is_system_fn)
-            return expr_type(expr.then_expr, scope, in_unsafe, is_system_fn)
+            condition_t = expr_type(
+                expr.condition, scope, in_unsafe, is_system_fn
+            )
+            if not same_type(condition_t, Type("bool")):
+                raise SotlasBootstrapError(
+                    "condição de expressão if deve ser bool",
+                    expr.token.line, expr.token.column, filename, source,
+                )
+            then_t = expr_type(
+                expr.then_expr, scope, in_unsafe, is_system_fn
+            )
+            else_t = expr_type(
+                expr.else_expr, scope, in_unsafe, is_system_fn
+            )
+            if not same_type(then_t, else_t):
+                raise SotlasBootstrapError(
+                    "ramos da expressão if devem ter o mesmo tipo",
+                    expr.token.line, expr.token.column, filename, source,
+                )
+            return then_t
         if isinstance(expr, Name):
             if expr.value in scope:
                 return scope[expr.value]
@@ -1258,6 +1275,15 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
         if isinstance(expr, Binary):
             left = expr_type(expr.left, scope, in_unsafe, is_system_fn)
             right = expr_type(expr.right, scope, in_unsafe, is_system_fn)
+            if expr.op in ("&&", "||"):
+                if (
+                    not same_type(left, Type("bool"))
+                    or not same_type(right, Type("bool"))
+                ):
+                    raise SotlasBootstrapError(
+                        f"operador lógico {expr.op} exige operandos bool",
+                        expr.token.line, expr.token.column, filename, source,
+                    )
             if expr.op in ("==", "!="):
                 reference_null = (
                     (left.is_reference and right.name == "null")
@@ -1471,7 +1497,15 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
             elif isinstance(item, (Break, Continue)):
                 continue
             elif isinstance(item, (If, While)):
-                expr_type(item.condition, scope, in_unsafe, is_system_fn)
+                condition_t = expr_type(
+                    item.condition, scope, in_unsafe, is_system_fn
+                )
+                if not same_type(condition_t, Type("bool")):
+                    construct = "if" if isinstance(item, If) else "while"
+                    raise SotlasBootstrapError(
+                        f"condição de {construct} deve ser bool",
+                        item.token.line, item.token.column, filename, source,
+                    )
                 statements(item.then_body if isinstance(item, If) else item.body, dict(scope), expected_return, in_unsafe, is_system_fn)
                 if isinstance(item, If) and item.else_body:
                     statements(item.else_body, dict(scope), expected_return, in_unsafe, is_system_fn)

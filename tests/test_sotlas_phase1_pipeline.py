@@ -53,6 +53,23 @@ fn read(t: Token) -> u32 {
         self.assertEqual(result.semantic.typed_module.structs[0].name, "Token")
         self.assertEqual(result.semantic.bodies[0].name, "read")
 
+    def test_public_phase1_pipeline_rejects_non_bool_control_flow_in_bootstrap(self):
+        source = """module test::phase1_bool_control_flow;
+fn main() -> void {
+    if 1 {
+        return;
+    }
+    return;
+}
+"""
+        with self.assertRaisesRegex(
+            sotlas_compile.SotlasBootstrapError,
+            r"condição de if deve ser bool",
+        ):
+            sotlas_compile.analyze_source_phase1(
+                source, filename="<phase1-bool-control-flow>"
+            )
+
     def test_public_phase1_pipeline_rejects_call_contract_mismatch_in_bootstrap(self):
         source = """module test::phase1_call_contract;
 fn consume(value: u32) -> void {
