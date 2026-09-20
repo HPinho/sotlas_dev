@@ -492,6 +492,79 @@ impl CEmitter {
     }
 
 
+    pub fn emit_braced_block(mut self: &mut Self, block_index: usize) -> bool {
+        if !self.valid_node(block_index) {
+            return false;
+        }
+        let block: AstNode = unsafe { *(self.nodes + block_index) };
+        if block.kind != AstKind::Block {
+            return false;
+        }
+        if !self.write_str("{\n", 2) {
+            return false;
+        }
+        if !self.emit_block_normal_exit(block_index) {
+            return false;
+        }
+        return self.write_str("}\n", 2);
+    }
+
+    pub fn emit_if_statement(mut self: &mut Self, index: usize) -> bool {
+        if !self.valid_node(index) {
+            return false;
+        }
+        let node: AstNode = unsafe { *(self.nodes + index) };
+        if node.kind != AstKind::IfStmt {
+            return false;
+        }
+
+        let cond_index: usize = node.first_child;
+        if !self.valid_node(cond_index) {
+            return false;
+        }
+        let cond: AstNode = unsafe { *(self.nodes + cond_index) };
+        let then_index: usize = cond.next_sibling;
+        if !self.valid_node(then_index) {
+            return false;
+        }
+        let then_node: AstNode = unsafe { *(self.nodes + then_index) };
+        if then_node.kind != AstKind::Block {
+            return false;
+        }
+
+        if !self.write_str("if (", 4) {
+            return false;
+        }
+        if !self.emit_expression(cond_index) {
+            return false;
+        }
+        if !self.write_str(") ", 2) {
+            return false;
+        }
+        if !self.emit_braced_block(then_index) {
+            return false;
+        }
+
+        let else_index: usize = then_node.next_sibling;
+        if else_index == 0 {
+            return true;
+        }
+        if !self.valid_node(else_index) {
+            return false;
+        }
+        let else_node: AstNode = unsafe { *(self.nodes + else_index) };
+        if !self.write_str("else ", 5) {
+            return false;
+        }
+        if else_node.kind == AstKind::Block {
+            return self.emit_braced_block(else_index);
+        }
+        if else_node.kind == AstKind::IfStmt {
+            return self.emit_if_statement(else_index);
+        }
+        return false;
+    }
+
     pub fn emit_unsafe_block(mut self: &mut Self, index: usize) -> bool {
         if !self.valid_node(index) {
             return false;
@@ -510,13 +583,7 @@ impl CEmitter {
             return false;
         }
 
-        if !self.write_str("{\n", 2) {
-            return false;
-        }
-        if !self.emit_block_normal_exit(body_index) {
-            return false;
-        }
-        return self.write_str("}\n", 2);
+        return self.emit_braced_block(body_index);
     }
 
     pub fn emit_normal_statement(mut self: &mut Self, index: usize) -> bool {
@@ -533,6 +600,9 @@ impl CEmitter {
 
         if node.kind == AstKind::UnsafeBlock {
             return self.emit_unsafe_block(index);
+        }
+        if node.kind == AstKind::IfStmt {
+            return self.emit_if_statement(index);
         }
 
         if node.kind == AstKind::AssignStmt
