@@ -250,6 +250,23 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         )
         self.assertLess(walk_at, cleanup_at)
 
+    def test_native_block_return_stops_fallthrough_and_duplicate_cleanup(self):
+        emitter_file = (
+            ROOT / "bootstrap" / "sotlas" / "native_compiler" / "emitter_c.sotlas"
+        )
+        text = emitter_file.read_text(encoding="utf-8")
+        self.assertIn("stmt_node.kind == AstKind::ReturnStmt", text)
+        self.assertIn("return self.emit_return_statement(stmt);", text)
+        self.assertIn("Only a fallthrough path reaches the normal lexical cleanup", text)
+        return_branch = text.index("stmt_node.kind == AstKind::ReturnStmt")
+        statement_emit = text.index("self.emit_normal_statement(stmt)", return_branch)
+        fallthrough_cleanup = text.index(
+            "return self.emit_block_exit_defers(block_index);",
+            statement_emit,
+        )
+        self.assertLess(return_branch, statement_emit)
+        self.assertLess(statement_emit, fallthrough_cleanup)
+
     def test_native_parser_persists_nested_statement_tree(self):
         parser_file = (
             ROOT / "bootstrap" / "sotlas" / "native_compiler" / "parser.sotlas"

@@ -535,14 +535,21 @@ impl CEmitter {
                 return false;
             }
             let stmt_node: AstNode = unsafe { *(self.nodes + stmt) };
+
+            // A return terminates this control-flow path. Its dedicated
+            // lowering performs all active lexical cleanup itself, so the
+            // block must not emit later statements or normal-exit cleanup.
+            if stmt_node.kind == AstKind::ReturnStmt {
+                return self.emit_return_statement(stmt);
+            }
+
             if !self.emit_normal_statement(stmt) {
                 return false;
             }
             stmt = stmt_node.next_sibling;
         }
 
-        // Only after all ordinary statements on the normal path have executed
-        // do lexical defers run, in reverse registration order.
+        // Only a fallthrough path reaches the normal lexical cleanup.
         return self.emit_block_exit_defers(block_index);
     }
 
