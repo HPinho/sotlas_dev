@@ -297,6 +297,20 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         self.assertIn("parent_node.kind == AstKind::WhileStmt", text)
         self.assertIn("A loop jump outside a loop is structurally invalid", text)
 
+    def test_native_emitter_recognizes_result_try_context(self):
+        emitter_file = (
+            ROOT / "bootstrap" / "sotlas" / "native_compiler" / "emitter_c.sotlas"
+        )
+        text = emitter_file.read_text(encoding="utf-8")
+        self.assertIn("pub fn type_ref_is_result", text)
+        self.assertIn('self.source_slice_equals(typ.str_offset, 6, "Result", 6)', text)
+        self.assertIn("return close == 62;", text)
+        self.assertIn("pub fn try_context_returns_result", text)
+        self.assertIn("node.kind != AstKind::TryExpr", text)
+        self.assertIn("self.find_enclosing_function(try_index)", text)
+        self.assertIn("self.find_function_return_type(fn_index)", text)
+        self.assertIn("return self.type_ref_is_result(type_index);", text)
+
     def test_native_emitter_captures_return_before_defer_cleanup(self):
         emitter_file = (
             ROOT / "bootstrap" / "sotlas" / "native_compiler" / "emitter_c.sotlas"

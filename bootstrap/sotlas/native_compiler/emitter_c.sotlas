@@ -436,6 +436,71 @@ impl CEmitter {
         return true;
     }
 
+    pub fn type_ref_is_result(self: &Self, type_index: usize) -> bool {
+        if !self.valid_node(type_index) {
+            return false;
+        }
+        let typ: AstNode = unsafe { *(self.nodes + type_index) };
+        if typ.kind != AstKind::TypeRef || typ.str_len < 8 {
+            return false;
+        }
+        if !self.source_slice_equals(typ.str_offset, 6, "Result", 6) {
+            return false;
+        }
+
+        let mut i: usize = 6;
+        while i < typ.str_len {
+            let ch: u8 = unsafe { *(self.source + typ.str_offset + i) };
+            if ch == 32 || ch == 9 || ch == 10 || ch == 13 {
+                i = i + 1;
+            } else {
+                break;
+            }
+        }
+        if i >= typ.str_len {
+            return false;
+        }
+        let open: u8 = unsafe { *(self.source + typ.str_offset + i) };
+        if open != 60 {
+            return false;
+        }
+
+        let mut end: usize = typ.str_len;
+        while end > i + 1 {
+            let ch: u8 = unsafe { *(self.source + typ.str_offset + end - 1) };
+            if ch == 32 || ch == 9 || ch == 10 || ch == 13 {
+                end = end - 1;
+            } else {
+                break;
+            }
+        }
+        if end <= i + 1 {
+            return false;
+        }
+        let close: u8 = unsafe { *(self.source + typ.str_offset + end - 1) };
+        return close == 62;
+    }
+
+    pub fn try_context_returns_result(self: &Self, try_index: usize) -> bool {
+        if !self.valid_node(try_index) {
+            return false;
+        }
+        let node: AstNode = unsafe { *(self.nodes + try_index) };
+        if node.kind != AstKind::TryExpr || node.first_child == 0 {
+            return false;
+        }
+
+        let fn_index: usize = self.find_enclosing_function(try_index);
+        if fn_index == 0 {
+            return false;
+        }
+        let type_index: usize = self.find_function_return_type(fn_index);
+        if type_index == 0 {
+            return false;
+        }
+        return self.type_ref_is_result(type_index);
+    }
+
     pub fn emit_c_type(mut self: &mut Self, type_index: usize) -> bool {
         if !self.valid_node(type_index) {
             return false;
