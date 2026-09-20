@@ -58,6 +58,19 @@ impl Lexer {
         return ch;
     }
 
+    pub fn token_from_span(
+        self: &Self,
+        kind: TokenKind,
+        line: u32,
+        col: u32,
+        start_offset: usize
+    ) -> Token {
+        let mut tok: Token = Token::new(kind, line, col);
+        tok.span.offset = start_offset;
+        tok.span.length = self.cursor - start_offset;
+        return tok;
+    }
+
     pub fn skip_whitespace_and_comments(mut self: &mut Self) {
         while !self.is_at_end() {
             let ch: u8 = self.peek();
@@ -165,53 +178,53 @@ impl Lexer {
 
         // Operadores compostos e pontuação
         if ch == 61 { // '='
-            if self.peek() == 61 { self.advance(); return Token::new(TokenKind::EqEq, start_line, start_col); }
-            if self.peek() == 62 { self.advance(); return Token::new(TokenKind::FatArrow, start_line, start_col); }
-            return Token::new(TokenKind::Equal, start_line, start_col);
+            if self.peek() == 61 { self.advance(); return self.token_from_span(TokenKind::EqEq, start_line, start_col, start_offset); }
+            if self.peek() == 62 { self.advance(); return self.token_from_span(TokenKind::FatArrow, start_line, start_col, start_offset); }
+            return self.token_from_span(TokenKind::Equal, start_line, start_col, start_offset);
         }
         if ch == 33 { // '!'
-            if self.peek() == 61 { self.advance(); return Token::new(TokenKind::BangEq, start_line, start_col); }
-            return Token::new(TokenKind::Bang, start_line, start_col);
+            if self.peek() == 61 { self.advance(); return self.token_from_span(TokenKind::BangEq, start_line, start_col, start_offset); }
+            return self.token_from_span(TokenKind::Bang, start_line, start_col, start_offset);
         }
         if ch == 60 { // '<'
-            if self.peek() == 61 { self.advance(); return Token::new(TokenKind::LtEq, start_line, start_col); }
-            if self.peek() == 60 { self.advance(); return Token::new(TokenKind::Shl, start_line, start_col); }
-            return Token::new(TokenKind::Lt, start_line, start_col);
+            if self.peek() == 61 { self.advance(); return self.token_from_span(TokenKind::LtEq, start_line, start_col, start_offset); }
+            if self.peek() == 60 { self.advance(); return self.token_from_span(TokenKind::Shl, start_line, start_col, start_offset); }
+            return self.token_from_span(TokenKind::Lt, start_line, start_col, start_offset);
         }
         if ch == 62 { // '>'
-            if self.peek() == 61 { self.advance(); return Token::new(TokenKind::GtEq, start_line, start_col); }
-            if self.peek() == 62 { self.advance(); return Token::new(TokenKind::Shr, start_line, start_col); }
-            return Token::new(TokenKind::Gt, start_line, start_col);
+            if self.peek() == 61 { self.advance(); return self.token_from_span(TokenKind::GtEq, start_line, start_col, start_offset); }
+            if self.peek() == 62 { self.advance(); return self.token_from_span(TokenKind::Shr, start_line, start_col, start_offset); }
+            return self.token_from_span(TokenKind::Gt, start_line, start_col, start_offset);
         }
         if ch == 58 { // ':'
-            if self.peek() == 58 { self.advance(); return Token::new(TokenKind::DColon, start_line, start_col); }
-            return Token::new(TokenKind::Colon, start_line, start_col);
+            if self.peek() == 58 { self.advance(); return self.token_from_span(TokenKind::DColon, start_line, start_col, start_offset); }
+            return self.token_from_span(TokenKind::Colon, start_line, start_col, start_offset);
         }
         if ch == 46 { // '.'
-            if self.peek() == 46 { self.advance(); return Token::new(TokenKind::DotDot, start_line, start_col); }
-            return Token::new(TokenKind::Dot, start_line, start_col);
+            if self.peek() == 46 { self.advance(); return self.token_from_span(TokenKind::DotDot, start_line, start_col, start_offset); }
+            return self.token_from_span(TokenKind::Dot, start_line, start_col, start_offset);
         }
         if ch == 45 { // '-'
-            if self.peek() == 62 { self.advance(); return Token::new(TokenKind::Arrow, start_line, start_col); }
-            return Token::new(TokenKind::Minus, start_line, start_col);
+            if self.peek() == 62 { self.advance(); return self.token_from_span(TokenKind::Arrow, start_line, start_col, start_offset); }
+            return self.token_from_span(TokenKind::Minus, start_line, start_col, start_offset);
         }
 
         // Operadores simples
-        if ch == 43 { return Token::new(TokenKind::Plus, start_line, start_col); }
-        if ch == 42 { return Token::new(TokenKind::Star, start_line, start_col); }
-        if ch == 47 { return Token::new(TokenKind::Slash, start_line, start_col); }
-        if ch == 37 { return Token::new(TokenKind::Percent, start_line, start_col); }
-        if ch == 59 { return Token::new(TokenKind::SemiColon, start_line, start_col); }
-        if ch == 44 { return Token::new(TokenKind::Comma, start_line, start_col); }
-        if ch == 63 { return Token::new(TokenKind::Qmark, start_line, start_col); }
-        if ch == 40 { return Token::new(TokenKind::OpenParen, start_line, start_col); }
-        if ch == 41 { return Token::new(TokenKind::CloseParen, start_line, start_col); }
-        if ch == 123 { return Token::new(TokenKind::OpenBrace, start_line, start_col); }
-        if ch == 125 { return Token::new(TokenKind::CloseBrace, start_line, start_col); }
-        if ch == 91 { return Token::new(TokenKind::OpenBracket, start_line, start_col); }
-        if ch == 93 { return Token::new(TokenKind::CloseBracket, start_line, start_col); }
+        if ch == 43 { return self.token_from_span(TokenKind::Plus, start_line, start_col, start_offset); }
+        if ch == 42 { return self.token_from_span(TokenKind::Star, start_line, start_col, start_offset); }
+        if ch == 47 { return self.token_from_span(TokenKind::Slash, start_line, start_col, start_offset); }
+        if ch == 37 { return self.token_from_span(TokenKind::Percent, start_line, start_col, start_offset); }
+        if ch == 59 { return self.token_from_span(TokenKind::SemiColon, start_line, start_col, start_offset); }
+        if ch == 44 { return self.token_from_span(TokenKind::Comma, start_line, start_col, start_offset); }
+        if ch == 63 { return self.token_from_span(TokenKind::Qmark, start_line, start_col, start_offset); }
+        if ch == 40 { return self.token_from_span(TokenKind::OpenParen, start_line, start_col, start_offset); }
+        if ch == 41 { return self.token_from_span(TokenKind::CloseParen, start_line, start_col, start_offset); }
+        if ch == 123 { return self.token_from_span(TokenKind::OpenBrace, start_line, start_col, start_offset); }
+        if ch == 125 { return self.token_from_span(TokenKind::CloseBrace, start_line, start_col, start_offset); }
+        if ch == 91 { return self.token_from_span(TokenKind::OpenBracket, start_line, start_col, start_offset); }
+        if ch == 93 { return self.token_from_span(TokenKind::CloseBracket, start_line, start_col, start_offset); }
 
-        return Token::new(TokenKind::Ident, start_line, start_col);
+        return self.token_from_span(TokenKind::Ident, start_line, start_col, start_offset);
     }
 
     pub fn classify_keyword(self: &Self, offset: usize, len: usize) -> TokenKind {

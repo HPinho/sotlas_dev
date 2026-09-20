@@ -20,6 +20,21 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         self.assertIn("Span", c_code)
         self.assertIn("Token", c_code)
 
+    def test_native_lexer_preserves_operator_and_delimiter_spans(self):
+        lexer_file = ROOT / "bootstrap" / "sotlas" / "native_compiler" / "lexer.sotlas"
+        text = lexer_file.read_text(encoding="utf-8")
+        self.assertIn("pub fn token_from_span", text)
+        self.assertIn("tok.span.offset = start_offset;", text)
+        self.assertIn("tok.span.length = self.cursor - start_offset;", text)
+        self.assertIn(
+            "self.token_from_span(TokenKind::Gt, start_line, start_col, start_offset)",
+            text,
+        )
+        self.assertIn(
+            "self.token_from_span(TokenKind::Qmark, start_line, start_col, start_offset)",
+            text,
+        )
+
     def test_native_lexer_module_compiles(self):
         lexer_file = ROOT / "bootstrap" / "sotlas" / "native_compiler" / "lexer.sotlas"
         self.assertTrue(lexer_file.is_file())
