@@ -3496,6 +3496,68 @@ fn main(flag: bool) -> bool { return flag + flag; }
         ):
             typed_ast.build_linear_typed_body(parsed, typed, "main")
 
+    def test_bootstrap_rejects_relational_mixed_explicit_integer_types(self):
+        source = """module test::bootstrap_bad_compare_types;
+fn main(left: u32, right: u64) -> bool {
+    return left < right;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-bad-compare-types>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"tipos incompatíveis em operador relacional <: u32 vs u64",
+        ):
+            bootstrap.check(parsed)
+
+    def test_bootstrap_rejects_arithmetic_mixed_explicit_integer_types(self):
+        source = """module test::bootstrap_bad_arithmetic_types;
+fn main(left: u32) -> u32 {
+    return left + 1u64;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-bad-arithmetic-types>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"tipos incompatíveis em operador aritmético \+: u32 vs u64",
+        ):
+            bootstrap.check(parsed)
+
+    def test_bootstrap_rejects_bitwise_mixed_explicit_integer_types(self):
+        source = """module test::bootstrap_bad_bitwise_types;
+fn main(left: u16, right: u32) -> u16 {
+    return left & right;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-bad-bitwise-types>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"tipos incompatíveis em operador bit a bit &: u16 vs u32",
+        ):
+            bootstrap.check(parsed)
+
+    def test_bootstrap_keeps_unsuffixed_integer_contextualization_in_binary_ops(self):
+        source = """module test::bootstrap_contextual_binary_literals;
+fn add(value: u32) -> u32 {
+    return value + 1;
+}
+fn compare(value: usize) -> bool {
+    return value > 0;
+}
+fn bits(value: u16) -> u16 {
+    return value | 1;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-contextual-binary-literals>"
+        )
+        bootstrap.check(parsed)
+
     def test_typed_body_rejects_relational_mixed_explicit_integer_types(self):
         source = """module test::typed_bad_compare;
 fn main(left: u32, right: u64) -> bool { return left < right; }

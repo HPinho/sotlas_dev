@@ -105,6 +105,20 @@ fn main() -> void {
                 source, filename="<phase1-for-mixed-bounds>"
             )
 
+    def test_public_phase1_pipeline_rejects_explicit_numeric_type_mismatch_in_bootstrap(self):
+        source = """module test::phase1_numeric_type_mismatch;
+fn main(left: u32, right: u64) -> bool {
+    return left < right;
+}
+"""
+        with self.assertRaisesRegex(
+            sotlas_compile.SotlasBootstrapError,
+            r"tipos incompatíveis em operador relacional <: u32 vs u64",
+        ):
+            sotlas_compile.analyze_source_phase1(
+                source, filename="<phase1-numeric-type-mismatch>"
+            )
+
     def test_public_phase1_pipeline_rejects_invalid_numeric_operator_domain_in_bootstrap(self):
         source = """module test::phase1_numeric_operator_domain;
 fn main(flag: bool) -> bool {

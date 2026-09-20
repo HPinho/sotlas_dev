@@ -1175,6 +1175,33 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
             and type_obj.name in FLOAT_LITERAL_SUFFIXES
         )
 
+    def unsuffixed_integer_constant(expr: Expr) -> bool:
+        if isinstance(expr, Number):
+            base, suffix = numeric_literal_parts(expr.value)
+            return suffix is None and "." not in base
+        if isinstance(expr, Unary) and expr.op == "-":
+            return unsuffixed_integer_constant(expr.value)
+        if isinstance(expr, Binary) and expr.op in ("+", "-", "*"):
+            return (
+                unsuffixed_integer_constant(expr.left)
+                and unsuffixed_integer_constant(expr.right)
+            )
+        return False
+
+    def numeric_operand_types_compatible(
+        left_expr: Expr,
+        left_type: Type,
+        right_expr: Expr,
+        right_type: Type,
+    ) -> bool:
+        if same_type(left_type, right_type):
+            return True
+        if scalar_integer(left_type) and unsuffixed_integer_constant(right_expr):
+            return True
+        if scalar_integer(right_type) and unsuffixed_integer_constant(left_expr):
+            return True
+        return False
+
     def mutable_place(expr: Expr, scope: dict[str, Type], in_unsafe: bool, is_system_fn: bool) -> bool:
         if isinstance(expr, Name):
             if expr.value in scope:
@@ -1306,6 +1333,14 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
                         f"operador relacional {expr.op} exige operandos numéricos escalares",
                         expr.token.line, expr.token.column, filename, source,
                     )
+                if not numeric_operand_types_compatible(
+                    expr.left, left, expr.right, right
+                ):
+                    raise SotlasBootstrapError(
+                        f"tipos incompatíveis em operador relacional {expr.op}: "
+                        f"{left.name} vs {right.name}",
+                        expr.token.line, expr.token.column, filename, source,
+                    )
             if (
                 expr.op in ("+", "-")
                 and left.pointer
@@ -1324,10 +1359,26 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
                         f"operador aritmético {expr.op} exige operandos numéricos escalares",
                         expr.token.line, expr.token.column, filename, source,
                     )
+                if not numeric_operand_types_compatible(
+                    expr.left, left, expr.right, right
+                ):
+                    raise SotlasBootstrapError(
+                        f"tipos incompatíveis em operador aritmético {expr.op}: "
+                        f"{left.name} vs {right.name}",
+                        expr.token.line, expr.token.column, filename, source,
+                    )
             if expr.op in ("&", "|", "^"):
                 if not scalar_integer(left) or not scalar_integer(right):
                     raise SotlasBootstrapError(
                         f"operador bit a bit {expr.op} exige operandos inteiros escalares",
+                        expr.token.line, expr.token.column, filename, source,
+                    )
+                if not numeric_operand_types_compatible(
+                    expr.left, left, expr.right, right
+                ):
+                    raise SotlasBootstrapError(
+                        f"tipos incompatíveis em operador bit a bit {expr.op}: "
+                        f"{left.name} vs {right.name}",
                         expr.token.line, expr.token.column, filename, source,
                     )
             if expr.op in ("<<", ">>"):
