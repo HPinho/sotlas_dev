@@ -184,6 +184,20 @@ fn main() -> void {
                 source, filename="<phase1-public-invalid>"
             )
 
+    def test_public_phase1_pipeline_rejects_out_of_range_shift_in_bootstrap(self):
+        source = """module test::phase1_shift_width;
+fn main(value: u32) -> u32 {
+    return value << 32;
+}
+"""
+        with self.assertRaisesRegex(
+            sotlas_compile.SotlasBootstrapError,
+            r"contador de deslocamento 32 fora do intervalo para u32 de largura 32",
+        ):
+            sotlas_compile.analyze_source_phase1(
+                source, filename="<phase1-shift-width>"
+            )
+
     def test_public_phase1_pipeline_rejects_constant_integer_division_by_zero_in_bootstrap(self):
         source = """module test::phase1_integer_div_zero;
 fn main(value: u32) -> u32 {

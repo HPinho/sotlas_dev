@@ -1159,6 +1159,11 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
         object.__setattr__(bound, "_sotlas_binding_mutable", bool(is_mut))
         return bound
 
+    integer_widths = {
+        "u8": 8, "u16": 16, "u32": 32, "u64": 64, "usize": 64,
+        "i8": 8, "i16": 16, "i32": 32, "i64": 64, "isize": 64,
+    }
+
     def scalar_integer(type_obj: Type) -> bool:
         return (
             not type_obj.pointer
@@ -1450,6 +1455,15 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
                         f"operador de deslocamento {expr.op} exige operandos inteiros escalares",
                         expr.token.line, expr.token.column, filename, source,
                     )
+                shift = integer_constant_value(expr.right)
+                if shift is not None:
+                    width = integer_widths[left.name]
+                    if shift < 0 or shift >= width:
+                        raise SotlasBootstrapError(
+                            f"contador de deslocamento {shift} fora do intervalo "
+                            f"para {left.name} de largura {width}",
+                            expr.token.line, expr.token.column, filename, source,
+                        )
             if expr.op in ("==", "!="):
                 reference_null = (
                     (left.is_reference and right.name == "null")

@@ -3183,6 +3183,47 @@ fn main() -> u8 {
         body = typed_ast.build_linear_typed_body(parsed, typed, "main")
         self.assertEqual(body.statements[0].expr.type.name, "u8")
 
+    def test_bootstrap_rejects_shift_equal_to_integer_width(self):
+        source = """module test::bootstrap_shift_width;
+fn main(value: u32) -> u32 {
+    return value << 32;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-shift-width>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"contador de deslocamento 32 fora do intervalo para u32 de largura 32",
+        ):
+            bootstrap.check(parsed)
+
+    def test_bootstrap_rejects_negative_shift_count(self):
+        source = """module test::bootstrap_negative_shift;
+fn main(value: i32) -> i32 {
+    return value >> -1;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-negative-shift>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"contador de deslocamento -1 fora do intervalo para i32 de largura 32",
+        ):
+            bootstrap.check(parsed)
+
+    def test_bootstrap_accepts_shift_below_integer_width(self):
+        source = """module test::bootstrap_shift_in_range;
+fn main(value: u32) -> u32 {
+    return value << 31;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-shift-in-range>"
+        )
+        bootstrap.check(parsed)
+
     def test_typed_body_rejects_shift_equal_to_integer_width(self):
         source = """module test::typed_shift_width;
 fn main(value: u32) -> u32 {
@@ -3190,7 +3231,6 @@ fn main(value: u32) -> u32 {
 }
 """
         parsed = bootstrap.parse(source, filename="<phase1-shift-width>")
-        bootstrap.check(parsed)
         typed = typed_ast.build_declaration_typed_ast(parsed)
         with self.assertRaisesRegex(
             typed_ast.Phase1SemanticError,
@@ -3205,7 +3245,6 @@ fn main(value: i32) -> i32 {
 }
 """
         parsed = bootstrap.parse(source, filename="<phase1-negative-shift>")
-        bootstrap.check(parsed)
         typed = typed_ast.build_declaration_typed_ast(parsed)
         with self.assertRaisesRegex(
             typed_ast.Phase1SemanticError,
