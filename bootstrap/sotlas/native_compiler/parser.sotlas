@@ -384,7 +384,7 @@ impl Parser {
                 return 0;
             }
 
-            let payload_node: usize;
+            let mut payload_node: usize = 0;
             if self.match_token(TokenKind::OpenBrace) {
                 payload_node = self.parse_block();
             } else {
