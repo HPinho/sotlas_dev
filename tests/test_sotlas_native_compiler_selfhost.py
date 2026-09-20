@@ -45,6 +45,18 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         self.assertIn("Parser", c_code)
         self.assertIn("parse_module", c_code)
         self.assertIn("parse_statement", c_code)
+        self.assertIn("node_capacity", c_code)
+        self.assertIn("AstNode", c_code)
+
+    def test_native_parser_persists_allocated_ast_nodes(self):
+        parser_file = (
+            ROOT / "bootstrap" / "sotlas" / "native_compiler" / "parser.sotlas"
+        )
+        text = parser_file.read_text(encoding="utf-8")
+        self.assertIn("pub nodes: *mut AstNode;", text)
+        self.assertIn("pub node_capacity: usize;", text)
+        self.assertIn("*(self.nodes + idx) = AstNode::new(kind, span);", text)
+        self.assertIn("self.node_count >= self.node_capacity", text)
 
     def test_native_sema_module_compiles(self):
         sema_file = ROOT / "bootstrap" / "sotlas" / "native_compiler" / "sema.sotlas"
@@ -71,6 +83,8 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         c_code = compile_source(text, str(main_file))
         self.assertIn("sotlas_native_compile", c_code)
         self.assertIn("g_token_buffer", c_code)
+        self.assertIn("g_ast_node_buffer", c_code)
+        self.assertIn("AST_NODE_BUFFER_CAPACITY", c_code)
         self.assertIn("CEmitter", c_code)
 
 

@@ -9,15 +9,24 @@ pub struct Parser {
     pub tokens: *const Token;
     pub token_count: usize;
     pub cursor: usize;
+    pub nodes: *mut AstNode;
+    pub node_capacity: usize;
     pub node_count: usize;
 }
 
 impl Parser {
-    pub fn new(toks: *const Token, count: usize) -> Parser {
+    pub fn new(
+        toks: *const Token,
+        count: usize,
+        node_buf: *mut AstNode,
+        node_cap: usize
+    ) -> Parser {
         return Parser {
             tokens: toks,
             token_count: count,
             cursor: 0,
+            nodes: node_buf,
+            node_capacity: node_cap,
             node_count: 1 // 0 é reservado como NULL_INDEX
         };
     }
@@ -61,7 +70,13 @@ impl Parser {
     }
 
     pub fn alloc_node(mut self: &mut Self, kind: AstKind, span: Span) -> usize {
+        if self.nodes == null || self.node_count >= self.node_capacity {
+            return 0;
+        }
         let idx: usize = self.node_count;
+        unsafe {
+            *(self.nodes + idx) = AstNode::new(kind, span);
+        }
         self.node_count = self.node_count + 1;
         return idx;
     }
