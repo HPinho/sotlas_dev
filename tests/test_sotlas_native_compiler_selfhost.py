@@ -160,6 +160,24 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         emit_at = text.index("return self.emit_defer_payload(index);", recurse_at)
         self.assertLess(recurse_at, emit_at)
 
+    def test_native_emitter_runs_block_defers_after_normal_statements(self):
+        emitter_file = (
+            ROOT / "bootstrap" / "sotlas" / "native_compiler" / "emitter_c.sotlas"
+        )
+        text = emitter_file.read_text(encoding="utf-8")
+        self.assertIn("pub fn emit_normal_statement", text)
+        self.assertIn("node.kind == AstKind::DeferStmt", text)
+        self.assertIn("pub fn emit_block_normal_exit", text)
+        self.assertIn("while stmt != 0", text)
+        self.assertIn("self.emit_normal_statement(stmt)", text)
+        self.assertIn("return self.emit_block_exit_defers(block_index);", text)
+        walk_at = text.index("while stmt != 0")
+        cleanup_at = text.index(
+            "return self.emit_block_exit_defers(block_index);",
+            walk_at,
+        )
+        self.assertLess(walk_at, cleanup_at)
+
     def test_native_parser_persists_nested_statement_tree(self):
         parser_file = (
             ROOT / "bootstrap" / "sotlas" / "native_compiler" / "parser.sotlas"

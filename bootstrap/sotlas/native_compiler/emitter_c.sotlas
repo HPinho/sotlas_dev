@@ -241,6 +241,60 @@ impl CEmitter {
         return self.emit_defer_chain_lifo(block.first_child);
     }
 
+    pub fn emit_normal_statement(mut self: &mut Self, index: usize) -> bool {
+        if !self.valid_node(index) {
+            return false;
+        }
+        let node: AstNode = unsafe { *(self.nodes + index) };
+
+        // A defer declaration registers work for scope exit and emits nothing
+        // at its declaration site.
+        if node.kind == AstKind::DeferStmt {
+            return true;
+        }
+
+        if node.kind == AstKind::AssignStmt
+            || node.kind == AstKind::ExprCall
+            || node.kind == AstKind::ExprBinary
+            || node.kind == AstKind::ExprIdent
+            || node.kind == AstKind::ExprLiteral {
+            return self.emit_statement_payload(index);
+        }
+
+        // Control-flow and declarations require dedicated lowering; never
+        // silently drop them from generated output.
+        return false;
+    }
+
+    pub fn emit_block_normal_exit(
+        mut self: &mut Self,
+        block_index: usize
+    ) -> bool {
+        if !self.valid_node(block_index) {
+            return false;
+        }
+        let block: AstNode = unsafe { *(self.nodes + block_index) };
+        if block.kind != AstKind::Block {
+            return false;
+        }
+
+        let mut stmt: usize = block.first_child;
+        while stmt != 0 {
+            if !self.valid_node(stmt) {
+                return false;
+            }
+            let stmt_node: AstNode = unsafe { *(self.nodes + stmt) };
+            if !self.emit_normal_statement(stmt) {
+                return false;
+            }
+            stmt = stmt_node.next_sibling;
+        }
+
+        // Only after all ordinary statements on the normal path have executed
+        // do lexical defers run, in reverse registration order.
+        return self.emit_block_exit_defers(block_index);
+    }
+
     pub fn emit_header(mut self: &mut Self) -> bool {
         let hdr: *const u8 = "// Compilado nativamente pelo compilador Sotlas in Sotlas (v1.0-selfhost)\n#include <stdint.h>\n#include <stdbool.h>\n\n";
         return self.write_str(hdr, 110);
