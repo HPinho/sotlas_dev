@@ -324,15 +324,61 @@ impl Parser {
         if tok.kind == TokenKind::KwLet || tok.kind == TokenKind::KwVar {
             self.advance();
             let let_node: usize = self.alloc_node(AstKind::LetStmt, tok.span);
-            // Nome da variável
-            let name_tok: Token = self.expect(TokenKind::Ident);
+            if let_node == 0 {
+                return 0;
+            }
+
+            let mut is_mutable: bool = tok.kind == TokenKind::KwVar;
+            if self.match_token(TokenKind::KwMut) {
+                self.advance();
+                is_mutable = true;
+            }
+
+            let name_tok: Token = self.current();
+            if name_tok.kind != TokenKind::Ident {
+                return 0;
+            }
+            self.advance();
             if !self.set_node_text(let_node, name_tok) {
                 return 0;
             }
+
+            let mut stored_node: AstNode = unsafe { *(self.nodes + let_node) };
+            if is_mutable {
+                stored_node.int_value = 1;
+            }
+            unsafe {
+                *(self.nodes + let_node) = stored_node;
+            }
+
             if self.match_token(TokenKind::Colon) {
                 self.advance();
-                let _typ: Token = self.expect(TokenKind::Ident);
+                if self.is_at_end()
+                    || self.match_token(TokenKind::Equal)
+                    || self.match_token(TokenKind::SemiColon) {
+                    return 0;
+                }
+
+                let type_start: Token = self.current();
+                let mut type_end: Token = type_start;
+                while !self.is_at_end()
+                    && !self.match_token(TokenKind::Equal)
+                    && !self.match_token(TokenKind::SemiColon) {
+                    type_end = self.advance();
+                }
+
+                let type_node: usize = self.alloc_node(AstKind::TypeRef, type_start.span);
+                if type_node == 0 {
+                    return 0;
+                }
+                if !self.set_node_text_range(type_node, type_start, type_end) {
+                    return 0;
+                }
+                if !self.append_child(let_node, type_node) {
+                    return 0;
+                }
             }
+
             if self.match_token(TokenKind::Equal) {
                 self.advance();
                 let val_node: usize = self.parse_expression();
@@ -340,7 +386,11 @@ impl Parser {
                     return 0;
                 }
             }
-            self.expect(TokenKind::SemiColon);
+
+            if !self.match_token(TokenKind::SemiColon) {
+                return 0;
+            }
+            self.advance();
             return let_node;
         } else if tok.kind == TokenKind::KwReturn {
             self.advance();

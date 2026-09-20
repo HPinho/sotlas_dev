@@ -117,6 +117,18 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         self.assertIn("let module_node: usize = p.parse_module();", text)
         self.assertIn("if module_node == 0", text)
 
+    def test_native_parser_persists_local_mutability_and_type(self):
+        parser_file = (
+            ROOT / "bootstrap" / "sotlas" / "native_compiler" / "parser.sotlas"
+        )
+        text = parser_file.read_text(encoding="utf-8")
+        self.assertIn("let mut is_mutable: bool = tok.kind == TokenKind::KwVar;", text)
+        self.assertIn("self.match_token(TokenKind::KwMut)", text)
+        self.assertIn("stored_node.int_value = 1;", text)
+        self.assertIn("let type_node: usize = self.alloc_node(AstKind::TypeRef", text)
+        self.assertIn("self.set_node_text_range(type_node, type_start, type_end)", text)
+        self.assertIn("self.append_child(let_node, type_node)", text)
+
     def test_native_parser_persists_loop_jump_statements(self):
         ast_file = ROOT / "bootstrap" / "sotlas" / "native_compiler" / "ast.sotlas"
         parser_file = (
