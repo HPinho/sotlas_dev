@@ -184,6 +184,20 @@ fn main() -> void {
                 source, filename="<phase1-public-invalid>"
             )
 
+    def test_public_phase1_pipeline_rejects_constant_left_shift_overflow_in_bootstrap(self):
+        source = """module test::phase1_left_shift_overflow;
+fn main() -> u8 {
+    return 128u8 << 1u8;
+}
+"""
+        with self.assertRaisesRegex(
+            sotlas_compile.SotlasBootstrapError,
+            r"valor inteiro 256 fora do intervalo para u8 \[0, 255\]",
+        ):
+            sotlas_compile.analyze_source_phase1(
+                source, filename="<phase1-left-shift-overflow>"
+            )
+
     def test_public_phase1_pipeline_rejects_out_of_range_shift_in_bootstrap(self):
         source = """module test::phase1_shift_width;
 fn main(value: u32) -> u32 {

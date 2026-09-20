@@ -3104,6 +3104,51 @@ fn bits(value: u16) -> u16 { return value | 1; }
             "u16",
         )
 
+    def test_bootstrap_rejects_negative_signed_right_shift(self):
+        source = """module test::bootstrap_negative_right_shift;
+fn main() -> i8 {
+    return -2i8 >> 1i8;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-negative-right-shift>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"deslocamento à direita de inteiro signed negativo não é permitido",
+        ):
+            bootstrap.check(parsed)
+
+    def test_bootstrap_rejects_constant_left_shift_overflow(self):
+        source = """module test::bootstrap_left_shift_overflow;
+fn main() -> u8 {
+    return 128u8 << 1u8;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-left-shift-overflow>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"valor inteiro 256 fora do intervalo para u8 \[0, 255\]",
+        ):
+            bootstrap.check(parsed)
+
+    def test_bootstrap_rejects_negative_signed_left_shift(self):
+        source = """module test::bootstrap_negative_left_shift;
+fn main() -> i8 {
+    return -1i8 << 1i8;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-negative-left-shift>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"deslocamento à esquerda de inteiro signed negativo não é permitido",
+        ):
+            bootstrap.check(parsed)
+
     def test_typed_body_rejects_negative_signed_right_shift(self):
         source = """module test::typed_negative_right_shift;
 fn main() -> i8 {
@@ -3113,7 +3158,6 @@ fn main() -> i8 {
         parsed = bootstrap.parse(
             source, filename="<phase1-negative-right-shift>"
         )
-        bootstrap.check(parsed)
         typed = typed_ast.build_declaration_typed_ast(parsed)
         with self.assertRaisesRegex(
             typed_ast.Phase1SemanticError,
@@ -3144,7 +3188,6 @@ fn main() -> u8 {
         parsed = bootstrap.parse(
             source, filename="<phase1-left-shift-overflow>"
         )
-        bootstrap.check(parsed)
         typed = typed_ast.build_declaration_typed_ast(parsed)
         with self.assertRaisesRegex(
             typed_ast.Phase1SemanticError,
@@ -3161,7 +3204,6 @@ fn main() -> i8 {
         parsed = bootstrap.parse(
             source, filename="<phase1-negative-left-shift>"
         )
-        bootstrap.check(parsed)
         typed = typed_ast.build_declaration_typed_ast(parsed)
         with self.assertRaisesRegex(
             typed_ast.Phase1SemanticError,

@@ -1531,6 +1531,24 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
                             f"para {left.name} de largura {width}",
                             expr.token.line, expr.token.column, filename, source,
                         )
+                    left_value = integer_constant_value(expr.left)
+                    if (
+                        left.name in signed_integer_types
+                        and left_value is not None
+                        and left_value < 0
+                    ):
+                        direction = (
+                            "esquerda" if expr.op == "<<" else "direita"
+                        )
+                        raise SotlasBootstrapError(
+                            f"deslocamento à {direction} de inteiro signed "
+                            "negativo não é permitido",
+                            expr.token.line, expr.token.column, filename, source,
+                        )
+                    if expr.op == "<<" and left_value is not None:
+                        validate_integer_constant(
+                            left_value << shift, left, expr.token
+                        )
             if expr.op in ("==", "!="):
                 reference_null = (
                     (left.is_reference and right.name == "null")
