@@ -4991,6 +4991,69 @@ fn choose(flag: bool) -> i64 {
         ):
             typed_ast.build_linear_typed_body(parsed, typed, "choose")
 
+    def test_bootstrap_rejects_unknown_struct_literal_type(self):
+        source = """module test::bootstrap_struct_unknown_type;
+fn main() -> Missing {
+    return Missing { value: 1 };
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-struct-unknown-type>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"tipo de struct literal não declarado: Missing",
+        ):
+            bootstrap.check(parsed)
+
+    def test_bootstrap_rejects_unknown_struct_literal_field(self):
+        source = """module test::bootstrap_struct_unknown_field;
+struct Pair { left: u32; right: u32; }
+fn main() -> Pair {
+    return Pair { left: 1, wrong: 2 };
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-struct-unknown-field>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"campo não declarado em struct literal Pair: wrong",
+        ):
+            bootstrap.check(parsed)
+
+    def test_bootstrap_rejects_missing_struct_literal_field(self):
+        source = """module test::bootstrap_struct_missing_field;
+struct Pair { left: u32; right: u32; }
+fn main() -> Pair {
+    return Pair { left: 1 };
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-struct-missing-field>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"campo\(s\) ausente\(s\) em struct literal Pair: right",
+        ):
+            bootstrap.check(parsed)
+
+    def test_bootstrap_rejects_duplicate_struct_literal_field(self):
+        source = """module test::bootstrap_struct_duplicate_field;
+struct Pair { left: u32; right: u32; }
+fn main() -> Pair {
+    return Pair { left: 1, left: 2, right: 3 };
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-struct-duplicate-field>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"campo duplicado em struct literal Pair: left",
+        ):
+            bootstrap.check(parsed)
+
     def test_struct_literal_validates_field_shape(self):
         source = """module test::typed_struct_shape;
 struct Pair { left: u32; right: u32; }

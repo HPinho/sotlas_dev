@@ -1335,8 +1335,37 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
             inner = expr_type(expr.elements[0], scope, in_unsafe, is_system_fn) if expr.elements else Type("void")
             return Type(inner.name, pointer=inner.pointer, is_array=True, array_size=len(expr.elements), elem_type=inner)
         if isinstance(expr, StructLit):
-            for _, value in expr.fields:
+            struct = struct_map.get(expr.struct_name)
+            if struct is None:
+                raise SotlasBootstrapError(
+                    f"tipo de struct literal não declarado: {expr.struct_name}",
+                    expr.token.line, expr.token.column, filename, source,
+                )
+            declared_fields = {field.name for field in struct.fields}
+            seen_fields: set[str] = set()
+            for field_name, value in expr.fields:
+                if field_name in seen_fields:
+                    raise SotlasBootstrapError(
+                        f"campo duplicado em struct literal "
+                        f"{expr.struct_name}: {field_name}",
+                        expr.token.line, expr.token.column, filename, source,
+                    )
+                if field_name not in declared_fields:
+                    raise SotlasBootstrapError(
+                        f"campo não declarado em struct literal "
+                        f"{expr.struct_name}: {field_name}",
+                        expr.token.line, expr.token.column, filename, source,
+                    )
+                seen_fields.add(field_name)
                 expr_type(value, scope, in_unsafe, is_system_fn)
+            missing_fields = declared_fields - seen_fields
+            if missing_fields:
+                missing = ", ".join(sorted(missing_fields))
+                raise SotlasBootstrapError(
+                    f"campo(s) ausente(s) em struct literal "
+                    f"{expr.struct_name}: {missing}",
+                    expr.token.line, expr.token.column, filename, source,
+                )
             return Type(expr.struct_name)
         if isinstance(expr, IfExpr):
             condition_t = expr_type(

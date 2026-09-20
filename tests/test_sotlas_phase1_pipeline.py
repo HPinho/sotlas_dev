@@ -119,6 +119,21 @@ fn main(left: u32, right: u64) -> bool {
                 source, filename="<phase1-numeric-type-mismatch>"
             )
 
+    def test_public_phase1_pipeline_rejects_invalid_struct_literal_shape_in_bootstrap(self):
+        source = """module test::phase1_struct_literal_shape;
+struct Pair { left: u32; right: u32; }
+fn main() -> Pair {
+    return Pair { left: 1 };
+}
+"""
+        with self.assertRaisesRegex(
+            sotlas_compile.SotlasBootstrapError,
+            r"campo\(s\) ausente\(s\) em struct literal Pair: right",
+        ):
+            sotlas_compile.analyze_source_phase1(
+                source, filename="<phase1-struct-literal-shape>"
+            )
+
     def test_public_phase1_pipeline_rejects_invalid_unary_operator_domain_in_bootstrap(self):
         source = """module test::phase1_unary_operator_domain;
 fn main(value: u32) -> u32 {
