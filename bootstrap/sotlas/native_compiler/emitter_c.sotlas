@@ -319,6 +319,47 @@ impl CEmitter {
         return false;
     }
 
+    pub fn emit_loop_jump_scope_defers(
+        mut self: &mut Self,
+        jump_index: usize
+    ) -> bool {
+        if !self.valid_node(jump_index) {
+            return false;
+        }
+        let jump: AstNode = unsafe { *(self.nodes + jump_index) };
+        if jump.kind != AstKind::BreakStmt
+            && jump.kind != AstKind::ContinueStmt {
+            return false;
+        }
+
+        let mut child_on_path: usize = jump_index;
+        let mut parent_index: usize = jump.parent;
+
+        while parent_index != 0 {
+            if !self.valid_node(parent_index) {
+                return false;
+            }
+            let parent_node: AstNode = unsafe { *(self.nodes + parent_index) };
+
+            if parent_node.kind == AstKind::Block {
+                if !self.emit_scope_defers_before(parent_index, child_on_path) {
+                    return false;
+                }
+            } else if parent_node.kind == AstKind::WhileStmt {
+                return true;
+            } else if parent_node.kind == AstKind::FnDecl
+                || parent_node.kind == AstKind::TrapfnDecl {
+                // A loop jump outside a loop is structurally invalid.
+                return false;
+            }
+
+            child_on_path = parent_index;
+            parent_index = parent_node.parent;
+        }
+
+        return false;
+    }
+
     pub fn source_slice_equals(
         self: &Self,
         offset: usize,

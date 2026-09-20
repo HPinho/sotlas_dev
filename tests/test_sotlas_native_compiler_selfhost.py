@@ -221,6 +221,21 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         )
         self.assertIn("parent_node.kind == AstKind::FnDecl", text)
 
+    def test_native_emitter_collects_loop_jump_defers_until_while(self):
+        emitter_file = (
+            ROOT / "bootstrap" / "sotlas" / "native_compiler" / "emitter_c.sotlas"
+        )
+        text = emitter_file.read_text(encoding="utf-8")
+        self.assertIn("pub fn emit_loop_jump_scope_defers", text)
+        self.assertIn("jump.kind != AstKind::BreakStmt", text)
+        self.assertIn("jump.kind != AstKind::ContinueStmt", text)
+        self.assertIn(
+            "self.emit_scope_defers_before(parent_index, child_on_path)",
+            text,
+        )
+        self.assertIn("parent_node.kind == AstKind::WhileStmt", text)
+        self.assertIn("A loop jump outside a loop is structurally invalid", text)
+
     def test_native_emitter_captures_return_before_defer_cleanup(self):
         emitter_file = (
             ROOT / "bootstrap" / "sotlas" / "native_compiler" / "emitter_c.sotlas"
