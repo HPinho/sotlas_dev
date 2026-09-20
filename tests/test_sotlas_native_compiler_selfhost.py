@@ -107,7 +107,7 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         self.assertIn("let param_node: usize = self.alloc_node(AstKind::ParamDecl", text)
         self.assertIn("self.set_node_text(param_node, param_name)", text)
         self.assertIn("stored_param.int_value = 1;", text)
-        self.assertIn("let param_type: usize = self.alloc_node(AstKind::TypeRef", text)
+        self.assertIn("let param_type: usize = self.parse_type_ref(2);", text)
         self.assertIn("self.append_child(param_node, param_type)", text)
         self.assertIn("self.append_child(fn_node, param_node)", text)
 
@@ -120,11 +120,7 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         parser_text = parser_file.read_text(encoding="utf-8")
         self.assertIn("TypeRef = 27", ast_text)
         self.assertIn("pub fn set_node_text_range", parser_text)
-        self.assertIn("let type_node: usize = self.alloc_node(AstKind::TypeRef", parser_text)
-        self.assertIn(
-            "self.set_node_text_range(type_node, type_start, type_end)",
-            parser_text,
-        )
+        self.assertIn("let type_node: usize = self.parse_type_ref(3);", parser_text)
         self.assertIn("self.append_child(fn_node, type_node)", parser_text)
 
     def test_native_parser_persists_function_body_blocks(self):
@@ -167,8 +163,8 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         self.assertIn("let mut is_mutable: bool = tok.kind == TokenKind::KwVar;", text)
         self.assertIn("self.match_token(TokenKind::KwMut)", text)
         self.assertIn("stored_node.int_value = 1;", text)
-        self.assertIn("let type_node: usize = self.alloc_node(AstKind::TypeRef", text)
-        self.assertIn("self.set_node_text_range(type_node, type_start, type_end)", text)
+        self.assertIn("pub fn parse_type_ref", text)
+        self.assertIn("let type_node: usize = self.parse_type_ref(1);", text)
         self.assertIn("self.append_child(let_node, type_node)", text)
 
     def test_native_parser_persists_loop_jump_statements(self):
@@ -447,6 +443,21 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         )
         self.assertLess(return_branch, statement_emit)
         self.assertLess(statement_emit, fallthrough_cleanup)
+
+    def test_native_parser_keeps_nested_generic_type_ranges(self):
+        parser_file = (
+            ROOT / "bootstrap" / "sotlas" / "native_compiler" / "parser.sotlas"
+        )
+        text = parser_file.read_text(encoding="utf-8")
+        self.assertIn("pub fn parse_type_ref", text)
+        self.assertIn("let mut angle_depth: i64 = 0;", text)
+        self.assertIn("kind == TokenKind::Lt", text)
+        self.assertIn("kind == TokenKind::Gt", text)
+        self.assertIn("kind == TokenKind::Shr", text)
+        self.assertIn("angle_depth != 0", text)
+        self.assertIn("self.parse_type_ref(1)", text)
+        self.assertIn("self.parse_type_ref(2)", text)
+        self.assertIn("self.parse_type_ref(3)", text)
 
     def test_native_parser_persists_try_propagation_expression(self):
         ast_file = ROOT / "bootstrap" / "sotlas" / "native_compiler" / "ast.sotlas"
