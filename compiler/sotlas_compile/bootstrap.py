@@ -1202,6 +1202,34 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
             return True
         return False
 
+    def equality_operand_types_compatible(
+        left_expr: Expr,
+        left_type: Type,
+        right_expr: Expr,
+        right_type: Type,
+    ) -> bool:
+        if same_type(left_type, right_type):
+            return True
+        pointer_null = (
+            (
+                left_type.pointer
+                and not left_type.is_reference
+                and right_type.name == "null"
+            )
+            or (
+                right_type.pointer
+                and not right_type.is_reference
+                and left_type.name == "null"
+            )
+        )
+        if pointer_null:
+            return True
+        if scalar_integer(left_type) and unsuffixed_integer_constant(right_expr):
+            return True
+        if scalar_integer(right_type) and unsuffixed_integer_constant(left_expr):
+            return True
+        return False
+
     def mutable_place(expr: Expr, scope: dict[str, Type], in_unsafe: bool, is_system_fn: bool) -> bool:
         if isinstance(expr, Name):
             if expr.value in scope:
@@ -1395,6 +1423,14 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
                 if reference_null:
                     raise SotlasBootstrapError(
                         "referência segura não pode ser comparada a null",
+                        expr.token.line, expr.token.column, filename, source,
+                    )
+                if not equality_operand_types_compatible(
+                    expr.left, left, expr.right, right
+                ):
+                    raise SotlasBootstrapError(
+                        f"tipos incompatíveis em comparação {expr.op}: "
+                        f"{left.name} vs {right.name}",
                         expr.token.line, expr.token.column, filename, source,
                     )
             return Type("bool") if expr.op in ("==", "!=", "<", "<=", ">", ">=", "&&", "||") else left

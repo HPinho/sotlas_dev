@@ -2065,6 +2065,47 @@ fn is_null(value: &u32) -> bool {
         ):
             typed_ast.build_linear_typed_body(parsed, typed, "is_null")
 
+    def test_bootstrap_rejects_raw_pointer_mutability_mismatch_comparison(self):
+        source = """module test::bootstrap_pointer_compare_mutability;
+fn same(left: *mut u32, right: *const u32) -> bool {
+    return left == right;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-pointer-compare-mutability>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"tipos incompatíveis em comparação ==: u32 vs u32",
+        ):
+            bootstrap.check(parsed)
+
+    def test_bootstrap_rejects_reference_mutability_mismatch_comparison(self):
+        source = """module test::bootstrap_reference_compare_mutability;
+fn same(left: &mut u32, right: &u32) -> bool {
+    return left == right;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-reference-compare-mutability>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"tipos incompatíveis em comparação ==: u32 vs u32",
+        ):
+            bootstrap.check(parsed)
+
+    def test_bootstrap_accepts_unsuffixed_integer_equality_context(self):
+        source = """module test::bootstrap_integer_equality_context;
+fn is_zero(value: u32) -> bool {
+    return value == 0;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-integer-equality-context>"
+        )
+        bootstrap.check(parsed)
+
     def test_typed_body_accepts_raw_pointer_null_comparison(self):
         source = """module test::typed_raw_pointer_null_comparison;
 fn is_null(value: *const u32) -> bool {

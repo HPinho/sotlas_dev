@@ -420,6 +420,20 @@ fn text() -> *const u8 {
         self.assertFalse(returned.mutable)
         self.assertFalse(returned.is_reference)
 
+    def test_public_phase1_pipeline_rejects_pointer_comparison_type_mismatch_in_bootstrap(self):
+        source = """module test::phase1_pointer_compare_mismatch;
+fn same(left: *mut u32, right: *const u32) -> bool {
+    return left == right;
+}
+"""
+        with self.assertRaisesRegex(
+            sotlas_compile.SotlasBootstrapError,
+            r"tipos incompatíveis em comparação ==: u32 vs u32",
+        ):
+            sotlas_compile.analyze_source_phase1(
+                source, filename="<phase1-pointer-compare-mismatch>"
+            )
+
     def test_public_phase1_pipeline_rejects_reference_null_comparison(self):
         source = """module test::phase1_reference_null_comparison;
 fn is_null(value: &u32) -> bool {
