@@ -89,6 +89,22 @@ fn advance(ptr: *const u8, offset: usize) -> *const u8 {
         self.assertFalse(result_type.is_reference)
         self.assertEqual(result_type.name, "u8")
 
+    def test_public_phase1_pipeline_rejects_mixed_for_bounds_in_bootstrap(self):
+        source = """module test::phase1_for_mixed_bounds;
+fn main() -> void {
+    for i in 0usize..3u32 {
+        return;
+    }
+}
+"""
+        with self.assertRaisesRegex(
+            sotlas_compile.SotlasBootstrapError,
+            r"tipos dos limites de for incompatíveis: usize vs u32",
+        ):
+            sotlas_compile.analyze_source_phase1(
+                source, filename="<phase1-for-mixed-bounds>"
+            )
+
     def test_public_phase1_pipeline_rejects_invalid_numeric_operator_domain_in_bootstrap(self):
         source = """module test::phase1_numeric_operator_domain;
 fn main(flag: bool) -> bool {

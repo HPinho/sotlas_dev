@@ -1145,6 +1145,54 @@ fn main() -> void {
         ):
             typed_ast.build_linear_typed_body(parsed, typed, "main")
 
+    def test_bootstrap_rejects_pointer_for_range_bounds(self):
+        source = """module test::bootstrap_for_pointer_bounds;
+fn main(start: *mut u32, end: *mut u32) -> void {
+    for i in start..end {
+        return;
+    }
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-for-pointer-bounds>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"limites de for devem ser inteiros escalares",
+        ):
+            bootstrap.check(parsed)
+
+    def test_bootstrap_rejects_mixed_for_bound_types(self):
+        source = """module test::bootstrap_for_mixed_bounds;
+fn main() -> void {
+    for i in 0usize..3u32 {
+        return;
+    }
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-for-mixed-bounds>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"tipos dos limites de for incompatíveis: usize vs u32",
+        ):
+            bootstrap.check(parsed)
+
+    def test_bootstrap_accepts_typed_for_range(self):
+        source = """module test::bootstrap_for_typed_range;
+fn main() -> void {
+    for i in 0i32..3i32 {
+        let copy: i32 = i;
+    }
+    return;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-for-typed-range>"
+        )
+        bootstrap.check(parsed)
+
     def test_typed_body_rejects_pointer_for_range_bounds(self):
         source = """module test::typed_for_pointer_bounds;
 fn main(start: *mut u32, end: *mut u32) -> void {

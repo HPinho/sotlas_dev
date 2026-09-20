@@ -1604,11 +1604,26 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
             elif isinstance(item, Loop):
                 statements(item.body, dict(scope), expected_return, in_unsafe, is_system_fn)
             elif isinstance(item, For):
-                expr_type(item.start, scope, in_unsafe, is_system_fn)
-                expr_type(item.end, scope, in_unsafe, is_system_fn)
+                start_t = expr_type(
+                    item.start, scope, in_unsafe, is_system_fn
+                )
+                end_t = expr_type(
+                    item.end, scope, in_unsafe, is_system_fn
+                )
+                if not scalar_integer(start_t) or not scalar_integer(end_t):
+                    raise SotlasBootstrapError(
+                        "limites de for devem ser inteiros escalares",
+                        item.token.line, item.token.column, filename, source,
+                    )
+                if not same_type(start_t, end_t):
+                    raise SotlasBootstrapError(
+                        f"tipos dos limites de for incompatíveis: "
+                        f"{start_t.name} vs {end_t.name}",
+                        item.token.line, item.token.column, filename, source,
+                    )
                 for_scope = dict(scope)
                 for_scope[item.var_name] = binding_type(
-                    Type("usize"), bool(getattr(item, "is_mut", False))
+                    start_t, bool(getattr(item, "is_mut", False))
                 )
                 statements(item.body, for_scope, expected_return, in_unsafe, is_system_fn)
             elif isinstance(item, Unsafe):
