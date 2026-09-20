@@ -261,7 +261,11 @@ class _StrictSafetyChecker:
                 return _ExprInfo(b.Type(inner.type_obj.name, mutable=inner.type_obj.mutable), inner.foreign)
             if expr.op == "&":
                 if inner.type_obj is None: return _ExprInfo(None)
-                typ = b.Type(inner.type_obj.name, pointer=True, mutable=inner.type_obj.mutable)
+                typ = b.Type(
+                    inner.type_obj.name,
+                    pointer=True,
+                    mutable=bool(getattr(expr, "mutable", False)),
+                )
                 object.__setattr__(typ, "_sotlas_reference", True)
                 return _ExprInfo(typ)
             if expr.op == "!": return _ExprInfo(b.Type("bool"))

@@ -2199,17 +2199,169 @@ def infer_assignment_target_type(
     )
 
 
+def _mutable_place(
+    expr,
+    mutable_bindings: set[str],
+    env: dict[str, SemanticType],
+    typed_module: TypedModule,
+) -> bool:
+    kind = type(expr).__name__
+    if kind == "Name":
+        name = getattr(expr, "value")
+        if name in env:
+            return name in mutable_bindings
+        global_item = next(
+            (item for item in typed_module.globals if item.name == name),
+            None,
+        )
+        return bool(global_item and global_item.is_mut)
+    if kind in ("Index", "Member"):
+        return _mutable_place(
+            getattr(expr, "target"),
+            mutable_bindings,
+            env,
+            typed_module,
+        )
+    if kind == "Unary" and getattr(expr, "op", None) == "*":
+        pointee = infer_expression_type(
+            getattr(expr, "value"), env, typed_module
+        )
+        return bool(pointee.type.pointer and pointee.type.mutable)
+    return False
+
+
+def _validate_mutable_borrows(
+    expr,
+    mutable_bindings: set[str],
+    env: dict[str, SemanticType],
+    typed_module: TypedModule,
+) -> None:
+    if expr is None:
+        return
+
+    kind = type(expr).__name__
+    if (
+        kind == "Unary"
+        and getattr(expr, "op", None) == "&"
+        and bool(getattr(expr, "mutable", False))
+        and not _mutable_place(
+            getattr(expr, "value"),
+            mutable_bindings,
+            env,
+            typed_module,
+        )
+    ):
+        raise Phase1SemanticError(
+            "mutable reference requires mutable binding"
+        )
+
+    if kind == "Binary":
+        children = (
+            getattr(expr, "left", None),
+            getattr(expr, "right", None),
+        )
+    elif kind in ("Unary", "MoveExpr", "UnsafeExpr"):
+        children = (getattr(expr, "value", None),)
+    elif kind == "Cast":
+        children = (getattr(expr, "expr", None),)
+    elif kind == "Index":
+        children = (
+            getattr(expr, "target", None),
+            getattr(expr, "index", None),
+        )
+    elif kind == "Member":
+        children = (getattr(expr, "target", None),)
+    elif kind == "Call":
+        children = tuple(getattr(expr, "args", ()))
+    elif kind == "MethodCall":
+        children = (
+            getattr(expr, "target", None),
+            *tuple(getattr(expr, "args", ())),
+        )
+    elif kind == "ArrayLit":
+        children = tuple(getattr(expr, "elements", ()))
+    elif kind == "StructLit":
+        children = tuple(
+            value for _, value in getattr(expr, "fields", ())
+        )
+    elif kind == "IfExpr":
+        children = (
+            getattr(expr, "condition", None),
+            getattr(expr, "then_expr", None),
+            getattr(expr, "else_expr", None),
+        )
+    elif kind == "TryExpr":
+        children = (getattr(expr, "expr", None),)
+    else:
+        children = ()
+
+    for child in children:
+        _validate_mutable_borrows(
+            child, mutable_bindings, env, typed_module
+        )
+
+
+def _validate_statement_mutable_borrows(
+    statement,
+    mutable_bindings: set[str],
+    env: dict[str, SemanticType],
+    typed_module: TypedModule,
+) -> None:
+    kind = type(statement).__name__
+    if kind in ("Let", "Return", "Expression"):
+        expressions = (getattr(statement, "value", None),)
+    elif kind == "Assign":
+        expressions = (
+            getattr(statement, "target", None),
+            getattr(statement, "value", None),
+        )
+    elif kind in ("If", "While"):
+        expressions = (getattr(statement, "condition", None),)
+    elif kind == "For":
+        expressions = (
+            getattr(statement, "start", None),
+            getattr(statement, "end", None),
+        )
+    elif kind == "Asm":
+        expressions = (
+            *tuple(getattr(statement, "outputs", ())),
+            *tuple(getattr(statement, "inputs", ())),
+        )
+    elif kind == "Defer":
+        deferred = getattr(statement, "value", None)
+        if type(deferred).__name__ == "Assign":
+            expressions = (
+                getattr(deferred, "target", None),
+                getattr(deferred, "value", None),
+            )
+        else:
+            expressions = (deferred,)
+    else:
+        expressions = ()
+
+    for expr in expressions:
+        _validate_mutable_borrows(
+            expr, mutable_bindings, env, typed_module
+        )
+
+
 def _build_typed_block(
     statements,
     env: dict[str, SemanticType],
     typed_module: TypedModule,
     typed_function: TypedFunction,
     in_unsafe: bool = False,
+    mutable_bindings: set[str] | None = None,
 ) -> tuple[TypedStmtNode, ...]:
     typed_statements: list[TypedStmtNode] = []
+    if mutable_bindings is None:
+        mutable_bindings = set()
 
     for statement in statements:
         kind = type(statement).__name__
+        _validate_statement_mutable_borrows(
+            statement, mutable_bindings, env, typed_module
+        )
         _validate_statement_try_propagation(
             statement, env, typed_module, typed_function
         )
@@ -2234,6 +2386,10 @@ def _build_typed_block(
                     f"declared {declared.name}, got {expr.type.name}"
                 )
             env[statement.name] = declared
+            if bool(getattr(statement, "is_mut", False)):
+                mutable_bindings.add(statement.name)
+            else:
+                mutable_bindings.discard(statement.name)
             typed_statements.append(
                 TypedStmtNode(
                     "Let",
@@ -2315,6 +2471,7 @@ def _build_typed_block(
                 typed_module,
                 typed_function,
                 in_unsafe,
+                set(mutable_bindings),
             )
             else_body = _build_typed_block(
                 getattr(statement, "else_body", ()),
@@ -2322,6 +2479,7 @@ def _build_typed_block(
                 typed_module,
                 typed_function,
                 in_unsafe,
+                set(mutable_bindings),
             )
             typed_statements.append(
                 TypedStmtNode(
@@ -2345,6 +2503,7 @@ def _build_typed_block(
                 typed_module,
                 typed_function,
                 in_unsafe,
+                set(mutable_bindings),
             )
             typed_statements.append(
                 TypedStmtNode(
@@ -2360,6 +2519,7 @@ def _build_typed_block(
                 typed_module,
                 typed_function,
                 in_unsafe,
+                set(mutable_bindings),
             )
             typed_statements.append(
                 TypedStmtNode("Loop", None, None, None, body)
@@ -2390,13 +2550,20 @@ def _build_typed_block(
                     f"{start.type.name} vs {end.type.name}"
                 )
             loop_env = dict(env)
-            loop_env[getattr(statement, "var_name")] = start.type
+            loop_name = getattr(statement, "var_name")
+            loop_env[loop_name] = start.type
+            loop_mutable_bindings = set(mutable_bindings)
+            if bool(getattr(statement, "is_mut", False)):
+                loop_mutable_bindings.add(loop_name)
+            else:
+                loop_mutable_bindings.discard(loop_name)
             body = _build_typed_block(
                 getattr(statement, "body", ()),
                 loop_env,
                 typed_module,
                 typed_function,
                 in_unsafe,
+                loop_mutable_bindings,
             )
             typed_statements.append(
                 TypedStmtNode(
@@ -2424,6 +2591,7 @@ def _build_typed_block(
                 typed_module,
                 typed_function,
                 True,
+                set(mutable_bindings),
             )
             typed_statements.append(
                 TypedStmtNode("Unsafe", None, None, None, body)
@@ -2453,6 +2621,7 @@ def _build_typed_block(
                     typed_module,
                     typed_function,
                     in_unsafe,
+                    set(mutable_bindings),
                 )
                 typed_statements.append(
                     TypedStmtNode("Defer", None, None, None, body)

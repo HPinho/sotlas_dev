@@ -225,6 +225,27 @@ fn main() -> u32 {
         )
         self.assertEqual(main.statements[-1].expr.type.name, "u32")
 
+    def test_public_phase1_pipeline_rejects_mut_borrow_of_immutable_binding(self):
+        source = """module test::phase1_mut_borrow_immutable_binding;
+fn write(value: &mut u32) -> void {
+    *value = 9u32;
+    return;
+}
+fn main() -> void {
+    let value: u32 = 7u32;
+    write(&mut value);
+    return;
+}
+"""
+        with self.assertRaisesRegex(
+            sotlas_compile.SotlasBootstrapError,
+            r"referência mutável exige binding mutável",
+        ):
+            sotlas_compile.analyze_source_phase1(
+                source,
+                filename="<phase1-mut-borrow-immutable-binding>",
+            )
+
     def test_public_phase1_pipeline_forms_mut_references_with_address_of_mut(self):
         source = """module test::phase1_address_of_mut_reference;
 fn write(value: &mut u32) -> void {

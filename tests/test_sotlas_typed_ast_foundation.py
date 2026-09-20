@@ -1681,6 +1681,74 @@ fn main() -> u32 {
         body = typed_ast.build_linear_typed_body(parsed, typed_module, "main")
         self.assertEqual(body.statements[-1].expr.type.name, "u32")
 
+    def test_bootstrap_rejects_mutable_borrow_of_immutable_binding(self):
+        source = """module test::mut_borrow_immutable_binding;
+fn write(value: &mut u32) -> void {
+    *value = 9u32;
+    return;
+}
+fn main() -> void {
+    let value: u32 = 7u32;
+    write(&mut value);
+    return;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-mut-borrow-immutable-binding>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"referência mutável exige binding mutável",
+        ):
+            bootstrap.check(parsed)
+
+    def test_typed_body_independently_rejects_mutable_borrow_of_immutable_binding(self):
+        source = """module test::typed_mut_borrow_immutable_binding;
+fn write(value: &mut u32) -> void {
+    *value = 9u32;
+    return;
+}
+fn main() -> void {
+    let value: u32 = 7u32;
+    write(&mut value);
+    return;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-typed-mut-borrow-immutable-binding>"
+        )
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"mutable reference requires mutable binding",
+        ):
+            typed_ast.build_linear_typed_body(
+                parsed, typed_module, "main"
+            )
+
+    def test_typed_body_accepts_mutable_borrow_of_mutable_index(self):
+        source = """module test::typed_mut_borrow_mutable_index;
+fn write(value: &mut u8) -> void {
+    *value = 9u8;
+    return;
+}
+fn main() -> u8 {
+    let mut values: [u8; 2] = [1, 2];
+    write(&mut values[0]);
+    return values[0];
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-typed-mut-borrow-mutable-index>"
+        )
+        bootstrap.check(parsed)
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(
+            parsed, typed_module, "main"
+        )
+        self.assertTrue(body.statements[0].is_mut)
+        self.assertEqual(body.statements[-1].expr.type.name, "u8")
+
     def test_address_of_mut_preserves_exclusive_reference(self):
         source = """module test::address_of_mut_reference;
 fn write(value: &mut u32) -> void {

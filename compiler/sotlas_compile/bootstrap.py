@@ -1154,6 +1154,30 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
     functions.update(user_funcs)
     if imported_fns: functions.update(imported_fns)
 
+    def binding_type(type_obj: Type, is_mut: bool) -> Type:
+        bound = replace(type_obj)
+        object.__setattr__(bound, "_sotlas_binding_mutable", bool(is_mut))
+        return bound
+
+    def mutable_place(expr: Expr, scope: dict[str, Type], in_unsafe: bool, is_system_fn: bool) -> bool:
+        if isinstance(expr, Name):
+            if expr.value in scope:
+                return bool(
+                    getattr(scope[expr.value], "_sotlas_binding_mutable", False)
+                )
+            global_item = global_map.get(expr.value)
+            return bool(global_item and global_item.is_mut)
+        if isinstance(expr, (Index, Member)):
+            return mutable_place(
+                expr.target, scope, in_unsafe, is_system_fn
+            )
+        if isinstance(expr, Unary) and expr.op == "*":
+            pointee = expr_type(
+                expr.value, scope, in_unsafe, is_system_fn
+            )
+            return bool(pointee.pointer and pointee.mutable)
+        return False
+
     def expr_type(expr: Expr, scope: dict[str, Type], in_unsafe: bool, is_system_fn: bool) -> Type:
         if isinstance(expr, UnsafeExpr):
             return expr_type(expr.value, scope, True, is_system_fn)
@@ -1209,6 +1233,16 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
                     )
                 return Type(inner.name, pointer=False, mutable=inner.mutable)
             if expr.op == "&":
+                if (
+                    expr.mutable
+                    and not mutable_place(
+                        expr.value, scope, in_unsafe, is_system_fn
+                    )
+                ):
+                    raise SotlasBootstrapError(
+                        "referência mutável exige binding mutável",
+                        expr.token.line, expr.token.column, filename, source,
+                    )
                 return Type(
                     inner.name,
                     pointer=True,
@@ -1375,7 +1409,9 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
             if isinstance(item, Let):
                 actual = expr_type(item.value, scope, in_unsafe, is_system_fn)
                 declared = item.type or actual
-                scope[item.name] = declared
+                scope[item.name] = binding_type(
+                    declared, bool(getattr(item, "is_mut", False))
+                )
             elif isinstance(item, Assign):
                 if isinstance(item.target, (Index, Member)):
                     container_t = expr_type(
@@ -1426,7 +1462,9 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
                 expr_type(item.start, scope, in_unsafe, is_system_fn)
                 expr_type(item.end, scope, in_unsafe, is_system_fn)
                 for_scope = dict(scope)
-                for_scope[item.var_name] = Type("usize")
+                for_scope[item.var_name] = binding_type(
+                    Type("usize"), bool(getattr(item, "is_mut", False))
+                )
                 statements(item.body, for_scope, expected_return, in_unsafe, is_system_fn)
             elif isinstance(item, Unsafe):
                 statements(item.body, scope, expected_return, in_unsafe=True, is_system_fn=is_system_fn)
