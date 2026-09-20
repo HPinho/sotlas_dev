@@ -1289,6 +1289,106 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
             return True
         return False
 
+    def contextual_type_matches(
+        value_expr: Expr,
+        actual: Type,
+        expected: Type,
+        scope: dict[str, Type],
+        in_unsafe: bool,
+        is_system_fn: bool,
+    ) -> bool:
+        if same_type(actual, expected):
+            return True
+
+        if scalar_integer(expected) and unsuffixed_integer_constant(value_expr):
+            value = integer_constant_value(value_expr)
+            if value is not None:
+                validate_integer_constant(value, expected, value_expr.token)
+                return True
+
+        if (
+            actual.pointer
+            and expected.pointer
+            and actual.is_reference
+            and expected.is_reference
+            and actual.name == expected.name
+            and not actual.is_array
+            and not expected.is_array
+            and actual.mutable
+            and not expected.mutable
+        ):
+            return True
+
+        if (
+            actual.pointer
+            and expected.pointer
+            and not actual.is_reference
+            and not expected.is_reference
+            and not actual.is_array
+            and not expected.is_array
+            and (
+                actual.name == expected.name
+                or actual.name == "void"
+                or expected.name == "void"
+            )
+            and not (expected.mutable and not actual.mutable)
+        ):
+            return True
+
+        if (
+            isinstance(value_expr, NullLit)
+            and expected.pointer
+            and not expected.is_reference
+            and not expected.is_array
+        ):
+            return True
+
+        if not isinstance(value_expr, ArrayLit) or not expected.is_array:
+            return False
+
+        actual_size = (
+            value_expr.repeat_size
+            if value_expr.is_repeat
+            else len(value_expr.elements)
+        )
+        if str(actual_size) != str(expected.array_size):
+            raise SotlasBootstrapError(
+                f"tamanho de array incompatível: esperado "
+                f"{expected.array_size}, recebido {actual_size}",
+                value_expr.token.line, value_expr.token.column,
+                filename, source,
+            )
+        if not value_expr.elements:
+            raise SotlasBootstrapError(
+                "não é possível contextualizar array literal vazio",
+                value_expr.token.line, value_expr.token.column,
+                filename, source,
+            )
+
+        expected_elem = expected.elem_type or Type(
+            expected.name,
+            pointer=expected.pointer,
+            mutable=expected.mutable,
+        )
+        for element in value_expr.elements:
+            element_type = expr_type(
+                element, scope, in_unsafe, is_system_fn
+            )
+            if same_type(element_type, expected_elem):
+                continue
+            if (
+                scalar_integer(expected_elem)
+                and unsuffixed_integer_constant(element)
+            ):
+                element_value = integer_constant_value(element)
+                if element_value is not None:
+                    validate_integer_constant(
+                        element_value, expected_elem, element.token
+                    )
+                    continue
+            return False
+        return True
+
     def mutable_place(expr: Expr, scope: dict[str, Type], in_unsafe: bool, is_system_fn: bool) -> bool:
         if isinstance(expr, Name):
             if expr.value in scope:
@@ -1341,7 +1441,10 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
                     f"tipo de struct literal não declarado: {expr.struct_name}",
                     expr.token.line, expr.token.column, filename, source,
                 )
-            declared_fields = {field.name for field in struct.fields}
+            declared_field_map = {
+                field.name: field for field in struct.fields
+            }
+            declared_fields = set(declared_field_map)
             seen_fields: set[str] = set()
             for field_name, value in expr.fields:
                 if field_name in seen_fields:
@@ -1357,7 +1460,25 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
                         expr.token.line, expr.token.column, filename, source,
                     )
                 seen_fields.add(field_name)
-                expr_type(value, scope, in_unsafe, is_system_fn)
+                actual = expr_type(
+                    value, scope, in_unsafe, is_system_fn
+                )
+                expected = declared_field_map[field_name].type
+                if not contextual_type_matches(
+                    value,
+                    actual,
+                    expected,
+                    scope,
+                    in_unsafe,
+                    is_system_fn,
+                ):
+                    raise SotlasBootstrapError(
+                        f"tipo incompatível no campo {field_name} de "
+                        f"{expr.struct_name}: esperado {expected.name}, "
+                        f"recebido {actual.name}",
+                        value.token.line, value.token.column,
+                        filename, source,
+                    )
             missing_fields = declared_fields - seen_fields
             if missing_fields:
                 missing = ", ".join(sorted(missing_fields))

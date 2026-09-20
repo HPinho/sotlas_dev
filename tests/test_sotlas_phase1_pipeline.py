@@ -119,6 +119,21 @@ fn main(left: u32, right: u64) -> bool {
                 source, filename="<phase1-numeric-type-mismatch>"
             )
 
+    def test_public_phase1_pipeline_rejects_struct_literal_field_type_overflow_in_bootstrap(self):
+        source = """module test::phase1_struct_literal_field_type;
+struct Pixel { channel: u8; }
+fn main() -> Pixel {
+    return Pixel { channel: 256 };
+}
+"""
+        with self.assertRaisesRegex(
+            sotlas_compile.SotlasBootstrapError,
+            r"valor inteiro 256 fora do intervalo para u8 \[0, 255\]",
+        ):
+            sotlas_compile.analyze_source_phase1(
+                source, filename="<phase1-struct-literal-field-type>"
+            )
+
     def test_public_phase1_pipeline_rejects_invalid_struct_literal_shape_in_bootstrap(self):
         source = """module test::phase1_struct_literal_shape;
 struct Pair { left: u32; right: u32; }

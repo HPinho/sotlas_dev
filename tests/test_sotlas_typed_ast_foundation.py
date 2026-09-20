@@ -5054,6 +5054,62 @@ fn main() -> Pair {
         ):
             bootstrap.check(parsed)
 
+    def test_bootstrap_accepts_contextual_struct_literal_integer_field(self):
+        source = """module test::bootstrap_struct_integer_context;
+struct Pixel { channel: u8; }
+fn main() -> Pixel {
+    return Pixel { channel: 255 };
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-struct-integer-context>"
+        )
+        bootstrap.check(parsed)
+
+    def test_bootstrap_rejects_struct_literal_integer_field_overflow(self):
+        source = """module test::bootstrap_struct_integer_overflow;
+struct Pixel { channel: u8; }
+fn main() -> Pixel {
+    return Pixel { channel: 256 };
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-struct-integer-overflow>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"valor inteiro 256 fora do intervalo para u8 \[0, 255\]",
+        ):
+            bootstrap.check(parsed)
+
+    def test_bootstrap_rejects_explicit_struct_literal_field_type_mismatch(self):
+        source = """module test::bootstrap_struct_field_type;
+struct Pixel { channel: u32; }
+fn main() -> Pixel {
+    return Pixel { channel: 1u64 };
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-struct-field-type>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"tipo incompatível no campo channel de Pixel: esperado u32, recebido u64",
+        ):
+            bootstrap.check(parsed)
+
+    def test_bootstrap_preserves_raw_pointer_weakening_in_struct_field(self):
+        source = """module test::bootstrap_struct_pointer_weakening;
+struct Holder { ptr: *const u32; }
+fn main(ptr: *mut u32) -> Holder {
+    return Holder { ptr: ptr };
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-struct-pointer-weakening>"
+        )
+        bootstrap.check(parsed)
+
     def test_struct_literal_validates_field_shape(self):
         source = """module test::typed_struct_shape;
 struct Pair { left: u32; right: u32; }
