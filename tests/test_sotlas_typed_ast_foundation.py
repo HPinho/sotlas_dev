@@ -3276,6 +3276,51 @@ fn main(value: u32) -> bool { return value && value; }
         ):
             typed_ast.build_linear_typed_body(parsed, typed, "main")
 
+    def test_bootstrap_rejects_constant_unsigned_add_overflow(self):
+        source = """module test::bootstrap_u8_add_overflow;
+fn main() -> u8 {
+    return 255u8 + 1u8;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-u8-add-overflow>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"valor inteiro 256 fora do intervalo para u8 \[0, 255\]",
+        ):
+            bootstrap.check(parsed)
+
+    def test_bootstrap_rejects_contextual_constant_unsigned_add_overflow(self):
+        source = """module test::bootstrap_u8_contextual_add_overflow;
+fn main() -> u8 {
+    return 255u8 + 1;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-u8-contextual-add-overflow>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"valor inteiro 256 fora do intervalo para u8 \[0, 255\]",
+        ):
+            bootstrap.check(parsed)
+
+    def test_bootstrap_rejects_constant_signed_multiply_overflow(self):
+        source = """module test::bootstrap_i8_mul_overflow;
+fn main() -> i8 {
+    return 64i8 * 2i8;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-i8-mul-overflow>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"valor inteiro 128 fora do intervalo para i8 \[-128, 127\]",
+        ):
+            bootstrap.check(parsed)
+
     def test_typed_body_rejects_constant_unsigned_add_overflow(self):
         source = """module test::typed_u8_add_overflow;
 fn main() -> u8 {
@@ -3283,7 +3328,6 @@ fn main() -> u8 {
 }
 """
         parsed = bootstrap.parse(source, filename="<phase1-u8-add-overflow>")
-        bootstrap.check(parsed)
         typed = typed_ast.build_declaration_typed_ast(parsed)
         with self.assertRaisesRegex(
             typed_ast.Phase1SemanticError,
@@ -3298,7 +3342,6 @@ fn main() -> i8 {
 }
 """
         parsed = bootstrap.parse(source, filename="<phase1-i8-mul-overflow>")
-        bootstrap.check(parsed)
         typed = typed_ast.build_declaration_typed_ast(parsed)
         with self.assertRaisesRegex(
             typed_ast.Phase1SemanticError,

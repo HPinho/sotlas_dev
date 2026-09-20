@@ -226,15 +226,15 @@ fn main(value: u32) -> u32 {
                 source, filename="<phase1-integer-div-zero>"
             )
 
-    def test_public_phase1_pipeline_rejects_constant_integer_overflow(self):
+    def test_public_phase1_pipeline_rejects_constant_integer_overflow_in_bootstrap(self):
         source = """module test::phase1_integer_overflow;
 fn main() -> u8 {
     return 255u8 + 1u8;
 }
 """
         with self.assertRaisesRegex(
-            typed_ast.Phase1SemanticError,
-            r"integer value 256 out of range for u8",
+            sotlas_compile.SotlasBootstrapError,
+            r"valor inteiro 256 fora do intervalo para u8 \[0, 255\]",
         ):
             sotlas_compile.analyze_source_phase1(
                 source, filename="<phase1-integer-overflow>"

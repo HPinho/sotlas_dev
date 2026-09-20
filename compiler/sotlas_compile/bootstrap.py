@@ -1165,6 +1165,24 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
     }
     signed_integer_types = {"i8", "i16", "i32", "i64", "isize"}
 
+    def integer_bounds_for(type_obj: Type) -> tuple[int, int]:
+        width = integer_widths[type_obj.name]
+        if type_obj.name in signed_integer_types:
+            limit = 1 << (width - 1)
+            return -limit, limit - 1
+        return 0, (1 << width) - 1
+
+    def validate_integer_constant(
+        value: int, type_obj: Type, token: Token
+    ) -> None:
+        lower, upper = integer_bounds_for(type_obj)
+        if value < lower or value > upper:
+            raise SotlasBootstrapError(
+                f"valor inteiro {value} fora do intervalo para {type_obj.name} "
+                f"[{lower}, {upper}]",
+                token.line, token.column, filename, source,
+            )
+
     def scalar_integer(type_obj: Type) -> bool:
         return (
             not type_obj.pointer
@@ -1228,6 +1246,20 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
         if scalar_integer(right_type) and unsuffixed_integer_constant(left_expr):
             return True
         return False
+
+    def contextual_integer_operand_type(
+        left_expr: Expr,
+        left_type: Type,
+        right_expr: Expr,
+        right_type: Type,
+    ) -> Type | None:
+        if scalar_integer(left_type) and same_type(left_type, right_type):
+            return left_type
+        if scalar_integer(left_type) and unsuffixed_integer_constant(right_expr):
+            return left_type
+        if scalar_integer(right_type) and unsuffixed_integer_constant(left_expr):
+            return right_type
+        return None
 
     def equality_operand_types_compatible(
         left_expr: Expr,
@@ -1449,6 +1481,26 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
                             f"overflow de {operation} inteira para mínimo de "
                             f"{left.name} dividido por -1",
                             expr.token.line, expr.token.column, filename, source,
+                        )
+                if expr.op in ("+", "-", "*"):
+                    result_type = contextual_integer_operand_type(
+                        expr.left, left, expr.right, right
+                    )
+                    left_value = integer_constant_value(expr.left)
+                    right_value = integer_constant_value(expr.right)
+                    if (
+                        result_type is not None
+                        and left_value is not None
+                        and right_value is not None
+                    ):
+                        if expr.op == "+":
+                            constant_value = left_value + right_value
+                        elif expr.op == "-":
+                            constant_value = left_value - right_value
+                        else:
+                            constant_value = left_value * right_value
+                        validate_integer_constant(
+                            constant_value, result_type, expr.token
                         )
             if expr.op in ("&", "|", "^"):
                 if not scalar_integer(left) or not scalar_integer(right):
