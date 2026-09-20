@@ -3262,6 +3262,56 @@ fn main(value: i32) -> i32 {
         ):
             typed_ast.build_linear_typed_body(parsed, typed, "main")
 
+    def test_bootstrap_allows_raw_pointer_arithmetic_inside_unsafe(self):
+        source = """module test::bootstrap_pointer_arithmetic_unsafe;
+fn advance(ptr: *const u8, offset: usize) -> *const u8 {
+    unsafe {
+        return ptr + offset;
+    }
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-pointer-arithmetic-unsafe>"
+        )
+        bootstrap.check(parsed)
+
+    def test_bootstrap_rejects_raw_pointer_arithmetic_outside_unsafe(self):
+        source = """module test::bootstrap_pointer_arithmetic_safe;
+fn advance(ptr: *const u8, offset: usize) -> *const u8 {
+    return ptr + offset;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-pointer-arithmetic-safe>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"aritmética de ponteiro cru exige bloco unsafe",
+        ):
+            bootstrap.check(parsed)
+
+    def test_typed_body_preserves_raw_pointer_arithmetic_type(self):
+        source = """module test::typed_pointer_arithmetic;
+fn advance(ptr: *const u8, offset: usize) -> *const u8 {
+    unsafe {
+        return ptr + offset;
+    }
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-typed-pointer-arithmetic>"
+        )
+        bootstrap.check(parsed)
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(
+            parsed, typed_module, "advance"
+        )
+        result = body.statements[0].body[0].expr.type
+        self.assertEqual(result.name, "u8")
+        self.assertTrue(result.pointer)
+        self.assertFalse(result.mutable)
+        self.assertFalse(result.is_reference)
+
     def test_bootstrap_rejects_arithmetic_on_bool(self):
         source = """module test::bootstrap_bad_arithmetic;
 fn main(flag: bool) -> bool {

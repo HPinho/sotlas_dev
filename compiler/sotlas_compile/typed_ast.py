@@ -1917,6 +1917,14 @@ def infer_expression_type(
                 )
             return TypedExprNode(kind, SemanticType("bool"), op)
 
+        if (
+            op in ("+", "-")
+            and left.type.pointer
+            and not left.type.is_reference
+            and _is_scalar_integer_type(right.type)
+        ):
+            return TypedExprNode(kind, left.type, op)
+
         if op in ("+", "-", "*", "/", "%"):
             if (
                 not _is_scalar_numeric_type(left.type)

@@ -70,6 +70,25 @@ fn main() -> void {
                 source, filename="<phase1-bool-control-flow>"
             )
 
+    def test_public_phase1_pipeline_accepts_raw_pointer_arithmetic_inside_unsafe(self):
+        source = """module test::phase1_pointer_arithmetic;
+fn advance(ptr: *const u8, offset: usize) -> *const u8 {
+    unsafe {
+        return ptr + offset;
+    }
+}
+"""
+        result = sotlas_compile.analyze_source_phase1(
+            source, filename="<phase1-pointer-arithmetic>"
+        )
+        body = next(
+            item for item in result.semantic.bodies if item.name == "advance"
+        )
+        result_type = body.statements[0].body[0].expr.type
+        self.assertTrue(result_type.pointer)
+        self.assertFalse(result_type.is_reference)
+        self.assertEqual(result_type.name, "u8")
+
     def test_public_phase1_pipeline_rejects_invalid_numeric_operator_domain_in_bootstrap(self):
         source = """module test::phase1_numeric_operator_domain;
 fn main(flag: bool) -> bool {

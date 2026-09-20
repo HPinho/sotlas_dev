@@ -1306,6 +1306,18 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
                         f"operador relacional {expr.op} exige operandos numéricos escalares",
                         expr.token.line, expr.token.column, filename, source,
                     )
+            if (
+                expr.op in ("+", "-")
+                and left.pointer
+                and not left.is_reference
+                and scalar_integer(right)
+            ):
+                if not in_unsafe:
+                    raise SotlasBootstrapError(
+                        "aritmética de ponteiro cru exige bloco unsafe",
+                        expr.token.line, expr.token.column, filename, source,
+                    )
+                return left
             if expr.op in ("+", "-", "*", "/", "%"):
                 if not scalar_numeric(left) or not scalar_numeric(right):
                     raise SotlasBootstrapError(
