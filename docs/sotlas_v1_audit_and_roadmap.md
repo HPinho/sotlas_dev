@@ -51,20 +51,95 @@ Before expanding the roadmap, the three fundamental open questions from the init
   - To prevent binary bloat in freestanding kernels, the SIR Dead-Code Elimination (DCE) pass strips uncalled monomorphized instances before code generation.
   - When dynamic heterogeneity is explicitly required (e.g., heterogeneous UI widget hierarchies), Sotlas uses fat pointers (`data_ptr` + `vtable_ptr`) via `*dyn Spec`.
 
-### Exploratory Vocabulary (Non-Normative)
+### Reserved Sotlas Vocabulary (Future Contracts)
 
-The following names are design candidates for future Sotlas surface syntax. They are recorded so implementation work can preserve the concepts without prematurely freezing grammar, semantics, ABI, or standard-library contracts.
+The following names are intentionally retained as part of the Sotlas language design. They are **reserved future contracts**, not proof that the current compiler supports their complete semantics.
 
-| Candidate | Possible semantic role | Current status |
-| :--- | :--- | :--- |
-| `probe` | Semantic observability and instrumentation points with explicit compiler/runtime contracts. | **Exploration only** |
-| `enclave` | Isolated execution/resource domain or explicit trust boundary. | **Exploration only** |
-| `discern` | Exhaustive pattern matching and structural discrimination. | **Exploration only** |
-| `forge` | Construction or instantiation that establishes invariants explicitly. | **Exploration only** |
-| `pulse` | Event, flow, or reactive propagation semantics where deterministic delivery can be defined. | **Exploration only** |
-| `handover` | Explicit transfer of a resource or ownership obligation between bindings/domains. | **Exploration only** |
+A token, parser branch, syntax-highlighting rule, prototype lowering, website example, or isolated semantic check does **not** make a construct `SUPPORTED`. Every construct below must still pass the project-wide gate:
 
-These names are **not reserved as stable language contracts** by this roadmap. A future proposal must define syntax, typing rules, ownership interaction, lowering, diagnostics, and compatibility before any term becomes normative. Existing prototype references do not override this rule. In particular, earlier uses of `forge<T>` as generic syntax are provisional; generic monomorphization remains an architectural decision, while its final surface syntax remains open. Likewise, existing lexer/helper references to `handover` must not be interpreted as finalized public semantics.
+```text
+RFC / semantic contract
+  -> grammar
+  -> typed AST
+  -> semantic rules
+  -> negative + positive tests
+  -> SIR / lowering
+  -> backend
+  -> end-to-end
+  -> SUPPORTED
+```
+
+If older prototype documents assign conflicting meanings to one of these names, the conflict must be resolved by an RFC before the final grammar/ABI is frozen.
+
+#### SRG — Scoped Reference Graph
+
+| Construct | Reserved semantic role |
+| :--- | :--- |
+| `sole` | Exclusive linear ownership; moving invalidates the source and destruction is deterministic. |
+| `co-owned` | Explicit shared ownership with ARC/reference accounting or an equivalent domain-defined mechanism; sharing cost may not be hidden. |
+| `island` | Isolated ownership subgraph/region; aliases cannot freely cross its boundary. |
+| `whisper` | Non-owning weak/borrowed reference; it never extends lifetime and must obey owner validity. |
+| `direct` | Zero-bookkeeping low-level SRG access; it does not itself select a physical address space and carries explicit lifetime/safety obligations. |
+| `handover` | Explicit transfer of ownership/resource obligation between bindings, scopes, or domains without intermediate destruction. |
+| `quarantine` | Moves a resource into an isolated `island`-style domain and invalidates incompatible external access before reuse/dispatch. |
+
+#### Hardware topology pointers
+
+| Construct | Reserved semantic role |
+| :--- | :--- |
+| `*rawphys T` | Direct physical/MMIO address with target-appropriate volatility and ordering rules. |
+| `*virtmap T` | MMU/page-table mapped virtual address; physical translation must be explicit. |
+| `*portwire T` | Processor I/O-port address space, distinct from memory address space. |
+| `*dmazone T` | DMA-capable region with explicit alignment, cache/coherency, and CPU/device ownership rules. |
+| `*voidzero` | Opaque untyped pointer role analogous to `void*`, but with explicit conversion and topology/safety constraints. |
+
+#### Hardware, critical sections, and interrupts
+
+| Construct | Reserved semantic role |
+| :--- | :--- |
+| `clinch` | Opens a hardware critical section and creates a compiler-tracked restoration obligation. |
+| `revert` | Paired rollback/restoration path for `clinch`; covered exits must restore the protected machine state. |
+| `rebound` | Explicit low-level resume/exit after restoration; not a general synonym for `return`. |
+| `quench` | Strong memory/persistence ordering barrier with target-specific flush/fence lowering. |
+| `gate` | Structured runtime hardware precondition/guard with auditable failure behavior. |
+| `trapfn` | Interrupt-handler function with ISR ABI plus effect/stack/return restrictions. |
+| `mesh` | Exact-layout aggregate for registers, buses, SoA/ECS, and alignment/offset-sensitive data. |
+| `barecore` | Freestanding target profile: no implicit hosted runtime and explicit access to low-level primitives. |
+| `probe` | Explicit observability/verification/instrumentation point with declared effects. |
+| `pulse` | Deterministic event/signal emission for reactive/flow semantics once delivery rules are formally defined. |
+
+#### Contracts and headerless object model
+
+| Construct | Reserved semantic role |
+| :--- | :--- |
+| `spec` | Compile-time verifiable API/protocol contract without Sotlas header files. |
+| `adopts` | Declares and verifies conformance to one or more `spec` contracts. |
+| `mould` | Deterministic compile-time shaping/specialization context for layout or behavior. |
+| `moldable` | Explicitly marks an operation as specialization/override-capable; dynamic dispatch must never appear implicitly. |
+| `reshape` | Explicit implementation/override of a `moldable` operation with strict signature/contract checking. |
+| `capsule` | Visibility restricted to the implementation module/package/capsule. |
+| `lineage` | Visibility restricted to a type's inheritance lineage. |
+| `irqfree` | Effect contract forbidding operations such as allocation, blocking, and async when they are not interrupt-safe. |
+| `discern` | Exhaustive pattern matching over enums/ADTs with compile-time coverage checks. |
+| `forge` | Reserved generic/specialization mechanism for compile-time construction and monomorphization; final syntax freezes only in the generics phase. |
+| `enclave` | Explicit isolation/trust domain whose entry, exit, capabilities, and resource transfer are checked. |
+
+#### State/memory qualifiers and bit accessors
+
+| Construct | Reserved semantic role |
+| :--- | :--- |
+| `shielded` | Memory/state protected from concurrency or hardware interference using only the barriers/atomicity required by the target contract. |
+| `nvkeep` | State resident in non-volatile storage with explicit durability semantics. |
+| `seal` | State mutable only during an authorized initialization window and immutable after sealing. |
+| `.slit[lo..hi]` | Extracts a contiguous bit range with width/bounds validation. |
+| `.notch[n]` | Extracts/tests one bit with index validation where statically provable. |
+| `.strand` | Byte-order/endianness conversion, lowered to a native instruction when available. |
+| `.bound[min..max]` | Bounded/refined numeric type with compile-time proof, runtime check, or rejection according to the contract. |
+
+These constructs join the higher-level vocabulary already preserved by the master architecture: `intent`, `flow`, `space`, `state`, `view`, `when`, `guarantee`, `requires`, `ensures`, `proof`, `why`, `explain`, `whatif`, `change`, `transaction`, `compute`, `@target`, `permits`, `effects`, `capabilities`, `@system`, `@interrupt`, `@realtime`, `unsafe`, `shared`, `region`, `device`, `external`, `trusted`, and `isolated`.
+
+Implementation remains dependency-driven: first finish native AST/control-flow/defer/SIR/backend foundations; then formalize ownership; then hardware topology/state/effects/authority; then generics/spec dispatch; then flow/observability; only after those foundations should Intent, Causality, Counterfactuals, Transactions, and heterogeneous-compute semantics be promoted.
+
 
 ---
 
