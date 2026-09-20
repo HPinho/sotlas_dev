@@ -205,6 +205,42 @@ impl CEmitter {
         return self.emit_statement_payload(node.first_child);
     }
 
+    pub fn emit_defer_chain_lifo(mut self: &mut Self, index: usize) -> bool {
+        if index == 0 {
+            return true;
+        }
+        if !self.valid_node(index) {
+            return false;
+        }
+
+        let node: AstNode = unsafe { *(self.nodes + index) };
+
+        // Walk to the end of the lexical sibling chain first so defers are
+        // emitted in reverse registration order when this scope closes.
+        if !self.emit_defer_chain_lifo(node.next_sibling) {
+            return false;
+        }
+
+        if node.kind == AstKind::DeferStmt {
+            return self.emit_defer_payload(index);
+        }
+        return true;
+    }
+
+    pub fn emit_block_exit_defers(
+        mut self: &mut Self,
+        block_index: usize
+    ) -> bool {
+        if !self.valid_node(block_index) {
+            return false;
+        }
+        let block: AstNode = unsafe { *(self.nodes + block_index) };
+        if block.kind != AstKind::Block {
+            return false;
+        }
+        return self.emit_defer_chain_lifo(block.first_child);
+    }
+
     pub fn emit_header(mut self: &mut Self) -> bool {
         let hdr: *const u8 = "// Compilado nativamente pelo compilador Sotlas in Sotlas (v1.0-selfhost)\n#include <stdint.h>\n#include <stdbool.h>\n\n";
         return self.write_str(hdr, 110);

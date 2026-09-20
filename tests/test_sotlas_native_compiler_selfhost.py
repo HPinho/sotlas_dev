@@ -139,6 +139,27 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         self.assertIn("pub fn emit_defer_payload", text)
         self.assertIn("node.kind != AstKind::DeferStmt", text)
 
+    def test_native_emitter_collects_block_defers_in_lifo_order(self):
+        emitter_file = (
+            ROOT / "bootstrap" / "sotlas" / "native_compiler" / "emitter_c.sotlas"
+        )
+        text = emitter_file.read_text(encoding="utf-8")
+        self.assertIn("pub fn emit_defer_chain_lifo", text)
+        self.assertIn(
+            "self.emit_defer_chain_lifo(node.next_sibling)",
+            text,
+        )
+        self.assertIn("return self.emit_defer_payload(index);", text)
+        self.assertIn("pub fn emit_block_exit_defers", text)
+        self.assertIn("block.kind != AstKind::Block", text)
+        self.assertIn(
+            "return self.emit_defer_chain_lifo(block.first_child);",
+            text,
+        )
+        recurse_at = text.index("self.emit_defer_chain_lifo(node.next_sibling)")
+        emit_at = text.index("return self.emit_defer_payload(index);", recurse_at)
+        self.assertLess(recurse_at, emit_at)
+
     def test_native_parser_persists_nested_statement_tree(self):
         parser_file = (
             ROOT / "bootstrap" / "sotlas" / "native_compiler" / "parser.sotlas"
