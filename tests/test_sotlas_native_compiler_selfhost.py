@@ -297,6 +297,22 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         self.assertLess(capture_at, cleanup_at)
         self.assertLess(cleanup_at, final_return_at)
 
+    def test_native_emitter_lowers_function_signature_and_body(self):
+        emitter_file = (
+            ROOT / "bootstrap" / "sotlas" / "native_compiler" / "emitter_c.sotlas"
+        )
+        text = emitter_file.read_text(encoding="utf-8")
+        self.assertIn("pub fn find_function_body", text)
+        self.assertIn("pub fn emit_parameter", text)
+        self.assertIn("param.kind != AstKind::ParamDecl", text)
+        self.assertIn("self.emit_c_type(type_index)", text)
+        self.assertIn("pub fn emit_function", text)
+        self.assertIn("self.find_function_return_type(fn_index)", text)
+        self.assertIn("node.kind == AstKind::ParamDecl", text)
+        self.assertIn("self.emit_parameter(child)", text)
+        self.assertIn("self.find_function_body(fn_index)", text)
+        self.assertIn("return self.emit_braced_block(body_index);", text)
+
     def test_native_emitter_lowers_typed_local_declarations(self):
         emitter_file = (
             ROOT / "bootstrap" / "sotlas" / "native_compiler" / "emitter_c.sotlas"

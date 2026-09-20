@@ -565,6 +565,115 @@ impl CEmitter {
     }
 
 
+    pub fn find_function_body(self: &Self, fn_index: usize) -> usize {
+        if !self.valid_node(fn_index) {
+            return 0;
+        }
+        let function_node: AstNode = unsafe { *(self.nodes + fn_index) };
+        if function_node.kind != AstKind::FnDecl {
+            return 0;
+        }
+
+        let mut child: usize = function_node.first_child;
+        while child != 0 {
+            if !self.valid_node(child) {
+                return 0;
+            }
+            let node: AstNode = unsafe { *(self.nodes + child) };
+            if node.kind == AstKind::Block {
+                return child;
+            }
+            child = node.next_sibling;
+        }
+        return 0;
+    }
+
+    pub fn emit_parameter(mut self: &mut Self, param_index: usize) -> bool {
+        if !self.valid_node(param_index) {
+            return false;
+        }
+        let param: AstNode = unsafe { *(self.nodes + param_index) };
+        if param.kind != AstKind::ParamDecl || param.str_len == 0 {
+            return false;
+        }
+
+        let type_index: usize = param.first_child;
+        if !self.valid_node(type_index) {
+            return false;
+        }
+        let typ: AstNode = unsafe { *(self.nodes + type_index) };
+        if typ.kind != AstKind::TypeRef {
+            return false;
+        }
+
+        if !self.emit_c_type(type_index) {
+            return false;
+        }
+        if !self.write_byte(32) {
+            return false;
+        }
+        return self.write_source_slice(param.str_offset, param.str_len);
+    }
+
+    pub fn emit_function(mut self: &mut Self, fn_index: usize) -> bool {
+        if !self.valid_node(fn_index) {
+            return false;
+        }
+        let function_node: AstNode = unsafe { *(self.nodes + fn_index) };
+        if function_node.kind != AstKind::FnDecl || function_node.str_len == 0 {
+            return false;
+        }
+
+        let return_type: usize = self.find_function_return_type(fn_index);
+        if return_type == 0 {
+            if !self.write_str("void", 4) {
+                return false;
+            }
+        } else if !self.emit_c_type(return_type) {
+            return false;
+        }
+
+        if !self.write_byte(32) {
+            return false;
+        }
+        if !self.write_source_slice(function_node.str_offset, function_node.str_len) {
+            return false;
+        }
+        if !self.write_byte(40) {
+            return false;
+        }
+
+        let mut child: usize = function_node.first_child;
+        let mut first_param: bool = true;
+        while child != 0 {
+            if !self.valid_node(child) {
+                return false;
+            }
+            let node: AstNode = unsafe { *(self.nodes + child) };
+            if node.kind == AstKind::ParamDecl {
+                if !first_param {
+                    if !self.write_str(", ", 2) {
+                        return false;
+                    }
+                }
+                if !self.emit_parameter(child) {
+                    return false;
+                }
+                first_param = false;
+            }
+            child = node.next_sibling;
+        }
+
+        if !self.write_str(") ", 2) {
+            return false;
+        }
+        let body_index: usize = self.find_function_body(fn_index);
+        if body_index == 0 {
+            return false;
+        }
+        return self.emit_braced_block(body_index);
+    }
+
     pub fn emit_braced_block(mut self: &mut Self, block_index: usize) -> bool {
         if !self.valid_node(block_index) {
             return false;
