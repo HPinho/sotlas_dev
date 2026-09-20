@@ -1270,10 +1270,29 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
                     )
             return Type("bool") if expr.op in ("==", "!=", "<", "<=", ">", ">=", "&&", "||") else left
         if isinstance(expr, Call):
-            for argument in expr.args:
+            argument_types = [
                 expr_type(argument, scope, in_unsafe, is_system_fn)
+                for argument in expr.args
+            ]
             function = functions.get(expr.callee)
             if function:
+                if len(argument_types) != len(function.params):
+                    raise SotlasBootstrapError(
+                        f"quantidade de argumentos incompatível em chamada "
+                        f"{expr.callee}: esperado {len(function.params)}, "
+                        f"recebido {len(argument_types)}",
+                        expr.token.line, expr.token.column, filename, source,
+                    )
+                for index, (actual, (_, expected)) in enumerate(
+                    zip(argument_types, function.params), start=1
+                ):
+                    if not assignable(actual, expected):
+                        raise SotlasBootstrapError(
+                            f"argumento {index} incompatível em chamada "
+                            f"{expr.callee}: esperado {expected.name}, "
+                            f"recebido {actual.name}",
+                            expr.token.line, expr.token.column, filename, source,
+                        )
                 return function.result
             if expr.callee.startswith("__"):
                 return Type("u64")

@@ -53,6 +53,24 @@ fn read(t: Token) -> u32 {
         self.assertEqual(result.semantic.typed_module.structs[0].name, "Token")
         self.assertEqual(result.semantic.bodies[0].name, "read")
 
+    def test_public_phase1_pipeline_rejects_call_contract_mismatch_in_bootstrap(self):
+        source = """module test::phase1_call_contract;
+fn consume(value: u32) -> void {
+    return;
+}
+fn main(flag: bool) -> void {
+    consume(flag);
+    return;
+}
+"""
+        with self.assertRaisesRegex(
+            sotlas_compile.SotlasBootstrapError,
+            r"argumento 1 incompatível em chamada consume",
+        ):
+            sotlas_compile.analyze_source_phase1(
+                source, filename="<phase1-call-contract>"
+            )
+
     def test_public_phase1_pipeline_reuses_canonical_parse_and_check(self):
         source = """module test::phase1_public_invalid;
 fn main() -> void {

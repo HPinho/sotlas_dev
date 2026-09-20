@@ -1782,6 +1782,58 @@ fn main() -> u32 {
         self.assertTrue(inferred.type.mutable)
         self.assertEqual(inferred.type.name, "u32")
 
+    def test_bootstrap_rejects_call_argument_count_mismatch(self):
+        source = """module test::call_arity_mismatch;
+fn consume(value: u32) -> void {
+    return;
+}
+fn main() -> void {
+    consume();
+    return;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-call-arity-mismatch>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"quantidade de argumentos incompatível em chamada consume",
+        ):
+            bootstrap.check(parsed)
+
+    def test_bootstrap_rejects_call_argument_type_mismatch(self):
+        source = """module test::call_type_mismatch;
+fn consume(value: u32) -> void {
+    return;
+}
+fn main(flag: bool) -> void {
+    consume(flag);
+    return;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-call-type-mismatch>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"argumento 1 incompatível em chamada consume",
+        ):
+            bootstrap.check(parsed)
+
+    def test_bootstrap_accepts_call_reference_weakening(self):
+        source = """module test::call_reference_weakening;
+fn read(value: &u32) -> u32 {
+    return *value;
+}
+fn main(value: &mut u32) -> u32 {
+    return read(value);
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-call-reference-weakening>"
+        )
+        bootstrap.check(parsed)
+
     def test_typed_body_rejects_address_of_reference_as_raw_pointer(self):
         source = """module test::address_of_not_raw_pointer;
 fn inspect(value: *const u32) -> u32 {
