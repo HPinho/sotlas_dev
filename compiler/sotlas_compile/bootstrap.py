@@ -2015,9 +2015,20 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
                             "atribuição por referência imutável não é permitida",
                             item.token.line, item.token.column, filename, source,
                         )
-                target_type = expr_type(item.target, scope, in_unsafe, is_system_fn)
-                value_type = expr_type(item.value, scope, in_unsafe, is_system_fn)
-                if not assignable(value_type, target_type):
+                target_type = expr_type(
+                    item.target, scope, in_unsafe, is_system_fn
+                )
+                value_type = expr_type(
+                    item.value, scope, in_unsafe, is_system_fn
+                )
+                if not contextual_type_matches(
+                    item.value,
+                    value_type,
+                    target_type,
+                    scope,
+                    in_unsafe,
+                    is_system_fn,
+                ):
                     raise SotlasBootstrapError(
                         "atribuição incompatível", item.token.line,
                         item.token.column, filename, source,

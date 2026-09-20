@@ -881,6 +881,56 @@ fn main() -> i64 {
         self.assertEqual(assign.name, "value")
         self.assertEqual(assign.type.name, "i64")
 
+    def test_bootstrap_rejects_explicit_integer_assignment_type_mismatch(self):
+        source = """module test::bootstrap_assign_explicit_integer_mismatch;
+fn main() -> void {
+    let value: u32 = 1u32;
+    value = 2u64;
+    return;
+}
+"""
+        parsed = bootstrap.parse(
+            source,
+            filename="<phase1-bootstrap-assign-explicit-integer-mismatch>",
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"atribuição incompatível",
+        ):
+            bootstrap.check(parsed)
+
+    def test_bootstrap_accepts_contextual_integer_assignment(self):
+        source = """module test::bootstrap_assign_contextual_integer;
+fn main() -> u16 {
+    let value: u16 = 1u16;
+    value = 65535;
+    return value;
+}
+"""
+        parsed = bootstrap.parse(
+            source,
+            filename="<phase1-bootstrap-assign-contextual-integer>",
+        )
+        bootstrap.check(parsed)
+
+    def test_bootstrap_rejects_contextual_integer_assignment_overflow(self):
+        source = """module test::bootstrap_assign_contextual_overflow;
+fn main() -> void {
+    let value: u8 = 1u8;
+    value = 256;
+    return;
+}
+"""
+        parsed = bootstrap.parse(
+            source,
+            filename="<phase1-bootstrap-assign-contextual-overflow>",
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"valor inteiro 256 fora do intervalo para u8 \[0, 255\]",
+        ):
+            bootstrap.check(parsed)
+
     def test_linear_typed_body_rejects_assignment_type_mismatch(self):
         source = """module test::typed_assign_mismatch;
 fn main() -> void {

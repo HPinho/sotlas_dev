@@ -292,6 +292,23 @@ fn main(flag: bool) -> void {
                 source, filename="<phase1-call-contract>"
             )
 
+    def test_public_phase1_pipeline_rejects_explicit_assignment_numeric_mismatch_in_bootstrap(self):
+        source = """module test::phase1_assignment_explicit_numeric_mismatch;
+fn main() -> void {
+    let value: u32 = 1u32;
+    value = 2u64;
+    return;
+}
+"""
+        with self.assertRaisesRegex(
+            sotlas_compile.SotlasBootstrapError,
+            r"atribuição incompatível",
+        ):
+            sotlas_compile.analyze_source_phase1(
+                source,
+                filename="<phase1-assignment-explicit-numeric-mismatch>",
+            )
+
     def test_public_phase1_pipeline_reuses_canonical_parse_and_check(self):
         source = """module test::phase1_public_invalid;
 fn main() -> void {
