@@ -207,6 +207,31 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         )
         self.assertIn("parent_node.kind == AstKind::FnDecl", text)
 
+    def test_native_emitter_captures_return_before_defer_cleanup(self):
+        emitter_file = (
+            ROOT / "bootstrap" / "sotlas" / "native_compiler" / "emitter_c.sotlas"
+        )
+        text = emitter_file.read_text(encoding="utf-8")
+        self.assertIn("pub fn find_enclosing_function", text)
+        self.assertIn("pub fn find_function_return_type", text)
+        self.assertIn("pub fn emit_c_type", text)
+        self.assertIn("pub fn emit_return_statement", text)
+        self.assertIn('" __sotlas_return_value = "', text)
+        self.assertIn("self.emit_expression(ret.first_child)", text)
+        self.assertIn("self.emit_return_scope_defers(return_index)", text)
+        self.assertIn('"return __sotlas_return_value;', text)
+        capture_at = text.index("self.emit_expression(ret.first_child)")
+        cleanup_at = text.index(
+            "self.emit_return_scope_defers(return_index)",
+            capture_at,
+        )
+        final_return_at = text.index(
+            "return __sotlas_return_value;",
+            cleanup_at,
+        )
+        self.assertLess(capture_at, cleanup_at)
+        self.assertLess(cleanup_at, final_return_at)
+
     def test_native_emitter_runs_block_defers_after_normal_statements(self):
         emitter_file = (
             ROOT / "bootstrap" / "sotlas" / "native_compiler" / "emitter_c.sotlas"

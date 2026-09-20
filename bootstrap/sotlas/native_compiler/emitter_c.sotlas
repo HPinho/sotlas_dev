@@ -319,6 +319,179 @@ impl CEmitter {
         return false;
     }
 
+    pub fn source_slice_equals(
+        self: &Self,
+        offset: usize,
+        len: usize,
+        expected: *const u8,
+        expected_len: usize
+    ) -> bool {
+        if self.source == null || expected == null || len != expected_len {
+            return false;
+        }
+        if offset > self.source_len || len > self.source_len - offset {
+            return false;
+        }
+        let mut i: usize = 0;
+        while i < len {
+            let a: u8 = unsafe { *(self.source + offset + i) };
+            let b: u8 = unsafe { *(expected + i) };
+            if a != b {
+                return false;
+            }
+            i = i + 1;
+        }
+        return true;
+    }
+
+    pub fn emit_c_type(mut self: &mut Self, type_index: usize) -> bool {
+        if !self.valid_node(type_index) {
+            return false;
+        }
+        let typ: AstNode = unsafe { *(self.nodes + type_index) };
+        if typ.kind != AstKind::TypeRef || typ.str_len == 0 {
+            return false;
+        }
+
+        if self.source_slice_equals(typ.str_offset, typ.str_len, "i8", 2) {
+            return self.write_str("int8_t", 6);
+        }
+        if self.source_slice_equals(typ.str_offset, typ.str_len, "i16", 3) {
+            return self.write_str("int16_t", 7);
+        }
+        if self.source_slice_equals(typ.str_offset, typ.str_len, "i32", 3) {
+            return self.write_str("int32_t", 7);
+        }
+        if self.source_slice_equals(typ.str_offset, typ.str_len, "i64", 3) {
+            return self.write_str("int64_t", 7);
+        }
+        if self.source_slice_equals(typ.str_offset, typ.str_len, "u8", 2) {
+            return self.write_str("uint8_t", 7);
+        }
+        if self.source_slice_equals(typ.str_offset, typ.str_len, "u16", 3) {
+            return self.write_str("uint16_t", 8);
+        }
+        if self.source_slice_equals(typ.str_offset, typ.str_len, "u32", 3) {
+            return self.write_str("uint32_t", 8);
+        }
+        if self.source_slice_equals(typ.str_offset, typ.str_len, "u64", 3) {
+            return self.write_str("uint64_t", 8);
+        }
+        if self.source_slice_equals(typ.str_offset, typ.str_len, "usize", 5) {
+            return self.write_str("size_t", 6);
+        }
+        if self.source_slice_equals(typ.str_offset, typ.str_len, "isize", 5) {
+            return self.write_str("intptr_t", 8);
+        }
+        if self.source_slice_equals(typ.str_offset, typ.str_len, "bool", 4) {
+            return self.write_str("bool", 4);
+        }
+        if self.source_slice_equals(typ.str_offset, typ.str_len, "void", 4) {
+            return self.write_str("void", 4);
+        }
+
+        // Named user types remain source-named until native type lowering is
+        // introduced. Composite pointer/generic types are intentionally not
+        // claimed as complete by this helper.
+        return self.write_source_slice(typ.str_offset, typ.str_len);
+    }
+
+    pub fn find_enclosing_function(self: &Self, index: usize) -> usize {
+        if !self.valid_node(index) {
+            return 0;
+        }
+        let mut current: usize = index;
+        while current != 0 {
+            if !self.valid_node(current) {
+                return 0;
+            }
+            let node: AstNode = unsafe { *(self.nodes + current) };
+            if node.kind == AstKind::FnDecl || node.kind == AstKind::TrapfnDecl {
+                return current;
+            }
+            current = node.parent;
+        }
+        return 0;
+    }
+
+    pub fn find_function_return_type(self: &Self, fn_index: usize) -> usize {
+        if !self.valid_node(fn_index) {
+            return 0;
+        }
+        let function_node: AstNode = unsafe { *(self.nodes + fn_index) };
+        if function_node.kind != AstKind::FnDecl
+            && function_node.kind != AstKind::TrapfnDecl {
+            return 0;
+        }
+
+        let mut child: usize = function_node.first_child;
+        while child != 0 {
+            if !self.valid_node(child) {
+                return 0;
+            }
+            let node: AstNode = unsafe { *(self.nodes + child) };
+            if node.kind == AstKind::TypeRef {
+                return child;
+            }
+            child = node.next_sibling;
+        }
+        return 0;
+    }
+
+    pub fn emit_return_statement(
+        mut self: &mut Self,
+        return_index: usize
+    ) -> bool {
+        if !self.valid_node(return_index) {
+            return false;
+        }
+        let ret: AstNode = unsafe { *(self.nodes + return_index) };
+        if ret.kind != AstKind::ReturnStmt {
+            return false;
+        }
+
+        if ret.first_child == 0 {
+            if !self.emit_return_scope_defers(return_index) {
+                return false;
+            }
+            return self.write_str("return;\n", 8);
+        }
+
+        let fn_index: usize = self.find_enclosing_function(return_index);
+        if fn_index == 0 {
+            return false;
+        }
+        let type_index: usize = self.find_function_return_type(fn_index);
+        if type_index == 0 {
+            return false;
+        }
+
+        // The nested C block gives every return site its own temporary scope.
+        if !self.write_str("{\n", 2) {
+            return false;
+        }
+        if !self.emit_c_type(type_index) {
+            return false;
+        }
+        if !self.write_str(" __sotlas_return_value = ", 25) {
+            return false;
+        }
+
+        // Normative defer rule: evaluate and capture the return expression
+        // before any active cleanup can mutate referenced state.
+        if !self.emit_expression(ret.first_child) {
+            return false;
+        }
+        if !self.write_str(";\n", 2) {
+            return false;
+        }
+        if !self.emit_return_scope_defers(return_index) {
+            return false;
+        }
+        return self.write_str("return __sotlas_return_value;\n}\n", 32);
+    }
+
+
     pub fn emit_normal_statement(mut self: &mut Self, index: usize) -> bool {
         if !self.valid_node(index) {
             return false;
@@ -374,7 +547,7 @@ impl CEmitter {
     }
 
     pub fn emit_header(mut self: &mut Self) -> bool {
-        let hdr: *const u8 = "// Compilado nativamente pelo compilador Sotlas in Sotlas (v1.0-selfhost)\n#include <stdint.h>\n#include <stdbool.h>\n\n";
-        return self.write_str(hdr, 110);
+        let hdr: *const u8 = "// Compilado nativamente pelo compilador Sotlas in Sotlas (v1.0-selfhost)\n#include <stdint.h>\n#include <stdbool.h>\n#include <stddef.h>\n\n";
+        return self.write_str(hdr, 136);
     }
 }
