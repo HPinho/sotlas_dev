@@ -7,14 +7,23 @@ pub struct CEmitter {
     pub out_buf: *mut u8;
     pub max_len: usize;
     pub cursor: usize;
+    pub source: *const u8;
+    pub source_len: usize;
 }
 
 impl CEmitter {
-    pub fn new(buf: *mut u8, max: usize) -> CEmitter {
+    pub fn new(
+        buf: *mut u8,
+        max: usize,
+        source: *const u8,
+        source_len: usize
+    ) -> CEmitter {
         return CEmitter {
             out_buf: buf,
             max_len: max,
-            cursor: 0
+            cursor: 0,
+            source: source,
+            source_len: source_len
         };
     }
 
@@ -39,6 +48,20 @@ impl CEmitter {
             i = i + 1;
         }
         return true;
+    }
+
+    pub fn write_source_slice(
+        mut self: &mut Self,
+        offset: usize,
+        len: usize
+    ) -> bool {
+        if self.source == null || offset > self.source_len {
+            return false;
+        }
+        if len > self.source_len - offset {
+            return false;
+        }
+        return self.write_str(self.source + offset, len);
     }
 
     pub fn emit_header(mut self: &mut Self) -> bool {

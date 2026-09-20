@@ -81,6 +81,30 @@ impl Parser {
         return idx;
     }
 
+    pub fn set_node_text(mut self: &mut Self, index: usize, tok: Token) -> bool {
+        if self.nodes == null || index == 0 || index >= self.node_count {
+            return false;
+        }
+        let mut node: AstNode = unsafe { *(self.nodes + index) };
+        node.str_offset = tok.span.offset;
+        node.str_len = tok.span.length;
+        unsafe {
+            *(self.nodes + index) = node;
+        }
+        return true;
+    }
+
+    pub fn alloc_text_node(mut self: &mut Self, kind: AstKind, tok: Token) -> usize {
+        let node: usize = self.alloc_node(kind, tok.span);
+        if node == 0 {
+            return 0;
+        }
+        if !self.set_node_text(node, tok) {
+            return 0;
+        }
+        return node;
+    }
+
     pub fn append_child(mut self: &mut Self, parent: usize, child: usize) -> bool {
         if self.nodes == null || parent == 0 || child == 0 {
             return false;
@@ -267,7 +291,10 @@ impl Parser {
             self.advance();
             let let_node: usize = self.alloc_node(AstKind::LetStmt, tok.span);
             // Nome da variável
-            let _name: Token = self.expect(TokenKind::Ident);
+            let name_tok: Token = self.expect(TokenKind::Ident);
+            if !self.set_node_text(let_node, name_tok) {
+                return 0;
+            }
             if self.match_token(TokenKind::Colon) {
                 self.advance();
                 let _typ: Token = self.expect(TokenKind::Ident);
@@ -410,7 +437,10 @@ impl Parser {
         if inner.kind == TokenKind::KwFn || inner.kind == TokenKind::KwTrapfn {
             self.advance();
             let fn_node: usize = self.alloc_node(if inner.kind == TokenKind::KwTrapfn { AstKind::TrapfnDecl } else { AstKind::FnDecl }, inner.span);
-            let _name: Token = self.expect(TokenKind::Ident);
+            let name_tok: Token = self.expect(TokenKind::Ident);
+            if !self.set_node_text(fn_node, name_tok) {
+                return 0;
+            }
             if self.match_token(TokenKind::OpenParen) {
                 self.advance();
                 while !self.is_at_end() && !self.match_token(TokenKind::CloseParen) {
@@ -442,7 +472,10 @@ impl Parser {
         } else if inner.kind == TokenKind::KwStruct || inner.kind == TokenKind::KwMesh || inner.kind == TokenKind::KwSpec {
             self.advance();
             let struct_node: usize = self.alloc_node(if inner.kind == TokenKind::KwMesh { AstKind::MeshDecl } else { AstKind::StructDecl }, inner.span);
-            let _name: Token = self.expect(TokenKind::Ident);
+            let name_tok: Token = self.expect(TokenKind::Ident);
+            if !self.set_node_text(struct_node, name_tok) {
+                return 0;
+            }
             if self.match_token(TokenKind::OpenBrace) {
                 self.advance();
                 while !self.is_at_end() && !self.match_token(TokenKind::CloseBrace) {
@@ -454,7 +487,13 @@ impl Parser {
         } else if inner.kind == TokenKind::KwEnum {
             self.advance();
             let enum_node: usize = self.alloc_node(AstKind::EnumDecl, inner.span);
-            let _name: Token = self.expect(TokenKind::Ident);
+            if enum_node == 0 {
+                return 0;
+            }
+            let name_tok: Token = self.expect(TokenKind::Ident);
+            if !self.set_node_text(enum_node, name_tok) {
+                return 0;
+            }
             if self.match_token(TokenKind::OpenBrace) {
                 self.advance();
                 while !self.is_at_end() && !self.match_token(TokenKind::CloseBrace) {
@@ -478,11 +517,11 @@ impl Parser {
     pub fn parse_primary_expression(mut self: &mut Self) -> usize {
         let tok: Token = self.advance();
         if tok.kind == TokenKind::IntLit || tok.kind == TokenKind::StrLit {
-            return self.alloc_node(AstKind::ExprLiteral, tok.span);
+            return self.alloc_text_node(AstKind::ExprLiteral, tok);
         }
 
         if tok.kind == TokenKind::Ident {
-            let ident_node: usize = self.alloc_node(AstKind::ExprIdent, tok.span);
+            let ident_node: usize = self.alloc_text_node(AstKind::ExprIdent, tok);
             if ident_node == 0 {
                 return 0;
             }

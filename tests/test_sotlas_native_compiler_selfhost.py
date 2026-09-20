@@ -104,6 +104,26 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         self.assertIn("AstKind::ExprBinary", parser_text)
         self.assertIn("self.append_child(defer_node, payload_node)", parser_text)
 
+    def test_native_ast_retains_source_slices_for_emission(self):
+        parser_file = (
+            ROOT / "bootstrap" / "sotlas" / "native_compiler" / "parser.sotlas"
+        )
+        emitter_file = (
+            ROOT / "bootstrap" / "sotlas" / "native_compiler" / "emitter_c.sotlas"
+        )
+        main_file = ROOT / "bootstrap" / "sotlas" / "native_compiler" / "main.sotlas"
+        parser_text = parser_file.read_text(encoding="utf-8")
+        emitter_text = emitter_file.read_text(encoding="utf-8")
+        main_text = main_file.read_text(encoding="utf-8")
+        self.assertIn("node.str_offset = tok.span.offset;", parser_text)
+        self.assertIn("node.str_len = tok.span.length;", parser_text)
+        self.assertIn("alloc_text_node(AstKind::ExprIdent, tok)", parser_text)
+        self.assertIn("alloc_text_node(AstKind::ExprLiteral, tok)", parser_text)
+        self.assertIn("pub source: *const u8;", emitter_text)
+        self.assertIn("pub fn write_source_slice", emitter_text)
+        self.assertIn("len > self.source_len - offset", emitter_text)
+        self.assertIn("CEmitter::new(out_buf, max_out, source, len)", main_text)
+
     def test_native_sema_module_compiles(self):
         sema_file = ROOT / "bootstrap" / "sotlas" / "native_compiler" / "sema.sotlas"
         self.assertTrue(sema_file.is_file())
