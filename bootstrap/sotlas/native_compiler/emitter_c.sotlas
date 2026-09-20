@@ -492,6 +492,33 @@ impl CEmitter {
     }
 
 
+    pub fn emit_unsafe_block(mut self: &mut Self, index: usize) -> bool {
+        if !self.valid_node(index) {
+            return false;
+        }
+        let node: AstNode = unsafe { *(self.nodes + index) };
+        if node.kind != AstKind::UnsafeBlock || node.first_child == 0 {
+            return false;
+        }
+
+        let body_index: usize = node.first_child;
+        if !self.valid_node(body_index) {
+            return false;
+        }
+        let body: AstNode = unsafe { *(self.nodes + body_index) };
+        if body.kind != AstKind::Block {
+            return false;
+        }
+
+        if !self.write_str("{\n", 2) {
+            return false;
+        }
+        if !self.emit_block_normal_exit(body_index) {
+            return false;
+        }
+        return self.write_str("}\n", 2);
+    }
+
     pub fn emit_normal_statement(mut self: &mut Self, index: usize) -> bool {
         if !self.valid_node(index) {
             return false;
@@ -502,6 +529,10 @@ impl CEmitter {
         // at its declaration site.
         if node.kind == AstKind::DeferStmt {
             return true;
+        }
+
+        if node.kind == AstKind::UnsafeBlock {
+            return self.emit_unsafe_block(index);
         }
 
         if node.kind == AstKind::AssignStmt

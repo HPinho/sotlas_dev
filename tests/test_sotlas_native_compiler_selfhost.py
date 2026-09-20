@@ -232,6 +232,18 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         self.assertLess(capture_at, cleanup_at)
         self.assertLess(cleanup_at, final_return_at)
 
+    def test_native_emitter_lowers_unsafe_as_nested_lexical_block(self):
+        emitter_file = (
+            ROOT / "bootstrap" / "sotlas" / "native_compiler" / "emitter_c.sotlas"
+        )
+        text = emitter_file.read_text(encoding="utf-8")
+        self.assertIn("pub fn emit_unsafe_block", text)
+        self.assertIn("node.kind != AstKind::UnsafeBlock", text)
+        self.assertIn("body.kind != AstKind::Block", text)
+        self.assertIn("self.emit_block_normal_exit(body_index)", text)
+        self.assertIn("node.kind == AstKind::UnsafeBlock", text)
+        self.assertIn("return self.emit_unsafe_block(index);", text)
+
     def test_native_emitter_runs_block_defers_after_normal_statements(self):
         emitter_file = (
             ROOT / "bootstrap" / "sotlas" / "native_compiler" / "emitter_c.sotlas"
