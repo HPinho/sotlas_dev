@@ -2989,6 +2989,62 @@ fn flip(flag: bool) -> bool { return !flag; }
             "bool",
         )
 
+    def test_bootstrap_rejects_logical_not_on_integer(self):
+        source = """module test::bootstrap_bad_logical_not;
+fn main(value: u32) -> bool { return !value; }
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-bad-logical-not>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"operador ! exige operando bool",
+        ):
+            bootstrap.check(parsed)
+
+    def test_bootstrap_rejects_bitwise_not_on_bool(self):
+        source = """module test::bootstrap_bad_bitwise_not;
+fn main(flag: bool) -> bool { return ~flag; }
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-bad-bitwise-not>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"operador ~ exige operando inteiro escalar",
+        ):
+            bootstrap.check(parsed)
+
+    def test_bootstrap_rejects_unary_minus_on_unsigned_integer(self):
+        source = """module test::bootstrap_unsigned_unary_minus;
+fn main(value: u32) -> u32 { return -value; }
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-unsigned-unary-minus>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"operador - unário exige inteiro signed ou float",
+        ):
+            bootstrap.check(parsed)
+
+    def test_bootstrap_rejects_non_pointer_dereference_even_inside_unsafe(self):
+        source = """module test::bootstrap_bad_deref;
+fn main(value: u32) -> u32 {
+    unsafe {
+        return *value;
+    }
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-bad-deref>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"desreferenciamento exige ponteiro ou referência",
+        ):
+            bootstrap.check(parsed)
+
     def test_typed_body_rejects_logical_not_on_integer_independently(self):
         source = """module test::typed_bad_logical_not;
 fn main(value: u32) -> bool { return !value; }
@@ -3032,7 +3088,6 @@ fn main(value: u32) -> u32 {
 }
 """
         parsed = bootstrap.parse(source, filename="<phase1-unsigned-unary-minus>")
-        bootstrap.check(parsed)
         typed = typed_ast.build_declaration_typed_ast(parsed)
         with self.assertRaisesRegex(
             typed_ast.Phase1SemanticError,
@@ -3049,7 +3104,6 @@ fn main() -> u8 {
         parsed = bootstrap.parse(
             source, filename="<phase1-negative-unsigned-suffix>"
         )
-        bootstrap.check(parsed)
         typed = typed_ast.build_declaration_typed_ast(parsed)
         with self.assertRaisesRegex(
             typed_ast.Phase1SemanticError,

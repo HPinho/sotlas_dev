@@ -1373,6 +1373,11 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
         if isinstance(expr, Unary):
             inner = expr_type(expr.value, scope, in_unsafe, is_system_fn)
             if expr.op == "*":
+                if not inner.pointer:
+                    raise SotlasBootstrapError(
+                        "desreferenciamento exige ponteiro ou referência",
+                        expr.token.line, expr.token.column, filename, source,
+                    )
                 if not inner.is_reference and not in_unsafe:
                     raise SotlasBootstrapError(
                         "desreferenciamento de ponteiro exige bloco unsafe",
@@ -1400,8 +1405,34 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
                     is_reference=True,
                 )
             if expr.op == "!":
+                if not same_type(inner, Type("bool")):
+                    raise SotlasBootstrapError(
+                        "operador ! exige operando bool",
+                        expr.token.line, expr.token.column, filename, source,
+                    )
                 return Type("bool")
-            return inner
+            if expr.op == "~":
+                if not scalar_integer(inner):
+                    raise SotlasBootstrapError(
+                        "operador ~ exige operando inteiro escalar",
+                        expr.token.line, expr.token.column, filename, source,
+                    )
+                return inner
+            if expr.op == "-":
+                signed_numeric = (
+                    inner.name in signed_integer_types
+                    or inner.name in FLOAT_LITERAL_SUFFIXES
+                )
+                if not scalar_numeric(inner) or not signed_numeric:
+                    raise SotlasBootstrapError(
+                        "operador - unário exige inteiro signed ou float",
+                        expr.token.line, expr.token.column, filename, source,
+                    )
+                return inner
+            raise SotlasBootstrapError(
+                f"operador unário não suportado: {expr.op}",
+                expr.token.line, expr.token.column, filename, source,
+            )
         if isinstance(expr, Binary):
             left = expr_type(expr.left, scope, in_unsafe, is_system_fn)
             right = expr_type(expr.right, scope, in_unsafe, is_system_fn)
