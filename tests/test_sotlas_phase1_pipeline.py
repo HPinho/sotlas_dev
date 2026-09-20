@@ -70,6 +70,20 @@ fn main() -> void {
                 source, filename="<phase1-bool-control-flow>"
             )
 
+    def test_public_phase1_pipeline_rejects_invalid_numeric_operator_domain_in_bootstrap(self):
+        source = """module test::phase1_numeric_operator_domain;
+fn main(flag: bool) -> bool {
+    return flag + flag;
+}
+"""
+        with self.assertRaisesRegex(
+            sotlas_compile.SotlasBootstrapError,
+            r"operador aritmético \+ exige operandos numéricos escalares",
+        ):
+            sotlas_compile.analyze_source_phase1(
+                source, filename="<phase1-numeric-operator-domain>"
+            )
+
     def test_public_phase1_pipeline_rejects_method_contract_mismatch_in_bootstrap(self):
         source = """module test::phase1_method_contract;
 struct Counter {

@@ -1159,6 +1159,22 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
         object.__setattr__(bound, "_sotlas_binding_mutable", bool(is_mut))
         return bound
 
+    def scalar_integer(type_obj: Type) -> bool:
+        return (
+            not type_obj.pointer
+            and not type_obj.is_array
+            and not type_obj.is_reference
+            and type_obj.name in INTEGER_LITERAL_SUFFIXES
+        )
+
+    def scalar_numeric(type_obj: Type) -> bool:
+        return scalar_integer(type_obj) or (
+            not type_obj.pointer
+            and not type_obj.is_array
+            and not type_obj.is_reference
+            and type_obj.name in FLOAT_LITERAL_SUFFIXES
+        )
+
     def mutable_place(expr: Expr, scope: dict[str, Type], in_unsafe: bool, is_system_fn: bool) -> bool:
         if isinstance(expr, Name):
             if expr.value in scope:
@@ -1282,6 +1298,30 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
                 ):
                     raise SotlasBootstrapError(
                         f"operador lógico {expr.op} exige operandos bool",
+                        expr.token.line, expr.token.column, filename, source,
+                    )
+            if expr.op in ("<", "<=", ">", ">="):
+                if not scalar_numeric(left) or not scalar_numeric(right):
+                    raise SotlasBootstrapError(
+                        f"operador relacional {expr.op} exige operandos numéricos escalares",
+                        expr.token.line, expr.token.column, filename, source,
+                    )
+            if expr.op in ("+", "-", "*", "/", "%"):
+                if not scalar_numeric(left) or not scalar_numeric(right):
+                    raise SotlasBootstrapError(
+                        f"operador aritmético {expr.op} exige operandos numéricos escalares",
+                        expr.token.line, expr.token.column, filename, source,
+                    )
+            if expr.op in ("&", "|", "^"):
+                if not scalar_integer(left) or not scalar_integer(right):
+                    raise SotlasBootstrapError(
+                        f"operador bit a bit {expr.op} exige operandos inteiros escalares",
+                        expr.token.line, expr.token.column, filename, source,
+                    )
+            if expr.op in ("<<", ">>"):
+                if not scalar_integer(left) or not scalar_integer(right):
+                    raise SotlasBootstrapError(
+                        f"operador de deslocamento {expr.op} exige operandos inteiros escalares",
                         expr.token.line, expr.token.column, filename, source,
                     )
             if expr.op in ("==", "!="):

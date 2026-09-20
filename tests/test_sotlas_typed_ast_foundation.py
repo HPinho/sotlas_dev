@@ -3262,6 +3262,66 @@ fn main(value: i32) -> i32 {
         ):
             typed_ast.build_linear_typed_body(parsed, typed, "main")
 
+    def test_bootstrap_rejects_arithmetic_on_bool(self):
+        source = """module test::bootstrap_bad_arithmetic;
+fn main(flag: bool) -> bool {
+    return flag + flag;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-bad-arithmetic>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"operador aritmético \+ exige operandos numéricos escalares",
+        ):
+            bootstrap.check(parsed)
+
+    def test_bootstrap_rejects_relational_array_operands(self):
+        source = """module test::bootstrap_bad_relational;
+fn main(left: [u32; 2], right: [u32; 2]) -> bool {
+    return left < right;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-bad-relational>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"operador relacional < exige operandos numéricos escalares",
+        ):
+            bootstrap.check(parsed)
+
+    def test_bootstrap_rejects_bitwise_float_operands(self):
+        source = """module test::bootstrap_bad_bitwise;
+fn main(left: f32, right: f32) -> f32 {
+    return left & right;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-bad-bitwise>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"operador bit a bit & exige operandos inteiros escalares",
+        ):
+            bootstrap.check(parsed)
+
+    def test_bootstrap_rejects_shift_float_operands(self):
+        source = """module test::bootstrap_bad_shift;
+fn main(left: f32, right: u32) -> f32 {
+    return left << right;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-bootstrap-bad-shift>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"operador de deslocamento << exige operandos inteiros escalares",
+        ):
+            bootstrap.check(parsed)
+
     def test_typed_body_rejects_arithmetic_on_integer_arrays(self):
         source = """module test::typed_array_arithmetic;
 fn main(left: [u32; 2], right: [u32; 2]) -> [u32; 2] {
