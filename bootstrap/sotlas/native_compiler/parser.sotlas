@@ -138,11 +138,18 @@ impl Parser {
             return false;
         }
 
+        let mut child_node: AstNode = unsafe { *(self.nodes + child) };
+        if child_node.parent != 0 {
+            return false;
+        }
+
         let mut parent_node: AstNode = unsafe { *(self.nodes + parent) };
         if parent_node.first_child == 0 {
             parent_node.first_child = child;
+            child_node.parent = parent;
             unsafe {
                 *(self.nodes + parent) = parent_node;
+                *(self.nodes + child) = child_node;
             }
             return true;
         }
@@ -152,8 +159,10 @@ impl Parser {
             let mut current_node: AstNode = unsafe { *(self.nodes + current) };
             if current_node.next_sibling == 0 {
                 current_node.next_sibling = child;
+                child_node.parent = parent;
                 unsafe {
                     *(self.nodes + current) = current_node;
+                    *(self.nodes + child) = child_node;
                 }
                 return true;
             }

@@ -58,6 +58,19 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         self.assertIn("*(self.nodes + idx) = AstNode::new(kind, span);", text)
         self.assertIn("self.node_count >= self.node_capacity", text)
 
+    def test_native_ast_links_parent_ownership(self):
+        ast_file = ROOT / "bootstrap" / "sotlas" / "native_compiler" / "ast.sotlas"
+        parser_file = (
+            ROOT / "bootstrap" / "sotlas" / "native_compiler" / "parser.sotlas"
+        )
+        ast_text = ast_file.read_text(encoding="utf-8")
+        parser_text = parser_file.read_text(encoding="utf-8")
+        self.assertIn("pub parent: usize;", ast_text)
+        self.assertIn("parent: 0", ast_text)
+        self.assertIn("if child_node.parent != 0", parser_text)
+        self.assertIn("child_node.parent = parent;", parser_text)
+        self.assertIn("*(self.nodes + child) = child_node;", parser_text)
+
     def test_native_parser_links_module_declarations(self):
         parser_file = (
             ROOT / "bootstrap" / "sotlas" / "native_compiler" / "parser.sotlas"

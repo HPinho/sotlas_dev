@@ -40,6 +40,7 @@ pub struct AstNode {
     pub str_len: usize;
     pub first_child: usize;
     pub next_sibling: usize;
+    pub parent: usize;
 }
 
 impl AstNode {
@@ -51,7 +52,8 @@ impl AstNode {
             str_offset: 0,
             str_len: 0,
             first_child: 0,
-            next_sibling: 0
+            next_sibling: 0,
+            parent: 0
         };
     }
 }
