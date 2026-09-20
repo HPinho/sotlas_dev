@@ -213,6 +213,28 @@ fn invoke(dispatch: &Dispatch, flag: bool) -> u32 {
                 source, filename="<phase1-fn-field-bad-type>"
             )
 
+    def test_public_phase1_pipeline_rejects_explicit_method_numeric_mismatch_in_bootstrap(self):
+        source = """module test::phase1_method_explicit_numeric_mismatch;
+struct Counter {
+    value: u32;
+    fn increment(self: *mut Counter, amount: u32) -> u32 {
+        return amount;
+    }
+}
+fn main(counter: Counter) -> u32 {
+    return counter.increment(1u64);
+}
+"""
+        with self.assertRaisesRegex(
+            sotlas_compile.SotlasBootstrapError,
+            r"argumento 1 incompatível em método Counter\.increment: "
+            r"esperado u32, recebido u64",
+        ):
+            sotlas_compile.analyze_source_phase1(
+                source,
+                filename="<phase1-method-explicit-numeric-mismatch>",
+            )
+
     def test_public_phase1_pipeline_rejects_method_contract_mismatch_in_bootstrap(self):
         source = """module test::phase1_method_contract;
 struct Counter {

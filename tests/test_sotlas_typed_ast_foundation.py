@@ -4210,6 +4210,29 @@ fn main(counter: Counter) -> u32 {
         ):
             bootstrap.check(parsed)
 
+    def test_bootstrap_rejects_explicit_integer_method_argument_mismatch(self):
+        source = """module test::bootstrap_method_explicit_integer_mismatch;
+struct Counter {
+    value: u32;
+    fn increment(self: *mut Counter, amount: u32) -> u32 {
+        return amount;
+    }
+}
+fn main(counter: Counter) -> u32 {
+    return counter.increment(1u64);
+}
+"""
+        parsed = bootstrap.parse(
+            source,
+            filename="<phase1-bootstrap-method-explicit-integer-mismatch>",
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"argumento 1 incompatível em método Counter\.increment: "
+            r"esperado u32, recebido u64",
+        ):
+            bootstrap.check(parsed)
+
     def test_bootstrap_rejects_method_argument_type_mismatch(self):
         source = """module test::bootstrap_method_bad_arg;
 struct Counter {
