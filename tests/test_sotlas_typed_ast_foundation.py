@@ -2012,6 +2012,39 @@ fn main() -> void {
         ):
             bootstrap.check(parsed)
 
+    def test_bootstrap_rejects_explicit_integer_call_type_mismatch(self):
+        source = """module test::call_explicit_integer_mismatch;
+fn take(value: u32) -> u32 {
+    return value;
+}
+fn main() -> u32 {
+    return take(1u64);
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-call-explicit-integer-mismatch>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"argumento 1 incompatível em chamada take: "
+            r"esperado u32, recebido u64",
+        ):
+            bootstrap.check(parsed)
+
+    def test_bootstrap_accepts_contextual_integer_call_argument(self):
+        source = """module test::call_contextual_integer;
+fn take(value: u16) -> u16 {
+    return value;
+}
+fn main() -> u16 {
+    return take(7);
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<phase1-call-contextual-integer>"
+        )
+        bootstrap.check(parsed)
+
     def test_bootstrap_rejects_call_argument_type_mismatch(self):
         source = """module test::call_type_mismatch;
 fn consume(value: u32) -> void {

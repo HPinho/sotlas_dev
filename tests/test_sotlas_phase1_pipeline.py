@@ -233,6 +233,25 @@ fn main(counter: Counter, flag: bool) -> u32 {
                 source, filename="<phase1-method-contract>"
             )
 
+    def test_public_phase1_pipeline_rejects_explicit_call_numeric_mismatch_in_bootstrap(self):
+        source = """module test::phase1_call_explicit_numeric_mismatch;
+fn take(value: u32) -> u32 {
+    return value;
+}
+fn main() -> u32 {
+    return take(1u64);
+}
+"""
+        with self.assertRaisesRegex(
+            sotlas_compile.SotlasBootstrapError,
+            r"argumento 1 incompatível em chamada take: "
+            r"esperado u32, recebido u64",
+        ):
+            sotlas_compile.analyze_source_phase1(
+                source,
+                filename="<phase1-call-explicit-numeric-mismatch>",
+            )
+
     def test_public_phase1_pipeline_rejects_call_contract_mismatch_in_bootstrap(self):
         source = """module test::phase1_call_contract;
 fn consume(value: u32) -> void {

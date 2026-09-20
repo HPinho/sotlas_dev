@@ -1763,15 +1763,23 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
                         f"recebido {len(argument_types)}",
                         expr.token.line, expr.token.column, filename, source,
                     )
-                for index, (actual, (_, expected)) in enumerate(
-                    zip(argument_types, function.params), start=1
+                for index, (argument, actual, (_, expected)) in enumerate(
+                    zip(expr.args, argument_types, function.params), start=1
                 ):
-                    if not assignable(actual, expected):
+                    if not contextual_type_matches(
+                        argument,
+                        actual,
+                        expected,
+                        scope,
+                        in_unsafe,
+                        is_system_fn,
+                    ):
                         raise SotlasBootstrapError(
                             f"argumento {index} incompatível em chamada "
                             f"{expr.callee}: esperado {expected.name}, "
                             f"recebido {actual.name}",
-                            expr.token.line, expr.token.column, filename, source,
+                            argument.token.line, argument.token.column,
+                            filename, source,
                         )
                 return function.result
             if expr.callee.startswith("__"):
