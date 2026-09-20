@@ -301,15 +301,24 @@ impl Parser {
             }
             if self.match_token(TokenKind::Equal) {
                 self.advance();
-                let _val: usize = self.parse_expression();
+                let val_node: usize = self.parse_expression();
+                if val_node == 0 || !self.append_child(let_node, val_node) {
+                    return 0;
+                }
             }
             self.expect(TokenKind::SemiColon);
             return let_node;
         } else if tok.kind == TokenKind::KwReturn {
             self.advance();
             let ret_node: usize = self.alloc_node(AstKind::ReturnStmt, tok.span);
+            if ret_node == 0 {
+                return 0;
+            }
             if !self.match_token(TokenKind::SemiColon) {
-                let _expr: usize = self.parse_expression();
+                let expr_node: usize = self.parse_expression();
+                if expr_node == 0 || !self.append_child(ret_node, expr_node) {
+                    return 0;
+                }
             }
             self.expect(TokenKind::SemiColon);
             return ret_node;
@@ -327,32 +336,35 @@ impl Parser {
         } else if tok.kind == TokenKind::KwUnsafe {
             self.advance();
             let unsafe_node: usize = self.alloc_node(AstKind::UnsafeBlock, tok.span);
+            if unsafe_node == 0 {
+                return 0;
+            }
             if self.match_token(TokenKind::OpenBrace) {
-                self.advance();
-                while !self.is_at_end() && !self.match_token(TokenKind::CloseBrace) {
-                    self.parse_statement();
+                let body_node: usize = self.parse_block();
+                if body_node == 0 || !self.append_child(unsafe_node, body_node) {
+                    return 0;
                 }
-                self.expect(TokenKind::CloseBrace);
             }
             return unsafe_node;
         } else if tok.kind == TokenKind::KwClinch {
             self.advance();
             let clinch_node: usize = self.alloc_node(AstKind::ClinchStmt, tok.span);
+            if clinch_node == 0 {
+                return 0;
+            }
             if self.match_token(TokenKind::OpenBrace) {
-                self.advance();
-                while !self.is_at_end() && !self.match_token(TokenKind::CloseBrace) {
-                    self.parse_statement();
+                let body_node: usize = self.parse_block();
+                if body_node == 0 || !self.append_child(clinch_node, body_node) {
+                    return 0;
                 }
-                self.expect(TokenKind::CloseBrace);
             }
             if self.match_token(TokenKind::KwRevert) {
                 self.advance();
                 if self.match_token(TokenKind::OpenBrace) {
-                    self.advance();
-                    while !self.is_at_end() && !self.match_token(TokenKind::CloseBrace) {
-                        self.parse_statement();
+                    let revert_node: usize = self.parse_block();
+                    if revert_node == 0 || !self.append_child(clinch_node, revert_node) {
+                        return 0;
                     }
-                    self.expect(TokenKind::CloseBrace);
                 }
             }
             return clinch_node;
@@ -371,37 +383,49 @@ impl Parser {
         } else if tok.kind == TokenKind::KwIf {
             self.advance();
             let if_node: usize = self.alloc_node(AstKind::IfStmt, tok.span);
-            let _cond: usize = self.parse_expression();
+            if if_node == 0 {
+                return 0;
+            }
+            let cond_node: usize = self.parse_expression();
+            if cond_node == 0 || !self.append_child(if_node, cond_node) {
+                return 0;
+            }
             if self.match_token(TokenKind::OpenBrace) {
-                self.advance();
-                while !self.is_at_end() && !self.match_token(TokenKind::CloseBrace) {
-                    self.parse_statement();
+                let then_node: usize = self.parse_block();
+                if then_node == 0 || !self.append_child(if_node, then_node) {
+                    return 0;
                 }
-                self.expect(TokenKind::CloseBrace);
             }
             if self.match_token(TokenKind::KwElse) {
                 self.advance();
                 if self.match_token(TokenKind::OpenBrace) {
-                    self.advance();
-                    while !self.is_at_end() && !self.match_token(TokenKind::CloseBrace) {
-                        self.parse_statement();
+                    let else_node: usize = self.parse_block();
+                    if else_node == 0 || !self.append_child(if_node, else_node) {
+                        return 0;
                     }
-                    self.expect(TokenKind::CloseBrace);
                 } else if self.match_token(TokenKind::KwIf) {
-                    self.parse_statement();
+                    let else_if_node: usize = self.parse_statement();
+                    if else_if_node == 0 || !self.append_child(if_node, else_if_node) {
+                        return 0;
+                    }
                 }
             }
             return if_node;
         } else if tok.kind == TokenKind::KwWhile {
             self.advance();
             let while_node: usize = self.alloc_node(AstKind::WhileStmt, tok.span);
-            let _cond: usize = self.parse_expression();
+            if while_node == 0 {
+                return 0;
+            }
+            let cond_node: usize = self.parse_expression();
+            if cond_node == 0 || !self.append_child(while_node, cond_node) {
+                return 0;
+            }
             if self.match_token(TokenKind::OpenBrace) {
-                self.advance();
-                while !self.is_at_end() && !self.match_token(TokenKind::CloseBrace) {
-                    self.parse_statement();
+                let body_node: usize = self.parse_block();
+                if body_node == 0 || !self.append_child(while_node, body_node) {
+                    return 0;
                 }
-                self.expect(TokenKind::CloseBrace);
             }
             return while_node;
         } else if tok.kind == TokenKind::KwDefer {

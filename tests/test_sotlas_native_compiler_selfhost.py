@@ -139,6 +139,22 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         self.assertIn("pub fn emit_defer_payload", text)
         self.assertIn("node.kind != AstKind::DeferStmt", text)
 
+    def test_native_parser_persists_nested_statement_tree(self):
+        parser_file = (
+            ROOT / "bootstrap" / "sotlas" / "native_compiler" / "parser.sotlas"
+        )
+        text = parser_file.read_text(encoding="utf-8")
+        self.assertIn("self.append_child(let_node, val_node)", text)
+        self.assertIn("self.append_child(ret_node, expr_node)", text)
+        self.assertIn("self.append_child(unsafe_node, body_node)", text)
+        self.assertIn("self.append_child(clinch_node, body_node)", text)
+        self.assertIn("self.append_child(clinch_node, revert_node)", text)
+        self.assertIn("self.append_child(if_node, cond_node)", text)
+        self.assertIn("self.append_child(if_node, then_node)", text)
+        self.assertIn("self.append_child(if_node, else_node)", text)
+        self.assertIn("self.append_child(while_node, cond_node)", text)
+        self.assertIn("self.append_child(while_node, body_node)", text)
+
     def test_native_sema_module_compiles(self):
         sema_file = ROOT / "bootstrap" / "sotlas" / "native_compiler" / "sema.sotlas"
         self.assertTrue(sema_file.is_file())
