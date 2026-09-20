@@ -356,6 +356,28 @@ impl Parser {
             }
             self.expect(TokenKind::SemiColon);
             return ret_node;
+        } else if tok.kind == TokenKind::KwBreak {
+            self.advance();
+            let break_node: usize = self.alloc_node(AstKind::BreakStmt, tok.span);
+            if break_node == 0 {
+                return 0;
+            }
+            if !self.match_token(TokenKind::SemiColon) {
+                return 0;
+            }
+            self.advance();
+            return break_node;
+        } else if tok.kind == TokenKind::KwContinue {
+            self.advance();
+            let continue_node: usize = self.alloc_node(AstKind::ContinueStmt, tok.span);
+            if continue_node == 0 {
+                return 0;
+            }
+            if !self.match_token(TokenKind::SemiColon) {
+                return 0;
+            }
+            self.advance();
+            return continue_node;
         } else if tok.kind == TokenKind::KwAsm {
             self.advance();
             let asm_node: usize = self.alloc_node(AstKind::AsmStmt, tok.span);

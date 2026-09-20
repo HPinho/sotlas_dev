@@ -29,7 +29,9 @@ pub enum AstKind {
     MeshDecl = 24,
     SpecDecl = 25,
     DeferStmt = 26,
-    TypeRef = 27
+    TypeRef = 27,
+    BreakStmt = 28,
+    ContinueStmt = 29
 }
 
 pub struct AstNode {

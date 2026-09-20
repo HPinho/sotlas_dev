@@ -117,6 +117,20 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         self.assertIn("let module_node: usize = p.parse_module();", text)
         self.assertIn("if module_node == 0", text)
 
+    def test_native_parser_persists_loop_jump_statements(self):
+        ast_file = ROOT / "bootstrap" / "sotlas" / "native_compiler" / "ast.sotlas"
+        parser_file = (
+            ROOT / "bootstrap" / "sotlas" / "native_compiler" / "parser.sotlas"
+        )
+        ast_text = ast_file.read_text(encoding="utf-8")
+        parser_text = parser_file.read_text(encoding="utf-8")
+        self.assertIn("BreakStmt = 28", ast_text)
+        self.assertIn("ContinueStmt = 29", ast_text)
+        self.assertIn("tok.kind == TokenKind::KwBreak", parser_text)
+        self.assertIn("AstKind::BreakStmt", parser_text)
+        self.assertIn("tok.kind == TokenKind::KwContinue", parser_text)
+        self.assertIn("AstKind::ContinueStmt", parser_text)
+
     def test_native_parser_persists_defer_payload_ast(self):
         ast_file = ROOT / "bootstrap" / "sotlas" / "native_compiler" / "ast.sotlas"
         parser_file = (
