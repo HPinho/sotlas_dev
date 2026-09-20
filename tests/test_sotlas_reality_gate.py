@@ -77,9 +77,13 @@ class SotlasRealityGateTests(unittest.TestCase):
         status = (
             ROOT / "docs" / "phase1-semantic-core-status.md"
         ).read_text(encoding="utf-8")
+        normalized = " ".join(status.split())
         self.assertIn("Status: CERTIFIED", status)
         self.assertIn("Maturity: ISOLATED_PHASE1", status)
-        self.assertIn("not a claim of full language production support", status)
+        self.assertIn(
+            "not a claim of full language production support",
+            normalized,
+        )
         self.assertIn("bootstrap.check", status)
         self.assertIn("Typed AST", status)
         self.assertIn("ownership", status)
