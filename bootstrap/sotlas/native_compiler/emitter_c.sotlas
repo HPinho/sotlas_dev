@@ -360,6 +360,28 @@ impl CEmitter {
         return false;
     }
 
+    pub fn emit_loop_jump_statement(
+        mut self: &mut Self,
+        jump_index: usize
+    ) -> bool {
+        if !self.valid_node(jump_index) {
+            return false;
+        }
+        let jump: AstNode = unsafe { *(self.nodes + jump_index) };
+        if jump.kind != AstKind::BreakStmt
+            && jump.kind != AstKind::ContinueStmt {
+            return false;
+        }
+
+        if !self.emit_loop_jump_scope_defers(jump_index) {
+            return false;
+        }
+        if jump.kind == AstKind::BreakStmt {
+            return self.write_str("break;\n", 7);
+        }
+        return self.write_str("continue;\n", 10);
+    }
+
     pub fn source_slice_equals(
         self: &Self,
         offset: usize,
@@ -721,6 +743,10 @@ impl CEmitter {
             // block must not emit later statements or normal-exit cleanup.
             if stmt_node.kind == AstKind::ReturnStmt {
                 return self.emit_return_statement(stmt);
+            }
+            if stmt_node.kind == AstKind::BreakStmt
+                || stmt_node.kind == AstKind::ContinueStmt {
+                return self.emit_loop_jump_statement(stmt);
             }
 
             if !self.emit_normal_statement(stmt) {

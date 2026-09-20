@@ -318,6 +318,22 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         )
         self.assertLess(walk_at, cleanup_at)
 
+    def test_native_block_loop_jump_stops_path_after_cleanup(self):
+        emitter_file = (
+            ROOT / "bootstrap" / "sotlas" / "native_compiler" / "emitter_c.sotlas"
+        )
+        text = emitter_file.read_text(encoding="utf-8")
+        self.assertIn("pub fn emit_loop_jump_statement", text)
+        self.assertIn("self.emit_loop_jump_scope_defers(jump_index)", text)
+        self.assertIn('return self.write_str("break;\\n", 7);', text)
+        self.assertIn('return self.write_str("continue;\\n", 10);', text)
+        self.assertIn("stmt_node.kind == AstKind::BreakStmt", text)
+        self.assertIn("stmt_node.kind == AstKind::ContinueStmt", text)
+        self.assertIn("return self.emit_loop_jump_statement(stmt);", text)
+        jump_branch = text.index("stmt_node.kind == AstKind::BreakStmt")
+        ordinary_emit = text.index("self.emit_normal_statement(stmt)", jump_branch)
+        self.assertLess(jump_branch, ordinary_emit)
+
     def test_native_block_return_stops_fallthrough_and_duplicate_cleanup(self):
         emitter_file = (
             ROOT / "bootstrap" / "sotlas" / "native_compiler" / "emitter_c.sotlas"
