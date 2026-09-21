@@ -1715,6 +1715,82 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
         item.name: item for item in module.functions
     }
 
+    struct_by_name = {
+        item.name: item for item in module.structs
+    }
+
+    def _sole_struct_transfer_names(expr: Expr | None) -> set[str]:
+        if expr is None:
+            return set()
+
+        names: set[str] = set()
+
+        if isinstance(expr, StructLit):
+            struct = struct_by_name.get(expr.struct_name)
+            field_map = (
+                {field.name: field for field in struct.fields}
+                if struct is not None
+                else {}
+            )
+            if struct is not None and struct.is_sole:
+                for field_name, value in expr.fields:
+                    field = field_map.get(field_name)
+                    if (
+                        field is not None
+                        and field.type.name in sole_types
+                        and not field.type.pointer
+                        and not field.type.is_reference
+                    ):
+                        moved_value = (
+                            value.value
+                            if isinstance(value, MoveExpr)
+                            else value
+                        )
+                        if isinstance(moved_value, Name):
+                            names.add(moved_value.value)
+
+                    names.update(_sole_struct_transfer_names(value))
+            return names
+
+        if isinstance(expr, (UnsafeExpr, MoveExpr)):
+            names.update(_sole_struct_transfer_names(expr.value))
+        elif isinstance(expr, TryExpr):
+            names.update(_sole_struct_transfer_names(expr.expr))
+        elif isinstance(expr, Binary):
+            names.update(_sole_struct_transfer_names(expr.left))
+            names.update(_sole_struct_transfer_names(expr.right))
+        elif isinstance(expr, Unary):
+            names.update(_sole_struct_transfer_names(expr.value))
+        elif isinstance(expr, Cast):
+            names.update(_sole_struct_transfer_names(expr.expr))
+        elif isinstance(expr, Index):
+            names.update(_sole_struct_transfer_names(expr.target))
+            names.update(_sole_struct_transfer_names(expr.index))
+        elif isinstance(expr, Member):
+            names.update(_sole_struct_transfer_names(expr.target))
+        elif isinstance(expr, Call):
+            for argument in expr.args:
+                names.update(_sole_struct_transfer_names(argument))
+        elif isinstance(expr, MethodCall):
+            names.update(_sole_struct_transfer_names(expr.target))
+            for argument in expr.args:
+                names.update(_sole_struct_transfer_names(argument))
+        elif isinstance(expr, ArrayLit):
+            for element in expr.elements:
+                names.update(_sole_struct_transfer_names(element))
+        elif isinstance(expr, IfExpr):
+            names.update(_sole_struct_transfer_names(expr.condition))
+            names.update(_sole_struct_transfer_names(expr.then_expr))
+            names.update(_sole_struct_transfer_names(expr.else_expr))
+
+        return names
+
+    def _sole_transfer_names(expr: Expr | None) -> set[str]:
+        return (
+            _sole_call_transfer_names(expr)
+            | _sole_struct_transfer_names(expr)
+        )
+
     def _sole_call_transfer_names(expr: Expr | None) -> set[str]:
         if expr is None:
             return set()
@@ -1896,7 +1972,7 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
             if isinstance(item, Let):
                 _suppress_auto_cleanups(
                     defer_scopes,
-                    _sole_call_transfer_names(item.value),
+                    _sole_transfer_names(item.value),
                 )
                 if item.type is not None:
                     typ = item.type
@@ -1972,7 +2048,7 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
             elif isinstance(item, Assign):
                 _suppress_auto_cleanups(
                     defer_scopes,
-                    _sole_call_transfer_names(item.value),
+                    _sole_transfer_names(item.value),
                 )
                 target_str = _emit_expr(item.target, prefix) if isinstance(item.target, Expr) else str(item.target)
 
@@ -2021,7 +2097,7 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
             elif isinstance(item, Return):
                 _suppress_auto_cleanups(
                     defer_scopes,
-                    _sole_call_transfer_names(item.value),
+                    _sole_transfer_names(item.value),
                 )
                 all_defers = [
                     d
@@ -2089,7 +2165,7 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
             elif isinstance(item, Expression):
                 _suppress_auto_cleanups(
                     defer_scopes,
-                    _sole_call_transfer_names(item.value),
+                    _sole_transfer_names(item.value),
                 )
                 out.append(f"{pad}{_emit_expr(item.value, prefix)};")
             elif isinstance(item, Asm):

@@ -439,6 +439,81 @@ def _move_method_call_arguments(
     return result
 
 
+def _move_struct_literal_fields(
+    env: OwnershipEnv,
+    expr,
+    typed_module: TypedModule,
+    events: list[OwnershipEvent],
+) -> OwnershipEnv:
+    """Transfer sole field ownership into a sole struct literal."""
+    if type(expr).__name__ != "StructLit":
+        return env
+
+    struct_name = getattr(expr, "struct_name", "")
+    struct = next(
+        (item for item in typed_module.structs if item.name == struct_name),
+        None,
+    )
+    if struct is None:
+        return env
+
+    field_map = {field.name: field for field in struct.fields}
+    result = env
+
+    for field_name, field_expr in getattr(expr, "fields", ()):
+        field = field_map.get(field_name)
+        if field is None:
+            continue
+
+        field_is_sole = is_sole_type(field.type, typed_module)
+        if field_is_sole and not struct.is_sole:
+            raise Phase1SemanticError(
+                f"sole field {field_name!r} requires sole container "
+                f"{struct.name!r}"
+            )
+
+        moved_field = (
+            getattr(field_expr, "value", None)
+            if type(field_expr).__name__ == "MoveExpr"
+            else field_expr
+        )
+
+        if field_is_sole and type(moved_field).__name__ == "Name":
+            source_name = moved_field.value
+            source_type = result.type_of(source_name)
+            if source_type is not None:
+                result = result.move(source_name)
+                events.append(
+                    OwnershipEvent(
+                        "move",
+                        source_name,
+                        f"struct:{struct.name}.{field_name}",
+                    )
+                )
+                continue
+
+        if type(field_expr).__name__ == "StructLit":
+            result = _move_struct_literal_fields(
+                result, field_expr, typed_module, events
+            )
+        elif type(field_expr).__name__ == "Call":
+            result = _move_call_arguments(
+                result, field_expr, typed_module, events
+            )
+        elif type(field_expr).__name__ == "MethodCall":
+            result = _move_method_call_arguments(
+                result, field_expr, typed_module, events
+            )
+        elif type(field_expr).__name__ == "TryExpr":
+            result = _move_try_wrapped_call_arguments(
+                result, field_expr, typed_module, events
+            )
+        else:
+            require_expr_ownership_live(result, field_expr)
+
+    return result
+
+
 def _move_try_wrapped_call_arguments(
     env: OwnershipEnv,
     expr,
@@ -518,8 +593,12 @@ def analyze_linear_function_ownership(
                 env = _move_method_call_arguments(
                     env, value, typed_module, events
                 )
+            elif type(value).__name__ == "StructLit":
+                env = _move_struct_literal_fields(
+                    env, value, typed_module, events
+                )
             if type(value).__name__ not in (
-                "Name", "MoveExpr", "Call", "MethodCall"
+                "Name", "MoveExpr", "Call", "MethodCall", "StructLit"
             ):
                 require_expr_ownership_live(env, value)
             if local_type is not None:
@@ -763,6 +842,10 @@ def _analyze_block_ownership(
                 )
             elif type(value).__name__ == "TryExpr":
                 result = _move_try_wrapped_call_arguments(
+                    result, value, typed_module, events
+                )
+            elif type(value).__name__ == "StructLit":
+                result = _move_struct_literal_fields(
                     result, value, typed_module, events
                 )
             else:

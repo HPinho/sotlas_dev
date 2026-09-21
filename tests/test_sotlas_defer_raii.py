@@ -407,5 +407,52 @@ pub fn main() -> i32 {
         self.assertEqual(code, 0)
 
 
+
+    def test_raii_sole_field_transfer_moves_cleanup_into_sole_container(self):
+        source = """module test::raii_struct_field_transfer;
+
+static mut g_token_deinit_count: u32 = 0;
+
+pub sole struct OwnedToken {
+    id: u32;
+
+    pub fn deinit(&mut self) {
+        unsafe {
+            g_token_deinit_count = g_token_deinit_count + 1;
+        }
+    }
+}
+
+pub sole struct Holder {
+    token: OwnedToken;
+
+    pub fn deinit(&mut self) {
+        OwnedToken_deinit(&mut self.token);
+    }
+}
+
+pub fn execute_scope() -> i32 {
+    let token = OwnedToken { id: 55 };
+    let holder = Holder { token: token };
+    return holder.token.id as i32;
+}
+
+pub fn main() -> i32 {
+    let result: i32 = execute_scope();
+    unsafe {
+        if result != 55 {
+            return 1;
+        }
+        if g_token_deinit_count != 1 {
+            return 2;
+        }
+    }
+    return 0;
+}
+"""
+        code = self._compile_and_run(source)
+        self.assertEqual(code, 0)
+
+
 if __name__ == "__main__":
     unittest.main()

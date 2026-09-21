@@ -5685,5 +5685,49 @@ fn main() -> void { return; }
         self.assertFalse(limit.is_mut)
 
 
+
+    def test_ownership_struct_literal_moves_sole_field_source(self):
+        source = """module test::sole_struct_field_move;
+sole struct Token { value: u32; }
+sole struct Holder { token: Token; }
+
+fn main() -> u32 {
+    let token = Token { value: 9 };
+    let holder = Holder { token: token };
+    return token.value;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<sole-struct-field-move>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"use of sole value 'token' after move",
+        ):
+            typed_ast.analyze_function_ownership(parsed, typed, "main")
+
+    def test_ownership_rejects_sole_field_in_copyable_container(self):
+        source = """module test::sole_field_copyable_container;
+sole struct Token { value: u32; }
+struct Holder { token: Token; }
+
+fn main() -> void {
+    let token = Token { value: 9 };
+    let holder = Holder { token: token };
+    return;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<sole-field-copyable-container>"
+        )
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"sole field 'token' requires sole container 'Holder'",
+        ):
+            typed_ast.analyze_function_ownership(parsed, typed, "main")
+
+
 if __name__ == "__main__":
     unittest.main()
