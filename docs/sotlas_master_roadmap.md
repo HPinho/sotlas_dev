@@ -3857,7 +3857,9 @@ Ainda necessário para concluir a Fase 2 canônica:
 - [x] integração semântica de shared ownership com `defer`: captura shared preserva LIVE, defers rodam em LIFO antes dos releases ARC e `sole` continua exigindo transferência;
 - [ ] integração com runtime/backend;
 - [ ] transições e merges para `region`, `device` e `external`;
-- [ ] regras de domínio específicas para loops além da validação conservadora atual;
+- [x] loops exigem invariância de tipo, Ownership Domain e VarState no backedge para bindings visíveis;
+- [x] contas shared criadas inteiramente dentro da iteração recebem cleanup determinístico antes do backedge;
+- [ ] break/continue com shared locals requer cleanup path-specific antes de ser liberado;
 - [ ] integração completa com `defer`, cleanup e unwind/early-return de todos os recursos;
 - [ ] lowering backend-neutral de Ownership Domains;
 - [ ] backend C11 correspondente ou rejeição explícita por domínio;

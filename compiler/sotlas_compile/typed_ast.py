@@ -531,6 +531,7 @@ class OwnershipTrace:
     events: tuple[OwnershipEvent, ...]
     shared_cleanup: SharedCleanupPlan = SharedCleanupPlan(())
     shared_path_cleanup: SharedCleanupPlan = SharedCleanupPlan(())
+    shared_loop_cleanup: SharedCleanupPlan = SharedCleanupPlan(())
     shared_exit: SharedExitPlan = SharedExitPlan(())
 
 
@@ -1218,6 +1219,7 @@ def _analyze_block_ownership(
     *,
     history: tuple[OwnershipEvent, ...] = (),
     path_cleanup: list[SharedCleanupStep] | None = None,
+    loop_cleanup: list[SharedCleanupStep] | None = None,
     collect_return_cleanup: bool = True,
 ) -> OwnershipEnv:
     """Analyze ownership events for a canonical AST block.
@@ -1229,6 +1231,8 @@ def _analyze_block_ownership(
     result = env
     if path_cleanup is None:
         path_cleanup = []
+    if loop_cleanup is None:
+        loop_cleanup = []
     for statement in statements:
         kind = type(statement).__name__
 
@@ -1443,6 +1447,7 @@ def _analyze_block_ownership(
                 then_events,
                 history=branch_history,
                 path_cleanup=path_cleanup,
+                loop_cleanup=loop_cleanup,
                 collect_return_cleanup=collect_return_cleanup,
             )
             else_env = _analyze_block_ownership(
@@ -1453,6 +1458,7 @@ def _analyze_block_ownership(
                 else_events,
                 history=branch_history,
                 path_cleanup=path_cleanup,
+                loop_cleanup=loop_cleanup,
                 collect_return_cleanup=collect_return_cleanup,
             )
             then_env = _project_ownership_env(then_env, visible)
@@ -1514,6 +1520,7 @@ def _analyze_block_ownership(
                 body_events,
                 history=history + tuple(events),
                 path_cleanup=path_cleanup,
+                loop_cleanup=loop_cleanup,
                 collect_return_cleanup=collect_return_cleanup,
             )
             result = _project_ownership_env(body_env, visible)
@@ -1559,6 +1566,7 @@ def _analyze_block_ownership(
                     deferred_events,
                     history=history + tuple(events),
                     path_cleanup=path_cleanup,
+                    loop_cleanup=loop_cleanup,
                     collect_return_cleanup=False,
                 )
                 deferred_env = _project_ownership_env(
@@ -1574,6 +1582,7 @@ def _analyze_block_ownership(
                     deferred_events,
                     history=history + tuple(events),
                     path_cleanup=path_cleanup,
+                    loop_cleanup=loop_cleanup,
                     collect_return_cleanup=False,
                 )
                 via = "assign"
@@ -1647,27 +1656,78 @@ def _analyze_block_ownership(
                 )
 
             visible = tuple(binding.name for binding in result.bindings)
+            loop_body = getattr(statement, "body", ())
             body_events: list[OwnershipEvent] = []
             body_env = _analyze_block_ownership(
-                getattr(statement, "body", ()),
+                loop_body,
                 result,
                 typed_module,
                 typed_function,
                 body_events,
                 history=history + tuple(events),
                 path_cleanup=path_cleanup,
+                loop_cleanup=loop_cleanup,
                 collect_return_cleanup=collect_return_cleanup,
             )
-            body_env = _project_ownership_env(body_env, visible)
 
             for name in visible:
-                before = result.state_of(name)
-                after = body_env.state_of(name)
-                if before != after:
+                before_binding = next(
+                    binding for binding in result.bindings
+                    if binding.name == name
+                )
+                after_binding = next(
+                    binding for binding in body_env.bindings
+                    if binding.name == name
+                )
+                if before_binding.type != after_binding.type:
+                    raise Phase1SemanticError(
+                        f"ownership binding {name!r} changed type across loop backedge"
+                    )
+                if before_binding.domain is not after_binding.domain:
+                    raise Phase1SemanticError(
+                        f"ownership binding {name!r} changed domain across loop "
+                        f"backedge: {before_binding.domain.value} vs "
+                        f"{after_binding.domain.value}"
+                    )
+                if before_binding.state is not after_binding.state:
                     raise Phase1SemanticError(
                         f"sole value {name!r} moved inside loop without reinitialization"
                     )
 
+            local_shared = tuple(
+                binding for binding in body_env.bindings
+                if binding.name not in visible
+                and binding.domain is OwnershipDomain.SHARED
+                and binding.state is VarState.LIVE
+            )
+            if local_shared:
+                if any(
+                    event.kind == "control"
+                    and event.via in ("break", "continue")
+                    for event in body_events
+                ):
+                    raise Phase1SemanticError(
+                        "shared ownership created inside loop with break/continue "
+                        "requires path-specific loop cleanup"
+                    )
+                local_env = OwnershipEnv(local_shared)
+                local_plan = plan_shared_scope_cleanup(
+                    local_env,
+                    history + tuple(events) + tuple(body_events),
+                )
+                for step in local_plan.steps:
+                    loop_cleanup.append(
+                        SharedCleanupStep(
+                            owner=step.owner,
+                            account=step.account,
+                            strong_refs_before=step.strong_refs_before,
+                            strong_refs_after=step.strong_refs_after,
+                            destroy_after=step.destroy_after,
+                            via=f"loop_backedge:{kind.lower()}",
+                        )
+                    )
+
+            body_env = _project_ownership_env(body_env, visible)
             events.append(
                 OwnershipEvent("loop", typed_function.name, kind)
             )
@@ -1705,6 +1765,7 @@ def analyze_function_ownership(
             )
 
     path_cleanup: list[SharedCleanupStep] = []
+    loop_cleanup: list[SharedCleanupStep] = []
     env = _analyze_block_ownership(
         parsed_function.body,
         env,
@@ -1712,6 +1773,7 @@ def analyze_function_ownership(
         typed_function,
         events,
         path_cleanup=path_cleanup,
+        loop_cleanup=loop_cleanup,
     )
     cleanup = plan_shared_scope_cleanup(env, events)
     exit_plan = plan_shared_exit(events, cleanup)
@@ -1720,6 +1782,7 @@ def analyze_function_ownership(
         tuple(events),
         cleanup,
         SharedCleanupPlan(tuple(path_cleanup)),
+        SharedCleanupPlan(tuple(loop_cleanup)),
         exit_plan,
     )
 

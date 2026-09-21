@@ -95,7 +95,9 @@
 - [x] regra antiga de `sole/exclusive` em defer permanece rígida: captura sem transferência continua rejeitada
 - [ ] ARC lowering/runtime para tornar `share` executável no backend
 - [ ] transições para `region/device/external` e merges correspondentes
-- [ ] regras de domínio para loops além do gate conservador atual
+- [x] invariância canônica de tipo/domínio/estado no backedge de loops para owners visíveis
+- [x] contas shared inteiramente locais à iteração recebem release reverso antes do backedge
+- [ ] cleanup path-specific de shared locals em break/continue
 - [ ] integração completa de cleanup/early return/defer
 - [ ] lowering backend-neutral dos domains
 - [ ] implementação/rejeição explícita por backend
@@ -108,7 +110,7 @@
 ```text
 Fase 0 — Reality Reset              ~80%
 Fase 1 — Typed Semantic Core       100% ✅
-Fase 2 — Ownership Domains          ~73% 🟡
+Fase 2 — Ownership Domains          ~77% 🟡
 Fase 3 — Authority Domains          ~10%
 Fase 4 — State Spaces                ~0%
 Fase 5 — Effects                    ~10%
@@ -129,7 +131,7 @@ Fase 17 — Tooling avançado          ~15%
 ### Fase 2 detalhada
 
 ```text
-Fase 2 — Ownership Domains                  ~73%
+Fase 2 — Ownership Domains                  ~77%
 
 ✅ sole / exclusive
 ✅ move semantics
@@ -147,22 +149,28 @@ Fase 2 — Ownership Domains                  ~73%
 ✅ shared ARC/reference-accounting model
 ✅ retain/release semantics
 ✅ last-owner destruction eligibility
-✅ apply shared transition to real env       ← NOVO
-✅ real shared strong alias model            ← NOVO
+✅ apply shared transition to real env
+✅ real shared strong alias model
 ✅ stale transition / alias collision guards
 ✅ TypedShareExpression canonical semantics
 ✅ partial-share sources remain fail-closed
-✅ public share syntax + dedicated AST        ← NOVO
-✅ parser → Typed AST → OwnershipEnv path     ← NOVO
+✅ public share syntax + dedicated AST
+✅ parser → Typed AST → OwnershipEnv path
 ✅ C11 share gate remains fail-closed
-✅ function-scope shared cleanup plan         ← NOVO
-✅ reverse release order / final destroy      ← NOVO
+✅ function-scope shared cleanup plan
+✅ reverse release order / final destroy
+✅ unaccounted shared owners fail-closed
+✅ early-return shared cleanup
+✅ branch-aware shared cleanup
+✅ path/fallthrough cleanup isolation
+✅ shared defer capture while owner LIVE
+✅ defer LIFO before ARC release
+✅ exclusive defer rule remains strict
+✅ loop domain/state/type backedge invariant  ← NOVO
+✅ loop-local shared cleanup before backedge ← NOVO
+✅ break/continue shared-local gate          ← NOVO
 
-✅ early-return shared cleanup              ← NOVO
-✅ branch-aware shared cleanup              ← NOVO
-✅ path/fallthrough cleanup isolation       ← NOVO
-
-⬜ defer integration for shared owners
+⬜ path-specific shared cleanup for break/continue
 ⬜ ARC lowering/runtime
 ⬜ region
 ⬜ device
@@ -172,7 +180,6 @@ Fase 2 — Ownership Domains                  ~73%
 ⬜ direct
 ⬜ handover
 ⬜ quarantine
-⬜ loop-domain semantics
 ⬜ backend/e2e
 ```
 

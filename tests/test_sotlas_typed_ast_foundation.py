@@ -954,6 +954,81 @@ fn main(token: Token) -> void {
                 parsed, typed_module, "main"
             )
 
+    def test_loop_rejects_visible_domain_change_on_backedge(self):
+        source = """module test::loop_domain_invariant;
+sole struct Token { value: u32; }
+fn main(flag: bool, token: Token) -> void {
+    while flag {
+        let peer = share token;
+    }
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<loop-domain-invariant>")
+        bootstrap.check(parsed)
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            "changed domain across loop backedge: exclusive vs shared",
+        ):
+            typed_ast.analyze_function_ownership(
+                parsed, typed_module, "main"
+            )
+
+    def test_loop_local_shared_account_releases_before_backedge(self):
+        source = """module test::loop_local_shared_cleanup;
+sole struct Token { value: u32; }
+fn main(flag: bool) -> void {
+    while flag {
+        let local: Token = Token { value: 1u32 };
+        let peer = share local;
+    }
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<loop-local-shared-cleanup>")
+        bootstrap.check(parsed)
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(
+            parsed, typed_module, "main"
+        )
+        self.assertEqual(
+            trace.shared_loop_cleanup.steps,
+            (
+                typed_ast.SharedCleanupStep(
+                    "peer", "local", 2, 1, False, "loop_backedge:while"
+                ),
+                typed_ast.SharedCleanupStep(
+                    "local", "local", 1, 0, True, "loop_backedge:while"
+                ),
+            ),
+        )
+        self.assertIsNone(trace.final_env.domain_of("local"))
+        self.assertIsNone(trace.final_env.domain_of("peer"))
+
+    def test_loop_local_shared_account_with_control_jump_is_fail_closed(self):
+        source = """module test::loop_shared_control_cleanup;
+sole struct Token { value: u32; }
+fn main(flag: bool) -> void {
+    while flag {
+        let local: Token = Token { value: 1u32 };
+        let peer = share local;
+        continue;
+    }
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<loop-shared-control-cleanup>")
+        bootstrap.check(parsed)
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            "requires path-specific loop cleanup",
+        ):
+            typed_ast.analyze_function_ownership(
+                parsed, typed_module, "main"
+            )
+
     def test_explicit_sole_transfer_starts_live_then_moves(self):
         typed = typed_ast.build_declaration_typed_ast(self.checked_ast())
         state = typed_ast.require_sole_transfer(
