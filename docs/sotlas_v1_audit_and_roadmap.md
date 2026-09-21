@@ -51,6 +51,39 @@ Before expanding the roadmap, the three fundamental open questions from the init
   - To prevent binary bloat in freestanding kernels, the SIR Dead-Code Elimination (DCE) pass strips uncalled monomorphized instances before code generation.
   - When dynamic heterogeneity is explicitly required (e.g., heterogeneous UI widget hierarchies), Sotlas uses fat pointers (`data_ptr` + `vtable_ptr`) via `*dyn Spec`.
 
+### Decision 4: Backend Architecture — Portable Bootstrap + Native Codegen
+* **Verdict: C11 remains a bootstrap/reference backend; it is not the permanent execution model of Sotlas.**
+* **Canonical pipeline:** `Source -> Typed AST -> SIR -> target lowering -> backend`. SIR is the stable boundary between language semantics and target-specific code generation.
+* **Native backend direction:** Sotlas will grow a first-party native backend that emits relocatable object code / machine code for supported targets. Textual assembly is an inspection/debug product (`--emit=asm`), not the primary compiler transport format.
+* **Why not ASM-only:** emitting textual assembly directly as the sole backend would force instruction selection, register allocation, ABI lowering, relocations, object formats, debug information, unwind metadata, and target-specific optimization to become mandatory before the language core is stable.
+* **Why keep C11:** the C11 backend provides a portable bootstrap path, a readable semantic reference, cross-target bring-up, differential testing, and a fallback for new architectures while the native backend matures.
+* **Baremetal rule:** `target barecore` must not rely on hosted C runtime semantics. Once the native backend is available for a target, kernels, bootloaders, interrupt paths, MMIO, and architecture intrinsics should prefer direct native lowering.
+* **Hosted rule:** desktop, server, game-engine, and AI/HPC builds may select the best available backend per target (native backend or LLVM), without changing Sotlas source semantics.
+* **Backend parity requirement:** a feature is not `SUPPORTED` merely because one backend accepts it. Semantics must be defined at Typed AST/SIR level and each claimed production backend must either implement them or reject them explicitly.
+
+The intended long-term backend matrix is:
+
+```text
+Sotlas source
+    |
+    v
+Typed AST / Sema
+    |
+    v
+SIR
+    |
+    +--> C11 backend ---------> C compiler ---------> object/binary
+    |      bootstrap/reference
+    |
+    +--> Native backend ------> .o/.obj / machine code
+    |      kernels, games, apps, HPC
+    |      `--emit=asm` for inspection
+    |
+    +--> LLVM backend --------> optimized native object/binary
+    |
+    +--> WASM backend --------> wasm module
+```
+
 ### Reserved Sotlas Vocabulary (Future Contracts)
 
 The following names are intentionally retained as part of the Sotlas language design. They are **reserved future contracts**, not proof that the current compiler supports their complete semantics.
