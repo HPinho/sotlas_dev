@@ -48,6 +48,126 @@ class SIRGenerator:
             raise ValueError("terminal SIR return lacks source location")
         return f"return@{line}:{column}"
 
+    @staticmethod
+    def _statement_point_id(statement: Any, kind: str) -> str:
+        span = getattr(statement, "span", None)
+        line = getattr(span, "line", None)
+        column = getattr(span, "col", None)
+        if line is None or column is None:
+            token = getattr(statement, "token", None)
+            line = getattr(token, "line", None)
+            column = getattr(token, "column", None)
+        if line is None or column is None:
+            raise ValueError(f"{kind} SIR statement lacks source location")
+        return f"{kind}@{line}:{column}"
+
+    @staticmethod
+    def _simple_condition_value(condition: Any, params: list[SIRValue]) -> SIRValue | None:
+        """Return an existing boolean SSA value for conditions already representable."""
+        if type(condition).__name__ not in ("IdentNode", "Name"):
+            return None
+        name = getattr(condition, "name", None) or getattr(condition, "value", None)
+        for param in params:
+            if param.name == name:
+                return param
+        return None
+
+    def _try_lower_simple_if_returns(
+        self,
+        fn: Any,
+        sir_fn: SIRFunction,
+        entry_block: SIRBasicBlock,
+        sir_params: list[SIRValue],
+    ) -> bool:
+        """Lower the first honest structured-if subset used by ownership cleanup.
+
+        Supported shapes:
+          if flag { return; }
+          return;
+
+        and:
+          if flag { return; } else { return; }
+
+        Each branch must contain exactly one direct return. The condition must
+        already exist as a parameter SSA value; no placeholder condition is invented.
+        """
+        body = getattr(fn, "body", None) or []
+        if not body or type(body[0]).__name__ not in ("If", "IfNode"):
+            return False
+
+        if_node = body[0]
+        condition = self._simple_condition_value(
+            getattr(if_node, "condition", None),
+            sir_params,
+        )
+        if condition is None:
+            return False
+
+        then_body = getattr(if_node, "then_body", None) or []
+        else_body = getattr(if_node, "else_body", None)
+        if len(then_body) != 1 or type(then_body[0]).__name__ not in ("Return", "ReturnNode"):
+            return False
+
+        if_span = getattr(if_node, "span", None)
+        if_line = getattr(if_span, "line", 0)
+        if_col = getattr(if_span, "col", 0)
+        then_label = f"if_{if_line}_{if_col}_then"
+        else_label = f"if_{if_line}_{if_col}_else"
+        cont_label = f"if_{if_line}_{if_col}_cont"
+
+        if else_body is not None:
+            if not isinstance(else_body, list):
+                return False
+            if len(else_body) != 1 or type(else_body[0]).__name__ not in ("Return", "ReturnNode"):
+                return False
+            if len(body) != 1:
+                return False
+
+            entry_block.add(
+                CondBranchInst(
+                    condition=condition,
+                    true_block=then_label,
+                    false_block=else_label,
+                )
+            )
+            then_block = sir_fn.add_block(then_label)
+            else_block = sir_fn.add_block(else_label)
+            then_block.add(
+                ReturnInst(
+                    point_id=self._statement_point_id(then_body[0], "return")
+                )
+            )
+            else_block.add(
+                ReturnInst(
+                    point_id=self._statement_point_id(else_body[0], "return")
+                )
+            )
+            return True
+
+        if len(body) != 2 or type(body[1]).__name__ not in ("Return", "ReturnNode"):
+            return False
+
+        entry_block.add(
+            CondBranchInst(
+                condition=condition,
+                true_block=then_label,
+                false_block=cont_label,
+            )
+        )
+        then_block = sir_fn.add_block(then_label)
+        cont_block = sir_fn.add_block(cont_label)
+        then_block.add(
+            ReturnInst(
+                point_id=self._statement_point_id(then_body[0], "return")
+            )
+        )
+        cont_block.add(
+            ReturnInst(
+                point_id=self._statement_point_id(body[1], "return")
+            )
+        )
+        return True
+
     def generate_from_ast(self, ast: Any) -> SIRModule:
         """Gera o SIR a partir de um módulo AST parsed pelo frontend."""
         module_name = getattr(ast, "name", self.module_name)
@@ -102,9 +222,16 @@ class SIRGenerator:
             entry_block.add(AllocStackInst(var_name=p.name, type_name=p.type_name, result=stack_slot))
             entry_block.add(StoreInst(destination=stack_slot, source=p))
 
-        # O protótipo ainda representa apenas o bloco linear de entrada. Quando
-        # esse bloco corresponde a um return terminal direto da AST, preserva
-        # sua identidade source-stable para placement ARC verificável.
+        # Primeiro subconjunto estruturado de CFG: if booleano por parâmetro
+        # com retornos diretos. Só é ativado quando todos os caminhos podem ser
+        # representados honestamente pelo protótipo atual.
+        if self._try_lower_simple_if_returns(
+            fn, sir_fn, entry_block, sir_params
+        ):
+            return sir_fn
+
+        # Fallback linear existente. Quando o bloco corresponde a um return
+        # terminal direto da AST, preserva sua identidade source-stable.
         return_point = self._terminal_return_point_id(fn)
         entry_block.add(
             ReturnInst(

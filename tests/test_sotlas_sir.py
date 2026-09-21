@@ -9,7 +9,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 
 from sotlas.sir import (
     SIRModule, SIRFunction, SIRBasicBlock, SIRValue,
-    AllocStackInst, StoreInst, LoadInst, CallInst, ReturnInst,
+    AllocStackInst, StoreInst, LoadInst, CallInst, ReturnInst, CondBranchInst,
     ShareInst, RetainInst, ReleaseInst, DestroyInst,
     lower_shared_ownership_trace, place_shared_return_cleanup,
     SIRGenerator, SIRPassManager, DefiniteInitializationPass,
@@ -272,7 +272,7 @@ class SotlasSIRTests(unittest.TestCase):
         self.assertIn("sir_fn @system @compute_sum", dump)
         self.assertIn("alloc_stack", dump)
 
-    def test_sir_generator_does_not_fake_nested_return_cfg_point(self):
+    def test_sir_generator_builds_cfg_for_if_then_return_and_fallthrough_return(self):
         source = """
         module test::sir_nested_return_probe;
 
@@ -280,6 +280,7 @@ class SotlasSIRTests(unittest.TestCase):
             if flag {
                 return;
             }
+            return;
         }
         """
         tokens = Lexer(source, "<sir-nested-return-probe>").tokenize()
@@ -287,8 +288,69 @@ class SotlasSIRTests(unittest.TestCase):
 
         sir_mod = SIRGenerator().generate_from_ast(ast)
         fn = sir_mod.functions[0]
-        terminal = fn.blocks[0].instructions[-1]
 
+        self.assertEqual(len(fn.blocks), 3)
+        self.assertIsInstance(fn.blocks[0].instructions[-1], CondBranchInst)
+
+        if_node = ast.decls[0].body[0]
+        nested_return = if_node.then_body[0]
+        fallthrough_return = ast.decls[0].body[1]
+        expected = {
+            f"return@{nested_return.span.line}:{nested_return.span.col}",
+            f"return@{fallthrough_return.span.line}:{fallthrough_return.span.col}",
+        }
+        actual = {
+            inst.point_id
+            for block in fn.blocks[1:]
+            for inst in block.instructions
+            if isinstance(inst, ReturnInst)
+        }
+        self.assertEqual(actual, expected)
+
+    def test_sir_generator_builds_cfg_for_if_else_direct_returns(self):
+        source = """
+        module test::sir_if_else_return_probe;
+
+        pub fn choose(flag: bool) -> void {
+            if flag {
+                return;
+            } else {
+                return;
+            }
+        }
+        """
+        tokens = Lexer(source, "<sir-if-else-return-probe>").tokenize()
+        ast = Parser(tokens, "<sir-if-else-return-probe>").parse()
+
+        sir_mod = SIRGenerator().generate_from_ast(ast)
+        fn = sir_mod.functions[0]
+        self.assertEqual(len(fn.blocks), 3)
+        self.assertIsInstance(fn.blocks[0].instructions[-1], CondBranchInst)
+        returns = [
+            inst
+            for block in fn.blocks[1:]
+            for inst in block.instructions
+            if isinstance(inst, ReturnInst)
+        ]
+        self.assertEqual(len(returns), 2)
+        self.assertTrue(all(inst.point_id.startswith("return@") for inst in returns))
+
+    def test_sir_generator_keeps_unrepresentable_nested_return_unidentified(self):
+        source = """
+        module test::sir_unrepresentable_nested_return;
+
+        pub fn maybe_stop(flag: bool) -> void {
+            if flag && flag {
+                return;
+            }
+        }
+        """
+        tokens = Lexer(source, "<sir-unrepresentable-nested-return>").tokenize()
+        ast = Parser(tokens, "<sir-unrepresentable-nested-return>").parse()
+
+        sir_mod = SIRGenerator().generate_from_ast(ast)
+        fn = sir_mod.functions[0]
+        terminal = fn.blocks[0].instructions[-1]
         self.assertIsInstance(terminal, ReturnInst)
         self.assertIsNone(terminal.point_id)
 

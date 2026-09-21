@@ -3865,7 +3865,8 @@ Ainda necessário para concluir a Fase 2 canônica:
 - [x] identidade source-stable para pontos de cleanup ownership em return/break/continue/backedge, preservada no plano SIR;
 - [x] placement real de cleanup ARC imediatamente antes de `ReturnInst` identificado por `point_id`, com erro para pontos ausentes/duplicados;
 - [x] gerador SIR protótipo preserva `point_id` em return terminal linear diretamente representável, sem fabricar CFG para retornos aninhados;
-- [ ] CFG estruturado de produção preservando `point_id` em returns aninhados e outros terminadores;
+- [x] primeiro CFG estruturado para `if` booleano simples com retornos diretos, preservando `point_id` distinto por caminho;
+- [ ] expandir CFG estruturado para condições/corpos arbitrários e demais terminadores;
 - [ ] placement CFG para break/continue/backedge;
 - [ ] backend C11 correspondente ou rejeição explícita por domínio;
 - [ ] testes positivos, negativos e end-to-end para cada domínio;
