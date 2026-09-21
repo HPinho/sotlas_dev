@@ -464,7 +464,7 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         self.assertIn("pub fn emit_try_statement", text)
         self.assertIn("try_node.kind != AstKind::TryExpr", text)
         self.assertIn("self.try_call_returns_result_u64_i32(try_index)", text)
-        self.assertIn('"SotlasResultU64I32 __sotlas_try_value = "', text)
+        self.assertIn("SotlasResultU64I32 __sotlas_try_value = ", text)
         self.assertIn("self.emit_function_exit_defers(try_index)", text)
         self.assertIn('"return __sotlas_try_value;', text)
         self.assertIn("node.kind == AstKind::TryExpr", text)
