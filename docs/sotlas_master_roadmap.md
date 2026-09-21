@@ -3869,7 +3869,8 @@ Ainda necessário para concluir a Fase 2 canônica:
 - [ ] expandir CFG estruturado para condições/corpos arbitrários e demais terminadores;
 - [x] integração direta `OwnershipTrace → plano SIR → placement` para retornos identificados, inclusive no CFG estruturado inicial de `if`;
 - [x] placement ARC para `break`/`continue` em `BranchInst` source-identified, com validação fail-closed;
-- [ ] emissão desses terminadores pelo SIRGenerator e placement de backedge;
+- [x] SIRGenerator emite CFG mínimo de `while` com `break`/`continue` source-identified e compatível com placement ARC;
+- [ ] identidade e placement ARC do backedge normal;
 - [ ] backend C11 correspondente ou rejeição explícita por domínio;
 - [ ] testes positivos, negativos e end-to-end para cada domínio;
 - [ ] promoção individual para `SUPPORTED` apenas após o gate completo.

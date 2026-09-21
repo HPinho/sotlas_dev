@@ -201,6 +201,89 @@ class SIRGenerator:
         )
         return True
 
+    def _try_lower_simple_loop_control(
+        self,
+        fn: Any,
+        sir_fn: SIRFunction,
+        entry_block: SIRBasicBlock,
+        sir_params: list[SIRValue],
+        return_type: str,
+    ) -> bool:
+        """Lower a minimal honest while CFG with one break or continue body."""
+        if return_type != "void":
+            return False
+
+        body = getattr(fn, "body", None) or []
+        if not body or type(body[0]).__name__ not in ("While", "WhileNode"):
+            return False
+
+        loop = body[0]
+        condition = self._simple_condition_value(
+            getattr(loop, "condition", None),
+            sir_params,
+        )
+        if condition is None:
+            return False
+
+        loop_body = getattr(loop, "body", None) or []
+        if len(loop_body) != 1:
+            return False
+        control_stmt = loop_body[0]
+        control_name = type(control_stmt).__name__
+        if control_name in ("Break", "BreakNode"):
+            control_kind = "break"
+        elif control_name in ("Continue", "ContinueNode"):
+            control_kind = "continue"
+        else:
+            return False
+
+        if len(body) > 2:
+            return False
+        terminal_return = None
+        if len(body) == 2:
+            if type(body[1]).__name__ not in ("Return", "ReturnNode"):
+                return False
+            terminal_return = body[1]
+
+        span = getattr(loop, "span", None)
+        line = getattr(span, "line", 0)
+        column = getattr(span, "col", 0)
+        cond_label = f"while_{line}_{column}_cond"
+        body_label = f"while_{line}_{column}_body"
+        exit_label = f"while_{line}_{column}_exit"
+
+        entry_block.add(BranchInst(cond_label))
+        cond_block = sir_fn.add_block(cond_label)
+        cond_block.add(
+            CondBranchInst(
+                condition=condition,
+                true_block=body_label,
+                false_block=exit_label,
+            )
+        )
+
+        loop_body_block = sir_fn.add_block(body_label)
+        target = cond_label if control_kind == "continue" else exit_label
+        loop_body_block.add(
+            BranchInst(
+                target,
+                point_id=self._statement_point_id(control_stmt, control_kind),
+                control_kind=control_kind,
+            )
+        )
+
+        exit_block = sir_fn.add_block(exit_label)
+        exit_block.add(
+            ReturnInst(
+                point_id=(
+                    self._statement_point_id(terminal_return, "return")
+                    if terminal_return is not None
+                    else None
+                )
+            )
+        )
+        return True
+
     def generate_from_ast(self, ast: Any) -> SIRModule:
         """Gera o SIR a partir de um módulo AST parsed pelo frontend."""
         module_name = getattr(ast, "name", self.module_name)
@@ -258,6 +341,11 @@ class SIRGenerator:
         # com retornos diretos. Só é ativado quando todos os caminhos podem ser
         # representados honestamente pelo protótipo atual.
         if self._try_lower_simple_if_returns(
+            fn, sir_fn, entry_block, sir_params, ret_str
+        ):
+            return sir_fn
+
+        if self._try_lower_simple_loop_control(
             fn, sir_fn, entry_block, sir_params, ret_str
         ):
             return sir_fn

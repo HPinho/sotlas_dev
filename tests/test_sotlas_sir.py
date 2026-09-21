@@ -572,6 +572,120 @@ class SotlasSIRTests(unittest.TestCase):
         self.assertEqual(len(returns), 2)
         self.assertTrue(all(inst.point_id.startswith("return@") for inst in returns))
 
+    def test_sir_generator_builds_continue_loop_cfg_with_identity(self):
+        source = """
+        module test::sir_continue_loop;
+
+        pub fn spin(flag: bool) -> void {
+            while flag {
+                continue;
+            }
+            return;
+        }
+        """
+        tokens = Lexer(source, "<sir-continue-loop>").tokenize()
+        ast = Parser(tokens, "<sir-continue-loop>").parse()
+
+        fn = SIRGenerator().generate_from_ast(ast).functions[0]
+
+        self.assertEqual(len(fn.blocks), 4)
+        self.assertIsInstance(fn.blocks[0].instructions[-1], BranchInst)
+        self.assertIsInstance(fn.blocks[1].instructions[-1], CondBranchInst)
+        control = fn.blocks[2].instructions[-1]
+        self.assertIsInstance(control, BranchInst)
+        self.assertEqual(control.control_kind, "continue")
+        stmt = ast.decls[0].body[0].body[0]
+        self.assertEqual(
+            control.point_id,
+            f"continue@{stmt.span.line}:{stmt.span.col}",
+        )
+        self.assertEqual(control.target_block, fn.blocks[1].label)
+
+    def test_sir_generator_builds_break_loop_cfg_with_identity(self):
+        source = """
+        module test::sir_break_loop;
+
+        pub fn stop(flag: bool) -> void {
+            while flag {
+                break;
+            }
+            return;
+        }
+        """
+        tokens = Lexer(source, "<sir-break-loop>").tokenize()
+        ast = Parser(tokens, "<sir-break-loop>").parse()
+
+        fn = SIRGenerator().generate_from_ast(ast).functions[0]
+
+        self.assertEqual(len(fn.blocks), 4)
+        control = fn.blocks[2].instructions[-1]
+        self.assertIsInstance(control, BranchInst)
+        self.assertEqual(control.control_kind, "break")
+        stmt = ast.decls[0].body[0].body[0]
+        self.assertEqual(
+            control.point_id,
+            f"break@{stmt.span.line}:{stmt.span.col}",
+        )
+        self.assertEqual(control.target_block, fn.blocks[3].label)
+        terminal = fn.blocks[3].instructions[-1]
+        ret = ast.decls[0].body[1]
+        self.assertEqual(
+            terminal.point_id,
+            f"return@{ret.span.line}:{ret.span.col}",
+        )
+
+    def test_generated_continue_loop_accepts_arc_control_placement(self):
+        source = """
+        module test::sir_continue_arc;
+
+        pub fn spin(flag: bool) -> void {
+            while flag {
+                continue;
+            }
+            return;
+        }
+        """
+        tokens = Lexer(source, "<sir-continue-arc>").tokenize()
+        ast = Parser(tokens, "<sir-continue-arc>").parse()
+        fn = SIRGenerator().generate_from_ast(ast).functions[0]
+        control = ast.decls[0].body[0].body[0]
+        point = f"continue@{control.span.line}:{control.span.col}"
+        token = SIRValue("token", "Token")
+        plan = SimpleNamespace(cleanup_segments=(
+            SimpleNamespace(
+                via="loop_control:continue",
+                point_id=point,
+                instructions=(ReleaseInst(token), DestroyInst(token)),
+            ),
+        ))
+
+        inserted = place_shared_loop_control_cleanup(fn, plan)
+
+        self.assertEqual(inserted, 2)
+        self.assertEqual(
+            tuple(type(inst) for inst in fn.blocks[2].instructions),
+            (ReleaseInst, DestroyInst, BranchInst),
+        )
+
+    def test_unrepresentable_loop_control_keeps_fallback_prototype(self):
+        source = """
+        module test::sir_complex_loop;
+
+        pub fn spin(flag: bool) -> void {
+            while flag && flag {
+                continue;
+            }
+        }
+        """
+        tokens = Lexer(source, "<sir-complex-loop>").tokenize()
+        ast = Parser(tokens, "<sir-complex-loop>").parse()
+
+        fn = SIRGenerator().generate_from_ast(ast).functions[0]
+
+        self.assertEqual(len(fn.blocks), 1)
+        self.assertIsInstance(fn.blocks[0].instructions[-1], ReturnInst)
+        self.assertIsNone(fn.blocks[0].instructions[-1].point_id)
+
     def test_sir_generator_does_not_emit_valueless_nonvoid_if_returns(self):
         source = """
         module test::sir_nonvoid_if_return_probe;
