@@ -2958,6 +2958,7 @@ class Phase1ModuleSnapshot:
     bodies: tuple[TypedFunctionBody, ...]
     ownership: OwnershipModuleAnalysis
     enum_layouts: tuple[TypedEnumLayout, ...] = ()
+    enum_storage_layouts: tuple[TypedEnumStorageLayout, ...] = ()
     maturity: str = MATURITY
 
 
@@ -2977,11 +2978,13 @@ def build_phase1_semantic_snapshot(parsed_module) -> Phase1ModuleSnapshot:
     )
     ownership = analyze_module_ownership(parsed_module, typed_module)
     enum_layouts = lower_module_enum_layouts(typed_module)
+    enum_storage_layouts = lower_module_enum_storage_layouts(enum_layouts)
     return Phase1ModuleSnapshot(
         typed_module=typed_module,
         bodies=bodies,
         ownership=ownership,
         enum_layouts=enum_layouts,
+        enum_storage_layouts=enum_storage_layouts,
     )
 
 
@@ -3144,6 +3147,66 @@ class TypedEnumLayout:
     variants: tuple[TypedEnumVariantLayout, ...]
 
 
+@dataclass(frozen=True)
+class TypedEnumPayloadSlot:
+    variant_name: str
+    active_tag: int
+    payload_type: SemanticType
+
+
+@dataclass(frozen=True)
+class TypedEnumStorageLayout:
+    enum_name: str
+    tag_storage: str
+    payload_storage: str
+    payload_slots: tuple[TypedEnumPayloadSlot, ...]
+
+
+def lower_enum_storage_layout(
+    layout: TypedEnumLayout,
+) -> TypedEnumStorageLayout:
+    """Describe backend-neutral storage for one normalized enum layout.
+
+    Every enum stores its discriminant separately. Payload-bearing variants
+    share one logical union storage, and a payload slot is valid only while
+    the enum tag equals that slot's active_tag. Width, alignment, padding, and
+    concrete backend syntax remain intentionally unspecified here.
+    """
+    payload_slots = tuple(
+        TypedEnumPayloadSlot(
+            variant_name=variant.name,
+            active_tag=variant.tag,
+            payload_type=variant.payload_type,
+        )
+        for variant in layout.variants
+        if variant.payload_type is not None
+    )
+
+    if layout.storage == "tag_only":
+        if payload_slots:
+            raise Phase1SemanticError(
+                f"enum {layout.enum_name!r} tag-only layout contains payload slots"
+            )
+        payload_storage = "none"
+    elif layout.storage == "tagged_union":
+        if not payload_slots:
+            raise Phase1SemanticError(
+                f"enum {layout.enum_name!r} tagged-union layout has no payload slots"
+            )
+        payload_storage = "union"
+    else:
+        raise Phase1SemanticError(
+            f"enum {layout.enum_name!r} has unknown storage {layout.storage!r}"
+        )
+
+    return TypedEnumStorageLayout(
+        enum_name=layout.enum_name,
+        tag_storage="discriminant",
+        payload_storage=payload_storage,
+        payload_slots=payload_slots,
+    )
+
+
 def lower_enum_layout(enum: TypedEnum) -> TypedEnumLayout:
     """Normalize enum discriminants before any backend-specific ABI lowering.
 
@@ -3187,6 +3250,13 @@ def lower_module_enum_layouts(
 ) -> tuple[TypedEnumLayout, ...]:
     """Lower every typed enum to a backend-neutral canonical layout."""
     return tuple(lower_enum_layout(enum) for enum in module.enums)
+
+
+def lower_module_enum_storage_layouts(
+    layouts: tuple[TypedEnumLayout, ...],
+) -> tuple[TypedEnumStorageLayout, ...]:
+    """Plan logical tag/payload storage for normalized enum layouts."""
+    return tuple(lower_enum_storage_layout(layout) for layout in layouts)
 
 
 @dataclass(frozen=True)
@@ -3459,7 +3529,9 @@ __all__ = [
     "SourceSpan", "SemanticType",
     "TypedField", "TypedStruct", "TypedClass", "TypedEnumVariant", "TypedEnum",
     "TypedEnumVariantLayout", "TypedEnumLayout", "lower_enum_layout",
-    "lower_module_enum_layouts",
+    "TypedEnumPayloadSlot", "TypedEnumStorageLayout",
+    "lower_enum_storage_layout", "lower_module_enum_layouts",
+    "lower_module_enum_storage_layouts",
     "TypedParam", "TypedFunction", "TypedGlobal", "TypedModule",
     "semantic_type", "integer_bounds", "validate_integer_value",
     "validate_no_recursive_value_types",

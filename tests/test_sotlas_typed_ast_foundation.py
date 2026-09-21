@@ -5976,6 +5976,55 @@ enum Message {
         ):
             typed_ast.lower_enum_layout(typed.enums[0])
 
+    def test_payload_enum_storage_separates_tag_and_union_payload(self):
+        source = """module test::payload_enum_storage;
+enum Message {
+    Empty = 7,
+    Number(u32),
+    Retry(u32),
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<payload-enum-storage>"
+        )
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        layout = typed_ast.lower_enum_layout(typed.enums[0])
+        storage = typed_ast.lower_enum_storage_layout(layout)
+
+        self.assertEqual(storage.enum_name, "Message")
+        self.assertEqual(storage.tag_storage, "discriminant")
+        self.assertEqual(storage.payload_storage, "union")
+        self.assertEqual(
+            [
+                (slot.variant_name, slot.active_tag, slot.payload_type.name)
+                for slot in storage.payload_slots
+            ],
+            [
+                ("Number", 8, "u32"),
+                ("Retry", 9, "u32"),
+            ],
+        )
+
+    def test_nullary_enum_storage_has_no_payload_union(self):
+        source = """module test::nullary_enum_storage;
+enum Mode {
+    Off,
+    On,
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<nullary-enum-storage>"
+        )
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        layout = typed_ast.lower_enum_layout(typed.enums[0])
+        storage = typed_ast.lower_enum_storage_layout(layout)
+
+        self.assertEqual(storage.tag_storage, "discriminant")
+        self.assertEqual(storage.payload_storage, "none")
+        self.assertEqual(storage.payload_slots, ())
+
     def test_phase1_snapshot_carries_enum_layouts(self):
         source = """module test::snapshot_enum_layout;
 enum Envelope {
@@ -5997,6 +6046,22 @@ enum Envelope {
         self.assertEqual(
             [item.tag for item in snapshot.enum_layouts[0].variants],
             [0, 1],
+        )
+        self.assertEqual(len(snapshot.enum_storage_layouts), 1)
+        self.assertEqual(
+            snapshot.enum_storage_layouts[0].tag_storage,
+            "discriminant",
+        )
+        self.assertEqual(
+            snapshot.enum_storage_layouts[0].payload_storage,
+            "union",
+        )
+        self.assertEqual(
+            [
+                (slot.variant_name, slot.active_tag)
+                for slot in snapshot.enum_storage_layouts[0].payload_slots
+            ],
+            [("Number", 1)],
         )
 
 
