@@ -40,7 +40,7 @@ class Token:
 
 KEYWORDS = {"module", "import", "pub", "struct", "class", "enum", "fn", "let", "mut",
             "const", "static", "return", "break", "continue", "if", "else", "while", "for", "in",
-            "unsafe", "true", "false", "as", "null", "defer", "loop", "register", "sole", "move", "handover", "impl"}
+            "unsafe", "true", "false", "as", "null", "defer", "loop", "register", "sole", "move", "share", "handover", "impl"}
 MULTI = ("::", "->", "==", "!=", "<=", ">=", "+=", "-=", "*=", "/=", "&=", "|=", "^=", "<<=", ">>=", "&&", "||", "<<", ">>", "..")
 SINGLE = set(";,:{}()[]=+-*/%!<>&|^~.?")
 PRIMITIVES = {"void", "bool", "u8", "u16", "u32", "u64", "usize",
@@ -257,6 +257,8 @@ class NullLit(Expr): pass
 class UnsafeExpr(Expr): value: Expr
 @dataclass
 class MoveExpr(Expr): value: Expr
+@dataclass
+class ShareExpr(Expr): value: Expr
 @dataclass
 class Name(Expr): value: str
 @dataclass
@@ -1057,6 +1059,8 @@ class Parser:
         token = self.current
         if self.accept("move"):
             return MoveExpr(token, self.prefix())
+        if self.accept("share"):
+            return ShareExpr(token, self.prefix())
         if self.current.kind in ("!", "-", "*", "&", "~"):
             op = self.current.kind
             self.at += 1
@@ -1509,6 +1513,30 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
             return expr_type(expr.value, scope, True, is_system_fn)
         if isinstance(expr, MoveExpr):
             return expr_type(expr.value, scope, in_unsafe, is_system_fn)
+        if isinstance(expr, ShareExpr):
+            if not isinstance(expr.value, Name):
+                raise SotlasBootstrapError(
+                    "share exige binding direto de ownership",
+                    expr.token.line, expr.token.column, filename, source,
+                )
+            source_type = scope.get(expr.value.value)
+            if source_type is None:
+                raise SotlasBootstrapError(
+                    f"share source não declarado: {expr.value.value}",
+                    expr.token.line, expr.token.column, filename, source,
+                )
+            source_struct = struct_map.get(source_type.name)
+            if (
+                source_struct is None
+                or not source_struct.is_sole
+                or source_type.pointer
+                or source_type.is_reference
+            ):
+                raise SotlasBootstrapError(
+                    f"share exige valor sole exclusivo, recebido {source_type.name}",
+                    expr.token.line, expr.token.column, filename, source,
+                )
+            return source_type
         if isinstance(expr, Number):
             try:
                 return Type(numeric_literal_type(expr.value))
@@ -2319,6 +2347,11 @@ def _emit_expr(expr: Expr, mod_prefix: str = "") -> str:
         return _emit_expr(expr.value, mod_prefix)
     if isinstance(expr, MoveExpr):
         return _emit_expr(expr.value, mod_prefix)
+    if isinstance(expr, ShareExpr):
+        raise SotlasBootstrapError(
+            "C11 backend does not lower shared ownership yet",
+            expr.token.line, expr.token.column,
+        )
     if isinstance(expr, Number):
         base, suffix = numeric_literal_parts(expr.value)
         return f"(({C_TYPES[suffix]})({base}))" if suffix else base

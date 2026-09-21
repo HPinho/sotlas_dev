@@ -536,7 +536,7 @@ def _referenced_owned_names(
             getattr(expr, "left", None),
             getattr(expr, "right", None),
         )
-    elif kind in ("Unary", "MoveExpr", "UnsafeExpr"):
+    elif kind in ("Unary", "MoveExpr", "ShareExpr", "UnsafeExpr"):
         children = (getattr(expr, "value", None),)
     elif kind == "Cast":
         children = (getattr(expr, "expr", None),)
@@ -648,7 +648,7 @@ def require_expr_ownership_live(env: OwnershipEnv, expr) -> None:
     if kind == "Binary":
         require_expr_ownership_live(env, getattr(expr, "left", None))
         require_expr_ownership_live(env, getattr(expr, "right", None))
-    elif kind in ("Unary", "MoveExpr"):
+    elif kind in ("Unary", "MoveExpr", "ShareExpr"):
         require_expr_ownership_live(env, getattr(expr, "value", None))
     elif kind == "Cast":
         require_expr_ownership_live(env, getattr(expr, "expr", None))
@@ -907,6 +907,20 @@ def analyze_linear_function_ownership(
         if kind == "Let":
             local_type = _declared_local_type(statement)
             value = getattr(statement, "value", None)
+            if type(value).__name__ == "ShareExpr":
+                shared = build_typed_share_expression(
+                    getattr(value, "value", None), env, alias=statement.name
+                )
+                env = shared.application.env
+                events.append(OwnershipEvent(
+                    "domain_transition", shared.source,
+                    f"share:{statement.name}", OwnershipDomain.SHARED,
+                ))
+                events.append(OwnershipEvent(
+                    "retain", statement.name,
+                    f"share:{shared.source}", OwnershipDomain.SHARED,
+                ))
+                continue
             moved_value = (
                 getattr(value, "value", None)
                 if type(value).__name__ == "MoveExpr"
@@ -1066,6 +1080,20 @@ def _analyze_block_ownership(
         if kind == "Let":
             local_type = _declared_local_type(statement)
             value = getattr(statement, "value", None)
+            if type(value).__name__ == "ShareExpr":
+                shared = build_typed_share_expression(
+                    getattr(value, "value", None), result, alias=statement.name
+                )
+                result = shared.application.env
+                events.append(OwnershipEvent(
+                    "domain_transition", shared.source,
+                    f"share:{statement.name}", OwnershipDomain.SHARED,
+                ))
+                events.append(OwnershipEvent(
+                    "retain", statement.name,
+                    f"share:{shared.source}", OwnershipDomain.SHARED,
+                ))
+                continue
             moved_value = (
                 getattr(value, "value", None)
                 if type(value).__name__ == "MoveExpr"
@@ -2466,6 +2494,24 @@ def infer_expression_type(
             method.result,
             f"{owner_name}.{method_name}",
         )
+
+    if kind == "ShareExpr":
+        source = getattr(expr, "value", None)
+        if type(source).__name__ != "Name":
+            raise Phase1SemanticError(
+                "share currently requires a direct owned binding"
+            )
+        source_name = getattr(source, "value", None)
+        source_type = env.get(source_name)
+        if source_type is None:
+            raise Phase1SemanticError(
+                f"share source {source_name!r} is not declared"
+            )
+        if not is_sole_type(source_type, typed_module):
+            raise Phase1SemanticError(
+                f"share source {source_name!r} is not an exclusive sole value"
+            )
+        return TypedExprNode("Share", source_type, f"share:{source_name}")
 
     if kind == "Call":
         callee = getattr(expr, "callee")

@@ -611,6 +611,78 @@ fn maybe(flag: bool, token: Token) -> void {
         ):
             typed_ast.build_typed_share_expression(missing, env)
 
+    def test_public_share_syntax_parses_as_dedicated_expression(self):
+        source = """module test::share_parse;
+sole struct Token { value: u32; }
+fn main(token: Token) -> void {
+    let peer = share token;
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<share-parse>")
+        value = parsed.functions[0].body[0].value
+        self.assertIsInstance(value, bootstrap.ShareExpr)
+        self.assertEqual(value.value.value, "token")
+        bootstrap.check(parsed)
+
+    def test_public_share_syntax_reaches_typed_ast_and_ownership_env(self):
+        source = """module test::share_semantics;
+sole struct Token { value: u32; }
+fn main(token: Token) -> void {
+    let peer = share token;
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<share-semantics>")
+        bootstrap.check(parsed)
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed_module, "main")
+        self.assertEqual(body.statements[0].expr.kind, "Share")
+        trace = typed_ast.analyze_function_ownership(parsed, typed_module, "main")
+        self.assertIs(trace.final_env.domain_of("token"), typed_ast.OwnershipDomain.SHARED)
+        self.assertIs(trace.final_env.domain_of("peer"), typed_ast.OwnershipDomain.SHARED)
+        self.assertIn(
+            typed_ast.OwnershipEvent(
+                "retain", "peer", "share:token", typed_ast.OwnershipDomain.SHARED
+            ),
+            trace.events,
+        )
+
+    def test_public_share_syntax_remains_fail_closed_in_c11(self):
+        source = """module test::share_c11_gate;
+sole struct Token { value: u32; }
+fn main(token: Token) -> void {
+    let peer = share token;
+    return;
+}
+"""
+        parsed = bootstrap.parse(source)
+        bootstrap.check(parsed)
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            "C11 backend does not lower shared ownership yet",
+        ):
+            bootstrap.emit_c(parsed)
+
+    def test_public_share_rejects_non_sole_and_partial_sources(self):
+        parsed = bootstrap.parse("""module test::share_nonsole;
+struct Token { value: u32; }
+fn main(token: Token) -> void { let peer = share token; return; }
+""")
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError, "share exige valor sole exclusivo"
+        ):
+            bootstrap.check(parsed)
+
+        parsed = bootstrap.parse("""module test::share_partial;
+sole struct Token { value: u32; }
+fn main(token: Token) -> void { let peer = share token.value; return; }
+""")
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError, "share exige binding direto de ownership"
+        ):
+            bootstrap.check(parsed)
+
     def test_explicit_sole_transfer_starts_live_then_moves(self):
         typed = typed_ast.build_declaration_typed_ast(self.checked_ast())
         state = typed_ast.require_sole_transfer(

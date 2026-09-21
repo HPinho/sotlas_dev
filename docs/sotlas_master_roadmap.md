@@ -3850,7 +3850,8 @@ Ainda necessário para concluir a Fase 2 canônica:
 - [x] criação explícita de alias strong compartilhado com incremento determinístico do reference accounting;
 - [x] integração backend-neutral com Typed AST por meio de `TypedShareExpression` para bindings inteiros;
 - [x] membros, índices e temporários continuam fail-closed até existir contrato formal de aliasing parcial;
-- [ ] integração da operação com sintaxe pública/parser;
+- [x] sintaxe pública `let alias = share owner;` com nó AST dedicado, typecheck e integração ao OwnershipEnv;
+- [x] backend C11 rejeita `share` explicitamente enquanto ARC/cleanup não estiver implementado;
 - [ ] integração com cleanup e runtime/backend;
 - [ ] transições e merges para `region`, `device` e `external`;
 - [ ] regras de domínio específicas para loops além da validação conservadora atual;
