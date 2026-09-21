@@ -849,6 +849,111 @@ fn main(flag: bool, token: Token) -> void {
             1,
         )
 
+    def test_shared_defer_capture_keeps_owner_live_until_exit(self):
+        source = """module test::shared_defer_capture;
+sole struct Token { value: u32; }
+fn observe(token: Token) -> void { return; }
+fn main(token: Token) -> void {
+    let peer = share token;
+    defer peer;
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<shared-defer-capture>")
+        bootstrap.check(parsed)
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(
+            parsed, typed_module, "main"
+        )
+        self.assertIs(
+            trace.final_env.state_of("peer"),
+            typed_ast.VarState.LIVE,
+        )
+        self.assertIn(
+            typed_ast.OwnershipEvent(
+                "shared_defer_use",
+                "peer",
+                "expression",
+                typed_ast.OwnershipDomain.SHARED,
+            ),
+            trace.events,
+        )
+
+    def test_shared_exit_runs_defer_before_arc_releases(self):
+        source = """module test::shared_defer_order;
+sole struct Token { value: u32; }
+fn main(token: Token) -> void {
+    let peer = share token;
+    defer peer;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<shared-defer-order>")
+        bootstrap.check(parsed)
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(
+            parsed, typed_module, "main"
+        )
+        self.assertEqual(
+            tuple(action.kind for action in trace.shared_exit.actions),
+            ("defer", "release", "release", "destroy"),
+        )
+        self.assertEqual(trace.shared_exit.actions[0].owner, "peer")
+        self.assertEqual(trace.shared_exit.actions[1].owner, "peer")
+        self.assertEqual(trace.shared_exit.actions[2].owner, "token")
+        self.assertEqual(trace.shared_exit.actions[3].owner, "token")
+
+    def test_multiple_shared_defers_are_lifo_before_release(self):
+        source = """module test::shared_defer_lifo;
+sole struct Token { value: u32; }
+fn main(token: Token) -> void {
+    let peer = share token;
+    defer token;
+    defer peer;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<shared-defer-lifo>")
+        bootstrap.check(parsed)
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(
+            parsed, typed_module, "main"
+        )
+        defer_actions = tuple(
+            action for action in trace.shared_exit.actions
+            if action.kind == "defer"
+        )
+        self.assertEqual(
+            tuple(action.owner for action in defer_actions),
+            ("peer", "token"),
+        )
+        first_release = next(
+            i for i, action in enumerate(trace.shared_exit.actions)
+            if action.kind == "release"
+        )
+        self.assertTrue(
+            all(
+                action.kind == "defer"
+                for action in trace.shared_exit.actions[:first_release]
+            )
+        )
+
+    def test_exclusive_defer_without_transfer_stays_rejected(self):
+        source = """module test::exclusive_defer_guard;
+sole struct Token { value: u32; }
+fn main(token: Token) -> void {
+    defer token;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<exclusive-defer-guard>")
+        bootstrap.check(parsed)
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            "defer captures sole value 'token' without ownership transfer",
+        ):
+            typed_ast.analyze_function_ownership(
+                parsed, typed_module, "main"
+            )
+
     def test_explicit_sole_transfer_starts_live_then_moves(self):
         typed = typed_ast.build_declaration_typed_ast(self.checked_ast())
         state = typed_ast.require_sole_transfer(

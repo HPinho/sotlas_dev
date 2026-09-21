@@ -3854,7 +3854,7 @@ Ainda necessário para concluir a Fase 2 canônica:
 - [x] backend C11 rejeita `share` explicitamente enquanto ARC/cleanup não estiver implementado;
 - [x] plano semântico de cleanup para saída normal de função, com release reverso e destroy apenas no último strong owner;
 - [x] cleanup path-sensitive de shared ownership em early-return e branches, sem contaminar o caminho de fallthrough;
-- [ ] integração da ordem de cleanup shared com `defer`;
+- [x] integração semântica de shared ownership com `defer`: captura shared preserva LIVE, defers rodam em LIFO antes dos releases ARC e `sole` continua exigindo transferência;
 - [ ] integração com runtime/backend;
 - [ ] transições e merges para `region`, `device` e `external`;
 - [ ] regras de domínio específicas para loops além da validação conservadora atual;

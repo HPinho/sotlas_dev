@@ -514,11 +514,24 @@ class SharedCleanupPlan:
 
 
 @dataclass(frozen=True)
+class SharedExitAction:
+    kind: str
+    owner: str | None
+    via: str
+
+
+@dataclass(frozen=True)
+class SharedExitPlan:
+    actions: tuple[SharedExitAction, ...]
+
+
+@dataclass(frozen=True)
 class OwnershipTrace:
     final_env: OwnershipEnv
     events: tuple[OwnershipEvent, ...]
     shared_cleanup: SharedCleanupPlan = SharedCleanupPlan(())
     shared_path_cleanup: SharedCleanupPlan = SharedCleanupPlan(())
+    shared_exit: SharedExitPlan = SharedExitPlan(())
 
 
 def plan_shared_scope_cleanup(
@@ -612,6 +625,31 @@ def _shared_cleanup_for_path(
         )
         for step in plan.steps
     )
+
+
+def plan_shared_exit(
+    events: tuple[OwnershipEvent, ...] | list[OwnershipEvent],
+    cleanup: SharedCleanupPlan,
+) -> SharedExitPlan:
+    """Order shared-aware defers before ARC releases at scope exit."""
+    actions: list[SharedExitAction] = []
+    for event in reversed(tuple(events)):
+        if (
+            event.kind == "shared_defer_use"
+            and event.domain is OwnershipDomain.SHARED
+        ):
+            actions.append(
+                SharedExitAction("defer", event.name, event.via)
+            )
+    for step in cleanup.steps:
+        actions.append(
+            SharedExitAction("release", step.owner, step.via)
+        )
+        if step.destroy_after:
+            actions.append(
+                SharedExitAction("destroy", step.account, step.via)
+            )
+    return SharedExitPlan(tuple(actions))
 
 
 def _typed_function_map(module: TypedModule) -> dict[str, TypedFunction]:
@@ -1571,6 +1609,18 @@ def _analyze_block_ownership(
             for name in captured:
                 before = result.state_of(name)
                 after = deferred_env.state_of(name)
+                domain = result.domain_of(name)
+                if domain is OwnershipDomain.SHARED:
+                    result.require_live(name)
+                    events.append(
+                        OwnershipEvent(
+                            "shared_defer_use",
+                            name,
+                            via,
+                            OwnershipDomain.SHARED,
+                        )
+                    )
+                    continue
                 if before is after:
                     raise Phase1SemanticError(
                         f"defer captures sole value {name!r} without ownership transfer"
@@ -1664,11 +1714,13 @@ def analyze_function_ownership(
         path_cleanup=path_cleanup,
     )
     cleanup = plan_shared_scope_cleanup(env, events)
+    exit_plan = plan_shared_exit(events, cleanup)
     return OwnershipTrace(
         env,
         tuple(events),
         cleanup,
         SharedCleanupPlan(tuple(path_cleanup)),
+        exit_plan,
     )
 
 
@@ -4169,7 +4221,8 @@ __all__ = [
     "ownership_domain", "sole_type_names", "is_sole_type",
     "initial_ownership_state", "require_sole_transfer", "OwnershipBinding", "OwnershipEnv",
     "seed_function_ownership", "OwnershipEvent", "SharedCleanupStep",
-    "SharedCleanupPlan", "OwnershipTrace", "plan_shared_scope_cleanup",
+    "SharedCleanupPlan", "SharedExitAction", "SharedExitPlan", "OwnershipTrace",
+    "plan_shared_scope_cleanup", "plan_shared_exit",
     "require_expr_ownership_live",
     "analyze_linear_function_ownership", "analyze_function_ownership",
     "OwnershipParamContract", "OwnershipFunctionSummary",

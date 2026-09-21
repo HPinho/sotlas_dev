@@ -90,7 +90,9 @@
 - [x] early-return shared cleanup path-sensitive, usando histórico de ownership visível na entrada do ramo
 - [x] branch-local shared aliases recebem cleanup somente no caminho que os criou/encerrou
 - [x] cleanup de caminho e cleanup de fallthrough permanecem planos separados, evitando double-release no merge
-- [ ] defer-aware shared cleanup
+- [x] shared owners podem ser capturados por `defer` sem transferência, permanecendo LIVE até a saída
+- [x] plano de saída executa shared defers em LIFO antes dos releases ARC; destroy continua após o release final
+- [x] regra antiga de `sole/exclusive` em defer permanece rígida: captura sem transferência continua rejeitada
 - [ ] ARC lowering/runtime para tornar `share` executável no backend
 - [ ] transições para `region/device/external` e merges correspondentes
 - [ ] regras de domínio para loops além do gate conservador atual
@@ -106,7 +108,7 @@
 ```text
 Fase 0 — Reality Reset              ~80%
 Fase 1 — Typed Semantic Core       100% ✅
-Fase 2 — Ownership Domains          ~70% 🟡
+Fase 2 — Ownership Domains          ~73% 🟡
 Fase 3 — Authority Domains          ~10%
 Fase 4 — State Spaces                ~0%
 Fase 5 — Effects                    ~10%
@@ -127,7 +129,7 @@ Fase 17 — Tooling avançado          ~15%
 ### Fase 2 detalhada
 
 ```text
-Fase 2 — Ownership Domains                  ~70%
+Fase 2 — Ownership Domains                  ~73%
 
 ✅ sole / exclusive
 ✅ move semantics
