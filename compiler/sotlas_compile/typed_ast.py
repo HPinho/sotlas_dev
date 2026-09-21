@@ -1581,9 +1581,17 @@ def infer_expression_type(
             raise Phase1SemanticError(
                 f"unknown enum type {enum_name!r}"
             )
-        if not any(item.name == variant_name for item in enum.variants):
+        variant = next(
+            (item for item in enum.variants if item.name == variant_name),
+            None,
+        )
+        if variant is None:
             raise Phase1SemanticError(
                 f"enum {enum_name!r} has no variant {variant_name!r}"
+            )
+        if variant.payload_type is not None:
+            raise Phase1SemanticError(
+                f"enum variant {enum_name}::{variant_name} requires payload"
             )
         return TypedExprNode(
             kind,
@@ -1975,6 +1983,50 @@ def infer_expression_type(
 
     if kind == "Call":
         callee = getattr(expr, "callee")
+
+        constructor = None
+        for enum in typed_module.enums:
+            for variant in enum.variants:
+                if f"{enum.name}_{variant.name}" == callee:
+                    constructor = (enum, variant)
+                    break
+            if constructor is not None:
+                break
+
+        if constructor is not None:
+            enum, variant = constructor
+            if variant.payload_type is None:
+                raise Phase1SemanticError(
+                    f"enum variant {enum.name}::{variant.name} has no payload"
+                )
+            arguments = tuple(getattr(expr, "args", ()))
+            if len(arguments) != 1:
+                raise Phase1SemanticError(
+                    f"enum constructor {enum.name}::{variant.name} "
+                    "requires exactly one payload"
+                )
+            inferred = infer_expression_type(
+                arguments[0], env, typed_module
+            )
+            contextual = _contextualize_expression(
+                arguments[0],
+                inferred,
+                variant.payload_type,
+                env,
+                typed_module,
+            )
+            if contextual.type != variant.payload_type:
+                raise Phase1SemanticError(
+                    f"enum constructor {enum.name}::{variant.name} "
+                    f"payload type mismatch: expected "
+                    f"{variant.payload_type.name}, got {contextual.type.name}"
+                )
+            return TypedExprNode(
+                kind,
+                SemanticType(enum.name),
+                f"{enum.name}::{variant.name}",
+            )
+
         function = next(
             (item for item in typed_module.functions if item.name == callee),
             None,

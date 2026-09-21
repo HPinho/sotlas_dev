@@ -1188,6 +1188,13 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
     enum_map: dict[str, Enum] = {e.name: e for e in module.enums}
     if imported_enums: enum_map.update(imported_enums)
 
+    def enum_constructor(callee: str) -> tuple[Enum, EnumVariant] | None:
+        for enum_obj in enum_map.values():
+            for variant in enum_obj.variants:
+                if f"{enum_obj.name}_{variant.name}" == callee:
+                    return enum_obj, variant
+        return None
+
     global_map: dict[str, Global] = {g.name: g for g in module.globals}
     if imported_globals: global_map.update(imported_globals)
 
@@ -1248,6 +1255,26 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
                 expr.token.column, filename, source,
             )
         if isinstance(expr, EnumAccess):
+            enum_obj = enum_map.get(expr.enum_name)
+            if enum_obj is None:
+                raise SotlasBootstrapError(
+                    f"enum não declarado: {expr.enum_name}",
+                    expr.token.line, expr.token.column, filename, source,
+                )
+            variant = next(
+                (item for item in enum_obj.variants if item.name == expr.variant),
+                None,
+            )
+            if variant is None:
+                raise SotlasBootstrapError(
+                    f"variante não declarada: {expr.enum_name}::{expr.variant}",
+                    expr.token.line, expr.token.column, filename, source,
+                )
+            if variant.payload_type is not None:
+                raise SotlasBootstrapError(
+                    f"variante {expr.enum_name}::{expr.variant} exige payload",
+                    expr.token.line, expr.token.column, filename, source,
+                )
             return Type(expr.enum_name)
         if isinstance(expr, Unary):
             inner = expr_type(expr.value, scope, in_unsafe, is_system_fn)
@@ -1268,8 +1295,37 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
             expr_type(expr.right, scope, in_unsafe, is_system_fn)
             return Type("bool") if expr.op in ("==", "!=", "<", "<=", ">", ">=", "&&", "||") else left
         if isinstance(expr, Call):
-            for argument in expr.args:
+            argument_types = [
                 expr_type(argument, scope, in_unsafe, is_system_fn)
+                for argument in expr.args
+            ]
+
+            constructor = enum_constructor(expr.callee)
+            if constructor is not None:
+                enum_obj, variant = constructor
+                if variant.payload_type is None:
+                    raise SotlasBootstrapError(
+                        f"variante {enum_obj.name}::{variant.name} não possui payload",
+                        expr.token.line, expr.token.column, filename, source,
+                    )
+                if len(expr.args) != 1:
+                    raise SotlasBootstrapError(
+                        f"constructor {enum_obj.name}::{variant.name} exige 1 payload",
+                        expr.token.line, expr.token.column, filename, source,
+                    )
+                actual = argument_types[0]
+                expected = variant.payload_type
+                if not assignable(actual, expected):
+                    raise SotlasBootstrapError(
+                        f"payload incompatível em {enum_obj.name}::{variant.name}: "
+                        f"esperado {expected.name}, recebido {actual.name}",
+                        expr.args[0].token.line,
+                        expr.args[0].token.column,
+                        filename,
+                        source,
+                    )
+                return Type(enum_obj.name)
+
             function = functions.get(expr.callee)
             if function:
                 return function.result

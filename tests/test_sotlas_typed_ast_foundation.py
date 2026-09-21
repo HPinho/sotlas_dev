@@ -5771,5 +5771,84 @@ fn main() -> void { return; }
             bootstrap.emit_c(parsed)
 
 
+
+    def test_payload_enum_constructor_typechecks_declared_payload(self):
+        source = """module test::payload_enum_constructor;
+enum Message {
+    Empty,
+    Number(u32),
+}
+fn build() -> Message {
+    return Message::Number(42);
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<payload-enum-constructor>"
+        )
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        body = typed_ast.build_linear_typed_body(parsed, typed, "build")
+        self.assertEqual(body.statements[0].expr.kind, "Call")
+        self.assertEqual(body.statements[0].expr.type.name, "Message")
+        self.assertEqual(
+            body.statements[0].expr.label,
+            "Message::Number",
+        )
+
+    def test_payload_enum_constructor_rejects_wrong_payload_type(self):
+        source = """module test::payload_enum_wrong_type;
+enum Message {
+    Number(u32),
+}
+fn build() -> Message {
+    return Message::Number(true);
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<payload-enum-wrong-type>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"payload incompatível em Message::Number",
+        ):
+            bootstrap.check(parsed)
+
+    def test_payload_enum_constructor_rejects_wrong_arity(self):
+        source = """module test::payload_enum_wrong_arity;
+enum Message {
+    Number(u32),
+}
+fn build() -> Message {
+    return Message::Number();
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<payload-enum-wrong-arity>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"constructor Message::Number exige 1 payload",
+        ):
+            bootstrap.check(parsed)
+
+    def test_payload_enum_variant_requires_constructor_syntax(self):
+        source = """module test::payload_enum_requires_constructor;
+enum Message {
+    Number(u32),
+}
+fn build() -> Message {
+    return Message::Number;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<payload-enum-requires-constructor>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"variante Message::Number exige payload",
+        ):
+            bootstrap.check(parsed)
+
+
 if __name__ == "__main__":
     unittest.main()
