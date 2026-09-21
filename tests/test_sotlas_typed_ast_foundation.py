@@ -5850,5 +5850,65 @@ fn build() -> Message {
             bootstrap.check(parsed)
 
 
+    def test_payload_enum_constructor_moves_sole_payload_owner(self):
+        source = """module test::payload_enum_sole_move;
+sole struct Token { value: u32; }
+
+enum Envelope {
+    Empty,
+    Owned(Token),
+}
+
+fn main() -> void {
+    let token = Token { value: 7 };
+    let envelope: Envelope = Envelope::Owned(token);
+    return;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<payload-enum-sole-move>"
+        )
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(parsed, typed, "main")
+
+        self.assertIs(
+            trace.final_env.state_of("token"),
+            typed_ast.VarState.MOVED,
+        )
+        self.assertIn(
+            typed_ast.OwnershipEvent(
+                "move",
+                "token",
+                "enum:Envelope::Owned",
+            ),
+            trace.events,
+        )
+
+    def test_payload_enum_constructor_rejects_reuse_after_sole_move(self):
+        source = """module test::payload_enum_sole_reuse;
+sole struct Token { value: u32; }
+
+enum Envelope {
+    Owned(Token),
+}
+
+fn main() -> void {
+    let token = Token { value: 7 };
+    let first: Envelope = Envelope::Owned(token);
+    let second: Envelope = Envelope::Owned(token);
+    return;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<payload-enum-sole-reuse>"
+        )
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+
+        with self.assertRaises(typed_ast.Phase1SemanticError):
+            typed_ast.analyze_function_ownership(parsed, typed, "main")
+
+
 if __name__ == "__main__":
     unittest.main()

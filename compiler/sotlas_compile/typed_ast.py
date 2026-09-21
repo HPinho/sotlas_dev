@@ -373,13 +373,58 @@ def require_expr_ownership_live(env: OwnershipEnv, expr) -> None:
             require_expr_ownership_live(env, argument)
 
 
+def _typed_enum_constructor(
+    module: TypedModule, callee: str
+):
+    """Resolve a canonical enum payload constructor from its lowered call name."""
+    for enum in module.enums:
+        for variant in enum.variants:
+            if f"{enum.name}_{variant.name}" == callee:
+                return enum, variant
+    return None
+
+
 def _move_call_arguments(
     env: OwnershipEnv,
     call,
     typed_module: TypedModule,
     events: list[OwnershipEvent],
 ) -> OwnershipEnv:
-    callee = _typed_function_map(typed_module).get(getattr(call, "callee", ""))
+    callee_name = getattr(call, "callee", "")
+
+    constructor = _typed_enum_constructor(typed_module, callee_name)
+    if constructor is not None:
+        enum, variant = constructor
+        arguments = tuple(getattr(call, "args", ()))
+        result = env
+
+        if variant.payload_type is None or len(arguments) != 1:
+            return result
+
+        argument = arguments[0]
+        if is_sole_type(variant.payload_type, typed_module):
+            moved_argument = (
+                getattr(argument, "value", None)
+                if type(argument).__name__ == "MoveExpr"
+                else argument
+            )
+            if type(moved_argument).__name__ == "Name":
+                name = moved_argument.value
+                if result.type_of(name) is not None:
+                    result = result.move(name)
+                    events.append(
+                        OwnershipEvent(
+                            "move",
+                            name,
+                            f"enum:{enum.name}::{variant.name}",
+                        )
+                    )
+                    return result
+
+        require_expr_ownership_live(result, argument)
+        return result
+
+    callee = _typed_function_map(typed_module).get(callee_name)
     if callee is None:
         return env
     result = env
