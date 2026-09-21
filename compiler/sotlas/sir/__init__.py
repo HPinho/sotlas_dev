@@ -11,8 +11,10 @@ from .instructions import (
     StoreInst,
     LoadInst,
     CallInst,
+    ShareInst,
     RetainInst,
     ReleaseInst,
+    DestroyInst,
     BranchInst,
     CondBranchInst,
     ReturnInst,
@@ -24,6 +26,11 @@ from .instructions import (
     SIRModule,
 )
 from .generator import SIRGenerator
+from .ownership import (
+    SharedOwnershipSIRSegment,
+    SharedOwnershipSIRPlan,
+    lower_shared_ownership_trace,
+)
 from .passes import (
     SIRPassResult,
     SIRPassManager,
@@ -39,8 +46,10 @@ __all__ = [
     "StoreInst",
     "LoadInst",
     "CallInst",
+    "ShareInst",
     "RetainInst",
     "ReleaseInst",
+    "DestroyInst",
     "BranchInst",
     "CondBranchInst",
     "ReturnInst",
@@ -49,6 +58,9 @@ __all__ = [
     "SIRFunction",
     "SIRModule",
     "SIRGenerator",
+    "SharedOwnershipSIRSegment",
+    "SharedOwnershipSIRPlan",
+    "lower_shared_ownership_trace",
     "SIRPassResult",
     "SIRPassManager",
     "DefiniteInitializationPass",

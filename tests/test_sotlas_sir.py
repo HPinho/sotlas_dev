@@ -2,6 +2,7 @@
 from pathlib import Path
 import sys
 import unittest
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
@@ -9,6 +10,8 @@ sys.path.insert(0, str(ROOT / "tools"))
 from sotlas.sir import (
     SIRModule, SIRFunction, SIRBasicBlock, SIRValue,
     AllocStackInst, StoreInst, LoadInst, CallInst, ReturnInst,
+    ShareInst, RetainInst, ReleaseInst, DestroyInst,
+    lower_shared_ownership_trace,
     SIRGenerator, SIRPassManager, DefiniteInitializationPass,
     SystemCapabilitySafetyPass, DeadCodeEliminationPass
 )
@@ -31,6 +34,90 @@ class SotlasSIRTests(unittest.TestCase):
         self.assertIn("%v1: i32 = load %v0: i32", str(load))
         self.assertIn("@system call @display_init", str(call))
         self.assertIn("return %v1: i32", str(ret))
+
+    def test_shared_ownership_sir_instruction_strings(self):
+        value = SIRValue("token", "Token")
+        self.assertIn("share_value", str(ShareInst(value)))
+        self.assertIn("retain_value", str(RetainInst(value)))
+        self.assertIn("release_value", str(ReleaseInst(value)))
+        self.assertIn("destroy_value", str(DestroyInst(value)))
+
+    def test_shared_ownership_trace_lowers_to_backend_neutral_sir_plan(self):
+        token_type = SimpleNamespace(name="Token")
+        shared_domain = object()
+        trace = SimpleNamespace(
+            final_env=SimpleNamespace(bindings=(
+                SimpleNamespace(name="token", type=token_type),
+                SimpleNamespace(name="peer", type=token_type),
+            )),
+            events=(
+                SimpleNamespace(
+                    kind="domain_transition",
+                    name="token",
+                    via="share:peer",
+                    domain=shared_domain,
+                    type=token_type,
+                ),
+                SimpleNamespace(
+                    kind="retain",
+                    name="peer",
+                    via="share:token",
+                    domain=shared_domain,
+                    type=token_type,
+                ),
+            ),
+            shared_cleanup=SimpleNamespace(steps=(
+                SimpleNamespace(
+                    owner="peer",
+                    account="token",
+                    destroy_after=False,
+                    via="scope_exit",
+                ),
+                SimpleNamespace(
+                    owner="token",
+                    account="token",
+                    destroy_after=True,
+                    via="scope_exit",
+                ),
+            )),
+            shared_path_cleanup=SimpleNamespace(steps=()),
+            shared_loop_cleanup=SimpleNamespace(steps=()),
+            shared_loop_control_exit=SimpleNamespace(actions=()),
+        )
+
+        plan = lower_shared_ownership_trace(trace)
+
+        self.assertEqual(
+            tuple(type(inst) for inst in plan.semantic),
+            (ShareInst, RetainInst),
+        )
+        self.assertEqual(len(plan.cleanup_segments), 1)
+        segment = plan.cleanup_segments[0]
+        self.assertEqual(segment.via, "scope_exit")
+        self.assertEqual(
+            tuple(type(inst) for inst in segment.instructions),
+            (ReleaseInst, ReleaseInst, DestroyInst),
+        )
+
+    def test_shared_ownership_sir_lowering_fails_without_binding_type(self):
+        trace = SimpleNamespace(
+            final_env=SimpleNamespace(bindings=()),
+            events=(
+                SimpleNamespace(
+                    kind="domain_transition",
+                    name="ghost",
+                    via="share:peer",
+                    domain=object(),
+                    type=None,
+                ),
+            ),
+            shared_cleanup=SimpleNamespace(steps=()),
+            shared_path_cleanup=SimpleNamespace(steps=()),
+            shared_loop_cleanup=SimpleNamespace(steps=()),
+            shared_loop_control_exit=SimpleNamespace(actions=()),
+        )
+        with self.assertRaisesRegex(ValueError, "lacks type for binding 'ghost'"):
+            lower_shared_ownership_trace(trace)
 
     def test_sir_generator_from_ast(self):
         source = """

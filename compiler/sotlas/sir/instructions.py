@@ -66,6 +66,14 @@ class CallInst(SIRInstruction):
 
 
 @dataclass
+class ShareInst(SIRInstruction):
+    value: SIRValue
+
+    def __str__(self) -> str:
+        return f"  share_value {self.value}"
+
+
+@dataclass
 class RetainInst(SIRInstruction):
     value: SIRValue
 
@@ -79,6 +87,14 @@ class ReleaseInst(SIRInstruction):
 
     def __str__(self) -> str:
         return f"  release_value {self.value}"
+
+
+@dataclass
+class DestroyInst(SIRInstruction):
+    value: SIRValue
+
+    def __str__(self) -> str:
+        return f"  destroy_value {self.value}"
 
 
 @dataclass

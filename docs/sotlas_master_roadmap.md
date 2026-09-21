@@ -3861,7 +3861,8 @@ Ainda necessário para concluir a Fase 2 canônica:
 - [x] contas shared criadas inteiramente dentro da iteração recebem cleanup determinístico antes do backedge;
 - [x] break/continue possuem cleanup path-specific para shared locals, inclusive em branches aninhados, com defers LIFO antes dos releases e sem duplicar cleanup de backedge;
 - [ ] integração completa com `defer`, cleanup e unwind/early-return de todos os recursos;
-- [ ] lowering backend-neutral de Ownership Domains;
+- [x] primeiro lowering backend-neutral de shared ownership para plano SIR explícito (`share/retain/release/destroy`), ainda sem placement CFG;
+- [ ] placement CFG real das operações de ownership no SIR de produção;
 - [ ] backend C11 correspondente ou rejeição explícita por domínio;
 - [ ] testes positivos, negativos e end-to-end para cada domínio;
 - [ ] promoção individual para `SUPPORTED` apenas após o gate completo.
