@@ -473,6 +473,23 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
             text,
         )
 
+    def test_native_emitter_inferrs_u64_from_result_try_initializer(self):
+        emitter_file = (
+            ROOT / "bootstrap" / "sotlas" / "native_compiler" / "emitter_c.sotlas"
+        )
+        text = emitter_file.read_text(encoding="utf-8")
+        self.assertIn("pub fn emit_try_let_u64_statement", text)
+        self.assertIn("type_node.kind == AstKind::TryExpr", text)
+        self.assertIn(
+            "return self.emit_try_let_u64_statement(index, type_index);",
+            text,
+        )
+        self.assertIn('"uint64_t "', text)
+        self.assertIn(
+            "return self.emit_try_let_u64_statement(let_index, try_index);",
+            text,
+        )
+
     def test_native_emitter_lowers_typed_local_declarations(self):
         emitter_file = (
             ROOT / "bootstrap" / "sotlas" / "native_compiler" / "emitter_c.sotlas"

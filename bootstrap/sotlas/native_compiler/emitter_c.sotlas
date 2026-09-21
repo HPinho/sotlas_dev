@@ -1222,29 +1222,20 @@ impl CEmitter {
         return self.write_str("return __sotlas_try_value;\n}\n}\n", 31);
     }
 
-    pub fn emit_try_let_statement(
+    pub fn emit_try_let_u64_statement(
         mut self: &mut Self,
         let_index: usize,
-        type_index: usize,
         try_index: usize
     ) -> bool {
-        if !self.valid_node(let_index)
-            || !self.valid_node(type_index)
-            || !self.valid_node(try_index) {
+        if !self.valid_node(let_index) || !self.valid_node(try_index) {
             return false;
         }
 
         let local: AstNode = unsafe { *(self.nodes + let_index) };
-        let typ: AstNode = unsafe { *(self.nodes + type_index) };
         let try_node: AstNode = unsafe { *(self.nodes + try_index) };
         if local.kind != AstKind::LetStmt
-            || typ.kind != AstKind::TypeRef
             || try_node.kind != AstKind::TryExpr
             || local.str_len == 0 {
-            return false;
-        }
-
-        if !self.source_slice_equals(typ.str_offset, typ.str_len, "u64", 3) {
             return false;
         }
         if !self.try_context_returns_result_u64_i32(try_index)
@@ -1283,14 +1274,7 @@ impl CEmitter {
         if !self.write_source_slice(local.str_offset, local.str_len) {
             return false;
         }
-        if !self.write_str(";\n}\n", 4) {
-            return false;
-        }
-
-        if !self.emit_c_type(type_index) {
-            return false;
-        }
-        if !self.write_byte(32) {
+        if !self.write_str(";\n}\nuint64_t ", 12) {
             return false;
         }
         if !self.write_source_slice(local.str_offset, local.str_len) {
@@ -1305,6 +1289,23 @@ impl CEmitter {
         return self.write_str(".value;\n", 8);
     }
 
+    pub fn emit_try_let_statement(
+        mut self: &mut Self,
+        let_index: usize,
+        type_index: usize,
+        try_index: usize
+    ) -> bool {
+        if !self.valid_node(type_index) {
+            return false;
+        }
+        let typ: AstNode = unsafe { *(self.nodes + type_index) };
+        if typ.kind != AstKind::TypeRef
+            || !self.source_slice_equals(typ.str_offset, typ.str_len, "u64", 3) {
+            return false;
+        }
+        return self.emit_try_let_u64_statement(let_index, try_index);
+    }
+
     pub fn emit_let_statement(mut self: &mut Self, index: usize) -> bool {
         if !self.valid_node(index) {
             return false;
@@ -1316,11 +1317,15 @@ impl CEmitter {
 
         let type_index: usize = node.first_child;
         if !self.valid_node(type_index) {
-            // Strict C11 has no native local type inference. Untyped locals
-            // must remain fail-closed until typed SIR lowering is available.
             return false;
         }
         let type_node: AstNode = unsafe { *(self.nodes + type_index) };
+
+        // Restricted native inference: a direct Result<u64,i32> try unwrap
+        // has a statically known success payload of u64.
+        if type_node.kind == AstKind::TryExpr {
+            return self.emit_try_let_u64_statement(index, type_index);
+        }
         if type_node.kind != AstKind::TypeRef {
             return false;
         }
