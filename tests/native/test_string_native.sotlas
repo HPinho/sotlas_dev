@@ -5,7 +5,7 @@ import core::alloc::*;
 
 static mut g_arena_buf: [u8; 64] = 0;
 static mut g_generic_arena_buf: [u8; 64] = 0;
-static mut g_owned_arena_buf: [u8; 128] = 0;
+static mut g_owned_arena_buf: [u8; 32] = 0;
 
 static mut g_string_buf: [u8; 32] = 0;
 
