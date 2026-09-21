@@ -264,6 +264,40 @@ pub fn string_new_in_arena(
     return string_new(backing, cap);
 }
 
+pub fn string_reserve_in_arena(
+    s: *mut String,
+    arena: *mut ArenaAllocator,
+    min_capacity: usize
+) -> bool {
+    if s == null || arena == null {
+        return false;
+    }
+
+    unsafe {
+        if min_capacity <= (*s).capacity {
+            return true;
+        }
+        if (*s).length > 0 && (*s).data == null {
+            return false;
+        }
+
+        let new_backing: *mut u8 = arena_alloc(arena, min_capacity);
+        if new_backing == null {
+            return false;
+        }
+
+        let mut i: usize = 0;
+        while i < (*s).length {
+            *(new_backing + i) = *((*s).data + i);
+            i = i + 1;
+        }
+
+        (*s).data = new_backing;
+        (*s).capacity = min_capacity;
+        return true;
+    }
+}
+
 pub fn string_append_char(s: *mut String, ch: u8) -> bool {
     if s == null {
         return false;

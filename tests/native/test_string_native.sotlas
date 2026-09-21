@@ -122,9 +122,29 @@ pub fn main() -> i32 {
         return 25;
     }
 
+    if !string_reserve_in_arena(&mut arena_string, &mut arena, 32) {
+        return 26;
+    }
+    if arena_string.capacity != 32 || arena_string.length != 5 {
+        return 27;
+    }
+    if !string_equals(string_as_slice(&arena_string), hello) {
+        return 28;
+    }
+
+    if string_reserve_in_arena(&mut arena_string, &mut arena, 128) {
+        return 29;
+    }
+    if arena_string.capacity != 32 || arena_string.length != 5 {
+        return 30;
+    }
+    if !string_equals(string_as_slice(&arena_string), hello) {
+        return 31;
+    }
+
     let failed_string: String = string_new_in_arena(&mut arena, 128);
     if failed_string.data != null || failed_string.capacity != 0 {
-        return 26;
+        return 32;
     }
 
     return 0;
