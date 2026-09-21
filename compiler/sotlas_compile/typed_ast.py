@@ -3016,6 +3016,7 @@ class TypedClass:
 class TypedEnumVariant:
     name: str
     value: int | None
+    payload_type: SemanticType | None = None
 
 
 @dataclass(frozen=True)
@@ -3235,7 +3236,15 @@ def build_declaration_typed_ast(module) -> TypedModule:
             TypedEnum(
                 name=item.name,
                 variants=tuple(
-                    TypedEnumVariant(variant.name, variant.value)
+                    TypedEnumVariant(
+                        variant.name,
+                        variant.value,
+                        (
+                            semantic_type(variant.payload_type)
+                            if getattr(variant, "payload_type", None) is not None
+                            else None
+                        ),
+                    )
                     for variant in item.variants
                 ),
                 public=bool(item.public),

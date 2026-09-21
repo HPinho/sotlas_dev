@@ -381,6 +381,7 @@ class Class:
 class EnumVariant:
     name: str
     value: int | None = None
+    payload_type: Type | None = None
 
 @dataclass
 class Enum:
@@ -703,10 +704,24 @@ class Parser:
                 while not self.accept("}"):
                     vname = self.ident()
                     vval = None
+                    payload_type = None
+                    if self.accept("("):
+                        payload_type = self.type()
+                        self.expect(")")
                     if self.accept("="):
+                        if payload_type is not None:
+                            raise SotlasBootstrapError(
+                                "enum variant payload cannot also declare an integer discriminant",
+                                self.current.line,
+                                self.current.column,
+                                self.filename,
+                                self.source,
+                            )
                         val_tok = self.expect("NUMBER")
                         vval = integer_literal_value(val_tok.text)
-                    variants.append(EnumVariant(vname, vval))
+                    variants.append(
+                        EnumVariant(vname, vval, payload_type)
+                    )
                     if not self.accept(","):
                         if self.current.kind != "}":
                             self.expect(",")
@@ -2484,6 +2499,10 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
 
     # Enums
     for enum_obj in module.enums:
+        if any(variant.payload_type is not None for variant in enum_obj.variants):
+            raise SotlasBootstrapError(
+                f"C11 backend does not lower payload enum {enum_obj.name!r} yet"
+            )
         lines.append(f"typedef enum {enum_obj.name} {{")
         for v in enum_obj.variants:
             val_str = f" = {v.value}" if v.value is not None else ""
@@ -3106,6 +3125,10 @@ def emit_header(module: Module) -> str:
     for enum_obj in module.enums:
         if not enum_obj.public:
             continue
+        if any(variant.payload_type is not None for variant in enum_obj.variants):
+            raise SotlasBootstrapError(
+                f"C11 header backend does not lower payload enum {enum_obj.name!r} yet"
+            )
         lines.append(f"typedef enum {enum_obj.name} {{")
         for variant in enum_obj.variants:
             value = f" = {variant.value}" if variant.value is not None else ""

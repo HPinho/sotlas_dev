@@ -5729,5 +5729,47 @@ fn main() -> void {
             typed_ast.analyze_function_ownership(parsed, typed, "main")
 
 
+
+    def test_payload_enum_declaration_preserves_payload_type(self):
+        source = """module test::payload_enum_decl;
+pub enum Message {
+    Empty,
+    Number(u32),
+}
+fn main() -> void { return; }
+"""
+        parsed = bootstrap.parse(source, filename="<payload-enum-decl>")
+        bootstrap.check(parsed)
+        self.assertEqual(parsed.enums[0].variants[0].name, "Empty")
+        self.assertIsNone(parsed.enums[0].variants[0].payload_type)
+        self.assertEqual(
+            parsed.enums[0].variants[1].payload_type.name,
+            "u32",
+        )
+
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        self.assertIsNone(typed.enums[0].variants[0].payload_type)
+        self.assertEqual(
+            typed.enums[0].variants[1].payload_type.name,
+            "u32",
+        )
+
+    def test_payload_enum_c11_lowering_is_fail_closed_until_tagged_union_backend(self):
+        source = """module test::payload_enum_c11_gate;
+pub enum Message {
+    Empty,
+    Number(u32),
+}
+fn main() -> void { return; }
+"""
+        parsed = bootstrap.parse(source, filename="<payload-enum-c11-gate>")
+        bootstrap.check(parsed)
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"C11 backend does not lower payload enum 'Message' yet",
+        ):
+            bootstrap.emit_c(parsed)
+
+
 if __name__ == "__main__":
     unittest.main()
