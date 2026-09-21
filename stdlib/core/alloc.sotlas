@@ -21,6 +21,69 @@ module core::alloc;
 // ============================================================================
 
 // ============================================================================
+// Allocator — Contrato genérico de alocação
+// ============================================================================
+//
+// O contexto é opaco para o consumidor. Cada implementação decide como usar
+// alloc/realloc/free sem obrigar String, Vec ou outras coleções a conhecerem
+// ArenaAllocator, heap do runtime, kernel heap ou allocators customizados.
+// ============================================================================
+
+pub struct Allocator {
+    pub context: *mut void;
+    pub alloc: fn(*mut void, usize, usize) -> *mut u8;
+    pub realloc: fn(*mut void, *mut u8, usize, usize, usize) -> *mut u8;
+    pub free: fn(*mut void, *mut u8, usize, usize) -> void;
+}
+
+pub fn allocator_new(
+    context: *mut void,
+    alloc_fn: fn(*mut void, usize, usize) -> *mut u8,
+    realloc_fn: fn(*mut void, *mut u8, usize, usize, usize) -> *mut u8,
+    free_fn: fn(*mut void, *mut u8, usize, usize) -> void
+) -> Allocator {
+    let mut allocator: Allocator = 0;
+    allocator.context = context;
+    allocator.alloc = alloc_fn;
+    allocator.realloc = realloc_fn;
+    allocator.free = free_fn;
+    return allocator;
+}
+
+pub fn allocator_alloc(
+    allocator: Allocator,
+    size: usize,
+    alignment: usize
+) -> *mut u8 {
+    return allocator.alloc(allocator.context, size, alignment);
+}
+
+pub fn allocator_realloc(
+    allocator: Allocator,
+    ptr: *mut u8,
+    old_size: usize,
+    new_size: usize,
+    alignment: usize
+) -> *mut u8 {
+    return allocator.realloc(
+        allocator.context,
+        ptr,
+        old_size,
+        new_size,
+        alignment
+    );
+}
+
+pub fn allocator_free(
+    allocator: Allocator,
+    ptr: *mut u8,
+    size: usize,
+    alignment: usize
+) -> void {
+    allocator.free(allocator.context, ptr, size, alignment);
+}
+
+// ============================================================================
 // ArenaAllocator — O melhor amigo dos parsers e compiladores
 // ============================================================================
 

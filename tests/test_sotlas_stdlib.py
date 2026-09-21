@@ -62,6 +62,11 @@ class SotlasStdlibTests(unittest.TestCase):
         alloc_src = (ROOT / "stdlib" / "core" / "alloc.sotlas").read_text(encoding="utf-8")
         mod_alloc = bootstrap.parse(alloc_src, filename="<stdlib/alloc>")
         bootstrap.check(mod_alloc)
+        emitted_alloc = bootstrap.emit_c(mod_alloc)
+        self.assertIn("Allocator", emitted_alloc)
+        self.assertIn("allocator_alloc", emitted_alloc)
+        self.assertIn("allocator_realloc", emitted_alloc)
+        self.assertIn("allocator_free", emitted_alloc)
 
         mod_str = bootstrap.parse(str_src, filename="<stdlib/string>")
         bootstrap.check_with_imports(
