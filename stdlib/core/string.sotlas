@@ -274,6 +274,31 @@ pub fn string_new_with_allocator(
     }
 }
 
+fn string_growth_capacity(
+    current_capacity: usize,
+    required_capacity: usize
+) -> usize {
+    if required_capacity <= current_capacity {
+        return current_capacity;
+    }
+
+    let max_capacity: usize = ~0usize;
+    let mut next_capacity: usize = current_capacity;
+
+    if next_capacity < 8 {
+        next_capacity = 8;
+    }
+
+    while next_capacity < required_capacity {
+        if next_capacity > max_capacity - next_capacity {
+            return required_capacity;
+        }
+        next_capacity = next_capacity + next_capacity;
+    }
+
+    return next_capacity;
+}
+
 pub fn string_reserve(
     s: *mut String,
     min_capacity: usize
@@ -419,7 +444,9 @@ pub fn string_append_char_owned(
 
         if (*s).length == (*s).capacity {
             let required: usize = (*s).length + 1;
-            if !string_reserve(s, required) {
+            let target_capacity: usize =
+                string_growth_capacity((*s).capacity, required);
+            if !string_reserve(s, target_capacity) {
                 return false;
             }
         }
@@ -450,7 +477,9 @@ pub fn string_append_slice_owned(
         let available: usize = (*s).capacity - (*s).length;
         if slice.length > available {
             let required: usize = (*s).length + slice.length;
-            if !string_reserve(s, required) {
+            let target_capacity: usize =
+                string_growth_capacity((*s).capacity, required);
+            if !string_reserve(s, target_capacity) {
                 return false;
             }
         }

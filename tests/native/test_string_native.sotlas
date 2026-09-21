@@ -5,7 +5,7 @@ import core::alloc::*;
 
 static mut g_arena_buf: [u8; 64] = 0;
 static mut g_generic_arena_buf: [u8; 64] = 0;
-static mut g_owned_arena_buf: [u8; 32] = 0;
+static mut g_owned_arena_buf: [u8; 48] = 0;
 
 static mut g_string_buf: [u8; 32] = 0;
 
@@ -317,14 +317,14 @@ pub fn main() -> i32 {
     if !string_append_char_owned(owned_append_ptr, 44) {
         return 65;
     }
-    if owned_append.length != 6 || owned_append.capacity < 6 {
+    if owned_append.length != 6 || owned_append.capacity != 10 {
         return 66;
     }
 
     if !string_append_slice_owned(owned_append_ptr, world) {
         return 67;
     }
-    if owned_append.length != 12 || owned_append.capacity < 12 {
+    if owned_append.length != 12 || owned_append.capacity != 20 {
         return 68;
     }
 
@@ -353,6 +353,20 @@ pub fn main() -> i32 {
     }
     if !string_equals(string_as_slice(&owned_append), expected_owned) {
         return 74;
+    }
+
+    let mut zero_owned: String =
+        string_new_with_allocator(owned_allocator_ptr, 0);
+    let zero_owned_ptr: *mut String =
+        (&mut zero_owned) as *mut String;
+    if !string_append_char_owned(zero_owned_ptr, 90) {
+        return 75;
+    }
+    if zero_owned.length != 1 || zero_owned.capacity != 8 {
+        return 76;
+    }
+    if string_char_at(string_as_slice(&zero_owned), 0) != 90 {
+        return 77;
     }
 
     return 0;
