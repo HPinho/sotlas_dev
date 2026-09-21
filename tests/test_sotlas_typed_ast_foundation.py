@@ -214,6 +214,67 @@ fn maybe(flag: bool, token: Token) -> void {
         ):
             bootstrap.compile_source(source)
 
+    def test_ownership_domain_graph_records_scoped_nodes_and_transfers(self):
+        source = """module test::ownership_domain_graph;
+sole struct Token { id: u32; }
+fn consume(token: Token) -> void { return; }
+fn forward(token: Token) -> Token { return token; }
+fn main(token: Token) -> void {
+    consume(token);
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<ownership-domain-graph>")
+        bootstrap.check(parsed)
+        snapshot = typed_ast.build_phase1_semantic_snapshot(parsed)
+        graph = snapshot.ownership_domains
+
+        nodes = {node.key: node for node in graph.nodes}
+        self.assertIs(
+            nodes["consume::token"].domain,
+            typed_ast.OwnershipDomain.EXCLUSIVE,
+        )
+        self.assertIs(
+            nodes["forward::token"].final_state,
+            typed_ast.VarState.MOVED,
+        )
+        self.assertIs(
+            nodes["main::token"].final_state,
+            typed_ast.VarState.MOVED,
+        )
+        self.assertIn(
+            typed_ast.OwnershipDomainTransfer(
+                "forward",
+                "token",
+                typed_ast.OwnershipDomain.EXCLUSIVE,
+                "return",
+            ),
+            graph.transfers,
+        )
+        self.assertIn(
+            typed_ast.OwnershipDomainTransfer(
+                "main",
+                "token",
+                typed_ast.OwnershipDomain.EXCLUSIVE,
+                "call:consume",
+            ),
+            graph.transfers,
+        )
+
+    def test_ownership_domain_graph_uses_function_scope_for_same_binding_name(self):
+        source = """module test::ownership_domain_scope;
+sole struct Token { id: u32; }
+fn left(token: Token) -> void { return; }
+fn right(token: Token) -> void { return; }
+"""
+        parsed = bootstrap.parse(source, filename="<ownership-domain-scope>")
+        bootstrap.check(parsed)
+        snapshot = typed_ast.build_phase1_semantic_snapshot(parsed)
+        self.assertEqual(
+            {node.key for node in snapshot.ownership_domains.nodes},
+            {"left::token", "right::token"},
+        )
+
     def test_explicit_sole_transfer_starts_live_then_moves(self):
         typed = typed_ast.build_declaration_typed_ast(self.checked_ast())
         state = typed_ast.require_sole_transfer(

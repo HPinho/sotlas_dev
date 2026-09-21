@@ -1218,6 +1218,89 @@ class OwnershipModuleAnalysis:
     traces: tuple[tuple[str, OwnershipTrace], ...]
 
 
+@dataclass(frozen=True)
+class OwnershipDomainNode:
+    function: str
+    binding: str
+    type: SemanticType
+    domain: OwnershipDomain
+    final_state: VarState
+
+    @property
+    def key(self) -> str:
+        return f"{self.function}::{self.binding}"
+
+
+@dataclass(frozen=True)
+class OwnershipDomainTransfer:
+    function: str
+    binding: str
+    domain: OwnershipDomain
+    via: str
+
+    @property
+    def source_key(self) -> str:
+        return f"{self.function}::{self.binding}"
+
+
+@dataclass(frozen=True)
+class OwnershipDomainGraph:
+    nodes: tuple[OwnershipDomainNode, ...]
+    transfers: tuple[OwnershipDomainTransfer, ...]
+
+
+def build_ownership_domain_graph(
+    analysis: OwnershipModuleAnalysis,
+) -> OwnershipDomainGraph:
+    """Project ownership traces into a backend-neutral domain graph.
+
+    Nodes identify tracked owners by function scope. Transfer edges preserve
+    the semantic sink recorded by the ownership pass (call, return, struct
+    field, enum payload, and future domain transitions) without interpreting
+    it as backend behavior.
+    """
+    nodes: list[OwnershipDomainNode] = []
+    transfers: list[OwnershipDomainTransfer] = []
+    node_keys: set[str] = set()
+
+    for function_name, trace in analysis.traces:
+        bindings = {binding.name: binding for binding in trace.final_env.bindings}
+        for binding in trace.final_env.bindings:
+            node = OwnershipDomainNode(
+                function=function_name,
+                binding=binding.name,
+                type=binding.type,
+                domain=binding.domain,
+                final_state=binding.state,
+            )
+            if node.key in node_keys:
+                raise Phase1SemanticError(
+                    f"duplicate ownership-domain node {node.key!r}"
+                )
+            node_keys.add(node.key)
+            nodes.append(node)
+
+        for event in trace.events:
+            if event.kind != "move":
+                continue
+            binding = bindings.get(event.name)
+            if binding is None:
+                raise Phase1SemanticError(
+                    f"ownership transfer for untracked binding "
+                    f"{function_name}::{event.name}"
+                )
+            transfers.append(
+                OwnershipDomainTransfer(
+                    function=function_name,
+                    binding=event.name,
+                    domain=binding.domain,
+                    via=event.via,
+                )
+            )
+
+    return OwnershipDomainGraph(tuple(nodes), tuple(transfers))
+
+
 def _collect_calls_from_expr(expr, calls: list[str]) -> None:
     if expr is None:
         return
@@ -2984,6 +3067,7 @@ class Phase1ModuleSnapshot:
     typed_module: TypedModule
     bodies: tuple[TypedFunctionBody, ...]
     ownership: OwnershipModuleAnalysis
+    ownership_domains: OwnershipDomainGraph
     enum_layouts: tuple[TypedEnumLayout, ...] = ()
     enum_storage_layouts: tuple[TypedEnumStorageLayout, ...] = ()
     maturity: str = MATURITY
@@ -3004,12 +3088,14 @@ def build_phase1_semantic_snapshot(parsed_module) -> Phase1ModuleSnapshot:
         for function in typed_module.functions
     )
     ownership = analyze_module_ownership(parsed_module, typed_module)
+    ownership_domains = build_ownership_domain_graph(ownership)
     enum_layouts = lower_module_enum_layouts(typed_module)
     enum_storage_layouts = lower_module_enum_storage_layouts(enum_layouts)
     return Phase1ModuleSnapshot(
         typed_module=typed_module,
         bodies=bodies,
         ownership=ownership,
+        ownership_domains=ownership_domains,
         enum_layouts=enum_layouts,
         enum_storage_layouts=enum_storage_layouts,
     )
@@ -3553,8 +3639,9 @@ __all__ = [
     "require_expr_ownership_live",
     "analyze_linear_function_ownership", "analyze_function_ownership",
     "OwnershipParamContract", "OwnershipFunctionSummary",
-    "OwnershipModuleAnalysis", "summarize_module_ownership",
-    "analyze_module_ownership", "TypedExprNode", "TypedStmtNode",
+    "OwnershipModuleAnalysis", "OwnershipDomainNode", "OwnershipDomainTransfer",
+    "OwnershipDomainGraph", "build_ownership_domain_graph",
+    "summarize_module_ownership", "analyze_module_ownership", "TypedExprNode", "TypedStmtNode",
     "TypedFunctionBody", "infer_expression_type",
     "infer_assignment_target_type", "build_linear_typed_body",
     "Phase1ModuleSnapshot", "build_phase1_semantic_snapshot",

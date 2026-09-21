@@ -61,6 +61,7 @@
 - [x] `sole` mapeado para metadados de domínio `exclusive` em declarações, bindings e contratos de função do Typed AST isolado
 - [x] nomes de domínios ainda sem semântica rejeitados antes do backend C11
 - [x] cleanup `sole` isolado por ramo C11 em retornos antecipados; transferência condicional que continua é rejeitada
+- [x] grafo canônico de Ownership Domains integrado ao snapshot semântico, com nós function-scoped e arestas de transferência
 
 ### Falta para concluir a Fase 2
 
@@ -75,7 +76,7 @@
 - [ ] `direct`
 - [ ] `handover`
 - [ ] `quarantine`
-- [ ] ownership/domain graph canônico
+- [x] ownership/domain graph canônico para owners rastreados e transferências `exclusive` (`call`, `return`, campos e payloads), backend-neutral
 - [ ] merges de domínio em branches/loops
 - [ ] integração completa de cleanup/early return/defer
 - [ ] lowering backend-neutral dos domains

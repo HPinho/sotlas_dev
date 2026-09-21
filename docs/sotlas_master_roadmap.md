@@ -3827,6 +3827,7 @@ Fundação já implementada:
 - [x] transferência para campos `sole` de structs;
 - [x] transferência para payload `sole` de enums;
 - [x] cleanup/deinit possui integração parcial com transferências `sole` no backend existente.
+- [x] grafo backend-neutral de Ownership Domains registra owner, tipo, domínio, estado final e sink das transferências.
 
 Ainda necessário para concluir a Fase 2 canônica:
 
@@ -3841,7 +3842,7 @@ Ainda necessário para concluir a Fase 2 canônica:
 - [ ] `direct` como acesso SRG de baixo nível com obrigações explícitas;
 - [ ] `handover` como operação formal de transferência entre bindings/domínios;
 - [ ] `quarantine` como isolamento verificável antes de reuse/dispatch;
-- [ ] grafo canônico de ownership/domains no Typed AST/SIR;
+- [x] grafo canônico de ownership/domains no snapshot semântico para owners rastreados e transferências `exclusive`;
 - [ ] regras de merge entre Ownership Domains em controle de fluxo;
 - [ ] integração completa com `defer`, cleanup e unwind/early-return de todos os recursos;
 - [ ] lowering backend-neutral de Ownership Domains;
