@@ -1274,7 +1274,7 @@ impl CEmitter {
         if !self.write_source_slice(local.str_offset, local.str_len) {
             return false;
         }
-        if !self.write_str(";\n}\nuint64_t ", 12) {
+        if !self.write_str(";\n}\nuint64_t ", 13) {
             return false;
         }
         if !self.write_source_slice(local.str_offset, local.str_len) {
