@@ -1109,7 +1109,7 @@ impl CEmitter {
             return false;
         }
 
-        if !self.write_str("SotlasResultU64 __sotlas_try_", 30) {
+        if !self.write_str("SotlasResultU64 __sotlas_try_", 29) {
             return false;
         }
         if !self.write_source_slice(local.str_offset, local.str_len) {
@@ -1127,7 +1127,7 @@ impl CEmitter {
         if !self.write_source_slice(local.str_offset, local.str_len) {
             return false;
         }
-        if !self.write_str(".status != 0) {\n", 17) {
+        if !self.write_str(".status != 0) {\n", 16) {
             return false;
         }
 

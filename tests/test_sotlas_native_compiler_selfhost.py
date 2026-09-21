@@ -408,6 +408,23 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         self.assertIn("self.find_function_body(fn_index)", text)
         self.assertIn("return self.emit_braced_block(body_index);", text)
 
+    def test_native_emitter_literal_write_lengths_match(self):
+        import ast
+        import re
+
+        emitter_file = (
+            ROOT / "bootstrap" / "sotlas" / "native_compiler" / "emitter_c.sotlas"
+        )
+        text = emitter_file.read_text(encoding="utf-8")
+        pattern = re.compile(r'write_str\(("(?:\\.|[^"\\])*"),\s*(\d+)\)')
+        mismatches = []
+        for match in pattern.finditer(text):
+            literal = ast.literal_eval(match.group(1))
+            declared = int(match.group(2))
+            if len(literal) != declared:
+                mismatches.append((literal, declared, len(literal)))
+        self.assertEqual(mismatches, [])
+
     def test_native_emitter_lowers_direct_result_try_initializer(self):
         emitter_file = (
             ROOT / "bootstrap" / "sotlas" / "native_compiler" / "emitter_c.sotlas"
