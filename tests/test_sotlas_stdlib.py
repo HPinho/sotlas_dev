@@ -67,6 +67,7 @@ class SotlasStdlibTests(unittest.TestCase):
         self.assertIn("allocator_alloc", emitted_alloc)
         self.assertIn("allocator_realloc", emitted_alloc)
         self.assertIn("allocator_free", emitted_alloc)
+        self.assertIn("arena_as_allocator", emitted_alloc)
 
         mod_str = bootstrap.parse(str_src, filename="<stdlib/string>")
         bootstrap.check_with_imports(

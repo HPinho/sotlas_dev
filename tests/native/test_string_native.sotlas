@@ -4,6 +4,7 @@ import core::string::*;
 import core::alloc::*;
 
 static mut g_arena_buf: [u8; 64] = 0;
+static mut g_generic_arena_buf: [u8; 64] = 0;
 
 static mut g_string_buf: [u8; 32] = 0;
 
@@ -192,6 +193,44 @@ pub fn main() -> i32 {
     let failed_string: String = string_new_in_arena(&mut arena, 128);
     if failed_string.data != null || failed_string.capacity != 0 {
         return 43;
+    }
+
+    let mut generic_arena: ArenaAllocator = arena_new(
+        g_generic_arena_buf as *mut u8,
+        64
+    );
+    let generic_arena_ptr: *mut ArenaAllocator =
+        (&mut generic_arena) as *mut ArenaAllocator;
+    let generic: Allocator = arena_as_allocator(generic_arena_ptr);
+
+    let first: *mut u8 = allocator_alloc(generic, 4, 1);
+    if first == null {
+        return 44;
+    }
+    unsafe {
+        *first = 10;
+        *(first + 1) = 20;
+        *(first + 2) = 30;
+        *(first + 3) = 40;
+    }
+
+    let grown: *mut u8 = allocator_realloc(generic, first, 4, 8, 1);
+    if grown == null {
+        return 45;
+    }
+    unsafe {
+        if *grown != 10 || *(grown + 1) != 20 {
+            return 46;
+        }
+        if *(grown + 2) != 30 || *(grown + 3) != 40 {
+            return 47;
+        }
+    }
+
+    let used_before_free: usize = arena_used(&generic_arena);
+    allocator_free(generic, grown, 8, 1);
+    if arena_used(&generic_arena) != used_before_free {
+        return 48;
     }
 
     return 0;
