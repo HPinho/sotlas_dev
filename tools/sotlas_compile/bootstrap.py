@@ -1096,6 +1096,54 @@ BUILTIN_FUNCTIONS: dict[str, Function] = {
 }
 
 
+def collect_imported_symbols(
+    module: Module,
+    available_modules: dict[str, Module],
+) -> tuple[
+    dict[str, Function],
+    dict[str, Struct],
+    dict[str, Enum],
+    dict[str, Global],
+]:
+    """Collect public symbols from the module's direct wildcard imports.
+
+    Module discovery stays outside this function. Once callers have a module
+    map, build, LSP, tests, and stdlib checks share one import visibility rule.
+    """
+    imported_fns: dict[str, Function] = {}
+    imported_types: dict[str, Struct] = {}
+    imported_enums: dict[str, Enum] = {}
+    imported_globals: dict[str, Global] = {}
+
+    for dep_name in module.imports:
+        dep_mod = available_modules.get(dep_name)
+        if dep_mod is None:
+            continue
+        imported_fns.update({fn.name: fn for fn in dep_mod.functions if fn.public})
+        imported_types.update({s.name: s for s in dep_mod.structs if s.public})
+        imported_enums.update({e.name: e for e in dep_mod.enums if e.public})
+        imported_globals.update({g.name: g for g in dep_mod.globals if g.public})
+
+    return imported_fns, imported_types, imported_enums, imported_globals
+
+
+def check_with_imports(
+    module: Module,
+    available_modules: dict[str, Module],
+) -> None:
+    """Typecheck a module using the canonical direct-import environment."""
+    imported_fns, imported_types, imported_enums, imported_globals = (
+        collect_imported_symbols(module, available_modules)
+    )
+    check(
+        module,
+        imported_fns,
+        imported_types,
+        imported_enums,
+        imported_globals,
+    )
+
+
 def check(module: Module, imported_fns: dict[str, Function] | None = None,
           imported_types: dict[str, Struct] | None = None,
           imported_enums: dict[str, Enum] | None = None,

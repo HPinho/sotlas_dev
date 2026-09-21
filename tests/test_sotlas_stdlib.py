@@ -59,11 +59,19 @@ class SotlasStdlibTests(unittest.TestCase):
         emitted_slice = bootstrap.emit_c(mod_slice)
         self.assertIn("ByteSlice", emitted_slice)
 
+        alloc_src = (ROOT / "stdlib" / "core" / "alloc.sotlas").read_text(encoding="utf-8")
+        mod_alloc = bootstrap.parse(alloc_src, filename="<stdlib/alloc>")
+        bootstrap.check(mod_alloc)
+
         mod_str = bootstrap.parse(str_src, filename="<stdlib/string>")
-        bootstrap.check(mod_str)
+        bootstrap.check_with_imports(
+            mod_str,
+            {mod_alloc.name: mod_alloc},
+        )
         emitted_str = bootstrap.emit_c(mod_str)
         self.assertIn("StringSlice", emitted_str)
         self.assertIn("string_equals", emitted_str)
+        self.assertIn("string_new_in_arena", emitted_str)
 
 
 if __name__ == "__main__":

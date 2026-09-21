@@ -31,6 +31,7 @@ from bootstrap import (
     Token,
     Type,
     check,
+    check_with_imports,
     parse,
 )
 
@@ -176,21 +177,14 @@ class SotlasLanguageServer:
             mod = parse(source, filename=str(file_path) if file_path else None)
             self.parsed_modules[uri] = mod
             self.last_valid_modules[uri] = mod
-            # Descobre dependências importadas
-            imported_fns: dict[str, Function] = {}
-            imported_types: dict[str, Struct] = {}
-            imported_enums: dict[str, Enum] = {}
-            imported_globals: dict[str, Global] = {}
+            available_modules: dict[str, Module] = {}
             if file_path:
                 project_mods = self.find_project_modules(file_path)
-                for dep_name in mod.imports:
-                    if dep_name in project_mods:
-                        dep_mod, _ = project_mods[dep_name]
-                        imported_fns.update({fn.name: fn for fn in dep_mod.functions if fn.public})
-                        imported_types.update({s.name: s for s in dep_mod.structs if s.public})
-                        imported_enums.update({e.name: e for e in dep_mod.enums if e.public})
-                        imported_globals.update({g.name: g for g in dep_mod.globals if g.public})
-            check(mod, imported_fns, imported_types, imported_enums, imported_globals)
+                available_modules = {
+                    name: dep_mod
+                    for name, (dep_mod, _) in project_mods.items()
+                }
+            check_with_imports(mod, available_modules)
         except SotlasBootstrapError as error:
             # Fallback para extração heurística para não perder símbolos
             self.parsed_modules[uri] = self.last_valid_modules.get(uri) or self._extract_heuristic(source, uri)

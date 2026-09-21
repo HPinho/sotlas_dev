@@ -1,5 +1,7 @@
 module core::string;
 
+import core::alloc::*;
+
 // Borrowed UTF-8 string slice (&str)
 pub struct StringSlice {
     pub data: *const u8;
@@ -246,6 +248,20 @@ pub fn string_new(backing: *mut u8, cap: usize) -> String {
     s.length = 0;
     s.capacity = cap;
     return s;
+}
+
+pub fn string_new_in_arena(
+    arena: *mut ArenaAllocator,
+    cap: usize
+) -> String {
+    if arena == null || cap == 0 {
+        return string_new(null, 0);
+    }
+    let backing: *mut u8 = arena_alloc(arena, cap);
+    if backing == null {
+        return string_new(null, 0);
+    }
+    return string_new(backing, cap);
 }
 
 pub fn string_append_char(s: *mut String, ch: u8) -> bool {

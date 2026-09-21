@@ -195,23 +195,19 @@ def cmd_build(args: argparse.Namespace) -> int:
         mod = bootstrap.parse(source, filename=str(target_path))
         server = lsp.SotlasLanguageServer()
         project_mods = server.find_project_modules(target_path)
-        imported_fns = {}
-        imported_types = {}
-        imported_enums = {}
-        imported_globals = {}
+        available_modules = {
+            name: dep_mod
+            for name, (dep_mod, _) in project_mods.items()
+        }
         dep_c_codes = []
         for dep_name in mod.imports:
             if dep_name in project_mods:
                 dep_mod, _ = project_mods[dep_name]
-                imported_fns.update({fn.name: fn for fn in dep_mod.functions if fn.public})
-                imported_types.update({s.name: s for s in dep_mod.structs if s.public})
-                imported_enums.update({e.name: e for e in dep_mod.enums if e.public})
-                imported_globals.update({g.name: g for g in dep_mod.globals if g.public})
                 try:
                     dep_c_codes.append(bootstrap.emit_c(dep_mod))
                 except Exception:
                     pass
-        bootstrap.check(mod, imported_fns, imported_types, imported_enums, imported_globals)
+        bootstrap.check_with_imports(mod, available_modules)
         out_file.parent.mkdir(parents=True, exist_ok=True)
         if args.target == "wasm":
             import wasm_emitter
@@ -242,18 +238,11 @@ def cmd_run(args: argparse.Namespace) -> int:
         mod = bootstrap.parse(source, filename=str(target_path))
         server = lsp.SotlasLanguageServer()
         project_mods = server.find_project_modules(target_path)
-        imported_fns = {}
-        imported_types = {}
-        imported_enums = {}
-        imported_globals = {}
-        for dep_name in mod.imports:
-            if dep_name in project_mods:
-                dep_mod, _ = project_mods[dep_name]
-                imported_fns.update({fn.name: fn for fn in dep_mod.functions if fn.public})
-                imported_types.update({s.name: s for s in dep_mod.structs if s.public})
-                imported_enums.update({e.name: e for e in dep_mod.enums if e.public})
-                imported_globals.update({g.name: g for g in dep_mod.globals if g.public})
-        bootstrap.check(mod, imported_fns, imported_types, imported_enums, imported_globals)
+        available_modules = {
+            name: dep_mod
+            for name, (dep_mod, _) in project_mods.items()
+        }
+        bootstrap.check_with_imports(mod, available_modules)
         print(f"✓ Validação concluída. Módulo '{mod.name}' verificado com sucesso.")
         print(f"  Funções disponíveis: {[f.name for f in mod.functions]}")
         return 0
