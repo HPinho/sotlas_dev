@@ -106,6 +106,21 @@ typedef struct {
 } SotlasResultU64;
 #endif
 
+/*
+ * Native tagged specialization for Result<u64, i32>.
+ * Unlike the status-code FFI shape above, this preserves Err(0) distinctly.
+ */
+#ifndef SOTLAS_RESULT_U64_I32_DEFINED
+#define SOTLAS_RESULT_U64_I32_DEFINED 1
+typedef struct {
+    bool is_ok;
+    union {
+        uint64_t ok;
+        int32_t err;
+    } payload;
+} SotlasResultU64I32;
+#endif
+
 /* ---------------------------------------------------------------------------
  * Ponteiros de Topologia Físico-Semântica em C/C++
  * --------------------------------------------------------------------------- */

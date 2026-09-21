@@ -328,6 +328,22 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         self.assertIn("if self.type_ref_is_result(type_index)", text)
         self.assertIn("Never leak the Sotlas", text)
 
+    def test_native_result_u64_i32_preserves_err_zero(self):
+        abi_file = ROOT / "include" / "sotlas" / "sotlas_abi.h"
+        emitter_file = (
+            ROOT / "bootstrap" / "sotlas" / "native_compiler" / "emitter_c.sotlas"
+        )
+        abi_text = abi_file.read_text(encoding="utf-8")
+        emitter_text = emitter_file.read_text(encoding="utf-8")
+        self.assertIn("SOTLAS_RESULT_U64_I32_DEFINED", abi_text)
+        self.assertIn("bool is_ok;", abi_text)
+        self.assertIn("uint64_t ok;", abi_text)
+        self.assertIn("int32_t err;", abi_text)
+        self.assertIn("SotlasResultU64I32", emitter_text)
+        self.assertIn(".payload.ok", emitter_text)
+        self.assertIn(".payload.err", emitter_text)
+        self.assertIn(".is_ok", emitter_text)
+
     def test_native_emitter_uses_stable_result_u64_abi(self):
         abi_file = ROOT / "include" / "sotlas" / "sotlas_abi.h"
         emitter_file = (
@@ -339,7 +355,7 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         self.assertIn("SotlasResultU64", abi_text)
         self.assertIn("pub fn type_ref_is_result_u64_i32", emitter_text)
         self.assertIn('"Result<u64,i32>"', emitter_text)
-        self.assertIn('return self.write_str("SotlasResultU64", 15);', emitter_text)
+        self.assertIn('return self.write_str("SotlasResultU64I32", 18);', emitter_text)
         self.assertIn("SOTLAS_RESULT_U64_DEFINED", emitter_text)
 
     def test_native_emitter_recognizes_result_try_context(self):
@@ -366,8 +382,8 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         self.assertIn('"Result::Ok"', text)
         self.assertIn('"Result::Err"', text)
         self.assertIn("pub fn emit_result_u64_constructor", text)
-        self.assertIn('"(SotlasResultU64){ .status = 0, .value = "', text)
-        self.assertIn('"(SotlasResultU64){ .status = "', text)
+        self.assertIn('"(SotlasResultU64I32){ .is_ok = true, .payload.ok = "', text)
+        self.assertIn('"(SotlasResultU64I32){ .is_ok = false, .payload.err = "', text)
         self.assertIn("self.emit_result_u64_constructor(ret.first_child)", text)
         self.assertIn("node.kind == AstKind::ExprPath", text)
 
@@ -448,7 +464,7 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         self.assertIn("pub fn emit_try_statement", text)
         self.assertIn("try_node.kind != AstKind::TryExpr", text)
         self.assertIn("self.try_call_returns_result_u64_i32(try_index)", text)
-        self.assertIn('"SotlasResultU64 __sotlas_try_value = "', text)
+        self.assertIn('"SotlasResultU64I32 __sotlas_try_value = "', text)
         self.assertIn("self.emit_function_exit_defers(try_index)", text)
         self.assertIn('"return __sotlas_try_value;', text)
         self.assertIn("node.kind == AstKind::TryExpr", text)
@@ -463,11 +479,11 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         self.assertIn("pub fn try_call_returns_result_u64_i32", text)
         self.assertIn("pub fn try_context_returns_result_u64_i32", text)
         self.assertIn("pub fn emit_try_let_statement", text)
-        self.assertIn('"SotlasResultU64 __sotlas_try_"', text)
-        self.assertIn('".status != 0) {\\n"', text)
+        self.assertIn('"SotlasResultU64I32 __sotlas_try_"', text)
+        self.assertIn('".is_ok) {\\n"', text)
         self.assertIn("self.emit_function_exit_defers(let_index)", text)
         self.assertIn('"return __sotlas_try_"', text)
-        self.assertIn('".value;\\n"', text)
+        self.assertIn('".payload.ok;\\n"', text)
         self.assertIn(
             "return self.emit_try_let_statement(index, type_index, init_index);",
             text,

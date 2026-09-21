@@ -547,7 +547,7 @@ impl CEmitter {
         }
 
         if kind == 1 {
-            if !self.write_str("(SotlasResultU64){ .status = 0, .value = ", 41) {
+            if !self.write_str("(SotlasResultU64I32){ .is_ok = true, .payload.ok = ", 51) {
                 return false;
             }
             if !self.emit_expression(arg_index) {
@@ -556,13 +556,13 @@ impl CEmitter {
             return self.write_str(" }", 2);
         }
 
-        if !self.write_str("(SotlasResultU64){ .status = ", 29) {
+        if !self.write_str("(SotlasResultU64I32){ .is_ok = false, .payload.err = ", 53) {
             return false;
         }
         if !self.emit_expression(arg_index) {
             return false;
         }
-        return self.write_str(", .value = 0 }", 14);
+        return self.write_str(" }", 2);
     }
 
     pub fn source_slices_equal(
@@ -804,7 +804,7 @@ impl CEmitter {
         // Result<T,E> requires its own ABI lowering. Never leak the Sotlas
         // generic spelling into C11 as though it were a valid C type.
         if self.type_ref_is_result_u64_i32(type_index) {
-            return self.write_str("SotlasResultU64", 15);
+            return self.write_str("SotlasResultU64I32", 18);
         }
         if self.type_ref_is_result(type_index) {
             return false;
@@ -1207,13 +1207,13 @@ impl CEmitter {
             return false;
         }
 
-        if !self.write_str("{\nSotlasResultU64 __sotlas_try_value = ", 39) {
+        if !self.write_str("{\nSotlasResultU64I32 __sotlas_try_value = ", 42) {
             return false;
         }
         if !self.emit_expression(try_node.first_child) {
             return false;
         }
-        if !self.write_str(";\nif (__sotlas_try_value.status != 0) {\n", 40) {
+        if !self.write_str(";\nif (!__sotlas_try_value.is_ok) {\n", 35) {
             return false;
         }
         if !self.emit_function_exit_defers(try_index) {
@@ -1243,7 +1243,7 @@ impl CEmitter {
             return false;
         }
 
-        if !self.write_str("SotlasResultU64 __sotlas_try_", 29) {
+        if !self.write_str("SotlasResultU64I32 __sotlas_try_", 32) {
             return false;
         }
         if !self.write_source_slice(local.str_offset, local.str_len) {
@@ -1261,7 +1261,7 @@ impl CEmitter {
         if !self.write_source_slice(local.str_offset, local.str_len) {
             return false;
         }
-        if !self.write_str(".status != 0) {\n", 16) {
+        if !self.write_str(".is_ok) {\n", 10) {
             return false;
         }
 
@@ -1286,7 +1286,7 @@ impl CEmitter {
         if !self.write_source_slice(local.str_offset, local.str_len) {
             return false;
         }
-        return self.write_str(".value;\n", 8);
+        return self.write_str(".payload.ok;\n", 13);
     }
 
     pub fn emit_try_let_statement(
@@ -1481,7 +1481,7 @@ impl CEmitter {
     }
 
     pub fn emit_header(mut self: &mut Self) -> bool {
-        let hdr: *const u8 = "// Compilado nativamente pelo compilador Sotlas in Sotlas (v1.0-selfhost)\n#include <stdint.h>\n#include <stdbool.h>\n#include <stddef.h>\n#ifndef SOTLAS_RESULT_U64_DEFINED\n#define SOTLAS_RESULT_U64_DEFINED 1\ntypedef struct { int32_t status; uint64_t value; } SotlasResultU64;\n#endif\n\n";
-        return self.write_str(hdr, 281);
+        let hdr: *const u8 = "// Compilado nativamente pelo compilador Sotlas in Sotlas (v1.0-selfhost)\n#include <stdint.h>\n#include <stdbool.h>\n#include <stddef.h>\n#ifndef SOTLAS_RESULT_U64_DEFINED\n#define SOTLAS_RESULT_U64_DEFINED 1\ntypedef struct { int32_t status; uint64_t value; } SotlasResultU64;\n#endif\n#ifndef SOTLAS_RESULT_U64_I32_DEFINED\n#define SOTLAS_RESULT_U64_I32_DEFINED 1\ntypedef struct { bool is_ok; union { uint64_t ok; int32_t err; } payload; } SotlasResultU64I32;\n#endif\n\n";
+        return self.write_str(hdr, 462);
     }
 }
