@@ -3170,12 +3170,41 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                 out.extend(emit_statements(item.body, depth + 1, defer_scopes, loop_scope_depth=len(defer_scopes), ret_type=ret_type))
                 out.append(f"{pad}}}")
             elif isinstance(item, If):
+                live_cleanups = {
+                    d.auto_cleanup_name
+                    for scope in defer_scopes for d in scope
+                    if d.auto_cleanup_name is not None
+                }
                 out.append(f"{pad}if ({_emit_expr(item.condition, prefix)}) {{")
-                out.extend(emit_statements(item.then_body, depth + 1, defer_scopes, loop_scope_depth, ret_type))
+                then_scopes = [scope.copy() for scope in defer_scopes]
+                out.extend(emit_statements(item.then_body, depth + 1, then_scopes, loop_scope_depth, ret_type))
+                remaining = {
+                    d.auto_cleanup_name
+                    for scope in then_scopes for d in scope
+                    if d.auto_cleanup_name is not None
+                }
+                if live_cleanups - remaining and not (
+                    item.then_body and isinstance(item.then_body[-1], Return)
+                ):
+                    raise SotlasBootstrapError(
+                        "C11 backend cannot conditionally transfer sole ownership "
+                        "from an if branch that continues"
+                    )
                 out.append(f"{pad}}}")
                 if item.else_body:
                     out.append(f"{pad}else {{")
-                    out.extend(emit_statements(item.else_body, depth + 1, defer_scopes, loop_scope_depth, ret_type))
+                    else_scopes = [scope.copy() for scope in defer_scopes]
+                    out.extend(emit_statements(item.else_body, depth + 1, else_scopes, loop_scope_depth, ret_type))
+                    remaining = {
+                        d.auto_cleanup_name
+                        for scope in else_scopes for d in scope
+                        if d.auto_cleanup_name is not None
+                    }
+                    if live_cleanups - remaining and not isinstance(item.else_body[-1], Return):
+                        raise SotlasBootstrapError(
+                            "C11 backend cannot conditionally transfer sole ownership "
+                            "from an if branch that continues"
+                        )
                     out.append(f"{pad}}}")
         current_defers = defer_scopes.pop()
         for d in reversed(current_defers):

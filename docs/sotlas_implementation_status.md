@@ -60,6 +60,7 @@
 - [x] integração parcial com cleanup/deinit existente
 - [x] `sole` mapeado para metadados de domínio `exclusive` em declarações, bindings e contratos de função do Typed AST isolado
 - [x] nomes de domínios ainda sem semântica rejeitados antes do backend C11
+- [x] cleanup `sole` isolado por ramo C11 em retornos antecipados; transferência condicional que continua é rejeitada
 
 ### Falta para concluir a Fase 2
 

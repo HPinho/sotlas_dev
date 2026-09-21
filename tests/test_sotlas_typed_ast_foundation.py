@@ -177,6 +177,43 @@ fn main() -> void { return; }
                 ):
                     bootstrap.compile_source(source)
 
+    def test_sole_branch_return_keeps_cleanup_on_other_path(self):
+        source = """module test::branch_cleanup;
+sole struct Token {
+    id: u32;
+    fn deinit(&mut self) {}
+}
+fn consume(token: Token) -> void { return; }
+fn maybe(flag: bool, token: Token) -> void {
+    if flag { consume(token); return; }
+    return;
+}
+"""
+        generated = bootstrap.compile_source(source)
+        self.assertIn(
+            "consume(token);\n        return;\n    }\n"
+            "    Token_deinit((&token));\n    return;",
+            generated,
+        )
+
+    def test_sole_conditional_transfer_without_return_is_rejected_by_c11(self):
+        source = """module test::conditional_cleanup;
+sole struct Token {
+    id: u32;
+    fn deinit(&mut self) {}
+}
+fn consume(token: Token) -> void { return; }
+fn maybe(flag: bool, token: Token) -> void {
+    if flag { consume(token); }
+    return;
+}
+"""
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            "cannot conditionally transfer sole ownership",
+        ):
+            bootstrap.compile_source(source)
+
     def test_explicit_sole_transfer_starts_live_then_moves(self):
         typed = typed_ast.build_declaration_typed_ast(self.checked_ast())
         state = typed_ast.require_sole_transfer(
