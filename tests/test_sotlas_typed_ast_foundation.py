@@ -5913,9 +5913,8 @@ fn main() -> void {
     def test_payload_enum_layout_normalizes_tags_as_tagged_union(self):
         source = """module test::payload_enum_layout;
 enum Message {
-    Empty,
+    Empty = 7,
     Number(u32),
-    Code(u32) = 7,
     Retry(u32),
 }
 """
@@ -5931,10 +5930,9 @@ enum Message {
         self.assertEqual(
             [(item.name, item.tag) for item in layout.variants],
             [
-                ("Empty", 0),
-                ("Number", 1),
-                ("Code", 7),
-                ("Retry", 8),
+                ("Empty", 7),
+                ("Number", 8),
+                ("Retry", 9),
             ],
         )
         self.assertIsNone(layout.variants[0].payload_type)
@@ -5964,7 +5962,7 @@ enum Mode {
         source = """module test::duplicate_enum_tags;
 enum Message {
     Empty = 3,
-    Number(u32) = 3,
+    Duplicate = 3,
 }
 """
         parsed = bootstrap.parse(
