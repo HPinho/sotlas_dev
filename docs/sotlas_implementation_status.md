@@ -77,7 +77,9 @@
 - [ ] `handover`
 - [ ] `quarantine`
 - [x] ownership/domain graph canônico para owners rastreados e transferências `exclusive` (`call`, `return`, campos e payloads), backend-neutral
-- [ ] merges de domínio em branches/loops
+- [x] merge canônico de domínio em branches para owners rastreados: domínio deve permanecer idêntico; joins de estado são registrados no grafo
+- [ ] regras de transição explícita entre domínios (`exclusive → shared/region/device/external`) e merges correspondentes
+- [ ] regras de domínio para loops além do gate conservador atual
 - [ ] integração completa de cleanup/early return/defer
 - [ ] lowering backend-neutral dos domains
 - [ ] implementação/rejeição explícita por backend

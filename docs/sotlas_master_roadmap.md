@@ -3843,7 +3843,9 @@ Ainda necessário para concluir a Fase 2 canônica:
 - [ ] `handover` como operação formal de transferência entre bindings/domínios;
 - [ ] `quarantine` como isolamento verificável antes de reuse/dispatch;
 - [x] grafo canônico de ownership/domains no snapshot semântico para owners rastreados e transferências `exclusive`;
-- [ ] regras de merge entre Ownership Domains em controle de fluxo;
+- [x] merge de Ownership Domain em branches exige domínio idêntico e registra LIVE/MOVED/MAYBE_MOVED no grafo;
+- [ ] transições explícitas entre domínios e merges para `shared`, `region`, `device` e `external`;
+- [ ] regras de domínio específicas para loops além da validação conservadora atual;
 - [ ] integração completa com `defer`, cleanup e unwind/early-return de todos os recursos;
 - [ ] lowering backend-neutral de Ownership Domains;
 - [ ] backend C11 correspondente ou rejeição explícita por domínio;

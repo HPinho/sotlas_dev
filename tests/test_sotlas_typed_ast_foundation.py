@@ -275,6 +275,52 @@ fn right(token: Token) -> void { return; }
             {"left::token", "right::token"},
         )
 
+    def test_ownership_domain_merge_records_branch_join_fact(self):
+        source = """module test::ownership_domain_merge;
+sole struct Token { id: u32; }
+fn consume(token: Token) -> void { return; }
+fn maybe(flag: bool, token: Token) -> void {
+    if flag { consume(token); }
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<ownership-domain-merge>")
+        bootstrap.check(parsed)
+        snapshot = typed_ast.build_phase1_semantic_snapshot(parsed)
+        merge = next(
+            item for item in snapshot.ownership_domains.merges
+            if item.function == "maybe" and item.binding == "token"
+        )
+        self.assertIs(merge.domain, typed_ast.OwnershipDomain.EXCLUSIVE)
+        self.assertIs(merge.left_state, typed_ast.VarState.MOVED)
+        self.assertIs(merge.right_state, typed_ast.VarState.LIVE)
+        self.assertIs(merge.result_state, typed_ast.VarState.MAYBE_MOVED)
+        self.assertEqual(merge.via, "if")
+
+    def test_canonical_domain_merge_rejects_domain_divergence(self):
+        type_info = typed_ast.SemanticType("Token")
+        left = typed_ast.OwnershipBinding(
+            "token",
+            type_info,
+            typed_ast.VarState.LIVE,
+            typed_ast.OwnershipDomain.EXCLUSIVE,
+        )
+
+        class FutureDomain(str, typed_ast.Enum):
+            SHARED = "shared"
+
+        right = typed_ast.OwnershipBinding(
+            "token",
+            type_info,
+            typed_ast.VarState.LIVE,
+            FutureDomain.SHARED,
+        )
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            "changed domain across branches: exclusive vs shared",
+        ):
+            typed_ast.merge_ownership_bindings(left, right)
+
     def test_explicit_sole_transfer_starts_live_then_moves(self):
         typed = typed_ast.build_declaration_typed_ast(self.checked_ast())
         state = typed_ast.require_sole_transfer(

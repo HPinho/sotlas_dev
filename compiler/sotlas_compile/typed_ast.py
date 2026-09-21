@@ -150,26 +150,37 @@ class OwnershipEnv:
             raise Phase1SemanticError(
                 "ownership environments have incompatible bindings"
             )
-        merged = []
-        for binding in self.bindings:
-            peer = right[binding.name]
-            if binding.type != peer.type:
-                raise Phase1SemanticError(
-                    f"ownership binding {binding.name!r} changed type across branches"
-                )
-            if binding.domain != peer.domain:
-                raise Phase1SemanticError(
-                    f"ownership binding {binding.name!r} changed domain across branches"
-                )
-            merged.append(
-                OwnershipBinding(
-                    binding.name,
-                    binding.type,
-                    merge_branch_states(binding.state, peer.state),
-                    binding.domain,
-                )
+        return OwnershipEnv(
+            tuple(
+                merge_ownership_bindings(binding, right[binding.name])
+                for binding in self.bindings
             )
-        return OwnershipEnv(tuple(merged))
+        )
+
+
+def merge_ownership_bindings(
+    left: OwnershipBinding, right: OwnershipBinding
+) -> OwnershipBinding:
+    """Apply the canonical branch-join rule for one ownership binding."""
+    if left.name != right.name:
+        raise Phase1SemanticError(
+            f"cannot merge ownership bindings {left.name!r} and {right.name!r}"
+        )
+    if left.type != right.type:
+        raise Phase1SemanticError(
+            f"ownership binding {left.name!r} changed type across branches"
+        )
+    if left.domain != right.domain:
+        raise Phase1SemanticError(
+            f"ownership binding {left.name!r} changed domain across branches: "
+            f"{left.domain.value} vs {right.domain.value}"
+        )
+    return OwnershipBinding(
+        left.name,
+        left.type,
+        merge_branch_states(left.state, right.state),
+        left.domain,
+    )
 
 
 def _declared_local_type(statement) -> SemanticType | None:
@@ -229,6 +240,10 @@ class OwnershipEvent:
     kind: str
     name: str
     via: str
+    domain: OwnershipDomain | None = None
+    left_state: VarState | None = None
+    right_state: VarState | None = None
+    result_state: VarState | None = None
 
 
 @dataclass(frozen=True)
@@ -1002,7 +1017,32 @@ def _analyze_block_ownership(
             elif else_returns and not then_returns:
                 result = then_env
             else:
-                result = then_env.merge(else_env)
+                merged_env = then_env.merge(else_env)
+                for name in visible:
+                    left_binding = next(
+                        binding for binding in then_env.bindings
+                        if binding.name == name
+                    )
+                    right_binding = next(
+                        binding for binding in else_env.bindings
+                        if binding.name == name
+                    )
+                    merged_binding = next(
+                        binding for binding in merged_env.bindings
+                        if binding.name == name
+                    )
+                    events.append(
+                        OwnershipEvent(
+                            "domain_merge",
+                            name,
+                            "if",
+                            merged_binding.domain,
+                            left_binding.state,
+                            right_binding.state,
+                            merged_binding.state,
+                        )
+                    )
+                result = merged_env
 
             events.append(
                 OwnershipEvent("branch", typed_function.name, "if")
@@ -1244,9 +1284,21 @@ class OwnershipDomainTransfer:
 
 
 @dataclass(frozen=True)
+class OwnershipDomainMerge:
+    function: str
+    binding: str
+    domain: OwnershipDomain
+    left_state: VarState
+    right_state: VarState
+    result_state: VarState
+    via: str
+
+
+@dataclass(frozen=True)
 class OwnershipDomainGraph:
     nodes: tuple[OwnershipDomainNode, ...]
     transfers: tuple[OwnershipDomainTransfer, ...]
+    merges: tuple[OwnershipDomainMerge, ...] = ()
 
 
 def build_ownership_domain_graph(
@@ -1261,6 +1313,7 @@ def build_ownership_domain_graph(
     """
     nodes: list[OwnershipDomainNode] = []
     transfers: list[OwnershipDomainTransfer] = []
+    merges: list[OwnershipDomainMerge] = []
     node_keys: set[str] = set()
 
     for function_name, trace in analysis.traces:
@@ -1281,24 +1334,48 @@ def build_ownership_domain_graph(
             nodes.append(node)
 
         for event in trace.events:
-            if event.kind != "move":
+            if event.kind == "move":
+                binding = bindings.get(event.name)
+                if binding is None:
+                    raise Phase1SemanticError(
+                        f"ownership transfer for untracked binding "
+                        f"{function_name}::{event.name}"
+                    )
+                transfers.append(
+                    OwnershipDomainTransfer(
+                        function=function_name,
+                        binding=event.name,
+                        domain=binding.domain,
+                        via=event.via,
+                    )
+                )
                 continue
-            binding = bindings.get(event.name)
-            if binding is None:
-                raise Phase1SemanticError(
-                    f"ownership transfer for untracked binding "
-                    f"{function_name}::{event.name}"
+            if event.kind == "domain_merge":
+                if (
+                    event.domain is None
+                    or event.left_state is None
+                    or event.right_state is None
+                    or event.result_state is None
+                ):
+                    raise Phase1SemanticError(
+                        f"incomplete ownership-domain merge fact for "
+                        f"{function_name}::{event.name}"
+                    )
+                merges.append(
+                    OwnershipDomainMerge(
+                        function=function_name,
+                        binding=event.name,
+                        domain=event.domain,
+                        left_state=event.left_state,
+                        right_state=event.right_state,
+                        result_state=event.result_state,
+                        via=event.via,
+                    )
                 )
-            transfers.append(
-                OwnershipDomainTransfer(
-                    function=function_name,
-                    binding=event.name,
-                    domain=binding.domain,
-                    via=event.via,
-                )
-            )
 
-    return OwnershipDomainGraph(tuple(nodes), tuple(transfers))
+    return OwnershipDomainGraph(
+        tuple(nodes), tuple(transfers), tuple(merges)
+    )
 
 
 def _collect_calls_from_expr(expr, calls: list[str]) -> None:
@@ -3640,7 +3717,8 @@ __all__ = [
     "analyze_linear_function_ownership", "analyze_function_ownership",
     "OwnershipParamContract", "OwnershipFunctionSummary",
     "OwnershipModuleAnalysis", "OwnershipDomainNode", "OwnershipDomainTransfer",
-    "OwnershipDomainGraph", "build_ownership_domain_graph",
+    "OwnershipDomainMerge", "OwnershipDomainGraph", "build_ownership_domain_graph",
+    "merge_ownership_bindings",
     "summarize_module_ownership", "analyze_module_ownership", "TypedExprNode", "TypedStmtNode",
     "TypedFunctionBody", "infer_expression_type",
     "infer_assignment_target_type", "build_linear_typed_body",
