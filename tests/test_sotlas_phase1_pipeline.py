@@ -758,5 +758,49 @@ fn main() -> void { return; }
         self.assertFalse(hasattr(parsed, "phase1"))
 
 
+
+    def test_public_phase1_pipeline_accepts_function_values_with_exact_signature(self):
+        source = """module test::phase1_function_value;
+fn bump(value: u32) -> u32 {
+    return value + 1;
+}
+fn install(callback: fn(u32) -> u32) -> void {
+    return;
+}
+fn main() -> void {
+    let local: fn(u32) -> u32 = bump;
+    install(local);
+    return;
+}
+"""
+        result = sotlas_compile.analyze_source_phase1(
+            source, filename="<phase1-function-value>"
+        )
+        emitted = sotlas_compile.bootstrap.emit_c(result.parsed_module)
+        self.assertIn("uint32_t (*callback)(uint32_t)", emitted)
+        self.assertIn("uint32_t (*local)(uint32_t) = bump;", emitted)
+
+    def test_public_phase1_pipeline_rejects_function_value_signature_mismatch(self):
+        source = """module test::phase1_function_value_mismatch;
+fn wrong(value: u64) -> u32 {
+    return 1;
+}
+fn install(callback: fn(u32) -> u32) -> void {
+    return;
+}
+fn main() -> void {
+    install(wrong);
+    return;
+}
+"""
+        with self.assertRaisesRegex(
+            sotlas_compile.SotlasBootstrapError,
+            r"argumento 1 incompatível em chamada install",
+        ):
+            sotlas_compile.analyze_source_phase1(
+                source, filename="<phase1-function-value-mismatch>"
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

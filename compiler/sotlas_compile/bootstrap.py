@@ -480,6 +480,8 @@ class Parser:
     def type(self) -> Type:
         if self.accept("!"):
             return Type("void")
+        if self.accept("fn"):
+            return self._fn_ptr_type()
         # Array fixo: [T; N]
         if self.accept("["):
             elem_type = self.type()
@@ -1042,6 +1044,20 @@ def parse(source: str, filename: str | None = None) -> Module:
 
 
 def same_type(left: Type, right: Type) -> bool:
+    if left.is_fn_ptr or right.is_fn_ptr:
+        if not (left.is_fn_ptr and right.is_fn_ptr):
+            return False
+        if len(left.fn_params) != len(right.fn_params):
+            return False
+        if not all(
+            same_type(lparam, rparam)
+            for lparam, rparam in zip(left.fn_params, right.fn_params)
+        ):
+            return False
+        if left.fn_ret is None or right.fn_ret is None:
+            return left.fn_ret is None and right.fn_ret is None
+        return same_type(left.fn_ret, right.fn_ret)
+
     return (
         left.name == right.name
         and left.pointer == right.pointer
@@ -1053,7 +1069,6 @@ def same_type(left: Type, right: Type) -> bool:
             or str(left.array_size) == str(right.array_size)
         )
     )
-
 
 def assignable(actual: Type, expected: Type) -> bool:
     """Literais inteiros são polimórficos entre os inteiros fixos em Sotlas Bootstrap."""
@@ -1562,6 +1577,14 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
                 return scope[expr.value]
             if expr.value in global_map:
                 return global_map[expr.value].type
+            function_value = functions.get(expr.value)
+            if function_value is not None:
+                return Type(
+                    "__fn_ptr",
+                    is_fn_ptr=True,
+                    fn_params=tuple(param_type for _, param_type in function_value.params),
+                    fn_ret=function_value.result,
+                )
             raise SotlasBootstrapError(
                 f"símbolo não declarado: {expr.value}", expr.token.line,
                 expr.token.column, filename, source,
@@ -2038,6 +2061,15 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
             if isinstance(item, Let):
                 actual = expr_type(item.value, scope, in_unsafe, is_system_fn)
                 declared = item.type or actual
+                if (
+                    item.type is not None
+                    and item.type.is_fn_ptr
+                    and not assignable(actual, item.type)
+                ):
+                    raise SotlasBootstrapError(
+                        "assinatura de function pointer incompatível",
+                        item.token.line, item.token.column, filename, source,
+                    )
                 scope[item.name] = binding_type(
                     declared, bool(getattr(item, "is_mut", False))
                 )
