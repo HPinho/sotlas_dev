@@ -243,5 +243,45 @@ pub fn main() -> i32 {
         self.assertEqual(code, 0)
 
 
+
+    def test_raii_local_sole_move_transfers_cleanup_to_destination(self):
+        source = """module test::raii_local_move_transfer;
+
+static mut g_deinit_count: u32 = 0;
+
+pub sole struct OwnedToken {
+    id: u32;
+
+    pub fn deinit(&mut self) {
+        unsafe {
+            g_deinit_count = g_deinit_count + 1;
+        }
+    }
+}
+
+pub fn execute_move() -> i32 {
+    let mut first: OwnedToken = 0;
+    first.id = 11;
+    let second: OwnedToken = first;
+    return second.id as i32;
+}
+
+pub fn main() -> i32 {
+    let result: i32 = execute_move();
+    unsafe {
+        if result != 11 {
+            return 1;
+        }
+        if g_deinit_count != 1 {
+            return 2;
+        }
+    }
+    return 0;
+}
+"""
+        code = self._compile_and_run(source)
+        self.assertEqual(code, 0)
+
+
 if __name__ == "__main__":
     unittest.main()

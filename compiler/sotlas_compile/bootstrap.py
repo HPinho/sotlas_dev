@@ -2572,6 +2572,19 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
             if isinstance(item, Let):
                 if item.type is not None:
                     typ = item.type
+                    if typ.name in sole_types and not typ.pointer:
+                        moved_value = (
+                            item.value.value
+                            if isinstance(item.value, MoveExpr)
+                            else item.value
+                        )
+                        if isinstance(moved_value, Name):
+                            source_name = moved_value.value
+                            for cleanup_scope in defer_scopes:
+                                cleanup_scope[:] = [
+                                    d for d in cleanup_scope
+                                    if d.auto_cleanup_name != source_name
+                                ]
                     if (typ.is_array or typ.name not in PRIMITIVES) and not typ.pointer and isinstance(item.value, Number) and item.value.value == "0":
                         out.append(f"{pad}{typ.c_decl(item.name)} = {{0}};")
                     elif typ.is_array:
