@@ -3869,9 +3869,21 @@ Dependency graph, structured concurrency e cancellation.
 
 CPU/SIMD inicialmente.
 
+Esta fase também prepara o caminho para o backend nativo próprio:
+
+- [ ] modelo canônico de targets e features de CPU;
+- [ ] contratos de calling convention independentes do C;
+- [ ] representação explícita de registradores especiais, stack e ABI quando exigidos por `@system`;
+- [ ] lowering de SIMD/intrinsics para operações alvo-específicas sem depender semanticamente de builtins C;
+- [ ] regras de clobber, volatilidade, alinhamento e preservação de registradores;
+- [ ] capacidade de declarar que uma operação só existe em determinados targets/features;
+- [ ] testes diferenciais entre backend C11 de referência e lowering nativo para semânticas equivalentes.
+
 ### 8. Heterogeneous Compute
 
 GPU depois; NPU somente quando houver backend real.
+
+O backend nativo de CPU é pré-requisito arquitetural para esta fase, mas não implica que GPU/NPU usem o mesmo instruction selector. Cada Execution Domain deverá possuir lowering próprio sob a mesma semântica de Typed AST/SIR.
 
 ### 9. Trust Domains
 
@@ -3901,9 +3913,101 @@ Planejamento declarativo sobre todas as fundações anteriores.
 
 Representação integrada de Domains + Flow + Effects + Ownership + Causality.
 
-### 16. Tooling avançado
+Esta fase deve congelar a fronteira semântica que permite substituir C como transporte sem alterar a linguagem:
+
+- [ ] todos os corpos e construções `SUPPORTED` representáveis no SIR;
+- [ ] layouts, ownership, cleanup, effects e authority preservados antes do target lowering;
+- [ ] operações target-independent separadas de intrinsics target-specific;
+- [ ] ABI source-level não dependente de detalhes acidentais do backend C11;
+- [ ] contratos verificáveis de entrada/saída para o target lowering;
+- [ ] passes do SIR incapazes de apagar obrigações de safety/cleanup;
+- [ ] serialização/inspeção suficiente para testar o SIR como fronteira estável.
+
+### 16. Native Machine Backend — SOTLAS COMO CAMADA DE MÁQUINA
+
+Objetivo arquitetural:
+
+```text
+Sotlas
+  ↓
+Typed AST / Sema
+  ↓
+SIR
+  ↓
+Target Lowering
+  ↓
+Machine/Object Code
+  │
+  └── opcional: --emit=asm
+```
+
+C11 permanece backend de bootstrap, referência, portabilidade e differential testing. Ele **não** é dependência semântica permanente da Sotlas.
+
+Primeiro alvo recomendado: um backend nativo completo para uma arquitetura/ABI definida, antes de multiplicar targets.
+
+Checklist:
+
+- [ ] Target IR/lowering explícito após o SIR;
+- [ ] definição de calling convention e ABI lowering;
+- [ ] lowering de parâmetros, retornos, aggregates e tagged unions;
+- [ ] stack-frame layout;
+- [ ] lowering de loads/stores, branches, calls e arithmetic;
+- [ ] instruction selection;
+- [ ] representação de virtual registers;
+- [ ] register allocation;
+- [ ] spill/reload;
+- [ ] callee-saved/caller-saved handling;
+- [ ] prologue/epilogue;
+- [ ] lowering nativo de `@system`, MMIO, atomics, interrupts e context switch onde suportado;
+- [ ] relocations e symbol table;
+- [ ] emissão de object code relocável;
+- [ ] primeiro object format oficialmente suportado;
+- [ ] linker integration sem depender de C como linguagem intermediária;
+- [ ] `--emit=asm` como saída de inspeção produzida pelo próprio backend;
+- [ ] `--emit=obj`/equivalente produzindo objeto nativo;
+- [ ] testes golden de instruction selection;
+- [ ] testes ABI contra código externo;
+- [ ] differential testing contra C11 quando semanticamente aplicável;
+- [ ] testes end-to-end de executáveis/bare-metal produzidos sem C intermediário;
+- [ ] diagnóstico fail-closed para operações ainda não suportadas pelo target;
+- [ ] debug/source mapping e unwind metadata nas fases de maturação do backend;
+- [ ] segundo target somente após o primeiro backend demonstrar arquitetura reutilizável.
+
+A meta não é transformar Sotlas em sintaxe de assembly. A meta é permitir que a mesma linguagem cubra kernel, bootloader, drivers, MMIO, interrupções, SIMD, context switch e runtime, enquanto também permanece adequada a engines, jogos, IA/HPC, desktop, servidores e aplicações.
+
+Exemplo de destino arquitetural:
+
+```sotlas
+@system
+fn reload_cr3(table: *rawphys PageTable) {
+    ...
+}
+```
+
+deve poder seguir conceitualmente:
+
+```text
+Sotlas
+→ SIR
+→ x86_64 target lowering
+→ instruções x86-64
+```
+
+sem precisar virar C no caminho.
+
+### 17. Tooling avançado
 
 Flow View, Domain View, State View, Authority View, Causal Debugger e Safety Explorer.
+
+Inclui também tooling específico do backend nativo:
+
+- [ ] inspeção de SIR;
+- [ ] inspeção do Target IR/lowering;
+- [ ] `--emit=asm`;
+- [ ] dump de register allocation;
+- [ ] visualização de stack frames/ABI;
+- [ ] source-to-instruction mapping;
+- [ ] explicação de por que determinada instrução/lowering foi selecionada.
 
 ---
 

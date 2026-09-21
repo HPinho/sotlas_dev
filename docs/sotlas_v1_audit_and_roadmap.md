@@ -114,6 +114,25 @@ SIR
     +--> WASM backend --------> wasm module
 ```
 
+### Native Backend Delivery Phases
+
+The native identity is an implementation target, not merely a branding statement. Delivery is dependency-driven:
+
+1. **Semantic prerequisites:** Typed AST, ownership, effects, authority, layout and deterministic cleanup must be represented independently of C.
+2. **SIR stabilization:** every supported construct must have a backend-independent SIR meaning.
+3. **Target model:** define target triples/features, calling conventions, registers, stack rules and target-specific intrinsics.
+4. **Target lowering:** lower SIR into a target-oriented representation without choosing C syntax.
+5. **Instruction selection:** map target operations to real machine instructions.
+6. **Register allocation:** virtual registers, liveness, spills/reloads and ABI-preserved registers.
+7. **Machine frame lowering:** stack layout, prologue/epilogue, calls, returns and unwind obligations.
+8. **Object emission:** symbols, sections, relocations and a first supported object format.
+9. **Link integration:** build binaries without generated C as the mandatory transport.
+10. **Inspection path:** `--emit=asm` renders the instructions selected by the Sotlas native backend.
+11. **Parity testing:** compare native and C11 reference behavior where both are applicable.
+12. **Backend maturity:** add debug/source mapping, unwind metadata, optimization and additional targets only after correctness is established.
+
+The first native backend should deliberately support one architecture/ABI/object-format combination end-to-end before generalizing the framework. Unsupported source semantics or target features must remain fail-closed.
+
 ### Engineering Rule: Tests Are Contracts, Not Obstacles
 
 Sotlas development must never weaken, bypass, delete, or cosmetically rewrite a valid test merely to obtain a green CI result. A failing test is treated as evidence about the implementation, architecture, specification, fixture, or test contract that must be understood before any change is accepted.

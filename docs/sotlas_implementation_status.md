@@ -82,6 +82,53 @@
 - [ ] implementação/rejeição explícita por backend
 - [ ] testes positivos + negativos + end-to-end por domínio
 
+## Objetivo transversal — Backend Nativo / "Assembly moderno tipado"
+
+**Status:** ⬜ PLANEJADO — dependente das fundações semânticas e do SIR.
+
+A direção arquitetural é tornar C11 um backend de bootstrap/referência, não uma dependência semântica permanente.
+
+Pipeline alvo:
+
+```text
+Sotlas
+→ Typed AST / Sema
+→ SIR
+→ Target Lowering
+→ Machine/Object Code
+  └→ --emit=asm (inspeção)
+```
+
+### Pré-requisitos que as fases atuais precisam entregar
+
+- [x] Typed Semantic Core isolado e certificado;
+- [x] C11 preservado como backend de referência/fail-closed;
+- [ ] Ownership Domains completos no Typed AST/SIR;
+- [ ] Authority/Effects suficientes para `@system` e hardware;
+- [ ] Execution Domain CPU/SIMD formalizado;
+- [ ] SIR completo como fronteira backend-independent;
+- [ ] ABI/layout/cleanup não dependentes do backend C11.
+
+### Fase 16 — Native Machine Backend
+
+- [ ] Target Lowering / Target IR;
+- [ ] calling convention e ABI lowering;
+- [ ] stack-frame layout;
+- [ ] instruction selection;
+- [ ] virtual registers;
+- [ ] register allocation + spill/reload;
+- [ ] prologue/epilogue;
+- [ ] native lowering de intrinsics de sistema;
+- [ ] relocations + symbols;
+- [ ] object-file writer;
+- [ ] linker integration;
+- [ ] `--emit=asm`;
+- [ ] emissão direta de object/machine code;
+- [ ] testes ABI/differential/end-to-end;
+- [ ] fail-closed por target/feature não implementada.
+
+**Critério de sucesso inicial:** um programa Sotlas não trivial deve conseguir atravessar `Typed AST → SIR → target lowering → object code` e ser linkado/executado sem C intermediário, mantendo as mesmas garantias semânticas declaradas.
+
 ## Regra para próximos commits
 
 Quando uma entrega fechar um item deste arquivo:
