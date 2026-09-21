@@ -83,6 +83,7 @@ class SotlasStdlibTests(unittest.TestCase):
         self.assertIn("string_append_char_owned", emitted_str)
         self.assertIn("string_append_slice_owned", emitted_str)
         self.assertIn("string_growth_capacity", emitted_str)
+        self.assertIn("string_deinit", emitted_str)
 
 
 if __name__ == "__main__":

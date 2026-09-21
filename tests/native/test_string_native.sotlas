@@ -9,6 +9,46 @@ static mut g_owned_arena_buf: [u8; 48] = 0;
 
 static mut g_string_buf: [u8; 32] = 0;
 
+static mut g_deinit_arena_buf: [u8; 32] = 0;
+static mut g_owned_free_count: u32 = 0;
+
+fn tracking_alloc(
+    context: *mut void,
+    size: usize,
+    alignment: usize
+) -> *mut u8 {
+    if context == null {
+        return null;
+    }
+    unsafe {
+        let arena: *mut ArenaAllocator =
+            context as *mut ArenaAllocator;
+        return arena_alloc_aligned(arena, size, alignment);
+    }
+}
+
+fn tracking_realloc(
+    context: *mut void,
+    ptr: *mut u8,
+    old_size: usize,
+    new_size: usize,
+    alignment: usize
+) -> *mut u8 {
+    return null;
+}
+
+fn tracking_free(
+    context: *mut void,
+    ptr: *mut u8,
+    size: usize,
+    alignment: usize
+) -> void {
+    unsafe {
+        g_owned_free_count = g_owned_free_count + 1;
+    }
+    return;
+}
+
 pub fn main() -> i32 {
     let raw: *const u8 = "hello, world!" as *const u8;
     let s: StringSlice = string_from_raw(raw, 13);
@@ -367,6 +407,50 @@ pub fn main() -> i32 {
     }
     if string_char_at(string_as_slice(&zero_owned), 0) != 90 {
         return 77;
+    }
+
+    let mut deinit_arena: ArenaAllocator = arena_new(
+        g_deinit_arena_buf as *mut u8,
+        32
+    );
+    let deinit_arena_ptr: *mut ArenaAllocator =
+        (&mut deinit_arena) as *mut ArenaAllocator;
+    let deinit_context: *mut void =
+        deinit_arena_ptr as *mut void;
+    let mut deinit_allocator: Allocator = allocator_new(
+        deinit_context,
+        tracking_alloc,
+        tracking_realloc,
+        tracking_free
+    );
+    let deinit_allocator_ptr: *mut Allocator =
+        (&mut deinit_allocator) as *mut Allocator;
+    let mut deinit_string: String =
+        string_new_with_allocator(deinit_allocator_ptr, 8);
+    if deinit_string.data == null {
+        return 78;
+    }
+
+    let deinit_string_ptr: *mut String =
+        (&mut deinit_string) as *mut String;
+    string_deinit(deinit_string_ptr);
+    unsafe {
+        if g_owned_free_count != 1 {
+            return 79;
+        }
+    }
+    if deinit_string.data != null || deinit_string.length != 0 {
+        return 80;
+    }
+    if deinit_string.capacity != 0 || deinit_string.allocator != null {
+        return 81;
+    }
+
+    string_deinit(deinit_string_ptr);
+    unsafe {
+        if g_owned_free_count != 1 {
+            return 82;
+        }
     }
 
     return 0;

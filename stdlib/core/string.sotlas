@@ -340,6 +340,36 @@ pub fn string_reserve(
     }
 }
 
+// Explicit owned cleanup. This is intentionally not wired to automatic
+// Type_deinit RAII yet: returned String values still require move-aware cleanup
+// suppression in the native emitter before automatic destruction is safe.
+pub fn string_deinit(s: *mut String) -> void {
+    if s == null {
+        return;
+    }
+
+    unsafe {
+        let allocator_ptr: *mut Allocator = (*s).allocator;
+        let data_ptr: *mut u8 = (*s).data;
+        let old_capacity: usize = (*s).capacity;
+
+        if allocator_ptr != null && data_ptr != null {
+            let allocator_value: Allocator = *allocator_ptr;
+            allocator_free(
+                allocator_value,
+                data_ptr,
+                old_capacity,
+                1
+            );
+        }
+
+        (*s).data = null;
+        (*s).length = 0;
+        (*s).capacity = 0;
+        (*s).allocator = null;
+    }
+}
+
 pub fn string_new_in_arena(
     arena: *mut ArenaAllocator,
     cap: usize
