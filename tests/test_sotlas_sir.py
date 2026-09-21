@@ -272,6 +272,28 @@ class SotlasSIRTests(unittest.TestCase):
         self.assertIn("sir_fn @system @compute_sum", dump)
         self.assertIn("alloc_stack", dump)
 
+    def test_sir_generator_normalizes_primitive_type_nodes(self):
+        source = """
+        module test::sir_type_normalization;
+
+        pub fn probe(flag: bool) -> void {
+            return;
+        }
+
+        pub fn number() -> i32 {
+            return 1;
+        }
+        """
+        tokens = Lexer(source, "<sir-type-normalization>").tokenize()
+        ast = Parser(tokens, "<sir-type-normalization>").parse()
+
+        sir_mod = SIRGenerator().generate_from_ast(ast)
+        probe, number = sir_mod.functions
+
+        self.assertEqual(probe.return_type, "void")
+        self.assertEqual(probe.parameters[0].type_name, "bool")
+        self.assertEqual(number.return_type, "i32")
+
     def test_sir_generator_builds_cfg_for_if_then_return_and_fallthrough_return(self):
         source = """
         module test::sir_nested_return_probe;

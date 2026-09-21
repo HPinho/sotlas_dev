@@ -23,6 +23,33 @@ class SIRGenerator:
         return v
 
     @staticmethod
+    def _type_name(type_info: Any, default: str = "void") -> str:
+        """Normalize frontend/bootstrap type objects into canonical SIR names."""
+        if type_info is None:
+            return default
+        if isinstance(type_info, str):
+            return type_info
+
+        display_name = getattr(type_info, "display_name", None)
+        if callable(display_name):
+            rendered = display_name()
+            if rendered:
+                return rendered
+
+        name = getattr(type_info, "name", None)
+        if isinstance(name, str) and name:
+            return name
+
+        primitive = getattr(type_info, "primitive", None)
+        primitive_name = getattr(primitive, "name", None)
+        if isinstance(primitive_name, str) and primitive_name:
+            return primitive_name.lower().removeprefix("kw_")
+
+        raise ValueError(
+            f"SIR generator cannot normalize type {type(type_info).__name__}"
+        )
+
+    @staticmethod
     def _terminal_return_point_id(fn: Any) -> str | None:
         """Return source-stable identity for a directly represented terminal return.
 
@@ -193,13 +220,12 @@ class SIRGenerator:
     def _lower_function(self, fn: Any) -> SIRFunction:
         fn_name = getattr(fn, "name", "anonymous")
         params = getattr(fn, "params", [])
-        ret_type = getattr(fn, "ret", None) or getattr(fn, "result", None) or getattr(fn, "return_type", None)
-        if isinstance(ret_type, str):
-            ret_str = ret_type
-        elif hasattr(ret_type, "name"):
-            ret_str = ret_type.name
-        else:
-            ret_str = "void"
+        ret_type = (
+            getattr(fn, "ret", None)
+            or getattr(fn, "result", None)
+            or getattr(fn, "return_type", None)
+        )
+        ret_str = self._type_name(ret_type, "void")
         directives = getattr(fn, "directives", []) or []
         dir_names = [getattr(d, "name", "") for d in directives]
         attrs = getattr(fn, "attributes", []) or []
@@ -209,7 +235,7 @@ class SIRGenerator:
         for p in params:
             p_name = getattr(p, "name", "arg")
             p_type = getattr(p, "type_ann", None) or getattr(p, "type", None)
-            p_type_str = getattr(p_type, "name", "any") if p_type else "any"
+            p_type_str = self._type_name(p_type, "any")
             sir_params.append(SIRValue(name=p_name, type_name=p_type_str))
 
         sir_fn = SIRFunction(
