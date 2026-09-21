@@ -329,6 +329,7 @@ class Expression(Stmt): value: Expr
 class Defer(Stmt):
     value: Expr | None = None
     body: list[Stmt] | None = None
+    auto_cleanup_name: str | None = None
 
     def __post_init__(self):
         if self.value is None and self.body is None:
@@ -1706,6 +1707,10 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
             return f"{pad}{target_str} = {_emit_expr(d.value.value, prefix)};"
         return f"{pad}{_emit_expr(d.value, prefix)};"
 
+    sole_types = {
+        item.name for item in module.structs if item.is_sole
+    }
+
     def emit_statements(
         items: list[Stmt],
         depth: int,
@@ -1737,7 +1742,13 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                         takes_ptr = deinit_methods[typ.name]
                         arg_node = Unary(item.token, "&", Name(item.token, item.name)) if takes_ptr else Name(item.token, item.name)
                         call_expr = Call(item.token, f"{typ.name}_deinit", [arg_node])
-                        defer_scopes[-1].append(Defer(item.token, value=call_expr))
+                        defer_scopes[-1].append(
+                            Defer(
+                                item.token,
+                                value=call_expr,
+                                auto_cleanup_name=item.name,
+                            )
+                        )
                 else:
                     if isinstance(item.value, ArrayLit) and not item.value.is_repeat:
                         first_e = item.value.elements[0] if item.value.elements else None
@@ -1757,7 +1768,31 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
             elif isinstance(item, Defer):
                 defer_scopes[-1].append(item)
             elif isinstance(item, Return):
-                all_defers = [d for scope in reversed(defer_scopes) for d in reversed(scope)]
+                all_defers = [
+                    d
+                    for scope in reversed(defer_scopes)
+                    for d in reversed(scope)
+                ]
+                transferred_name: str | None = None
+                if (
+                    item.value is not None
+                    and ret_type is not None
+                    and ret_type.name in sole_types
+                ):
+                    moved_value = (
+                        item.value.value
+                        if isinstance(item.value, MoveExpr)
+                        else item.value
+                    )
+                    if isinstance(moved_value, Name):
+                        transferred_name = moved_value.value
+
+                if transferred_name is not None:
+                    all_defers = [
+                        d for d in all_defers
+                        if d.auto_cleanup_name != transferred_name
+                    ]
+
                 if item.value:
                     val_str = _emit_expr(item.value, prefix)
                     if all_defers:
