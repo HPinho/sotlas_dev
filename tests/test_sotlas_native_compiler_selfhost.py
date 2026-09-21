@@ -287,14 +287,20 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         self.assertIn("if index == stop_before", text)
         self.assertIn("pub fn emit_scope_defers_before", text)
         self.assertIn("stop.parent != block_index", text)
-        self.assertIn("pub fn emit_return_scope_defers", text)
-        self.assertIn("let mut child_on_path: usize = return_index;", text)
-        self.assertIn("let mut parent_index: usize = return_node.parent;", text)
+        self.assertIn("pub fn emit_function_exit_defers", text)
+        self.assertIn("let mut child_on_path: usize = exit_index;", text)
+        self.assertIn("let mut parent_index: usize = exit_node.parent;", text)
         self.assertIn(
             "self.emit_scope_defers_before(parent_index, child_on_path)",
             text,
         )
         self.assertIn("parent_node.kind == AstKind::FnDecl", text)
+        self.assertIn("pub fn emit_return_scope_defers", text)
+        self.assertIn("return_node.kind != AstKind::ReturnStmt", text)
+        self.assertIn(
+            "return self.emit_function_exit_defers(return_index);",
+            text,
+        )
 
     def test_native_emitter_collects_loop_jump_defers_until_while(self):
         emitter_file = (
