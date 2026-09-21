@@ -545,6 +545,72 @@ fn maybe(flag: bool, token: Token) -> void {
                 alias="peer",
             )
 
+    def test_typed_share_expression_materializes_shared_semantics(self):
+        token = bootstrap.Token("IDENT", "token", 1, 1)
+        expr = bootstrap.Name(token, "token")
+        type_info = typed_ast.SemanticType("Token")
+        env = typed_ast.OwnershipEnv((
+            typed_ast.OwnershipBinding(
+                "token",
+                type_info,
+                typed_ast.VarState.LIVE,
+                typed_ast.OwnershipDomain.EXCLUSIVE,
+            ),
+        ))
+
+        typed_share = typed_ast.build_typed_share_expression(
+            expr,
+            env,
+            alias="peer",
+        )
+
+        self.assertEqual(typed_share.expr.kind, "Share")
+        self.assertEqual(typed_share.expr.type, type_info)
+        self.assertEqual(typed_share.expr.label, "share:token->peer")
+        self.assertEqual(typed_share.source, "token")
+        self.assertEqual(typed_share.alias, "peer")
+        self.assertIs(
+            typed_share.application.env.domain_of("token"),
+            typed_ast.OwnershipDomain.SHARED,
+        )
+        self.assertIs(
+            typed_share.application.env.domain_of("peer"),
+            typed_ast.OwnershipDomain.SHARED,
+        )
+        self.assertEqual(
+            typed_share.application.account.strong_refs,
+            2,
+        )
+
+    def test_typed_share_expression_rejects_partial_or_untracked_sources(self):
+        token = bootstrap.Token("IDENT", "token", 1, 1)
+        field = bootstrap.Member(
+            token,
+            bootstrap.Name(token, "token"),
+            "value",
+        )
+        type_info = typed_ast.SemanticType("Token")
+        env = typed_ast.OwnershipEnv((
+            typed_ast.OwnershipBinding(
+                "token",
+                type_info,
+                typed_ast.VarState.LIVE,
+                typed_ast.OwnershipDomain.EXCLUSIVE,
+            ),
+        ))
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            "share currently requires a direct owned binding",
+        ):
+            typed_ast.build_typed_share_expression(field, env)
+
+        missing = bootstrap.Name(token, "missing")
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            "is not a tracked ownership binding",
+        ):
+            typed_ast.build_typed_share_expression(missing, env)
+
     def test_explicit_sole_transfer_starts_live_then_moves(self):
         typed = typed_ast.build_declaration_typed_ast(self.checked_ast())
         state = typed_ast.require_sole_transfer(

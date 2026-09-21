@@ -82,7 +82,10 @@
 - [x] contrato backend-neutral da primeira transição explícita `exclusive → shared` via operação `share`, exigindo source LIVE e sem aplicar runtime implicitamente
 - [x] aplicação semântica real de `exclusive → shared` no OwnershipEnv: owner original muda para `shared`, permanece LIVE e pode criar alias strong explícito
 - [x] alias compartilhado incrementa strong_refs exatamente uma vez e colisões/stale transition são rejeitadas
-- [ ] ligação da aplicação de `share` à sintaxe/Typed AST de expressões e ao runtime/backend
+- [x] nó semântico `TypedShareExpression` liga uma operação share de binding inteiro ao OwnershipEnv/ARC sem depender do parser
+- [x] share de member/index/temporário permanece fail-closed até o contrato de aliasing parcial ser definido
+- [ ] ligação da operação `share` à sintaxe pública/parser
+- [ ] ligação de shared ownership a cleanup e runtime/backend
 - [ ] transições para `region/device/external` e merges correspondentes
 - [ ] regras de domínio para loops além do gate conservador atual
 - [ ] integração completa de cleanup/early return/defer
@@ -97,7 +100,7 @@
 ```text
 Fase 0 — Reality Reset              ~80%
 Fase 1 — Typed Semantic Core       100% ✅
-Fase 2 — Ownership Domains          ~56% 🟡
+Fase 2 — Ownership Domains          ~59% 🟡
 Fase 3 — Authority Domains          ~10%
 Fase 4 — State Spaces                ~0%
 Fase 5 — Effects                    ~10%
@@ -118,7 +121,7 @@ Fase 17 — Tooling avançado          ~15%
 ### Fase 2 detalhada
 
 ```text
-Fase 2 — Ownership Domains                  ~56%
+Fase 2 — Ownership Domains                  ~59%
 
 ✅ sole / exclusive
 ✅ move semantics
@@ -138,9 +141,11 @@ Fase 2 — Ownership Domains                  ~56%
 ✅ last-owner destruction eligibility
 ✅ apply shared transition to real env       ← NOVO
 ✅ real shared strong alias model            ← NOVO
-✅ stale transition / alias collision guards ← NOVO
+✅ stale transition / alias collision guards
+✅ TypedShareExpression canonical semantics   ← NOVO
+✅ partial-share sources remain fail-closed   ← NOVO
 
-⬜ share syntax / Typed AST expression integration
+⬜ share syntax / parser integration
 ⬜ cleanup integration for shared owners
 ⬜ ARC lowering/runtime
 ⬜ region

@@ -307,6 +307,15 @@ class SharedOwnershipApplication:
     owners: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class TypedShareExpression:
+    expr: TypedExprNode
+    source: str
+    alias: str | None
+    transition: OwnershipDomainTransition
+    application: SharedOwnershipApplication
+
+
 def apply_shared_transition(
     env: OwnershipEnv,
     transition: OwnershipDomainTransition,
@@ -373,6 +382,56 @@ def apply_shared_transition(
         env=OwnershipEnv(tuple(updated)),
         account=account,
         owners=tuple(owners),
+    )
+
+
+def build_typed_share_expression(
+    expr,
+    env: OwnershipEnv,
+    *,
+    alias: str | None = None,
+) -> TypedShareExpression:
+    """Build canonical Typed AST semantics for an explicit share operation.
+
+    This is deliberately parser-independent. Only a whole tracked binding may
+    enter shared ownership at this stage; members, indexes, temporaries and
+    arbitrary expressions remain fail-closed until their aliasing contract is
+    specified.
+    """
+    if type(expr).__name__ != "Name":
+        raise Phase1SemanticError(
+            "share currently requires a direct owned binding"
+        )
+    source_name = getattr(expr, "value", None)
+    source = next(
+        (binding for binding in env.bindings if binding.name == source_name),
+        None,
+    )
+    if source is None:
+        raise Phase1SemanticError(
+            f"share source {source_name!r} is not a tracked ownership binding"
+        )
+    transition = plan_ownership_domain_transition(
+        source,
+        OwnershipDomain.SHARED,
+        "share",
+    )
+    application = apply_shared_transition(
+        env,
+        transition,
+        alias=alias,
+    )
+    label = (
+        f"share:{source_name}->{alias}"
+        if alias is not None
+        else f"share:{source_name}"
+    )
+    return TypedShareExpression(
+        expr=TypedExprNode("Share", source.type, label),
+        source=source_name,
+        alias=alias,
+        transition=transition,
+        application=application,
     )
 
 
@@ -3916,7 +3975,8 @@ __all__ = [
     "SharedOwnershipAccount", "OwnershipDomainGraph", "build_ownership_domain_graph",
     "merge_ownership_bindings", "plan_ownership_domain_transition",
     "open_shared_ownership_account", "retain_shared_owner", "release_shared_owner",
-    "SharedOwnershipApplication", "apply_shared_transition",
+    "SharedOwnershipApplication", "TypedShareExpression",
+    "apply_shared_transition", "build_typed_share_expression",
     "summarize_module_ownership", "analyze_module_ownership", "TypedExprNode", "TypedStmtNode",
     "TypedFunctionBody", "infer_expression_type",
     "infer_assignment_target_type", "build_linear_typed_body",

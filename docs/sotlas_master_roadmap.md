@@ -3848,7 +3848,10 @@ Ainda necessário para concluir a Fase 2 canônica:
 - [x] contrato semântico backend-neutral para planejar `exclusive → shared` via `share`, exigindo owner LIVE e sem mutação/runtime implícito;
 - [x] aplicação semântica de `exclusive → shared` no OwnershipEnv, preservando owner original como strong owner compartilhado;
 - [x] criação explícita de alias strong compartilhado com incremento determinístico do reference accounting;
-- [ ] integração dessa aplicação com sintaxe/Typed AST de expressões, cleanup e runtime/backend;
+- [x] integração backend-neutral com Typed AST por meio de `TypedShareExpression` para bindings inteiros;
+- [x] membros, índices e temporários continuam fail-closed até existir contrato formal de aliasing parcial;
+- [ ] integração da operação com sintaxe pública/parser;
+- [ ] integração com cleanup e runtime/backend;
 - [ ] transições e merges para `region`, `device` e `external`;
 - [ ] regras de domínio específicas para loops além da validação conservadora atual;
 - [ ] integração completa com `defer`, cleanup e unwind/early-return de todos os recursos;
