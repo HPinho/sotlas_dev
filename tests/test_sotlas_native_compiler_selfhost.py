@@ -507,6 +507,24 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
             text,
         )
 
+    def test_native_emitter_lowers_result_constructor_local_initializer(self):
+        emitter_file = (
+            ROOT / "bootstrap" / "sotlas" / "native_compiler" / "emitter_c.sotlas"
+        )
+        text = emitter_file.read_text(encoding="utf-8")
+        self.assertIn(
+            "self.type_ref_is_result_u64_i32(type_index)",
+            text,
+        )
+        self.assertIn(
+            "self.result_constructor_kind(init_index) != 0",
+            text,
+        )
+        self.assertIn(
+            "self.emit_result_u64_constructor(init_index)",
+            text,
+        )
+
     def test_native_emitter_lowers_typed_local_declarations(self):
         emitter_file = (
             ROOT / "bootstrap" / "sotlas" / "native_compiler" / "emitter_c.sotlas"

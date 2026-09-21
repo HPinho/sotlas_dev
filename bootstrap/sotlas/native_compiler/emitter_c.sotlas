@@ -1355,7 +1355,15 @@ impl CEmitter {
             if !self.write_str(" = ", 3) {
                 return false;
             }
-            if !self.emit_expression(init_index) {
+
+            let init_node: AstNode = unsafe { *(self.nodes + init_index) };
+            if self.type_ref_is_result_u64_i32(type_index)
+                && init_node.kind == AstKind::ExprCall
+                && self.result_constructor_kind(init_index) != 0 {
+                if !self.emit_result_u64_constructor(init_index) {
+                    return false;
+                }
+            } else if !self.emit_expression(init_index) {
                 return false;
             }
         }
