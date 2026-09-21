@@ -1711,6 +1711,124 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
         item.name for item in module.structs if item.is_sole
     }
 
+    function_by_name = {
+        item.name: item for item in module.functions
+    }
+
+    def _sole_call_transfer_names(expr: Expr | None) -> set[str]:
+        if expr is None:
+            return set()
+
+        names: set[str] = set()
+
+        if isinstance(expr, Call):
+            callee = function_by_name.get(expr.callee)
+            if callee is not None:
+                for argument, (_, parameter_type) in zip(
+                    expr.args, callee.params
+                ):
+                    if (
+                        parameter_type.name in sole_types
+                        and not parameter_type.pointer
+                    ):
+                        moved_argument = (
+                            argument.value
+                            if isinstance(argument, MoveExpr)
+                            else argument
+                        )
+                        if isinstance(moved_argument, Name):
+                            names.add(moved_argument.value)
+            for argument in expr.args:
+                names.update(_sole_call_transfer_names(argument))
+            return names
+
+        if isinstance(expr, MethodCall):
+            target_type = getattr(expr, "target_type", None)
+            owner_name = getattr(target_type, "name", None)
+            callee = (
+                function_by_name.get(f"{owner_name}_{expr.method}")
+                if owner_name
+                else None
+            )
+            user_params = callee.params[1:] if callee is not None else ()
+            for argument, (_, parameter_type) in zip(expr.args, user_params):
+                if (
+                    parameter_type.name in sole_types
+                    and not parameter_type.pointer
+                ):
+                    moved_argument = (
+                        argument.value
+                        if isinstance(argument, MoveExpr)
+                        else argument
+                    )
+                    if isinstance(moved_argument, Name):
+                        names.add(moved_argument.value)
+            names.update(_sole_call_transfer_names(expr.target))
+            for argument in expr.args:
+                names.update(_sole_call_transfer_names(argument))
+            return names
+
+        if isinstance(expr, (UnsafeExpr, MoveExpr, TryExpr)):
+            inner = (
+                expr.expr
+                if isinstance(expr, TryExpr)
+                else expr.value
+            )
+            names.update(_sole_call_transfer_names(inner))
+            return names
+
+        if isinstance(expr, Binary):
+            names.update(_sole_call_transfer_names(expr.left))
+            names.update(_sole_call_transfer_names(expr.right))
+            return names
+
+        if isinstance(expr, Unary):
+            names.update(_sole_call_transfer_names(expr.value))
+            return names
+
+        if isinstance(expr, Cast):
+            names.update(_sole_call_transfer_names(expr.expr))
+            return names
+
+        if isinstance(expr, Index):
+            names.update(_sole_call_transfer_names(expr.target))
+            names.update(_sole_call_transfer_names(expr.index))
+            return names
+
+        if isinstance(expr, Member):
+            names.update(_sole_call_transfer_names(expr.target))
+            return names
+
+        if isinstance(expr, ArrayLit):
+            for element in expr.elements:
+                names.update(_sole_call_transfer_names(element))
+            return names
+
+        if isinstance(expr, StructLit):
+            for _, value in expr.fields:
+                names.update(_sole_call_transfer_names(value))
+            return names
+
+        if isinstance(expr, IfExpr):
+            names.update(_sole_call_transfer_names(expr.condition))
+            names.update(_sole_call_transfer_names(expr.then_expr))
+            names.update(_sole_call_transfer_names(expr.else_expr))
+            return names
+
+        return names
+
+    def _suppress_auto_cleanups(
+        defer_scopes: list[list[Defer]],
+        binding_names: set[str],
+    ) -> None:
+        if not binding_names:
+            return
+        for cleanup_scope in defer_scopes:
+            cleanup_scope[:] = [
+                cleanup for cleanup in cleanup_scope
+                if cleanup.auto_cleanup_name not in binding_names
+            ]
+
     def _auto_cleanup_type(cleanup: Defer) -> str | None:
         if cleanup.auto_cleanup_name is None:
             return None
@@ -1737,6 +1855,7 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
         defer_scopes: list[list[Defer]],
         loop_scope_depth: int | None = None,
         ret_type: Type | None = None,
+        owned_params: list[tuple[str, Type]] | None = None,
     ) -> list[str]:
         pad = "    " * depth; out: list[str] = []
         defer_scopes.append([])
@@ -1746,8 +1865,39 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                 sname = fn.name.rsplit("_deinit", 1)[0]
                 deinit_methods[sname] = fn.params[0][1].pointer
 
+        if owned_params is not None:
+            for param_name, param_type in owned_params:
+                if (
+                    param_type.name in sole_types
+                    and not param_type.pointer
+                    and param_type.name in deinit_methods
+                ):
+                    token = Token("IDENT", param_name, 0, 0)
+                    takes_ptr = deinit_methods[param_type.name]
+                    arg_node = (
+                        Unary(token, "&", Name(token, param_name))
+                        if takes_ptr
+                        else Name(token, param_name)
+                    )
+                    call_expr = Call(
+                        token,
+                        f"{param_type.name}_deinit",
+                        [arg_node],
+                    )
+                    defer_scopes[-1].append(
+                        Defer(
+                            token,
+                            value=call_expr,
+                            auto_cleanup_name=param_name,
+                        )
+                    )
+
         for item in items:
             if isinstance(item, Let):
+                _suppress_auto_cleanups(
+                    defer_scopes,
+                    _sole_call_transfer_names(item.value),
+                )
                 if item.type is not None:
                     typ = item.type
                     if typ.name in sole_types and not typ.pointer:
@@ -1792,6 +1942,10 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                     else:
                         out.append(f"{pad}__auto_type {item.name} = {_emit_expr(item.value, prefix)};")
             elif isinstance(item, Assign):
+                _suppress_auto_cleanups(
+                    defer_scopes,
+                    _sole_call_transfer_names(item.value),
+                )
                 target_str = _emit_expr(item.target, prefix) if isinstance(item.target, Expr) else str(item.target)
 
                 target_name = (
@@ -1837,6 +1991,10 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
             elif isinstance(item, Defer):
                 defer_scopes[-1].append(item)
             elif isinstance(item, Return):
+                _suppress_auto_cleanups(
+                    defer_scopes,
+                    _sole_call_transfer_names(item.value),
+                )
                 all_defers = [
                     d
                     for scope in reversed(defer_scopes)
@@ -1901,6 +2059,10 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                             out.append(_emit_defer_action(d, pad))
                 out.append(f"{pad}continue;")
             elif isinstance(item, Expression):
+                _suppress_auto_cleanups(
+                    defer_scopes,
+                    _sole_call_transfer_names(item.value),
+                )
                 out.append(f"{pad}{_emit_expr(item.value, prefix)};")
             elif isinstance(item, Asm):
                 parts = [item.code]
@@ -1950,7 +2112,16 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
         inline_attr = "static inline " if "@inline" in function.attributes and not is_export else ""
         extra_attrs = _c_func_attributes(function.attributes)
         lines.append(f"{inline_attr}{extra_attrs}{function.result.c()} {fname}({parameters}) {{")
-        lines.extend(emit_statements(function.body, 1, defer_scopes=[], loop_scope_depth=None, ret_type=function.result))
+        lines.extend(
+            emit_statements(
+                function.body,
+                1,
+                defer_scopes=[],
+                loop_scope_depth=None,
+                ret_type=function.result,
+                owned_params=function.params,
+            )
+        )
         lines.append("}\n")
     return "\n".join(lines)
 

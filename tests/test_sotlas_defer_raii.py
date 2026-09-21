@@ -327,5 +327,50 @@ pub fn main() -> i32 {
         self.assertEqual(code, 0)
 
 
+
+    def test_raii_sole_parameter_cleanup_transfers_through_calls(self):
+        source = """module test::raii_parameter_transfer;
+
+static mut g_deinit_count: u32 = 0;
+
+pub sole struct OwnedToken {
+    id: u32;
+
+    pub fn deinit(&mut self) {
+        unsafe {
+            g_deinit_count = g_deinit_count + 1;
+        }
+    }
+}
+
+pub fn consume(token: OwnedToken) -> i32 {
+    return token.id as i32;
+}
+
+pub fn forward(token: OwnedToken) -> i32 {
+    return consume(token);
+}
+
+pub fn main() -> i32 {
+    let mut token: OwnedToken = 0;
+    token.id = 33;
+
+    let result: i32 = forward(token);
+
+    unsafe {
+        if result != 33 {
+            return 1;
+        }
+        if g_deinit_count != 1 {
+            return 2;
+        }
+    }
+    return 0;
+}
+"""
+        code = self._compile_and_run(source)
+        self.assertEqual(code, 0)
+
+
 if __name__ == "__main__":
     unittest.main()
