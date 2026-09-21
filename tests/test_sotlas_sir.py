@@ -335,6 +335,30 @@ class SotlasSIRTests(unittest.TestCase):
         self.assertEqual(len(returns), 2)
         self.assertTrue(all(inst.point_id.startswith("return@") for inst in returns))
 
+    def test_sir_generator_does_not_emit_valueless_nonvoid_if_returns(self):
+        source = """
+        module test::sir_nonvoid_if_return_probe;
+
+        pub fn choose(flag: bool) -> i32 {
+            if flag {
+                return 1;
+            } else {
+                return 2;
+            }
+        }
+        """
+        tokens = Lexer(source, "<sir-nonvoid-if-return-probe>").tokenize()
+        ast = Parser(tokens, "<sir-nonvoid-if-return-probe>").parse()
+
+        sir_mod = SIRGenerator().generate_from_ast(ast)
+        fn = sir_mod.functions[0]
+
+        self.assertEqual(len(fn.blocks), 1)
+        terminal = fn.blocks[0].instructions[-1]
+        self.assertIsInstance(terminal, ReturnInst)
+        self.assertIsNotNone(terminal.value)
+        self.assertIsNone(terminal.point_id)
+
     def test_sir_generator_keeps_unrepresentable_nested_return_unidentified(self):
         source = """
         module test::sir_unrepresentable_nested_return;

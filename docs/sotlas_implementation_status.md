@@ -99,7 +99,7 @@
 - [x] placement real de segmentos ARC em `ReturnInst(point_id=...)`, sempre imediatamente antes do retorno correspondente
 - [x] placement de return falha fechado para point_id ausente ou duplicado
 - [x] SIRGenerator preserva `ReturnInst.point_id` para return terminal linear diretamente representável pela AST
-- [x] CFG estruturado inicial para `if flag { return; } return;` e `if/else` com retornos diretos, preservando point_id por branch
+- [x] CFG estruturado inicial para funções `void`: `if flag { return; } return;` e `if/else` com retornos diretos, preservando point_id por branch
 - [x] condições ainda não representáveis no SIR não recebem CFG/point_id fictício
 - [ ] expansão do CFG estruturado para expressões condicionais e corpos arbitrários
 - [ ] placement de break/continue/backedge no CFG de produção

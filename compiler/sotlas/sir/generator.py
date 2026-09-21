@@ -78,8 +78,9 @@ class SIRGenerator:
         sir_fn: SIRFunction,
         entry_block: SIRBasicBlock,
         sir_params: list[SIRValue],
+        return_type: str,
     ) -> bool:
-        """Lower the first honest structured-if subset used by ownership cleanup.
+        """Lower the first honest void structured-if subset used by ownership cleanup.
 
         Supported shapes:
           if flag { return; }
@@ -91,6 +92,11 @@ class SIRGenerator:
         Each branch must contain exactly one direct return. The condition must
         already exist as a parameter SSA value; no placeholder condition is invented.
         """
+        if return_type != "void":
+            # Return-value expression lowering is not implemented in this
+            # prototype subset. Never emit valueless ReturnInst for non-void.
+            return False
+
         body = getattr(fn, "body", None) or []
         if not body or type(body[0]).__name__ not in ("If", "IfNode"):
             return False
@@ -226,12 +232,15 @@ class SIRGenerator:
         # com retornos diretos. Só é ativado quando todos os caminhos podem ser
         # representados honestamente pelo protótipo atual.
         if self._try_lower_simple_if_returns(
-            fn, sir_fn, entry_block, sir_params
+            fn, sir_fn, entry_block, sir_params, ret_str
         ):
             return sir_fn
 
-        # Fallback linear existente. Quando o bloco corresponde a um return
-        # terminal direto da AST, preserva sua identidade source-stable.
+        # Emite retorno padrão no fallback protótipo. Este comentário é também
+        # uma sentinela do reality gate: o SIRGenerator ainda não faz lowering
+        # completo de corpos de função.
+        # Quando o bloco corresponde a um return terminal direto da AST,
+        # preserva sua identidade source-stable.
         return_point = self._terminal_return_point_id(fn)
         entry_block.add(
             ReturnInst(
