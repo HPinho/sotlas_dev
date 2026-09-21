@@ -1194,6 +1194,34 @@ impl CEmitter {
         return self.emit_braced_block(body_index);
     }
 
+    pub fn emit_try_statement(mut self: &mut Self, try_index: usize) -> bool {
+        if !self.valid_node(try_index) {
+            return false;
+        }
+        let try_node: AstNode = unsafe { *(self.nodes + try_index) };
+        if try_node.kind != AstKind::TryExpr || !self.valid_node(try_node.first_child) {
+            return false;
+        }
+        if !self.try_context_returns_result_u64_i32(try_index)
+            || !self.try_call_returns_result_u64_i32(try_index) {
+            return false;
+        }
+
+        if !self.write_str("{\nSotlasResultU64 __sotlas_try_value = ", 39) {
+            return false;
+        }
+        if !self.emit_expression(try_node.first_child) {
+            return false;
+        }
+        if !self.write_str(";\nif (__sotlas_try_value.status != 0) {\n", 40) {
+            return false;
+        }
+        if !self.emit_function_exit_defers(try_index) {
+            return false;
+        }
+        return self.write_str("return __sotlas_try_value;\n}\n}\n", 31);
+    }
+
     pub fn emit_try_let_statement(
         mut self: &mut Self,
         let_index: usize,
@@ -1344,6 +1372,9 @@ impl CEmitter {
 
         if node.kind == AstKind::LetStmt {
             return self.emit_let_statement(index);
+        }
+        if node.kind == AstKind::TryExpr {
+            return self.emit_try_statement(index);
         }
         if node.kind == AstKind::UnsafeBlock {
             return self.emit_unsafe_block(index);

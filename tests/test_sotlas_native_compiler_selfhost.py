@@ -440,6 +440,20 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
                 mismatches.append((literal, declared, len(literal)))
         self.assertEqual(mismatches, [])
 
+    def test_native_emitter_lowers_result_try_statement(self):
+        emitter_file = (
+            ROOT / "bootstrap" / "sotlas" / "native_compiler" / "emitter_c.sotlas"
+        )
+        text = emitter_file.read_text(encoding="utf-8")
+        self.assertIn("pub fn emit_try_statement", text)
+        self.assertIn("try_node.kind != AstKind::TryExpr", text)
+        self.assertIn("self.try_call_returns_result_u64_i32(try_index)", text)
+        self.assertIn('"SotlasResultU64 __sotlas_try_value = "', text)
+        self.assertIn("self.emit_function_exit_defers(try_index)", text)
+        self.assertIn('"return __sotlas_try_value;', text)
+        self.assertIn("node.kind == AstKind::TryExpr", text)
+        self.assertIn("return self.emit_try_statement(index);", text)
+
     def test_native_emitter_lowers_direct_result_try_initializer(self):
         emitter_file = (
             ROOT / "bootstrap" / "sotlas" / "native_compiler" / "emitter_c.sotlas"
