@@ -760,6 +760,10 @@ def _analyze_block_ownership(
                 result = _move_try_wrapped_call_arguments(
                     result, value, typed_module, events
                 )
+            elif type(value).__name__ == "StructLit":
+                result = _move_struct_literal_fields(
+                    result, value, typed_module, events
+                )
             if local_type is not None:
                 before = result
                 result = result.declare(
