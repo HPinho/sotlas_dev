@@ -79,6 +79,7 @@ class SotlasStdlibTests(unittest.TestCase):
         self.assertIn("string_equals", emitted_str)
         self.assertIn("string_new_in_arena", emitted_str)
         self.assertIn("string_new_with_allocator", emitted_str)
+        self.assertIn("string_reserve", emitted_str)
 
 
 if __name__ == "__main__":

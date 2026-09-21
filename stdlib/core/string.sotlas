@@ -274,6 +274,47 @@ pub fn string_new_with_allocator(
     }
 }
 
+pub fn string_reserve(
+    s: *mut String,
+    min_capacity: usize
+) -> bool {
+    if s == null {
+        return false;
+    }
+
+    unsafe {
+        if min_capacity <= (*s).capacity {
+            return true;
+        }
+        if (*s).allocator == null {
+            return false;
+        }
+        if (*s).length > (*s).capacity {
+            return false;
+        }
+        if (*s).length > 0 && (*s).data == null {
+            return false;
+        }
+
+        let allocator_ptr: *mut Allocator = (*s).allocator;
+        let allocator_value: Allocator = *allocator_ptr;
+        let new_backing: *mut u8 = allocator_realloc(
+            allocator_value,
+            (*s).data,
+            (*s).capacity,
+            min_capacity,
+            1
+        );
+        if new_backing == null {
+            return false;
+        }
+
+        (*s).data = new_backing;
+        (*s).capacity = min_capacity;
+        return true;
+    }
+}
+
 pub fn string_new_in_arena(
     arena: *mut ArenaAllocator,
     cap: usize

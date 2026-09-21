@@ -236,7 +236,7 @@ pub fn main() -> i32 {
     let mut owned_allocator: Allocator = arena_as_allocator(generic_arena_ptr);
     let owned_allocator_ptr: *mut Allocator =
         (&mut owned_allocator) as *mut Allocator;
-    let owned: String = string_new_with_allocator(owned_allocator_ptr, 8);
+    let mut owned: String = string_new_with_allocator(owned_allocator_ptr, 8);
     if owned.data == null || owned.capacity != 8 || owned.length != 0 {
         return 49;
     }
@@ -244,13 +244,50 @@ pub fn main() -> i32 {
         return 50;
     }
 
-    let empty_owned: String =
-        string_new_with_allocator(owned_allocator_ptr, 0);
-    if empty_owned.data != null || empty_owned.capacity != 0 {
+    let owned_ptr: *mut String = (&mut owned) as *mut String;
+    if !string_append_slice(owned_ptr, hello) {
         return 51;
     }
-    if empty_owned.allocator != owned_allocator_ptr {
+    if !string_reserve(owned_ptr, 16) {
         return 52;
+    }
+    if owned.capacity != 16 || owned.length != 5 {
+        return 53;
+    }
+    if !string_equals(string_as_slice(&owned), hello) {
+        return 54;
+    }
+
+    let before_failed_reserve: *mut u8 = owned.data;
+    if string_reserve(owned_ptr, 128) {
+        return 55;
+    }
+    if owned.data != before_failed_reserve || owned.capacity != 16 {
+        return 56;
+    }
+    if owned.length != 5 || !string_equals(string_as_slice(&owned), hello) {
+        return 57;
+    }
+
+    let mut empty_owned: String =
+        string_new_with_allocator(owned_allocator_ptr, 0);
+    if empty_owned.data != null || empty_owned.capacity != 0 {
+        return 58;
+    }
+    if empty_owned.allocator != owned_allocator_ptr {
+        return 59;
+    }
+
+    let empty_owned_ptr: *mut String =
+        (&mut empty_owned) as *mut String;
+    if !string_reserve(empty_owned_ptr, 4) {
+        return 60;
+    }
+    if empty_owned.data == null || empty_owned.capacity != 4 {
+        return 61;
+    }
+    if empty_owned.length != 0 {
+        return 62;
     }
 
     return 0;
