@@ -15,6 +15,7 @@ from .instructions import (
     SIRValue,
     SIRFunction,
     ReturnInst,
+    BranchInst,
     ShareInst,
     RetainInst,
     ReleaseInst,
@@ -39,6 +40,7 @@ class SharedOwnershipSIRPlan:
 class SharedOwnershipSIRPlacement:
     plan: SharedOwnershipSIRPlan
     inserted_return_instructions: int
+    inserted_loop_control_instructions: int = 0
 
 
 def _type_map(trace: Any) -> dict[str, str]:
@@ -147,7 +149,9 @@ def lower_shared_ownership_trace(trace: Any) -> SharedOwnershipSIRPlan:
             owner = getattr(action, "owner", None)
             via = str(getattr(action, "via", "loop_control"))
             if kind == "defer":
-                continue
+                raise ValueError(
+                    "shared loop-control defer lowering is not implemented in SIR"
+                )
             if owner is None:
                 raise ValueError(
                     f"shared ownership SIR {kind} action lacks owner"
@@ -223,6 +227,64 @@ def place_shared_return_cleanup(
     return inserted
 
 
+def place_shared_loop_control_cleanup(
+    function: SIRFunction,
+    plan: SharedOwnershipSIRPlan,
+) -> int:
+    """Insert ARC cleanup before source-identified break/continue branches."""
+    segments: dict[tuple[str, str], SharedOwnershipSIRSegment] = {}
+    for segment in plan.cleanup_segments:
+        point_id = segment.point_id
+        if point_id is None:
+            continue
+        if segment.via not in ("loop_control:break", "loop_control:continue"):
+            continue
+        control = segment.via.split(":", 1)[1]
+        if not point_id.startswith(f"{control}@"):
+            raise ValueError(
+                f"shared ARC {control} segment has mismatched point {point_id!r}"
+            )
+        key = (control, point_id)
+        if key in segments:
+            raise ValueError(
+                f"duplicate shared ARC {control} cleanup segment for {point_id!r}"
+            )
+        segments[key] = segment
+
+    if not segments:
+        return 0
+
+    seen = {key: 0 for key in segments}
+    inserted = 0
+    for block in function.blocks:
+        rewritten: list[SIRInstruction] = []
+        for instruction in block.instructions:
+            if isinstance(instruction, BranchInst):
+                control = instruction.control_kind
+                point_id = instruction.point_id
+                key = (control, point_id)
+                if control in ("break", "continue") and key in segments:
+                    seen[key] += 1
+                    if seen[key] > 1:
+                        raise ValueError(
+                            f"shared ARC {control} cleanup point {point_id!r} "
+                            "matches multiple BranchInst nodes"
+                        )
+                    segment = segments[key]
+                    rewritten.extend(segment.instructions)
+                    inserted += len(segment.instructions)
+            rewritten.append(instruction)
+        block.instructions = rewritten
+
+    missing = [point_id for (control, point_id), count in seen.items() if count == 0]
+    if missing:
+        raise ValueError(
+            "shared ARC loop-control cleanup point(s) missing from SIR CFG: "
+            + ", ".join(sorted(missing))
+        )
+    return inserted
+
+
 def apply_shared_ownership_trace(
     function: SIRFunction,
     trace: Any,
@@ -233,8 +295,13 @@ def apply_shared_ownership_trace(
     still returned so callers can inspect unplaced loop/backedge/control segments.
     """
     plan = lower_shared_ownership_trace(trace)
-    inserted = place_shared_return_cleanup(function, plan)
-    return SharedOwnershipSIRPlacement(plan, inserted)
+    inserted_return = place_shared_return_cleanup(function, plan)
+    inserted_control = place_shared_loop_control_cleanup(function, plan)
+    return SharedOwnershipSIRPlacement(
+        plan,
+        inserted_return,
+        inserted_control,
+    )
 
 __all__ = [
     "SharedOwnershipSIRSegment",
@@ -242,5 +309,6 @@ __all__ = [
     "SharedOwnershipSIRPlacement",
     "lower_shared_ownership_trace",
     "place_shared_return_cleanup",
+    "place_shared_loop_control_cleanup",
     "apply_shared_ownership_trace",
 ]

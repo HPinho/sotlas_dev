@@ -100,6 +100,8 @@ class DestroyInst(SIRInstruction):
 @dataclass
 class BranchInst(SIRInstruction):
     target_block: str
+    point_id: str | None = None
+    control_kind: str | None = None
 
     def __str__(self) -> str:
         return f"  br bb{self.target_block}"

@@ -9,10 +9,10 @@ sys.path.insert(0, str(ROOT / "tools"))
 
 from sotlas.sir import (
     SIRModule, SIRFunction, SIRBasicBlock, SIRValue,
-    AllocStackInst, StoreInst, LoadInst, CallInst, ReturnInst, CondBranchInst,
+    AllocStackInst, StoreInst, LoadInst, CallInst, ReturnInst, BranchInst, CondBranchInst,
     ShareInst, RetainInst, ReleaseInst, DestroyInst,
     lower_shared_ownership_trace, place_shared_return_cleanup,
-    apply_shared_ownership_trace,
+    place_shared_loop_control_cleanup, apply_shared_ownership_trace,
     SIRGenerator, SIRPassManager, DefiniteInitializationPass,
     SystemCapabilitySafetyPass, DeadCodeEliminationPass
 )
@@ -322,6 +322,117 @@ class SotlasSIRTests(unittest.TestCase):
             "missing from SIR CFG: return@8:9",
         ):
             apply_shared_ownership_trace(fn, trace)
+
+    def test_shared_loop_control_cleanup_places_before_continue_branch(self):
+        fn = SIRFunction("main", [], "void")
+        block = fn.add_block("loop_body")
+        block.add(
+            BranchInst(
+                "loop_cond",
+                point_id="continue@8:9",
+                control_kind="continue",
+            )
+        )
+        peer = SIRValue("peer", "Token")
+        token = SIRValue("token", "Token")
+        plan = SimpleNamespace(cleanup_segments=(
+            SimpleNamespace(
+                via="loop_control:continue",
+                point_id="continue@8:9",
+                instructions=(
+                    ReleaseInst(peer),
+                    ReleaseInst(token),
+                    DestroyInst(token),
+                ),
+            ),
+        ))
+
+        inserted = place_shared_loop_control_cleanup(fn, plan)
+
+        self.assertEqual(inserted, 3)
+        self.assertEqual(
+            tuple(type(inst) for inst in block.instructions),
+            (ReleaseInst, ReleaseInst, DestroyInst, BranchInst),
+        )
+        self.assertEqual(block.instructions[-1].control_kind, "continue")
+
+    def test_shared_loop_control_cleanup_places_before_break_branch(self):
+        fn = SIRFunction("main", [], "void")
+        block = fn.add_block("loop_body")
+        block.add(
+            BranchInst(
+                "loop_exit",
+                point_id="break@9:9",
+                control_kind="break",
+            )
+        )
+        token = SIRValue("token", "Token")
+        plan = SimpleNamespace(cleanup_segments=(
+            SimpleNamespace(
+                via="loop_control:break",
+                point_id="break@9:9",
+                instructions=(
+                    ReleaseInst(token),
+                    DestroyInst(token),
+                ),
+            ),
+        ))
+
+        inserted = place_shared_loop_control_cleanup(fn, plan)
+
+        self.assertEqual(inserted, 2)
+        self.assertEqual(
+            tuple(type(inst) for inst in block.instructions),
+            (ReleaseInst, DestroyInst, BranchInst),
+        )
+
+    def test_shared_loop_control_cleanup_fails_on_missing_cfg_point(self):
+        fn = SIRFunction("main", [], "void")
+        fn.add_block("loop_body").add(
+            BranchInst(
+                "loop_exit",
+                point_id="break@5:5",
+                control_kind="break",
+            )
+        )
+        token = SIRValue("token", "Token")
+        plan = SimpleNamespace(cleanup_segments=(
+            SimpleNamespace(
+                via="loop_control:break",
+                point_id="break@9:9",
+                instructions=(ReleaseInst(token),),
+            ),
+        ))
+        with self.assertRaisesRegex(
+            ValueError,
+            "missing from SIR CFG: break@9:9",
+        ):
+            place_shared_loop_control_cleanup(fn, plan)
+
+    def test_shared_loop_control_defer_is_fail_closed_in_sir(self):
+        token_type = SimpleNamespace(name="Token")
+        trace = SimpleNamespace(
+            final_env=SimpleNamespace(bindings=(
+                SimpleNamespace(name="token", type=token_type),
+            )),
+            events=(),
+            shared_cleanup=SimpleNamespace(steps=()),
+            shared_path_cleanup=SimpleNamespace(steps=()),
+            shared_loop_cleanup=SimpleNamespace(steps=()),
+            shared_loop_control_exit=SimpleNamespace(actions=(
+                SimpleNamespace(
+                    kind="defer",
+                    owner="token",
+                    via="continue:expression",
+                    point_id="continue@8:9",
+                ),
+            )),
+        )
+        with self.assertRaisesRegex(
+            ValueError,
+            "loop-control defer lowering is not implemented",
+        ):
+            lower_shared_ownership_trace(trace)
 
     def test_shared_ownership_sir_lowering_fails_without_binding_type(self):
         trace = SimpleNamespace(
