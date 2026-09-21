@@ -1604,7 +1604,7 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
                         "desreferenciamento de ponteiro exige bloco unsafe",
                         expr.token.line, expr.token.column, filename, source,
                     )
-                return Type(inner.name, pointer=False, mutable=inner.mutable)
+                return Type(inner.name, pointer=False, mutable=False)
             if expr.op == "&":
                 if (
                     expr.mutable

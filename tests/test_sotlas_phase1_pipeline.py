@@ -802,5 +802,29 @@ fn main() -> void {
             )
 
 
+
+    def test_public_phase1_pipeline_deref_value_does_not_inherit_pointer_mutability(self):
+        source = """module test::phase1_deref_value_type;
+struct Boxed {
+    value: u32;
+}
+fn consume(value: Boxed) -> u32 {
+    return value.value;
+}
+fn read(ptr: *mut Boxed) -> u32 {
+    unsafe {
+        return consume(*ptr);
+    }
+}
+"""
+        result = sotlas_compile.analyze_source_phase1(
+            source, filename="<phase1-deref-value-type>"
+        )
+        body = next(
+            item for item in result.semantic.bodies if item.name == "read"
+        )
+        self.assertEqual(body.statements[0].body[0].expr.type.name, "u32")
+
+
 if __name__ == "__main__":
     unittest.main()
