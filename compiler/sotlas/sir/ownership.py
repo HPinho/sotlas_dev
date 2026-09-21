@@ -1,9 +1,9 @@
-"""Backend-neutral lowering of shared ownership facts into canonical SIR ops.
+"""Backend-neutral lowering and verified CFG placement for shared ownership.
 
-This bridge deliberately does not place instructions into CFG blocks yet.
-OwnershipTrace currently aggregates some path cleanups without basic-block
-identity, so pretending exact CFG placement would be unsound. The plan keeps
-semantic ARC operations explicit until production SIR lowering owns that step.
+Ownership facts are first lowered into explicit SIR operations. Cleanup segments
+with source-stable return point identities can then be inserted into matching
+ReturnInst nodes. Other control-flow kinds remain staged until their terminators
+and backedges have equally precise CFG identities.
 """
 from __future__ import annotations
 
@@ -33,6 +33,12 @@ class SharedOwnershipSIRSegment:
 class SharedOwnershipSIRPlan:
     semantic: Tuple[SIRInstruction, ...]
     cleanup_segments: Tuple[SharedOwnershipSIRSegment, ...]
+
+
+@dataclass(frozen=True)
+class SharedOwnershipSIRPlacement:
+    plan: SharedOwnershipSIRPlan
+    inserted_return_instructions: int
 
 
 def _type_map(trace: Any) -> dict[str, str]:
@@ -216,9 +222,25 @@ def place_shared_return_cleanup(
 
     return inserted
 
+
+def apply_shared_ownership_trace(
+    function: SIRFunction,
+    trace: Any,
+) -> SharedOwnershipSIRPlacement:
+    """Lower one canonical ownership trace and place supported CFG cleanups.
+
+    Return cleanup is currently the only placement stage. The complete plan is
+    still returned so callers can inspect unplaced loop/backedge/control segments.
+    """
+    plan = lower_shared_ownership_trace(trace)
+    inserted = place_shared_return_cleanup(function, plan)
+    return SharedOwnershipSIRPlacement(plan, inserted)
+
 __all__ = [
     "SharedOwnershipSIRSegment",
     "SharedOwnershipSIRPlan",
+    "SharedOwnershipSIRPlacement",
     "lower_shared_ownership_trace",
     "place_shared_return_cleanup",
+    "apply_shared_ownership_trace",
 ]

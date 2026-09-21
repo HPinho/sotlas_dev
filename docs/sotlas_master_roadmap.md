@@ -3867,6 +3867,7 @@ Ainda necessário para concluir a Fase 2 canônica:
 - [x] gerador SIR protótipo preserva `point_id` em return terminal linear diretamente representável, sem fabricar CFG para retornos aninhados;
 - [x] primeiro CFG estruturado para funções `void` com `if` booleano simples e retornos diretos, preservando `point_id` distinto por caminho;
 - [ ] expandir CFG estruturado para condições/corpos arbitrários e demais terminadores;
+- [x] integração direta `OwnershipTrace → plano SIR → placement` para retornos identificados, inclusive no CFG estruturado inicial de `if`;
 - [ ] placement CFG para break/continue/backedge;
 - [ ] backend C11 correspondente ou rejeição explícita por domínio;
 - [ ] testes positivos, negativos e end-to-end para cada domínio;

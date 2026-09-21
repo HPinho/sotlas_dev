@@ -29,8 +29,10 @@ from .generator import SIRGenerator
 from .ownership import (
     SharedOwnershipSIRSegment,
     SharedOwnershipSIRPlan,
+    SharedOwnershipSIRPlacement,
     lower_shared_ownership_trace,
     place_shared_return_cleanup,
+    apply_shared_ownership_trace,
 )
 from .passes import (
     SIRPassResult,
@@ -61,8 +63,10 @@ __all__ = [
     "SIRGenerator",
     "SharedOwnershipSIRSegment",
     "SharedOwnershipSIRPlan",
+    "SharedOwnershipSIRPlacement",
     "lower_shared_ownership_trace",
     "place_shared_return_cleanup",
+    "apply_shared_ownership_trace",
     "SIRPassResult",
     "SIRPassManager",
     "DefiniteInitializationPass",

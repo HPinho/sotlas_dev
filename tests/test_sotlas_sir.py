@@ -12,6 +12,7 @@ from sotlas.sir import (
     AllocStackInst, StoreInst, LoadInst, CallInst, ReturnInst, CondBranchInst,
     ShareInst, RetainInst, ReleaseInst, DestroyInst,
     lower_shared_ownership_trace, place_shared_return_cleanup,
+    apply_shared_ownership_trace,
     SIRGenerator, SIRPassManager, DefiniteInitializationPass,
     SystemCapabilitySafetyPass, DeadCodeEliminationPass
 )
@@ -218,6 +219,109 @@ class SotlasSIRTests(unittest.TestCase):
         ))
         with self.assertRaisesRegex(ValueError, "matches multiple ReturnInst nodes"):
             place_shared_return_cleanup(fn, plan)
+
+    def test_shared_ownership_trace_applies_to_generated_if_return_cfg(self):
+        source = """
+        module test::sir_arc_if_integration;
+
+        pub fn maybe_stop(flag: bool) -> void {
+            if flag {
+                return;
+            }
+            return;
+        }
+        """
+        tokens = Lexer(source, "<sir-arc-if-integration>").tokenize()
+        ast = Parser(tokens, "<sir-arc-if-integration>").parse()
+        fn = SIRGenerator().generate_from_ast(ast).functions[0]
+
+        if_node = ast.decls[0].body[0]
+        first_return = if_node.then_body[0]
+        second_return = ast.decls[0].body[1]
+        first_point = f"return@{first_return.span.line}:{first_return.span.col}"
+        second_point = f"return@{second_return.span.line}:{second_return.span.col}"
+
+        token_type = SimpleNamespace(name="Token")
+        trace = SimpleNamespace(
+            final_env=SimpleNamespace(bindings=(
+                SimpleNamespace(name="token", type=token_type),
+                SimpleNamespace(name="peer", type=token_type),
+            )),
+            events=(
+                SimpleNamespace(
+                    kind="domain_transition", name="token",
+                    via="share:peer", type=token_type,
+                ),
+                SimpleNamespace(
+                    kind="retain", name="peer",
+                    via="share:token", type=token_type,
+                ),
+            ),
+            shared_cleanup=SimpleNamespace(steps=()),
+            shared_path_cleanup=SimpleNamespace(steps=(
+                SimpleNamespace(
+                    owner="peer", account="token",
+                    destroy_after=False, via="early_return",
+                    point_id=first_point,
+                ),
+                SimpleNamespace(
+                    owner="token", account="token",
+                    destroy_after=True, via="early_return",
+                    point_id=first_point,
+                ),
+                SimpleNamespace(
+                    owner="peer", account="token",
+                    destroy_after=False, via="early_return",
+                    point_id=second_point,
+                ),
+                SimpleNamespace(
+                    owner="token", account="token",
+                    destroy_after=True, via="early_return",
+                    point_id=second_point,
+                ),
+            )),
+            shared_loop_cleanup=SimpleNamespace(steps=()),
+            shared_loop_control_exit=SimpleNamespace(actions=()),
+        )
+
+        placement = apply_shared_ownership_trace(fn, trace)
+
+        self.assertEqual(placement.inserted_return_instructions, 6)
+        self.assertEqual(
+            tuple(type(inst) for inst in placement.plan.semantic),
+            (ShareInst, RetainInst),
+        )
+        for block in fn.blocks[1:]:
+            self.assertEqual(
+                tuple(type(inst) for inst in block.instructions),
+                (ReleaseInst, ReleaseInst, DestroyInst, ReturnInst),
+            )
+
+    def test_shared_ownership_trace_application_fails_on_cfg_mismatch(self):
+        fn = SIRFunction("main", [], "void")
+        fn.add_block("entry").add(ReturnInst(point_id="return@5:5"))
+        token_type = SimpleNamespace(name="Token")
+        trace = SimpleNamespace(
+            final_env=SimpleNamespace(bindings=(
+                SimpleNamespace(name="token", type=token_type),
+            )),
+            events=(),
+            shared_cleanup=SimpleNamespace(steps=()),
+            shared_path_cleanup=SimpleNamespace(steps=(
+                SimpleNamespace(
+                    owner="token", account="token",
+                    destroy_after=True, via="early_return",
+                    point_id="return@8:9",
+                ),
+            )),
+            shared_loop_cleanup=SimpleNamespace(steps=()),
+            shared_loop_control_exit=SimpleNamespace(actions=()),
+        )
+        with self.assertRaisesRegex(
+            ValueError,
+            "missing from SIR CFG: return@8:9",
+        ):
+            apply_shared_ownership_trace(fn, trace)
 
     def test_shared_ownership_sir_lowering_fails_without_binding_type(self):
         trace = SimpleNamespace(
