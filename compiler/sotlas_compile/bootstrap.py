@@ -2553,6 +2553,26 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
         item.name for item in module.structs if item.is_sole
     }
 
+    def _auto_cleanup_type(cleanup: Defer) -> str | None:
+        if cleanup.auto_cleanup_name is None:
+            return None
+        if not isinstance(cleanup.value, Call):
+            return None
+        callee = cleanup.value.callee
+        if not callee.endswith("_deinit"):
+            return None
+        return callee.rsplit("_deinit", 1)[0]
+
+    def _find_auto_cleanup(
+        defer_scopes: list[list[Defer]],
+        binding_name: str,
+    ) -> Defer | None:
+        for cleanup_scope in reversed(defer_scopes):
+            for cleanup in reversed(cleanup_scope):
+                if cleanup.auto_cleanup_name == binding_name:
+                    return cleanup
+        return None
+
     def emit_statements(
         items: list[Stmt],
         depth: int,
@@ -2615,6 +2635,42 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                         out.append(f"{pad}__auto_type {item.name} = {_emit_expr(item.value, prefix)};")
             elif isinstance(item, Assign):
                 target_str = _emit_expr(item.target, prefix) if isinstance(item.target, Expr) else str(item.target)
+
+                target_name = (
+                    item.target.value
+                    if isinstance(item.target, Name)
+                    else None
+                )
+                moved_value = (
+                    item.value.value
+                    if isinstance(item.value, MoveExpr)
+                    else item.value
+                )
+                source_name = (
+                    moved_value.value
+                    if isinstance(moved_value, Name)
+                    else None
+                )
+
+                if (
+                    target_name is not None
+                    and source_name is not None
+                    and target_name != source_name
+                ):
+                    target_cleanup = _find_auto_cleanup(
+                        defer_scopes, target_name
+                    )
+                    if (
+                        target_cleanup is not None
+                        and _auto_cleanup_type(target_cleanup) in sole_types
+                    ):
+                        out.append(_emit_defer_action(target_cleanup, pad))
+                        for cleanup_scope in defer_scopes:
+                            cleanup_scope[:] = [
+                                cleanup for cleanup in cleanup_scope
+                                if cleanup.auto_cleanup_name != source_name
+                            ]
+
                 if (isinstance(item.value, ArrayLit) and item.value.is_repeat and
                         isinstance(item.value.elements[0], Number) and item.value.elements[0].value == "0"):
                     out.append(f"{pad}__builtin_memset(&({target_str}), 0, sizeof({target_str}));")
