@@ -300,6 +300,82 @@ def release_shared_owner(
     )
 
 
+@dataclass(frozen=True)
+class SharedOwnershipApplication:
+    env: OwnershipEnv
+    account: SharedOwnershipAccount
+    owners: tuple[str, ...]
+
+
+def apply_shared_transition(
+    env: OwnershipEnv,
+    transition: OwnershipDomainTransition,
+    *,
+    alias: str | None = None,
+) -> SharedOwnershipApplication:
+    """Apply an approved exclusive->shared transition to semantic bindings.
+
+    The original binding remains a live strong owner but changes domain from
+    exclusive to shared. Creating an alias is explicit and increments the
+    strong-reference account exactly once. No runtime/backend code is emitted.
+    """
+    source_index = next(
+        (
+            index for index, binding in enumerate(env.bindings)
+            if binding.name == transition.binding
+        ),
+        None,
+    )
+    if source_index is None:
+        raise Phase1SemanticError(
+            f"ownership binding {transition.binding!r} is not tracked"
+        )
+    source = env.bindings[source_index]
+    if (
+        source.type != transition.type
+        or source.domain is not transition.source
+        or source.state is not transition.source_state
+    ):
+        raise Phase1SemanticError(
+            f"ownership binding {source.name!r} no longer matches planned "
+            "domain transition"
+        )
+
+    account = open_shared_ownership_account(transition)
+    updated = list(env.bindings)
+    updated[source_index] = OwnershipBinding(
+        source.name,
+        source.type,
+        VarState.LIVE,
+        OwnershipDomain.SHARED,
+    )
+    owners = [source.name]
+
+    if alias is not None:
+        if any(binding.name == alias for binding in env.bindings):
+            raise Phase1SemanticError(
+                f"shared ownership alias {alias!r} already exists"
+            )
+        if not alias:
+            raise Phase1SemanticError("shared ownership alias cannot be empty")
+        updated.append(
+            OwnershipBinding(
+                alias,
+                source.type,
+                VarState.LIVE,
+                OwnershipDomain.SHARED,
+            )
+        )
+        account = retain_shared_owner(account)
+        owners.append(alias)
+
+    return SharedOwnershipApplication(
+        env=OwnershipEnv(tuple(updated)),
+        account=account,
+        owners=tuple(owners),
+    )
+
+
 def _declared_local_type(statement) -> SemanticType | None:
     """Resolve a local declaration type without running a second typechecker.
 
@@ -3840,6 +3916,7 @@ __all__ = [
     "SharedOwnershipAccount", "OwnershipDomainGraph", "build_ownership_domain_graph",
     "merge_ownership_bindings", "plan_ownership_domain_transition",
     "open_shared_ownership_account", "retain_shared_owner", "release_shared_owner",
+    "SharedOwnershipApplication", "apply_shared_transition",
     "summarize_module_ownership", "analyze_module_ownership", "TypedExprNode", "TypedStmtNode",
     "TypedFunctionBody", "infer_expression_type",
     "infer_assignment_target_type", "build_linear_typed_body",

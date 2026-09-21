@@ -80,13 +80,80 @@
 - [x] ownership/domain graph canônico para owners rastreados e transferências `exclusive` (`call`, `return`, campos e payloads), backend-neutral
 - [x] merge canônico de domínio em branches para owners rastreados: domínio deve permanecer idêntico; joins de estado são registrados no grafo
 - [x] contrato backend-neutral da primeira transição explícita `exclusive → shared` via operação `share`, exigindo source LIVE e sem aplicar runtime implicitamente
-- [ ] aplicação real da transição `exclusive → shared` no ambiente; o modelo de conta compartilhada/ARC já está definido, mas ainda não cria aliases nem runtime
+- [x] aplicação semântica real de `exclusive → shared` no OwnershipEnv: owner original muda para `shared`, permanece LIVE e pode criar alias strong explícito
+- [x] alias compartilhado incrementa strong_refs exatamente uma vez e colisões/stale transition são rejeitadas
+- [ ] ligação da aplicação de `share` à sintaxe/Typed AST de expressões e ao runtime/backend
 - [ ] transições para `region/device/external` e merges correspondentes
 - [ ] regras de domínio para loops além do gate conservador atual
 - [ ] integração completa de cleanup/early return/defer
 - [ ] lowering backend-neutral dos domains
 - [ ] implementação/rejeição explícita por backend
 - [ ] testes positivos + negativos + end-to-end por domínio
+
+## Progresso das fases
+
+> Percentuais aproximados de engenharia. Eles não substituem os gates formais de `CERTIFIED`/`SUPPORTED`.
+
+```text
+Fase 0 — Reality Reset              ~80%
+Fase 1 — Typed Semantic Core       100% ✅
+Fase 2 — Ownership Domains          ~56% 🟡
+Fase 3 — Authority Domains          ~10%
+Fase 4 — State Spaces                ~0%
+Fase 5 — Effects                    ~10%
+Fase 6 — Flow                        ~0%
+Fase 7 — Execution Domains          ~10%
+Fase 8 — Heterogeneous Compute       ~0%
+Fase 9 — Trust Domains               ~5%
+Fase 10 — Guarantees                 ~0%
+Fase 11 — Causality                  ~0%
+Fase 12 — Counterfactuals            ~0%
+Fase 13 — Transactions               ~0%
+Fase 14 — Intent                     ~0%
+Fase 15 — SIR completo              ~30%
+Fase 16 — Native Machine Backend      ~5%
+Fase 17 — Tooling avançado          ~15%
+```
+
+### Fase 2 detalhada
+
+```text
+Fase 2 — Ownership Domains                  ~56%
+
+✅ sole / exclusive
+✅ move semantics
+✅ use-after-move
+✅ MAYBE_MOVED
+✅ call/return/field/enum transfers
+✅ exclusive metadata
+✅ branch cleanup isolation
+✅ reserved domains fail-closed
+✅ Ownership Domain Graph
+✅ branch domain merge
+✅ divergence rejection
+✅ shared domain internal model
+✅ exclusive → shared transition contract
+✅ shared ARC/reference-accounting model
+✅ retain/release semantics
+✅ last-owner destruction eligibility
+✅ apply shared transition to real env       ← NOVO
+✅ real shared strong alias model            ← NOVO
+✅ stale transition / alias collision guards ← NOVO
+
+⬜ share syntax / Typed AST expression integration
+⬜ cleanup integration for shared owners
+⬜ ARC lowering/runtime
+⬜ region
+⬜ device
+⬜ external
+⬜ island
+⬜ whisper
+⬜ direct
+⬜ handover
+⬜ quarantine
+⬜ loop-domain semantics
+⬜ backend/e2e
+```
 
 ## Objetivo transversal — Backend Nativo / "Assembly moderno tipado"
 

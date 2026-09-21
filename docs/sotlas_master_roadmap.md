@@ -3846,7 +3846,9 @@ Ainda necessário para concluir a Fase 2 canônica:
 - [x] grafo canônico de ownership/domains no snapshot semântico para owners rastreados e transferências `exclusive`;
 - [x] merge de Ownership Domain em branches exige domínio idêntico e registra LIVE/MOVED/MAYBE_MOVED no grafo;
 - [x] contrato semântico backend-neutral para planejar `exclusive → shared` via `share`, exigindo owner LIVE e sem mutação/runtime implícito;
-- [ ] aplicação efetiva de `shared` no ambiente; ARC/reference accounting já possui modelo semântico, mas ainda não está ligado a aliases/runtime;
+- [x] aplicação semântica de `exclusive → shared` no OwnershipEnv, preservando owner original como strong owner compartilhado;
+- [x] criação explícita de alias strong compartilhado com incremento determinístico do reference accounting;
+- [ ] integração dessa aplicação com sintaxe/Typed AST de expressões, cleanup e runtime/backend;
 - [ ] transições e merges para `region`, `device` e `external`;
 - [ ] regras de domínio específicas para loops além da validação conservadora atual;
 - [ ] integração completa com `defer`, cleanup e unwind/early-return de todos os recursos;

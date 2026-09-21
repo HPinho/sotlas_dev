@@ -431,6 +431,120 @@ fn maybe(flag: bool, token: Token) -> void {
         ):
             typed_ast.release_shared_owner(account)
 
+    def test_apply_shared_transition_updates_real_environment(self):
+        type_info = typed_ast.SemanticType("Token")
+        env = typed_ast.OwnershipEnv((
+            typed_ast.OwnershipBinding(
+                "token",
+                type_info,
+                typed_ast.VarState.LIVE,
+                typed_ast.OwnershipDomain.EXCLUSIVE,
+            ),
+        ))
+        transition = typed_ast.plan_ownership_domain_transition(
+            env.bindings[0],
+            typed_ast.OwnershipDomain.SHARED,
+            "share",
+        )
+        applied = typed_ast.apply_shared_transition(env, transition)
+
+        self.assertIs(
+            applied.env.domain_of("token"),
+            typed_ast.OwnershipDomain.SHARED,
+        )
+        self.assertIs(
+            applied.env.state_of("token"),
+            typed_ast.VarState.LIVE,
+        )
+        self.assertEqual(applied.account.strong_refs, 1)
+        self.assertEqual(applied.owners, ("token",))
+        self.assertIs(
+            env.domain_of("token"),
+            typed_ast.OwnershipDomain.EXCLUSIVE,
+        )
+
+    def test_apply_shared_transition_creates_explicit_strong_alias(self):
+        type_info = typed_ast.SemanticType("Token")
+        env = typed_ast.OwnershipEnv((
+            typed_ast.OwnershipBinding(
+                "token",
+                type_info,
+                typed_ast.VarState.LIVE,
+                typed_ast.OwnershipDomain.EXCLUSIVE,
+            ),
+        ))
+        transition = typed_ast.plan_ownership_domain_transition(
+            env.bindings[0],
+            typed_ast.OwnershipDomain.SHARED,
+            "share",
+        )
+        applied = typed_ast.apply_shared_transition(
+            env,
+            transition,
+            alias="peer",
+        )
+
+        self.assertIs(
+            applied.env.domain_of("token"),
+            typed_ast.OwnershipDomain.SHARED,
+        )
+        self.assertIs(
+            applied.env.domain_of("peer"),
+            typed_ast.OwnershipDomain.SHARED,
+        )
+        self.assertIs(
+            applied.env.state_of("peer"),
+            typed_ast.VarState.LIVE,
+        )
+        self.assertEqual(applied.account.strong_refs, 2)
+        self.assertEqual(applied.owners, ("token", "peer"))
+
+    def test_apply_shared_transition_rejects_stale_plan_and_alias_collision(self):
+        type_info = typed_ast.SemanticType("Token")
+        source = typed_ast.OwnershipBinding(
+            "token",
+            type_info,
+            typed_ast.VarState.LIVE,
+            typed_ast.OwnershipDomain.EXCLUSIVE,
+        )
+        transition = typed_ast.plan_ownership_domain_transition(
+            source,
+            typed_ast.OwnershipDomain.SHARED,
+            "share",
+        )
+        moved_env = typed_ast.OwnershipEnv((
+            typed_ast.OwnershipBinding(
+                "token",
+                type_info,
+                typed_ast.VarState.MOVED,
+                typed_ast.OwnershipDomain.EXCLUSIVE,
+            ),
+        ))
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            "no longer matches planned domain transition",
+        ):
+            typed_ast.apply_shared_transition(moved_env, transition)
+
+        live_env = typed_ast.OwnershipEnv((
+            source,
+            typed_ast.OwnershipBinding(
+                "peer",
+                type_info,
+                typed_ast.VarState.LIVE,
+                typed_ast.OwnershipDomain.EXCLUSIVE,
+            ),
+        ))
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            "shared ownership alias 'peer' already exists",
+        ):
+            typed_ast.apply_shared_transition(
+                live_env,
+                transition,
+                alias="peer",
+            )
+
     def test_explicit_sole_transfer_starts_live_then_moves(self):
         typed = typed_ast.build_declaration_typed_ast(self.checked_ast())
         state = typed_ast.require_sole_transfer(
