@@ -61,6 +61,36 @@ Before expanding the roadmap, the three fundamental open questions from the init
 * **Hosted rule:** desktop, server, game-engine, and AI/HPC builds may select the best available backend per target (native backend or LLVM), without changing Sotlas source semantics.
 * **Backend parity requirement:** a feature is not `SUPPORTED` merely because one backend accepts it. Semantics must be defined at Typed AST/SIR level and each claimed production backend must either implement them or reject them explicitly.
 
+### Long-Term Native Identity: Sotlas as a Modern Machine Layer
+
+Sotlas is intended to grow beyond using C as an implementation transport. The long-term objective is for Sotlas to become a **modern, typed machine-facing language layer**: occupying a role analogous to assembly for direct machine control, while preserving the language's higher-level guarantees.
+
+This does **not** mean replacing Sotlas syntax with textual assembly. It means the compiler must eventually be capable of lowering Sotlas semantics directly into target instructions and object code without requiring generated C as an intermediate source language.
+
+The native path should preserve:
+
+- explicit register- and ABI-aware lowering where required by `barecore`, `trapfn`, MMIO, SIMD, atomics, context switching, and hardware control;
+- typed values, layouts, ownership/resource obligations, effects, privilege boundaries, and deterministic cleanup before target instruction selection;
+- direct access to machine-specific capabilities through audited Sotlas constructs rather than opaque C compiler extensions;
+- target-specific optimization after SIR while keeping source-level semantics target-independent;
+- optional textual assembly output for inspection, diagnostics, teaching, performance analysis, and low-level auditing.
+
+Conceptually:
+
+```text
+Traditional assembly:
+source text -> assembler -> machine/object code
+
+Long-term Sotlas native path:
+Sotlas -> Typed AST / Sema -> SIR -> target lowering -> machine/object code
+                                      |
+                                      +-> optional assembly listing
+```
+
+In that sense, Sotlas should eventually be able to serve as a **modern successor layer to assembly for systems work**: close enough to the machine for kernels, bootloaders, drivers, engines, SIMD/HPC, and runtime internals, while remaining expressive enough for hosted applications, professional software, games, and AI systems.
+
+C11 remains valuable as a bootstrap/reference backend and portability oracle, but it must never become a semantic dependency of the language. The canonical semantics live above every backend, in Typed AST/SIR and the target contracts.
+
 The intended long-term backend matrix is:
 
 ```text
