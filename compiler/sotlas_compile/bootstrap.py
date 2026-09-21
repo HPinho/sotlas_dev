@@ -45,6 +45,10 @@ MULTI = ("::", "->", "==", "!=", "<=", ">=", "+=", "-=", "*=", "/=", "&=", "|=",
 SINGLE = set(";,:{}()[]=+-*/%!<>&|^~.?")
 PRIMITIVES = {"void", "bool", "u8", "u16", "u32", "u64", "usize",
               "i8", "i16", "i32", "i64", "isize", "f32", "f64", "str"}
+UNSUPPORTED_OWNERSHIP_DOMAINS = {
+    "exclusive", "shared", "region", "device", "external", "island",
+    "whisper", "direct", "quarantine",
+}
 C_TYPES = {"void": "void", "bool": "_Bool", "u8": "uint8_t", "u16": "uint16_t",
            "u32": "uint32_t", "u64": "uint64_t", "usize": "size_t",
            "i8": "int8_t", "i16": "int16_t", "i32": "int32_t", "i64": "int64_t",
@@ -511,6 +515,12 @@ class Parser:
             inner = self.type()
             return Type(name=inner.name, pointer=True, mutable=mutable, is_array=inner.is_array, array_size=inner.array_size, elem_type=inner.elem_type)
         base_name = self.ident()
+        if base_name in UNSUPPORTED_OWNERSHIP_DOMAINS:
+            token = self.tokens[self.at - 1]
+            raise SotlasBootstrapError(
+                f"ownership domain {base_name!r} is reserved but not supported",
+                token.line, token.column, self.filename, self.source,
+            )
         # Generics monomorfizados: forge<...> ou <...>
         _PRIMITIVES = {"i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "f32", "f64", "bool", "usize", "isize", "void", "char"}
         if base_name not in _PRIMITIVES and ((self.current.kind in ("forge", "IDENT") and self.current.text == "forge") or self.current.kind == "<"):

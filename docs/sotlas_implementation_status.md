@@ -39,9 +39,10 @@
 - [x] tag normalization
 - [x] tagged-union logical layout
 - [x] tag/payload storage plan backend-neutral
+- [x] emissão C11 de tagged union e construtores para payloads escalares, com validação de tags `u64`
 - [ ] ABI física definitiva
-- [ ] C11 type representation
-- [ ] C11 constructor lowering
+- [ ] C11 type representation para todos os payloads
+- [ ] C11 constructor lowering para todos os payloads
 - [ ] cleanup/destruição de payload `sole`
 - [ ] end-to-end até binário/backend suportado
 
@@ -57,6 +58,8 @@
 - [x] estado condicional `MAYBE_MOVED`
 - [x] transferências em calls/returns/struct fields/enum payloads
 - [x] integração parcial com cleanup/deinit existente
+- [x] `sole` mapeado para metadados de domínio `exclusive` em declarações, bindings e contratos de função do Typed AST isolado
+- [x] nomes de domínios ainda sem semântica rejeitados antes do backend C11
 
 ### Falta para concluir a Fase 2
 

@@ -147,6 +147,36 @@ fn main() -> void { return; }
         self.assertFalse(typed_ast.is_sole_type(pointer, typed))
         self.assertIsNone(typed_ast.initial_ownership_state(pointer, typed))
 
+    def test_sole_declares_exclusive_domain_in_typed_ast_and_environment(self):
+        typed = typed_ast.build_declaration_typed_ast(self.checked_ast())
+        handle = next(item for item in typed.structs if item.name == "Handle")
+        self.assertIs(handle.ownership_domain, typed_ast.OwnershipDomain.EXCLUSIVE)
+        env = typed_ast.OwnershipEnv().declare(
+            "handle", typed_ast.SemanticType("Handle"), typed
+        )
+        self.assertIs(env.domain_of("handle"), typed_ast.OwnershipDomain.EXCLUSIVE)
+        self.assertIs(env.move("handle").domain_of("handle"), typed_ast.OwnershipDomain.EXCLUSIVE)
+        self.assertIsNone(
+            typed_ast.ownership_domain(
+                typed_ast.SemanticType("Handle", pointer=True), typed
+            )
+        )
+
+    def test_unimplemented_ownership_domain_types_fail_before_c11(self):
+        for domain in ("exclusive", "shared", "region", "device", "external",
+                       "island", "whisper", "direct", "quarantine"):
+            with self.subTest(domain=domain):
+                source = (
+                    "module test::domain_gate; "
+                    f"struct Holder {{ value: {domain}; }} "
+                    "fn run() -> void { return; }"
+                )
+                with self.assertRaisesRegex(
+                    bootstrap.SotlasBootstrapError,
+                    f"ownership domain '{domain}' is reserved but not supported",
+                ):
+                    bootstrap.compile_source(source)
+
     def test_explicit_sole_transfer_starts_live_then_moves(self):
         typed = typed_ast.build_declaration_typed_ast(self.checked_ast())
         state = typed_ast.require_sole_transfer(
@@ -701,7 +731,15 @@ fn main() -> void {
         }
 
         self.assertTrue(summaries["forward"].params[0].takes_ownership)
+        self.assertIs(
+            summaries["forward"].params[0].domain,
+            typed_ast.OwnershipDomain.EXCLUSIVE,
+        )
         self.assertTrue(summaries["forward"].returns_sole)
+        self.assertIs(
+            summaries["forward"].return_domain,
+            typed_ast.OwnershipDomain.EXCLUSIVE,
+        )
         self.assertTrue(summaries["consume"].params[0].takes_ownership)
         self.assertFalse(summaries["consume"].returns_sole)
         self.assertEqual(summaries["main"].calls, ("consume",))
@@ -5508,6 +5546,10 @@ fn main() -> Pair {
         self.assertIs(
             merged.state_of("handle"),
             typed_ast.VarState.MAYBE_MOVED,
+        )
+        self.assertIs(
+            merged.domain_of("handle"),
+            typed_ast.OwnershipDomain.EXCLUSIVE,
         )
 
     def test_conditional_move_in_both_branches_becomes_moved(self):

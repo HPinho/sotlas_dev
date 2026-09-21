@@ -28,6 +28,10 @@ class VarState(str, Enum):
     BORROWED_MUT = "BORROWED_MUT"
 
 
+class OwnershipDomain(str, Enum):
+    EXCLUSIVE = "exclusive"
+
+
 def sole_type_names(module: TypedModule) -> frozenset[str]:
     """Return declaration names that carry exclusive sole ownership."""
     return frozenset(item.name for item in module.structs if item.is_sole)
@@ -40,6 +44,13 @@ def is_sole_type(type_info: SemanticType, module: TypedModule) -> bool:
         and not type_info.is_reference
         and type_info.name in sole_type_names(module)
     )
+
+
+def ownership_domain(
+    type_info: SemanticType, module: TypedModule
+) -> OwnershipDomain | None:
+    """Map the supported sole contract to its explicit ownership domain."""
+    return OwnershipDomain.EXCLUSIVE if is_sole_type(type_info, module) else None
 
 
 def initial_ownership_state(
@@ -66,6 +77,7 @@ class OwnershipBinding:
     name: str
     type: SemanticType
     state: VarState
+    domain: OwnershipDomain
 
 
 @dataclass(frozen=True)
@@ -84,18 +96,24 @@ class OwnershipEnv:
                 return binding.type
         return None
 
+    def domain_of(self, name: str) -> OwnershipDomain | None:
+        for binding in reversed(self.bindings):
+            if binding.name == name:
+                return binding.domain
+        return None
+
     def declare(
         self, name: str, type_info: SemanticType, module: TypedModule
     ) -> "OwnershipEnv":
-        state = initial_ownership_state(type_info, module)
-        if state is None:
+        domain = ownership_domain(type_info, module)
+        if domain is None:
             return self
         if self.state_of(name) is not None:
             raise Phase1SemanticError(
                 f"ownership binding {name!r} already declared"
             )
         return OwnershipEnv(
-            self.bindings + (OwnershipBinding(name, type_info, state),)
+            self.bindings + (OwnershipBinding(name, type_info, VarState.LIVE, domain),)
         )
 
     def require_live(self, name: str) -> None:
@@ -118,7 +136,7 @@ class OwnershipEnv:
         for binding in self.bindings:
             if binding.name == name and not replaced:
                 updated.append(
-                    OwnershipBinding(binding.name, binding.type, next_state)
+                    OwnershipBinding(binding.name, binding.type, next_state, binding.domain)
                 )
                 replaced = True
             else:
@@ -139,11 +157,16 @@ class OwnershipEnv:
                 raise Phase1SemanticError(
                     f"ownership binding {binding.name!r} changed type across branches"
                 )
+            if binding.domain != peer.domain:
+                raise Phase1SemanticError(
+                    f"ownership binding {binding.name!r} changed domain across branches"
+                )
             merged.append(
                 OwnershipBinding(
                     binding.name,
                     binding.type,
                     merge_branch_states(binding.state, peer.state),
+                    binding.domain,
                 )
             )
         return OwnershipEnv(tuple(merged))
@@ -1177,6 +1200,7 @@ def analyze_function_ownership(
 class OwnershipParamContract:
     name: str
     takes_ownership: bool
+    domain: OwnershipDomain | None = None
 
 
 @dataclass(frozen=True)
@@ -1185,6 +1209,7 @@ class OwnershipFunctionSummary:
     params: tuple[OwnershipParamContract, ...]
     returns_sole: bool
     calls: tuple[str, ...]
+    return_domain: OwnershipDomain | None = None
 
 
 @dataclass(frozen=True)
@@ -1271,11 +1296,13 @@ def summarize_module_ownership(
                     OwnershipParamContract(
                         param.name,
                         is_sole_type(param.type, typed_module),
+                        ownership_domain(param.type, typed_module),
                     )
                     for param in function.params
                 ),
                 returns_sole=is_sole_type(function.result, typed_module),
                 calls=tuple(calls),
+                return_domain=ownership_domain(function.result, typed_module),
             )
         )
     return tuple(summaries)
@@ -3108,6 +3135,7 @@ class TypedStruct:
     public: bool
     attributes: tuple[str, ...]
     is_sole: bool
+    ownership_domain: OwnershipDomain | None = None
 
 
 @dataclass(frozen=True)
@@ -3438,6 +3466,11 @@ def build_declaration_typed_ast(module) -> TypedModule:
                 public=bool(item.public),
                 attributes=tuple(item.attributes),
                 is_sole=bool(getattr(item, "is_sole", False)),
+                ownership_domain=(
+                    OwnershipDomain.EXCLUSIVE
+                    if bool(getattr(item, "is_sole", False))
+                    else None
+                ),
             )
             for item in module.structs
         ),
@@ -3513,7 +3546,8 @@ def build_declaration_typed_ast(module) -> TypedModule:
 
 
 __all__ = [
-    "MATURITY", "Phase1SemanticError", "VarState", "sole_type_names", "is_sole_type",
+    "MATURITY", "Phase1SemanticError", "VarState", "OwnershipDomain",
+    "ownership_domain", "sole_type_names", "is_sole_type",
     "initial_ownership_state", "require_sole_transfer", "OwnershipBinding", "OwnershipEnv",
     "seed_function_ownership", "OwnershipEvent", "OwnershipTrace",
     "require_expr_ownership_live",
