@@ -54,5 +54,31 @@ pub fn main() -> i32 {
         return 10;
     }
 
+    let comma_raw: *const u8 = ", " as *const u8;
+    let comma_space: StringSlice = string_from_raw(comma_raw, 2);
+    let split: StringSplit = string_split_once(s, comma_space);
+    if !split.found {
+        return 11;
+    }
+    if !string_equals(split.before, hello) {
+        return 12;
+    }
+    if !string_equals(split.after, world) {
+        return 13;
+    }
+
+    let missing_split: StringSplit = string_split_once(s, missing);
+    if missing_split.found {
+        return 14;
+    }
+    if !string_equals(missing_split.before, s) {
+        return 15;
+    }
+
+    let empty_split: StringSplit = string_split_once(s, empty);
+    if empty_split.found {
+        return 16;
+    }
+
     return 0;
 }

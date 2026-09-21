@@ -6,6 +6,12 @@ pub struct StringSlice {
     pub length: usize;
 }
 
+pub struct StringSplit {
+    pub before: StringSlice;
+    pub after: StringSlice;
+    pub found: bool;
+}
+
 pub fn string_from_raw(data: *const u8, len: usize) -> StringSlice {
     let mut s: StringSlice = 0;
     s.data = data;
@@ -156,6 +162,37 @@ pub fn string_find(s: StringSlice, needle: StringSlice) -> i64 {
         }
     }
     return -1;
+}
+
+pub fn string_split_once(s: StringSlice, delimiter: StringSlice) -> StringSplit {
+    let mut result: StringSplit = 0;
+    result.before = s;
+    result.after = string_from_raw(null, 0);
+    result.found = false;
+
+    if delimiter.length == 0 {
+        return result;
+    }
+
+    let index: i64 = string_find(s, delimiter);
+    if index < 0 {
+        return result;
+    }
+
+    let cut: usize = index as usize;
+    if cut == 0 {
+        result.before = string_from_raw(null, 0);
+    } else {
+        result.before = string_slice(s, 0, cut);
+    }
+
+    let after_start: usize = cut + delimiter.length;
+    if after_start < s.length {
+        result.after = string_slice(s, after_start, s.length);
+    }
+
+    result.found = true;
+    return result;
 }
 
 pub fn string_trim_start(s: StringSlice) -> StringSlice {
