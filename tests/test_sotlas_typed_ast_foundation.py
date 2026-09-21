@@ -5770,12 +5770,12 @@ fn main() -> void { return; }
         bootstrap.check(parsed)
         generated = bootstrap.emit_c(parsed)
         self.assertIn("typedef struct Message {", generated)
-        self.assertIn("int32_t tag;", generated)
+        self.assertIn("uint64_t tag;", generated)
         self.assertIn("uint32_t Number;", generated)
         self.assertIn("static inline Message Message_Number(uint32_t value)", generated)
         self.assertIn(".payload.Number = value", generated)
         self.assertIn("return Message_Number(7);", generated)
-        self.assertIn("#define Message_Empty ((Message){.tag = 0})", generated)
+        self.assertIn("#define Message_Empty ((Message){.tag = UINT64_C(0)})", generated)
         header = bootstrap.emit_header(parsed)
         self.assertIn("typedef struct Message {", header)
         self.assertIn("static inline Message Message_Number(uint32_t value)", header)
@@ -5794,6 +5794,18 @@ fn main() -> void { return; }
         ):
             bootstrap.emit_c(parsed)
 
+    def test_payload_enum_c11_rejects_duplicate_and_out_of_range_tags(self):
+        duplicate = bootstrap.parse("""module test::dup;
+enum Message { Empty = 1, Other = 1, Number(u32), }
+""")
+        with self.assertRaisesRegex(bootstrap.SotlasBootstrapError, "duplicate discriminant 1"):
+            bootstrap.emit_c(duplicate)
+        too_large = bootstrap.parse("""module test::range;
+enum Message { Empty = 18446744073709551615, Number(u32), }
+""")
+        with self.assertRaisesRegex(bootstrap.SotlasBootstrapError, "outside the uint64 tag range"):
+            bootstrap.emit_c(too_large)
+
     def test_scalar_payload_enum_generated_c_is_valid_c11(self):
         compiler = shutil.which(os.environ.get("CC", "")) or next(
             (path for name in ("clang", "cc", "gcc")
@@ -5803,7 +5815,7 @@ fn main() -> void { return; }
         if compiler is None:
             self.skipTest("C11 compiler unavailable")
         source = """module test::payload_enum_c11_smoke;
-enum Message { Empty, Number(u32), }
+enum Message { Empty = 18446744073709551614, Number(u32), }
 fn make() -> Message { return Message::Number(7); }
 fn use() -> void { let message: Message = make(); return; }
 """

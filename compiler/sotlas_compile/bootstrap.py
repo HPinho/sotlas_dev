@@ -2542,24 +2542,35 @@ def _emit_c_enum(enum_obj: Enum) -> list[str]:
                 f"C11 backend does not lower payload enum {enum_obj.name!r} "
                 f"with non-scalar payload {typ.name!r} yet"
             )
-    result = [f"typedef struct {enum_obj.name} {{", "    int32_t tag;", "    union {"]
+    result = [f"typedef struct {enum_obj.name} {{", "    uint64_t tag;", "    union {"]
     for variant in payloads:
         result.append(f"        {variant.payload_type.c_decl(variant.name)};")
     result += ["    } payload;", f"}} {enum_obj.name};"]
     tag = 0
+    seen_tags: set[int] = set()
     for variant in enum_obj.variants:
         if variant.value is not None:
             tag = variant.value
+        if not 0 <= tag <= 0xFFFFFFFFFFFFFFFF:
+            raise SotlasBootstrapError(
+                f"C11 payload enum {enum_obj.name!r} discriminant {tag} "
+                "is outside the uint64 tag range"
+            )
+        if tag in seen_tags:
+            raise SotlasBootstrapError(
+                f"C11 payload enum {enum_obj.name!r} has duplicate discriminant {tag}"
+            )
+        seen_tags.add(tag)
         if variant.payload_type is None:
             result.append(
                 f"#define {enum_obj.name}_{variant.name} "
-                f"(({enum_obj.name}){{.tag = {tag}}})"
+                f"(({enum_obj.name}){{.tag = UINT64_C({tag})}})"
             )
         else:
             result += [
                 f"static inline {enum_obj.name} {enum_obj.name}_{variant.name}"
                 f"({variant.payload_type.c_decl('value')}) {{",
-                f"    return ({enum_obj.name}){{.tag = {tag}, "
+                f"    return ({enum_obj.name}){{.tag = UINT64_C({tag}), "
                 f".payload.{variant.name} = value}};",
                 "}",
             ]
