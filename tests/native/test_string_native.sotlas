@@ -5,6 +5,7 @@ import core::alloc::*;
 
 static mut g_arena_buf: [u8; 64] = 0;
 static mut g_generic_arena_buf: [u8; 64] = 0;
+static mut g_owned_arena_buf: [u8; 128] = 0;
 
 static mut g_string_buf: [u8; 32] = 0;
 
@@ -288,6 +289,70 @@ pub fn main() -> i32 {
     }
     if empty_owned.length != 0 {
         return 62;
+    }
+
+    let mut append_arena: ArenaAllocator = arena_new(
+        g_owned_arena_buf as *mut u8,
+        128
+    );
+    let append_arena_ptr: *mut ArenaAllocator =
+        (&mut append_arena) as *mut ArenaAllocator;
+    let mut append_allocator: Allocator =
+        arena_as_allocator(append_arena_ptr);
+    let append_allocator_ptr: *mut Allocator =
+        (&mut append_allocator) as *mut Allocator;
+
+    let mut owned_append: String =
+        string_new_with_allocator(append_allocator_ptr, 5);
+    let owned_append_ptr: *mut String =
+        (&mut owned_append) as *mut String;
+
+    if !string_append_slice_owned(owned_append_ptr, hello) {
+        return 63;
+    }
+    if owned_append.length != 5 || owned_append.capacity != 5 {
+        return 64;
+    }
+
+    if !string_append_char_owned(owned_append_ptr, 44) {
+        return 65;
+    }
+    if owned_append.length != 6 || owned_append.capacity < 6 {
+        return 66;
+    }
+
+    if !string_append_slice_owned(owned_append_ptr, world) {
+        return 67;
+    }
+    if owned_append.length != 12 || owned_append.capacity < 12 {
+        return 68;
+    }
+
+    let expected_owned_raw: *const u8 =
+        "hello,world!" as *const u8;
+    let expected_owned: StringSlice =
+        string_from_raw(expected_owned_raw, 12);
+    if !string_equals(string_as_slice(&owned_append), expected_owned) {
+        return 69;
+    }
+
+    let before_owned_fail_data: *mut u8 = owned_append.data;
+    let before_owned_fail_length: usize = owned_append.length;
+    let before_owned_fail_capacity: usize = owned_append.capacity;
+    if string_append_slice_owned(owned_append_ptr, s) {
+        return 70;
+    }
+    if owned_append.data != before_owned_fail_data {
+        return 71;
+    }
+    if owned_append.length != before_owned_fail_length {
+        return 72;
+    }
+    if owned_append.capacity != before_owned_fail_capacity {
+        return 73;
+    }
+    if !string_equals(string_as_slice(&owned_append), expected_owned) {
+        return 74;
     }
 
     return 0;

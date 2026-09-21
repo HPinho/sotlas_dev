@@ -404,6 +404,61 @@ pub fn string_append_slice(s: *mut String, slice: StringSlice) -> bool {
     }
 }
 
+pub fn string_append_char_owned(
+    s: *mut String,
+    ch: u8
+) -> bool {
+    if s == null {
+        return false;
+    }
+
+    unsafe {
+        if (*s).length > (*s).capacity {
+            return false;
+        }
+
+        if (*s).length == (*s).capacity {
+            let required: usize = (*s).length + 1;
+            if !string_reserve(s, required) {
+                return false;
+            }
+        }
+    }
+
+    return string_append_char(s, ch);
+}
+
+pub fn string_append_slice_owned(
+    s: *mut String,
+    slice: StringSlice
+) -> bool {
+    if s == null {
+        return false;
+    }
+    if slice.length == 0 {
+        return true;
+    }
+    if slice.data == null {
+        return false;
+    }
+
+    unsafe {
+        if (*s).length > (*s).capacity {
+            return false;
+        }
+
+        let available: usize = (*s).capacity - (*s).length;
+        if slice.length > available {
+            let required: usize = (*s).length + slice.length;
+            if !string_reserve(s, required) {
+                return false;
+            }
+        }
+    }
+
+    return string_append_slice(s, slice);
+}
+
 pub fn string_append_char_in_arena(
     s: *mut String,
     arena: *mut ArenaAllocator,
