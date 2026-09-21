@@ -118,6 +118,7 @@ class CondBranchInst(SIRInstruction):
 @dataclass
 class ReturnInst(SIRInstruction):
     value: Optional[SIRValue] = None
+    point_id: str | None = None
 
     def __str__(self) -> str:
         if self.value:

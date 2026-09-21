@@ -13,6 +13,8 @@ from typing import Any, Iterable, Tuple
 from .instructions import (
     SIRInstruction,
     SIRValue,
+    SIRFunction,
+    ReturnInst,
     ShareInst,
     RetainInst,
     ReleaseInst,
@@ -165,8 +167,58 @@ def lower_shared_ownership_trace(trace: Any) -> SharedOwnershipSIRPlan:
     return SharedOwnershipSIRPlan(tuple(semantic), tuple(segments))
 
 
+def place_shared_return_cleanup(
+    function: SIRFunction,
+    plan: SharedOwnershipSIRPlan,
+) -> int:
+    """Insert ARC cleanup immediately before source-identified return points.
+
+    Only segments with point IDs starting with return@ are placed here.
+    Other control-flow cleanup remains untouched for dedicated placement passes.
+    The function fails closed if a return segment cannot be matched exactly once.
+    """
+    return_segments = {
+        segment.point_id: segment
+        for segment in plan.cleanup_segments
+        if segment.point_id is not None
+        and segment.point_id.startswith("return@")
+    }
+    if not return_segments:
+        return 0
+
+    seen: dict[str, int] = {point_id: 0 for point_id in return_segments}
+    inserted = 0
+
+    for block in function.blocks:
+        rewritten: list[SIRInstruction] = []
+        for instruction in block.instructions:
+            if isinstance(instruction, ReturnInst):
+                point_id = instruction.point_id
+                if point_id in return_segments:
+                    seen[point_id] += 1
+                    if seen[point_id] > 1:
+                        raise ValueError(
+                            f"shared ARC return cleanup point {point_id!r} "
+                            "matches multiple ReturnInst nodes"
+                        )
+                    segment = return_segments[point_id]
+                    rewritten.extend(segment.instructions)
+                    inserted += len(segment.instructions)
+            rewritten.append(instruction)
+        block.instructions = rewritten
+
+    missing = [point_id for point_id, count in seen.items() if count == 0]
+    if missing:
+        raise ValueError(
+            "shared ARC return cleanup point(s) missing from SIR CFG: "
+            + ", ".join(sorted(missing))
+        )
+
+    return inserted
+
 __all__ = [
     "SharedOwnershipSIRSegment",
     "SharedOwnershipSIRPlan",
     "lower_shared_ownership_trace",
+    "place_shared_return_cleanup",
 ]

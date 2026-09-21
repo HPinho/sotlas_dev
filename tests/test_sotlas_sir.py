@@ -11,7 +11,7 @@ from sotlas.sir import (
     SIRModule, SIRFunction, SIRBasicBlock, SIRValue,
     AllocStackInst, StoreInst, LoadInst, CallInst, ReturnInst,
     ShareInst, RetainInst, ReleaseInst, DestroyInst,
-    lower_shared_ownership_trace,
+    lower_shared_ownership_trace, place_shared_return_cleanup,
     SIRGenerator, SIRPassManager, DefiniteInitializationPass,
     SystemCapabilitySafetyPass, DeadCodeEliminationPass
 )
@@ -153,6 +153,71 @@ class SotlasSIRTests(unittest.TestCase):
         self.assertTrue(
             all(segment.via == "early_return" for segment in plan.cleanup_segments)
         )
+
+    def test_shared_return_cleanup_is_inserted_before_matching_return(self):
+        fn = SIRFunction("main", [], "void")
+        first = fn.add_block("then")
+        second = fn.add_block("fallthrough")
+        first.add(ReturnInst(point_id="return@8:9"))
+        second.add(ReturnInst(point_id="return@10:5"))
+
+        peer = SIRValue("peer", "Token")
+        token = SIRValue("token", "Token")
+        plan = SimpleNamespace(cleanup_segments=(
+            SimpleNamespace(
+                point_id="return@8:9",
+                instructions=(ReleaseInst(peer), ReleaseInst(token), DestroyInst(token)),
+            ),
+            SimpleNamespace(
+                point_id="return@10:5",
+                instructions=(ReleaseInst(peer), ReleaseInst(token), DestroyInst(token)),
+            ),
+        ))
+
+        inserted = place_shared_return_cleanup(fn, plan)
+        self.assertEqual(inserted, 6)
+        self.assertEqual(tuple(type(inst) for inst in first.instructions),
+                         (ReleaseInst, ReleaseInst, DestroyInst, ReturnInst))
+        self.assertEqual(tuple(type(inst) for inst in second.instructions),
+                         (ReleaseInst, ReleaseInst, DestroyInst, ReturnInst))
+        self.assertEqual(first.instructions[-1].point_id, "return@8:9")
+        self.assertEqual(second.instructions[-1].point_id, "return@10:5")
+
+    def test_shared_return_cleanup_leaves_non_return_segments_unplaced(self):
+        fn = SIRFunction("main", [], "void")
+        block = fn.add_block("entry")
+        block.add(ReturnInst(point_id="return@5:5"))
+        token = SIRValue("token", "Token")
+        plan = SimpleNamespace(cleanup_segments=(
+            SimpleNamespace(point_id="while_backedge@4:5",
+                            instructions=(ReleaseInst(token),)),
+        ))
+        inserted = place_shared_return_cleanup(fn, plan)
+        self.assertEqual(inserted, 0)
+        self.assertEqual(tuple(type(i) for i in block.instructions), (ReturnInst,))
+
+    def test_shared_return_cleanup_fails_closed_when_cfg_point_is_missing(self):
+        fn = SIRFunction("main", [], "void")
+        fn.add_block("entry").add(ReturnInst(point_id="return@5:5"))
+        token = SIRValue("token", "Token")
+        plan = SimpleNamespace(cleanup_segments=(
+            SimpleNamespace(point_id="return@8:9",
+                            instructions=(ReleaseInst(token),)),
+        ))
+        with self.assertRaisesRegex(ValueError, "missing from SIR CFG: return@8:9"):
+            place_shared_return_cleanup(fn, plan)
+
+    def test_shared_return_cleanup_rejects_duplicate_cfg_point(self):
+        fn = SIRFunction("main", [], "void")
+        fn.add_block("a").add(ReturnInst(point_id="return@5:5"))
+        fn.add_block("b").add(ReturnInst(point_id="return@5:5"))
+        token = SIRValue("token", "Token")
+        plan = SimpleNamespace(cleanup_segments=(
+            SimpleNamespace(point_id="return@5:5",
+                            instructions=(ReleaseInst(token),)),
+        ))
+        with self.assertRaisesRegex(ValueError, "matches multiple ReturnInst nodes"):
+            place_shared_return_cleanup(fn, plan)
 
     def test_shared_ownership_sir_lowering_fails_without_binding_type(self):
         trace = SimpleNamespace(
