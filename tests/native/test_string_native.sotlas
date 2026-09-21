@@ -233,5 +233,25 @@ pub fn main() -> i32 {
         return 48;
     }
 
+    let mut owned_allocator: Allocator = arena_as_allocator(generic_arena_ptr);
+    let owned_allocator_ptr: *mut Allocator =
+        (&mut owned_allocator) as *mut Allocator;
+    let owned: String = string_new_with_allocator(owned_allocator_ptr, 8);
+    if owned.data == null || owned.capacity != 8 || owned.length != 0 {
+        return 49;
+    }
+    if owned.allocator != owned_allocator_ptr {
+        return 50;
+    }
+
+    let empty_owned: String =
+        string_new_with_allocator(owned_allocator_ptr, 0);
+    if empty_owned.data != null || empty_owned.capacity != 0 {
+        return 51;
+    }
+    if empty_owned.allocator != owned_allocator_ptr {
+        return 52;
+    }
+
     return 0;
 }
