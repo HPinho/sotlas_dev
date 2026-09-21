@@ -2957,6 +2957,7 @@ class Phase1ModuleSnapshot:
     typed_module: TypedModule
     bodies: tuple[TypedFunctionBody, ...]
     ownership: OwnershipModuleAnalysis
+    enum_layouts: tuple[TypedEnumLayout, ...] = ()
     maturity: str = MATURITY
 
 
@@ -2975,7 +2976,13 @@ def build_phase1_semantic_snapshot(parsed_module) -> Phase1ModuleSnapshot:
         for function in typed_module.functions
     )
     ownership = analyze_module_ownership(parsed_module, typed_module)
-    return Phase1ModuleSnapshot(typed_module, bodies, ownership)
+    enum_layouts = lower_module_enum_layouts(typed_module)
+    return Phase1ModuleSnapshot(
+        typed_module=typed_module,
+        bodies=bodies,
+        ownership=ownership,
+        enum_layouts=enum_layouts,
+    )
 
 
 def apply_ownership_moves(
@@ -3121,6 +3128,65 @@ class TypedEnum:
     name: str
     variants: tuple[TypedEnumVariant, ...]
     public: bool
+
+
+@dataclass(frozen=True)
+class TypedEnumVariantLayout:
+    name: str
+    tag: int
+    payload_type: SemanticType | None
+
+
+@dataclass(frozen=True)
+class TypedEnumLayout:
+    enum_name: str
+    storage: str
+    variants: tuple[TypedEnumVariantLayout, ...]
+
+
+def lower_enum_layout(enum: TypedEnum) -> TypedEnumLayout:
+    """Normalize enum discriminants before any backend-specific ABI lowering.
+
+    Payload-bearing enums are represented semantically as tagged unions, while
+    payload-free enums remain tag-only.  This pass fixes variant tags and
+    rejects ambiguous duplicate discriminants without choosing a C/native
+    storage ABI yet.
+    """
+    next_tag = 0
+    seen_tags: dict[int, str] = {}
+    variants: list[TypedEnumVariantLayout] = []
+
+    for variant in enum.variants:
+        tag = variant.value if variant.value is not None else next_tag
+        previous = seen_tags.get(tag)
+        if previous is not None:
+            raise Phase1SemanticError(
+                f"enum {enum.name!r} has duplicate discriminant {tag}: "
+                f"{previous!r} and {variant.name!r}"
+            )
+        seen_tags[tag] = variant.name
+        variants.append(
+            TypedEnumVariantLayout(
+                name=variant.name,
+                tag=tag,
+                payload_type=variant.payload_type,
+            )
+        )
+        next_tag = tag + 1
+
+    storage = (
+        "tagged_union"
+        if any(item.payload_type is not None for item in variants)
+        else "tag_only"
+    )
+    return TypedEnumLayout(enum.name, storage, tuple(variants))
+
+
+def lower_module_enum_layouts(
+    module: TypedModule,
+) -> tuple[TypedEnumLayout, ...]:
+    """Lower every typed enum to a backend-neutral canonical layout."""
+    return tuple(lower_enum_layout(enum) for enum in module.enums)
 
 
 @dataclass(frozen=True)
@@ -3392,6 +3458,8 @@ __all__ = [
     "validate_loop_ownership", "require_live", "move_state", "merge_branch_states",
     "SourceSpan", "SemanticType",
     "TypedField", "TypedStruct", "TypedClass", "TypedEnumVariant", "TypedEnum",
+    "TypedEnumVariantLayout", "TypedEnumLayout", "lower_enum_layout",
+    "lower_module_enum_layouts",
     "TypedParam", "TypedFunction", "TypedGlobal", "TypedModule",
     "semantic_type", "integer_bounds", "validate_integer_value",
     "validate_no_recursive_value_types",

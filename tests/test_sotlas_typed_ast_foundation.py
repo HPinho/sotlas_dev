@@ -5910,5 +5910,97 @@ fn main() -> void {
             typed_ast.analyze_function_ownership(parsed, typed, "main")
 
 
+    def test_payload_enum_layout_normalizes_tags_as_tagged_union(self):
+        source = """module test::payload_enum_layout;
+enum Message {
+    Empty,
+    Number(u32),
+    Code(u32) = 7,
+    Retry(u32),
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<payload-enum-layout>"
+        )
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        layout = typed_ast.lower_enum_layout(typed.enums[0])
+
+        self.assertEqual(layout.enum_name, "Message")
+        self.assertEqual(layout.storage, "tagged_union")
+        self.assertEqual(
+            [(item.name, item.tag) for item in layout.variants],
+            [
+                ("Empty", 0),
+                ("Number", 1),
+                ("Code", 7),
+                ("Retry", 8),
+            ],
+        )
+        self.assertIsNone(layout.variants[0].payload_type)
+        self.assertEqual(layout.variants[1].payload_type.name, "u32")
+
+    def test_nullary_enum_layout_remains_tag_only(self):
+        source = """module test::nullary_enum_layout;
+enum Mode {
+    Off,
+    On,
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<nullary-enum-layout>"
+        )
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        layout = typed_ast.lower_enum_layout(typed.enums[0])
+
+        self.assertEqual(layout.storage, "tag_only")
+        self.assertEqual(
+            [item.tag for item in layout.variants],
+            [0, 1],
+        )
+
+    def test_enum_layout_rejects_duplicate_discriminants(self):
+        source = """module test::duplicate_enum_tags;
+enum Message {
+    Empty = 3,
+    Number(u32) = 3,
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<duplicate-enum-tags>"
+        )
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"duplicate discriminant 3",
+        ):
+            typed_ast.lower_enum_layout(typed.enums[0])
+
+    def test_phase1_snapshot_carries_enum_layouts(self):
+        source = """module test::snapshot_enum_layout;
+enum Envelope {
+    Empty,
+    Number(u32),
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<snapshot-enum-layout>"
+        )
+        bootstrap.check(parsed)
+        snapshot = typed_ast.build_phase1_semantic_snapshot(parsed)
+
+        self.assertEqual(len(snapshot.enum_layouts), 1)
+        self.assertEqual(
+            snapshot.enum_layouts[0].storage,
+            "tagged_union",
+        )
+        self.assertEqual(
+            [item.tag for item in snapshot.enum_layouts[0].variants],
+            [0, 1],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
