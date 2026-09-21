@@ -499,9 +499,99 @@ class OwnershipEvent:
 
 
 @dataclass(frozen=True)
+class SharedCleanupStep:
+    owner: str
+    account: str
+    strong_refs_before: int
+    strong_refs_after: int
+    destroy_after: bool
+    via: str
+
+
+@dataclass(frozen=True)
+class SharedCleanupPlan:
+    steps: tuple[SharedCleanupStep, ...]
+
+
+@dataclass(frozen=True)
 class OwnershipTrace:
     final_env: OwnershipEnv
     events: tuple[OwnershipEvent, ...]
+    shared_cleanup: SharedCleanupPlan = SharedCleanupPlan(())
+
+
+def plan_shared_scope_cleanup(
+    env: OwnershipEnv,
+    events: tuple[OwnershipEvent, ...] | list[OwnershipEvent],
+) -> SharedCleanupPlan:
+    """Plan deterministic releases for shared strong owners at function scope exit.
+
+    Accounts are reconstructed only from canonical share/retain events. This
+    milestone intentionally covers normal function-scope exit; branch-local,
+    early-return and defer-aware cleanup remain separate milestones.
+    """
+    accounts: dict[str, list[str]] = {}
+    owner_to_account: dict[str, str] = {}
+
+    for event in events:
+        if event.kind == "domain_transition" and event.domain is OwnershipDomain.SHARED:
+            if not event.via.startswith("share:"):
+                continue
+            alias = event.via.split(":", 1)[1]
+            account = event.name
+            if account in accounts:
+                raise Phase1SemanticError(
+                    f"duplicate shared ownership account for {account!r}"
+                )
+            accounts[account] = [account]
+            owner_to_account[account] = account
+            if alias:
+                accounts[account].append(alias)
+                owner_to_account[alias] = account
+            continue
+        if event.kind == "retain" and event.domain is OwnershipDomain.SHARED:
+            if not event.via.startswith("share:"):
+                continue
+            account = event.via.split(":", 1)[1]
+            if account not in accounts:
+                raise Phase1SemanticError(
+                    f"retain for unknown shared ownership account {account!r}"
+                )
+            if event.name not in accounts[account]:
+                accounts[account].append(event.name)
+                owner_to_account[event.name] = account
+
+    live_shared = [
+        binding.name
+        for binding in env.bindings
+        if binding.domain is OwnershipDomain.SHARED
+        and binding.state is VarState.LIVE
+    ]
+    missing = [name for name in live_shared if name not in owner_to_account]
+    if missing:
+        raise Phase1SemanticError(
+            "shared cleanup cannot resolve account for owner(s): "
+            + ", ".join(sorted(missing))
+        )
+
+    steps: list[SharedCleanupStep] = []
+    for account, owners in accounts.items():
+        live_owners = [name for name in owners if name in live_shared]
+        strong_refs = len(live_owners)
+        for owner in reversed(live_owners):
+            before = strong_refs
+            strong_refs -= 1
+            steps.append(
+                SharedCleanupStep(
+                    owner=owner,
+                    account=account,
+                    strong_refs_before=before,
+                    strong_refs_after=strong_refs,
+                    destroy_after=strong_refs == 0,
+                    via="scope_exit",
+                )
+            )
+    return SharedCleanupPlan(tuple(steps))
 
 
 def _typed_function_map(module: TypedModule) -> dict[str, TypedFunction]:
@@ -998,7 +1088,8 @@ def analyze_linear_function_ownership(
                 OwnershipEvent("deferred-control-flow", function_name, kind)
             )
 
-    return OwnershipTrace(env, tuple(events))
+    cleanup = plan_shared_scope_cleanup(env, events)
+    return OwnershipTrace(env, tuple(events), cleanup)
 
 
 def _project_ownership_env(
@@ -1513,7 +1604,8 @@ def analyze_function_ownership(
     env = _analyze_block_ownership(
         parsed_function.body, env, typed_module, typed_function, events
     )
-    return OwnershipTrace(env, tuple(events))
+    cleanup = plan_shared_scope_cleanup(env, events)
+    return OwnershipTrace(env, tuple(events), cleanup)
 
 
 @dataclass(frozen=True)
@@ -4012,7 +4104,8 @@ __all__ = [
     "MATURITY", "Phase1SemanticError", "VarState", "OwnershipDomain",
     "ownership_domain", "sole_type_names", "is_sole_type",
     "initial_ownership_state", "require_sole_transfer", "OwnershipBinding", "OwnershipEnv",
-    "seed_function_ownership", "OwnershipEvent", "OwnershipTrace",
+    "seed_function_ownership", "OwnershipEvent", "SharedCleanupStep",
+    "SharedCleanupPlan", "OwnershipTrace", "plan_shared_scope_cleanup",
     "require_expr_ownership_live",
     "analyze_linear_function_ownership", "analyze_function_ownership",
     "OwnershipParamContract", "OwnershipFunctionSummary",

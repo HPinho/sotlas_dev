@@ -3852,7 +3852,9 @@ Ainda necessário para concluir a Fase 2 canônica:
 - [x] membros, índices e temporários continuam fail-closed até existir contrato formal de aliasing parcial;
 - [x] sintaxe pública `let alias = share owner;` com nó AST dedicado, typecheck e integração ao OwnershipEnv;
 - [x] backend C11 rejeita `share` explicitamente enquanto ARC/cleanup não estiver implementado;
-- [ ] integração com cleanup e runtime/backend;
+- [x] plano semântico de cleanup para saída normal de função, com release reverso e destroy apenas no último strong owner;
+- [ ] cleanup de shared ownership em early-return, branches e defer;
+- [ ] integração com runtime/backend;
 - [ ] transições e merges para `region`, `device` e `external`;
 - [ ] regras de domínio específicas para loops além da validação conservadora atual;
 - [ ] integração completa com `defer`, cleanup e unwind/early-return de todos os recursos;

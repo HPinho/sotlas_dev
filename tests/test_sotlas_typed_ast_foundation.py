@@ -683,6 +683,81 @@ fn main(token: Token) -> void { let peer = share token.value; return; }
         ):
             bootstrap.check(parsed)
 
+    def test_shared_scope_cleanup_releases_alias_then_original_owner(self):
+        source = """module test::shared_scope_cleanup;
+sole struct Token { value: u32; }
+fn main(token: Token) -> void {
+    let peer = share token;
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<shared-scope-cleanup>")
+        bootstrap.check(parsed)
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(
+            parsed, typed_module, "main"
+        )
+        self.assertEqual(
+            trace.shared_cleanup.steps,
+            (
+                typed_ast.SharedCleanupStep(
+                    "peer", "token", 2, 1, False, "scope_exit"
+                ),
+                typed_ast.SharedCleanupStep(
+                    "token", "token", 1, 0, True, "scope_exit"
+                ),
+            ),
+        )
+
+    def test_shared_scope_cleanup_marks_destroy_only_on_final_release(self):
+        env = typed_ast.OwnershipEnv((
+            typed_ast.OwnershipBinding(
+                "token",
+                typed_ast.SemanticType("Token"),
+                typed_ast.VarState.LIVE,
+                typed_ast.OwnershipDomain.SHARED,
+            ),
+            typed_ast.OwnershipBinding(
+                "peer",
+                typed_ast.SemanticType("Token"),
+                typed_ast.VarState.LIVE,
+                typed_ast.OwnershipDomain.SHARED,
+            ),
+        ))
+        events = (
+            typed_ast.OwnershipEvent(
+                "domain_transition",
+                "token",
+                "share:peer",
+                typed_ast.OwnershipDomain.SHARED,
+            ),
+            typed_ast.OwnershipEvent(
+                "retain",
+                "peer",
+                "share:token",
+                typed_ast.OwnershipDomain.SHARED,
+            ),
+        )
+        plan = typed_ast.plan_shared_scope_cleanup(env, events)
+        self.assertFalse(plan.steps[0].destroy_after)
+        self.assertTrue(plan.steps[1].destroy_after)
+        self.assertEqual(plan.steps[-1].strong_refs_after, 0)
+
+    def test_shared_scope_cleanup_fails_closed_for_unaccounted_shared_owner(self):
+        env = typed_ast.OwnershipEnv((
+            typed_ast.OwnershipBinding(
+                "ghost",
+                typed_ast.SemanticType("Token"),
+                typed_ast.VarState.LIVE,
+                typed_ast.OwnershipDomain.SHARED,
+            ),
+        ))
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            "shared cleanup cannot resolve account",
+        ):
+            typed_ast.plan_shared_scope_cleanup(env, ())
+
     def test_explicit_sole_transfer_starts_live_then_moves(self):
         typed = typed_ast.build_declaration_typed_ast(self.checked_ast())
         state = typed_ast.require_sole_transfer(

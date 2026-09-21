@@ -86,8 +86,9 @@
 - [x] share de member/index/temporário permanece fail-closed até o contrato de aliasing parcial ser definido
 - [x] sintaxe pública `let alias = share owner;` possui AST dedicado `ShareExpr`, typecheck e integração com OwnershipEnv
 - [x] C11 reconhece a construção apenas para rejeitá-la fail-closed até ARC/cleanup lowering
-- [ ] cleanup e ARC lowering para tornar `share` executável no backend
-- [ ] ligação de shared ownership a cleanup e runtime/backend
+- [x] plano backend-neutral de cleanup no scope normal da função: releases em ordem reversa e destroy apenas no último strong owner
+- [ ] early-return/branch/defer-aware shared cleanup
+- [ ] ARC lowering/runtime para tornar `share` executável no backend
 - [ ] transições para `region/device/external` e merges correspondentes
 - [ ] regras de domínio para loops além do gate conservador atual
 - [ ] integração completa de cleanup/early return/defer
@@ -102,7 +103,7 @@
 ```text
 Fase 0 — Reality Reset              ~80%
 Fase 1 — Typed Semantic Core       100% ✅
-Fase 2 — Ownership Domains          ~63% 🟡
+Fase 2 — Ownership Domains          ~66% 🟡
 Fase 3 — Authority Domains          ~10%
 Fase 4 — State Spaces                ~0%
 Fase 5 — Effects                    ~10%
@@ -123,7 +124,7 @@ Fase 17 — Tooling avançado          ~15%
 ### Fase 2 detalhada
 
 ```text
-Fase 2 — Ownership Domains                  ~63%
+Fase 2 — Ownership Domains                  ~66%
 
 ✅ sole / exclusive
 ✅ move semantics
@@ -148,10 +149,13 @@ Fase 2 — Ownership Domains                  ~63%
 ✅ partial-share sources remain fail-closed
 ✅ public share syntax + dedicated AST        ← NOVO
 ✅ parser → Typed AST → OwnershipEnv path     ← NOVO
-✅ C11 share gate remains fail-closed         ← NOVO
+✅ C11 share gate remains fail-closed
+✅ function-scope shared cleanup plan         ← NOVO
+✅ reverse release order / final destroy      ← NOVO
 
-⬜ cleanup integration for shared owners
-⬜ cleanup integration for shared owners
+⬜ early-return shared cleanup
+⬜ branch-aware shared cleanup
+⬜ defer integration for shared owners
 ⬜ ARC lowering/runtime
 ⬜ region
 ⬜ device
