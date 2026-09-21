@@ -501,6 +501,7 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
             text,
         )
         self.assertIn('"uint64_t "', text)
+        self.assertIn('";\\nif (!__sotlas_try_"', text)
         self.assertIn(
             "return self.emit_try_let_u64_statement(let_index, try_index);",
             text,

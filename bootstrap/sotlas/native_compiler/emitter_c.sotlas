@@ -1255,7 +1255,7 @@ impl CEmitter {
         if !self.emit_expression(try_node.first_child) {
             return false;
         }
-        if !self.write_str(";\nif (__sotlas_try_", 19) {
+        if !self.write_str(";\nif (!__sotlas_try_", 20) {
             return false;
         }
         if !self.write_source_slice(local.str_offset, local.str_len) {
