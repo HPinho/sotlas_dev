@@ -758,6 +758,97 @@ fn main(token: Token) -> void {
         ):
             typed_ast.plan_shared_scope_cleanup(env, ())
 
+    def test_shared_early_return_cleanup_is_path_specific(self):
+        source = """module test::shared_early_return_cleanup;
+sole struct Token { value: u32; }
+fn main(flag: bool, token: Token) -> void {
+    let peer = share token;
+    if flag {
+        return;
+    }
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<shared-early-return>")
+        bootstrap.check(parsed)
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(
+            parsed, typed_module, "main"
+        )
+        early = tuple(
+            step for step in trace.shared_path_cleanup.steps
+            if step.via == "early_return"
+        )
+        self.assertEqual(len(early), 4)
+        self.assertEqual(
+            tuple(step.owner for step in early),
+            ("peer", "token", "peer", "token"),
+        )
+        self.assertTrue(early[1].destroy_after)
+        self.assertTrue(early[3].destroy_after)
+
+    def test_branch_local_shared_alias_is_cleaned_only_on_returning_path(self):
+        source = """module test::branch_local_shared_cleanup;
+sole struct Token { value: u32; }
+fn main(flag: bool, token: Token) -> void {
+    if flag {
+        let peer = share token;
+        return;
+    }
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<branch-local-shared-cleanup>")
+        bootstrap.check(parsed)
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(
+            parsed, typed_module, "main"
+        )
+        early = trace.shared_path_cleanup.steps
+        self.assertEqual(
+            tuple(step.owner for step in early),
+            ("peer", "token"),
+        )
+        self.assertEqual(early[0].strong_refs_after, 1)
+        self.assertTrue(early[1].destroy_after)
+        self.assertEqual(trace.shared_cleanup.steps, ())
+
+    def test_branch_path_cleanup_does_not_double_release_fallthrough_owner(self):
+        source = """module test::branch_no_double_release;
+sole struct Token { value: u32; }
+fn main(flag: bool, token: Token) -> void {
+    let peer = share token;
+    if flag {
+        return;
+    }
+}
+"""
+        parsed = bootstrap.parse(source, filename="<branch-no-double-release>")
+        bootstrap.check(parsed)
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(
+            parsed, typed_module, "main"
+        )
+        self.assertEqual(
+            tuple(step.owner for step in trace.shared_path_cleanup.steps),
+            ("peer", "token"),
+        )
+        self.assertEqual(
+            tuple(step.owner for step in trace.shared_cleanup.steps),
+            ("peer", "token"),
+        )
+        self.assertEqual(
+            sum(
+                step.destroy_after
+                for step in trace.shared_path_cleanup.steps
+            ),
+            1,
+        )
+        self.assertEqual(
+            sum(step.destroy_after for step in trace.shared_cleanup.steps),
+            1,
+        )
+
     def test_explicit_sole_transfer_starts_live_then_moves(self):
         typed = typed_ast.build_declaration_typed_ast(self.checked_ast())
         state = typed_ast.require_sole_transfer(

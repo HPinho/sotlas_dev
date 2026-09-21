@@ -518,6 +518,7 @@ class OwnershipTrace:
     final_env: OwnershipEnv
     events: tuple[OwnershipEvent, ...]
     shared_cleanup: SharedCleanupPlan = SharedCleanupPlan(())
+    shared_path_cleanup: SharedCleanupPlan = SharedCleanupPlan(())
 
 
 def plan_shared_scope_cleanup(
@@ -592,6 +593,25 @@ def plan_shared_scope_cleanup(
                 )
             )
     return SharedCleanupPlan(tuple(steps))
+
+
+def _shared_cleanup_for_path(
+    env: OwnershipEnv,
+    events: tuple[OwnershipEvent, ...] | list[OwnershipEvent],
+    via: str,
+) -> tuple[SharedCleanupStep, ...]:
+    plan = plan_shared_scope_cleanup(env, events)
+    return tuple(
+        SharedCleanupStep(
+            owner=step.owner,
+            account=step.account,
+            strong_refs_before=step.strong_refs_before,
+            strong_refs_after=step.strong_refs_after,
+            destroy_after=step.destroy_after,
+            via=via,
+        )
+        for step in plan.steps
+    )
 
 
 def _typed_function_map(module: TypedModule) -> dict[str, TypedFunction]:
@@ -1157,6 +1177,10 @@ def _analyze_block_ownership(
     typed_module: TypedModule,
     typed_function: TypedFunction,
     events: list[OwnershipEvent],
+    *,
+    history: tuple[OwnershipEvent, ...] = (),
+    path_cleanup: list[SharedCleanupStep] | None = None,
+    collect_return_cleanup: bool = True,
 ) -> OwnershipEnv:
     """Analyze ownership events for a canonical AST block.
 
@@ -1165,6 +1189,8 @@ def _analyze_block_ownership(
     ownership join.
     """
     result = env
+    if path_cleanup is None:
+        path_cleanup = []
     for statement in statements:
         kind = type(statement).__name__
 
@@ -1344,6 +1370,14 @@ def _analyze_block_ownership(
                 )
             else:
                 require_expr_ownership_live(result, value)
+            if collect_return_cleanup:
+                path_cleanup.extend(
+                    _shared_cleanup_for_path(
+                        result,
+                        history + tuple(events),
+                        "early_return",
+                    )
+                )
             break
 
         if kind in ("Break", "Continue"):
@@ -1362,12 +1396,16 @@ def _analyze_block_ownership(
             else_body = getattr(statement, "else_body", ())
             then_events: list[OwnershipEvent] = []
             else_events: list[OwnershipEvent] = []
+            branch_history = history + tuple(events)
             then_env = _analyze_block_ownership(
                 then_body,
                 result,
                 typed_module,
                 typed_function,
                 then_events,
+                history=branch_history,
+                path_cleanup=path_cleanup,
+                collect_return_cleanup=collect_return_cleanup,
             )
             else_env = _analyze_block_ownership(
                 else_body,
@@ -1375,6 +1413,9 @@ def _analyze_block_ownership(
                 typed_module,
                 typed_function,
                 else_events,
+                history=branch_history,
+                path_cleanup=path_cleanup,
+                collect_return_cleanup=collect_return_cleanup,
             )
             then_env = _project_ownership_env(then_env, visible)
             else_env = _project_ownership_env(else_env, visible)
@@ -1433,6 +1474,9 @@ def _analyze_block_ownership(
                 typed_module,
                 typed_function,
                 body_events,
+                history=history + tuple(events),
+                path_cleanup=path_cleanup,
+                collect_return_cleanup=collect_return_cleanup,
             )
             result = _project_ownership_env(body_env, visible)
             events.append(
@@ -1475,6 +1519,9 @@ def _analyze_block_ownership(
                     typed_module,
                     typed_function,
                     deferred_events,
+                    history=history + tuple(events),
+                    path_cleanup=path_cleanup,
+                    collect_return_cleanup=False,
                 )
                 deferred_env = _project_ownership_env(
                     deferred_env, visible
@@ -1487,6 +1534,9 @@ def _analyze_block_ownership(
                     typed_module,
                     typed_function,
                     deferred_events,
+                    history=history + tuple(events),
+                    path_cleanup=path_cleanup,
+                    collect_return_cleanup=False,
                 )
                 via = "assign"
             elif type(deferred_value).__name__ == "Call":
@@ -1554,6 +1604,9 @@ def _analyze_block_ownership(
                 typed_module,
                 typed_function,
                 body_events,
+                history=history + tuple(events),
+                path_cleanup=path_cleanup,
+                collect_return_cleanup=collect_return_cleanup,
             )
             body_env = _project_ownership_env(body_env, visible)
 
@@ -1601,11 +1654,22 @@ def analyze_function_ownership(
                 OwnershipEvent("declare", param.name, "parameter")
             )
 
+    path_cleanup: list[SharedCleanupStep] = []
     env = _analyze_block_ownership(
-        parsed_function.body, env, typed_module, typed_function, events
+        parsed_function.body,
+        env,
+        typed_module,
+        typed_function,
+        events,
+        path_cleanup=path_cleanup,
     )
     cleanup = plan_shared_scope_cleanup(env, events)
-    return OwnershipTrace(env, tuple(events), cleanup)
+    return OwnershipTrace(
+        env,
+        tuple(events),
+        cleanup,
+        SharedCleanupPlan(tuple(path_cleanup)),
+    )
 
 
 @dataclass(frozen=True)
