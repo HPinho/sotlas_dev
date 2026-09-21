@@ -3833,7 +3833,8 @@ Ainda necessário para concluir a Fase 2 canônica:
 
 - [ ] formalizar `exclusive` como Ownership Domain explícito além da semântica atual de `sole`;
 - [ ] `shared` como domínio de ownership com custo e estratégia observáveis; o domínio já existe internamente como destino planejável, mas ainda não possui sintaxe/runtime/ARC;
-- [ ] contrato formal de `co-owned`/ARC integrado ao Typed AST e lowering canônico;
+- [x] contrato semântico backend-neutral de `co-owned`/ARC com contador forte explícito, retain/release determinísticos e destruição elegível quando strong_refs chega a zero;
+- [ ] integração desse accounting com aliases reais, cleanup, Typed AST de expressões e lowering canônico;
 - [ ] `region` como domínio de lifetime/ownership verificável;
 - [ ] `device` como transferência de ownership CPU ↔ dispositivo com completion/reacquisition;
 - [ ] `external` como ownership/lifetime atravessando FFI ou recurso externo;
@@ -3845,7 +3846,7 @@ Ainda necessário para concluir a Fase 2 canônica:
 - [x] grafo canônico de ownership/domains no snapshot semântico para owners rastreados e transferências `exclusive`;
 - [x] merge de Ownership Domain em branches exige domínio idêntico e registra LIVE/MOVED/MAYBE_MOVED no grafo;
 - [x] contrato semântico backend-neutral para planejar `exclusive → shared` via `share`, exigindo owner LIVE e sem mutação/runtime implícito;
-- [ ] aplicação efetiva de `shared` após formalização de ARC/reference accounting;
+- [ ] aplicação efetiva de `shared` no ambiente; ARC/reference accounting já possui modelo semântico, mas ainda não está ligado a aliases/runtime;
 - [ ] transições e merges para `region`, `device` e `external`;
 - [ ] regras de domínio específicas para loops além da validação conservadora atual;
 - [ ] integração completa com `defer`, cleanup e unwind/early-return de todos os recursos;

@@ -374,6 +374,63 @@ fn maybe(flag: bool, token: Token) -> void {
                 "unshare",
             )
 
+    def test_shared_account_starts_with_one_explicit_strong_owner(self):
+        binding = typed_ast.OwnershipBinding(
+            "token",
+            typed_ast.SemanticType("Token"),
+            typed_ast.VarState.LIVE,
+            typed_ast.OwnershipDomain.EXCLUSIVE,
+        )
+        transition = typed_ast.plan_ownership_domain_transition(
+            binding,
+            typed_ast.OwnershipDomain.SHARED,
+            "share",
+        )
+        account = typed_ast.open_shared_ownership_account(transition)
+        self.assertEqual(account.binding, "token")
+        self.assertEqual(account.strong_refs, 1)
+        self.assertEqual(account.accounting, "arc")
+        self.assertFalse(account.should_destroy)
+
+    def test_shared_reference_accounting_is_explicit_and_deterministic(self):
+        transition = typed_ast.OwnershipDomainTransition(
+            "token",
+            typed_ast.SemanticType("Token"),
+            typed_ast.OwnershipDomain.EXCLUSIVE,
+            typed_ast.OwnershipDomain.SHARED,
+            typed_ast.VarState.LIVE,
+            "share",
+        )
+        account = typed_ast.open_shared_ownership_account(transition)
+        retained = typed_ast.retain_shared_owner(account)
+        self.assertEqual(account.strong_refs, 1)
+        self.assertEqual(retained.strong_refs, 2)
+
+        one_left = typed_ast.release_shared_owner(retained)
+        self.assertEqual(one_left.strong_refs, 1)
+        self.assertFalse(one_left.should_destroy)
+
+        released = typed_ast.release_shared_owner(one_left)
+        self.assertEqual(released.strong_refs, 0)
+        self.assertTrue(released.should_destroy)
+
+    def test_shared_reference_accounting_rejects_retain_after_final_release(self):
+        account = typed_ast.SharedOwnershipAccount(
+            "token",
+            typed_ast.SemanticType("Token"),
+            0,
+        )
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            "cannot retain released shared ownership",
+        ):
+            typed_ast.retain_shared_owner(account)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            "has no strong owner to release",
+        ):
+            typed_ast.release_shared_owner(account)
+
     def test_explicit_sole_transfer_starts_live_then_moves(self):
         typed = typed_ast.build_declaration_typed_ast(self.checked_ast())
         state = typed_ast.require_sole_transfer(

@@ -234,6 +234,72 @@ def plan_ownership_domain_transition(
     )
 
 
+@dataclass(frozen=True)
+class SharedOwnershipAccount:
+    binding: str
+    type: SemanticType
+    strong_refs: int
+    accounting: str = "arc"
+
+    @property
+    def should_destroy(self) -> bool:
+        return self.strong_refs == 0
+
+
+def open_shared_ownership_account(
+    transition: OwnershipDomainTransition,
+) -> SharedOwnershipAccount:
+    """Materialize semantic ARC accounting for an approved share transition."""
+    if (
+        transition.source is not OwnershipDomain.EXCLUSIVE
+        or transition.target is not OwnershipDomain.SHARED
+        or transition.operation != "share"
+        or transition.source_state is not VarState.LIVE
+    ):
+        raise Phase1SemanticError(
+            f"cannot open shared ownership account from transition "
+            f"{transition.source.value} -> {transition.target.value} "
+            f"via {transition.operation}"
+        )
+    return SharedOwnershipAccount(
+        binding=transition.binding,
+        type=transition.type,
+        strong_refs=1,
+    )
+
+
+def retain_shared_owner(
+    account: SharedOwnershipAccount,
+) -> SharedOwnershipAccount:
+    """Record one explicit strong-owner acquisition."""
+    if account.strong_refs <= 0:
+        raise Phase1SemanticError(
+            f"cannot retain released shared ownership {account.binding!r}"
+        )
+    return SharedOwnershipAccount(
+        binding=account.binding,
+        type=account.type,
+        strong_refs=account.strong_refs + 1,
+        accounting=account.accounting,
+    )
+
+
+def release_shared_owner(
+    account: SharedOwnershipAccount,
+) -> SharedOwnershipAccount:
+    """Record one explicit strong-owner release without backend side effects."""
+    if account.strong_refs <= 0:
+        raise Phase1SemanticError(
+            f"shared ownership {account.binding!r} has no strong owner to release"
+        )
+    return SharedOwnershipAccount(
+        binding=account.binding,
+        type=account.type,
+        strong_refs=account.strong_refs - 1,
+        accounting=account.accounting,
+    )
+
+
 def _declared_local_type(statement) -> SemanticType | None:
     """Resolve a local declaration type without running a second typechecker.
 
@@ -1351,6 +1417,7 @@ class OwnershipDomainGraph:
     transfers: tuple[OwnershipDomainTransfer, ...]
     merges: tuple[OwnershipDomainMerge, ...] = ()
     planned_transitions: tuple[OwnershipDomainTransition, ...] = ()
+    shared_accounts: tuple[SharedOwnershipAccount, ...] = ()
 
 
 def build_ownership_domain_graph(
@@ -3770,8 +3837,9 @@ __all__ = [
     "OwnershipParamContract", "OwnershipFunctionSummary",
     "OwnershipModuleAnalysis", "OwnershipDomainNode", "OwnershipDomainTransfer",
     "OwnershipDomainMerge", "OwnershipDomainTransition",
-    "OwnershipDomainGraph", "build_ownership_domain_graph",
+    "SharedOwnershipAccount", "OwnershipDomainGraph", "build_ownership_domain_graph",
     "merge_ownership_bindings", "plan_ownership_domain_transition",
+    "open_shared_ownership_account", "retain_shared_owner", "release_shared_owner",
     "summarize_module_ownership", "analyze_module_ownership", "TypedExprNode", "TypedStmtNode",
     "TypedFunctionBody", "infer_expression_type",
     "infer_assignment_target_type", "build_linear_typed_body",

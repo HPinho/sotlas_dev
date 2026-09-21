@@ -67,7 +67,8 @@
 
 - [ ] Ownership Domain `exclusive` explícito
 - [ ] `shared` (domínio já existe internamente como destino semântico; sintaxe/runtime/ARC ainda não suportados)
-- [ ] `co-owned` / ARC formal no Typed AST/lowering
+- [x] modelo semântico backend-neutral de `co-owned`/ARC com strong-reference accounting explícito, retain/release e destruição elegível no último owner
+- [ ] integração do ARC com bindings reais, aliases, cleanup e lowering
 - [ ] `region`
 - [ ] `device`
 - [ ] `external`
@@ -79,7 +80,7 @@
 - [x] ownership/domain graph canônico para owners rastreados e transferências `exclusive` (`call`, `return`, campos e payloads), backend-neutral
 - [x] merge canônico de domínio em branches para owners rastreados: domínio deve permanecer idêntico; joins de estado são registrados no grafo
 - [x] contrato backend-neutral da primeira transição explícita `exclusive → shared` via operação `share`, exigindo source LIVE e sem aplicar runtime implicitamente
-- [ ] aplicação real da transição `exclusive → shared` no ambiente após definição de shared ownership/ARC
+- [ ] aplicação real da transição `exclusive → shared` no ambiente; o modelo de conta compartilhada/ARC já está definido, mas ainda não cria aliases nem runtime
 - [ ] transições para `region/device/external` e merges correspondentes
 - [ ] regras de domínio para loops além do gate conservador atual
 - [ ] integração completa de cleanup/early return/defer
