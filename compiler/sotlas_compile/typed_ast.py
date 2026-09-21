@@ -30,6 +30,7 @@ class VarState(str, Enum):
 
 class OwnershipDomain(str, Enum):
     EXCLUSIVE = "exclusive"
+    SHARED = "shared"
 
 
 def sole_type_names(module: TypedModule) -> frozenset[str]:
@@ -180,6 +181,56 @@ def merge_ownership_bindings(
         left.type,
         merge_branch_states(left.state, right.state),
         left.domain,
+    )
+
+
+@dataclass(frozen=True)
+class OwnershipDomainTransition:
+    binding: str
+    type: SemanticType
+    source: OwnershipDomain
+    target: OwnershipDomain
+    source_state: VarState
+    operation: str
+
+
+def plan_ownership_domain_transition(
+    binding: OwnershipBinding,
+    target: OwnershipDomain,
+    operation: str,
+) -> OwnershipDomainTransition:
+    """Validate a domain transition without pretending backend support exists.
+
+    The first canonical transition is exclusive -> shared through an explicit
+    share operation. This function only records semantic intent; it does not
+    mutate an OwnershipEnv, add reference counting, or lower runtime behavior.
+    """
+    if binding.state is not VarState.LIVE:
+        raise Phase1SemanticError(
+            f"ownership domain transition for {binding.name!r} requires LIVE "
+            f"source, got {binding.state.value}"
+        )
+    if binding.domain is target:
+        raise Phase1SemanticError(
+            f"ownership binding {binding.name!r} is already in domain "
+            f"{target.value!r}"
+        )
+    if (
+        binding.domain is OwnershipDomain.EXCLUSIVE
+        and target is OwnershipDomain.SHARED
+        and operation == "share"
+    ):
+        return OwnershipDomainTransition(
+            binding=binding.name,
+            type=binding.type,
+            source=binding.domain,
+            target=target,
+            source_state=binding.state,
+            operation=operation,
+        )
+    raise Phase1SemanticError(
+        f"unsupported ownership domain transition for {binding.name!r}: "
+        f"{binding.domain.value} -> {target.value} via {operation}"
     )
 
 
@@ -1299,6 +1350,7 @@ class OwnershipDomainGraph:
     nodes: tuple[OwnershipDomainNode, ...]
     transfers: tuple[OwnershipDomainTransfer, ...]
     merges: tuple[OwnershipDomainMerge, ...] = ()
+    planned_transitions: tuple[OwnershipDomainTransition, ...] = ()
 
 
 def build_ownership_domain_graph(
@@ -3717,8 +3769,9 @@ __all__ = [
     "analyze_linear_function_ownership", "analyze_function_ownership",
     "OwnershipParamContract", "OwnershipFunctionSummary",
     "OwnershipModuleAnalysis", "OwnershipDomainNode", "OwnershipDomainTransfer",
-    "OwnershipDomainMerge", "OwnershipDomainGraph", "build_ownership_domain_graph",
-    "merge_ownership_bindings",
+    "OwnershipDomainMerge", "OwnershipDomainTransition",
+    "OwnershipDomainGraph", "build_ownership_domain_graph",
+    "merge_ownership_bindings", "plan_ownership_domain_transition",
     "summarize_module_ownership", "analyze_module_ownership", "TypedExprNode", "TypedStmtNode",
     "TypedFunctionBody", "infer_expression_type",
     "infer_assignment_target_type", "build_linear_typed_body",

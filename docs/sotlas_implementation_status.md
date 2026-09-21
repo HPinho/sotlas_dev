@@ -66,7 +66,7 @@
 ### Falta para concluir a Fase 2
 
 - [ ] Ownership Domain `exclusive` explícito
-- [ ] `shared`
+- [ ] `shared` (domínio já existe internamente como destino semântico; sintaxe/runtime/ARC ainda não suportados)
 - [ ] `co-owned` / ARC formal no Typed AST/lowering
 - [ ] `region`
 - [ ] `device`
@@ -78,7 +78,9 @@
 - [ ] `quarantine`
 - [x] ownership/domain graph canônico para owners rastreados e transferências `exclusive` (`call`, `return`, campos e payloads), backend-neutral
 - [x] merge canônico de domínio em branches para owners rastreados: domínio deve permanecer idêntico; joins de estado são registrados no grafo
-- [ ] regras de transição explícita entre domínios (`exclusive → shared/region/device/external`) e merges correspondentes
+- [x] contrato backend-neutral da primeira transição explícita `exclusive → shared` via operação `share`, exigindo source LIVE e sem aplicar runtime implicitamente
+- [ ] aplicação real da transição `exclusive → shared` no ambiente após definição de shared ownership/ARC
+- [ ] transições para `region/device/external` e merges correspondentes
 - [ ] regras de domínio para loops além do gate conservador atual
 - [ ] integração completa de cleanup/early return/defer
 - [ ] lowering backend-neutral dos domains

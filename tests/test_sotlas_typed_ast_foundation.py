@@ -321,6 +321,59 @@ fn maybe(flag: bool, token: Token) -> void {
         ):
             typed_ast.merge_ownership_bindings(left, right)
 
+    def test_exclusive_to_shared_transition_is_planned_but_not_applied(self):
+        binding = typed_ast.OwnershipBinding(
+            "token",
+            typed_ast.SemanticType("Token"),
+            typed_ast.VarState.LIVE,
+            typed_ast.OwnershipDomain.EXCLUSIVE,
+        )
+        transition = typed_ast.plan_ownership_domain_transition(
+            binding,
+            typed_ast.OwnershipDomain.SHARED,
+            "share",
+        )
+        self.assertEqual(transition.binding, "token")
+        self.assertIs(transition.source, typed_ast.OwnershipDomain.EXCLUSIVE)
+        self.assertIs(transition.target, typed_ast.OwnershipDomain.SHARED)
+        self.assertIs(transition.source_state, typed_ast.VarState.LIVE)
+        self.assertEqual(transition.operation, "share")
+        self.assertIs(binding.domain, typed_ast.OwnershipDomain.EXCLUSIVE)
+
+    def test_domain_transition_requires_live_exclusive_source(self):
+        moved = typed_ast.OwnershipBinding(
+            "token",
+            typed_ast.SemanticType("Token"),
+            typed_ast.VarState.MOVED,
+            typed_ast.OwnershipDomain.EXCLUSIVE,
+        )
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            "requires LIVE source",
+        ):
+            typed_ast.plan_ownership_domain_transition(
+                moved,
+                typed_ast.OwnershipDomain.SHARED,
+                "share",
+            )
+
+    def test_unimplemented_domain_transition_remains_fail_closed(self):
+        shared = typed_ast.OwnershipBinding(
+            "token",
+            typed_ast.SemanticType("Token"),
+            typed_ast.VarState.LIVE,
+            typed_ast.OwnershipDomain.SHARED,
+        )
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            "unsupported ownership domain transition",
+        ):
+            typed_ast.plan_ownership_domain_transition(
+                shared,
+                typed_ast.OwnershipDomain.EXCLUSIVE,
+                "unshare",
+            )
+
     def test_explicit_sole_transfer_starts_live_then_moves(self):
         typed = typed_ast.build_declaration_typed_ast(self.checked_ast())
         state = typed_ast.require_sole_transfer(
