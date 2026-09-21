@@ -457,6 +457,136 @@ impl CEmitter {
         return true;
     }
 
+    pub fn source_slices_equal(
+        self: &Self,
+        left_offset: usize,
+        left_len: usize,
+        right_offset: usize,
+        right_len: usize
+    ) -> bool {
+        if self.source == null || left_len != right_len {
+            return false;
+        }
+        if left_offset > self.source_len || left_len > self.source_len - left_offset {
+            return false;
+        }
+        if right_offset > self.source_len || right_len > self.source_len - right_offset {
+            return false;
+        }
+
+        let mut i: usize = 0;
+        while i < left_len {
+            let a: u8 = unsafe { *(self.source + left_offset + i) };
+            let b: u8 = unsafe { *(self.source + right_offset + i) };
+            if a != b {
+                return false;
+            }
+            i = i + 1;
+        }
+        return true;
+    }
+
+    pub fn find_enclosing_module(self: &Self, index: usize) -> usize {
+        if !self.valid_node(index) {
+            return 0;
+        }
+        let mut current: usize = index;
+        while current != 0 {
+            if !self.valid_node(current) {
+                return 0;
+            }
+            let node: AstNode = unsafe { *(self.nodes + current) };
+            if node.kind == AstKind::Module {
+                return current;
+            }
+            current = node.parent;
+        }
+        return 0;
+    }
+
+    pub fn find_module_function_by_name(
+        self: &Self,
+        module_index: usize,
+        name_offset: usize,
+        name_len: usize
+    ) -> usize {
+        if !self.valid_node(module_index) {
+            return 0;
+        }
+        let module_node: AstNode = unsafe { *(self.nodes + module_index) };
+        if module_node.kind != AstKind::Module {
+            return 0;
+        }
+
+        let mut child: usize = module_node.first_child;
+        while child != 0 {
+            if !self.valid_node(child) {
+                return 0;
+            }
+            let node: AstNode = unsafe { *(self.nodes + child) };
+            if node.kind == AstKind::FnDecl
+                && self.source_slices_equal(
+                    node.str_offset,
+                    node.str_len,
+                    name_offset,
+                    name_len
+                ) {
+                return child;
+            }
+            child = node.next_sibling;
+        }
+        return 0;
+    }
+
+    pub fn try_call_returns_result_u64_i32(
+        self: &Self,
+        try_index: usize
+    ) -> bool {
+        if !self.valid_node(try_index) {
+            return false;
+        }
+        let try_node: AstNode = unsafe { *(self.nodes + try_index) };
+        if try_node.kind != AstKind::TryExpr || !self.valid_node(try_node.first_child) {
+            return false;
+        }
+
+        let call: AstNode = unsafe { *(self.nodes + try_node.first_child) };
+        if call.kind != AstKind::ExprCall || !self.valid_node(call.first_child) {
+            return false;
+        }
+        let callee: AstNode = unsafe { *(self.nodes + call.first_child) };
+        if callee.kind != AstKind::ExprIdent || callee.str_len == 0 {
+            return false;
+        }
+
+        let module_index: usize = self.find_enclosing_module(try_index);
+        if module_index == 0 {
+            return false;
+        }
+        let fn_index: usize = self.find_module_function_by_name(
+            module_index,
+            callee.str_offset,
+            callee.str_len
+        );
+        if fn_index == 0 {
+            return false;
+        }
+        let return_type: usize = self.find_function_return_type(fn_index);
+        return return_type != 0 && self.type_ref_is_result_u64_i32(return_type);
+    }
+
+    pub fn try_context_returns_result_u64_i32(
+        self: &Self,
+        try_index: usize
+    ) -> bool {
+        let fn_index: usize = self.find_enclosing_function(try_index);
+        if fn_index == 0 {
+            return false;
+        }
+        let return_type: usize = self.find_function_return_type(fn_index);
+        return return_type != 0 && self.type_ref_is_result_u64_i32(return_type);
+    }
+
     pub fn type_ref_is_result_u64_i32(self: &Self, type_index: usize) -> bool {
         if !self.valid_node(type_index) {
             return false;
@@ -949,6 +1079,89 @@ impl CEmitter {
         return self.emit_braced_block(body_index);
     }
 
+    pub fn emit_try_let_statement(
+        mut self: &mut Self,
+        let_index: usize,
+        type_index: usize,
+        try_index: usize
+    ) -> bool {
+        if !self.valid_node(let_index)
+            || !self.valid_node(type_index)
+            || !self.valid_node(try_index) {
+            return false;
+        }
+
+        let local: AstNode = unsafe { *(self.nodes + let_index) };
+        let typ: AstNode = unsafe { *(self.nodes + type_index) };
+        let try_node: AstNode = unsafe { *(self.nodes + try_index) };
+        if local.kind != AstKind::LetStmt
+            || typ.kind != AstKind::TypeRef
+            || try_node.kind != AstKind::TryExpr
+            || local.str_len == 0 {
+            return false;
+        }
+
+        if !self.source_slice_equals(typ.str_offset, typ.str_len, "u64", 3) {
+            return false;
+        }
+        if !self.try_context_returns_result_u64_i32(try_index)
+            || !self.try_call_returns_result_u64_i32(try_index) {
+            return false;
+        }
+
+        if !self.write_str("SotlasResultU64 __sotlas_try_", 30) {
+            return false;
+        }
+        if !self.write_source_slice(local.str_offset, local.str_len) {
+            return false;
+        }
+        if !self.write_str(" = ", 3) {
+            return false;
+        }
+        if !self.emit_expression(try_node.first_child) {
+            return false;
+        }
+        if !self.write_str(";\nif (__sotlas_try_", 19) {
+            return false;
+        }
+        if !self.write_source_slice(local.str_offset, local.str_len) {
+            return false;
+        }
+        if !self.write_str(".status != 0) {\n", 17) {
+            return false;
+        }
+
+        if !self.emit_function_exit_defers(let_index) {
+            return false;
+        }
+        if !self.write_str("return __sotlas_try_", 20) {
+            return false;
+        }
+        if !self.write_source_slice(local.str_offset, local.str_len) {
+            return false;
+        }
+        if !self.write_str(";\n}\n", 4) {
+            return false;
+        }
+
+        if !self.emit_c_type(type_index) {
+            return false;
+        }
+        if !self.write_byte(32) {
+            return false;
+        }
+        if !self.write_source_slice(local.str_offset, local.str_len) {
+            return false;
+        }
+        if !self.write_str(" = __sotlas_try_", 16) {
+            return false;
+        }
+        if !self.write_source_slice(local.str_offset, local.str_len) {
+            return false;
+        }
+        return self.write_str(".value;\n", 8);
+    }
+
     pub fn emit_let_statement(mut self: &mut Self, index: usize) -> bool {
         if !self.valid_node(index) {
             return false;
@@ -969,6 +1182,17 @@ impl CEmitter {
             return false;
         }
 
+        let init_index: usize = type_node.next_sibling;
+        if init_index != 0 {
+            if !self.valid_node(init_index) {
+                return false;
+            }
+            let init_node: AstNode = unsafe { *(self.nodes + init_index) };
+            if init_node.kind == AstKind::TryExpr {
+                return self.emit_try_let_statement(index, type_index, init_index);
+            }
+        }
+
         if !self.emit_c_type(type_index) {
             return false;
         }
@@ -979,11 +1203,7 @@ impl CEmitter {
             return false;
         }
 
-        let init_index: usize = type_node.next_sibling;
         if init_index != 0 {
-            if !self.valid_node(init_index) {
-                return false;
-            }
             if !self.write_str(" = ", 3) {
                 return false;
             }

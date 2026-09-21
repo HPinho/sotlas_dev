@@ -402,6 +402,25 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         self.assertIn("self.find_function_body(fn_index)", text)
         self.assertIn("return self.emit_braced_block(body_index);", text)
 
+    def test_native_emitter_lowers_direct_result_try_initializer(self):
+        emitter_file = (
+            ROOT / "bootstrap" / "sotlas" / "native_compiler" / "emitter_c.sotlas"
+        )
+        text = emitter_file.read_text(encoding="utf-8")
+        self.assertIn("pub fn find_module_function_by_name", text)
+        self.assertIn("pub fn try_call_returns_result_u64_i32", text)
+        self.assertIn("pub fn try_context_returns_result_u64_i32", text)
+        self.assertIn("pub fn emit_try_let_statement", text)
+        self.assertIn('"SotlasResultU64 __sotlas_try_"', text)
+        self.assertIn('".status != 0) {\\n"', text)
+        self.assertIn("self.emit_function_exit_defers(let_index)", text)
+        self.assertIn('"return __sotlas_try_"', text)
+        self.assertIn('".value;\\n"', text)
+        self.assertIn(
+            "return self.emit_try_let_statement(index, type_index, init_index);",
+            text,
+        )
+
     def test_native_emitter_lowers_typed_local_declarations(self):
         emitter_file = (
             ROOT / "bootstrap" / "sotlas" / "native_compiler" / "emitter_c.sotlas"
