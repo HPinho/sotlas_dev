@@ -1,6 +1,9 @@
 """Isolated Phase-1 tests for the declaration Typed AST foundation."""
 from pathlib import Path
 import importlib.util
+import os
+import shutil
+import subprocess
 import sys
 import unittest
 
@@ -5754,21 +5757,65 @@ fn main() -> void { return; }
             "u32",
         )
 
-    def test_payload_enum_c11_lowering_is_fail_closed_until_tagged_union_backend(self):
+    def test_scalar_payload_enum_has_c11_tagged_union_and_constructor(self):
         source = """module test::payload_enum_c11_gate;
 pub enum Message {
     Empty,
     Number(u32),
 }
+fn make() -> Message { return Message::Number(7); }
 fn main() -> void { return; }
 """
         parsed = bootstrap.parse(source, filename="<payload-enum-c11-gate>")
         bootstrap.check(parsed)
+        generated = bootstrap.emit_c(parsed)
+        self.assertIn("typedef struct Message {", generated)
+        self.assertIn("int32_t tag;", generated)
+        self.assertIn("uint32_t Number;", generated)
+        self.assertIn("static inline Message Message_Number(uint32_t value)", generated)
+        self.assertIn(".payload.Number = value", generated)
+        self.assertIn("return Message_Number(7);", generated)
+        self.assertIn("#define Message_Empty ((Message){.tag = 0})", generated)
+        header = bootstrap.emit_header(parsed)
+        self.assertIn("typedef struct Message {", header)
+        self.assertIn("static inline Message Message_Number(uint32_t value)", header)
+
+    def test_non_scalar_payload_enum_c11_remains_fail_closed(self):
+        source = """module test::payload_enum_sole_gate;
+sole struct Handle { fd: u32; }
+enum Message { Value(Handle), }
+fn main() -> void { return; }
+"""
+        parsed = bootstrap.parse(source)
+        bootstrap.check(parsed)
         with self.assertRaisesRegex(
             bootstrap.SotlasBootstrapError,
-            r"C11 backend does not lower payload enum 'Message' yet",
+            "non-scalar payload 'Handle'",
         ):
             bootstrap.emit_c(parsed)
+
+    def test_scalar_payload_enum_generated_c_is_valid_c11(self):
+        compiler = shutil.which(os.environ.get("CC", "")) or next(
+            (path for name in ("clang", "cc", "gcc")
+             if (path := shutil.which(name))),
+            None,
+        )
+        if compiler is None:
+            self.skipTest("C11 compiler unavailable")
+        source = """module test::payload_enum_c11_smoke;
+enum Message { Empty, Number(u32), }
+fn make() -> Message { return Message::Number(7); }
+fn use() -> void { let message: Message = make(); return; }
+"""
+        generated = bootstrap.compile_source(source)
+        result = subprocess.run(
+            [compiler, "-std=c11", "-fsyntax-only", "-Werror", "-x", "c", "-"],
+            input=generated,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
 
 
 

@@ -2525,6 +2525,47 @@ def _c_struct_attributes(attributes: list[str]) -> str:
     return ""
 
 
+def _emit_c_enum(enum_obj: Enum) -> list[str]:
+    """C11 representation for scalar tagged unions; ownership needs separate lowering."""
+    payloads = [v for v in enum_obj.variants if v.payload_type is not None]
+    if not payloads:
+        result = [f"typedef enum {enum_obj.name} {{"]
+        for variant in enum_obj.variants:
+            value = f" = {variant.value}" if variant.value is not None else ""
+            result.append(f"    {enum_obj.name}_{variant.name}{value},")
+        return result + [f"}} {enum_obj.name};"]
+    for variant in payloads:
+        typ = variant.payload_type
+        if (typ.name not in PRIMITIVES or typ.name == "void" or typ.is_array
+                or typ.is_fn_ptr or typ.pointer or typ.is_reference):
+            raise SotlasBootstrapError(
+                f"C11 backend does not lower payload enum {enum_obj.name!r} "
+                f"with non-scalar payload {typ.name!r} yet"
+            )
+    result = [f"typedef struct {enum_obj.name} {{", "    int32_t tag;", "    union {"]
+    for variant in payloads:
+        result.append(f"        {variant.payload_type.c_decl(variant.name)};")
+    result += ["    } payload;", f"}} {enum_obj.name};"]
+    tag = 0
+    for variant in enum_obj.variants:
+        if variant.value is not None:
+            tag = variant.value
+        if variant.payload_type is None:
+            result.append(
+                f"#define {enum_obj.name}_{variant.name} "
+                f"(({enum_obj.name}){{.tag = {tag}}})"
+            )
+        else:
+            result += [
+                f"static inline {enum_obj.name} {enum_obj.name}_{variant.name}"
+                f"({variant.payload_type.c_decl('value')}) {{",
+                f"    return ({enum_obj.name}){{.tag = {tag}, "
+                f".payload.{variant.name} = value}};",
+                "}",
+            ]
+        tag += 1
+    return result
+
 def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
            include_import_headers: bool = False) -> str:
     prefix = f"{_c_ident(module.name)}__" if mangle else ""
@@ -2560,15 +2601,8 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
 
     # Enums
     for enum_obj in module.enums:
-        if any(variant.payload_type is not None for variant in enum_obj.variants):
-            raise SotlasBootstrapError(
-                f"C11 backend does not lower payload enum {enum_obj.name!r} yet"
-            )
-        lines.append(f"typedef enum {enum_obj.name} {{")
-        for v in enum_obj.variants:
-            val_str = f" = {v.value}" if v.value is not None else ""
-            lines.append(f"    {enum_obj.name}_{v.name}{val_str},")
-        lines.append(f"}} {enum_obj.name};\n")
+        lines.extend(_emit_c_enum(enum_obj))
+        lines.append("")
 
     # Forward typedefs das structs para suportar ponteiros de função autorreferenciais e vtables
     for struct in module.structs:
@@ -3184,17 +3218,8 @@ def emit_header(module: Module) -> str:
             lines.append(f"#define {global_.name} (({global_.type.c()})({_emit_expr(global_.value)}))")
 
     for enum_obj in module.enums:
-        if not enum_obj.public:
-            continue
-        if any(variant.payload_type is not None for variant in enum_obj.variants):
-            raise SotlasBootstrapError(
-                f"C11 header backend does not lower payload enum {enum_obj.name!r} yet"
-            )
-        lines.append(f"typedef enum {enum_obj.name} {{")
-        for variant in enum_obj.variants:
-            value = f" = {variant.value}" if variant.value is not None else ""
-            lines.append(f"    {enum_obj.name}_{variant.name}{value},")
-        lines.append(f"}} {enum_obj.name};")
+        if enum_obj.public:
+            lines.extend(_emit_c_enum(enum_obj))
 
     for struct in module.structs:
         if struct.public:
