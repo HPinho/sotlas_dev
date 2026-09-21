@@ -372,5 +372,40 @@ pub fn main() -> i32 {
         self.assertEqual(code, 0)
 
 
+
+    def test_raii_inferred_struct_literal_schedules_cleanup(self):
+        source = """module test::raii_inferred_struct_cleanup;
+
+static mut g_deinit_count: u32 = 0;
+
+pub sole struct OwnedToken {
+    id: u32;
+
+    pub fn deinit(&mut self) {
+        unsafe {
+            g_deinit_count = g_deinit_count + 1;
+        }
+    }
+}
+
+pub fn execute_scope() -> void {
+    let token = OwnedToken { id: 44 };
+    return;
+}
+
+pub fn main() -> i32 {
+    execute_scope();
+    unsafe {
+        if g_deinit_count != 1 {
+            return 1;
+        }
+    }
+    return 0;
+}
+"""
+        code = self._compile_and_run(source)
+        self.assertEqual(code, 0)
+
+
 if __name__ == "__main__":
     unittest.main()

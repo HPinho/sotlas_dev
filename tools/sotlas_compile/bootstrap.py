@@ -1941,6 +1941,34 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                             out.append(f"{pad}const uint8_t *{item.name}[] = {_emit_expr(item.value, prefix)};")
                     else:
                         out.append(f"{pad}__auto_type {item.name} = {_emit_expr(item.value, prefix)};")
+                        inferred_type_name = (
+                            item.value.struct_name
+                            if isinstance(item.value, StructLit)
+                            else None
+                        )
+                        if inferred_type_name in deinit_methods:
+                            takes_ptr = deinit_methods[inferred_type_name]
+                            arg_node = (
+                                Unary(
+                                    item.token,
+                                    "&",
+                                    Name(item.token, item.name),
+                                )
+                                if takes_ptr
+                                else Name(item.token, item.name)
+                            )
+                            call_expr = Call(
+                                item.token,
+                                f"{inferred_type_name}_deinit",
+                                [arg_node],
+                            )
+                            defer_scopes[-1].append(
+                                Defer(
+                                    item.token,
+                                    value=call_expr,
+                                    auto_cleanup_name=item.name,
+                                )
+                            )
             elif isinstance(item, Assign):
                 _suppress_auto_cleanups(
                     defer_scopes,
