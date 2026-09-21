@@ -2064,7 +2064,7 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
                 if (
                     item.type is not None
                     and item.type.is_fn_ptr
-                    and not assignable(actual, item.type)
+                    and not same_type(actual, item.type)
                 ):
                     raise SotlasBootstrapError(
                         "assinatura de function pointer incompatível",

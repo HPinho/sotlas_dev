@@ -1434,6 +1434,18 @@ def infer_expression_type(
         for item in typed_module.globals:
             if item.name == name:
                 return TypedExprNode(kind, item.type, name)
+        for item in typed_module.functions:
+            if item.name == name:
+                return TypedExprNode(
+                    kind,
+                    SemanticType(
+                        "__fn_ptr",
+                        is_fn_ptr=True,
+                        fn_params=tuple(param.type for param in item.params),
+                        fn_ret=item.result,
+                    ),
+                    name,
+                )
         raise Phase1SemanticError(f"cannot type unresolved name {name!r}")
 
     if kind == "Number":
