@@ -25,11 +25,11 @@ module core::alloc;
 // ============================================================================
 
 pub struct ArenaAllocator {
-    pub buffer: *mut u8,
-    pub capacity: usize,
-    pub offset: usize,
-    pub high_water_mark: usize,
-    pub allocation_count: usize,
+    pub buffer: *mut u8;
+    pub capacity: usize;
+    pub offset: usize;
+    pub high_water_mark: usize;
+    pub allocation_count: usize;
 }
 
 pub fn arena_new(backing: *mut u8, cap: usize) -> ArenaAllocator {
@@ -148,9 +148,9 @@ pub fn arena_restore(arena: *mut ArenaAllocator, checkpoint: usize) {
 // ============================================================================
 
 pub struct BumpAllocator {
-    pub buffer: *mut u8,
-    pub capacity: usize,
-    pub offset: usize,
+    pub buffer: *mut u8;
+    pub capacity: usize;
+    pub offset: usize;
 }
 
 pub fn bump_new(backing: *mut u8, cap: usize) -> BumpAllocator {
