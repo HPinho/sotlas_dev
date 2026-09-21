@@ -168,9 +168,30 @@ pub fn main() -> i32 {
         return 37;
     }
 
+    let mut char_arena: ArenaAllocator = arena_new(g_arena_buf as *mut u8, 64);
+    let mut char_string: String = string_new_in_arena(&mut char_arena, 1);
+    let char_string_ptr: *mut String = (&mut char_string) as *mut String;
+    let char_arena_ptr: *mut ArenaAllocator = (&mut char_arena) as *mut ArenaAllocator;
+
+    if !string_append_char_in_arena(char_string_ptr, char_arena_ptr, 65) {
+        return 38;
+    }
+    if !string_append_char_in_arena(char_string_ptr, char_arena_ptr, 66) {
+        return 39;
+    }
+    if char_string.length != 2 || char_string.capacity < 2 {
+        return 40;
+    }
+    if string_char_at(string_as_slice(&char_string), 0) != 65 {
+        return 41;
+    }
+    if string_char_at(string_as_slice(&char_string), 1) != 66 {
+        return 42;
+    }
+
     let failed_string: String = string_new_in_arena(&mut arena, 128);
     if failed_string.data != null || failed_string.capacity != 0 {
-        return 38;
+        return 43;
     }
 
     return 0;

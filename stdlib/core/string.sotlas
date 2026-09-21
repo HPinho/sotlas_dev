@@ -339,6 +339,31 @@ pub fn string_append_slice(s: *mut String, slice: StringSlice) -> bool {
     }
 }
 
+pub fn string_append_char_in_arena(
+    s: *mut String,
+    arena: *mut ArenaAllocator,
+    ch: u8
+) -> bool {
+    if s == null || arena == null {
+        return false;
+    }
+
+    unsafe {
+        if (*s).length > (*s).capacity {
+            return false;
+        }
+
+        if (*s).length == (*s).capacity {
+            let required: usize = (*s).length + 1;
+            if !string_reserve_in_arena(s, arena, required) {
+                return false;
+            }
+        }
+    }
+
+    return string_append_char(s, ch);
+}
+
 pub fn string_append_slice_in_arena(
     s: *mut String,
     arena: *mut ArenaAllocator,
