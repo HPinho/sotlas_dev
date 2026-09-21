@@ -565,6 +565,20 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         self.assertIn("self.parse_type_ref(2)", text)
         self.assertIn("self.parse_type_ref(3)", text)
 
+    def test_native_parser_persists_qualified_expression_paths(self):
+        ast_file = ROOT / "bootstrap" / "sotlas" / "native_compiler" / "ast.sotlas"
+        parser_file = (
+            ROOT / "bootstrap" / "sotlas" / "native_compiler" / "parser.sotlas"
+        )
+        ast_text = ast_file.read_text(encoding="utf-8")
+        parser_text = parser_file.read_text(encoding="utf-8")
+        self.assertIn("ExprPath = 31", ast_text)
+        self.assertIn("self.match_token(TokenKind::DColon)", parser_text)
+        self.assertIn("let path_node: usize = self.alloc_node(AstKind::ExprPath", parser_text)
+        self.assertIn("self.set_node_text_range(path_node, tok, path_end)", parser_text)
+        self.assertIn("callee_node = path_node;", parser_text)
+        self.assertIn("self.append_child(call_node, callee_node)", parser_text)
+
     def test_native_parser_persists_try_propagation_expression(self):
         ast_file = ROOT / "bootstrap" / "sotlas" / "native_compiler" / "ast.sotlas"
         parser_file = (

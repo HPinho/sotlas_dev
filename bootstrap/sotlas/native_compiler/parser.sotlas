@@ -766,19 +766,41 @@ impl Parser {
         }
 
         if tok.kind == TokenKind::Ident {
-            let ident_node: usize = self.alloc_text_node(AstKind::ExprIdent, tok);
-            if ident_node == 0 {
+            let mut callee_node: usize = self.alloc_text_node(AstKind::ExprIdent, tok);
+            if callee_node == 0 {
                 return 0;
             }
+
+            if self.match_token(TokenKind::DColon) {
+                let mut path_end: Token = tok;
+                while self.match_token(TokenKind::DColon) {
+                    self.advance();
+                    let segment: Token = self.current();
+                    if segment.kind != TokenKind::Ident {
+                        return 0;
+                    }
+                    path_end = self.advance();
+                }
+
+                let path_node: usize = self.alloc_node(AstKind::ExprPath, tok.span);
+                if path_node == 0 {
+                    return 0;
+                }
+                if !self.set_node_text_range(path_node, tok, path_end) {
+                    return 0;
+                }
+                callee_node = path_node;
+            }
+
             if !self.match_token(TokenKind::OpenParen) {
-                return ident_node;
+                return callee_node;
             }
 
             let call_node: usize = self.alloc_node(AstKind::ExprCall, tok.span);
             if call_node == 0 {
                 return 0;
             }
-            if !self.append_child(call_node, ident_node) {
+            if !self.append_child(call_node, callee_node) {
                 return 0;
             }
 
