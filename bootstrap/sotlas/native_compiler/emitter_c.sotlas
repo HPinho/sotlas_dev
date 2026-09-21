@@ -511,12 +511,22 @@ impl CEmitter {
         if self.source_slice_equals_compact(
             callee.str_offset,
             callee.str_len,
+            "Result::ok",
+            10
+        ) || self.source_slice_equals_compact(
+            callee.str_offset,
+            callee.str_len,
             "Result::Ok",
             10
         ) {
             return 1;
         }
         if self.source_slice_equals_compact(
+            callee.str_offset,
+            callee.str_len,
+            "Result::err",
+            11
+        ) || self.source_slice_equals_compact(
             callee.str_offset,
             callee.str_len,
             "Result::Err",

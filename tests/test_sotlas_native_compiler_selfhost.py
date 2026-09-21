@@ -379,6 +379,8 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         text = emitter_file.read_text(encoding="utf-8")
         self.assertIn("pub fn source_slice_equals_compact", text)
         self.assertIn("pub fn result_constructor_kind", text)
+        self.assertIn('"Result::ok"', text)
+        self.assertIn('"Result::err"', text)
         self.assertIn('"Result::Ok"', text)
         self.assertIn('"Result::Err"', text)
         self.assertIn("pub fn emit_result_u64_constructor", text)
