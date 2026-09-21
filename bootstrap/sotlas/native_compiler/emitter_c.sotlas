@@ -115,6 +115,11 @@ impl CEmitter {
             return self.write_source_slice(node.str_offset, node.str_len);
         }
 
+        if node.kind == AstKind::ExprPath {
+            // Qualified paths require explicit lowering/name mangling.
+            return false;
+        }
+
         if node.kind == AstKind::TryExpr {
             // Parsing and context validation are intentionally separate from
             // lowering. Until Result<T,E> has a native C11 ABI, emitting '?'
@@ -455,6 +460,109 @@ impl CEmitter {
             i = i + 1;
         }
         return true;
+    }
+
+    pub fn source_slice_equals_compact(
+        self: &Self,
+        offset: usize,
+        len: usize,
+        expected: *const u8,
+        expected_len: usize
+    ) -> bool {
+        if self.source == null || expected == null {
+            return false;
+        }
+        if offset > self.source_len || len > self.source_len - offset {
+            return false;
+        }
+
+        let mut source_i: usize = 0;
+        let mut expected_i: usize = 0;
+        while source_i < len {
+            let ch: u8 = unsafe { *(self.source + offset + source_i) };
+            source_i = source_i + 1;
+            if ch == 32 || ch == 9 || ch == 10 || ch == 13 {
+                continue;
+            }
+            if expected_i >= expected_len {
+                return false;
+            }
+            let want: u8 = unsafe { *(expected + expected_i) };
+            if ch != want {
+                return false;
+            }
+            expected_i = expected_i + 1;
+        }
+        return expected_i == expected_len;
+    }
+
+    pub fn result_constructor_kind(self: &Self, call_index: usize) -> i64 {
+        if !self.valid_node(call_index) {
+            return 0;
+        }
+        let call: AstNode = unsafe { *(self.nodes + call_index) };
+        if call.kind != AstKind::ExprCall || !self.valid_node(call.first_child) {
+            return 0;
+        }
+        let callee: AstNode = unsafe { *(self.nodes + call.first_child) };
+        if callee.kind != AstKind::ExprPath || callee.str_len == 0 {
+            return 0;
+        }
+        if self.source_slice_equals_compact(
+            callee.str_offset,
+            callee.str_len,
+            "Result::Ok",
+            10
+        ) {
+            return 1;
+        }
+        if self.source_slice_equals_compact(
+            callee.str_offset,
+            callee.str_len,
+            "Result::Err",
+            11
+        ) {
+            return 2;
+        }
+        return 0;
+    }
+
+    pub fn emit_result_u64_constructor(
+        mut self: &mut Self,
+        call_index: usize
+    ) -> bool {
+        let kind: i64 = self.result_constructor_kind(call_index);
+        if kind == 0 || !self.valid_node(call_index) {
+            return false;
+        }
+        let call: AstNode = unsafe { *(self.nodes + call_index) };
+        let callee: AstNode = unsafe { *(self.nodes + call.first_child) };
+        let arg_index: usize = callee.next_sibling;
+        if !self.valid_node(arg_index) {
+            return false;
+        }
+        let arg: AstNode = unsafe { *(self.nodes + arg_index) };
+        if arg.next_sibling != 0 {
+            return false;
+        }
+
+        if kind == 1 {
+            if !self.write_str("(SotlasResultU64){ .status = 0, .value = ", 41) {
+                return false;
+            }
+            if !self.emit_expression(arg_index) {
+                return false;
+            }
+            return self.write_str(" }", 2);
+        }
+
+        if !self.write_str("(SotlasResultU64){ .status = ", 29) {
+            return false;
+        }
+        if !self.emit_expression(arg_index) {
+            return false;
+        }
+        return self.write_str(", .value = 0 }", 14);
     }
 
     pub fn source_slices_equal(
@@ -828,7 +936,14 @@ impl CEmitter {
 
         // Normative defer rule: evaluate and capture the return expression
         // before any active cleanup can mutate referenced state.
-        if !self.emit_expression(ret.first_child) {
+        let ret_expr: AstNode = unsafe { *(self.nodes + ret.first_child) };
+        if self.type_ref_is_result_u64_i32(type_index)
+            && ret_expr.kind == AstKind::ExprCall
+            && self.result_constructor_kind(ret.first_child) != 0 {
+            if !self.emit_result_u64_constructor(ret.first_child) {
+                return false;
+            }
+        } else if !self.emit_expression(ret.first_child) {
             return false;
         }
         if !self.write_str(";\n", 2) {

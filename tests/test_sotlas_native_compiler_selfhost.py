@@ -356,6 +356,21 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         self.assertIn("self.find_function_return_type(fn_index)", text)
         self.assertIn("return self.type_ref_is_result(type_index);", text)
 
+    def test_native_emitter_lowers_result_ok_err_constructors(self):
+        emitter_file = (
+            ROOT / "bootstrap" / "sotlas" / "native_compiler" / "emitter_c.sotlas"
+        )
+        text = emitter_file.read_text(encoding="utf-8")
+        self.assertIn("pub fn source_slice_equals_compact", text)
+        self.assertIn("pub fn result_constructor_kind", text)
+        self.assertIn('"Result::Ok"', text)
+        self.assertIn('"Result::Err"', text)
+        self.assertIn("pub fn emit_result_u64_constructor", text)
+        self.assertIn('"(SotlasResultU64){ .status = 0, .value = "', text)
+        self.assertIn('"(SotlasResultU64){ .status = "', text)
+        self.assertIn("self.emit_result_u64_constructor(ret.first_child)", text)
+        self.assertIn("node.kind == AstKind::ExprPath", text)
+
     def test_native_emitter_captures_return_before_defer_cleanup(self):
         emitter_file = (
             ROOT / "bootstrap" / "sotlas" / "native_compiler" / "emitter_c.sotlas"
