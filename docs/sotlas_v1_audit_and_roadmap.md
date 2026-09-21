@@ -114,6 +114,34 @@ SIR
     +--> WASM backend --------> wasm module
 ```
 
+### Engineering Rule: Tests Are Contracts, Not Obstacles
+
+Sotlas development must never weaken, bypass, delete, or cosmetically rewrite a valid test merely to obtain a green CI result. A failing test is treated as evidence about the implementation, architecture, specification, fixture, or test contract that must be understood before any change is accepted.
+
+The required order of response to a regression is:
+
+```text
+failure
+  -> reproduce and identify the first failing commit
+  -> determine whether the implementation, architecture, specification, or test is wrong
+  -> fix the root cause
+  -> strengthen coverage where useful
+  -> restore green CI
+  -> only then resume feature expansion
+```
+
+Rules:
+
+- Never special-case production code solely to satisfy a test fixture.
+- Never relax an assertion when the asserted behavior is still part of the intended contract.
+- Never hide unresolved compiler, module, ABI, ownership, lowering, or backend defects behind mocks or test-only behavior.
+- A test may be changed only when the test itself is demonstrably stale, incorrect, over-specified, or inconsistent with the formal language contract; that reason must be explicit in the commit.
+- When a feature exposes missing infrastructure, implement the infrastructure rather than routing around it.
+- Prefer architectural fixes that increase the independence of Sotlas from external implementation crutches and move semantics into canonical Sotlas-owned layers.
+- CI green status is a consequence of correctness, not the objective that defines correctness.
+
+This rule exists to protect Sotlas technical sovereignty: the language, compiler, runtime contracts, SIR, native backend, standard library, and tooling must converge toward internally coherent Sotlas-owned semantics rather than accumulating compatibility hacks.
+
 ### Reserved Sotlas Vocabulary (Future Contracts)
 
 The following names are intentionally retained as part of the Sotlas language design. They are **reserved future contracts**, not proof that the current compiler supports their complete semantics.
