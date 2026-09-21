@@ -995,17 +995,21 @@ fn main(flag: bool) -> void {
         trace = typed_ast.analyze_function_ownership(
             parsed, typed_module, "main"
         )
+        backedge_point = trace.shared_loop_cleanup.steps[0].point_id
         self.assertEqual(
             trace.shared_loop_cleanup.steps,
             (
                 typed_ast.SharedCleanupStep(
-                    "peer", "local", 2, 1, False, "loop_backedge:while"
+                    "peer", "local", 2, 1, False,
+                    "loop_backedge:while", backedge_point,
                 ),
                 typed_ast.SharedCleanupStep(
-                    "local", "local", 1, 0, True, "loop_backedge:while"
+                    "local", "local", 1, 0, True,
+                    "loop_backedge:while", backedge_point,
                 ),
             ),
         )
+        self.assertEqual(backedge_point, "while_backedge@4:5")
         self.assertIsNone(trace.final_env.domain_of("local"))
         self.assertIsNone(trace.final_env.domain_of("peer"))
         self.assertTrue(
