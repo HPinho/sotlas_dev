@@ -259,9 +259,38 @@ class SotlasSIRTests(unittest.TestCase):
         self.assertEqual(fn.name, "compute_sum")
         self.assertTrue(fn.is_system)
         self.assertEqual(len(fn.parameters), 2)
+        return_node = ast.decls[0].body[-1]
+        expected_point = (
+            f"return@{return_node.span.line}:{return_node.span.col}"
+        )
+        self.assertIsInstance(fn.blocks[0].instructions[-1], ReturnInst)
+        self.assertEqual(
+            fn.blocks[0].instructions[-1].point_id,
+            expected_point,
+        )
         dump = sir_mod.dump()
         self.assertIn("sir_fn @system @compute_sum", dump)
         self.assertIn("alloc_stack", dump)
+
+    def test_sir_generator_does_not_fake_nested_return_cfg_point(self):
+        source = """
+        module test::sir_nested_return_probe;
+
+        pub fn maybe_stop(flag: bool) -> void {
+            if flag {
+                return;
+            }
+        }
+        """
+        tokens = Lexer(source, "<sir-nested-return-probe>").tokenize()
+        ast = Parser(tokens, "<sir-nested-return-probe>").parse()
+
+        sir_mod = SIRGenerator().generate_from_ast(ast)
+        fn = sir_mod.functions[0]
+        terminal = fn.blocks[0].instructions[-1]
+
+        self.assertIsInstance(terminal, ReturnInst)
+        self.assertIsNone(terminal.point_id)
 
     def test_definite_initialization_pass_detects_uninitialized_read(self):
         fn = SIRFunction("bad_fn", [], "i32")

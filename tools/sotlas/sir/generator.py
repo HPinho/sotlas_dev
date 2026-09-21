@@ -22,6 +22,32 @@ class SIRGenerator:
         self._val_counter += 1
         return v
 
+    @staticmethod
+    def _terminal_return_point_id(fn: Any) -> str | None:
+        """Return source-stable identity for a directly represented terminal return.
+
+        The prototype generator still owns only one linear entry block. Therefore
+        it may attach a point ID only when the function body itself ends in a
+        direct Return/ReturnNode. Nested returns remain for structured CFG lowering.
+        """
+        body = getattr(fn, "body", None)
+        if not body:
+            return None
+        terminal = body[-1]
+        if type(terminal).__name__ not in ("Return", "ReturnNode"):
+            return None
+
+        span = getattr(terminal, "span", None)
+        line = getattr(span, "line", None)
+        column = getattr(span, "col", None)
+        if line is None or column is None:
+            token = getattr(terminal, "token", None)
+            line = getattr(token, "line", None)
+            column = getattr(token, "column", None)
+        if line is None or column is None:
+            raise ValueError("terminal SIR return lacks source location")
+        return f"return@{line}:{column}"
+
     def generate_from_ast(self, ast: Any) -> SIRModule:
         """Gera o SIR a partir de um módulo AST parsed pelo frontend."""
         module_name = getattr(ast, "name", self.module_name)
@@ -76,6 +102,15 @@ class SIRGenerator:
             entry_block.add(AllocStackInst(var_name=p.name, type_name=p.type_name, result=stack_slot))
             entry_block.add(StoreInst(destination=stack_slot, source=p))
 
-        # Emite retorno padrão caso o bloco não tenha finalizado
-        entry_block.add(ReturnInst(value=None if ret_str == "void" else self._next_val("ret_val", ret_str)))
+        # O protótipo ainda representa apenas o bloco linear de entrada. Quando
+        # esse bloco corresponde a um return terminal direto da AST, preserva
+        # sua identidade source-stable para placement ARC verificável.
+        return_point = self._terminal_return_point_id(fn)
+        entry_block.add(
+            ReturnInst(
+                value=None if ret_str == "void"
+                else self._next_val("ret_val", ret_str),
+                point_id=return_point,
+            )
+        )
         return sir_fn

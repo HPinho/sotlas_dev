@@ -98,7 +98,9 @@
 - [x] plano SIR preserva segmentos distintos para saídas de mesmo tipo em pontos CFG diferentes
 - [x] placement real de segmentos ARC em `ReturnInst(point_id=...)`, sempre imediatamente antes do retorno correspondente
 - [x] placement de return falha fechado para point_id ausente ou duplicado
-- [ ] geração do CFG de produção com `ReturnInst.point_id` a partir da AST canônica
+- [x] SIRGenerator preserva `ReturnInst.point_id` para return terminal linear diretamente representável pela AST
+- [x] retornos aninhados não recebem point_id fictício enquanto o CFG estruturado ainda não existe
+- [ ] CFG estruturado de produção preservando point_id para returns aninhados
 - [ ] placement de break/continue/backedge no CFG de produção
 - [ ] runtime/backend para tornar `share` executável
 - [ ] transições para `region/device/external` e merges correspondentes
@@ -119,7 +121,7 @@
 ```text
 Fase 0 — Reality Reset              ~80%
 Fase 1 — Typed Semantic Core       100% ✅
-Fase 2 — Ownership Domains          ~89% 🟡
+Fase 2 — Ownership Domains          ~91% 🟡
 Fase 3 — Authority Domains          ~10%
 Fase 4 — State Spaces                ~0%
 Fase 5 — Effects                    ~10%
@@ -140,7 +142,7 @@ Fase 17 — Tooling avançado          ~15%
 ### Fase 2 detalhada
 
 ```text
-Fase 2 — Ownership Domains                  ~89%
+Fase 2 — Ownership Domains                  ~91%
 
 ✅ sole / exclusive
 ✅ move semantics
