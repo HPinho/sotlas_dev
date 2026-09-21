@@ -97,7 +97,9 @@
 - [ ] transições para `region/device/external` e merges correspondentes
 - [x] invariância canônica de tipo/domínio/estado no backedge de loops para owners visíveis
 - [x] contas shared inteiramente locais à iteração recebem release reverso antes do backedge
-- [ ] cleanup path-specific de shared locals em break/continue
+- [x] cleanup path-specific de shared locals em `break`/`continue`, inclusive em branches aninhados
+- [x] defers shared ativos no escopo do loop executam em LIFO antes dos releases ARC no salto
+- [x] caminhos break/continue não recebem também cleanup de backedge, evitando double-release
 - [ ] integração completa de cleanup/early return/defer
 - [ ] lowering backend-neutral dos domains
 - [ ] implementação/rejeição explícita por backend
@@ -110,7 +112,7 @@
 ```text
 Fase 0 — Reality Reset              ~80%
 Fase 1 — Typed Semantic Core       100% ✅
-Fase 2 — Ownership Domains          ~77% 🟡
+Fase 2 — Ownership Domains          ~80% 🟡
 Fase 3 — Authority Domains          ~10%
 Fase 4 — State Spaces                ~0%
 Fase 5 — Effects                    ~10%
@@ -131,7 +133,7 @@ Fase 17 — Tooling avançado          ~15%
 ### Fase 2 detalhada
 
 ```text
-Fase 2 — Ownership Domains                  ~77%
+Fase 2 — Ownership Domains                  ~80%
 
 ✅ sole / exclusive
 ✅ move semantics
@@ -166,12 +168,14 @@ Fase 2 — Ownership Domains                  ~77%
 ✅ shared defer capture while owner LIVE
 ✅ defer LIFO before ARC release
 ✅ exclusive defer rule remains strict
-✅ loop domain/state/type backedge invariant  ← NOVO
-✅ loop-local shared cleanup before backedge ← NOVO
-✅ break/continue shared-local gate          ← NOVO
+✅ loop domain/state/type backedge invariant
+✅ loop-local shared cleanup before backedge
+✅ break/continue path-specific cleanup      ← NOVO
+✅ loop-control defer before ARC release     ← NOVO
+✅ no double cleanup on control paths        ← NOVO
 
-⬜ path-specific shared cleanup for break/continue
 ⬜ ARC lowering/runtime
+⬜ backend-neutral ARC/SIR operations
 ⬜ region
 ⬜ device
 ⬜ external

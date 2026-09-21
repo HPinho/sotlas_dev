@@ -3859,7 +3859,7 @@ Ainda necessário para concluir a Fase 2 canônica:
 - [ ] transições e merges para `region`, `device` e `external`;
 - [x] loops exigem invariância de tipo, Ownership Domain e VarState no backedge para bindings visíveis;
 - [x] contas shared criadas inteiramente dentro da iteração recebem cleanup determinístico antes do backedge;
-- [ ] break/continue com shared locals requer cleanup path-specific antes de ser liberado;
+- [x] break/continue possuem cleanup path-specific para shared locals, inclusive em branches aninhados, com defers LIFO antes dos releases e sem duplicar cleanup de backedge;
 - [ ] integração completa com `defer`, cleanup e unwind/early-return de todos os recursos;
 - [ ] lowering backend-neutral de Ownership Domains;
 - [ ] backend C11 correspondente ou rejeição explícita por domínio;

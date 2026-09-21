@@ -532,6 +532,7 @@ class OwnershipTrace:
     shared_cleanup: SharedCleanupPlan = SharedCleanupPlan(())
     shared_path_cleanup: SharedCleanupPlan = SharedCleanupPlan(())
     shared_loop_cleanup: SharedCleanupPlan = SharedCleanupPlan(())
+    shared_loop_control_exit: SharedExitPlan = SharedExitPlan(())
     shared_exit: SharedExitPlan = SharedExitPlan(())
 
 
@@ -651,6 +652,25 @@ def plan_shared_exit(
                 SharedExitAction("destroy", step.account, step.via)
             )
     return SharedExitPlan(tuple(actions))
+
+
+def plan_shared_control_exit(
+    events: tuple[OwnershipEvent, ...] | list[OwnershipEvent],
+    cleanup: SharedCleanupPlan,
+    control: str,
+) -> SharedExitPlan:
+    """Order loop-scope defers before ARC cleanup for break/continue."""
+    base = plan_shared_exit(events, cleanup)
+    return SharedExitPlan(
+        tuple(
+            SharedExitAction(
+                action.kind,
+                action.owner,
+                f"{control}:{action.via}",
+            )
+            for action in base.actions
+        )
+    )
 
 
 def _typed_function_map(module: TypedModule) -> dict[str, TypedFunction]:
@@ -1220,6 +1240,9 @@ def _analyze_block_ownership(
     history: tuple[OwnershipEvent, ...] = (),
     path_cleanup: list[SharedCleanupStep] | None = None,
     loop_cleanup: list[SharedCleanupStep] | None = None,
+    loop_control_exit: list[SharedExitAction] | None = None,
+    loop_entry_names: tuple[str, ...] | None = None,
+    loop_event_history: tuple[OwnershipEvent, ...] = (),
     collect_return_cleanup: bool = True,
 ) -> OwnershipEnv:
     """Analyze ownership events for a canonical AST block.
@@ -1233,6 +1256,8 @@ def _analyze_block_ownership(
         path_cleanup = []
     if loop_cleanup is None:
         loop_cleanup = []
+    if loop_control_exit is None:
+        loop_control_exit = []
     for statement in statements:
         kind = type(statement).__name__
 
@@ -1423,11 +1448,30 @@ def _analyze_block_ownership(
             break
 
         if kind in ("Break", "Continue"):
+            control = kind.lower()
+            if loop_entry_names is not None:
+                local_shared = tuple(
+                    binding for binding in result.bindings
+                    if binding.name not in loop_entry_names
+                    and binding.domain is OwnershipDomain.SHARED
+                    and binding.state is VarState.LIVE
+                )
+                if local_shared:
+                    local_plan = plan_shared_scope_cleanup(
+                        OwnershipEnv(local_shared),
+                        history + loop_event_history + tuple(events),
+                    )
+                    control_plan = plan_shared_control_exit(
+                        loop_event_history + tuple(events),
+                        local_plan,
+                        control,
+                    )
+                    loop_control_exit.extend(control_plan.actions)
             events.append(
                 OwnershipEvent(
                     "control",
                     typed_function.name,
-                    kind.lower(),
+                    control,
                 )
             )
             break
@@ -1448,6 +1492,9 @@ def _analyze_block_ownership(
                 history=branch_history,
                 path_cleanup=path_cleanup,
                 loop_cleanup=loop_cleanup,
+                loop_control_exit=loop_control_exit,
+                loop_entry_names=loop_entry_names,
+                loop_event_history=loop_event_history + tuple(events),
                 collect_return_cleanup=collect_return_cleanup,
             )
             else_env = _analyze_block_ownership(
@@ -1459,6 +1506,9 @@ def _analyze_block_ownership(
                 history=branch_history,
                 path_cleanup=path_cleanup,
                 loop_cleanup=loop_cleanup,
+                loop_control_exit=loop_control_exit,
+                loop_entry_names=loop_entry_names,
+                loop_event_history=loop_event_history + tuple(events),
                 collect_return_cleanup=collect_return_cleanup,
             )
             then_env = _project_ownership_env(then_env, visible)
@@ -1521,6 +1571,9 @@ def _analyze_block_ownership(
                 history=history + tuple(events),
                 path_cleanup=path_cleanup,
                 loop_cleanup=loop_cleanup,
+                loop_control_exit=loop_control_exit,
+                loop_entry_names=loop_entry_names,
+                loop_event_history=loop_event_history + tuple(events),
                 collect_return_cleanup=collect_return_cleanup,
             )
             result = _project_ownership_env(body_env, visible)
@@ -1567,6 +1620,9 @@ def _analyze_block_ownership(
                     history=history + tuple(events),
                     path_cleanup=path_cleanup,
                     loop_cleanup=loop_cleanup,
+                    loop_control_exit=loop_control_exit,
+                    loop_entry_names=loop_entry_names,
+                    loop_event_history=loop_event_history + tuple(events),
                     collect_return_cleanup=False,
                 )
                 deferred_env = _project_ownership_env(
@@ -1583,6 +1639,9 @@ def _analyze_block_ownership(
                     history=history + tuple(events),
                     path_cleanup=path_cleanup,
                     loop_cleanup=loop_cleanup,
+                    loop_control_exit=loop_control_exit,
+                    loop_entry_names=loop_entry_names,
+                    loop_event_history=loop_event_history + tuple(events),
                     collect_return_cleanup=False,
                 )
                 via = "assign"
@@ -1667,6 +1726,9 @@ def _analyze_block_ownership(
                 history=history + tuple(events),
                 path_cleanup=path_cleanup,
                 loop_cleanup=loop_cleanup,
+                loop_control_exit=loop_control_exit,
+                loop_entry_names=visible,
+                loop_event_history=(),
                 collect_return_cleanup=collect_return_cleanup,
             )
 
@@ -1700,16 +1762,12 @@ def _analyze_block_ownership(
                 and binding.domain is OwnershipDomain.SHARED
                 and binding.state is VarState.LIVE
             )
-            if local_shared:
-                if any(
-                    event.kind == "control"
-                    and event.via in ("break", "continue")
-                    for event in body_events
-                ):
-                    raise Phase1SemanticError(
-                        "shared ownership created inside loop with break/continue "
-                        "requires path-specific loop cleanup"
-                    )
+            has_control_exit = any(
+                event.kind == "control"
+                and event.via in ("break", "continue")
+                for event in body_events
+            )
+            if local_shared and not has_control_exit:
                 local_env = OwnershipEnv(local_shared)
                 local_plan = plan_shared_scope_cleanup(
                     local_env,
@@ -1766,6 +1824,7 @@ def analyze_function_ownership(
 
     path_cleanup: list[SharedCleanupStep] = []
     loop_cleanup: list[SharedCleanupStep] = []
+    loop_control_exit: list[SharedExitAction] = []
     env = _analyze_block_ownership(
         parsed_function.body,
         env,
@@ -1774,6 +1833,7 @@ def analyze_function_ownership(
         events,
         path_cleanup=path_cleanup,
         loop_cleanup=loop_cleanup,
+        loop_control_exit=loop_control_exit,
     )
     cleanup = plan_shared_scope_cleanup(env, events)
     exit_plan = plan_shared_exit(events, cleanup)
@@ -1783,6 +1843,7 @@ def analyze_function_ownership(
         cleanup,
         SharedCleanupPlan(tuple(path_cleanup)),
         SharedCleanupPlan(tuple(loop_cleanup)),
+        SharedExitPlan(tuple(loop_control_exit)),
         exit_plan,
     )
 
@@ -4286,6 +4347,7 @@ __all__ = [
     "seed_function_ownership", "OwnershipEvent", "SharedCleanupStep",
     "SharedCleanupPlan", "SharedExitAction", "SharedExitPlan", "OwnershipTrace",
     "plan_shared_scope_cleanup", "plan_shared_exit",
+    "plan_shared_control_exit",
     "require_expr_ownership_live",
     "analyze_linear_function_ownership", "analyze_function_ownership",
     "OwnershipParamContract", "OwnershipFunctionSummary",

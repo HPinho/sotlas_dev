@@ -1029,6 +1029,115 @@ fn main(flag: bool) -> void {
                 parsed, typed_module, "main"
             )
 
+    def test_continue_releases_loop_local_shared_account(self):
+        source = """module test::loop_continue_cleanup;
+sole struct Token { value: u32; }
+fn main(flag: bool) -> void {
+    while flag {
+        let local: Token = Token { value: 1u32 };
+        let peer = share local;
+        continue;
+    }
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<loop-continue-cleanup>")
+        bootstrap.check(parsed)
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(
+            parsed, typed_module, "main"
+        )
+        self.assertEqual(
+            tuple(action.kind for action in trace.shared_loop_control_exit.actions),
+            ("release", "release", "destroy"),
+        )
+        self.assertEqual(
+            tuple(action.owner for action in trace.shared_loop_control_exit.actions),
+            ("peer", "local", "local"),
+        )
+        self.assertEqual(trace.shared_loop_cleanup.steps, ())
+
+    def test_break_releases_loop_local_shared_account(self):
+        source = """module test::loop_break_cleanup;
+sole struct Token { value: u32; }
+fn main(flag: bool) -> void {
+    while flag {
+        let local: Token = Token { value: 1u32 };
+        let peer = share local;
+        break;
+    }
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<loop-break-cleanup>")
+        bootstrap.check(parsed)
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(
+            parsed, typed_module, "main"
+        )
+        self.assertEqual(
+            tuple(action.kind for action in trace.shared_loop_control_exit.actions),
+            ("release", "release", "destroy"),
+        )
+        self.assertTrue(
+            all(
+                action.via.startswith("break:")
+                for action in trace.shared_loop_control_exit.actions
+            )
+        )
+
+    def test_loop_control_runs_shared_defer_before_arc_release(self):
+        source = """module test::loop_control_defer_order;
+sole struct Token { value: u32; }
+fn main(flag: bool) -> void {
+    while flag {
+        let local: Token = Token { value: 1u32 };
+        let peer = share local;
+        defer peer;
+        continue;
+    }
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<loop-control-defer-order>")
+        bootstrap.check(parsed)
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(
+            parsed, typed_module, "main"
+        )
+        actions = trace.shared_loop_control_exit.actions
+        self.assertEqual(
+            tuple(action.kind for action in actions),
+            ("defer", "release", "release", "destroy"),
+        )
+        self.assertEqual(actions[0].owner, "peer")
+        self.assertTrue(actions[0].via.startswith("continue:"))
+
+    def test_nested_branch_continue_cleans_branch_local_shared_owner(self):
+        source = """module test::nested_continue_shared_cleanup;
+sole struct Token { value: u32; }
+fn main(flag: bool) -> void {
+    while flag {
+        if flag {
+            let local: Token = Token { value: 1u32 };
+            let peer = share local;
+            continue;
+        }
+    }
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<nested-continue-cleanup>")
+        bootstrap.check(parsed)
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(
+            parsed, typed_module, "main"
+        )
+        self.assertEqual(
+            tuple(action.owner for action in trace.shared_loop_control_exit.actions),
+            ("peer", "local", "local"),
+        )
+
     def test_explicit_sole_transfer_starts_live_then_moves(self):
         typed = typed_ast.build_declaration_typed_ast(self.checked_ast())
         state = typed_ast.require_sole_transfer(
