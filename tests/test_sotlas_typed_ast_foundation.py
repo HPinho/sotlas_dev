@@ -1006,7 +1006,7 @@ fn main(flag: bool) -> void {
         self.assertIsNone(trace.final_env.domain_of("local"))
         self.assertIsNone(trace.final_env.domain_of("peer"))
 
-    def test_loop_local_shared_account_with_control_jump_is_fail_closed(self):
+    def test_loop_local_shared_control_cleanup_is_path_specific(self):
         source = """module test::loop_shared_control_cleanup;
 sole struct Token { value: u32; }
 fn main(flag: bool) -> void {
@@ -1021,13 +1021,22 @@ fn main(flag: bool) -> void {
         parsed = bootstrap.parse(source, filename="<loop-shared-control-cleanup>")
         bootstrap.check(parsed)
         typed_module = typed_ast.build_declaration_typed_ast(parsed)
-        with self.assertRaisesRegex(
-            typed_ast.Phase1SemanticError,
-            "requires path-specific loop cleanup",
-        ):
-            typed_ast.analyze_function_ownership(
-                parsed, typed_module, "main"
+        trace = typed_ast.analyze_function_ownership(
+            parsed, typed_module, "main"
+        )
+        self.assertEqual(
+            tuple(action.kind for action in trace.shared_loop_control_exit.actions),
+            ("release", "release", "destroy"),
+        )
+        self.assertTrue(
+            all(
+                action.via.startswith("continue:")
+                for action in trace.shared_loop_control_exit.actions
             )
+        )
+        self.assertEqual(trace.shared_loop_cleanup.steps, ())
+        self.assertIsNone(trace.final_env.domain_of("local"))
+        self.assertIsNone(trace.final_env.domain_of("peer"))
 
     def test_continue_releases_loop_local_shared_account(self):
         source = """module test::loop_continue_cleanup;
