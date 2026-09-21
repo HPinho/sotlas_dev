@@ -1,6 +1,9 @@
 module test::string_native;
 
 import core::string::*;
+import core::alloc::*;
+
+static mut g_arena_buf: [u8; 64] = 0;
 
 static mut g_string_buf: [u8; 32] = 0;
 
@@ -102,6 +105,26 @@ pub fn main() -> i32 {
     }
     if too_small.length != 0 {
         return 21;
+    }
+
+    let mut arena: ArenaAllocator = arena_new(g_arena_buf as *mut u8, 64);
+    let mut arena_string: String = string_new_in_arena(&mut arena, 16);
+    if arena_string.data == null || arena_string.capacity != 16 {
+        return 22;
+    }
+    if arena_used(&arena) < 16 {
+        return 23;
+    }
+    if !string_append_slice(&mut arena_string, hello) {
+        return 24;
+    }
+    if !string_equals(string_as_slice(&arena_string), hello) {
+        return 25;
+    }
+
+    let failed_string: String = string_new_in_arena(&mut arena, 128);
+    if failed_string.data != null || failed_string.capacity != 0 {
+        return 26;
     }
 
     return 0;
