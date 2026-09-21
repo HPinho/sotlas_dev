@@ -38,5 +38,21 @@ pub fn main() -> i32 {
         return 7;
     }
 
+    let world_idx: i64 = string_find(s, world);
+    if world_idx != 7 {
+        return 8;
+    }
+
+    let missing_raw: *const u8 = "xyz" as *const u8;
+    let missing: StringSlice = string_from_raw(missing_raw, 3);
+    if string_find(s, missing) != -1 {
+        return 9;
+    }
+
+    let empty: StringSlice = string_from_raw(null, 0);
+    if string_find(s, empty) != 0 {
+        return 10;
+    }
+
     return 0;
 }
