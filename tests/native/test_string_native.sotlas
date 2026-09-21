@@ -142,9 +142,35 @@ pub fn main() -> i32 {
         return 31;
     }
 
+    let append_more_raw: *const u8 = ", world!" as *const u8;
+    let append_more: StringSlice = string_from_raw(append_more_raw, 8);
+    let arena_string_ptr: *mut String = (&mut arena_string) as *mut String;
+    let arena_ptr: *mut ArenaAllocator = (&mut arena) as *mut ArenaAllocator;
+    if !string_append_slice_in_arena(arena_string_ptr, arena_ptr, append_more) {
+        return 32;
+    }
+    if arena_string.length != 13 || arena_string.capacity < 13 {
+        return 33;
+    }
+    if !string_equals(string_as_slice(&arena_string), s) {
+        return 34;
+    }
+
+    let before_fail_length: usize = arena_string.length;
+    let before_fail_capacity: usize = arena_string.capacity;
+    if string_append_slice_in_arena(arena_string_ptr, arena_ptr, s) {
+        return 35;
+    }
+    if arena_string.length != before_fail_length || arena_string.capacity != before_fail_capacity {
+        return 36;
+    }
+    if !string_equals(string_as_slice(&arena_string), s) {
+        return 37;
+    }
+
     let failed_string: String = string_new_in_arena(&mut arena, 128);
     if failed_string.data != null || failed_string.capacity != 0 {
-        return 32;
+        return 38;
     }
 
     return 0;
