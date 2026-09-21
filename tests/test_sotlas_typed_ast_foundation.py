@@ -786,6 +786,9 @@ fn main(flag: bool, token: Token) -> void {
         )
         self.assertTrue(early[1].destroy_after)
         self.assertTrue(early[3].destroy_after)
+        points = tuple(dict.fromkeys(step.point_id for step in early))
+        self.assertEqual(len(points), 2)
+        self.assertTrue(all(point.startswith("return@") for point in points))
 
     def test_branch_local_shared_alias_is_cleaned_only_on_returning_path(self):
         source = """module test::branch_local_shared_cleanup;
@@ -1005,6 +1008,12 @@ fn main(flag: bool) -> void {
         )
         self.assertIsNone(trace.final_env.domain_of("local"))
         self.assertIsNone(trace.final_env.domain_of("peer"))
+        self.assertTrue(
+            all(
+                step.point_id.startswith("while_backedge@")
+                for step in trace.shared_loop_cleanup.steps
+            )
+        )
 
     def test_loop_local_shared_control_cleanup_is_path_specific(self):
         source = """module test::loop_shared_control_cleanup;
@@ -1035,6 +1044,12 @@ fn main(flag: bool) -> void {
             )
         )
         self.assertEqual(trace.shared_loop_cleanup.steps, ())
+        self.assertTrue(
+            all(
+                action.point_id.startswith("continue@")
+                for action in trace.shared_loop_control_exit.actions
+            )
+        )
         self.assertIsNone(trace.final_env.domain_of("local"))
         self.assertIsNone(trace.final_env.domain_of("peer"))
 

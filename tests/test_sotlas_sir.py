@@ -72,12 +72,14 @@ class SotlasSIRTests(unittest.TestCase):
                     account="token",
                     destroy_after=False,
                     via="scope_exit",
+                    point_id=None,
                 ),
                 SimpleNamespace(
                     owner="token",
                     account="token",
                     destroy_after=True,
                     via="scope_exit",
+                    point_id=None,
                 ),
             )),
             shared_path_cleanup=SimpleNamespace(steps=()),
@@ -94,9 +96,62 @@ class SotlasSIRTests(unittest.TestCase):
         self.assertEqual(len(plan.cleanup_segments), 1)
         segment = plan.cleanup_segments[0]
         self.assertEqual(segment.via, "scope_exit")
+        self.assertEqual(segment.point_id, "function_exit")
         self.assertEqual(
             tuple(type(inst) for inst in segment.instructions),
             (ReleaseInst, ReleaseInst, DestroyInst),
+        )
+
+    def test_shared_ownership_sir_keeps_distinct_cfg_cleanup_points(self):
+        token_type = SimpleNamespace(name="Token")
+        trace = SimpleNamespace(
+            final_env=SimpleNamespace(bindings=(
+                SimpleNamespace(name="token", type=token_type),
+                SimpleNamespace(name="peer", type=token_type),
+            )),
+            events=(
+                SimpleNamespace(
+                    kind="domain_transition", name="token",
+                    via="share:peer", type=token_type,
+                ),
+                SimpleNamespace(
+                    kind="retain", name="peer",
+                    via="share:token", type=token_type,
+                ),
+            ),
+            shared_cleanup=SimpleNamespace(steps=()),
+            shared_path_cleanup=SimpleNamespace(steps=(
+                SimpleNamespace(
+                    owner="peer", account="token",
+                    destroy_after=False, via="early_return",
+                    point_id="return@8:9",
+                ),
+                SimpleNamespace(
+                    owner="token", account="token",
+                    destroy_after=True, via="early_return",
+                    point_id="return@8:9",
+                ),
+                SimpleNamespace(
+                    owner="peer", account="token",
+                    destroy_after=False, via="early_return",
+                    point_id="return@10:5",
+                ),
+                SimpleNamespace(
+                    owner="token", account="token",
+                    destroy_after=True, via="early_return",
+                    point_id="return@10:5",
+                ),
+            )),
+            shared_loop_cleanup=SimpleNamespace(steps=()),
+            shared_loop_control_exit=SimpleNamespace(actions=()),
+        )
+        plan = lower_shared_ownership_trace(trace)
+        self.assertEqual(
+            tuple(segment.point_id for segment in plan.cleanup_segments),
+            ("return@8:9", "return@10:5"),
+        )
+        self.assertTrue(
+            all(segment.via == "early_return" for segment in plan.cleanup_segments)
         )
 
     def test_shared_ownership_sir_lowering_fails_without_binding_type(self):

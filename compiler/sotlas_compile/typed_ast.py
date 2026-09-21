@@ -506,6 +506,7 @@ class SharedCleanupStep:
     strong_refs_after: int
     destroy_after: bool
     via: str
+    point_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -518,6 +519,7 @@ class SharedExitAction:
     kind: str
     owner: str | None
     via: str
+    point_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -610,10 +612,23 @@ def plan_shared_scope_cleanup(
     return SharedCleanupPlan(tuple(steps))
 
 
+def _cleanup_point_id(statement, kind: str) -> str:
+    token = getattr(statement, "token", None)
+    line = getattr(token, "line", None)
+    column = getattr(token, "column", None)
+    if line is None or column is None:
+        raise Phase1SemanticError(
+            f"ownership cleanup point {kind!r} lacks source location"
+        )
+    return f"{kind}@{line}:{column}"
+
+
 def _shared_cleanup_for_path(
     env: OwnershipEnv,
     events: tuple[OwnershipEvent, ...] | list[OwnershipEvent],
     via: str,
+    *,
+    point_id: str | None = None,
 ) -> tuple[SharedCleanupStep, ...]:
     plan = plan_shared_scope_cleanup(env, events)
     return tuple(
@@ -624,6 +639,7 @@ def _shared_cleanup_for_path(
             strong_refs_after=step.strong_refs_after,
             destroy_after=step.destroy_after,
             via=via,
+            point_id=point_id,
         )
         for step in plan.steps
     )
@@ -658,6 +674,8 @@ def plan_shared_control_exit(
     events: tuple[OwnershipEvent, ...] | list[OwnershipEvent],
     cleanup: SharedCleanupPlan,
     control: str,
+    *,
+    point_id: str | None = None,
 ) -> SharedExitPlan:
     """Order loop-scope defers before ARC cleanup for break/continue."""
     base = plan_shared_exit(events, cleanup)
@@ -667,6 +685,7 @@ def plan_shared_control_exit(
                 action.kind,
                 action.owner,
                 f"{control}:{action.via}",
+                point_id,
             )
             for action in base.actions
         )
@@ -1443,6 +1462,7 @@ def _analyze_block_ownership(
                         result,
                         history + tuple(events),
                         "early_return",
+                        point_id=_cleanup_point_id(statement, "return"),
                     )
                 )
             break
@@ -1465,6 +1485,7 @@ def _analyze_block_ownership(
                         loop_event_history + tuple(events),
                         local_plan,
                         control,
+                        point_id=_cleanup_point_id(statement, control),
                     )
                     loop_control_exit.extend(control_plan.actions)
             events.append(
@@ -1782,6 +1803,9 @@ def _analyze_block_ownership(
                             strong_refs_after=step.strong_refs_after,
                             destroy_after=step.destroy_after,
                             via=f"loop_backedge:{kind.lower()}",
+                            point_id=_cleanup_point_id(
+                                statement, f"{kind.lower()}_backedge"
+                            ),
                         )
                     )
 

@@ -24,6 +24,7 @@ from .instructions import (
 class SharedOwnershipSIRSegment:
     via: str
     instructions: Tuple[SIRInstruction, ...]
+    point_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -115,22 +116,24 @@ def lower_shared_ownership_trace(trace: Any) -> SharedOwnershipSIRPlan:
         steps = tuple(getattr(plan, "steps", ()) or ())
         if not steps:
             continue
-        groups: dict[str, list[Any]] = {}
+        groups: dict[tuple[str, str | None], list[Any]] = {}
         for step in steps:
             via = str(getattr(step, "via", label))
-            groups.setdefault(via, []).append(step)
-        for via, grouped in groups.items():
+            point_id = getattr(step, "point_id", None)
+            groups.setdefault((via, point_id), []).append(step)
+        for (via, point_id), grouped in groups.items():
             segments.append(
                 SharedOwnershipSIRSegment(
                     via,
                     _cleanup_instructions(grouped, types),
+                    point_id or ("function_exit" if via == "scope_exit" else None),
                 )
             )
 
     control_plan = getattr(trace, "shared_loop_control_exit", None)
     actions = tuple(getattr(control_plan, "actions", ()) or ())
     if actions:
-        grouped_actions: dict[str, list[SIRInstruction]] = {}
+        grouped_actions: dict[tuple[str, str | None], list[SIRInstruction]] = {}
         for action in actions:
             kind = getattr(action, "kind")
             owner = getattr(action, "owner", None)
@@ -148,12 +151,14 @@ def lower_shared_ownership_trace(trace: Any) -> SharedOwnershipSIRPlan:
             else:
                 continue
             control = via.split(":", 1)[0]
-            grouped_actions.setdefault(control, []).append(inst)
-        for control, instructions in grouped_actions.items():
+            point_id = getattr(action, "point_id", None)
+            grouped_actions.setdefault((control, point_id), []).append(inst)
+        for (control, point_id), instructions in grouped_actions.items():
             segments.append(
                 SharedOwnershipSIRSegment(
                     f"loop_control:{control}",
                     tuple(instructions),
+                    point_id,
                 )
             )
 

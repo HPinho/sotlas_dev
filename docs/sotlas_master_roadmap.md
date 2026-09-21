@@ -3862,6 +3862,7 @@ Ainda necessário para concluir a Fase 2 canônica:
 - [x] break/continue possuem cleanup path-specific para shared locals, inclusive em branches aninhados, com defers LIFO antes dos releases e sem duplicar cleanup de backedge;
 - [ ] integração completa com `defer`, cleanup e unwind/early-return de todos os recursos;
 - [x] primeiro lowering backend-neutral de shared ownership para plano SIR explícito (`share/retain/release/destroy`), ainda sem placement CFG;
+- [x] identidade source-stable para pontos de cleanup ownership em return/break/continue/backedge, preservada no plano SIR;
 - [ ] placement CFG real das operações de ownership no SIR de produção;
 - [ ] backend C11 correspondente ou rejeição explícita por domínio;
 - [ ] testes positivos, negativos e end-to-end para cada domínio;
