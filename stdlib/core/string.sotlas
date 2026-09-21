@@ -282,6 +282,44 @@ pub fn string_append_slice(s: *mut String, slice: StringSlice) -> bool {
     }
 }
 
+pub fn string_concat_into(
+    out: *mut String,
+    a: StringSlice,
+    b: StringSlice
+) -> bool {
+    if out == null {
+        return false;
+    }
+
+    unsafe {
+        if (*out).data == null {
+            return false;
+        }
+        if a.length > 0 && a.data == null {
+            return false;
+        }
+        if b.length > 0 && b.data == null {
+            return false;
+        }
+        if a.length > (*out).capacity {
+            return false;
+        }
+        if b.length > (*out).capacity - a.length {
+            return false;
+        }
+
+        (*out).length = 0;
+    }
+
+    if a.length > 0 && !string_append_slice(out, a) {
+        return false;
+    }
+    if b.length > 0 && !string_append_slice(out, b) {
+        return false;
+    }
+    return true;
+}
+
 pub fn string_as_slice(s: *const String) -> StringSlice {
     if s == null {
         return string_from_raw(null, 0);

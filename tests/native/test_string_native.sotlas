@@ -2,6 +2,8 @@ module test::string_native;
 
 import core::string::*;
 
+static mut g_string_buf: [u8; 32] = 0;
+
 pub fn main() -> i32 {
     let raw: *const u8 = "hello, world!" as *const u8;
     let s: StringSlice = string_from_raw(raw, 13);
@@ -78,6 +80,28 @@ pub fn main() -> i32 {
     let empty_split: StringSplit = string_split_once(s, empty);
     if empty_split.found {
         return 16;
+    }
+
+    let mut combined: String = string_new(g_string_buf as *mut u8, 32);
+    if !string_concat_into(&mut combined, hello, world) {
+        return 17;
+    }
+    if combined.length != 11 {
+        return 18;
+    }
+
+    let expected_raw: *const u8 = "helloworld!" as *const u8;
+    let expected: StringSlice = string_from_raw(expected_raw, 11);
+    if !string_equals(string_as_slice(&combined), expected) {
+        return 19;
+    }
+
+    let mut too_small: String = string_new(g_string_buf as *mut u8, 5);
+    if string_concat_into(&mut too_small, hello, world) {
+        return 20;
+    }
+    if too_small.length != 0 {
+        return 21;
     }
 
     return 0;
