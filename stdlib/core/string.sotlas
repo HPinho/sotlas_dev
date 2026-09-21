@@ -286,14 +286,20 @@ pub fn string_reserve_in_arena(
             return false;
         }
 
-        let mut i: usize = 0;
-        while i < (*s).length {
-            *(new_backing + i) = *((*s).data + i);
-            i = i + 1;
+        let old_length: usize = (*s).length;
+        let old_data: *const u8 = (*s).data as *const u8;
+        let mut grown: String = string_new(new_backing, min_capacity);
+
+        if old_length > 0 {
+            let old_slice: StringSlice = string_from_raw(old_data, old_length);
+            if !string_append_slice(&mut grown, old_slice) {
+                return false;
+            }
         }
 
-        (*s).data = new_backing;
-        (*s).capacity = min_capacity;
+        (*s).data = grown.data;
+        (*s).length = grown.length;
+        (*s).capacity = grown.capacity;
         return true;
     }
 }
