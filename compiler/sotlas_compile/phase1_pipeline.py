@@ -16,14 +16,24 @@ from .typed_ast import Phase1ModuleSnapshot, build_phase1_semantic_snapshot
 class Phase1CheckedModule:
     parsed_module: object
     semantic: Phase1ModuleSnapshot
+    ownership_sir: object
 
 
 def analyze_module_phase1(parsed_module) -> Phase1CheckedModule:
-    """Run the canonical checker, then the explicit Phase-1 semantic snapshot."""
+    """Run the canonical checker, semantic snapshot, and ownership SIR bridge."""
     bootstrap.check(parsed_module)
+    semantic = build_phase1_semantic_snapshot(parsed_module)
+
+    # Keep the Typed AST package independent from SIR imports. The public
+    # pipeline is the composition boundary between canonical semantic facts
+    # and the backend-neutral intermediate representation.
+    from sotlas.sir import lower_ownership_module_analysis
+
+    ownership_sir = lower_ownership_module_analysis(semantic.ownership)
     return Phase1CheckedModule(
         parsed_module=parsed_module,
-        semantic=build_phase1_semantic_snapshot(parsed_module),
+        semantic=semantic,
+        ownership_sir=ownership_sir,
     )
 
 

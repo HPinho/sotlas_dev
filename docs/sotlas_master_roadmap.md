@@ -3816,7 +3816,7 @@ Extensões construídas sobre a fundação, mas que **não promovem a linguagem 
 
 ### 2. Ownership Domains — 🟡 EM CONSTRUÇÃO
 
-**Progresso aproximado atual: ~60%.**
+**Progresso aproximado atual: ~61%.**
 
 **Desenvolvimento geral aproximado da linguagem: ~17%.** Esse índice é uma leitura agregada conservadora das fases do roadmap e não representa promoção global para `SUPPORTED`.
 
@@ -3851,6 +3851,7 @@ Ainda necessário para concluir a Fase 2 canônica:
 - [ ] `direct` como acesso SRG de baixo nível com obrigações explícitas;
 - [x] lowering backend-neutral de `quarantine`/`handover` para SIR por meio de `OwnershipDomainTransferInst`, preservando origem/destino e rejeitando fatos incompletos antes de qualquer backend;
 - [x] ponte module-level `OwnershipModuleAnalysis → OwnershipModuleSIRPlan`, gerando plano por função que compõe domain transfers e shared/ARC sem placement CFG nem backend;
+- [x] pipeline público `analyze_source_phase1` / `analyze_module_phase1` agora compõe automaticamente o snapshot semântico com `OwnershipModuleSIRPlan` em `Phase1CheckedModule`, mantendo Typed AST sem dependência direta de SIR;
 - [ ] `handover` como operação formal de transferência entre bindings/domínios — além dos contratos EXCLUSIVE existentes, `handover <source> to <destination>;` agora permite saída explícita de ISLAND para um destino EXCLUSIVE do mesmo tipo e já MOVED; origem ISLAND vira MOVED, destino EXCLUSIVE volta a LIVE, evento/graph preservam domínio de origem e destino; handover sem destino a partir de ISLAND continua fail-closed, e demais domínios/runtime/backend/e2e ainda faltam;
 - [ ] `quarantine` como isolamento verificável antes de reuse/dispatch — primeiro slice canônico `quarantine <binding>;` implementa EXCLUSIVE → ISLAND, exige source LIVE direto, bloqueia escape/move implícito, registra graph e mantém C11 fail-closed; weak invalidation, reuse/dispatch, runtime/backend e e2e ainda faltam;
 - [x] grafo canônico de ownership/domains no snapshot semântico para owners rastreados e transferências, incluindo direção explícita EXCLUSIVE→ISLAND e ISLAND→EXCLUSIVE e validação fail-closed de fatos incompletos;

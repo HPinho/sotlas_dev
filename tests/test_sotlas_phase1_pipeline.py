@@ -56,6 +56,46 @@ fn read(t: Token) -> u32 {
         self.assertEqual(result.semantic.typed_module.structs[0].name, "Token")
         self.assertEqual(result.semantic.bodies[0].name, "read")
 
+    def test_public_phase1_pipeline_exposes_composed_ownership_sir(self):
+        source = """module test::phase1_ownership_sir;
+sole struct Token { value: u32; }
+
+fn isolate(token: Token) -> void {
+    quarantine token;
+    return;
+}
+"""
+        result = sotlas_compile.analyze_source_phase1(
+            source, filename="<phase1-ownership-sir>"
+        )
+
+        self.assertEqual(
+            tuple(item.function for item in result.ownership_sir.functions),
+            ("isolate",),
+        )
+        function_plan = result.ownership_sir.functions[0]
+        self.assertEqual(len(function_plan.domain.instructions), 1)
+        transfer = function_plan.domain.instructions[0]
+        self.assertEqual(transfer.operation, "quarantine")
+        self.assertEqual(transfer.source_domain, "exclusive")
+        self.assertEqual(transfer.target_domain, "island")
+        self.assertEqual(function_plan.shared.semantic, ())
+
+    def test_public_phase1_pipeline_exposes_empty_ownership_sir_for_plain_code(self):
+        source = """module test::phase1_plain_sir;
+fn main(value: u32) -> u32 {
+    return value;
+}
+"""
+        result = sotlas_compile.analyze_source_phase1(
+            source, filename="<phase1-plain-sir>"
+        )
+        self.assertEqual(len(result.ownership_sir.functions), 1)
+        function_plan = result.ownership_sir.functions[0]
+        self.assertEqual(function_plan.domain.instructions, ())
+        self.assertEqual(function_plan.shared.semantic, ())
+        self.assertEqual(function_plan.shared.cleanup_segments, ())
+
     def test_public_phase1_pipeline_rejects_non_bool_control_flow_in_bootstrap(self):
         source = """module test::phase1_bool_control_flow;
 fn main() -> void {
