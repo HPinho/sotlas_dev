@@ -14,6 +14,7 @@ from .instructions import (
     SIRInstruction,
     SIRValue,
     SIRFunction,
+    SIRModule,
     ReturnInst,
     BranchInst,
     OwnershipDomainPointInst,
@@ -48,6 +49,12 @@ class OwnershipModuleSIRPlan:
 class OwnershipDomainSIRPlacement:
     plan: OwnershipDomainSIRPlan
     inserted_instructions: int
+
+
+@dataclass(frozen=True)
+class OwnershipModuleSIRPlacement:
+    plan: OwnershipModuleSIRPlan
+    inserted_domain_instructions: int
 
 
 @dataclass(frozen=True)
@@ -187,11 +194,11 @@ def lower_ownership_domain_trace(trace: Any) -> OwnershipDomainSIRPlan:
     return OwnershipDomainSIRPlan(tuple(instructions))
 
 
-def place_ownership_domain_transfers(
+def _ownership_domain_transfer_replacements(
     function: SIRFunction,
     plan: OwnershipDomainSIRPlan,
-) -> OwnershipDomainSIRPlacement:
-    """Atomically replace source markers with validated domain-transfer SIR."""
+) -> dict[int, OwnershipDomainTransferInst]:
+    """Preflight one function without mutating its CFG."""
     markers: list[OwnershipDomainPointInst] = []
     for block in function.blocks:
         for instruction in block.instructions:
@@ -232,14 +239,80 @@ def place_ownership_domain_transfers(
                 f"ownership domain destination mismatch at {marker.point_id!r}"
             )
 
-    replacements = {id(marker): transfer
-                    for marker, transfer in zip(markers, plan.instructions)}
+    return {
+        id(marker): transfer
+        for marker, transfer in zip(markers, plan.instructions)
+    }
+
+
+def _commit_ownership_domain_replacements(
+    function: SIRFunction,
+    replacements: dict[int, OwnershipDomainTransferInst],
+) -> int:
+    inserted = 0
     for block in function.blocks:
-        block.instructions = [
-            replacements.get(id(instruction), instruction)
-            for instruction in block.instructions
-        ]
-    return OwnershipDomainSIRPlacement(plan, len(markers))
+        rewritten: list[SIRInstruction] = []
+        for instruction in block.instructions:
+            replacement = replacements.get(id(instruction))
+            if replacement is not None:
+                rewritten.append(replacement)
+                inserted += 1
+            else:
+                rewritten.append(instruction)
+        block.instructions = rewritten
+    return inserted
+
+
+def place_ownership_domain_transfers(
+    function: SIRFunction,
+    plan: OwnershipDomainSIRPlan,
+) -> OwnershipDomainSIRPlacement:
+    """Atomically replace source markers with validated domain-transfer SIR."""
+    replacements = _ownership_domain_transfer_replacements(function, plan)
+    inserted = _commit_ownership_domain_replacements(function, replacements)
+    return OwnershipDomainSIRPlacement(plan, inserted)
+
+
+def apply_ownership_module_domain_transfers(
+    module: SIRModule,
+    plan: OwnershipModuleSIRPlan,
+) -> OwnershipModuleSIRPlacement:
+    """Apply all per-function ownership-domain placements transactionally."""
+    functions: dict[str, SIRFunction] = {}
+    for function in module.functions:
+        if function.name in functions:
+            raise ValueError(
+                f"duplicate SIR function {function.name!r} during ownership placement"
+            )
+        functions[function.name] = function
+
+    preflight: list[
+        tuple[SIRFunction, dict[int, OwnershipDomainTransferInst]]
+    ] = []
+    seen_plans: set[str] = set()
+    for function_plan in plan.functions:
+        name = function_plan.function
+        if name in seen_plans:
+            raise ValueError(
+                f"duplicate ownership SIR plan for function {name!r}"
+            )
+        seen_plans.add(name)
+        function = functions.get(name)
+        if function is None:
+            raise ValueError(
+                f"ownership SIR plan references missing function {name!r}"
+            )
+        replacements = _ownership_domain_transfer_replacements(
+            function, function_plan.domain
+        )
+        preflight.append((function, replacements))
+
+    inserted = 0
+    for function, replacements in preflight:
+        inserted += _commit_ownership_domain_replacements(
+            function, replacements
+        )
+    return OwnershipModuleSIRPlacement(plan, inserted)
 
 
 def _cleanup_instructions(
@@ -695,6 +768,8 @@ __all__ = [
     "lower_ownership_domain_trace",
     "OwnershipDomainSIRPlacement",
     "place_ownership_domain_transfers",
+    "OwnershipModuleSIRPlacement",
+    "apply_ownership_module_domain_transfers",
     "OwnershipFunctionSIRPlan",
     "OwnershipModuleSIRPlan",
     "lower_ownership_module_analysis",

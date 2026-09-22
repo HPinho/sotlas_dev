@@ -12,6 +12,8 @@ from sotlas.sir import (
     AllocStackInst, StoreInst, LoadInst, CallInst, ReturnInst, BranchInst, CondBranchInst,
     OwnershipDomainPointInst, OwnershipDomainTransferInst,
     OwnershipDomainSIRPlan, place_ownership_domain_transfers,
+    OwnershipFunctionSIRPlan, OwnershipModuleSIRPlan,
+    apply_ownership_module_domain_transfers,
     ShareInst, RetainInst, ReleaseInst, DestroyInst, DeferUseInst,
     lower_ownership_domain_trace,
     lower_ownership_module_analysis,
@@ -173,6 +175,132 @@ class SotlasSIRTests(unittest.TestCase):
 
         self.assertEqual(tuple(block.instructions), original)
         self.assertIs(block.instructions[0], marker)
+
+    def test_module_domain_transfer_placement_applies_all_functions(self):
+        module = SIRModule("test")
+        isolate = SIRFunction("isolate", [], "void")
+        isolate_block = isolate.add_block("0")
+        isolate_block.add(
+            OwnershipDomainPointInst(
+                "quarantine", "token", None, "quarantine@5:5"
+            )
+        )
+        isolate_block.add(ReturnInst(point_id="return@6:5"))
+        plain = SIRFunction("plain", [], "void")
+        plain.add_block("0").add(ReturnInst(point_id="return@10:5"))
+        module.add_function(isolate)
+        module.add_function(plain)
+
+        empty_shared = SimpleNamespace(
+            semantic=(), cleanup_segments=()
+        )
+        plan = OwnershipModuleSIRPlan((
+            OwnershipFunctionSIRPlan(
+                "isolate",
+                OwnershipDomainSIRPlan((
+                    OwnershipDomainTransferInst(
+                        "quarantine",
+                        SIRValue("token", "Token"),
+                        "exclusive",
+                        "island",
+                    ),
+                )),
+                empty_shared,
+            ),
+            OwnershipFunctionSIRPlan(
+                "plain",
+                OwnershipDomainSIRPlan(()),
+                empty_shared,
+            ),
+        ))
+
+        placement = apply_ownership_module_domain_transfers(
+            module, plan
+        )
+
+        self.assertEqual(placement.inserted_domain_instructions, 1)
+        self.assertIsInstance(
+            isolate_block.instructions[0],
+            OwnershipDomainTransferInst,
+        )
+        self.assertIsInstance(
+            plain.blocks[0].instructions[0], ReturnInst
+        )
+
+    def test_module_domain_transfer_placement_is_transactional(self):
+        module = SIRModule("test")
+        first = SIRFunction("first", [], "void")
+        first_block = first.add_block("0")
+        first_marker = OwnershipDomainPointInst(
+            "quarantine", "token", None, "quarantine@5:5"
+        )
+        first_block.add(first_marker)
+        second = SIRFunction("second", [], "void")
+        second_block = second.add_block("0")
+        second_marker = OwnershipDomainPointInst(
+            "quarantine", "other", None, "quarantine@9:5"
+        )
+        second_block.add(second_marker)
+        module.add_function(first)
+        module.add_function(second)
+
+        empty_shared = SimpleNamespace(
+            semantic=(), cleanup_segments=()
+        )
+        plan = OwnershipModuleSIRPlan((
+            OwnershipFunctionSIRPlan(
+                "first",
+                OwnershipDomainSIRPlan((
+                    OwnershipDomainTransferInst(
+                        "quarantine",
+                        SIRValue("token", "Token"),
+                        "exclusive",
+                        "island",
+                    ),
+                )),
+                empty_shared,
+            ),
+            OwnershipFunctionSIRPlan(
+                "second",
+                OwnershipDomainSIRPlan((
+                    OwnershipDomainTransferInst(
+                        "handover",
+                        SIRValue("other", "Token"),
+                        "exclusive",
+                        "exclusive",
+                    ),
+                )),
+                empty_shared,
+            ),
+        ))
+
+        with self.assertRaisesRegex(
+            ValueError,
+            r"ownership domain operation mismatch",
+        ):
+            apply_ownership_module_domain_transfers(module, plan)
+
+        self.assertIs(first_block.instructions[0], first_marker)
+        self.assertIs(second_block.instructions[0], second_marker)
+
+    def test_module_domain_transfer_placement_rejects_missing_function(self):
+        module = SIRModule("test")
+        module.add_function(SIRFunction("main", [], "void"))
+        empty_shared = SimpleNamespace(
+            semantic=(), cleanup_segments=()
+        )
+        plan = OwnershipModuleSIRPlan((
+            OwnershipFunctionSIRPlan(
+                "missing",
+                OwnershipDomainSIRPlan(()),
+                empty_shared,
+            ),
+        ))
+        with self.assertRaisesRegex(
+            ValueError,
+            r"references missing function 'missing'",
+        ):
+            apply_ownership_module_domain_transfers(module, plan)
 
     def test_domain_trace_lowers_quarantine_and_handover(self):
         token_type = SimpleNamespace(name="Token")
