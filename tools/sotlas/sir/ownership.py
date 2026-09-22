@@ -750,12 +750,6 @@ def _shared_semantic_replacements(
             )
         return {}
 
-    if len(markers) != len(plan.semantic_points):
-        raise ValueError(
-            f"shared ownership SIR point count mismatch for {function.name!r}: "
-            f"{len(markers)} marker(s) vs {len(plan.semantic_points)} point(s)"
-        )
-
     marker_by_point: dict[str, SharedOwnershipPointInst] = {}
     for marker in markers:
         if marker.point_id in marker_by_point:
@@ -779,6 +773,12 @@ def _shared_semantic_replacements(
                 f"invalid shared ownership semantic point {point.point_id!r}"
             )
         point_by_id[point.point_id] = point
+
+    if len(marker_by_point) != len(point_by_id):
+        raise ValueError(
+            f"shared ownership SIR point count mismatch for {function.name!r}: "
+            f"{len(marker_by_point)} marker(s) vs {len(point_by_id)} point(s)"
+        )
 
     replacements: dict[int, Tuple[SIRInstruction, ...]] = {}
     for point_id, point in point_by_id.items():
