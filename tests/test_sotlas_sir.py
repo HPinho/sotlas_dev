@@ -15,6 +15,7 @@ from sotlas.sir import (
     OwnershipDomainSIRPlan, place_ownership_domain_transfers,
     OwnershipFunctionSIRPlan, OwnershipModuleSIRPlan,
     apply_ownership_module_domain_transfers, apply_ownership_module_plan,
+    generate_checked_ownership_sir,
     SharedOwnershipSIRPlan,
     ShareInst, RetainInst, ReleaseInst, DestroyInst, DeferUseInst,
     lower_ownership_domain_trace,
@@ -531,6 +532,122 @@ class SotlasSIRTests(unittest.TestCase):
             apply_ownership_module_plan(module, plan)
 
         self.assertIs(block.instructions[0], marker)
+
+    def test_checked_ownership_sir_bridge_generates_and_places_domain_transfer(self):
+        quarantine = type("Quarantine", (), {})()
+        quarantine.value = SimpleNamespace(value="token")
+        quarantine.destination = None
+        quarantine.token = SimpleNamespace(line=5, column=5)
+        ret = type("Return", (), {})()
+        ret.token = SimpleNamespace(line=6, column=5)
+        fn = SimpleNamespace(
+            name="isolate",
+            params=[],
+            result=SimpleNamespace(name="void"),
+            body=[quarantine, ret],
+            attributes=[],
+        )
+        parsed = SimpleNamespace(name="test", functions=[fn])
+        token = SIRValue("token", "Token")
+        empty_shared = SharedOwnershipSIRPlan((), ())
+        plan = OwnershipModuleSIRPlan((
+            OwnershipFunctionSIRPlan(
+                "isolate",
+                OwnershipDomainSIRPlan((
+                    OwnershipDomainTransferInst(
+                        "quarantine", token, "exclusive", "island"
+                    ),
+                )),
+                empty_shared,
+            ),
+        ))
+        checked = SimpleNamespace(
+            parsed_module=parsed,
+            ownership_sir=plan,
+        )
+
+        result = generate_checked_ownership_sir(checked)
+
+        self.assertEqual(result.module.name, "test")
+        self.assertEqual(
+            result.placement.inserted_domain_instructions, 1
+        )
+        self.assertIsInstance(
+            result.module.functions[0].blocks[0].instructions[0],
+            OwnershipDomainTransferInst,
+        )
+
+    def test_checked_ownership_sir_bridge_places_shared_semantics(self):
+        share_expr = type("ShareExpr", (), {})()
+        share_expr.value = SimpleNamespace(value="token")
+        let = type("Let", (), {})()
+        let.name = "peer"
+        let.value = share_expr
+        let.token = SimpleNamespace(line=5, column=5)
+        ret = type("Return", (), {})()
+        ret.token = SimpleNamespace(line=6, column=5)
+        fn = SimpleNamespace(
+            name="share_it",
+            params=[],
+            result=SimpleNamespace(name="void"),
+            body=[let, ret],
+            attributes=[],
+        )
+        parsed = SimpleNamespace(name="test", functions=[fn])
+        token = SIRValue("token", "Token")
+        peer = SIRValue("peer", "Token")
+        shared = SharedOwnershipSIRPlan(
+            (ShareInst(token), RetainInst(peer)),
+            (),
+            (
+                SimpleNamespace(
+                    point_id="share@5:5",
+                    source="token",
+                    alias="peer",
+                    instructions=(ShareInst(token), RetainInst(peer)),
+                ),
+            ),
+        )
+        plan = OwnershipModuleSIRPlan((
+            OwnershipFunctionSIRPlan(
+                "share_it",
+                OwnershipDomainSIRPlan(()),
+                shared,
+            ),
+        ))
+        result = generate_checked_ownership_sir(
+            SimpleNamespace(
+                parsed_module=parsed,
+                ownership_sir=plan,
+            )
+        )
+
+        block = result.module.functions[0].blocks[0]
+        self.assertEqual(
+            result.placement.inserted_shared_semantic_instructions, 2
+        )
+        self.assertEqual(
+            tuple(type(item) for item in block.instructions),
+            (ShareInst, RetainInst, ReturnInst),
+        )
+
+    def test_checked_ownership_sir_bridge_requires_checked_contract(self):
+        with self.assertRaisesRegex(
+            ValueError, r"lacks parsed_module"
+        ):
+            generate_checked_ownership_sir(
+                SimpleNamespace(ownership_sir=OwnershipModuleSIRPlan(()))
+            )
+        with self.assertRaisesRegex(
+            ValueError, r"lacks ownership_sir"
+        ):
+            generate_checked_ownership_sir(
+                SimpleNamespace(
+                    parsed_module=SimpleNamespace(
+                        name="test", functions=[]
+                    )
+                )
+            )
 
     def test_domain_trace_lowers_quarantine_and_handover(self):
         token_type = SimpleNamespace(name="Token")

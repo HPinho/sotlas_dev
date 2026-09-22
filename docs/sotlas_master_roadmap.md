@@ -3816,7 +3816,7 @@ Extensões construídas sobre a fundação, mas que **não promovem a linguagem 
 
 ### 2. Ownership Domains — 🟡 EM CONSTRUÇÃO
 
-**Progresso aproximado atual: ~65%.**
+**Progresso aproximado atual: ~66%.**
 
 **Desenvolvimento geral aproximado da linguagem: ~17%.** Esse índice é uma leitura agregada conservadora das fases do roadmap e não representa promoção global para `SUPPORTED`.
 
@@ -3855,6 +3855,7 @@ Ainda necessário para concluir a Fase 2 canônica:
 - [x] placement SIR inicial de `quarantine`/`handover`: o generator emite markers source-stable apenas no subconjunto linear representável, e o plano semântico substitui esses pontos transacionalmente após validar operação/origem/destino;
 - [x] aplicação module-level transacional dos domain transfers: todos os planos por função são pré-validados contra o `SIRModule` antes da primeira mutação, com falha fechada para função/plano duplicado, função ausente ou marker incompatível;
 - [x] placement ownership module-level unificado: domain transfers, `ShareInst`/`RetainInst` e cleanups ARC posicionáveis (return/break/continue/backedge) são pré-validados antes da primeira mutação; `share` usa identidade source-stable `share@L:C` comum ao par share/retain;
+- [x] ponte pública SIR pós-check sem acoplamento reverso: `generate_checked_ownership_sir` consome o contrato `parsed_module + ownership_sir`, gera o `SIRModule` e aplica o placement ownership transacional em uma única operação;
 - [ ] `handover` como operação formal de transferência entre bindings/domínios — além dos contratos EXCLUSIVE existentes, `handover <source> to <destination>;` agora permite saída explícita de ISLAND para um destino EXCLUSIVE do mesmo tipo e já MOVED; origem ISLAND vira MOVED, destino EXCLUSIVE volta a LIVE, evento/graph preservam domínio de origem e destino; handover sem destino a partir de ISLAND continua fail-closed, e demais domínios/runtime/backend/e2e ainda faltam;
 - [ ] `quarantine` como isolamento verificável antes de reuse/dispatch — primeiro slice canônico `quarantine <binding>;` implementa EXCLUSIVE → ISLAND, exige source LIVE direto, bloqueia escape/move implícito, registra graph e mantém C11 fail-closed; weak invalidation, reuse/dispatch, runtime/backend e e2e ainda faltam;
 - [x] grafo canônico de ownership/domains no snapshot semântico para owners rastreados e transferências, incluindo direção explícita EXCLUSIVE→ISLAND e ISLAND→EXCLUSIVE e validação fail-closed de fatos incompletos;

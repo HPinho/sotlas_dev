@@ -69,6 +69,12 @@ class OwnershipModulePlacement:
 
 
 @dataclass(frozen=True)
+class CheckedOwnershipSIR:
+    module: SIRModule
+    placement: OwnershipModulePlacement
+
+
+@dataclass(frozen=True)
 class SharedOwnershipSIRSegment:
     via: str
     instructions: Tuple[SIRInstruction, ...]
@@ -987,6 +993,32 @@ def apply_ownership_module_plan(
     )
 
 
+def generate_checked_ownership_sir(
+    checked_module: Any,
+) -> CheckedOwnershipSIR:
+    """Generate SIR from one checked frontend module and apply ownership semantics.
+
+    The frontend remains independent from SIR: this composition boundary lives
+    entirely in the SIR package. The checked object must expose parsed_module
+    and ownership_sir, matching the public checked-module contract.
+    """
+    parsed_module = getattr(checked_module, "parsed_module", None)
+    ownership_plan = getattr(checked_module, "ownership_sir", None)
+    if parsed_module is None:
+        raise ValueError("checked ownership SIR generation lacks parsed_module")
+    if ownership_plan is None:
+        raise ValueError("checked ownership SIR generation lacks ownership_sir")
+
+    from .generator import SIRGenerator
+
+    generator = SIRGenerator(
+        module_name=getattr(parsed_module, "name", "main")
+    )
+    module = generator.generate_from_ast(parsed_module)
+    placement = apply_ownership_module_plan(module, ownership_plan)
+    return CheckedOwnershipSIR(module, placement)
+
+
 def apply_shared_ownership_trace(
     function: SIRFunction,
     trace: Any,
@@ -1024,6 +1056,8 @@ __all__ = [
     "apply_ownership_module_domain_transfers",
     "OwnershipModulePlacement",
     "apply_ownership_module_plan",
+    "CheckedOwnershipSIR",
+    "generate_checked_ownership_sir",
     "OwnershipFunctionSIRPlan",
     "OwnershipModuleSIRPlan",
     "lower_ownership_module_analysis",
