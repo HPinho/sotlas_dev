@@ -1489,7 +1489,13 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
                             f"handover destino exige valor sole exclusivo: {item.destination.value}",
                             item.token.line, item.token.column, filename, source,
                         )
-                    if destination_type != target_type:
+                    comparable_destination = replace(
+                        destination_type, ownership_domain=None
+                    )
+                    comparable_source = replace(
+                        target_type, ownership_domain=None
+                    )
+                    if comparable_destination != comparable_source:
                         raise SotlasBootstrapError(
                             "handover origem e destino devem ter o mesmo tipo exclusivo",
                             item.token.line, item.token.column, filename, source,
