@@ -127,7 +127,7 @@ Auditoria detalhada da Fase 0: [phase0_reality_audit.md](phase0_reality_audit.md
 ```text
 Fase 0 — Reality Reset              ~80%
 Fase 1 — Typed Semantic Core       100% ✅
-Fase 2 — Ownership Domains          ~55% 🟡
+Fase 2 — Ownership Domains          ~56% 🟡
 Fase 3 — Authority Domains          ~10%
 Fase 4 — State Spaces                ~0%
 Fase 5 — Effects                    ~10%
@@ -158,19 +158,19 @@ Este índice geral é apenas uma leitura agregada conservadora das fases acima; 
 | `region` | ~0% | ainda não implementado |
 | `device` | ~0% | ainda não implementado |
 | `external` | ~0% | ainda não implementado |
-| `island` | ~72% | parâmetros, chamadas/métodos, retornos, locais e campos preservam ISLAND; cross-domain implícito permanece proibido |
+| `island` | ~80% | parâmetros, calls/métodos, retornos, locais, campos e enum payloads preservam ISLAND; C11 segue fail-closed |
 | `whisper` | ~0% | ainda não implementado |
 | `direct` | ~0% | ainda não implementado |
 | `handover` | ~60% | transições EXCLUSIVE→EXCLUSIVE e ISLAND→EXCLUSIVE possuem source/target/destination domain explícitos no graph; outros domínios/backend/e2e faltam |
 | `quarantine` | ~40% | EXCLUSIVE→ISLAND é fato de transição explícito e validado no Ownership Domain Graph; weak invalidation/runtime/e2e faltam |
 | runtime/backend + e2e por domínio | ~5% | gates/fail-closed existem, mas execução real de Ownership Domains ainda não |
 
-A combinação ponderada dessas macroentregas coloca a Fase 2 em **~55%**.
+A combinação ponderada dessas macroentregas coloca a Fase 2 em **~56%**.
 
 ### Fase 2 detalhada
 
 ```text
-Fase 2 — Ownership Domains                  ~55%
+Fase 2 — Ownership Domains                  ~56%
 
 ✅ sole / exclusive
 ✅ move semantics
@@ -274,6 +274,11 @@ Fase 2 — Ownership Domains                  ~55%
 ✅ island method arguments preserve ISLAND → ISLAND ownership                         ← NOVO
 ✅ EXCLUSIVE → ISLAND call arguments remain fail-closed                                ← NOVO
 ✅ call/method transfer direction is explicit in Ownership Domain Graph                ← NOVO
+✅ island enum payloads preserve ISLAND → ISLAND ownership                              ← NOVO
+✅ EXCLUSIVE → ISLAND enum payload transfer remains forbidden                           ← NOVO
+✅ ISLAND → EXCLUSIVE enum payload escape remains forbidden                             ← NOVO
+✅ invalid island enum payload types fail in Typed AST                                  ← NOVO
+✅ C11 island enum payloads remain fail-closed                                           ← NOVO
 ✅ unsupported call shapes and assign/block/method/try defer payloads remain fail-closed
 
 ⬜ general call/assign/block/method/try defer payload lowering

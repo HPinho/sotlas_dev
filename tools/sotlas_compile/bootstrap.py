@@ -1811,6 +1811,11 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
     island_type_found = (
         any(_contains_island(field.type) for struct in module.structs for field in struct.fields)
         or any(_contains_island(item.type) for item in module.globals)
+        or any(
+            _contains_island(getattr(variant, "payload_type", None))
+            for enum in module.enums
+            for variant in enum.variants
+        )
         or any(_contains_island(type_obj) for fn in module.functions for _, type_obj in fn.params)
         or any(_contains_island(fn.result) for fn in module.functions)
     )

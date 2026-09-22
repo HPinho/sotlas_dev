@@ -456,6 +456,138 @@ fn main() -> void { return; }
         ):
             typed_ast.build_declaration_typed_ast(parsed)
 
+    def test_explicit_island_enum_payload_preserves_domain(self):
+        source = """module test::island_enum;
+sole struct Token { value: u32; }
+enum Message { Token(island Token), Empty }
+fn main(token: island Token) -> void {
+    let message = Message::Token(token);
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<island-enum>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        payload = typed.enums[0].variants[0].payload_type
+        self.assertIsNotNone(payload)
+        self.assertIs(
+            payload.declared_ownership_domain,
+            typed_ast.OwnershipDomain.ISLAND,
+        )
+        trace = typed_ast.analyze_function_ownership(parsed, typed, "main")
+        self.assertIs(
+            trace.final_env.state_of("token"),
+            typed_ast.VarState.MOVED,
+        )
+        event = next(
+            item for item in trace.events
+            if item.kind == "move"
+            and item.via == "enum:Message::Token"
+        )
+        self.assertIs(
+            event.source_domain,
+            typed_ast.OwnershipDomain.ISLAND,
+        )
+        self.assertIs(
+            event.target_domain,
+            typed_ast.OwnershipDomain.ISLAND,
+        )
+        graph = typed_ast.build_ownership_domain_graph(
+            typed_ast.OwnershipModuleAnalysis(
+                (), (("main", trace),)
+            )
+        )
+        transfer = next(
+            item for item in graph.transfers
+            if item.binding == "token"
+            and item.via == "enum:Message::Token"
+        )
+        self.assertIs(
+            transfer.source_domain,
+            typed_ast.OwnershipDomain.ISLAND,
+        )
+        self.assertIs(
+            transfer.target_domain,
+            typed_ast.OwnershipDomain.ISLAND,
+        )
+
+    def test_exclusive_cannot_implicitly_enter_island_enum_payload(self):
+        source = """module test::island_enum_mismatch;
+sole struct Token { value: u32; }
+enum Message { Token(island Token), Empty }
+fn main(token: Token) -> void {
+    let message = Message::Token(token);
+    return;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<island-enum-mismatch>"
+        )
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"ownership domain mismatch for 'token' via "
+            r"enum:Message::Token: exclusive -> island",
+        ):
+            typed_ast.analyze_function_ownership(
+                parsed, typed, "main"
+            )
+
+    def test_island_cannot_escape_into_exclusive_enum_payload(self):
+        source = """module test::island_enum_escape;
+sole struct Token { value: u32; }
+enum Message { Token(Token), Empty }
+fn main(token: island Token) -> void {
+    let message = Message::Token(token);
+    return;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<island-enum-escape>"
+        )
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"island owner 'token' cannot escape quarantine through "
+            r"enum payload Message::Token",
+        ):
+            typed_ast.analyze_function_ownership(
+                parsed, typed, "main"
+            )
+
+    def test_invalid_island_enum_payload_is_rejected(self):
+        source = """module test::invalid_island_enum;
+enum Message { Value(island u32), Empty }
+fn main() -> void { return; }
+"""
+        parsed = bootstrap.parse(
+            source, filename="<invalid-island-enum>"
+        )
+        bootstrap.check(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"island ownership requires sole type",
+        ):
+            typed_ast.build_declaration_typed_ast(parsed)
+
+    def test_c11_island_enum_payload_remains_fail_closed(self):
+        source = """module test::island_enum_c11;
+sole struct Token { value: u32; }
+enum Message { Token(island Token), Empty }
+fn main() -> void { return; }
+"""
+        parsed = bootstrap.parse(
+            source, filename="<island-enum-c11>"
+        )
+        bootstrap.check(parsed)
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"C11 backend does not lower island ownership domain yet",
+        ):
+            bootstrap.emit_c(parsed)
+
     def test_explicit_island_return_preserves_domain(self):
         source = """module test::island_return;
 sole struct Token { value: u32; }

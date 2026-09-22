@@ -947,6 +947,24 @@ def _move_call_arguments(
             if type(moved_argument).__name__ == "Name":
                 name = moved_argument.value
                 if result.type_of(name) is not None:
+                    target_domain = ownership_domain(
+                        variant.payload_type, typed_module
+                    )
+                    source_domain = result.domain_of(name)
+                    if target_domain is OwnershipDomain.ISLAND:
+                        result = _transfer_owned_binding_to_domain(
+                            result,
+                            name,
+                            OwnershipDomain.ISLAND,
+                            f"enum:{enum.name}::{variant.name}",
+                            events,
+                        )
+                        return result
+                    if source_domain is OwnershipDomain.ISLAND:
+                        raise Phase1SemanticError(
+                            f"island owner {name!r} cannot escape quarantine through "
+                            f"enum payload {enum.name}::{variant.name}"
+                        )
                     result = result.move(name)
                     events.append(
                         OwnershipEvent(
@@ -2515,6 +2533,7 @@ def build_ownership_domain_graph(
                     and (
                         event.via.startswith("call:")
                         or event.via.startswith("method:")
+                        or event.via.startswith("enum:")
                     )
                     and target_domain is not None
                 ):
@@ -4928,7 +4947,10 @@ def build_declaration_typed_ast(module) -> TypedModule:
                         variant.name,
                         variant.value,
                         (
-                            semantic_type(variant.payload_type)
+                            (
+                                explicit_domain(variant.payload_type),
+                                semantic_type(variant.payload_type),
+                            )[1]
                             if getattr(variant, "payload_type", None) is not None
                             else None
                         ),
