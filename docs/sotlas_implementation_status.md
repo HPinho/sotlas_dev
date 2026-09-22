@@ -122,7 +122,7 @@
 ```text
 Fase 0 — Reality Reset              ~80%
 Fase 1 — Typed Semantic Core       100% ✅
-Fase 2 — Ownership Domains          ~97% 🟡
+Fase 2 — Ownership Domains          ~98% 🟡
 Fase 3 — Authority Domains          ~10%
 Fase 4 — State Spaces                ~0%
 Fase 5 — Effects                    ~10%
@@ -143,7 +143,7 @@ Fase 17 — Tooling avançado          ~15%
 ### Fase 2 detalhada
 
 ```text
-Fase 2 — Ownership Domains                  ~97%
+Fase 2 — Ownership Domains                  ~98%
 
 ✅ sole / exclusive
 ✅ move semantics
@@ -199,7 +199,11 @@ Fase 2 — Ownership Domains                  ~97%
 ✅ minimal while CFG: entry → cond → body/exit               ← NOVO
 ✅ generated loop CFG accepts ARC control placement          ← NOVO
 
-⬜ backedge CFG identity/placement
+✅ normal while backedge gets source-stable BranchInst identity ← NOVO
+✅ ARC cleanup placement before normal loop backedge             ← NOVO
+✅ continue/backedge remain disjoint during placement            ← NOVO
+
+⬜ SIR defer operation on control exits
 ⬜ ARC runtime/backend
 ⬜ region
 ⬜ device

@@ -33,6 +33,7 @@ from .ownership import (
     lower_shared_ownership_trace,
     place_shared_return_cleanup,
     place_shared_loop_control_cleanup,
+    place_shared_loop_backedge_cleanup,
     apply_shared_ownership_trace,
 )
 from .passes import (
@@ -68,6 +69,7 @@ __all__ = [
     "lower_shared_ownership_trace",
     "place_shared_return_cleanup",
     "place_shared_loop_control_cleanup",
+    "place_shared_loop_backedge_cleanup",
     "apply_shared_ownership_trace",
     "SIRPassResult",
     "SIRPassManager",

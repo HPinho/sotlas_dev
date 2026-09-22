@@ -209,7 +209,7 @@ class SIRGenerator:
         sir_params: list[SIRValue],
         return_type: str,
     ) -> bool:
-        """Lower a minimal honest while CFG with one break or continue body."""
+        """Lower a minimal honest while CFG with break, continue, or empty backedge."""
         if return_type != "void":
             return False
 
@@ -226,15 +226,18 @@ class SIRGenerator:
             return False
 
         loop_body = getattr(loop, "body", None) or []
-        if len(loop_body) != 1:
-            return False
-        control_stmt = loop_body[0]
-        control_name = type(control_stmt).__name__
-        if control_name in ("Break", "BreakNode"):
-            control_kind = "break"
-        elif control_name in ("Continue", "ContinueNode"):
-            control_kind = "continue"
-        else:
+        control_stmt = None
+        control_kind = "backedge"
+        if len(loop_body) == 1:
+            control_stmt = loop_body[0]
+            control_name = type(control_stmt).__name__
+            if control_name in ("Break", "BreakNode"):
+                control_kind = "break"
+            elif control_name in ("Continue", "ContinueNode"):
+                control_kind = "continue"
+            else:
+                return False
+        elif len(loop_body) != 0:
             return False
 
         if len(body) > 2:
@@ -263,11 +266,19 @@ class SIRGenerator:
         )
 
         loop_body_block = sir_fn.add_block(body_label)
-        target = cond_label if control_kind == "continue" else exit_label
+        if control_kind == "break":
+            target = exit_label
+            point_id = self._statement_point_id(control_stmt, "break")
+        elif control_kind == "continue":
+            target = cond_label
+            point_id = self._statement_point_id(control_stmt, "continue")
+        else:
+            target = cond_label
+            point_id = self._statement_point_id(loop, "while_backedge")
         loop_body_block.add(
             BranchInst(
                 target,
-                point_id=self._statement_point_id(control_stmt, control_kind),
+                point_id=point_id,
                 control_kind=control_kind,
             )
         )

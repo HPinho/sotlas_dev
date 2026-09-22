@@ -41,6 +41,7 @@ class SharedOwnershipSIRPlacement:
     plan: SharedOwnershipSIRPlan
     inserted_return_instructions: int
     inserted_loop_control_instructions: int = 0
+    inserted_backedge_instructions: int = 0
 
 
 def _type_map(trace: Any) -> dict[str, str]:
@@ -285,6 +286,61 @@ def place_shared_loop_control_cleanup(
     return inserted
 
 
+def place_shared_loop_backedge_cleanup(
+    function: SIRFunction,
+    plan: SharedOwnershipSIRPlan,
+) -> int:
+    """Insert ARC cleanup before source-identified normal loop backedges."""
+    segments: dict[str, SharedOwnershipSIRSegment] = {}
+    for segment in plan.cleanup_segments:
+        point_id = segment.point_id
+        if point_id is None or not point_id.startswith(
+            ("while_backedge@", "for_backedge@", "loop_backedge@")
+        ):
+            continue
+        if not segment.via.startswith("loop_backedge:"):
+            continue
+        if point_id in segments:
+            raise ValueError(
+                f"duplicate shared ARC backedge cleanup segment for {point_id!r}"
+            )
+        segments[point_id] = segment
+
+    if not segments:
+        return 0
+
+    seen = {point_id: 0 for point_id in segments}
+    inserted = 0
+    for block in function.blocks:
+        rewritten: list[SIRInstruction] = []
+        for instruction in block.instructions:
+            if (
+                isinstance(instruction, BranchInst)
+                and instruction.control_kind == "backedge"
+                and instruction.point_id in segments
+            ):
+                point_id = instruction.point_id
+                seen[point_id] += 1
+                if seen[point_id] > 1:
+                    raise ValueError(
+                        f"shared ARC backedge cleanup point {point_id!r} "
+                        "matches multiple BranchInst nodes"
+                    )
+                segment = segments[point_id]
+                rewritten.extend(segment.instructions)
+                inserted += len(segment.instructions)
+            rewritten.append(instruction)
+        block.instructions = rewritten
+
+    missing = [point_id for point_id, count in seen.items() if count == 0]
+    if missing:
+        raise ValueError(
+            "shared ARC backedge cleanup point(s) missing from SIR CFG: "
+            + ", ".join(sorted(missing))
+        )
+    return inserted
+
+
 def apply_shared_ownership_trace(
     function: SIRFunction,
     trace: Any,
@@ -297,10 +353,12 @@ def apply_shared_ownership_trace(
     plan = lower_shared_ownership_trace(trace)
     inserted_return = place_shared_return_cleanup(function, plan)
     inserted_control = place_shared_loop_control_cleanup(function, plan)
+    inserted_backedge = place_shared_loop_backedge_cleanup(function, plan)
     return SharedOwnershipSIRPlacement(
         plan,
         inserted_return,
         inserted_control,
+        inserted_backedge,
     )
 
 __all__ = [
@@ -310,5 +368,6 @@ __all__ = [
     "lower_shared_ownership_trace",
     "place_shared_return_cleanup",
     "place_shared_loop_control_cleanup",
+    "place_shared_loop_backedge_cleanup",
     "apply_shared_ownership_trace",
 ]

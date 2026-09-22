@@ -12,7 +12,8 @@ from sotlas.sir import (
     AllocStackInst, StoreInst, LoadInst, CallInst, ReturnInst, BranchInst, CondBranchInst,
     ShareInst, RetainInst, ReleaseInst, DestroyInst,
     lower_shared_ownership_trace, place_shared_return_cleanup,
-    place_shared_loop_control_cleanup, apply_shared_ownership_trace,
+    place_shared_loop_control_cleanup, place_shared_loop_backedge_cleanup,
+    apply_shared_ownership_trace,
     SIRGenerator, SIRPassManager, DefiniteInitializationPass,
     SystemCapabilitySafetyPass, DeadCodeEliminationPass
 )
@@ -685,6 +686,116 @@ class SotlasSIRTests(unittest.TestCase):
         self.assertEqual(len(fn.blocks), 1)
         self.assertIsInstance(fn.blocks[0].instructions[-1], ReturnInst)
         self.assertIsNone(fn.blocks[0].instructions[-1].point_id)
+
+    def test_sir_generator_builds_empty_loop_backedge_identity(self):
+        source = """
+        module test::sir_backedge_loop;
+
+        pub fn spin(flag: bool) -> void {
+            while flag {
+            }
+            return;
+        }
+        """
+        tokens = Lexer(source, "<sir-backedge-loop>").tokenize()
+        ast = Parser(tokens, "<sir-backedge-loop>").parse()
+
+        fn = SIRGenerator().generate_from_ast(ast).functions[0]
+
+        self.assertEqual(len(fn.blocks), 4)
+        backedge = fn.blocks[2].instructions[-1]
+        self.assertIsInstance(backedge, BranchInst)
+        self.assertEqual(backedge.control_kind, "backedge")
+        loop = ast.decls[0].body[0]
+        self.assertEqual(
+            backedge.point_id,
+            f"while_backedge@{loop.span.line}:{loop.span.col}",
+        )
+        self.assertEqual(backedge.target_block, fn.blocks[1].label)
+
+    def test_generated_loop_backedge_accepts_arc_placement(self):
+        source = """
+        module test::sir_backedge_arc;
+
+        pub fn spin(flag: bool) -> void {
+            while flag {
+            }
+            return;
+        }
+        """
+        tokens = Lexer(source, "<sir-backedge-arc>").tokenize()
+        ast = Parser(tokens, "<sir-backedge-arc>").parse()
+        fn = SIRGenerator().generate_from_ast(ast).functions[0]
+        loop = ast.decls[0].body[0]
+        point = f"while_backedge@{loop.span.line}:{loop.span.col}"
+        token = SIRValue("token", "Token")
+        plan = SimpleNamespace(cleanup_segments=(
+            SimpleNamespace(
+                via="loop_backedge:while",
+                point_id=point,
+                instructions=(ReleaseInst(token), DestroyInst(token)),
+            ),
+        ))
+
+        inserted = place_shared_loop_backedge_cleanup(fn, plan)
+
+        self.assertEqual(inserted, 2)
+        self.assertEqual(
+            tuple(type(inst) for inst in fn.blocks[2].instructions),
+            (ReleaseInst, DestroyInst, BranchInst),
+        )
+        self.assertEqual(fn.blocks[2].instructions[-1].control_kind, "backedge")
+
+    def test_loop_backedge_cleanup_fails_on_cfg_mismatch(self):
+        fn = SIRFunction("main", [], "void")
+        fn.add_block("loop_body").add(
+            BranchInst(
+                "loop_cond",
+                point_id="while_backedge@5:5",
+                control_kind="backedge",
+            )
+        )
+        token = SIRValue("token", "Token")
+        plan = SimpleNamespace(cleanup_segments=(
+            SimpleNamespace(
+                via="loop_backedge:while",
+                point_id="while_backedge@9:9",
+                instructions=(ReleaseInst(token),),
+            ),
+        ))
+        with self.assertRaisesRegex(
+            ValueError,
+            "missing from SIR CFG: while_backedge@9:9",
+        ):
+            place_shared_loop_backedge_cleanup(fn, plan)
+
+    def test_loop_backedge_placement_does_not_touch_continue_branch(self):
+        fn = SIRFunction("main", [], "void")
+        block = fn.add_block("loop_body")
+        block.add(
+            BranchInst(
+                "loop_cond",
+                point_id="continue@8:9",
+                control_kind="continue",
+            )
+        )
+        token = SIRValue("token", "Token")
+        plan = SimpleNamespace(cleanup_segments=(
+            SimpleNamespace(
+                via="loop_backedge:while",
+                point_id="while_backedge@4:5",
+                instructions=(ReleaseInst(token),),
+            ),
+        ))
+        with self.assertRaisesRegex(
+            ValueError,
+            "missing from SIR CFG: while_backedge@4:5",
+        ):
+            place_shared_loop_backedge_cleanup(fn, plan)
+        self.assertEqual(
+            tuple(type(inst) for inst in block.instructions),
+            (BranchInst,),
+        )
 
     def test_sir_generator_does_not_emit_valueless_nonvoid_if_returns(self):
         source = """
