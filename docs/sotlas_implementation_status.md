@@ -68,10 +68,10 @@ Auditoria detalhada da Fase 0: [phase0_reality_audit.md](phase0_reality_audit.md
 
 ### Falta para concluir a Fase 2
 
-- [ ] Ownership Domain `exclusive` explícito
-- [ ] `shared` (domínio já existe internamente como destino semântico; sintaxe/runtime/ARC ainda não suportados)
+- [ ] formalização final de `exclusive` como Ownership Domain explícito além do mapeamento atual de `sole`
+- [ ] `shared` end-to-end: sintaxe e semântica frontend existem, ARC/SIR parcial existe, mas runtime/backend ainda não
 - [x] modelo semântico backend-neutral de `co-owned`/ARC com strong-reference accounting explícito, retain/release e destruição elegível no último owner
-- [ ] integração do ARC com bindings reais, aliases, cleanup e lowering
+- [ ] integração completa do ARC com bindings, aliases, cleanup, lowering e runtime/backend
 - [ ] `region`
 - [ ] `device`
 - [ ] `external`
@@ -121,11 +121,13 @@ Auditoria detalhada da Fase 0: [phase0_reality_audit.md](phase0_reality_audit.md
 ## Progresso das fases
 
 > Percentuais aproximados de engenharia. Eles não substituem os gates formais de `CERTIFIED`/`SUPPORTED`.
+>
+> **Regra de cálculo:** a porcentagem é estimada por macroentregas da fase, não pela contagem bruta de checkboxes. Subpassos de uma mesma feature (por exemplo, vários passos de ARC/`shared`) não podem compensar domínios inteiros ainda não implementados.
 
 ```text
 Fase 0 — Reality Reset              ~80%
 Fase 1 — Typed Semantic Core       100% ✅
-Fase 2 — Ownership Domains          ~98% 🟡
+Fase 2 — Ownership Domains          ~45% 🟡
 Fase 3 — Authority Domains          ~10%
 Fase 4 — State Spaces                ~0%
 Fase 5 — Effects                    ~10%
@@ -143,10 +145,29 @@ Fase 16 — Native Machine Backend      ~5%
 Fase 17 — Tooling avançado          ~15%
 ```
 
+### Fase 2 — leitura por macroentregas
+
+| Macroentrega | Estado aproximado | Observação |
+|---|---:|---|
+| `sole` / base `exclusive` | ~90% | move, merge, loops, cleanup e graph existem; formalização final do domain ainda falta |
+| `shared` / co-owned / ARC semântico | ~75% | frontend, accounting, cleanup e SIR avançados; runtime/backend e e2e ainda faltam |
+| CFG + cleanup + defer para ownership | ~65% | vários paths reais cobertos; CFG arbitrário e todos os payloads de defer ainda não |
+| `region` | ~0% | ainda não implementado |
+| `device` | ~0% | ainda não implementado |
+| `external` | ~0% | ainda não implementado |
+| `island` | ~0% | ainda não implementado |
+| `whisper` | ~0% | ainda não implementado |
+| `direct` | ~0% | ainda não implementado |
+| `handover` | ~0% | ainda não implementado |
+| `quarantine` | ~0% | ainda não implementado |
+| runtime/backend + e2e por domínio | ~5% | gates/fail-closed existem, mas execução real de Ownership Domains ainda não |
+
+A combinação ponderada dessas macroentregas coloca a Fase 2 em **~45%**, não em 98%.
+
 ### Fase 2 detalhada
 
 ```text
-Fase 2 — Ownership Domains                  ~98%
+Fase 2 — Ownership Domains                  ~45%
 
 ✅ sole / exclusive
 ✅ move semantics
