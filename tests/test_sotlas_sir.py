@@ -849,6 +849,142 @@ class SotlasSIRTests(unittest.TestCase):
 
         self.assertIs(block.instructions[0], marker)
 
+    def test_shared_semantic_placement_matches_exact_source_point_not_order(self):
+        fn = SIRFunction("share_it", [], "void")
+        block = fn.add_block("0")
+        second = SharedOwnershipPointInst(
+            "second", "second_peer", "share@6:5"
+        )
+        first = SharedOwnershipPointInst(
+            "first", "first_peer", "share@5:5"
+        )
+        block.add(second)
+        block.add(first)
+
+        first_value = SIRValue("first", "Token")
+        first_peer = SIRValue("first_peer", "Token")
+        second_value = SIRValue("second", "Token")
+        second_peer = SIRValue("second_peer", "Token")
+        shared = SharedOwnershipSIRPlan(
+            (
+                ShareInst(first_value),
+                RetainInst(first_peer),
+                ShareInst(second_value),
+                RetainInst(second_peer),
+            ),
+            (),
+            (
+                SimpleNamespace(
+                    point_id="share@5:5",
+                    source="first",
+                    alias="first_peer",
+                    instructions=(
+                        ShareInst(first_value),
+                        RetainInst(first_peer),
+                    ),
+                ),
+                SimpleNamespace(
+                    point_id="share@6:5",
+                    source="second",
+                    alias="second_peer",
+                    instructions=(
+                        ShareInst(second_value),
+                        RetainInst(second_peer),
+                    ),
+                ),
+            ),
+        )
+        module = SIRModule("test")
+        module.add_function(fn)
+        plan = OwnershipModuleSIRPlan((
+            OwnershipFunctionSIRPlan(
+                "share_it", OwnershipDomainSIRPlan(()), shared
+            ),
+        ))
+
+        placement = apply_ownership_module_plan(module, plan)
+
+        self.assertEqual(
+            placement.inserted_shared_semantic_instructions, 4
+        )
+        self.assertEqual(
+            tuple(item.value.name for item in block.instructions),
+            ("second", "second_peer", "first", "first_peer"),
+        )
+
+    def test_shared_semantic_placement_rejects_missing_exact_source_point(self):
+        fn = SIRFunction("share_it", [], "void")
+        block = fn.add_block("0")
+        marker = SharedOwnershipPointInst(
+            "token", "peer", "share@5:5"
+        )
+        block.add(marker)
+        token = SIRValue("token", "Token")
+        peer = SIRValue("peer", "Token")
+        shared = SharedOwnershipSIRPlan(
+            (ShareInst(token), RetainInst(peer)),
+            (),
+            (
+                SimpleNamespace(
+                    point_id="share@99:1",
+                    source="token",
+                    alias="peer",
+                    instructions=(ShareInst(token), RetainInst(peer)),
+                ),
+            ),
+        )
+        module = SIRModule("test")
+        module.add_function(fn)
+        plan = OwnershipModuleSIRPlan((
+            OwnershipFunctionSIRPlan(
+                "share_it", OwnershipDomainSIRPlan(()), shared
+            ),
+        ))
+
+        with self.assertRaisesRegex(
+            ValueError,
+            r"semantic point 'share@99:1' missing from SIR CFG",
+        ):
+            apply_ownership_module_plan(module, plan)
+
+        self.assertIs(block.instructions[0], marker)
+
+    def test_shared_semantic_placement_rejects_duplicate_semantic_point(self):
+        fn = SIRFunction("share_it", [], "void")
+        block = fn.add_block("0")
+        marker = SharedOwnershipPointInst(
+            "token", "peer", "share@5:5"
+        )
+        block.add(marker)
+        token = SIRValue("token", "Token")
+        peer = SIRValue("peer", "Token")
+        point = SimpleNamespace(
+            point_id="share@5:5",
+            source="token",
+            alias="peer",
+            instructions=(ShareInst(token), RetainInst(peer)),
+        )
+        shared = SharedOwnershipSIRPlan(
+            (ShareInst(token), RetainInst(peer)),
+            (),
+            (point, point),
+        )
+        module = SIRModule("test")
+        module.add_function(fn)
+        plan = OwnershipModuleSIRPlan((
+            OwnershipFunctionSIRPlan(
+                "share_it", OwnershipDomainSIRPlan(()), shared
+            ),
+        ))
+
+        with self.assertRaisesRegex(
+            ValueError,
+            r"duplicate shared ownership semantic point 'share@5:5'",
+        ):
+            apply_ownership_module_plan(module, plan)
+
+        self.assertIs(block.instructions[0], marker)
+
     def test_domain_trace_lowers_quarantine_and_handover(self):
         token_type = SimpleNamespace(name="Token")
         exclusive = SimpleNamespace(value="exclusive")

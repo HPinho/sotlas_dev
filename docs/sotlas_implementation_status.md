@@ -127,7 +127,7 @@ Auditoria detalhada da Fase 0: [phase0_reality_audit.md](phase0_reality_audit.md
 ```text
 Fase 0 — Reality Reset              ~80%
 Fase 1 — Typed Semantic Core       100% ✅
-Fase 2 — Ownership Domains          ~68% 🟡
+Fase 2 — Ownership Domains          ~69% 🟡
 Fase 3 — Authority Domains          ~10%
 Fase 4 — State Spaces                ~0%
 Fase 5 — Effects                    ~10%
@@ -165,12 +165,12 @@ Este índice geral é apenas uma leitura agregada conservadora das fases acima; 
 | `quarantine` | ~40% | EXCLUSIVE→ISLAND é fato de transição explícito e validado no Ownership Domain Graph; weak invalidation/runtime/e2e faltam |
 | runtime/backend + e2e por domínio | ~5% | gates/fail-closed existem, mas execução real de Ownership Domains ainda não |
 
-A combinação ponderada dessas macroentregas coloca a Fase 2 em **~68%**.
+A combinação ponderada dessas macroentregas coloca a Fase 2 em **~69%**.
 
 ### Fase 2 detalhada
 
 ```text
-Fase 2 — Ownership Domains                  ~68%
+Fase 2 — Ownership Domains                  ~69%
 
 ✅ sole / exclusive
 ✅ move semantics
@@ -238,6 +238,8 @@ Fase 2 — Ownership Domains                  ~68%
 ✅ SIRGenerator emits SharedOwnershipPointInst for linear let alias = share owner     ← NOVO
 ✅ module ownership placement replaces shared marker with ShareInst + RetainInst      ← NOVO
 ✅ shared semantic marker mismatch fails before any module CFG mutation                ← NOVO
+✅ shared semantic placement resolves exact share@L:C points independent of CFG order   ← NOVO
+✅ duplicate/missing shared semantic source points fail before module CFG mutation       ← NOVO
 ✅ checked frontend module can generate + ownership-place one SIRModule in one API       ← NOVO
 ✅ canonical OwnershipDomainGraph now drives quarantine/handover SIR lowering              ← NOVO
 ✅ public checked pipeline composes graph-based domains with trace-based shared/ARC         ← NOVO

@@ -756,25 +756,45 @@ def _shared_semantic_replacements(
             f"{len(markers)} marker(s) vs {len(plan.semantic_points)} point(s)"
         )
 
-    replacements: dict[int, Tuple[SIRInstruction, ...]] = {}
-    seen: set[str] = set()
-    for marker, point in zip(markers, plan.semantic_points):
-        if marker.point_id in seen:
+    marker_by_point: dict[str, SharedOwnershipPointInst] = {}
+    for marker in markers:
+        if marker.point_id in marker_by_point:
             raise ValueError(
                 f"duplicate shared ownership SIR point {marker.point_id!r}"
             )
-        seen.add(marker.point_id)
-        if marker.point_id != point.point_id:
+        if not marker.point_id.startswith("share@"):
             raise ValueError(
-                f"shared ownership point identity mismatch at {marker.point_id!r}"
+                f"invalid shared ownership point identity {marker.point_id!r}"
+            )
+        marker_by_point[marker.point_id] = marker
+
+    point_by_id: dict[str, SharedOwnershipSIRSemanticPoint] = {}
+    for point in plan.semantic_points:
+        if point.point_id in point_by_id:
+            raise ValueError(
+                f"duplicate shared ownership semantic point {point.point_id!r}"
+            )
+        if not point.point_id.startswith("share@"):
+            raise ValueError(
+                f"invalid shared ownership semantic point {point.point_id!r}"
+            )
+        point_by_id[point.point_id] = point
+
+    replacements: dict[int, Tuple[SIRInstruction, ...]] = {}
+    for point_id, point in point_by_id.items():
+        marker = marker_by_point.get(point_id)
+        if marker is None:
+            raise ValueError(
+                f"shared ownership semantic point {point_id!r} "
+                f"missing from SIR CFG for {function.name!r}"
             )
         if marker.source_name != point.source:
             raise ValueError(
-                f"shared ownership source mismatch at {marker.point_id!r}"
+                f"shared ownership source mismatch at {point_id!r}"
             )
         if marker.alias_name != point.alias:
             raise ValueError(
-                f"shared ownership alias mismatch at {marker.point_id!r}"
+                f"shared ownership alias mismatch at {point_id!r}"
             )
         replacements[id(marker)] = point.instructions
     return replacements
