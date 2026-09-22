@@ -149,9 +149,16 @@ def install(bootstrap) -> None:
             ):
                 return super().statement()
 
-            if token.kind in {
-                "return", "break", "continue", "if", "while", "loop", "for", "unsafe"
-            }:
+            if (
+                token.kind in {
+                    "return", "break", "continue", "handover",
+                    "if", "while", "loop", "for", "unsafe",
+                }
+                or (
+                    token.kind == "IDENT"
+                    and token.text == "quarantine"
+                )
+            ):
                 return super().statement()
 
             expr = self.expression()
