@@ -20,7 +20,8 @@ from sotlas.sir import (
     ShareInst, RetainInst, ReleaseInst, DestroyInst, DeferUseInst,
     lower_ownership_domain_graph, lower_ownership_domain_trace,
     lower_ownership_module_semantics, lower_ownership_module_analysis,
-    lower_shared_ownership_trace, place_shared_function_exit_cleanup,
+    lower_shared_ownership_trace, lower_shared_ownership_graph,
+    place_shared_function_exit_cleanup,
     place_shared_return_cleanup,
     place_shared_loop_control_cleanup, place_shared_loop_backedge_cleanup,
     apply_shared_ownership_trace,
@@ -1155,6 +1156,155 @@ class SotlasSIRTests(unittest.TestCase):
             r"duplicate ownership trace for function 'main'",
         ):
             lower_ownership_module_analysis(analysis)
+
+    def test_shared_graph_drives_share_retain_semantics(self):
+        token_type = SimpleNamespace(name="Token")
+        graph = SimpleNamespace(
+            planned_transitions=(
+                SimpleNamespace(
+                    function="main", binding="token", type=token_type,
+                    source=SimpleNamespace(value="exclusive"),
+                    target=SimpleNamespace(value="shared"),
+                    operation="share", point_id="share@4:5",
+                ),
+            ),
+            shared_accounts=(
+                SimpleNamespace(
+                    function="main", binding="token", type=token_type,
+                    strong_refs=2, accounting="arc",
+                    owners=("token", "peer"), point_id="share@4:5",
+                ),
+            ),
+        )
+        empty = SimpleNamespace(steps=())
+        trace = SimpleNamespace(
+            final_env=SimpleNamespace(bindings=(
+                SimpleNamespace(name="token", type=token_type),
+                SimpleNamespace(name="peer", type=token_type),
+            )),
+            events=(
+                SimpleNamespace(
+                    kind="domain_transition", name="token",
+                    via="share:peer", type=token_type,
+                    point_id="share@4:5",
+                ),
+                SimpleNamespace(
+                    kind="retain", name="peer",
+                    via="share:token", type=token_type,
+                    point_id="share@4:5",
+                ),
+            ),
+            shared_cleanup=empty,
+            shared_path_cleanup=empty,
+            shared_loop_cleanup=empty,
+            shared_loop_control_exit=SimpleNamespace(actions=()),
+        )
+
+        plan = lower_shared_ownership_graph(graph, "main", trace)
+
+        self.assertEqual(
+            tuple(type(item) for item in plan.semantic),
+            (ShareInst, RetainInst),
+        )
+        self.assertEqual(plan.semantic[0].value.name, "token")
+        self.assertEqual(plan.semantic[1].value.name, "peer")
+        self.assertEqual(plan.semantic_points[0].point_id, "share@4:5")
+
+    def test_shared_graph_rejects_accounting_mismatch(self):
+        token_type = SimpleNamespace(name="Token")
+        graph = SimpleNamespace(
+            planned_transitions=(
+                SimpleNamespace(
+                    function="main", binding="token", type=token_type,
+                    source=SimpleNamespace(value="exclusive"),
+                    target=SimpleNamespace(value="shared"),
+                    operation="share", point_id="share@4:5",
+                ),
+            ),
+            shared_accounts=(
+                SimpleNamespace(
+                    function="main", binding="token", type=token_type,
+                    strong_refs=3, accounting="arc",
+                    owners=("token", "peer"), point_id="share@4:5",
+                ),
+            ),
+        )
+        empty = SimpleNamespace(steps=())
+        trace = SimpleNamespace(
+            final_env=SimpleNamespace(bindings=(
+                SimpleNamespace(name="token", type=token_type),
+                SimpleNamespace(name="peer", type=token_type),
+            )),
+            events=(
+                SimpleNamespace(
+                    kind="domain_transition", name="token",
+                    via="share:peer", type=token_type,
+                    point_id="share@4:5",
+                ),
+                SimpleNamespace(
+                    kind="retain", name="peer",
+                    via="share:token", type=token_type,
+                    point_id="share@4:5",
+                ),
+            ),
+            shared_cleanup=empty,
+            shared_path_cleanup=empty,
+            shared_loop_cleanup=empty,
+            shared_loop_control_exit=SimpleNamespace(actions=()),
+        )
+        with self.assertRaisesRegex(
+            ValueError,
+            r"does not match one source \+ one strong alias",
+        ):
+            lower_shared_ownership_graph(graph, "main", trace)
+
+    def test_shared_graph_rejects_trace_identity_divergence(self):
+        token_type = SimpleNamespace(name="Token")
+        graph = SimpleNamespace(
+            planned_transitions=(
+                SimpleNamespace(
+                    function="main", binding="token", type=token_type,
+                    source=SimpleNamespace(value="exclusive"),
+                    target=SimpleNamespace(value="shared"),
+                    operation="share", point_id="share@4:5",
+                ),
+            ),
+            shared_accounts=(
+                SimpleNamespace(
+                    function="main", binding="token", type=token_type,
+                    strong_refs=2, accounting="arc",
+                    owners=("token", "peer"), point_id="share@4:5",
+                ),
+            ),
+        )
+        empty = SimpleNamespace(steps=())
+        trace = SimpleNamespace(
+            final_env=SimpleNamespace(bindings=(
+                SimpleNamespace(name="token", type=token_type),
+                SimpleNamespace(name="other", type=token_type),
+            )),
+            events=(
+                SimpleNamespace(
+                    kind="domain_transition", name="token",
+                    via="share:other", type=token_type,
+                    point_id="share@4:5",
+                ),
+                SimpleNamespace(
+                    kind="retain", name="other",
+                    via="share:token", type=token_type,
+                    point_id="share@4:5",
+                ),
+            ),
+            shared_cleanup=empty,
+            shared_path_cleanup=empty,
+            shared_loop_cleanup=empty,
+            shared_loop_control_exit=SimpleNamespace(actions=()),
+        )
+        with self.assertRaisesRegex(
+            ValueError,
+            r"graph/trace identity mismatch",
+        ):
+            lower_shared_ownership_graph(graph, "main", trace)
 
     def test_shared_ownership_trace_lowers_to_backend_neutral_sir_plan(self):
         token_type = SimpleNamespace(name="Token")

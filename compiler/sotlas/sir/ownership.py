@@ -664,6 +664,149 @@ def lower_shared_ownership_trace(trace: Any) -> SharedOwnershipSIRPlan:
     )
 
 
+def lower_shared_ownership_graph(
+    graph: Any,
+    function_name: str,
+    trace: Any,
+) -> SharedOwnershipSIRPlan:
+    """Use canonical graph accounts for share/retain semantics and trace for cleanup."""
+    trace_plan = lower_shared_ownership_trace(trace)
+
+    accounts = tuple(
+        account
+        for account in getattr(graph, "shared_accounts", ()) or ()
+        if getattr(account, "function", None) == function_name
+    )
+    transitions = tuple(
+        transition
+        for transition in getattr(graph, "planned_transitions", ()) or ()
+        if getattr(transition, "function", None) == function_name
+        and getattr(transition, "operation", None) == "share"
+    )
+
+    if not accounts and not transitions:
+        if trace_plan.semantic:
+            raise ValueError(
+                f"canonical ownership graph lacks shared account(s) for "
+                f"{function_name!r}"
+            )
+        return trace_plan
+
+    transition_by_binding: dict[str, Any] = {}
+    for transition in transitions:
+        binding = getattr(transition, "binding", "")
+        if binding in transition_by_binding:
+            raise ValueError(
+                f"duplicate canonical shared transition for "
+                f"{function_name}::{binding}"
+            )
+        transition_by_binding[binding] = transition
+
+    semantic: list[SIRInstruction] = []
+    points: list[SharedOwnershipSIRSemanticPoint] = []
+    seen_accounts: set[str] = set()
+
+    for account in accounts:
+        binding = getattr(account, "binding", "")
+        if binding in seen_accounts:
+            raise ValueError(
+                f"duplicate canonical shared account for "
+                f"{function_name}::{binding}"
+            )
+        seen_accounts.add(binding)
+
+        transition = transition_by_binding.get(binding)
+        if transition is None:
+            raise ValueError(
+                f"canonical shared account {function_name}::{binding} "
+                "lacks EXCLUSIVE->SHARED transition"
+            )
+
+        source = _domain_name(getattr(transition, "source", None))
+        target = _domain_name(getattr(transition, "target", None))
+        if source != "exclusive" or target != "shared":
+            raise ValueError(
+                f"invalid canonical shared transition "
+                f"{source}->{target} for {function_name}::{binding}"
+            )
+
+        point_id = getattr(account, "point_id", None)
+        transition_point = getattr(transition, "point_id", None)
+        if (
+            point_id is None
+            or not str(point_id).startswith("share@")
+            or transition_point != point_id
+        ):
+            raise ValueError(
+                f"canonical shared source point mismatch for "
+                f"{function_name}::{binding}"
+            )
+
+        owners = tuple(getattr(account, "owners", ()) or ())
+        strong_refs = getattr(account, "strong_refs", None)
+        if (
+            len(owners) != 2
+            or owners[0] != binding
+            or strong_refs != len(owners)
+        ):
+            raise ValueError(
+                f"canonical shared account {function_name}::{binding} "
+                "does not match one source + one strong alias"
+            )
+
+        type_info = getattr(account, "type", None)
+        transition_type = getattr(transition, "type", None)
+        type_name = getattr(type_info, "name", None)
+        transition_type_name = getattr(transition_type, "name", None)
+        if not type_name or transition_type_name != type_name:
+            raise ValueError(
+                f"canonical shared type mismatch for "
+                f"{function_name}::{binding}"
+            )
+
+        alias = owners[1]
+        share_inst = ShareInst(SIRValue(binding, type_name))
+        retain_inst = RetainInst(SIRValue(alias, type_name))
+        semantic.extend((share_inst, retain_inst))
+        points.append(
+            SharedOwnershipSIRSemanticPoint(
+                point_id=str(point_id),
+                source=binding,
+                alias=alias,
+                instructions=(share_inst, retain_inst),
+            )
+        )
+
+    extra_transitions = sorted(set(transition_by_binding) - seen_accounts)
+    if extra_transitions:
+        raise ValueError(
+            f"canonical shared transition lacks account for "
+            f"{function_name}::{extra_transitions[0]}"
+        )
+
+    if len(trace_plan.semantic_points) != len(points):
+        raise ValueError(
+            f"canonical shared graph/trace point count mismatch for "
+            f"{function_name!r}"
+        )
+    trace_points = {
+        point.point_id: (point.source, point.alias)
+        for point in trace_plan.semantic_points
+    }
+    for point in points:
+        if trace_points.get(point.point_id) != (point.source, point.alias):
+            raise ValueError(
+                f"canonical shared graph/trace identity mismatch at "
+                f"{point.point_id!r}"
+            )
+
+    return SharedOwnershipSIRPlan(
+        tuple(semantic),
+        trace_plan.cleanup_segments,
+        tuple(points),
+    )
+
+
 def lower_ownership_module_semantics(
     analysis: Any,
     domain_graph: Any,
@@ -701,7 +844,9 @@ def lower_ownership_module_semantics(
                 domain=lower_ownership_domain_graph(
                     domain_graph, function_name
                 ),
-                shared=lower_shared_ownership_trace(trace),
+                shared=lower_shared_ownership_graph(
+                    domain_graph, function_name, trace
+                ),
             )
         )
     return OwnershipModuleSIRPlan(tuple(functions))
