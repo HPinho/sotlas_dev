@@ -173,7 +173,7 @@ class TestParserStatements(unittest.TestCase):
         stmts = self._fn_stmts("let x = Foo {};")
         self.assertIsInstance(stmts[0], LocalVarDeclNode)
         self.assertIsInstance(stmts[0].init, StructLitExprNode)
-        self.assertEqual(stmts[0].init.name, "Foo")
+        self.assertEqual(stmts[0].init.struct_name, "Foo")
 
     def test_for_in(self):
         stmts = self._fn_stmts("for item in items { return; }")
