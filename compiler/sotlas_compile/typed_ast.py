@@ -537,7 +537,7 @@ class OwnershipEvent:
     left_state: VarState | None = None
     right_state: VarState | None = None
     result_state: VarState | None = None
-    point_id: str | None = None
+    point_id: str | None = field(default=None, compare=False)
     defer_call: tuple[str, tuple[str, ...]] | None = None
     type: SemanticType | None = None
     destination: str | None = None
