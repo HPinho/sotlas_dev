@@ -32,6 +32,18 @@ class OwnershipDomainSIRPlan:
 
 
 @dataclass(frozen=True)
+class OwnershipFunctionSIRPlan:
+    function: str
+    domain: OwnershipDomainSIRPlan
+    shared: "SharedOwnershipSIRPlan"
+
+
+@dataclass(frozen=True)
+class OwnershipModuleSIRPlan:
+    functions: Tuple[OwnershipFunctionSIRPlan, ...]
+
+
+@dataclass(frozen=True)
 class SharedOwnershipSIRSegment:
     via: str
     instructions: Tuple[SIRInstruction, ...]
@@ -309,6 +321,33 @@ def lower_shared_ownership_trace(trace: Any) -> SharedOwnershipSIRPlan:
             )
 
     return SharedOwnershipSIRPlan(tuple(semantic), tuple(segments))
+
+
+def lower_ownership_module_analysis(
+    analysis: Any,
+) -> OwnershipModuleSIRPlan:
+    """Lower every canonical ownership trace into one per-function SIR plan.
+
+    This is the module-level bridge between OwnershipModuleAnalysis and SIR.
+    It composes domain-transfer semantics with shared/ARC semantics without
+    performing CFG placement or backend lowering.
+    """
+    functions: list[OwnershipFunctionSIRPlan] = []
+    seen: set[str] = set()
+    for function_name, trace in getattr(analysis, "traces", ()) or ():
+        if function_name in seen:
+            raise ValueError(
+                f"duplicate ownership trace for function {function_name!r}"
+            )
+        seen.add(function_name)
+        functions.append(
+            OwnershipFunctionSIRPlan(
+                function=function_name,
+                domain=lower_ownership_domain_trace(trace),
+                shared=lower_shared_ownership_trace(trace),
+            )
+        )
+    return OwnershipModuleSIRPlan(tuple(functions))
 
 
 def _return_cleanup_segments(
@@ -592,6 +631,9 @@ def apply_shared_ownership_trace(
 __all__ = [
     "OwnershipDomainSIRPlan",
     "lower_ownership_domain_trace",
+    "OwnershipFunctionSIRPlan",
+    "OwnershipModuleSIRPlan",
+    "lower_ownership_module_analysis",
     "SharedOwnershipSIRSegment",
     "SharedOwnershipSIRPlan",
     "SharedOwnershipSIRPlacement",

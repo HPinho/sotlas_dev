@@ -13,6 +13,7 @@ from sotlas.sir import (
     OwnershipDomainTransferInst,
     ShareInst, RetainInst, ReleaseInst, DestroyInst, DeferUseInst,
     lower_ownership_domain_trace,
+    lower_ownership_module_analysis,
     lower_shared_ownership_trace, place_shared_return_cleanup,
     place_shared_loop_control_cleanup, place_shared_loop_backedge_cleanup,
     apply_shared_ownership_trace,
@@ -152,6 +153,87 @@ class SotlasSIRTests(unittest.TestCase):
             r"island handover 'token' requires explicit destination",
         ):
             lower_ownership_domain_trace(trace)
+
+    def test_module_ownership_analysis_lowers_all_function_plans(self):
+        token_type = SimpleNamespace(name="Token")
+        exclusive = SimpleNamespace(value="exclusive")
+        island = SimpleNamespace(value="island")
+        empty_cleanup = SimpleNamespace(steps=())
+        empty_control = SimpleNamespace(actions=())
+
+        quarantine_trace = SimpleNamespace(
+            final_env=SimpleNamespace(bindings=(
+                SimpleNamespace(name="token", type=token_type),
+            )),
+            events=(
+                SimpleNamespace(
+                    kind="quarantine",
+                    name="token",
+                    type=token_type,
+                    source_domain=exclusive,
+                    target_domain=island,
+                    destination=None,
+                    destination_domain=None,
+                ),
+            ),
+            shared_cleanup=empty_cleanup,
+            shared_path_cleanup=empty_cleanup,
+            shared_loop_cleanup=empty_cleanup,
+            shared_loop_control_exit=empty_control,
+        )
+        plain_trace = SimpleNamespace(
+            final_env=SimpleNamespace(bindings=()),
+            events=(),
+            shared_cleanup=empty_cleanup,
+            shared_path_cleanup=empty_cleanup,
+            shared_loop_cleanup=empty_cleanup,
+            shared_loop_control_exit=empty_control,
+        )
+        analysis = SimpleNamespace(
+            traces=(("isolate", quarantine_trace), ("plain", plain_trace))
+        )
+
+        plan = lower_ownership_module_analysis(analysis)
+
+        self.assertEqual(
+            tuple(item.function for item in plan.functions),
+            ("isolate", "plain"),
+        )
+        self.assertEqual(
+            len(plan.functions[0].domain.instructions), 1
+        )
+        self.assertEqual(
+            plan.functions[0].domain.instructions[0].operation,
+            "quarantine",
+        )
+        self.assertEqual(
+            plan.functions[0].shared.semantic, ()
+        )
+        self.assertEqual(
+            plan.functions[1].domain.instructions, ()
+        )
+        self.assertEqual(
+            plan.functions[1].shared.semantic, ()
+        )
+
+    def test_module_ownership_analysis_rejects_duplicate_function_traces(self):
+        empty_cleanup = SimpleNamespace(steps=())
+        trace = SimpleNamespace(
+            final_env=SimpleNamespace(bindings=()),
+            events=(),
+            shared_cleanup=empty_cleanup,
+            shared_path_cleanup=empty_cleanup,
+            shared_loop_cleanup=empty_cleanup,
+            shared_loop_control_exit=SimpleNamespace(actions=()),
+        )
+        analysis = SimpleNamespace(
+            traces=(("main", trace), ("main", trace))
+        )
+        with self.assertRaisesRegex(
+            ValueError,
+            r"duplicate ownership trace for function 'main'",
+        ):
+            lower_ownership_module_analysis(analysis)
 
     def test_shared_ownership_trace_lowers_to_backend_neutral_sir_plan(self):
         token_type = SimpleNamespace(name="Token")
