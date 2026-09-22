@@ -690,6 +690,73 @@ fn main(token: island Token) -> void {
             typed_ast.OwnershipDomain.ISLAND,
         )
 
+    def test_sole_global_freezes_explicit_ownership_domain(self):
+        source = """module test::sole_global_domain;
+sole struct Token { value: u32; }
+static mut token: Token = Token { value: 1u32 };
+fn main() -> void { return; }
+"""
+        parsed = bootstrap.parse(
+            source, filename="<sole-global-domain>"
+        )
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        self.assertEqual(len(typed.globals), 1)
+        self.assertIs(
+            typed.globals[0].ownership_domain,
+            typed_ast.OwnershipDomain.EXCLUSIVE,
+        )
+
+    def test_island_global_storage_remains_fail_closed(self):
+        source = """module test::island_global;
+sole struct Token { value: u32; }
+static mut token: island Token = Token { value: 1u32 };
+fn main() -> void { return; }
+"""
+        parsed = bootstrap.parse(
+            source, filename="<island-global>"
+        )
+        bootstrap.check(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"island ownership is not supported for global storage yet",
+        ):
+            typed_ast.build_declaration_typed_ast(parsed)
+
+    def test_island_class_field_remains_fail_closed(self):
+        source = """module test::island_class_field;
+sole struct Token { value: u32; }
+class Vault {
+    token: island Token;
+}
+fn main() -> void { return; }
+"""
+        parsed = bootstrap.parse(
+            source, filename="<island-class-field>"
+        )
+        bootstrap.check(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"island ownership in class fields requires a formal "
+            r"ARC/island containment contract",
+        ):
+            typed_ast.build_declaration_typed_ast(parsed)
+
+    def test_invalid_island_global_type_is_rejected_before_storage_gate(self):
+        source = """module test::invalid_island_global;
+static mut value: island u32 = 1u32;
+fn main() -> void { return; }
+"""
+        parsed = bootstrap.parse(
+            source, filename="<invalid-island-global>"
+        )
+        bootstrap.check(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"island ownership requires sole type",
+        ):
+            typed_ast.build_declaration_typed_ast(parsed)
+
     def test_explicit_island_return_preserves_domain(self):
         source = """module test::island_return;
 sole struct Token { value: u32; }

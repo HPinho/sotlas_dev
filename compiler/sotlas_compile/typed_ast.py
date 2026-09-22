@@ -4734,6 +4734,9 @@ class TypedGlobal:
     public: bool
     is_const: bool
     is_mut: bool
+    ownership_domain: OwnershipDomain | None = field(
+        default=None, compare=False
+    )
 
 
 @dataclass(frozen=True)
@@ -4909,6 +4912,23 @@ def build_declaration_typed_ast(module) -> TypedModule:
             return OwnershipDomain.EXCLUSIVE
         return None
 
+    def global_domain(type_obj) -> OwnershipDomain | None:
+        domain = explicit_domain(type_obj)
+        if domain is OwnershipDomain.ISLAND:
+            raise Phase1SemanticError(
+                "island ownership is not supported for global storage yet"
+            )
+        return domain
+
+    def class_field_type(type_obj) -> SemanticType:
+        domain = explicit_domain(type_obj)
+        if domain is OwnershipDomain.ISLAND:
+            raise Phase1SemanticError(
+                "island ownership in class fields requires a formal "
+                "ARC/island containment contract"
+            )
+        return semantic_type(type_obj)
+
     return TypedModule(
         name=module.name,
         structs=tuple(
@@ -4938,13 +4958,11 @@ def build_declaration_typed_ast(module) -> TypedModule:
         globals=tuple(
             TypedGlobal(
                 name=item.name,
-                type=(
-                    explicit_domain(item.type),
-                    semantic_type(item.type),
-                )[1],
+                type=semantic_type(item.type),
                 public=bool(item.public),
                 is_const=bool(item.is_const),
                 is_mut=bool(item.is_mut),
+                ownership_domain=global_domain(item.type),
             )
             for item in module.globals
         ),
@@ -4993,7 +5011,7 @@ def build_declaration_typed_ast(module) -> TypedModule:
             TypedClass(
                 name=item.name,
                 fields=tuple(
-                    TypedField(field.name, semantic_type(field.type))
+                    TypedField(field.name, class_field_type(field.type))
                     for field in item.fields
                 ),
                 methods=tuple(

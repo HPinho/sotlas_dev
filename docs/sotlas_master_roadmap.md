@@ -3816,7 +3816,7 @@ Extensões construídas sobre a fundação, mas que **não promovem a linguagem 
 
 ### 2. Ownership Domains — 🟡 EM CONSTRUÇÃO
 
-**Progresso aproximado atual: ~57%.**
+**Progresso aproximado atual: ~58%.**
 
 **Desenvolvimento geral aproximado da linguagem: ~17%.** Esse índice é uma leitura agregada conservadora das fases do roadmap e não representa promoção global para `SUPPORTED`.
 
@@ -3846,7 +3846,7 @@ Ainda necessário para concluir a Fase 2 canônica:
 - [ ] `region` como domínio de lifetime/ownership verificável;
 - [ ] `device` como transferência de ownership CPU ↔ dispositivo com completion/reacquisition;
 - [ ] `external` como ownership/lifetime atravessando FFI ou recurso externo;
-- [ ] `island` como subgrafo/região de ownership isolado — além de `quarantine`, o qualificador público `island T` é preservado em parâmetros, calls/métodos, retornos, locais, campos e enum payloads; destinos island exigem fonte ISLAND/LIVE, EXCLUSIVE→ISLAND continua reservado a quarantine e handover ISLAND→EXCLUSIVE é a saída explícita implementada; criação de aliases por referência (`&owner`, `&owner.field`) e `share` a partir de ISLAND ficam fail-closed até o contrato formal whisper/island de lifetime/aliasing; runtime/backend real ainda falta;
+- [ ] `island` como subgrafo/região de ownership isolado — além de `quarantine`, o qualificador público `island T` é preservado nas fronteiras funcionais, locais, campos de struct e enum payloads; destinos island exigem fonte ISLAND/LIVE, EXCLUSIVE→ISLAND continua reservado a quarantine e handover ISLAND→EXCLUSIVE é a saída explícita implementada; aliases por referência/share ficam fail-closed até o contrato whisper/island, storage global island é rejeitado até existir lifetime/runtime global, e campos island em class ficam rejeitados até existir contrato ARC/island de contenção; runtime/backend real ainda falta;
 - [ ] `whisper` como referência não-owning/weak com validação de lifetime;
 - [ ] `direct` como acesso SRG de baixo nível com obrigações explícitas;
 - [ ] `handover` como operação formal de transferência entre bindings/domínios — além dos contratos EXCLUSIVE existentes, `handover <source> to <destination>;` agora permite saída explícita de ISLAND para um destino EXCLUSIVE do mesmo tipo e já MOVED; origem ISLAND vira MOVED, destino EXCLUSIVE volta a LIVE, evento/graph preservam domínio de origem e destino; handover sem destino a partir de ISLAND continua fail-closed, e demais domínios/runtime/backend/e2e ainda faltam;
