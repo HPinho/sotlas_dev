@@ -1,8 +1,10 @@
 # Sotlas — Implementation Status
 
-**Atualizado em:** 2026-09-21  
+**Atualizado em:** 2026-09-22  
 **Fonte arquitetural:** `SOTLAS — ESPECIFICAÇÃO MESTRA`  
 **Regra:** nenhum item é chamado de `SUPPORTED` apenas por existir no parser, AST ou em um passe isolado.
+
+Auditoria detalhada da Fase 0: [phase0_reality_audit.md](phase0_reality_audit.md).
 
 ## Legenda
 

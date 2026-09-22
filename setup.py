@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="sotlas",
-    version="0.2.0",
+    version="0.5.1",
     author="Hiago Pinho",
     license="Apache-2.0 WITH LLVM-exception",
     package_dir={"": "compiler"},
