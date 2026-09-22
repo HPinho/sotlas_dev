@@ -309,6 +309,8 @@ class Break(Stmt): pass
 @dataclass
 class Continue(Stmt): pass
 @dataclass
+class Handover(Stmt): value: Expr
+@dataclass
 class Loop(Stmt): body: list[Stmt]
 @dataclass
 class If(Stmt): condition: Expr; then_body: list[Stmt]; else_body: list[Stmt]
@@ -798,6 +800,10 @@ class Parser:
         if self.accept("continue"):
             self.expect(";")
             return Continue(token)
+        if self.accept("handover"):
+            value = self.expression()
+            self.expect(";")
+            return Handover(token, value)
         if self.accept("if"):
             condition = self.expression()
             then_body = self.block()
@@ -1409,6 +1415,29 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
                         "atribuição incompatível", item.token.line,
                         item.token.column, filename, source,
                     )
+            elif isinstance(item, Handover):
+                if not isinstance(item.value, Name):
+                    raise SotlasBootstrapError(
+                        "handover exige binding direto de ownership",
+                        item.token.line, item.token.column, filename, source,
+                    )
+                target_type = scope.get(item.value.value)
+                target_struct = (
+                    struct_map.get(target_type.name)
+                    if target_type is not None else None
+                )
+                if (
+                    target_type is None
+                    or target_struct is None
+                    or not target_struct.is_sole
+                    or target_type.pointer
+                    or target_type.is_reference
+                ):
+                    raise SotlasBootstrapError(
+                        f"handover exige valor sole exclusivo: {item.value.value}",
+                        item.token.line, item.token.column, filename, source,
+                    )
+                expr_type(item.value, scope, in_unsafe, is_system_fn)
             elif isinstance(item, Return):
                 if item.value is not None:
                     actual = expr_type(item.value, scope, in_unsafe, is_system_fn)
@@ -2167,6 +2196,11 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                     out.append(f"{pad}__builtin_memset(&({target_str}), 0, sizeof({target_str}));")
                 else:
                     out.append(f"{pad}{target_str} = {_emit_expr(item.value, prefix)};")
+            elif isinstance(item, Handover):
+                raise SotlasBootstrapError(
+                    "C11 backend does not lower handover ownership yet",
+                    item.token.line, item.token.column,
+                )
             elif isinstance(item, Defer):
                 defer_scopes[-1].append(item)
             elif isinstance(item, Return):

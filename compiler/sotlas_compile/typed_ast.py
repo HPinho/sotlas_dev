@@ -1088,6 +1088,41 @@ def _move_try_wrapped_call_arguments(
     return env
 
 
+def _apply_explicit_handover(
+    env: OwnershipEnv,
+    expr,
+    events: list[OwnershipEvent],
+) -> OwnershipEnv:
+    """Apply source-level handover to one whole exclusive binding."""
+    if type(expr).__name__ != "Name":
+        raise Phase1SemanticError(
+            "handover currently requires a direct exclusive ownership binding"
+        )
+    name = getattr(expr, "value", None)
+    domain = env.domain_of(name)
+    if domain is None:
+        raise Phase1SemanticError(
+            f"handover target {name!r} is not a tracked exclusive value"
+        )
+    if domain is not OwnershipDomain.EXCLUSIVE:
+        raise Phase1SemanticError(
+            f"handover target {name!r} must be exclusive, got {domain.value}"
+        )
+    env.require_live(name)
+    type_info = env.type_of(name)
+    moved = env.move(name)
+    events.append(
+        OwnershipEvent(
+            "handover",
+            name,
+            "handover",
+            OwnershipDomain.EXCLUSIVE,
+            type=type_info,
+        )
+    )
+    return moved
+
+
 def analyze_linear_function_ownership(
     parsed_module, typed_module: TypedModule, function_name: str
 ) -> OwnershipTrace:
@@ -1189,6 +1224,14 @@ def analyze_linear_function_ownership(
                 )
             else:
                 require_expr_ownership_live(env, value)
+            continue
+
+        if kind == "Handover":
+            env = _apply_explicit_handover(
+                env,
+                getattr(statement, "value", None),
+                events,
+            )
             continue
 
         if kind == "Return":
@@ -1398,6 +1441,14 @@ def _analyze_block_ownership(
                 )
             else:
                 require_expr_ownership_live(result, value)
+            continue
+
+        if kind == "Handover":
+            result = _apply_explicit_handover(
+                result,
+                getattr(statement, "value", None),
+                events,
+            )
             continue
 
         if kind == "Assign":
@@ -2032,7 +2083,7 @@ def build_ownership_domain_graph(
             nodes.append(node)
 
         for event in trace.events:
-            if event.kind == "move":
+            if event.kind in ("move", "handover"):
                 binding = bindings.get(event.name)
                 if binding is None:
                     raise Phase1SemanticError(

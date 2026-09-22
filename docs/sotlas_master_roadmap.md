@@ -3816,7 +3816,7 @@ Extensões construídas sobre a fundação, mas que **não promovem a linguagem 
 
 ### 2. Ownership Domains — 🟡 EM CONSTRUÇÃO
 
-**Progresso aproximado atual: ~46%.**
+**Progresso aproximado atual: ~47%.**
 
 > Este percentual é calculado por macroentregas, não por número de subchecks. O trabalho avançado em `shared`/ARC não substitui os domínios ainda ausentes (`region`, `device`, `external`, `island`, `whisper`, `direct`, `handover`, `quarantine`) nem runtime/backend e testes end-to-end por domínio.
 
@@ -3847,7 +3847,7 @@ Ainda necessário para concluir a Fase 2 canônica:
 - [ ] `island` como subgrafo/região de ownership isolado;
 - [ ] `whisper` como referência não-owning/weak com validação de lifetime;
 - [ ] `direct` como acesso SRG de baixo nível com obrigações explícitas;
-- [ ] `handover` como operação formal de transferência entre bindings/domínios;
+- [ ] `handover` como operação formal de transferência entre bindings/domínios — primeiro slice canônico concluído para `handover <binding>;` EXCLUSIVE, com origem MOVED, evento/graph explícitos e C11 fail-closed; destino, reacquisition e transições entre domínios ainda faltam;
 - [ ] `quarantine` como isolamento verificável antes de reuse/dispatch;
 - [x] grafo canônico de ownership/domains no snapshot semântico para owners rastreados e transferências `exclusive`;
 - [x] merge de Ownership Domain em branches exige domínio idêntico e registra LIVE/MOVED/MAYBE_MOVED no grafo;

@@ -78,7 +78,7 @@ Auditoria detalhada da Fase 0: [phase0_reality_audit.md](phase0_reality_audit.md
 - [ ] `island`
 - [ ] `whisper`
 - [ ] `direct`
-- [ ] `handover`
+- [ ] `handover` — statement canônico + transferência EXCLUSIVE implementados; destino/domínio, reacquisition e backend ainda pendentes
 - [ ] `quarantine`
 - [x] ownership/domain graph canônico para owners rastreados e transferências `exclusive` (`call`, `return`, campos e payloads), backend-neutral
 - [x] merge canônico de domínio em branches para owners rastreados: domínio deve permanecer idêntico; joins de estado são registrados no grafo
@@ -127,7 +127,7 @@ Auditoria detalhada da Fase 0: [phase0_reality_audit.md](phase0_reality_audit.md
 ```text
 Fase 0 — Reality Reset              ~80%
 Fase 1 — Typed Semantic Core       100% ✅
-Fase 2 — Ownership Domains          ~46% 🟡
+Fase 2 — Ownership Domains          ~47% 🟡
 Fase 3 — Authority Domains          ~10%
 Fase 4 — State Spaces                ~0%
 Fase 5 — Effects                    ~10%
@@ -158,16 +158,16 @@ Fase 17 — Tooling avançado          ~15%
 | `island` | ~0% | ainda não implementado |
 | `whisper` | ~0% | ainda não implementado |
 | `direct` | ~0% | ainda não implementado |
-| `handover` | ~0% | ainda não implementado |
+| `handover` | ~30% | statement canônico, invalidação EXCLUSIVE e graph existem; destino/reacquisition/backend faltam |
 | `quarantine` | ~0% | ainda não implementado |
 | runtime/backend + e2e por domínio | ~5% | gates/fail-closed existem, mas execução real de Ownership Domains ainda não |
 
-A combinação ponderada dessas macroentregas coloca a Fase 2 em **~46%**.
+A combinação ponderada dessas macroentregas coloca a Fase 2 em **~47%**.
 
 ### Fase 2 detalhada
 
 ```text
-Fase 2 — Ownership Domains                  ~46%
+Fase 2 — Ownership Domains                  ~47%
 
 ✅ sole / exclusive
 ✅ move semantics

@@ -1462,6 +1462,99 @@ fn main(t: Token) -> void {
         self.assertIs(env.state_of("t"), typed_ast.VarState.LIVE)
         self.assertIsNone(env.state_of("copy"))
 
+    def test_canonical_handover_moves_exclusive_binding(self):
+        source = """module test::canonical_handover;
+sole struct Token { value: u32; }
+fn main(token: Token) -> void {
+    handover token;
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<canonical-handover>")
+        bootstrap.check(parsed)
+        self.assertEqual(type(parsed.functions[0].body[0]).__name__, "Handover")
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(parsed, typed, "main")
+
+        self.assertIs(trace.final_env.state_of("token"), typed_ast.VarState.MOVED)
+        self.assertIn(
+            typed_ast.OwnershipEvent(
+                "handover",
+                "token",
+                "handover",
+                typed_ast.OwnershipDomain.EXCLUSIVE,
+                type=typed_ast.SemanticType("Token"),
+            ),
+            trace.events,
+        )
+
+    def test_canonical_handover_rejects_use_after_transfer(self):
+        source = """module test::handover_use_after;
+sole struct Token { value: u32; }
+fn inspect(value: u32) -> void { return; }
+fn main(token: Token) -> void {
+    handover token;
+    inspect(token.value);
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<handover-use-after>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"use of sole value 'token' after move",
+        ):
+            typed_ast.analyze_function_ownership(parsed, typed, "main")
+
+    def test_canonical_handover_rejects_shared_owner(self):
+        source = """module test::handover_shared;
+sole struct Token { value: u32; }
+fn main(token: Token) -> void {
+    let peer = share token;
+    handover peer;
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<handover-shared>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"handover target 'peer' must be exclusive, got shared",
+        ):
+            typed_ast.analyze_function_ownership(parsed, typed, "main")
+
+    def test_canonical_handover_rejects_copyable_value(self):
+        source = """module test::handover_copyable;
+fn main(count: u32) -> void {
+    handover count;
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<handover-copyable>")
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"handover exige valor sole exclusivo",
+        ):
+            bootstrap.check(parsed)
+
+    def test_c11_handover_remains_fail_closed(self):
+        source = """module test::handover_c11_gate;
+sole struct Token { value: u32; }
+fn main(token: Token) -> void {
+    handover token;
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<handover-c11-gate>")
+        bootstrap.check(parsed)
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"C11 backend does not lower handover ownership yet",
+        ):
+            bootstrap.emit_c(parsed)
+
     def test_linear_body_moves_sole_value_into_by_value_call(self):
         source = """module test::linear_call;
 sole struct Token { value: u32; }
