@@ -10,7 +10,8 @@ sys.path.insert(0, str(ROOT / "tools"))
 from sotlas.sir import (
     SIRModule, SIRFunction, SIRBasicBlock, SIRValue,
     AllocStackInst, StoreInst, LoadInst, CallInst, ReturnInst, BranchInst, CondBranchInst,
-    OwnershipDomainTransferInst,
+    OwnershipDomainPointInst, OwnershipDomainTransferInst,
+    OwnershipDomainSIRPlan, place_ownership_domain_transfers,
     ShareInst, RetainInst, ReleaseInst, DestroyInst, DeferUseInst,
     lower_ownership_domain_trace,
     lower_ownership_module_analysis,
@@ -64,6 +65,114 @@ class SotlasSIRTests(unittest.TestCase):
         self.assertIn("[exclusive->island]", str(quarantine))
         self.assertIn("-> %peer: Token", str(handover))
         self.assertIn("[island->exclusive]", str(handover))
+
+    def test_generator_emits_source_stable_ownership_domain_points(self):
+        quarantine = type("Quarantine", (), {})()
+        quarantine.value = SimpleNamespace(value="token")
+        quarantine.destination = None
+        quarantine.token = SimpleNamespace(line=5, column=5)
+
+        handover = type("Handover", (), {})()
+        handover.value = SimpleNamespace(value="token")
+        handover.destination = SimpleNamespace(value="peer")
+        handover.token = SimpleNamespace(line=6, column=5)
+
+        ret = type("Return", (), {})()
+        ret.token = SimpleNamespace(line=7, column=5)
+
+        fn = SimpleNamespace(
+            name="isolate",
+            params=[],
+            result=SimpleNamespace(name="void"),
+            body=[quarantine, handover, ret],
+            attributes=[],
+        )
+        module = SimpleNamespace(name="test", functions=[fn])
+
+        sir = SIRGenerator().generate_from_ast(module)
+        instructions = sir.functions[0].blocks[0].instructions
+        points = [
+            item for item in instructions
+            if isinstance(item, OwnershipDomainPointInst)
+        ]
+        self.assertEqual(
+            tuple(item.point_id for item in points),
+            ("quarantine@5:5", "handover@6:5"),
+        )
+        self.assertEqual(points[0].source_name, "token")
+        self.assertIsNone(points[0].destination_name)
+        self.assertEqual(points[1].destination_name, "peer")
+        self.assertIsInstance(instructions[-1], ReturnInst)
+        self.assertEqual(instructions[-1].point_id, "return@7:5")
+
+    def test_domain_transfer_placement_replaces_markers_atomically(self):
+        fn = SIRFunction("isolate", [], "void")
+        block = fn.add_block("0")
+        block.add(
+            OwnershipDomainPointInst(
+                "quarantine", "token", None, "quarantine@5:5"
+            )
+        )
+        block.add(
+            OwnershipDomainPointInst(
+                "handover", "token", "peer", "handover@6:5"
+            )
+        )
+        block.add(ReturnInst(point_id="return@7:5"))
+
+        token = SIRValue("token", "Token")
+        peer = SIRValue("peer", "Token")
+        plan = OwnershipDomainSIRPlan((
+            OwnershipDomainTransferInst(
+                "quarantine", token, "exclusive", "island"
+            ),
+            OwnershipDomainTransferInst(
+                "handover", token, "island", "exclusive", peer
+            ),
+        ))
+
+        placement = place_ownership_domain_transfers(fn, plan)
+
+        self.assertEqual(placement.inserted_instructions, 2)
+        self.assertEqual(
+            tuple(type(item) for item in block.instructions),
+            (
+                OwnershipDomainTransferInst,
+                OwnershipDomainTransferInst,
+                ReturnInst,
+            ),
+        )
+        self.assertEqual(
+            block.instructions[1].destination.name, "peer"
+        )
+
+    def test_domain_transfer_placement_mismatch_is_transactional(self):
+        fn = SIRFunction("isolate", [], "void")
+        block = fn.add_block("0")
+        marker = OwnershipDomainPointInst(
+            "quarantine", "token", None, "quarantine@5:5"
+        )
+        block.add(marker)
+        block.add(ReturnInst(point_id="return@6:5"))
+
+        plan = OwnershipDomainSIRPlan((
+            OwnershipDomainTransferInst(
+                "handover",
+                SIRValue("token", "Token"),
+                "exclusive",
+                "exclusive",
+            ),
+        ))
+        original = tuple(block.instructions)
+
+        with self.assertRaisesRegex(
+            ValueError,
+            r"ownership domain operation mismatch",
+        ):
+            place_ownership_domain_transfers(fn, plan)
+
+        self.assertEqual(tuple(block.instructions), original)
+        self.assertIs(block.instructions[0], marker)
 
     def test_domain_trace_lowers_quarantine_and_handover(self):
         token_type = SimpleNamespace(name="Token")

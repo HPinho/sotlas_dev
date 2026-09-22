@@ -68,6 +68,24 @@ class CallInst(SIRInstruction):
 
 
 @dataclass
+class OwnershipDomainPointInst(SIRInstruction):
+    operation: str
+    source_name: str
+    destination_name: str | None
+    point_id: str
+
+    def __str__(self) -> str:
+        destination = (
+            f" -> {self.destination_name}"
+            if self.destination_name is not None else ""
+        )
+        return (
+            f"  ownership_point {self.operation} {self.source_name}"
+            f"{destination} // {self.point_id}"
+        )
+
+
+@dataclass
 class OwnershipDomainTransferInst(SIRInstruction):
     operation: str
     source: SIRValue

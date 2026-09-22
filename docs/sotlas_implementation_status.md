@@ -127,7 +127,7 @@ Auditoria detalhada da Fase 0: [phase0_reality_audit.md](phase0_reality_audit.md
 ```text
 Fase 0 — Reality Reset              ~80%
 Fase 1 — Typed Semantic Core       100% ✅
-Fase 2 — Ownership Domains          ~61% 🟡
+Fase 2 — Ownership Domains          ~62% 🟡
 Fase 3 — Authority Domains          ~10%
 Fase 4 — State Spaces                ~0%
 Fase 5 — Effects                    ~10%
@@ -165,12 +165,12 @@ Este índice geral é apenas uma leitura agregada conservadora das fases acima; 
 | `quarantine` | ~40% | EXCLUSIVE→ISLAND é fato de transição explícito e validado no Ownership Domain Graph; weak invalidation/runtime/e2e faltam |
 | runtime/backend + e2e por domínio | ~5% | gates/fail-closed existem, mas execução real de Ownership Domains ainda não |
 
-A combinação ponderada dessas macroentregas coloca a Fase 2 em **~61%**.
+A combinação ponderada dessas macroentregas coloca a Fase 2 em **~62%**.
 
 ### Fase 2 detalhada
 
 ```text
-Fase 2 — Ownership Domains                  ~61%
+Fase 2 — Ownership Domains                  ~62%
 
 ✅ sole / exclusive
 ✅ move semantics
@@ -223,6 +223,10 @@ Fase 2 — Ownership Domains                  ~61%
 ✅ public Phase-1 pipeline now emits OwnershipModuleSIRPlan automatically     ← NOVO
 ✅ Phase1CheckedModule composes semantic snapshot + ownership SIR             ← NOVO
 ✅ plain functions produce explicit empty ownership SIR plans                 ← NOVO
+✅ SIRGenerator emits source-stable quarantine/handover ownership points       ← NOVO
+✅ ownership-domain plan replaces validated source points transactionally       ← NOVO
+✅ operation/source/destination/point mismatches fail before CFG mutation        ← NOVO
+✅ unsupported mixed linear bodies do not receive invented ownership placement  ← NOVO
 ✅ fail-closed when ownership type is unknown ← NOVO
 
 ✅ OwnershipTrace → SIR plan → return placement integration ← NOVO

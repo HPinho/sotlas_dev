@@ -7,6 +7,7 @@ from typing import Any, Optional
 from .instructions import (
     SIRModule, SIRFunction, SIRBasicBlock, SIRValue,
     AllocStackInst, StoreInst, LoadInst, CallInst,
+    OwnershipDomainPointInst,
     ReturnInst, BranchInst, CondBranchInst, SystemOpInst
 )
 
@@ -295,6 +296,66 @@ class SIRGenerator:
         )
         return True
 
+    def _try_lower_linear_ownership_points(
+        self,
+        fn: Any,
+        entry_block: SIRBasicBlock,
+        return_type: str,
+    ) -> bool:
+        """Lower the honest linear ownership-transfer subset to source markers."""
+        if return_type != "void":
+            return False
+        body = getattr(fn, "body", None) or []
+        if not body or type(body[-1]).__name__ not in ("Return", "ReturnNode"):
+            return False
+
+        transfers = body[:-1]
+        if not transfers:
+            return False
+        supported = {"Quarantine", "Handover"}
+        if any(type(statement).__name__ not in supported for statement in transfers):
+            return False
+
+        for statement in transfers:
+            kind = type(statement).__name__
+            value = getattr(statement, "value", None)
+            source_name = (
+                getattr(value, "value", None)
+                or getattr(value, "name", None)
+            )
+            if not isinstance(source_name, str) or not source_name:
+                raise ValueError(
+                    f"{kind.lower()} SIR point requires direct source binding"
+                )
+            destination = getattr(statement, "destination", None)
+            destination_name = (
+                getattr(destination, "value", None)
+                or getattr(destination, "name", None)
+                if destination is not None else None
+            )
+            if destination is not None and (
+                not isinstance(destination_name, str) or not destination_name
+            ):
+                raise ValueError(
+                    "handover SIR point requires direct destination binding"
+                )
+            operation = kind.lower()
+            entry_block.add(
+                OwnershipDomainPointInst(
+                    operation=operation,
+                    source_name=source_name,
+                    destination_name=destination_name,
+                    point_id=self._statement_point_id(statement, operation),
+                )
+            )
+
+        entry_block.add(
+            ReturnInst(
+                point_id=self._statement_point_id(body[-1], "return")
+            )
+        )
+        return True
+
     def generate_from_ast(self, ast: Any) -> SIRModule:
         """Gera o SIR a partir de um módulo AST parsed pelo frontend."""
         module_name = getattr(ast, "name", self.module_name)
@@ -358,6 +419,11 @@ class SIRGenerator:
 
         if self._try_lower_simple_loop_control(
             fn, sir_fn, entry_block, sir_params, ret_str
+        ):
+            return sir_fn
+
+        if self._try_lower_linear_ownership_points(
+            fn, entry_block, ret_str
         ):
             return sir_fn
 

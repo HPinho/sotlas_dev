@@ -16,6 +16,7 @@ from .instructions import (
     SIRFunction,
     ReturnInst,
     BranchInst,
+    OwnershipDomainPointInst,
     OwnershipDomainTransferInst,
     ShareInst,
     RetainInst,
@@ -41,6 +42,12 @@ class OwnershipFunctionSIRPlan:
 @dataclass(frozen=True)
 class OwnershipModuleSIRPlan:
     functions: Tuple[OwnershipFunctionSIRPlan, ...]
+
+
+@dataclass(frozen=True)
+class OwnershipDomainSIRPlacement:
+    plan: OwnershipDomainSIRPlan
+    inserted_instructions: int
 
 
 @dataclass(frozen=True)
@@ -178,6 +185,61 @@ def lower_ownership_domain_trace(trace: Any) -> OwnershipDomainSIRPlan:
         )
 
     return OwnershipDomainSIRPlan(tuple(instructions))
+
+
+def place_ownership_domain_transfers(
+    function: SIRFunction,
+    plan: OwnershipDomainSIRPlan,
+) -> OwnershipDomainSIRPlacement:
+    """Atomically replace source markers with validated domain-transfer SIR."""
+    markers: list[OwnershipDomainPointInst] = []
+    for block in function.blocks:
+        for instruction in block.instructions:
+            if isinstance(instruction, OwnershipDomainPointInst):
+                markers.append(instruction)
+
+    if len(markers) != len(plan.instructions):
+        raise ValueError(
+            f"ownership domain SIR point count mismatch for {function.name!r}: "
+            f"{len(markers)} marker(s) vs {len(plan.instructions)} transfer(s)"
+        )
+
+    seen_points: set[str] = set()
+    for marker, transfer in zip(markers, plan.instructions):
+        if marker.point_id in seen_points:
+            raise ValueError(
+                f"duplicate ownership domain SIR point {marker.point_id!r}"
+            )
+        seen_points.add(marker.point_id)
+        if not marker.point_id.startswith(f"{marker.operation}@"):
+            raise ValueError(
+                f"invalid ownership domain point identity {marker.point_id!r}"
+            )
+        if marker.operation != transfer.operation:
+            raise ValueError(
+                f"ownership domain operation mismatch at {marker.point_id!r}"
+            )
+        if marker.source_name != transfer.source.name:
+            raise ValueError(
+                f"ownership domain source mismatch at {marker.point_id!r}"
+            )
+        transfer_destination = (
+            transfer.destination.name
+            if transfer.destination is not None else None
+        )
+        if marker.destination_name != transfer_destination:
+            raise ValueError(
+                f"ownership domain destination mismatch at {marker.point_id!r}"
+            )
+
+    replacements = {id(marker): transfer
+                    for marker, transfer in zip(markers, plan.instructions)}
+    for block in function.blocks:
+        block.instructions = [
+            replacements.get(id(instruction), instruction)
+            for instruction in block.instructions
+        ]
+    return OwnershipDomainSIRPlacement(plan, len(markers))
 
 
 def _cleanup_instructions(
@@ -631,6 +693,8 @@ def apply_shared_ownership_trace(
 __all__ = [
     "OwnershipDomainSIRPlan",
     "lower_ownership_domain_trace",
+    "OwnershipDomainSIRPlacement",
+    "place_ownership_domain_transfers",
     "OwnershipFunctionSIRPlan",
     "OwnershipModuleSIRPlan",
     "lower_ownership_module_analysis",
