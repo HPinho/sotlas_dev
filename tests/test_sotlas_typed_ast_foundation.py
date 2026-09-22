@@ -1351,6 +1351,67 @@ fn main(flag: bool) -> void {
         )
         self.assertIs(state, typed_ast.VarState.MOVED)
 
+    def test_typed_declarations_freeze_explicit_exclusive_domains(self):
+        source = """module test::explicit_exclusive_domain;
+sole struct Token { value: u32; }
+struct Plain { value: u32; }
+
+fn identity(token: Token, plain: Plain) -> Token {
+    return token;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<explicit-exclusive-domain>"
+        )
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+
+        token_struct = next(item for item in typed.structs if item.name == "Token")
+        plain_struct = next(item for item in typed.structs if item.name == "Plain")
+        function = next(item for item in typed.functions if item.name == "identity")
+
+        self.assertIs(
+            token_struct.ownership_domain,
+            typed_ast.OwnershipDomain.EXCLUSIVE,
+        )
+        self.assertIsNone(plain_struct.ownership_domain)
+        self.assertIs(
+            function.params[0].ownership_domain,
+            typed_ast.OwnershipDomain.EXCLUSIVE,
+        )
+        self.assertIsNone(function.params[1].ownership_domain)
+        self.assertIs(
+            function.return_ownership_domain,
+            typed_ast.OwnershipDomain.EXCLUSIVE,
+        )
+        self.assertIs(
+            typed_ast.ownership_domain(
+                typed_ast.SemanticType("Token"), typed
+            ),
+            typed_ast.OwnershipDomain.EXCLUSIVE,
+        )
+
+    def test_ownership_summary_uses_frozen_exclusive_contracts(self):
+        source = """module test::exclusive_summary;
+sole struct Token { value: u32; }
+fn identity(token: Token) -> Token { return token; }
+"""
+        parsed = bootstrap.parse(source, filename="<exclusive-summary>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        summary = typed_ast.summarize_module_ownership(parsed, typed)[0]
+
+        self.assertTrue(summary.params[0].takes_ownership)
+        self.assertIs(
+            summary.params[0].domain,
+            typed_ast.OwnershipDomain.EXCLUSIVE,
+        )
+        self.assertTrue(summary.returns_sole)
+        self.assertIs(
+            summary.return_domain,
+            typed_ast.OwnershipDomain.EXCLUSIVE,
+        )
+
     def test_function_ownership_seeds_sole_parameter_and_local(self):
         source = """module test::ownership_seed;
 sole struct Handle { fd: u32; }

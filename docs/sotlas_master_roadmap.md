@@ -3816,7 +3816,7 @@ Extensões construídas sobre a fundação, mas que **não promovem a linguagem 
 
 ### 2. Ownership Domains — 🟡 EM CONSTRUÇÃO
 
-**Progresso aproximado atual: ~45%.**
+**Progresso aproximado atual: ~46%.**
 
 > Este percentual é calculado por macroentregas, não por número de subchecks. O trabalho avançado em `shared`/ARC não substitui os domínios ainda ausentes (`region`, `device`, `external`, `island`, `whisper`, `direct`, `handover`, `quarantine`) nem runtime/backend e testes end-to-end por domínio.
 
@@ -3837,7 +3837,7 @@ Fundação já implementada:
 
 Ainda necessário para concluir a Fase 2 canônica:
 
-- [ ] formalizar `exclusive` como Ownership Domain explícito além da semântica atual de `sole`;
+- [x] `exclusive` formalizado como Ownership Domain explícito no Typed AST: declarações `sole`, parâmetros, retornos, bindings e summaries preservam o domínio canônico;
 - [ ] `shared` end-to-end como domínio de ownership com custo e estratégia observáveis; sintaxe/frontend e accounting/SIR parcial já existem, mas runtime/backend ainda não;
 - [x] contrato semântico backend-neutral de `co-owned`/ARC com contador forte explícito, retain/release determinísticos e destruição elegível quando strong_refs chega a zero;
 - [ ] integração completa desse accounting com aliases reais, cleanup, Typed AST, lowering canônico e runtime/backend;

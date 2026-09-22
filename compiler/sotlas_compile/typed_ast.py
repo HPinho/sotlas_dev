@@ -50,8 +50,16 @@ def is_sole_type(type_info: SemanticType, module: TypedModule) -> bool:
 def ownership_domain(
     type_info: SemanticType, module: TypedModule
 ) -> OwnershipDomain | None:
-    """Map the supported sole contract to its explicit ownership domain."""
-    return OwnershipDomain.EXCLUSIVE if is_sole_type(type_info, module) else None
+    """Resolve the ownership domain frozen in the canonical Typed AST."""
+    if type_info.pointer or type_info.is_reference:
+        return None
+    struct = next(
+        (item for item in module.structs if item.name == type_info.name),
+        None,
+    )
+    if struct is None:
+        return None
+    return struct.ownership_domain
 
 
 def initial_ownership_state(
@@ -2145,14 +2153,17 @@ def summarize_module_ownership(
                 params=tuple(
                     OwnershipParamContract(
                         param.name,
-                        is_sole_type(param.type, typed_module),
-                        ownership_domain(param.type, typed_module),
+                        param.ownership_domain is OwnershipDomain.EXCLUSIVE,
+                        param.ownership_domain,
                     )
                     for param in function.params
                 ),
-                returns_sole=is_sole_type(function.result, typed_module),
+                returns_sole=(
+                    function.return_ownership_domain
+                    is OwnershipDomain.EXCLUSIVE
+                ),
                 calls=tuple(calls),
-                return_domain=ownership_domain(function.result, typed_module),
+                return_domain=function.return_ownership_domain,
             )
         )
     return tuple(summaries)
@@ -4162,6 +4173,7 @@ def lower_module_enum_storage_layouts(
 class TypedParam:
     name: str
     type: SemanticType
+    ownership_domain: OwnershipDomain | None = None
 
 
 @dataclass(frozen=True)
@@ -4171,6 +4183,7 @@ class TypedFunction:
     result: SemanticType
     public: bool
     attributes: tuple[str, ...]
+    return_ownership_domain: OwnershipDomain | None = None
 
 
 @dataclass(frozen=True)
@@ -4325,6 +4338,20 @@ def build_declaration_typed_ast(module) -> TypedModule:
     This function neither calls nor replaces bootstrap.check and never mutates
     the production AST.
     """
+    exclusive_type_names = frozenset(
+        item.name
+        for item in module.structs
+        if bool(getattr(item, "is_sole", False))
+    )
+
+    def explicit_domain(type_obj) -> OwnershipDomain | None:
+        frozen = semantic_type(type_obj)
+        if frozen.pointer or frozen.is_reference:
+            return None
+        if frozen.name in exclusive_type_names:
+            return OwnershipDomain.EXCLUSIVE
+        return None
+
     return TypedModule(
         name=module.name,
         structs=tuple(
@@ -4359,12 +4386,17 @@ def build_declaration_typed_ast(module) -> TypedModule:
             TypedFunction(
                 name=item.name,
                 params=tuple(
-                    TypedParam(name, semantic_type(type_obj))
+                    TypedParam(
+                        name,
+                        semantic_type(type_obj),
+                        explicit_domain(type_obj),
+                    )
                     for name, type_obj in item.params
                 ),
                 result=semantic_type(item.result),
                 public=bool(item.public),
                 attributes=tuple(item.attributes),
+                return_ownership_domain=explicit_domain(item.result),
             )
             for item in module.functions
         ),
@@ -4399,12 +4431,17 @@ def build_declaration_typed_ast(module) -> TypedModule:
                     TypedFunction(
                         name=method.name,
                         params=tuple(
-                            TypedParam(name, semantic_type(type_obj))
+                            TypedParam(
+                                name,
+                                semantic_type(type_obj),
+                                explicit_domain(type_obj),
+                            )
                             for name, type_obj in method.params
                         ),
                         result=semantic_type(method.result),
                         public=bool(method.public),
                         attributes=tuple(method.attributes),
+                        return_ownership_domain=explicit_domain(method.result),
                     )
                     for method in item.methods
                 ),
