@@ -872,6 +872,23 @@ class Parser:
         body = self._parse_block()
         return GuardNode(span, cond, body)
 
+    def _parse_condition_before_block(self) -> ExprNode:
+        """Parse a control-flow condition without stealing an empty body block.
+
+        A bare identifier followed by {} is ambiguous with an empty struct literal.
+        In if/while condition position the braces delimit the control-flow body.
+        Other expression contexts retain normal struct-literal parsing.
+        """
+        if (
+            self._is_ident_like(self._cur())
+            and self._peek().kind == TK.LBRACE
+            and self._peek(2).kind == TK.RBRACE
+        ):
+            span = self._span()
+            name = self._advance().value
+            return IdentNode(span, name)
+        return self._parse_expr()
+
     def _parse_if(self, span) -> IfNode:
         self._advance()  # consume 'if'
         let_bind = None
@@ -882,7 +899,7 @@ class Parser:
             if pattern.kind == "ident" and isinstance(pattern.value, str):
                 let_bind = pattern.value
             self._expect(TK.ASSIGN)
-        cond = self._parse_expr()
+        cond = self._parse_condition_before_block()
         then_body = self._parse_block()
         else_body = None
         if self._consume(TK.KW_ELSE):
@@ -1019,7 +1036,7 @@ class Parser:
             self._advance()
             pattern = self._parse_match_pattern()
             self._expect(TK.ASSIGN)
-        cond = self._parse_expr()
+        cond = self._parse_condition_before_block()
         body = self._parse_block()
         return WhileNode(span, cond, body, pattern=pattern)
 

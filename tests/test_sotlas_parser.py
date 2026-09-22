@@ -153,6 +153,28 @@ class TestParserStatements(unittest.TestCase):
         stmts = self._fn_stmts("while i < 10 { i = i + 1; }")
         self.assertIsInstance(stmts[0], WhileNode)
 
+    def test_empty_while_body_after_identifier_condition(self):
+        stmts = self._fn_stmts("while flag {} return;")
+        self.assertIsInstance(stmts[0], WhileNode)
+        self.assertIsInstance(stmts[0].condition, IdentNode)
+        self.assertEqual(stmts[0].condition.name, "flag")
+        self.assertEqual(stmts[0].body, [])
+        self.assertIsInstance(stmts[1], ReturnNode)
+
+    def test_empty_if_body_after_identifier_condition(self):
+        stmts = self._fn_stmts("if flag {} return;")
+        self.assertIsInstance(stmts[0], IfNode)
+        self.assertIsInstance(stmts[0].condition, IdentNode)
+        self.assertEqual(stmts[0].condition.name, "flag")
+        self.assertEqual(stmts[0].then_body, [])
+        self.assertIsInstance(stmts[1], ReturnNode)
+
+    def test_empty_struct_literal_remains_expression_outside_control_condition(self):
+        stmts = self._fn_stmts("let x = Foo {};")
+        self.assertIsInstance(stmts[0], LocalVarDeclNode)
+        self.assertIsInstance(stmts[0].init, StructLitExprNode)
+        self.assertEqual(stmts[0].init.name, "Foo")
+
     def test_for_in(self):
         stmts = self._fn_stmts("for item in items { return; }")
         self.assertIsInstance(stmts[0], ForNode)
