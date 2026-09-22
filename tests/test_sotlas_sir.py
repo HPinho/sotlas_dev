@@ -225,6 +225,139 @@ class SotlasSIRTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "matches multiple ReturnInst nodes"):
             place_shared_return_cleanup(fn, plan)
 
+    def test_return_cleanup_missing_later_point_is_transactional(self):
+        fn = SIRFunction("main", [], "void")
+        first = fn.add_block("first")
+        first.add(ReturnInst(point_id="return@5:5"))
+        token = SIRValue("token", "Token")
+        plan = SimpleNamespace(cleanup_segments=(
+            SimpleNamespace(
+                point_id="return@5:5",
+                instructions=(ReleaseInst(token),),
+            ),
+            SimpleNamespace(
+                point_id="return@9:9",
+                instructions=(ReleaseInst(token),),
+            ),
+        ))
+
+        before = tuple(first.instructions)
+        with self.assertRaisesRegex(
+            ValueError,
+            "missing from SIR CFG: return@9:9",
+        ):
+            place_shared_return_cleanup(fn, plan)
+        self.assertEqual(tuple(first.instructions), before)
+        self.assertEqual(tuple(type(i) for i in first.instructions), (ReturnInst,))
+
+    def test_loop_control_missing_later_point_is_transactional(self):
+        fn = SIRFunction("main", [], "void")
+        first = fn.add_block("first")
+        first.add(
+            BranchInst(
+                "cond",
+                point_id="continue@5:5",
+                control_kind="continue",
+            )
+        )
+        token = SIRValue("token", "Token")
+        plan = SimpleNamespace(cleanup_segments=(
+            SimpleNamespace(
+                via="loop_control:continue",
+                point_id="continue@5:5",
+                instructions=(ReleaseInst(token),),
+            ),
+            SimpleNamespace(
+                via="loop_control:break",
+                point_id="break@9:9",
+                instructions=(ReleaseInst(token),),
+            ),
+        ))
+
+        before = tuple(first.instructions)
+        with self.assertRaisesRegex(
+            ValueError,
+            "missing from SIR CFG: break@9:9",
+        ):
+            place_shared_loop_control_cleanup(fn, plan)
+        self.assertEqual(tuple(first.instructions), before)
+        self.assertEqual(tuple(type(i) for i in first.instructions), (BranchInst,))
+
+    def test_backedge_duplicate_cfg_point_is_transactional(self):
+        fn = SIRFunction("main", [], "void")
+        first = fn.add_block("first")
+        second = fn.add_block("second")
+        first.add(
+            BranchInst(
+                "cond",
+                point_id="while_backedge@4:5",
+                control_kind="backedge",
+            )
+        )
+        second.add(
+            BranchInst(
+                "cond",
+                point_id="while_backedge@4:5",
+                control_kind="backedge",
+            )
+        )
+        token = SIRValue("token", "Token")
+        plan = SimpleNamespace(cleanup_segments=(
+            SimpleNamespace(
+                via="loop_backedge:while",
+                point_id="while_backedge@4:5",
+                instructions=(ReleaseInst(token),),
+            ),
+        ))
+
+        before_first = tuple(first.instructions)
+        before_second = tuple(second.instructions)
+        with self.assertRaisesRegex(
+            ValueError,
+            "matches multiple BranchInst nodes",
+        ):
+            place_shared_loop_backedge_cleanup(fn, plan)
+        self.assertEqual(tuple(first.instructions), before_first)
+        self.assertEqual(tuple(second.instructions), before_second)
+
+    def test_apply_shared_ownership_trace_preflights_all_cfg_points(self):
+        fn = SIRFunction("main", [], "void")
+        ret_block = fn.add_block("ret")
+        ret_block.add(ReturnInst(point_id="return@5:5"))
+        token_type = SimpleNamespace(name="Token")
+        trace = SimpleNamespace(
+            final_env=SimpleNamespace(bindings=(
+                SimpleNamespace(name="token", type=token_type),
+            )),
+            events=(),
+            shared_cleanup=SimpleNamespace(steps=()),
+            shared_path_cleanup=SimpleNamespace(steps=(
+                SimpleNamespace(
+                    owner="token", account="token",
+                    destroy_after=True, via="early_return",
+                    point_id="return@5:5",
+                ),
+            )),
+            shared_loop_cleanup=SimpleNamespace(steps=()),
+            shared_loop_control_exit=SimpleNamespace(actions=(
+                SimpleNamespace(
+                    kind="release", owner="token",
+                    via="continue:scope_exit",
+                    point_id="continue@9:9",
+                    defer_point_id=None,
+                ),
+            )),
+        )
+
+        before = tuple(ret_block.instructions)
+        with self.assertRaisesRegex(
+            ValueError,
+            "missing from SIR CFG: continue@9:9",
+        ):
+            apply_shared_ownership_trace(fn, trace)
+        self.assertEqual(tuple(ret_block.instructions), before)
+        self.assertEqual(tuple(type(i) for i in ret_block.instructions), (ReturnInst,))
+
     def test_shared_ownership_trace_applies_to_generated_if_return_cfg(self):
         source = """
         module test::sir_arc_if_integration;

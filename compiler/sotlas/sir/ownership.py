@@ -225,61 +225,25 @@ def lower_shared_ownership_trace(trace: Any) -> SharedOwnershipSIRPlan:
     return SharedOwnershipSIRPlan(tuple(semantic), tuple(segments))
 
 
-def place_shared_return_cleanup(
-    function: SIRFunction,
+def _return_cleanup_segments(
     plan: SharedOwnershipSIRPlan,
-) -> int:
-    """Insert ARC cleanup immediately before source-identified return points.
-
-    Only segments with point IDs starting with return@ are placed here.
-    Other control-flow cleanup remains untouched for dedicated placement passes.
-    The function fails closed if a return segment cannot be matched exactly once.
-    """
-    return_segments = {
-        segment.point_id: segment
-        for segment in plan.cleanup_segments
-        if segment.point_id is not None
-        and segment.point_id.startswith("return@")
-    }
-    if not return_segments:
-        return 0
-
-    seen: dict[str, int] = {point_id: 0 for point_id in return_segments}
-    inserted = 0
-
-    for block in function.blocks:
-        rewritten: list[SIRInstruction] = []
-        for instruction in block.instructions:
-            if isinstance(instruction, ReturnInst):
-                point_id = instruction.point_id
-                if point_id in return_segments:
-                    seen[point_id] += 1
-                    if seen[point_id] > 1:
-                        raise ValueError(
-                            f"shared ARC return cleanup point {point_id!r} "
-                            "matches multiple ReturnInst nodes"
-                        )
-                    segment = return_segments[point_id]
-                    rewritten.extend(segment.instructions)
-                    inserted += len(segment.instructions)
-            rewritten.append(instruction)
-        block.instructions = rewritten
-
-    missing = [point_id for point_id, count in seen.items() if count == 0]
-    if missing:
-        raise ValueError(
-            "shared ARC return cleanup point(s) missing from SIR CFG: "
-            + ", ".join(sorted(missing))
-        )
-
-    return inserted
+) -> dict[str, SharedOwnershipSIRSegment]:
+    segments: dict[str, SharedOwnershipSIRSegment] = {}
+    for segment in plan.cleanup_segments:
+        point_id = segment.point_id
+        if point_id is None or not point_id.startswith("return@"):
+            continue
+        if point_id in segments:
+            raise ValueError(
+                f"duplicate shared ARC return cleanup segment for {point_id!r}"
+            )
+        segments[point_id] = segment
+    return segments
 
 
-def place_shared_loop_control_cleanup(
-    function: SIRFunction,
+def _loop_control_cleanup_segments(
     plan: SharedOwnershipSIRPlan,
-) -> int:
-    """Insert ARC cleanup before source-identified break/continue branches."""
+) -> dict[tuple[str, str], SharedOwnershipSIRSegment]:
     segments: dict[tuple[str, str], SharedOwnershipSIRSegment] = {}
     for segment in plan.cleanup_segments:
         point_id = segment.point_id
@@ -298,46 +262,12 @@ def place_shared_loop_control_cleanup(
                 f"duplicate shared ARC {control} cleanup segment for {point_id!r}"
             )
         segments[key] = segment
-
-    if not segments:
-        return 0
-
-    seen = {key: 0 for key in segments}
-    inserted = 0
-    for block in function.blocks:
-        rewritten: list[SIRInstruction] = []
-        for instruction in block.instructions:
-            if isinstance(instruction, BranchInst):
-                control = instruction.control_kind
-                point_id = instruction.point_id
-                key = (control, point_id)
-                if control in ("break", "continue") and key in segments:
-                    seen[key] += 1
-                    if seen[key] > 1:
-                        raise ValueError(
-                            f"shared ARC {control} cleanup point {point_id!r} "
-                            "matches multiple BranchInst nodes"
-                        )
-                    segment = segments[key]
-                    rewritten.extend(segment.instructions)
-                    inserted += len(segment.instructions)
-            rewritten.append(instruction)
-        block.instructions = rewritten
-
-    missing = [point_id for (control, point_id), count in seen.items() if count == 0]
-    if missing:
-        raise ValueError(
-            "shared ARC loop-control cleanup point(s) missing from SIR CFG: "
-            + ", ".join(sorted(missing))
-        )
-    return inserted
+    return segments
 
 
-def place_shared_loop_backedge_cleanup(
-    function: SIRFunction,
+def _loop_backedge_cleanup_segments(
     plan: SharedOwnershipSIRPlan,
-) -> int:
-    """Insert ARC cleanup before source-identified normal loop backedges."""
+) -> dict[str, SharedOwnershipSIRSegment]:
     segments: dict[str, SharedOwnershipSIRSegment] = {}
     for segment in plan.cleanup_segments:
         point_id = segment.point_id
@@ -352,11 +282,180 @@ def place_shared_loop_backedge_cleanup(
                 f"duplicate shared ARC backedge cleanup segment for {point_id!r}"
             )
         segments[point_id] = segment
+    return segments
 
+
+def _validate_shared_return_cleanup(
+    function: SIRFunction,
+    plan: SharedOwnershipSIRPlan,
+) -> dict[str, SharedOwnershipSIRSegment]:
+    segments = _return_cleanup_segments(plan)
+    if not segments:
+        return segments
+
+    seen = {point_id: 0 for point_id in segments}
+    for block in function.blocks:
+        for instruction in block.instructions:
+            if not isinstance(instruction, ReturnInst):
+                continue
+            point_id = instruction.point_id
+            if point_id in segments:
+                seen[point_id] += 1
+
+    duplicates = [point_id for point_id, count in seen.items() if count > 1]
+    if duplicates:
+        point_id = sorted(duplicates)[0]
+        raise ValueError(
+            f"shared ARC return cleanup point {point_id!r} "
+            "matches multiple ReturnInst nodes"
+        )
+    missing = [point_id for point_id, count in seen.items() if count == 0]
+    if missing:
+        raise ValueError(
+            "shared ARC return cleanup point(s) missing from SIR CFG: "
+            + ", ".join(sorted(missing))
+        )
+    return segments
+
+
+def _validate_shared_loop_control_cleanup(
+    function: SIRFunction,
+    plan: SharedOwnershipSIRPlan,
+) -> dict[tuple[str, str], SharedOwnershipSIRSegment]:
+    segments = _loop_control_cleanup_segments(plan)
+    if not segments:
+        return segments
+
+    seen = {key: 0 for key in segments}
+    for block in function.blocks:
+        for instruction in block.instructions:
+            if not isinstance(instruction, BranchInst):
+                continue
+            control = instruction.control_kind
+            point_id = instruction.point_id
+            key = (control, point_id)
+            if control in ("break", "continue") and key in segments:
+                seen[key] += 1
+
+    duplicates = [key for key, count in seen.items() if count > 1]
+    if duplicates:
+        control, point_id = sorted(duplicates)[0]
+        raise ValueError(
+            f"shared ARC {control} cleanup point {point_id!r} "
+            "matches multiple BranchInst nodes"
+        )
+    missing = [
+        point_id for (control, point_id), count in seen.items() if count == 0
+    ]
+    if missing:
+        raise ValueError(
+            "shared ARC loop-control cleanup point(s) missing from SIR CFG: "
+            + ", ".join(sorted(missing))
+        )
+    return segments
+
+
+def _validate_shared_loop_backedge_cleanup(
+    function: SIRFunction,
+    plan: SharedOwnershipSIRPlan,
+) -> dict[str, SharedOwnershipSIRSegment]:
+    segments = _loop_backedge_cleanup_segments(plan)
+    if not segments:
+        return segments
+
+    seen = {point_id: 0 for point_id in segments}
+    for block in function.blocks:
+        for instruction in block.instructions:
+            if (
+                isinstance(instruction, BranchInst)
+                and instruction.control_kind == "backedge"
+                and instruction.point_id in segments
+            ):
+                seen[instruction.point_id] += 1
+
+    duplicates = [point_id for point_id, count in seen.items() if count > 1]
+    if duplicates:
+        point_id = sorted(duplicates)[0]
+        raise ValueError(
+            f"shared ARC backedge cleanup point {point_id!r} "
+            "matches multiple BranchInst nodes"
+        )
+    missing = [point_id for point_id, count in seen.items() if count == 0]
+    if missing:
+        raise ValueError(
+            "shared ARC backedge cleanup point(s) missing from SIR CFG: "
+            + ", ".join(sorted(missing))
+        )
+    return segments
+
+
+def place_shared_return_cleanup(
+    function: SIRFunction,
+    plan: SharedOwnershipSIRPlan,
+) -> int:
+    """Atomically insert ARC cleanup before source-identified return points."""
+    segments = _validate_shared_return_cleanup(function, plan)
     if not segments:
         return 0
 
-    seen = {point_id: 0 for point_id in segments}
+    rewrites: list[tuple[Any, list[SIRInstruction]]] = []
+    inserted = 0
+    for block in function.blocks:
+        rewritten: list[SIRInstruction] = []
+        for instruction in block.instructions:
+            if (
+                isinstance(instruction, ReturnInst)
+                and instruction.point_id in segments
+            ):
+                segment = segments[instruction.point_id]
+                rewritten.extend(segment.instructions)
+                inserted += len(segment.instructions)
+            rewritten.append(instruction)
+        rewrites.append((block, rewritten))
+
+    for block, rewritten in rewrites:
+        block.instructions = rewritten
+    return inserted
+
+
+def place_shared_loop_control_cleanup(
+    function: SIRFunction,
+    plan: SharedOwnershipSIRPlan,
+) -> int:
+    """Atomically insert ARC cleanup before identified break/continue branches."""
+    segments = _validate_shared_loop_control_cleanup(function, plan)
+    if not segments:
+        return 0
+
+    rewrites: list[tuple[Any, list[SIRInstruction]]] = []
+    inserted = 0
+    for block in function.blocks:
+        rewritten: list[SIRInstruction] = []
+        for instruction in block.instructions:
+            if isinstance(instruction, BranchInst):
+                key = (instruction.control_kind, instruction.point_id)
+                if key in segments:
+                    segment = segments[key]
+                    rewritten.extend(segment.instructions)
+                    inserted += len(segment.instructions)
+            rewritten.append(instruction)
+        rewrites.append((block, rewritten))
+
+    for block, rewritten in rewrites:
+        block.instructions = rewritten
+    return inserted
+
+
+def place_shared_loop_backedge_cleanup(
+    function: SIRFunction,
+    plan: SharedOwnershipSIRPlan,
+) -> int:
+    """Atomically insert ARC cleanup before identified normal loop backedges."""
+    segments = _validate_shared_loop_backedge_cleanup(function, plan)
+    if not segments:
+        return 0
+
+    rewrites: list[tuple[Any, list[SIRInstruction]]] = []
     inserted = 0
     for block in function.blocks:
         rewritten: list[SIRInstruction] = []
@@ -366,27 +465,15 @@ def place_shared_loop_backedge_cleanup(
                 and instruction.control_kind == "backedge"
                 and instruction.point_id in segments
             ):
-                point_id = instruction.point_id
-                seen[point_id] += 1
-                if seen[point_id] > 1:
-                    raise ValueError(
-                        f"shared ARC backedge cleanup point {point_id!r} "
-                        "matches multiple BranchInst nodes"
-                    )
-                segment = segments[point_id]
+                segment = segments[instruction.point_id]
                 rewritten.extend(segment.instructions)
                 inserted += len(segment.instructions)
             rewritten.append(instruction)
+        rewrites.append((block, rewritten))
+
+    for block, rewritten in rewrites:
         block.instructions = rewritten
-
-    missing = [point_id for point_id, count in seen.items() if count == 0]
-    if missing:
-        raise ValueError(
-            "shared ARC backedge cleanup point(s) missing from SIR CFG: "
-            + ", ".join(sorted(missing))
-        )
     return inserted
-
 
 def apply_shared_ownership_trace(
     function: SIRFunction,
@@ -394,10 +481,18 @@ def apply_shared_ownership_trace(
 ) -> SharedOwnershipSIRPlacement:
     """Lower one canonical ownership trace and place supported CFG cleanups.
 
-    Return cleanup is currently the only placement stage. The complete plan is
-    still returned so callers can inspect unplaced loop/backedge/control segments.
+    All currently supported placement kinds are preflighted before mutation.
+    The complete plan is returned together with committed instruction counts.
     """
     plan = lower_shared_ownership_trace(trace)
+
+    # Preflight every supported placement before the first CFG mutation so
+    # a later control/backedge mismatch cannot leave earlier return cleanup
+    # partially committed.
+    _validate_shared_return_cleanup(function, plan)
+    _validate_shared_loop_control_cleanup(function, plan)
+    _validate_shared_loop_backedge_cleanup(function, plan)
+
     inserted_return = place_shared_return_cleanup(function, plan)
     inserted_control = place_shared_loop_control_cleanup(function, plan)
     inserted_backedge = place_shared_loop_backedge_cleanup(function, plan)

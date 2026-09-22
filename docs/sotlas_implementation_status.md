@@ -195,7 +195,9 @@ Fase 2 — Ownership Domains                  ~98%
 ✅ generated if-return CFG accepts ARC cleanup placement      ← NOVO
 
 ✅ break/continue ARC placement on identified BranchInst   ← NOVO
-✅ missing/duplicate loop-control points fail-closed        ← NOVO
+✅ missing/duplicate loop-control points fail-closed
+✅ return/control/backedge ARC placement is transactional   ← NOVO
+✅ apply_shared_ownership_trace preflights all CFG points before mutation ← NOVO
 ✅ loop-control defer lowering remains fail-closed          ← NOVO
 
 ✅ SIRGenerator emits source-identified break/continue BranchInst ← NOVO

@@ -3878,6 +3878,7 @@ Ainda necessário para concluir a Fase 2 canônica:
 - [x] placement ARC para `break`/`continue` em `BranchInst` source-identified, com validação fail-closed;
 - [x] SIRGenerator emite CFG mínimo de `while` com `break`/`continue` source-identified e compatível com placement ARC;
 - [x] identidade e placement ARC do backedge normal de `while`, distintos de `continue`;
+- [x] placement ARC de return/break/continue/backedge é transacional: todos os pontos CFG são validados antes de qualquer mutação, inclusive no apply integrado;
 - [ ] backend C11 correspondente ou rejeição explícita por domínio;
 - [ ] testes positivos, negativos e end-to-end para cada domínio;
 - [ ] promoção individual para `SUPPORTED` apenas após o gate completo.
