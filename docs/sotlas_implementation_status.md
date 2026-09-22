@@ -207,7 +207,11 @@ Fase 2 — Ownership Domains                  ~98%
 ✅ break/continue exit env snapshots preserve loop invariants    ← CORRIGIDO
 ✅ nested control cleanup history no longer duplicates accounts  ← CORRIGIDO
 
-⬜ SIR defer operation on control exits
+✅ shared defer registrations preserve source-stable defer@L:C identity ← NOVO
+✅ control-exit point and defer-registration point remain distinct       ← NOVO
+✅ SIR rejects anonymous/invalid defer obligations fail-closed           ← NOVO
+
+⬜ executable SIR defer payload on control exits
 ⬜ ARC runtime/backend
 ⬜ region
 ⬜ device

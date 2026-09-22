@@ -150,8 +150,19 @@ def lower_shared_ownership_trace(trace: Any) -> SharedOwnershipSIRPlan:
             owner = getattr(action, "owner", None)
             via = str(getattr(action, "via", "loop_control"))
             if kind == "defer":
+                defer_point_id = getattr(action, "defer_point_id", None)
+                if defer_point_id is None:
+                    raise ValueError(
+                        "shared loop-control defer lacks source identity"
+                    )
+                if not str(defer_point_id).startswith("defer@"):
+                    raise ValueError(
+                        f"shared loop-control defer has invalid source identity "
+                        f"{defer_point_id!r}"
+                    )
                 raise ValueError(
-                    "shared loop-control defer lowering is not implemented in SIR"
+                    "shared loop-control defer payload lowering is not implemented "
+                    f"in SIR for {defer_point_id}"
                 )
             if owner is None:
                 raise ValueError(

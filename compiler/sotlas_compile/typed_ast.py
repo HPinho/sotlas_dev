@@ -496,6 +496,7 @@ class OwnershipEvent:
     left_state: VarState | None = None
     right_state: VarState | None = None
     result_state: VarState | None = None
+    point_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -520,6 +521,7 @@ class SharedExitAction:
     owner: str | None
     via: str
     point_id: str | None = None
+    defer_point_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -657,7 +659,12 @@ def plan_shared_exit(
             and event.domain is OwnershipDomain.SHARED
         ):
             actions.append(
-                SharedExitAction("defer", event.name, event.via)
+                SharedExitAction(
+                    "defer",
+                    event.name,
+                    event.via,
+                    defer_point_id=event.point_id,
+                )
             )
     for step in cleanup.steps:
         actions.append(
@@ -686,6 +693,7 @@ def plan_shared_control_exit(
                 action.owner,
                 f"{control}:{action.via}",
                 point_id,
+                action.defer_point_id,
             )
             for action in base.actions
         )
@@ -1641,6 +1649,7 @@ def _analyze_block_ownership(
 
         if kind == "Defer":
             visible = tuple(binding.name for binding in result.bindings)
+            defer_point_id = _cleanup_point_id(statement, "defer")
             captured = _statement_referenced_owned_names(result, statement)
             deferred_body = getattr(statement, "body", None)
             deferred_value = getattr(statement, "value", None)
@@ -1722,6 +1731,7 @@ def _analyze_block_ownership(
                             name,
                             via,
                             OwnershipDomain.SHARED,
+                            point_id=defer_point_id,
                         )
                     )
                     continue

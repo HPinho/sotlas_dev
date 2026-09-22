@@ -3863,6 +3863,7 @@ Ainda necessário para concluir a Fase 2 canônica:
 - [x] caminhos condicionais de break/continue são separados do fallthrough: um salto em um ramo não suprime o cleanup do backedge normal do outro ramo;
 - [x] snapshots de OwnershipEnv em exits de loop preservam a validação de invariância sem contaminar o ambiente de fallthrough;
 - [ ] integração completa com `defer`, cleanup e unwind/early-return de todos os recursos;
+- [x] identidade source-stable de registros `defer` é preservada separadamente da identidade do control-exit, preparando lowering executável sem apagar payload;
 - [x] primeiro lowering backend-neutral de shared ownership para plano SIR explícito (`share/retain/release/destroy`), ainda sem placement CFG;
 - [x] identidade source-stable para pontos de cleanup ownership em return/break/continue/backedge, preservada no plano SIR;
 - [x] placement real de cleanup ARC imediatamente antes de `ReturnInst` identificado por `point_id`, com erro para pontos ausentes/duplicados;

@@ -426,12 +426,39 @@ class SotlasSIRTests(unittest.TestCase):
                     owner="token",
                     via="continue:expression",
                     point_id="continue@8:9",
+                    defer_point_id="defer@7:9",
                 ),
             )),
         )
         with self.assertRaisesRegex(
             ValueError,
-            "loop-control defer lowering is not implemented",
+            "loop-control defer payload lowering is not implemented",
+        ):
+            lower_shared_ownership_trace(trace)
+
+    def test_shared_loop_control_defer_requires_source_identity(self):
+        token_type = SimpleNamespace(name="Token")
+        trace = SimpleNamespace(
+            final_env=SimpleNamespace(bindings=(
+                SimpleNamespace(name="token", type=token_type),
+            )),
+            events=(),
+            shared_cleanup=SimpleNamespace(steps=()),
+            shared_path_cleanup=SimpleNamespace(steps=()),
+            shared_loop_cleanup=SimpleNamespace(steps=()),
+            shared_loop_control_exit=SimpleNamespace(actions=(
+                SimpleNamespace(
+                    kind="defer",
+                    owner="token",
+                    via="continue:expression",
+                    point_id="continue@8:9",
+                    defer_point_id=None,
+                ),
+            )),
+        )
+        with self.assertRaisesRegex(
+            ValueError,
+            "loop-control defer lacks source identity",
         ):
             lower_shared_ownership_trace(trace)
 

@@ -872,12 +872,17 @@ fn main(token: Token) -> void {
             trace.final_env.state_of("peer"),
             typed_ast.VarState.LIVE,
         )
+        defer_stmt = parsed.functions[-1].body[1]
+        defer_point = (
+            f"defer@{defer_stmt.token.line}:{defer_stmt.token.column}"
+        )
         self.assertIn(
             typed_ast.OwnershipEvent(
                 "shared_defer_use",
                 "peer",
                 "expression",
                 typed_ast.OwnershipDomain.SHARED,
+                point_id=defer_point,
             ),
             trace.events,
         )
@@ -901,6 +906,9 @@ fn main(token: Token) -> void {
             ("defer", "release", "release", "destroy"),
         )
         self.assertEqual(trace.shared_exit.actions[0].owner, "peer")
+        self.assertTrue(
+            trace.shared_exit.actions[0].defer_point_id.startswith("defer@")
+        )
         self.assertEqual(trace.shared_exit.actions[1].owner, "peer")
         self.assertEqual(trace.shared_exit.actions[2].owner, "token")
         self.assertEqual(trace.shared_exit.actions[3].owner, "token")
@@ -1215,6 +1223,9 @@ fn main(flag: bool) -> void {
         )
         self.assertEqual(actions[0].owner, "peer")
         self.assertTrue(actions[0].via.startswith("continue:"))
+        self.assertTrue(actions[0].point_id.startswith("continue@"))
+        self.assertTrue(actions[0].defer_point_id.startswith("defer@"))
+        self.assertNotEqual(actions[0].point_id, actions[0].defer_point_id)
 
     def test_nested_branch_continue_cleans_branch_local_shared_owner(self):
         source = """module test::nested_continue_shared_cleanup;
