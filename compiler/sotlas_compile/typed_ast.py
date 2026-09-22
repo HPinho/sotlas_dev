@@ -4007,8 +4007,13 @@ def _validate_statement_mutable_borrows(
     typed_module: TypedModule,
 ) -> None:
     kind = type(statement).__name__
-    if kind in ("Let", "Return", "Expression"):
+    if kind in ("Let", "Return", "Expression", "Quarantine"):
         expressions = (getattr(statement, "value", None),)
+    elif kind == "Handover":
+        expressions = (
+            getattr(statement, "value", None),
+            getattr(statement, "destination", None),
+        )
     elif kind == "Assign":
         expressions = (
             getattr(statement, "target", None),
@@ -4280,6 +4285,51 @@ def _build_typed_block(
         if kind in ("Break", "Continue"):
             typed_statements.append(
                 TypedStmtNode(kind, None, None, None)
+            )
+            continue
+
+        if kind == "Quarantine":
+            value = getattr(statement, "value", None)
+            expr = infer_expression_type(value, env, typed_module)
+            typed_statements.append(
+                TypedStmtNode(
+                    "Quarantine",
+                    getattr(value, "value", None)
+                    if type(value).__name__ == "Name"
+                    else None,
+                    expr.type,
+                    expr,
+                )
+            )
+            continue
+
+        if kind == "Handover":
+            value = getattr(statement, "value", None)
+            destination = getattr(statement, "destination", None)
+            expr = infer_expression_type(value, env, typed_module)
+            destination_expr = (
+                infer_expression_type(destination, env, typed_module)
+                if destination is not None
+                else None
+            )
+            if (
+                destination_expr is not None
+                and destination_expr.type != expr.type
+            ):
+                raise Phase1SemanticError(
+                    f"handover type mismatch: "
+                    f"{expr.type.name} -> {destination_expr.type.name}"
+                )
+            typed_statements.append(
+                TypedStmtNode(
+                    "Handover",
+                    getattr(value, "value", None)
+                    if type(value).__name__ == "Name"
+                    else None,
+                    expr.type,
+                    expr,
+                    extra_expr=destination_expr,
+                )
             )
             continue
 
