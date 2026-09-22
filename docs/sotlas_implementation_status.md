@@ -102,7 +102,7 @@
 - [x] CFG estruturado inicial para funções `void`: `if flag { return; } return;` e `if/else` com retornos diretos, preservando point_id por branch
 - [x] condições ainda não representáveis no SIR não recebem CFG/point_id fictício
 - [ ] expansão do CFG estruturado para expressões condicionais e corpos arbitrários
-- [ ] placement de break/continue/backedge no CFG de produção
+- [x] placement de break/continue/backedge no CFG de produção para o subset estruturado atualmente representável
 - [ ] runtime/backend para tornar `share` executável
 - [ ] transições para `region/device/external` e merges correspondentes
 - [x] invariância canônica de tipo/domínio/estado no backedge de loops para owners visíveis
@@ -207,11 +207,14 @@ Fase 2 — Ownership Domains                  ~98%
 ✅ break/continue exit env snapshots preserve loop invariants    ← CORRIGIDO
 ✅ nested control cleanup history no longer duplicates accounts  ← CORRIGIDO
 
-✅ shared defer registrations preserve source-stable defer@L:C identity ← NOVO
-✅ control-exit point and defer-registration point remain distinct       ← NOVO
-✅ SIR rejects anonymous/invalid defer obligations fail-closed           ← NOVO
+✅ shared defer registrations preserve source-stable defer@L:C identity
+✅ control-exit point and defer-registration point remain distinct
+✅ SIR rejects anonymous/invalid defer obligations fail-closed
+✅ expression-name defer lowers to DeferUseInst before ARC cleanup       ← NOVO
+✅ break/continue placement preserves defer → release → destroy order    ← NOVO
+✅ non-expression defer payloads remain fail-closed                      ← NOVO
 
-⬜ executable SIR defer payload on control exits
+⬜ call/assign/block/method/try defer payload lowering
 ⬜ ARC runtime/backend
 ⬜ region
 ⬜ device

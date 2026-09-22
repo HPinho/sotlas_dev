@@ -98,6 +98,15 @@ class DestroyInst(SIRInstruction):
 
 
 @dataclass
+class DeferUseInst(SIRInstruction):
+    value: SIRValue
+    defer_point_id: str
+
+    def __str__(self) -> str:
+        return f"  defer_use {self.value} // {self.defer_point_id}"
+
+
+@dataclass
 class BranchInst(SIRInstruction):
     target_block: str
     point_id: str | None = None

@@ -10,7 +10,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 from sotlas.sir import (
     SIRModule, SIRFunction, SIRBasicBlock, SIRValue,
     AllocStackInst, StoreInst, LoadInst, CallInst, ReturnInst, BranchInst, CondBranchInst,
-    ShareInst, RetainInst, ReleaseInst, DestroyInst,
+    ShareInst, RetainInst, ReleaseInst, DestroyInst, DeferUseInst,
     lower_shared_ownership_trace, place_shared_return_cleanup,
     place_shared_loop_control_cleanup, place_shared_loop_backedge_cleanup,
     apply_shared_ownership_trace,
@@ -43,6 +43,10 @@ class SotlasSIRTests(unittest.TestCase):
         self.assertIn("retain_value", str(RetainInst(value)))
         self.assertIn("release_value", str(ReleaseInst(value)))
         self.assertIn("destroy_value", str(DestroyInst(value)))
+        self.assertIn(
+            "defer@7:9",
+            str(DeferUseInst(value, "defer@7:9")),
+        )
 
     def test_shared_ownership_trace_lowers_to_backend_neutral_sir_plan(self):
         token_type = SimpleNamespace(name="Token")
@@ -410,7 +414,74 @@ class SotlasSIRTests(unittest.TestCase):
         ):
             place_shared_loop_control_cleanup(fn, plan)
 
-    def test_shared_loop_control_defer_is_fail_closed_in_sir(self):
+    def test_shared_loop_control_expression_defer_lowers_before_arc(self):
+        token_type = SimpleNamespace(name="Token")
+        trace = SimpleNamespace(
+            final_env=SimpleNamespace(bindings=(
+                SimpleNamespace(name="token", type=token_type),
+                SimpleNamespace(name="peer", type=token_type),
+            )),
+            events=(),
+            shared_cleanup=SimpleNamespace(steps=()),
+            shared_path_cleanup=SimpleNamespace(steps=()),
+            shared_loop_cleanup=SimpleNamespace(steps=()),
+            shared_loop_control_exit=SimpleNamespace(actions=(
+                SimpleNamespace(
+                    kind="defer", owner="peer",
+                    via="continue:expression",
+                    point_id="continue@8:9",
+                    defer_point_id="defer@7:9",
+                ),
+                SimpleNamespace(
+                    kind="release", owner="peer",
+                    via="continue:scope_exit",
+                    point_id="continue@8:9",
+                    defer_point_id=None,
+                ),
+                SimpleNamespace(
+                    kind="release", owner="token",
+                    via="continue:scope_exit",
+                    point_id="continue@8:9",
+                    defer_point_id=None,
+                ),
+                SimpleNamespace(
+                    kind="destroy", owner="token",
+                    via="continue:scope_exit",
+                    point_id="continue@8:9",
+                    defer_point_id=None,
+                ),
+            )),
+        )
+
+        plan = lower_shared_ownership_trace(trace)
+        segment = next(
+            item for item in plan.cleanup_segments
+            if item.via == "loop_control:continue"
+        )
+        self.assertEqual(segment.point_id, "continue@8:9")
+        self.assertEqual(
+            tuple(type(inst) for inst in segment.instructions),
+            (DeferUseInst, ReleaseInst, ReleaseInst, DestroyInst),
+        )
+        self.assertEqual(segment.instructions[0].defer_point_id, "defer@7:9")
+
+        fn = SIRFunction("main", [], "void")
+        block = fn.add_block("loop_body")
+        block.add(
+            BranchInst(
+                "loop_cond",
+                point_id="continue@8:9",
+                control_kind="continue",
+            )
+        )
+        inserted = place_shared_loop_control_cleanup(fn, plan)
+        self.assertEqual(inserted, 4)
+        self.assertEqual(
+            tuple(type(inst) for inst in block.instructions),
+            (DeferUseInst, ReleaseInst, ReleaseInst, DestroyInst, BranchInst),
+        )
+
+    def test_shared_loop_control_nonexpression_defer_remains_fail_closed(self):
         token_type = SimpleNamespace(name="Token")
         trace = SimpleNamespace(
             final_env=SimpleNamespace(bindings=(
@@ -422,9 +493,8 @@ class SotlasSIRTests(unittest.TestCase):
             shared_loop_cleanup=SimpleNamespace(steps=()),
             shared_loop_control_exit=SimpleNamespace(actions=(
                 SimpleNamespace(
-                    kind="defer",
-                    owner="token",
-                    via="continue:expression",
+                    kind="defer", owner="token",
+                    via="continue:call",
                     point_id="continue@8:9",
                     defer_point_id="defer@7:9",
                 ),
@@ -432,7 +502,7 @@ class SotlasSIRTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(
             ValueError,
-            "loop-control defer payload lowering is not implemented",
+            "defer payload lowering is not implemented.*call payload",
         ):
             lower_shared_ownership_trace(trace)
 

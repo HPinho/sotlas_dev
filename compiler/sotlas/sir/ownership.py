@@ -20,6 +20,7 @@ from .instructions import (
     RetainInst,
     ReleaseInst,
     DestroyInst,
+    DeferUseInst,
 )
 
 
@@ -149,6 +150,10 @@ def lower_shared_ownership_trace(trace: Any) -> SharedOwnershipSIRPlan:
             kind = getattr(action, "kind")
             owner = getattr(action, "owner", None)
             via = str(getattr(action, "via", "loop_control"))
+            if owner is None:
+                raise ValueError(
+                    f"shared ownership SIR {kind} action lacks owner"
+                )
             if kind == "defer":
                 defer_point_id = getattr(action, "defer_point_id", None)
                 if defer_point_id is None:
@@ -160,15 +165,15 @@ def lower_shared_ownership_trace(trace: Any) -> SharedOwnershipSIRPlan:
                         f"shared loop-control defer has invalid source identity "
                         f"{defer_point_id!r}"
                     )
-                raise ValueError(
-                    "shared loop-control defer payload lowering is not implemented "
-                    f"in SIR for {defer_point_id}"
-                )
-            if owner is None:
-                raise ValueError(
-                    f"shared ownership SIR {kind} action lacks owner"
-                )
-            if kind == "release":
+                payload_kind = via.split(":", 1)[1] if ":" in via else ""
+                if payload_kind != "expression":
+                    raise ValueError(
+                        "shared loop-control defer payload lowering is not "
+                        f"implemented in SIR for {payload_kind or 'unknown'} "
+                        f"payload at {defer_point_id}"
+                    )
+                inst = DeferUseInst(_value(owner, types), str(defer_point_id))
+            elif kind == "release":
                 inst = ReleaseInst(_value(owner, types))
             elif kind == "destroy":
                 inst = DestroyInst(_value(owner, types))
