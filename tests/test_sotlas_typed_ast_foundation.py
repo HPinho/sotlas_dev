@@ -249,6 +249,105 @@ fn main(source: island Token, destination: Token) -> void {
         self.assertIs(event.source_domain, typed_ast.OwnershipDomain.ISLAND)
         self.assertIs(event.target_domain, typed_ast.OwnershipDomain.EXCLUSIVE)
 
+    def test_explicit_island_local_preserves_domain(self):
+        source = """module test::island_local;
+sole struct Token { value: u32; }
+fn main(source: island Token) -> void {
+    let local: island Token = source;
+    local.value;
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<island-local>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(parsed, typed, "main")
+        self.assertIs(trace.final_env.state_of("source"), typed_ast.VarState.MOVED)
+        self.assertIs(trace.final_env.domain_of("local"), typed_ast.OwnershipDomain.ISLAND)
+        self.assertIs(trace.final_env.state_of("local"), typed_ast.VarState.LIVE)
+        event = next(
+            item for item in trace.events
+            if item.kind == "move" and item.via == "let:local"
+        )
+        self.assertIs(event.source_domain, typed_ast.OwnershipDomain.ISLAND)
+        self.assertIs(event.target_domain, typed_ast.OwnershipDomain.ISLAND)
+
+    def test_explicit_island_local_rejects_exclusive_source(self):
+        source = """module test::island_local_mismatch;
+sole struct Token { value: u32; }
+fn main(source: Token) -> void {
+    let local: island Token = source;
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<island-local-mismatch>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"ownership domain mismatch for 'source' via let:local: "
+            r"exclusive -> island",
+        ):
+            typed_ast.analyze_function_ownership(parsed, typed, "main")
+
+    def test_explicit_island_struct_field_transfer(self):
+        source = """module test::island_field;
+sole struct Token { value: u32; }
+sole struct Holder { token: island Token; }
+fn main(source: island Token) -> void {
+    let holder = Holder { token: source };
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<island-field>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        holder = next(item for item in typed.structs if item.name == "Holder")
+        self.assertIs(
+            holder.fields[0].type.declared_ownership_domain,
+            typed_ast.OwnershipDomain.ISLAND,
+        )
+        trace = typed_ast.analyze_function_ownership(parsed, typed, "main")
+        self.assertIs(trace.final_env.state_of("source"), typed_ast.VarState.MOVED)
+        event = next(
+            item for item in trace.events
+            if item.kind == "move" and item.via == "struct:Holder.token"
+        )
+        self.assertIs(event.source_domain, typed_ast.OwnershipDomain.ISLAND)
+        self.assertIs(event.target_domain, typed_ast.OwnershipDomain.ISLAND)
+
+    def test_explicit_island_field_rejects_exclusive_source(self):
+        source = """module test::island_field_mismatch;
+sole struct Token { value: u32; }
+sole struct Holder { token: island Token; }
+fn main(source: Token) -> void {
+    let holder = Holder { token: source };
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<island-field-mismatch>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"ownership domain mismatch for 'source' via "
+            r"struct:Holder.token: exclusive -> island",
+        ):
+            typed_ast.analyze_function_ownership(parsed, typed, "main")
+
+    def test_invalid_island_field_is_rejected_in_typed_ast(self):
+        source = """module test::invalid_island_field;
+sole struct Holder { value: island u32; }
+fn main() -> void { return; }
+"""
+        parsed = bootstrap.parse(source, filename="<invalid-island-field>")
+        bootstrap.check(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"island ownership requires sole type",
+        ):
+            typed_ast.build_declaration_typed_ast(parsed)
+
     def test_explicit_island_return_preserves_domain(self):
         source = """module test::island_return;
 sole struct Token { value: u32; }

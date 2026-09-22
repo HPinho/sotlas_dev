@@ -127,7 +127,7 @@ Auditoria detalhada da Fase 0: [phase0_reality_audit.md](phase0_reality_audit.md
 ```text
 Fase 0 — Reality Reset              ~80%
 Fase 1 — Typed Semantic Core       100% ✅
-Fase 2 — Ownership Domains          ~53% 🟡
+Fase 2 — Ownership Domains          ~54% 🟡
 Fase 3 — Authority Domains          ~10%
 Fase 4 — State Spaces                ~0%
 Fase 5 — Effects                    ~10%
@@ -158,19 +158,19 @@ Este índice geral é apenas uma leitura agregada conservadora das fases acima; 
 | `region` | ~0% | ainda não implementado |
 | `device` | ~0% | ainda não implementado |
 | `external` | ~0% | ainda não implementado |
-| `island` | ~55% | qualificador público, seed ISLAND/LIVE, handover explícito e retorno ISLAND→ISLAND com contrato de domínio já existem; aliases/runtime ainda faltam |
+| `island` | ~65% | parâmetros, retornos, locais e campos preservam ISLAND; transferências domain-preserving são explícitas e mismatches falham fechados |
 | `whisper` | ~0% | ainda não implementado |
 | `direct` | ~0% | ainda não implementado |
 | `handover` | ~60% | transições EXCLUSIVE→EXCLUSIVE e ISLAND→EXCLUSIVE possuem source/target/destination domain explícitos no graph; outros domínios/backend/e2e faltam |
 | `quarantine` | ~40% | EXCLUSIVE→ISLAND é fato de transição explícito e validado no Ownership Domain Graph; weak invalidation/runtime/e2e faltam |
 | runtime/backend + e2e por domínio | ~5% | gates/fail-closed existem, mas execução real de Ownership Domains ainda não |
 
-A combinação ponderada dessas macroentregas coloca a Fase 2 em **~53%**.
+A combinação ponderada dessas macroentregas coloca a Fase 2 em **~54%**.
 
 ### Fase 2 detalhada
 
 ```text
-Fase 2 — Ownership Domains                  ~53%
+Fase 2 — Ownership Domains                  ~54%
 
 ✅ sole / exclusive
 ✅ move semantics
@@ -266,6 +266,10 @@ Fase 2 — Ownership Domains                  ~53%
 ✅ island return signature preserves ISLAND → ISLAND transfer                      ← NOVO
 ✅ island → exclusive return escape is rejected fail-closed                        ← NOVO
 ✅ return transfer direction is explicit in Ownership Domain Graph                 ← NOVO
+✅ island local bindings preserve ISLAND → ISLAND ownership                         ← NOVO
+✅ island struct fields preserve ISLAND → ISLAND ownership                          ← NOVO
+✅ EXCLUSIVE → ISLAND local/field moves remain forbidden without quarantine          ← NOVO
+✅ invalid island field/global type annotations fail in Typed AST                    ← NOVO
 ✅ unsupported call shapes and assign/block/method/try defer payloads remain fail-closed
 
 ⬜ general call/assign/block/method/try defer payload lowering

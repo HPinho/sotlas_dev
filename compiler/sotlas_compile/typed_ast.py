@@ -51,11 +51,23 @@ def is_sole_type(type_info: SemanticType, module: TypedModule) -> bool:
 def ownership_domain(
     type_info: SemanticType, module: TypedModule
 ) -> OwnershipDomain | None:
-    """Resolve the ownership domain frozen in the canonical Typed AST."""
+    """Resolve and validate the ownership domain frozen in the Typed AST."""
+    if type_info.declared_ownership_domain is OwnershipDomain.ISLAND:
+        if type_info.pointer or type_info.is_reference or type_info.is_array:
+            raise Phase1SemanticError(
+                "island ownership requires a direct by-value sole type"
+            )
+        island_struct = next(
+            (item for item in module.structs if item.name == type_info.name),
+            None,
+        )
+        if island_struct is None or not island_struct.is_sole:
+            raise Phase1SemanticError(
+                f"island ownership requires sole type, got {type_info.name!r}"
+            )
+        return OwnershipDomain.ISLAND
     if type_info.pointer or type_info.is_reference:
         return None
-    if type_info.declared_ownership_domain is not None:
-        return type_info.declared_ownership_domain
     struct = next(
         (item for item in module.structs if item.name == type_info.name),
         None,
@@ -1028,6 +1040,54 @@ def _move_method_call_arguments(
     return result
 
 
+def _transfer_owned_binding_to_domain(
+    env: OwnershipEnv,
+    name: str,
+    target_domain: OwnershipDomain,
+    via: str,
+    events: list[OwnershipEvent],
+) -> OwnershipEnv:
+    """Move one LIVE binding into a destination that declares a domain.
+
+    No implicit domain change is allowed here. The source must already inhabit
+    the destination domain; cross-domain changes remain reserved to explicit
+    operations such as quarantine/handover.
+    """
+    source_domain = env.domain_of(name)
+    if source_domain is None:
+        raise Phase1SemanticError(
+            f"ownership transfer source {name!r} is not tracked"
+        )
+    if source_domain is not target_domain:
+        raise Phase1SemanticError(
+            f"ownership domain mismatch for {name!r} via {via}: "
+            f"{source_domain.value} -> {target_domain.value}"
+        )
+    env.require_live(name)
+    next_state = move_state(name, env.state_of(name))
+    updated = tuple(
+        OwnershipBinding(
+            binding.name,
+            binding.type,
+            next_state if binding.name == name else binding.state,
+            binding.domain,
+        )
+        for binding in env.bindings
+    )
+    events.append(
+        OwnershipEvent(
+            "move",
+            name,
+            via,
+            source_domain,
+            type=env.type_of(name),
+            source_domain=source_domain,
+            target_domain=target_domain,
+        )
+    )
+    return OwnershipEnv(updated)
+
+
 def _move_struct_literal_fields(
     env: OwnershipEnv,
     expr,
@@ -1054,6 +1114,7 @@ def _move_struct_literal_fields(
         if field is None:
             continue
 
+        field_domain = ownership_domain(field.type, typed_module)
         field_is_sole = is_sole_type(field.type, typed_module)
         if field_is_sole and not struct.is_sole:
             raise Phase1SemanticError(
@@ -1071,14 +1132,26 @@ def _move_struct_literal_fields(
             source_name = moved_field.value
             source_type = result.type_of(source_name)
             if source_type is not None:
-                result = result.move(source_name)
-                events.append(
-                    OwnershipEvent(
-                        "move",
+                if field_domain is OwnershipDomain.ISLAND:
+                    result = _transfer_owned_binding_to_domain(
+                        result,
                         source_name,
+                        OwnershipDomain.ISLAND,
                         f"struct:{struct.name}.{field_name}",
+                        events,
                     )
-                )
+                else:
+                    result = result.move(source_name)
+                    events.append(
+                        OwnershipEvent(
+                            "move",
+                            source_name,
+                            f"struct:{struct.name}.{field_name}",
+                            OwnershipDomain.EXCLUSIVE,
+                            source_domain=OwnershipDomain.EXCLUSIVE,
+                            target_domain=OwnershipDomain.EXCLUSIVE,
+                        )
+                    )
                 continue
 
         if type(field_expr).__name__ == "StructLit":
@@ -1408,10 +1481,24 @@ def analyze_linear_function_ownership(
                 source_name = moved_value.value
                 source_type = env.type_of(source_name)
                 if source_type is not None:
-                    env = env.move(source_name)
-                    events.append(
-                        OwnershipEvent("move", source_name, f"let:{statement.name}")
+                    local_domain = (
+                        ownership_domain(local_type, typed_module)
+                        if local_type is not None
+                        else None
                     )
+                    if local_domain is OwnershipDomain.ISLAND:
+                        env = _transfer_owned_binding_to_domain(
+                            env,
+                            source_name,
+                            OwnershipDomain.ISLAND,
+                            f"let:{statement.name}",
+                            events,
+                        )
+                    else:
+                        env = env.move(source_name)
+                        events.append(
+                            OwnershipEvent("move", source_name, f"let:{statement.name}")
+                        )
                     if local_type is None:
                         local_type = source_type
             if type(value).__name__ == "Call":
@@ -1624,10 +1711,24 @@ def _analyze_block_ownership(
                 source_name = moved_value.value
                 source_type = result.type_of(source_name)
                 if source_type is not None:
-                    result = result.move(source_name)
-                    events.append(
-                        OwnershipEvent("move", source_name, f"let:{statement.name}")
+                    local_domain = (
+                        ownership_domain(local_type, typed_module)
+                        if local_type is not None
+                        else None
                     )
+                    if local_domain is OwnershipDomain.ISLAND:
+                        result = _transfer_owned_binding_to_domain(
+                            result,
+                            source_name,
+                            OwnershipDomain.ISLAND,
+                            f"let:{statement.name}",
+                            events,
+                        )
+                    else:
+                        result = result.move(source_name)
+                        events.append(
+                            OwnershipEvent("move", source_name, f"let:{statement.name}")
+                        )
                     if local_type is None:
                         local_type = source_type
                 else:
@@ -4716,7 +4817,13 @@ def build_declaration_typed_ast(module) -> TypedModule:
             TypedStruct(
                 name=item.name,
                 fields=tuple(
-                    TypedField(field.name, semantic_type(field.type))
+                    TypedField(
+                        field.name,
+                        (
+                            explicit_domain(field.type),
+                            semantic_type(field.type),
+                        )[1],
+                    )
                     for field in item.fields
                 ),
                 public=bool(item.public),
@@ -4733,7 +4840,10 @@ def build_declaration_typed_ast(module) -> TypedModule:
         globals=tuple(
             TypedGlobal(
                 name=item.name,
-                type=semantic_type(item.type),
+                type=(
+                    explicit_domain(item.type),
+                    semantic_type(item.type),
+                )[1],
                 public=bool(item.public),
                 is_const=bool(item.is_const),
                 is_mut=bool(item.is_mut),
