@@ -1227,6 +1227,39 @@ fn main(flag: bool) -> void {
         self.assertTrue(actions[0].defer_point_id.startswith("defer@"))
         self.assertNotEqual(actions[0].point_id, actions[0].defer_point_id)
 
+    def test_loop_control_preserves_direct_deferred_call(self):
+        source = """module test::defer_call;
+sole struct Token { value: u32; }
+fn inspect(token: Token) -> void { return; }
+fn main(flag: bool) -> void {
+    while flag {
+        let local: Token = Token { value: 1u32 };
+        let peer = share local;
+        defer inspect(peer);
+        continue;
+    }
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<defer-call>")
+        bootstrap.check(parsed)
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(
+            parsed, typed_module, "main"
+        )
+        self.assertEqual(
+            trace.shared_loop_control_exit.actions[0].defer_call,
+            ("inspect", ("peer",)),
+        )
+        sys.path.insert(0, str(ROOT / "tools"))
+        from sotlas.sir import CallInst, lower_shared_ownership_trace
+        segment = next(
+            item for item in lower_shared_ownership_trace(trace).cleanup_segments
+            if item.via == "loop_control:continue"
+        )
+        self.assertIsInstance(segment.instructions[0], CallInst)
+        self.assertEqual(segment.instructions[0].arguments[0].name, "peer")
+
     def test_nested_branch_continue_cleans_branch_local_shared_owner(self):
         source = """module test::nested_continue_shared_cleanup;
 sole struct Token { value: u32; }

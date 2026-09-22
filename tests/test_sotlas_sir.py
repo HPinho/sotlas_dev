@@ -502,9 +502,47 @@ class SotlasSIRTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(
             ValueError,
-            "defer payload lowering is not implemented.*call payload",
+            "defer call lacks typed direct arguments",
         ):
             lower_shared_ownership_trace(trace)
+
+    def test_shared_loop_control_direct_call_runs_once_before_arc(self):
+        token_type = SimpleNamespace(name="Token")
+        call = ("inspect", ("token", "peer"))
+        actions = tuple(
+            SimpleNamespace(
+                kind="defer", owner=owner, via="continue:call",
+                point_id="continue@8:9", defer_point_id="defer@7:9",
+                defer_call=call,
+            ) for owner in ("token", "peer")
+        ) + (SimpleNamespace(
+            kind="release", owner="peer", via="continue:scope_exit",
+            point_id="continue@8:9", defer_point_id=None,
+        ),)
+        trace = SimpleNamespace(
+            final_env=SimpleNamespace(bindings=tuple(
+                SimpleNamespace(name=name, type=token_type)
+                for name in ("token", "peer")
+            )),
+            events=(), shared_cleanup=SimpleNamespace(steps=()),
+            shared_path_cleanup=SimpleNamespace(steps=()),
+            shared_loop_cleanup=SimpleNamespace(steps=()),
+            shared_loop_control_exit=SimpleNamespace(actions=actions),
+        )
+        plan = lower_shared_ownership_trace(trace)
+        segment = plan.cleanup_segments[0]
+        self.assertEqual(tuple(type(i) for i in segment.instructions),
+                         (CallInst, ReleaseInst))
+        self.assertEqual(segment.instructions[0].callee, "inspect")
+        self.assertEqual(tuple(v.name for v in segment.instructions[0].arguments),
+                         ("token", "peer"))
+        self.assertEqual(segment.instructions[0].defer_point_id, "defer@7:9")
+        fn = SIRFunction("main", [], "void")
+        block = fn.add_block("body")
+        block.add(BranchInst("cond", "continue@8:9", "continue"))
+        self.assertEqual(place_shared_loop_control_cleanup(fn, plan), 2)
+        self.assertEqual(tuple(type(i) for i in block.instructions),
+                         (CallInst, ReleaseInst, BranchInst))
 
     def test_shared_loop_control_defer_requires_source_identity(self):
         token_type = SimpleNamespace(name="Token")

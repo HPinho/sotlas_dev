@@ -21,6 +21,7 @@ from .instructions import (
     ReleaseInst,
     DestroyInst,
     DeferUseInst,
+    CallInst,
 )
 
 
@@ -146,6 +147,9 @@ def lower_shared_ownership_trace(trace: Any) -> SharedOwnershipSIRPlan:
     actions = tuple(getattr(control_plan, "actions", ()) or ())
     if actions:
         grouped_actions: dict[tuple[str, str | None], list[SIRInstruction]] = {}
+        lowered_calls: dict[
+            tuple[str, str | None, str], tuple[str, tuple[str, ...]]
+        ] = {}
         for action in actions:
             kind = getattr(action, "kind")
             owner = getattr(action, "owner", None)
@@ -166,13 +170,40 @@ def lower_shared_ownership_trace(trace: Any) -> SharedOwnershipSIRPlan:
                         f"{defer_point_id!r}"
                     )
                 payload_kind = via.split(":", 1)[1] if ":" in via else ""
-                if payload_kind != "expression":
+                if payload_kind == "call":
+                    call = getattr(action, "defer_call", None)
+                    if (not isinstance(call, tuple) or len(call) != 2
+                            or not isinstance(call[0], str) or not call[0]
+                            or not isinstance(call[1], tuple)
+                            or not all(isinstance(arg, str) and arg in types
+                                       for arg in call[1])):
+                        raise ValueError(
+                            f"shared loop-control defer call lacks typed direct "
+                            f"arguments at {defer_point_id}"
+                        )
+                    call_key = (via.split(":", 1)[0],
+                                getattr(action, "point_id", None),
+                                str(defer_point_id))
+                    if call_key in lowered_calls:
+                        if lowered_calls[call_key] != call:
+                            raise ValueError(
+                                f"conflicting shared defer call payload at "
+                                f"{defer_point_id}"
+                            )
+                        continue
+                    lowered_calls[call_key] = call
+                    inst = CallInst(
+                        call[0], [_value(arg, types) for arg in call[1]],
+                        defer_point_id=str(defer_point_id),
+                    )
+                elif payload_kind == "expression":
+                    inst = DeferUseInst(_value(owner, types), str(defer_point_id))
+                else:
                     raise ValueError(
                         "shared loop-control defer payload lowering is not "
                         f"implemented in SIR for {payload_kind or 'unknown'} "
                         f"payload at {defer_point_id}"
                     )
-                inst = DeferUseInst(_value(owner, types), str(defer_point_id))
             elif kind == "release":
                 inst = ReleaseInst(_value(owner, types))
             elif kind == "destroy":

@@ -497,6 +497,8 @@ class OwnershipEvent:
     right_state: VarState | None = None
     result_state: VarState | None = None
     point_id: str | None = None
+    defer_call: tuple[str, tuple[str, ...]] | None = None
+    type: SemanticType | None = None
 
 
 @dataclass(frozen=True)
@@ -522,6 +524,7 @@ class SharedExitAction:
     via: str
     point_id: str | None = None
     defer_point_id: str | None = None
+    defer_call: tuple[str, tuple[str, ...]] | None = None
 
 
 @dataclass(frozen=True)
@@ -664,6 +667,7 @@ def plan_shared_exit(
                     event.name,
                     event.via,
                     defer_point_id=event.point_id,
+                    defer_call=event.defer_call,
                 )
             )
     for step in cleanup.steps:
@@ -694,6 +698,7 @@ def plan_shared_control_exit(
                 f"{control}:{action.via}",
                 point_id,
                 action.defer_point_id,
+                action.defer_call,
             )
             for action in base.actions
         )
@@ -1111,6 +1116,7 @@ def analyze_linear_function_ownership(
                 events.append(OwnershipEvent(
                     "domain_transition", shared.source,
                     f"share:{statement.name}", OwnershipDomain.SHARED,
+                    type=env.type_of(shared.source),
                 ))
                 events.append(OwnershipEvent(
                     "retain", statement.name,
@@ -1307,6 +1313,7 @@ def _analyze_block_ownership(
                 events.append(OwnershipEvent(
                     "domain_transition", shared.source,
                     f"share:{statement.name}", OwnershipDomain.SHARED,
+                    type=result.type_of(shared.source),
                 ))
                 events.append(OwnershipEvent(
                     "retain", statement.name,
@@ -1654,6 +1661,14 @@ def _analyze_block_ownership(
             deferred_body = getattr(statement, "body", None)
             deferred_value = getattr(statement, "value", None)
             deferred_events: list[OwnershipEvent] = []
+            defer_call = None
+            if type(deferred_value).__name__ == "Call":
+                args = tuple(getattr(deferred_value, "args", ()))
+                if all(type(arg).__name__ == "Name" for arg in args):
+                    defer_call = (
+                        deferred_value.callee,
+                        tuple(arg.value for arg in args),
+                    )
 
             if deferred_body is not None:
                 deferred_env = _analyze_block_ownership(
@@ -1732,6 +1747,7 @@ def _analyze_block_ownership(
                             via,
                             OwnershipDomain.SHARED,
                             point_id=defer_point_id,
+                            defer_call=defer_call,
                         )
                     )
                     continue

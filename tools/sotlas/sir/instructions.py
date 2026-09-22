@@ -57,12 +57,14 @@ class CallInst(SIRInstruction):
     arguments: List[SIRValue]
     result: Optional[SIRValue] = None
     is_system: bool = False
+    defer_point_id: str | None = None
 
     def __str__(self) -> str:
         prefix = f"{self.result} = " if self.result else ""
         sys_mark = "@system " if self.is_system else ""
         args_str = ", ".join(str(a) for a in self.arguments)
-        return f"  {prefix}{sys_mark}call @{self.callee}({args_str})"
+        defer_mark = f" // {self.defer_point_id}" if self.defer_point_id else ""
+        return f"  {prefix}{sys_mark}call @{self.callee}({args_str}){defer_mark}"
 
 
 @dataclass
