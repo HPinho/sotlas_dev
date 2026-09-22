@@ -54,6 +54,8 @@ def ownership_domain(
     """Resolve the ownership domain frozen in the canonical Typed AST."""
     if type_info.pointer or type_info.is_reference:
         return None
+    if type_info.declared_ownership_domain is not None:
+        return type_info.declared_ownership_domain
     struct = next(
         (item for item in module.structs if item.name == type_info.name),
         None,
@@ -2429,7 +2431,7 @@ def summarize_module_ownership(
                 params=tuple(
                     OwnershipParamContract(
                         param.name,
-                        param.ownership_domain is OwnershipDomain.EXCLUSIVE,
+                        param.ownership_domain is not None,
                         param.ownership_domain,
                     )
                     for param in function.params
@@ -4278,6 +4280,7 @@ class SemanticType:
     is_fn_ptr: bool = False
     fn_params: tuple["SemanticType", ...] = ()
     fn_ret: "SemanticType | None" = None
+    declared_ownership_domain: OwnershipDomain | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True)
@@ -4507,6 +4510,11 @@ def semantic_type(type_obj) -> SemanticType:
             if getattr(type_obj, "fn_ret", None) is not None
             else None
         ),
+        declared_ownership_domain=(
+            OwnershipDomain.ISLAND
+            if getattr(type_obj, "ownership_domain", None) == "island"
+            else None
+        ),
     )
 
 
@@ -4622,6 +4630,17 @@ def build_declaration_typed_ast(module) -> TypedModule:
 
     def explicit_domain(type_obj) -> OwnershipDomain | None:
         frozen = semantic_type(type_obj)
+        declared = frozen.declared_ownership_domain
+        if declared is OwnershipDomain.ISLAND:
+            if frozen.pointer or frozen.is_reference or frozen.is_array:
+                raise Phase1SemanticError(
+                    "island ownership requires a direct by-value sole type"
+                )
+            if frozen.name not in exclusive_type_names:
+                raise Phase1SemanticError(
+                    f"island ownership requires sole type, got {frozen.name!r}"
+                )
+            return OwnershipDomain.ISLAND
         if frozen.pointer or frozen.is_reference:
             return None
         if frozen.name in exclusive_type_names:

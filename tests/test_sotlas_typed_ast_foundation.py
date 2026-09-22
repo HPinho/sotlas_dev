@@ -165,7 +165,7 @@ fn main() -> void { return; }
 
     def test_unimplemented_ownership_domain_types_fail_before_c11(self):
         for domain in ("exclusive", "shared", "region", "device", "external",
-                       "island", "whisper", "direct", "quarantine"):
+                       "whisper", "direct", "quarantine"):
             with self.subTest(domain=domain):
                 source = (
                     "module test::domain_gate; "
@@ -177,6 +177,90 @@ fn main() -> void { return; }
                     f"ownership domain '{domain}' is reserved but not supported",
                 ):
                     bootstrap.compile_source(source)
+
+    def test_explicit_island_parameter_enters_island_domain(self):
+        source = """module test::explicit_island_param;
+sole struct Token { value: u32; }
+fn main(token: island Token) -> void {
+    token.value;
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<explicit-island-param>")
+        bootstrap.check(parsed)
+        self.assertEqual(parsed.functions[0].params[0][1].ownership_domain, "island")
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        param = typed.functions[0].params[0]
+        self.assertIs(param.ownership_domain, typed_ast.OwnershipDomain.ISLAND)
+        self.assertIs(param.type.declared_ownership_domain, typed_ast.OwnershipDomain.ISLAND)
+        env = typed_ast.seed_function_ownership(parsed, typed, "main")
+        self.assertIs(env.domain_of("token"), typed_ast.OwnershipDomain.ISLAND)
+        self.assertIs(env.state_of("token"), typed_ast.VarState.LIVE)
+
+    def test_explicit_island_requires_by_value_sole_type(self):
+        sources = (
+            "module test::island_primitive; fn main(value: island u32) -> void { return; }",
+            "module test::island_plain; struct Plain { value: u32; } fn main(value: island Plain) -> void { return; }",
+            "module test::island_pointer; sole struct Token { value: u32; } fn main(value: island *mut Token) -> void { return; }",
+        )
+        for source in sources:
+            parsed = bootstrap.parse(source, filename="<invalid-explicit-island>")
+            bootstrap.check(parsed)
+            with self.assertRaisesRegex(typed_ast.Phase1SemanticError, r"island ownership requires"):
+                typed_ast.build_declaration_typed_ast(parsed)
+
+    def test_explicit_island_cannot_escape_implicitly(self):
+        source = """module test::explicit_island_escape;
+sole struct Token { value: u32; }
+fn consume(token: Token) -> void { return; }
+fn main(token: island Token) -> void {
+    consume(token);
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<explicit-island-escape>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"island owner 'token' cannot escape quarantine through sole parameter of 'consume'",
+        ):
+            typed_ast.analyze_function_ownership(parsed, typed, "main")
+
+    def test_explicit_island_handover_reacquires_exclusive_owner(self):
+        source = """module test::explicit_island_handover;
+sole struct Token { value: u32; }
+fn consume(token: Token) -> void { return; }
+fn main(source: island Token, destination: Token) -> void {
+    consume(destination);
+    handover source to destination;
+    destination.value;
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<explicit-island-handover>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(parsed, typed, "main")
+        self.assertIs(trace.final_env.state_of("source"), typed_ast.VarState.MOVED)
+        self.assertIs(trace.final_env.domain_of("source"), typed_ast.OwnershipDomain.ISLAND)
+        self.assertIs(trace.final_env.state_of("destination"), typed_ast.VarState.LIVE)
+        event = next(item for item in trace.events if item.kind == "handover" and item.name == "source")
+        self.assertIs(event.source_domain, typed_ast.OwnershipDomain.ISLAND)
+        self.assertIs(event.target_domain, typed_ast.OwnershipDomain.EXCLUSIVE)
+
+    def test_c11_explicit_island_type_remains_fail_closed(self):
+        source = """module test::island_c11_gate;
+sole struct Token { value: u32; }
+fn main(token: island Token) -> void { return; }
+"""
+        parsed = bootstrap.parse(source, filename="<island-c11-gate>")
+        bootstrap.check(parsed)
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"C11 backend does not lower island ownership domain yet",
+        ):
+            bootstrap.emit_c(parsed)
 
     def test_sole_branch_return_keeps_cleanup_on_other_path(self):
         source = """module test::branch_cleanup;

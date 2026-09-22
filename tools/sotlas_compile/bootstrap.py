@@ -192,6 +192,7 @@ class Type:
     fn_params: tuple = ()  # tuple[Type, ...]
     fn_ret: Type | None = None
     is_reference: bool = False
+    ownership_domain: str | None = None
 
     def base_c(self) -> str:
         if self.is_fn_ptr:
@@ -477,6 +478,16 @@ class Parser:
         return self.type()
 
     def type(self) -> Type:
+        if self.current.kind == "IDENT" and self.current.text == "island":
+            token = self.current
+            self.at += 1
+            inner = self.type()
+            if getattr(inner, "ownership_domain", None) is not None:
+                raise SotlasBootstrapError(
+                    "ownership modifier duplicado",
+                    token.line, token.column, self.filename, self.source,
+                )
+            return replace(inner, ownership_domain="island")
         if self.accept("!"):
             return Type("void")
         if self.accept("fn"):
@@ -1780,6 +1791,29 @@ def _c_struct_attributes(attributes: list[str]) -> str:
 
 def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
            include_import_headers: bool = False) -> str:
+    def _contains_island(type_obj: Type | None) -> bool:
+        if type_obj is None:
+            return False
+        if getattr(type_obj, "ownership_domain", None) == "island":
+            return True
+        if getattr(type_obj, "elem_type", None) is not None and _contains_island(type_obj.elem_type):
+            return True
+        if any(_contains_island(param) for param in getattr(type_obj, "fn_params", ())):
+            return True
+        return _contains_island(getattr(type_obj, "fn_ret", None))
+
+    island_type_found = (
+        any(_contains_island(field.type) for struct in module.structs for field in struct.fields)
+        or any(_contains_island(item.type) for item in module.globals)
+        or any(_contains_island(type_obj) for fn in module.functions for _, type_obj in fn.params)
+        or any(_contains_island(fn.result) for fn in module.functions)
+    )
+    if island_type_found:
+        raise SotlasBootstrapError(
+            "C11 backend does not lower island ownership domain yet",
+            1, 1, module.filename, module.source,
+        )
+
     prefix = f"{_c_ident(module.name)}__" if mangle else ""
     guards: list[str] = []
     fn_names = {f.name for f in module.functions}
