@@ -3760,6 +3760,7 @@ Status atual:
 - [x] reality gates para impedir regressão da maturidade do Typed AST;
 - [x] regra formal de que testes são contratos, não obstáculos;
 - [x] `check` e backend C11 possuem gate para não aceitar silenciosamente lowering ainda não implementado;
+- [x] fixtures `.sotlas` exercitam os dois lados do gate: enum escalar gera e executa binário C11; `share` com defer chega ao SIR, enquanto o backend C11 o rejeita explicitamente;
 - [ ] eliminação completa de todo legado/duplicação histórica do projeto;
 - [ ] auditoria final de todos os exemplos, documentação pública e claims antigos.
 
@@ -3809,6 +3810,7 @@ Extensões construídas sobre a fundação, mas que **não promovem a linguagem 
 - [ ] lowering C11 completo de enum com payload;
 - [ ] cleanup/destruição de payload `sole` armazenado em enum;
 - [ ] teste end-to-end de enum com payload até backend/binário.
+- [x] teste end-to-end do subconjunto escalar de enum com payload a partir de fixture `.sotlas`, emitindo C11 e executando binário; payloads não escalares e cleanup `sole` seguem pendentes.
 
 **Nota de certificação:** esta fase está certificada como núcleo semântico isolado. Isso não equivale a afirmar que todo o compilador, SIR, backend, stdlib e todas as features documentadas estão `SUPPORTED`.
 

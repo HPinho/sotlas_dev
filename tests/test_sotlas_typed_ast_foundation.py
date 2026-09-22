@@ -5,6 +5,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -1228,21 +1229,14 @@ fn main(flag: bool) -> void {
         self.assertNotEqual(actions[0].point_id, actions[0].defer_point_id)
 
     def test_loop_control_preserves_direct_deferred_call(self):
-        source = """module test::defer_call;
-sole struct Token { value: u32; }
-fn inspect(token: Token) -> void { return; }
-fn main(flag: bool) -> void {
-    while flag {
-        let local: Token = Token { value: 1u32 };
-        let peer = share local;
-        defer inspect(peer);
-        continue;
-    }
-    return;
-}
-"""
+        fixture = ROOT / "tests" / "fixtures" / "shared_defer_call.sotlas"
+        source = fixture.read_text(encoding="utf-8")
         parsed = bootstrap.parse(source, filename="<defer-call>")
         bootstrap.check(parsed)
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError, "share|shared|ARC"
+        ):
+            bootstrap.emit_c(parsed)
         typed_module = typed_ast.build_declaration_typed_ast(parsed)
         trace = typed_ast.analyze_function_ownership(
             parsed, typed_module, "main"
@@ -1259,6 +1253,31 @@ fn main(flag: bool) -> void {
         )
         self.assertIsInstance(segment.instructions[0], CallInst)
         self.assertEqual(segment.instructions[0].arguments[0].name, "peer")
+
+    def test_shared_deferred_member_call_remains_fail_closed_in_sir(self):
+        source = """module test::defer_member_call;
+sole struct Token { value: u32; }
+fn inspect(value: u32) -> void { return; }
+fn main(flag: bool) -> void {
+    while flag {
+        let local: Token = Token { value: 1u32 };
+        let peer = share local;
+        defer inspect(peer.value);
+        continue;
+    }
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<defer-member-call>")
+        bootstrap.check(parsed)
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(
+            parsed, typed_module, "main"
+        )
+        sys.path.insert(0, str(ROOT / "tools"))
+        from sotlas.sir import lower_shared_ownership_trace
+        with self.assertRaisesRegex(ValueError, "lacks typed direct arguments"):
+            lower_shared_ownership_trace(trace)
 
     def test_nested_branch_continue_cleans_branch_local_shared_owner(self):
         source = """module test::nested_continue_shared_cleanup;
@@ -6978,6 +6997,46 @@ fn use() -> void { let message: Message = make(); return; }
             check=False,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_scalar_payload_enum_executes_from_sotlas_fixture(self):
+        compiler = shutil.which(os.environ.get("CC", "")) or next(
+            (path for name in ("clang", "cc", "gcc")
+             if (path := shutil.which(name))),
+            None,
+        )
+        if compiler is None and os.name == "nt":
+            bundled_clang = Path(r"C:\Program Files\LLVM\bin\clang.exe")
+            if bundled_clang.is_file():
+                compiler = str(bundled_clang)
+        if compiler is None:
+            self.skipTest("C11 compiler unavailable")
+
+        fixture = ROOT / "tests" / "fixtures" / "enum_payload_scalar.sotlas"
+        source = fixture.read_text(encoding="utf-8")
+        generated = bootstrap.compile_source(source, filename=str(fixture))
+        harness = """
+int main(void) {
+    Message number = make_number();
+    Message empty = make_empty();
+    if (number.tag != UINT64_C(9)) return 1;
+    if (number.payload.Number != UINT32_C(42)) return 2;
+    if (empty.tag != UINT64_C(8)) return 3;
+    return 0;
+}
+"""
+        with tempfile.TemporaryDirectory(prefix="sotlas_enum_payload_") as temp:
+            c_file = Path(temp) / "enum_payload.c"
+            executable = Path(temp) / ("enum_payload.exe" if os.name == "nt" else "enum_payload")
+            c_file.write_text(generated + "\n" + harness, encoding="utf-8")
+            result = subprocess.run(
+                [compiler, "-std=c11", "-Werror", str(c_file), "-o", str(executable)],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            result = subprocess.run(
+                [str(executable)], capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
 
 
 

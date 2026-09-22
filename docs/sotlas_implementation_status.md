@@ -40,11 +40,12 @@
 - [x] tagged-union logical layout
 - [x] tag/payload storage plan backend-neutral
 - [x] emissão C11 de tagged union e construtores para payloads escalares, com validação de tags `u64`
+- [x] fixture `.sotlas` de payload escalar compilada até binário C11 e executada, verificando tags e valor do payload
 - [ ] ABI física definitiva
 - [ ] C11 type representation para todos os payloads
 - [ ] C11 constructor lowering para todos os payloads
 - [ ] cleanup/destruição de payload `sole`
-- [ ] end-to-end até binário/backend suportado
+- [ ] end-to-end de todos os payloads até binário/backend suportado (somente o subconjunto escalar foi exercitado)
 
 ## Fase 2 — Ownership Domains
 
@@ -296,7 +297,9 @@ O trabalho atual está fechando **enum payload / tagged-union lowering**:
 - [x] logical tagged-union layout
 - [x] backend-neutral storage plan
 - [ ] physical representation contract
-- [ ] backend C11 type representation
-- [ ] constructor lowering
+- [x] backend C11 type representation para payload escalar
+- [x] constructor lowering para payload escalar
+- [ ] backend C11 e constructor lowering para payloads não escalares
 - [ ] cleanup ownership for active payload
-- [ ] end-to-end certification
+- [x] end-to-end de payload escalar com fixture `.sotlas` e binário C11
+- [ ] end-to-end certification para todos os payloads

@@ -1,0 +1,15 @@
+module test::defer_call;
+
+sole struct Token { value: u32; }
+
+fn inspect(token: Token) -> void { return; }
+
+fn main(flag: bool) -> void {
+    while flag {
+        let local: Token = Token { value: 1u32 };
+        let peer = share local;
+        defer inspect(peer);
+        continue;
+    }
+    return;
+}
