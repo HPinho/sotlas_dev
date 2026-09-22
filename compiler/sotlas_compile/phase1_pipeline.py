@@ -27,9 +27,12 @@ def analyze_module_phase1(parsed_module) -> Phase1CheckedModule:
     # Keep the Typed AST package independent from SIR imports. The public
     # pipeline is the composition boundary between canonical semantic facts
     # and the backend-neutral intermediate representation.
-    from sotlas.sir import lower_ownership_module_analysis
+    from sotlas.sir import lower_ownership_module_semantics
 
-    ownership_sir = lower_ownership_module_analysis(semantic.ownership)
+    ownership_sir = lower_ownership_module_semantics(
+        semantic.ownership,
+        semantic.ownership_domains,
+    )
     return Phase1CheckedModule(
         parsed_module=parsed_module,
         semantic=semantic,

@@ -146,6 +146,106 @@ def _domain_name(domain: Any) -> str | None:
     return str(getattr(domain, "value", domain))
 
 
+def lower_ownership_domain_graph(
+    graph: Any,
+    function_name: str,
+) -> OwnershipDomainSIRPlan:
+    """Lower canonical domain-graph transfers for one function into SIR."""
+    nodes = {
+        getattr(node, "binding"): node
+        for node in getattr(graph, "nodes", ()) or ()
+        if getattr(node, "function", None) == function_name
+    }
+    instructions: list[SIRInstruction] = []
+
+    for transfer in getattr(graph, "transfers", ()) or ():
+        if getattr(transfer, "function", None) != function_name:
+            continue
+        operation = str(getattr(transfer, "via", ""))
+        if operation not in ("quarantine", "handover"):
+            continue
+
+        binding = getattr(transfer, "binding", "")
+        node = nodes.get(binding)
+        if node is None:
+            raise ValueError(
+                f"ownership domain graph lacks node for "
+                f"{function_name}::{binding}"
+            )
+        type_info = getattr(node, "type", None)
+        type_name = getattr(type_info, "name", None)
+        if not type_name:
+            raise ValueError(
+                f"ownership domain graph lacks type for "
+                f"{function_name}::{binding}"
+            )
+
+        source_domain = _domain_name(
+            getattr(transfer, "source_domain", None)
+        )
+        target_domain = _domain_name(
+            getattr(transfer, "target_domain", None)
+        )
+        if source_domain is None or target_domain is None:
+            raise ValueError(
+                f"ownership domain graph lacks complete domains for "
+                f"{operation} {function_name}::{binding}"
+            )
+
+        destination_value = None
+        destination = getattr(transfer, "destination", None)
+        if operation == "quarantine":
+            if source_domain != "exclusive" or target_domain != "island":
+                raise ValueError(
+                    f"invalid quarantine ownership transition "
+                    f"{source_domain}->{target_domain} for "
+                    f"{function_name}::{binding}"
+                )
+            if destination is not None:
+                raise ValueError(
+                    f"quarantine transfer for {function_name}::{binding} "
+                    "cannot have destination"
+                )
+        else:
+            if destination is None and source_domain == "island":
+                raise ValueError(
+                    f"island handover {function_name}::{binding} requires "
+                    "explicit destination for SIR lowering"
+                )
+            if destination is not None:
+                destination_domain = _domain_name(
+                    getattr(transfer, "destination_domain", None)
+                )
+                if destination_domain != target_domain:
+                    raise ValueError(
+                        f"handover destination domain mismatch for "
+                        f"{function_name}::{binding}"
+                    )
+                destination_node = nodes.get(destination)
+                destination_type = (
+                    getattr(getattr(destination_node, "type", None), "name", None)
+                    if destination_node is not None else None
+                )
+                if destination_type is not None and destination_type != type_name:
+                    raise ValueError(
+                        f"handover destination type mismatch for "
+                        f"{function_name}::{binding}"
+                    )
+                destination_value = SIRValue(destination, type_name)
+
+        instructions.append(
+            OwnershipDomainTransferInst(
+                operation=operation,
+                source=SIRValue(binding, type_name),
+                source_domain=source_domain,
+                target_domain=target_domain,
+                destination=destination_value,
+            )
+        )
+
+    return OwnershipDomainSIRPlan(tuple(instructions))
+
+
 def lower_ownership_domain_trace(trace: Any) -> OwnershipDomainSIRPlan:
     """Lower quarantine/handover domain facts into backend-neutral SIR.
 
@@ -525,6 +625,49 @@ def lower_shared_ownership_trace(trace: Any) -> SharedOwnershipSIRPlan:
     return SharedOwnershipSIRPlan(
         tuple(semantic), tuple(segments), points
     )
+
+
+def lower_ownership_module_semantics(
+    analysis: Any,
+    domain_graph: Any,
+) -> OwnershipModuleSIRPlan:
+    """Compose canonical domain-graph lowering with trace-based shared ARC."""
+    traces = tuple(getattr(analysis, "traces", ()) or ())
+    graph_functions = {
+        getattr(node, "function", None)
+        for node in getattr(domain_graph, "nodes", ()) or ()
+    }
+    functions: list[OwnershipFunctionSIRPlan] = []
+    seen: set[str] = set()
+
+    for function_name, trace in traces:
+        if function_name in seen:
+            raise ValueError(
+                f"duplicate ownership trace for function {function_name!r}"
+            )
+        seen.add(function_name)
+        if graph_functions and function_name not in graph_functions:
+            # Functions without tracked ownership legitimately have no graph node.
+            has_domain_transfer = any(
+                getattr(transfer, "function", None) == function_name
+                and str(getattr(transfer, "via", "")) in ("quarantine", "handover")
+                for transfer in getattr(domain_graph, "transfers", ()) or ()
+            )
+            if has_domain_transfer:
+                raise ValueError(
+                    f"ownership domain graph lacks function nodes for "
+                    f"{function_name!r}"
+                )
+        functions.append(
+            OwnershipFunctionSIRPlan(
+                function=function_name,
+                domain=lower_ownership_domain_graph(
+                    domain_graph, function_name
+                ),
+                shared=lower_shared_ownership_trace(trace),
+            )
+        )
+    return OwnershipModuleSIRPlan(tuple(functions))
 
 
 def lower_ownership_module_analysis(
@@ -1049,6 +1192,7 @@ def apply_shared_ownership_trace(
 
 __all__ = [
     "OwnershipDomainSIRPlan",
+    "lower_ownership_domain_graph",
     "lower_ownership_domain_trace",
     "OwnershipDomainSIRPlacement",
     "place_ownership_domain_transfers",
@@ -1060,6 +1204,7 @@ __all__ = [
     "generate_checked_ownership_sir",
     "OwnershipFunctionSIRPlan",
     "OwnershipModuleSIRPlan",
+    "lower_ownership_module_semantics",
     "lower_ownership_module_analysis",
     "SharedOwnershipSIRSegment",
     "SharedOwnershipSIRSemanticPoint",

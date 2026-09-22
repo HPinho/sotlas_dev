@@ -32,6 +32,7 @@ from .instructions import (
 from .generator import SIRGenerator
 from .ownership import (
     OwnershipDomainSIRPlan,
+    lower_ownership_domain_graph,
     lower_ownership_domain_trace,
     OwnershipDomainSIRPlacement,
     place_ownership_domain_transfers,
@@ -43,6 +44,7 @@ from .ownership import (
     generate_checked_ownership_sir,
     OwnershipFunctionSIRPlan,
     OwnershipModuleSIRPlan,
+    lower_ownership_module_semantics,
     lower_ownership_module_analysis,
     SharedOwnershipSIRSegment,
     SharedOwnershipSIRSemanticPoint,
@@ -86,6 +88,7 @@ __all__ = [
     "SIRModule",
     "SIRGenerator",
     "OwnershipDomainSIRPlan",
+    "lower_ownership_domain_graph",
     "lower_ownership_domain_trace",
     "OwnershipDomainSIRPlacement",
     "place_ownership_domain_transfers",
@@ -97,6 +100,7 @@ __all__ = [
     "generate_checked_ownership_sir",
     "OwnershipFunctionSIRPlan",
     "OwnershipModuleSIRPlan",
+    "lower_ownership_module_semantics",
     "lower_ownership_module_analysis",
     "SharedOwnershipSIRSegment",
     "SharedOwnershipSIRSemanticPoint",

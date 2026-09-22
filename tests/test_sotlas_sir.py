@@ -18,8 +18,8 @@ from sotlas.sir import (
     generate_checked_ownership_sir,
     SharedOwnershipSIRPlan,
     ShareInst, RetainInst, ReleaseInst, DestroyInst, DeferUseInst,
-    lower_ownership_domain_trace,
-    lower_ownership_module_analysis,
+    lower_ownership_domain_graph, lower_ownership_domain_trace,
+    lower_ownership_module_semantics, lower_ownership_module_analysis,
     lower_shared_ownership_trace, place_shared_return_cleanup,
     place_shared_loop_control_cleanup, place_shared_loop_backedge_cleanup,
     apply_shared_ownership_trace,
@@ -648,6 +648,117 @@ class SotlasSIRTests(unittest.TestCase):
                     )
                 )
             )
+
+    def test_domain_graph_lowers_canonical_quarantine_and_handover(self):
+        token_type = SimpleNamespace(name="Token")
+        exclusive = SimpleNamespace(value="exclusive")
+        island = SimpleNamespace(value="island")
+        graph = SimpleNamespace(
+            nodes=(
+                SimpleNamespace(
+                    function="isolate",
+                    binding="source",
+                    type=token_type,
+                ),
+                SimpleNamespace(
+                    function="isolate",
+                    binding="destination",
+                    type=token_type,
+                ),
+            ),
+            transfers=(
+                SimpleNamespace(
+                    function="isolate",
+                    binding="source",
+                    via="quarantine",
+                    destination=None,
+                    source_domain=exclusive,
+                    target_domain=island,
+                    destination_domain=None,
+                ),
+                SimpleNamespace(
+                    function="isolate",
+                    binding="source",
+                    via="handover",
+                    destination="destination",
+                    source_domain=island,
+                    target_domain=exclusive,
+                    destination_domain=exclusive,
+                ),
+            ),
+        )
+
+        plan = lower_ownership_domain_graph(graph, "isolate")
+
+        self.assertEqual(len(plan.instructions), 2)
+        self.assertEqual(plan.instructions[0].operation, "quarantine")
+        self.assertEqual(plan.instructions[1].operation, "handover")
+        self.assertEqual(
+            plan.instructions[1].destination.name, "destination"
+        )
+
+    def test_domain_graph_rejects_transfer_without_canonical_node(self):
+        graph = SimpleNamespace(
+            nodes=(),
+            transfers=(
+                SimpleNamespace(
+                    function="isolate",
+                    binding="token",
+                    via="quarantine",
+                    destination=None,
+                    source_domain=SimpleNamespace(value="exclusive"),
+                    target_domain=SimpleNamespace(value="island"),
+                    destination_domain=None,
+                ),
+            ),
+        )
+        with self.assertRaisesRegex(
+            ValueError,
+            r"lacks node for isolate::token",
+        ):
+            lower_ownership_domain_graph(graph, "isolate")
+
+    def test_module_semantics_uses_domain_graph_and_trace_shared_plan(self):
+        token_type = SimpleNamespace(name="Token")
+        empty_cleanup = SimpleNamespace(steps=())
+        trace = SimpleNamespace(
+            final_env=SimpleNamespace(bindings=(
+                SimpleNamespace(name="token", type=token_type),
+            )),
+            events=(),
+            shared_cleanup=empty_cleanup,
+            shared_path_cleanup=empty_cleanup,
+            shared_loop_cleanup=empty_cleanup,
+            shared_loop_control_exit=SimpleNamespace(actions=()),
+        )
+        analysis = SimpleNamespace(traces=(("isolate", trace),))
+        graph = SimpleNamespace(
+            nodes=(
+                SimpleNamespace(
+                    function="isolate", binding="token", type=token_type
+                ),
+            ),
+            transfers=(
+                SimpleNamespace(
+                    function="isolate",
+                    binding="token",
+                    via="quarantine",
+                    destination=None,
+                    source_domain=SimpleNamespace(value="exclusive"),
+                    target_domain=SimpleNamespace(value="island"),
+                    destination_domain=None,
+                ),
+            ),
+        )
+
+        plan = lower_ownership_module_semantics(analysis, graph)
+
+        self.assertEqual(len(plan.functions), 1)
+        self.assertEqual(
+            plan.functions[0].domain.instructions[0].operation,
+            "quarantine",
+        )
+        self.assertEqual(plan.functions[0].shared.semantic, ())
 
     def test_domain_trace_lowers_quarantine_and_handover(self):
         token_type = SimpleNamespace(name="Token")

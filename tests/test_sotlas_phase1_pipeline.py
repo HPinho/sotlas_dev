@@ -80,6 +80,11 @@ fn isolate(token: Token) -> void {
         self.assertEqual(transfer.source_domain, "exclusive")
         self.assertEqual(transfer.target_domain, "island")
         self.assertEqual(function_plan.shared.semantic, ())
+        graph_transfer = result.semantic.ownership_domains.transfers[0]
+        self.assertEqual(graph_transfer.via, "quarantine")
+        self.assertEqual(
+            transfer.source.name, graph_transfer.binding
+        )
 
     def test_public_phase1_pipeline_exposes_empty_ownership_sir_for_plain_code(self):
         source = """module test::phase1_plain_sir;
