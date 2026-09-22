@@ -19,6 +19,7 @@ from .instructions import (
     BranchInst,
     OwnershipDomainPointInst,
     OwnershipDomainTransferInst,
+    SharedOwnershipPointInst,
     ShareInst,
     RetainInst,
     ReleaseInst,
@@ -61,6 +62,7 @@ class OwnershipModuleSIRPlacement:
 class OwnershipModulePlacement:
     plan: OwnershipModuleSIRPlan
     inserted_domain_instructions: int
+    inserted_shared_semantic_instructions: int
     inserted_return_cleanup_instructions: int
     inserted_loop_control_instructions: int
     inserted_backedge_instructions: int
@@ -74,9 +76,18 @@ class SharedOwnershipSIRSegment:
 
 
 @dataclass(frozen=True)
+class SharedOwnershipSIRSemanticPoint:
+    point_id: str
+    source: str
+    alias: str
+    instructions: Tuple[SIRInstruction, ...]
+
+
+@dataclass(frozen=True)
 class SharedOwnershipSIRPlan:
     semantic: Tuple[SIRInstruction, ...]
     cleanup_segments: Tuple[SharedOwnershipSIRSegment, ...]
+    semantic_points: Tuple[SharedOwnershipSIRSemanticPoint, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -342,6 +353,7 @@ def lower_shared_ownership_trace(trace: Any) -> SharedOwnershipSIRPlan:
     """Lower canonical shared ownership facts without claiming CFG placement."""
     types = _share_types(trace, _type_map(trace))
     semantic: list[SIRInstruction] = []
+    semantic_points: dict[str, dict[str, Any]] = {}
 
     for event in getattr(trace, "events", ()) or ():
         kind = getattr(event, "kind", None)
@@ -350,16 +362,56 @@ def lower_shared_ownership_trace(trace: Any) -> SharedOwnershipSIRPlan:
             source = getattr(event, "name")
             alias = via.split(":", 1)[1]
             source_value = _value(source, types)
-            semantic.append(ShareInst(source_value))
+            share_inst = ShareInst(source_value)
+            semantic.append(share_inst)
             if alias and alias not in types:
                 types[alias] = source_value.type_name
+            point_id = getattr(event, "point_id", None)
+            if point_id is not None:
+                semantic_points.setdefault(
+                    str(point_id),
+                    {"source": source, "alias": alias, "instructions": []},
+                )["instructions"].append(share_inst)
             continue
         if kind == "retain" and via.startswith("share:"):
             owner = getattr(event, "name")
             account = via.split(":", 1)[1]
             if owner not in types and account in types:
                 types[owner] = types[account]
-            semantic.append(RetainInst(_value(owner, types)))
+            retain_inst = RetainInst(_value(owner, types))
+            semantic.append(retain_inst)
+            point_id = getattr(event, "point_id", None)
+            if point_id is not None:
+                point = semantic_points.setdefault(
+                    str(point_id),
+                    {"source": account, "alias": owner, "instructions": []},
+                )
+                if point["source"] != account or point["alias"] != owner:
+                    raise ValueError(
+                        f"shared ownership SIR point {point_id!r} has "
+                        "inconsistent source/alias facts"
+                    )
+                point["instructions"].append(retain_inst)
+
+    points = tuple(
+        SharedOwnershipSIRSemanticPoint(
+            point_id=point_id,
+            source=data["source"],
+            alias=data["alias"],
+            instructions=tuple(data["instructions"]),
+        )
+        for point_id, data in semantic_points.items()
+    )
+    for point in points:
+        if not point.point_id.startswith("share@"):
+            raise ValueError(
+                f"shared ownership SIR point has invalid identity {point.point_id!r}"
+            )
+        if tuple(type(inst) for inst in point.instructions) != (ShareInst, RetainInst):
+            raise ValueError(
+                f"shared ownership SIR point {point.point_id!r} lacks "
+                "paired share/retain operations"
+            )
 
     segments: list[SharedOwnershipSIRSegment] = []
     cleanup_sources = (
@@ -464,7 +516,9 @@ def lower_shared_ownership_trace(trace: Any) -> SharedOwnershipSIRPlan:
                 )
             )
 
-    return SharedOwnershipSIRPlan(tuple(semantic), tuple(segments))
+    return SharedOwnershipSIRPlan(
+        tuple(semantic), tuple(segments), points
+    )
 
 
 def lower_ownership_module_analysis(
@@ -492,6 +546,72 @@ def lower_ownership_module_analysis(
             )
         )
     return OwnershipModuleSIRPlan(tuple(functions))
+
+
+def _shared_semantic_replacements(
+    function: SIRFunction,
+    plan: SharedOwnershipSIRPlan,
+) -> dict[int, Tuple[SIRInstruction, ...]]:
+    markers: list[SharedOwnershipPointInst] = []
+    for block in function.blocks:
+        for instruction in block.instructions:
+            if isinstance(instruction, SharedOwnershipPointInst):
+                markers.append(instruction)
+
+    if plan.semantic and not plan.semantic_points:
+        if markers:
+            raise ValueError(
+                f"shared ownership SIR plan for {function.name!r} lacks "
+                "source-stable semantic points"
+            )
+        return {}
+
+    if len(markers) != len(plan.semantic_points):
+        raise ValueError(
+            f"shared ownership SIR point count mismatch for {function.name!r}: "
+            f"{len(markers)} marker(s) vs {len(plan.semantic_points)} point(s)"
+        )
+
+    replacements: dict[int, Tuple[SIRInstruction, ...]] = {}
+    seen: set[str] = set()
+    for marker, point in zip(markers, plan.semantic_points):
+        if marker.point_id in seen:
+            raise ValueError(
+                f"duplicate shared ownership SIR point {marker.point_id!r}"
+            )
+        seen.add(marker.point_id)
+        if marker.point_id != point.point_id:
+            raise ValueError(
+                f"shared ownership point identity mismatch at {marker.point_id!r}"
+            )
+        if marker.source_name != point.source:
+            raise ValueError(
+                f"shared ownership source mismatch at {marker.point_id!r}"
+            )
+        if marker.alias_name != point.alias:
+            raise ValueError(
+                f"shared ownership alias mismatch at {marker.point_id!r}"
+            )
+        replacements[id(marker)] = point.instructions
+    return replacements
+
+
+def _commit_shared_semantic_replacements(
+    function: SIRFunction,
+    replacements: dict[int, Tuple[SIRInstruction, ...]],
+) -> int:
+    inserted = 0
+    for block in function.blocks:
+        rewritten: list[SIRInstruction] = []
+        for instruction in block.instructions:
+            replacement = replacements.get(id(instruction))
+            if replacement is None:
+                rewritten.append(instruction)
+            else:
+                rewritten.extend(replacement)
+                inserted += len(replacement)
+        block.instructions = rewritten
+    return inserted
 
 
 def _return_cleanup_segments(
@@ -782,6 +902,7 @@ def apply_ownership_module_plan(
         tuple[
             SIRFunction,
             dict[int, OwnershipDomainTransferInst],
+            dict[int, Tuple[SIRInstruction, ...]],
             dict[str, SharedOwnershipSIRSegment],
             dict[tuple[str, str], SharedOwnershipSIRSegment],
             dict[str, SharedOwnershipSIRSegment],
@@ -804,6 +925,9 @@ def apply_ownership_module_plan(
         replacements = _ownership_domain_transfer_replacements(
             function, function_plan.domain
         )
+        shared_replacements = _shared_semantic_replacements(
+            function, function_plan.shared
+        )
         return_segments = _validate_shared_return_cleanup(
             function, function_plan.shared
         )
@@ -817,6 +941,7 @@ def apply_ownership_module_plan(
             (
                 function,
                 replacements,
+                shared_replacements,
                 return_segments,
                 control_segments,
                 backedge_segments,
@@ -824,18 +949,23 @@ def apply_ownership_module_plan(
         )
 
     inserted_domain = 0
+    inserted_shared_semantic = 0
     inserted_return = 0
     inserted_control = 0
     inserted_backedge = 0
     for (
         function,
         replacements,
+        shared_replacements,
         return_segments,
         control_segments,
         backedge_segments,
     ) in preflight:
         inserted_domain += _commit_ownership_domain_replacements(
             function, replacements
+        )
+        inserted_shared_semantic += _commit_shared_semantic_replacements(
+            function, shared_replacements
         )
         inserted_return += _commit_shared_return_cleanup(
             function, return_segments
@@ -850,6 +980,7 @@ def apply_ownership_module_plan(
     return OwnershipModulePlacement(
         plan,
         inserted_domain,
+        inserted_shared_semantic,
         inserted_return,
         inserted_control,
         inserted_backedge,
@@ -897,6 +1028,7 @@ __all__ = [
     "OwnershipModuleSIRPlan",
     "lower_ownership_module_analysis",
     "SharedOwnershipSIRSegment",
+    "SharedOwnershipSIRSemanticPoint",
     "SharedOwnershipSIRPlan",
     "SharedOwnershipSIRPlacement",
     "lower_shared_ownership_trace",

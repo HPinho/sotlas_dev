@@ -11,6 +11,7 @@ from sotlas.sir import (
     SIRModule, SIRFunction, SIRBasicBlock, SIRValue,
     AllocStackInst, StoreInst, LoadInst, CallInst, ReturnInst, BranchInst, CondBranchInst,
     OwnershipDomainPointInst, OwnershipDomainTransferInst,
+    SharedOwnershipPointInst,
     OwnershipDomainSIRPlan, place_ownership_domain_transfers,
     OwnershipFunctionSIRPlan, OwnershipModuleSIRPlan,
     apply_ownership_module_domain_transfers, apply_ownership_module_plan,
@@ -425,6 +426,111 @@ class SotlasSIRTests(unittest.TestCase):
 
         self.assertIs(isolate_block.instructions[0], marker)
         self.assertIs(broken_block.instructions[0], broken_return)
+
+    def test_generator_emits_source_stable_share_point(self):
+        share_expr = type("ShareExpr", (), {})()
+        share_expr.value = SimpleNamespace(value="token")
+        let = type("Let", (), {})()
+        let.name = "peer"
+        let.value = share_expr
+        let.token = SimpleNamespace(line=5, column=5)
+        ret = type("Return", (), {})()
+        ret.token = SimpleNamespace(line=6, column=5)
+        fn = SimpleNamespace(
+            name="share_it",
+            params=[],
+            result=SimpleNamespace(name="void"),
+            body=[let, ret],
+            attributes=[],
+        )
+        sir = SIRGenerator().generate_from_ast(
+            SimpleNamespace(name="test", functions=[fn])
+        )
+        block = sir.functions[0].blocks[0]
+        marker = next(
+            item for item in block.instructions
+            if isinstance(item, SharedOwnershipPointInst)
+        )
+        self.assertEqual(marker.source_name, "token")
+        self.assertEqual(marker.alias_name, "peer")
+        self.assertEqual(marker.point_id, "share@5:5")
+
+    def test_shared_semantic_point_places_share_and_retain(self):
+        fn = SIRFunction("share_it", [], "void")
+        block = fn.add_block("0")
+        marker = SharedOwnershipPointInst(
+            "token", "peer", "share@5:5"
+        )
+        block.add(marker)
+        block.add(ReturnInst(point_id="return@6:5"))
+        token = SIRValue("token", "Token")
+        peer = SIRValue("peer", "Token")
+        shared = SharedOwnershipSIRPlan(
+            (ShareInst(token), RetainInst(peer)),
+            (),
+            (
+                SimpleNamespace(
+                    point_id="share@5:5",
+                    source="token",
+                    alias="peer",
+                    instructions=(ShareInst(token), RetainInst(peer)),
+                ),
+            ),
+        )
+        plan = OwnershipModuleSIRPlan((
+            OwnershipFunctionSIRPlan(
+                "share_it", OwnershipDomainSIRPlan(()), shared
+            ),
+        ))
+        module = SIRModule("test")
+        module.add_function(fn)
+
+        placement = apply_ownership_module_plan(module, plan)
+
+        self.assertEqual(
+            placement.inserted_shared_semantic_instructions, 2
+        )
+        self.assertEqual(
+            tuple(type(item) for item in block.instructions),
+            (ShareInst, RetainInst, ReturnInst),
+        )
+
+    def test_shared_semantic_point_mismatch_is_transactional(self):
+        fn = SIRFunction("share_it", [], "void")
+        block = fn.add_block("0")
+        marker = SharedOwnershipPointInst(
+            "token", "wrong", "share@5:5"
+        )
+        block.add(marker)
+        block.add(ReturnInst(point_id="return@6:5"))
+        token = SIRValue("token", "Token")
+        peer = SIRValue("peer", "Token")
+        shared = SharedOwnershipSIRPlan(
+            (ShareInst(token), RetainInst(peer)),
+            (),
+            (
+                SimpleNamespace(
+                    point_id="share@5:5",
+                    source="token",
+                    alias="peer",
+                    instructions=(ShareInst(token), RetainInst(peer)),
+                ),
+            ),
+        )
+        plan = OwnershipModuleSIRPlan((
+            OwnershipFunctionSIRPlan(
+                "share_it", OwnershipDomainSIRPlan(()), shared
+            ),
+        ))
+        module = SIRModule("test")
+        module.add_function(fn)
+
+        with self.assertRaisesRegex(
+            ValueError, r"shared ownership alias mismatch"
+        ):
+            apply_ownership_module_plan(module, plan)
+
+        self.assertIs(block.instructions[0], marker)
 
     def test_domain_trace_lowers_quarantine_and_handover(self):
         token_type = SimpleNamespace(name="Token")

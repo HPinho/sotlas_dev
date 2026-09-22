@@ -1540,14 +1540,17 @@ def analyze_linear_function_ownership(
                     getattr(value, "value", None), env, alias=statement.name
                 )
                 env = shared.application.env
+                share_point_id = _cleanup_point_id(statement, "share")
                 events.append(OwnershipEvent(
                     "domain_transition", shared.source,
                     f"share:{statement.name}", OwnershipDomain.SHARED,
+                    point_id=share_point_id,
                     type=env.type_of(shared.source),
                 ))
                 events.append(OwnershipEvent(
                     "retain", statement.name,
                     f"share:{shared.source}", OwnershipDomain.SHARED,
+                    point_id=share_point_id,
                 ))
                 continue
             moved_value = (
@@ -1772,14 +1775,17 @@ def _analyze_block_ownership(
                     getattr(value, "value", None), result, alias=statement.name
                 )
                 result = shared.application.env
+                share_point_id = _cleanup_point_id(statement, "share")
                 events.append(OwnershipEvent(
                     "domain_transition", shared.source,
                     f"share:{statement.name}", OwnershipDomain.SHARED,
+                    point_id=share_point_id,
                     type=result.type_of(shared.source),
                 ))
                 events.append(OwnershipEvent(
                     "retain", statement.name,
                     f"share:{shared.source}", OwnershipDomain.SHARED,
+                    point_id=share_point_id,
                 ))
                 continue
             moved_value = (

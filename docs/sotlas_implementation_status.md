@@ -127,7 +127,7 @@ Auditoria detalhada da Fase 0: [phase0_reality_audit.md](phase0_reality_audit.md
 ```text
 Fase 0 — Reality Reset              ~80%
 Fase 1 — Typed Semantic Core       100% ✅
-Fase 2 — Ownership Domains          ~64% 🟡
+Fase 2 — Ownership Domains          ~65% 🟡
 Fase 3 — Authority Domains          ~10%
 Fase 4 — State Spaces                ~0%
 Fase 5 — Effects                    ~10%
@@ -165,12 +165,12 @@ Este índice geral é apenas uma leitura agregada conservadora das fases acima; 
 | `quarantine` | ~40% | EXCLUSIVE→ISLAND é fato de transição explícito e validado no Ownership Domain Graph; weak invalidation/runtime/e2e faltam |
 | runtime/backend + e2e por domínio | ~5% | gates/fail-closed existem, mas execução real de Ownership Domains ainda não |
 
-A combinação ponderada dessas macroentregas coloca a Fase 2 em **~64%**.
+A combinação ponderada dessas macroentregas coloca a Fase 2 em **~65%**.
 
 ### Fase 2 detalhada
 
 ```text
-Fase 2 — Ownership Domains                  ~64%
+Fase 2 — Ownership Domains                  ~65%
 
 ✅ sole / exclusive
 ✅ move semantics
@@ -234,7 +234,10 @@ Fase 2 — Ownership Domains                  ~64%
 ✅ unified module ownership placement preflights domain + supported ARC CFG points  ← NOVO
 ✅ ARC failure in later function cannot commit earlier domain transfer               ← NOVO
 ✅ domain + return/control/backedge cleanup commit from one validated module plan    ← NOVO
-✅ ShareInst/RetainInst placement remains staged until source-stable points exist     ← NOVO
+✅ share/retain events now freeze one shared source-stable share@L:C point           ← NOVO
+✅ SIRGenerator emits SharedOwnershipPointInst for linear let alias = share owner     ← NOVO
+✅ module ownership placement replaces shared marker with ShareInst + RetainInst      ← NOVO
+✅ shared semantic marker mismatch fails before any module CFG mutation                ← NOVO
 ✅ fail-closed when ownership type is unknown ← NOVO
 
 ✅ OwnershipTrace → SIR plan → return placement integration ← NOVO

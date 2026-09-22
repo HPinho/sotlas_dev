@@ -7,7 +7,7 @@ from typing import Any, Optional
 from .instructions import (
     SIRModule, SIRFunction, SIRBasicBlock, SIRValue,
     AllocStackInst, StoreInst, LoadInst, CallInst,
-    OwnershipDomainPointInst,
+    OwnershipDomainPointInst, SharedOwnershipPointInst,
     ReturnInst, BranchInst, CondBranchInst, SystemOpInst
 )
 
@@ -312,13 +312,42 @@ class SIRGenerator:
         transfers = body[:-1]
         if not transfers:
             return False
-        supported = {"Quarantine", "Handover"}
-        if any(type(statement).__name__ not in supported for statement in transfers):
-            return False
+        supported = {"Quarantine", "Handover", "Let"}
+        for statement in transfers:
+            kind = type(statement).__name__
+            if kind not in supported:
+                return False
+            if kind == "Let":
+                value = getattr(statement, "value", None)
+                if type(value).__name__ != "ShareExpr":
+                    return False
 
         for statement in transfers:
             kind = type(statement).__name__
             value = getattr(statement, "value", None)
+            if kind == "Let":
+                shared_source = getattr(value, "value", None)
+                source_name = (
+                    getattr(shared_source, "value", None)
+                    or getattr(shared_source, "name", None)
+                )
+                alias_name = getattr(statement, "name", None)
+                if (
+                    not isinstance(source_name, str) or not source_name
+                    or not isinstance(alias_name, str) or not alias_name
+                ):
+                    raise ValueError(
+                        "share SIR point requires direct source and alias bindings"
+                    )
+                entry_block.add(
+                    SharedOwnershipPointInst(
+                        source_name=source_name,
+                        alias_name=alias_name,
+                        point_id=self._statement_point_id(statement, "share"),
+                    )
+                )
+                continue
+
             source_name = (
                 getattr(value, "value", None)
                 or getattr(value, "name", None)

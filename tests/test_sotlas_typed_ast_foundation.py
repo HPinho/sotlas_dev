@@ -1314,6 +1314,16 @@ fn main(token: Token) -> void {
             ),
             trace.events,
         )
+        share_events = tuple(
+            event for event in trace.events
+            if event.kind in ("domain_transition", "retain")
+            and event.via.startswith("share:")
+        )
+        self.assertEqual(len(share_events), 2)
+        self.assertEqual(
+            {event.point_id for event in share_events},
+            {"share@7:5"},
+        )
 
     def test_public_share_syntax_remains_fail_closed_in_c11(self):
         source = """module test::share_c11_gate;

@@ -104,6 +104,19 @@ class OwnershipDomainTransferInst(SIRInstruction):
 
 
 @dataclass
+class SharedOwnershipPointInst(SIRInstruction):
+    source_name: str
+    alias_name: str
+    point_id: str
+
+    def __str__(self) -> str:
+        return (
+            f"  shared_ownership_point {self.source_name} -> {self.alias_name}"
+            f" // {self.point_id}"
+        )
+
+
+@dataclass
 class ShareInst(SIRInstruction):
     value: SIRValue
 
