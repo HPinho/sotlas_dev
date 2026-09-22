@@ -1133,6 +1133,33 @@ fn main(flag: bool) -> void {
         )
         self.assertEqual(trace.shared_loop_cleanup.steps, ())
 
+    def test_conditional_continue_cleanup_does_not_duplicate_shared_account(self):
+        source = """module test::loop_nested_continue_no_duplicate_account;
+sole struct Token { value: u32; }
+fn main(flag: bool, skip: bool) -> void {
+    while flag {
+        let local: Token = Token { value: 1u32 };
+        let peer = share local;
+        if skip {
+            continue;
+        }
+    }
+    return;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<loop-nested-continue-no-duplicate-account>"
+        )
+        bootstrap.check(parsed)
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(
+            parsed, typed_module, "main"
+        )
+        self.assertEqual(
+            tuple(action.owner for action in trace.shared_loop_control_exit.actions),
+            ("peer", "local", "local"),
+        )
+
     def test_break_releases_loop_local_shared_account(self):
         source = """module test::loop_break_cleanup;
 sole struct Token { value: u32; }

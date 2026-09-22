@@ -203,7 +203,9 @@ Fase 2 — Ownership Domains                  ~98%
 ✅ ARC cleanup placement before normal loop backedge             ← NOVO
 ✅ continue/backedge remain disjoint during placement
 ✅ conditional continue preserves fallthrough backedge cleanup   ← NOVO
-✅ terminated if-branches no longer pollute fallthrough env      ← NOVO
+✅ terminated if-branches no longer pollute fallthrough env
+✅ break/continue exit env snapshots preserve loop invariants    ← CORRIGIDO
+✅ nested control cleanup history no longer duplicates accounts  ← CORRIGIDO
 
 ⬜ SIR defer operation on control exits
 ⬜ ARC runtime/backend

@@ -1267,6 +1267,7 @@ def _analyze_block_ownership(
     loop_control_exit: list[SharedExitAction] | None = None,
     loop_entry_names: tuple[str, ...] | None = None,
     loop_event_history: tuple[OwnershipEvent, ...] = (),
+    loop_control_states: list[tuple[str, OwnershipEnv]] | None = None,
     collect_return_cleanup: bool = True,
 ) -> OwnershipEnv:
     """Analyze ownership events for a canonical AST block.
@@ -1282,6 +1283,8 @@ def _analyze_block_ownership(
         loop_cleanup = []
     if loop_control_exit is None:
         loop_control_exit = []
+    if loop_control_states is None:
+        loop_control_states = []
     for statement in statements:
         kind = type(statement).__name__
 
@@ -1484,7 +1487,7 @@ def _analyze_block_ownership(
                 if local_shared:
                     local_plan = plan_shared_scope_cleanup(
                         OwnershipEnv(local_shared),
-                        history + loop_event_history + tuple(events),
+                        loop_event_history + tuple(events),
                     )
                     control_plan = plan_shared_control_exit(
                         loop_event_history + tuple(events),
@@ -1493,6 +1496,12 @@ def _analyze_block_ownership(
                         point_id=_cleanup_point_id(statement, control),
                     )
                     loop_control_exit.extend(control_plan.actions)
+                loop_control_states.append(
+                    (
+                        control,
+                        _project_ownership_env(result, loop_entry_names),
+                    )
+                )
             events.append(
                 OwnershipEvent(
                     "control",
@@ -1521,6 +1530,7 @@ def _analyze_block_ownership(
                 loop_control_exit=loop_control_exit,
                 loop_entry_names=loop_entry_names,
                 loop_event_history=loop_event_history + tuple(events),
+                loop_control_states=loop_control_states,
                 collect_return_cleanup=collect_return_cleanup,
             )
             else_env = _analyze_block_ownership(
@@ -1535,6 +1545,7 @@ def _analyze_block_ownership(
                 loop_control_exit=loop_control_exit,
                 loop_entry_names=loop_entry_names,
                 loop_event_history=loop_event_history + tuple(events),
+                loop_control_states=loop_control_states,
                 collect_return_cleanup=collect_return_cleanup,
             )
             then_env = _project_ownership_env(then_env, visible)
@@ -1598,6 +1609,7 @@ def _analyze_block_ownership(
                 loop_control_exit=loop_control_exit,
                 loop_entry_names=loop_entry_names,
                 loop_event_history=loop_event_history + tuple(events),
+                loop_control_states=loop_control_states,
                 collect_return_cleanup=collect_return_cleanup,
             )
             result = _project_ownership_env(body_env, visible)
@@ -1741,6 +1753,7 @@ def _analyze_block_ownership(
             visible = tuple(binding.name for binding in result.bindings)
             loop_body = getattr(statement, "body", ())
             body_events: list[OwnershipEvent] = []
+            body_control_states: list[tuple[str, OwnershipEnv]] = []
             body_env = _analyze_block_ownership(
                 loop_body,
                 result,
@@ -1753,32 +1766,36 @@ def _analyze_block_ownership(
                 loop_control_exit=loop_control_exit,
                 loop_entry_names=visible,
                 loop_event_history=(),
+                loop_control_states=body_control_states,
                 collect_return_cleanup=collect_return_cleanup,
             )
 
-            for name in visible:
-                before_binding = next(
-                    binding for binding in result.bindings
-                    if binding.name == name
-                )
-                after_binding = next(
-                    binding for binding in body_env.bindings
-                    if binding.name == name
-                )
-                if before_binding.type != after_binding.type:
-                    raise Phase1SemanticError(
-                        f"ownership binding {name!r} changed type across loop backedge"
+            control_state_envs = [env for _, env in body_control_states]
+            invariant_envs = [body_env, *control_state_envs]
+            for candidate_env in invariant_envs:
+                for name in visible:
+                    before_binding = next(
+                        binding for binding in result.bindings
+                        if binding.name == name
                     )
-                if before_binding.domain is not after_binding.domain:
-                    raise Phase1SemanticError(
-                        f"ownership binding {name!r} changed domain across loop "
-                        f"backedge: {before_binding.domain.value} vs "
-                        f"{after_binding.domain.value}"
+                    after_binding = next(
+                        binding for binding in candidate_env.bindings
+                        if binding.name == name
                     )
-                if before_binding.state is not after_binding.state:
-                    raise Phase1SemanticError(
-                        f"sole value {name!r} moved inside loop without reinitialization"
-                    )
+                    if before_binding.type != after_binding.type:
+                        raise Phase1SemanticError(
+                            f"ownership binding {name!r} changed type across loop backedge"
+                        )
+                    if before_binding.domain is not after_binding.domain:
+                        raise Phase1SemanticError(
+                            f"ownership binding {name!r} changed domain across loop "
+                            f"backedge: {before_binding.domain.value} vs "
+                            f"{after_binding.domain.value}"
+                        )
+                    if before_binding.state is not after_binding.state:
+                        raise Phase1SemanticError(
+                            f"sole value {name!r} moved inside loop without reinitialization"
+                        )
 
             local_shared = tuple(
                 binding for binding in body_env.bindings
