@@ -127,7 +127,7 @@ Auditoria detalhada da Fase 0: [phase0_reality_audit.md](phase0_reality_audit.md
 ```text
 Fase 0 — Reality Reset              ~80%
 Fase 1 — Typed Semantic Core       100% ✅
-Fase 2 — Ownership Domains          ~69% 🟡
+Fase 2 — Ownership Domains          ~70% 🟡
 Fase 3 — Authority Domains          ~10%
 Fase 4 — State Spaces                ~0%
 Fase 5 — Effects                    ~10%
@@ -165,12 +165,12 @@ Este índice geral é apenas uma leitura agregada conservadora das fases acima; 
 | `quarantine` | ~40% | EXCLUSIVE→ISLAND é fato de transição explícito e validado no Ownership Domain Graph; weak invalidation/runtime/e2e faltam |
 | runtime/backend + e2e por domínio | ~5% | gates/fail-closed existem, mas execução real de Ownership Domains ainda não |
 
-A combinação ponderada dessas macroentregas coloca a Fase 2 em **~69%**.
+A combinação ponderada dessas macroentregas coloca a Fase 2 em **~70%**.
 
 ### Fase 2 detalhada
 
 ```text
-Fase 2 — Ownership Domains                  ~69%
+Fase 2 — Ownership Domains                  ~70%
 
 ✅ sole / exclusive
 ✅ move semantics
@@ -252,6 +252,10 @@ Fase 2 — Ownership Domains                  ~69%
 ✅ malformed checked-module contracts fail-closed before SIR generation                  ← NOVO
 ✅ fail-closed when ownership type is unknown ← NOVO
 
+✅ normal function_exit ARC cleanup placed before one implicit fallthrough return ← NOVO
+✅ function_exit cleanup refuses ambiguous multiple implicit returns                ← NOVO
+✅ function_exit never stacks over source-identified early-return cleanup          ← NOVO
+✅ module ownership transaction preflights function_exit before any CFG mutation   ← NOVO
 ✅ OwnershipTrace → SIR plan → return placement integration ← NOVO
 ✅ generated if-return CFG accepts ARC cleanup placement      ← NOVO
 

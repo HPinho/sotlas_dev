@@ -20,7 +20,8 @@ from sotlas.sir import (
     ShareInst, RetainInst, ReleaseInst, DestroyInst, DeferUseInst,
     lower_ownership_domain_graph, lower_ownership_domain_trace,
     lower_ownership_module_semantics, lower_ownership_module_analysis,
-    lower_shared_ownership_trace, place_shared_return_cleanup,
+    lower_shared_ownership_trace, place_shared_function_exit_cleanup,
+    place_shared_return_cleanup,
     place_shared_loop_control_cleanup, place_shared_loop_backedge_cleanup,
     apply_shared_ownership_trace,
     SIRGenerator, SIRPassManager, DefiniteInitializationPass,
@@ -1265,6 +1266,114 @@ class SotlasSIRTests(unittest.TestCase):
         )
         self.assertTrue(
             all(segment.via == "early_return" for segment in plan.cleanup_segments)
+        )
+
+    def test_shared_function_exit_cleanup_precedes_implicit_fallthrough_return(self):
+        fn = SIRFunction("main", [], "void")
+        block = fn.add_block("entry")
+        terminal = ReturnInst()
+        block.add(terminal)
+        token = SIRValue("token", "Token")
+        plan = SharedOwnershipSIRPlan(
+            (),
+            (
+                SimpleNamespace(
+                    via="scope_exit",
+                    point_id="function_exit",
+                    instructions=(ReleaseInst(token), DestroyInst(token)),
+                ),
+            ),
+        )
+
+        inserted = place_shared_function_exit_cleanup(fn, plan)
+
+        self.assertEqual(inserted, 2)
+        self.assertEqual(
+            tuple(type(item) for item in block.instructions),
+            (ReleaseInst, DestroyInst, ReturnInst),
+        )
+        self.assertIs(block.instructions[-1], terminal)
+
+    def test_shared_function_exit_cleanup_does_not_stack_on_explicit_return_cleanup(self):
+        fn = SIRFunction("main", [], "void")
+        block = fn.add_block("entry")
+        explicit = ReturnInst(point_id="return@5:5")
+        block.add(explicit)
+        token = SIRValue("token", "Token")
+        plan = SharedOwnershipSIRPlan(
+            (),
+            (
+                SimpleNamespace(
+                    via="scope_exit",
+                    point_id="function_exit",
+                    instructions=(ReleaseInst(token), DestroyInst(token)),
+                ),
+                SimpleNamespace(
+                    via="early_return",
+                    point_id="return@5:5",
+                    instructions=(ReleaseInst(token), DestroyInst(token)),
+                ),
+            ),
+        )
+
+        inserted = place_shared_function_exit_cleanup(fn, plan)
+
+        self.assertEqual(inserted, 0)
+        self.assertEqual(block.instructions, [explicit])
+
+    def test_shared_function_exit_cleanup_rejects_ambiguous_implicit_returns(self):
+        fn = SIRFunction("main", [], "void")
+        fn.add_block("left").add(ReturnInst())
+        fn.add_block("right").add(ReturnInst())
+        token = SIRValue("token", "Token")
+        plan = SharedOwnershipSIRPlan(
+            (),
+            (
+                SimpleNamespace(
+                    via="scope_exit",
+                    point_id="function_exit",
+                    instructions=(ReleaseInst(token),),
+                ),
+            ),
+        )
+
+        with self.assertRaisesRegex(
+            ValueError,
+            r"requires exactly one implicit fallthrough ReturnInst, got 2",
+        ):
+            place_shared_function_exit_cleanup(fn, plan)
+
+    def test_module_ownership_placement_includes_function_exit_cleanup(self):
+        fn = SIRFunction("main", [], "void")
+        block = fn.add_block("entry")
+        block.add(ReturnInst())
+        token = SIRValue("token", "Token")
+        shared = SharedOwnershipSIRPlan(
+            (),
+            (
+                SimpleNamespace(
+                    via="scope_exit",
+                    point_id="function_exit",
+                    instructions=(ReleaseInst(token), DestroyInst(token)),
+                ),
+            ),
+        )
+        plan = OwnershipModuleSIRPlan((
+            OwnershipFunctionSIRPlan(
+                "main", OwnershipDomainSIRPlan(()), shared
+            ),
+        ))
+        module = SIRModule("test")
+        module.add_function(fn)
+
+        placement = apply_ownership_module_plan(module, plan)
+
+        self.assertEqual(
+            placement.inserted_function_exit_instructions, 2
+        )
+        self.assertEqual(
+            tuple(type(item) for item in block.instructions),
+            (ReleaseInst, DestroyInst, ReturnInst),
         )
 
     def test_shared_return_cleanup_is_inserted_before_matching_return(self):

@@ -63,6 +63,7 @@ class OwnershipModulePlacement:
     plan: OwnershipModuleSIRPlan
     inserted_domain_instructions: int
     inserted_shared_semantic_instructions: int
+    inserted_function_exit_instructions: int
     inserted_return_cleanup_instructions: int
     inserted_loop_control_instructions: int
     inserted_backedge_instructions: int
@@ -102,6 +103,7 @@ class SharedOwnershipSIRPlacement:
     inserted_return_instructions: int
     inserted_loop_control_instructions: int = 0
     inserted_backedge_instructions: int = 0
+    inserted_function_exit_instructions: int = 0
 
 
 def _type_map(trace: Any) -> dict[str, str]:
@@ -818,6 +820,86 @@ def _commit_shared_semantic_replacements(
     return inserted
 
 
+def _function_exit_cleanup_segment(
+    plan: SharedOwnershipSIRPlan,
+) -> SharedOwnershipSIRSegment | None:
+    segments = [
+        segment for segment in plan.cleanup_segments
+        if segment.point_id == "function_exit"
+    ]
+    if len(segments) > 1:
+        raise ValueError("duplicate shared ARC function_exit cleanup segment")
+    if not segments:
+        return None
+    segment = segments[0]
+    if segment.via != "scope_exit":
+        raise ValueError(
+            "shared ARC function_exit cleanup must use scope_exit"
+        )
+    return segment
+
+
+def _validate_shared_function_exit_cleanup(
+    function: SIRFunction,
+    plan: SharedOwnershipSIRPlan,
+) -> tuple[ReturnInst, SharedOwnershipSIRSegment] | None:
+    segment = _function_exit_cleanup_segment(plan)
+    if segment is None:
+        return None
+
+    if _return_cleanup_segments(plan):
+        return None
+
+    unpointed_returns: list[ReturnInst] = []
+    for block in function.blocks:
+        for index, instruction in enumerate(block.instructions):
+            if not isinstance(instruction, ReturnInst):
+                continue
+            if instruction.point_id is not None:
+                continue
+            if index != len(block.instructions) - 1:
+                raise ValueError(
+                    f"shared ARC function_exit return in {function.name!r} "
+                    "is not terminal"
+                )
+            unpointed_returns.append(instruction)
+
+    if len(unpointed_returns) != 1:
+        raise ValueError(
+            f"shared ARC function_exit for {function.name!r} requires exactly "
+            f"one implicit fallthrough ReturnInst, got {len(unpointed_returns)}"
+        )
+    return unpointed_returns[0], segment
+
+
+def _commit_shared_function_exit_cleanup(
+    function: SIRFunction,
+    placement: tuple[ReturnInst, SharedOwnershipSIRSegment] | None,
+) -> int:
+    if placement is None:
+        return 0
+    target, segment = placement
+    inserted = 0
+    for block in function.blocks:
+        rewritten: list[SIRInstruction] = []
+        for instruction in block.instructions:
+            if instruction is target:
+                rewritten.extend(segment.instructions)
+                inserted += len(segment.instructions)
+            rewritten.append(instruction)
+        block.instructions = rewritten
+    return inserted
+
+
+def place_shared_function_exit_cleanup(
+    function: SIRFunction,
+    plan: SharedOwnershipSIRPlan,
+) -> int:
+    """Insert normal scope-exit ARC cleanup before one implicit fallthrough return."""
+    placement = _validate_shared_function_exit_cleanup(function, plan)
+    return _commit_shared_function_exit_cleanup(function, placement)
+
+
 def _return_cleanup_segments(
     plan: SharedOwnershipSIRPlan,
 ) -> dict[str, SharedOwnershipSIRSegment]:
@@ -1107,6 +1189,7 @@ def apply_ownership_module_plan(
             SIRFunction,
             dict[int, OwnershipDomainTransferInst],
             dict[int, Tuple[SIRInstruction, ...]],
+            tuple[ReturnInst, SharedOwnershipSIRSegment] | None,
             dict[str, SharedOwnershipSIRSegment],
             dict[tuple[str, str], SharedOwnershipSIRSegment],
             dict[str, SharedOwnershipSIRSegment],
@@ -1132,6 +1215,9 @@ def apply_ownership_module_plan(
         shared_replacements = _shared_semantic_replacements(
             function, function_plan.shared
         )
+        function_exit = _validate_shared_function_exit_cleanup(
+            function, function_plan.shared
+        )
         return_segments = _validate_shared_return_cleanup(
             function, function_plan.shared
         )
@@ -1146,6 +1232,7 @@ def apply_ownership_module_plan(
                 function,
                 replacements,
                 shared_replacements,
+                function_exit,
                 return_segments,
                 control_segments,
                 backedge_segments,
@@ -1154,6 +1241,7 @@ def apply_ownership_module_plan(
 
     inserted_domain = 0
     inserted_shared_semantic = 0
+    inserted_function_exit = 0
     inserted_return = 0
     inserted_control = 0
     inserted_backedge = 0
@@ -1161,6 +1249,7 @@ def apply_ownership_module_plan(
         function,
         replacements,
         shared_replacements,
+        function_exit,
         return_segments,
         control_segments,
         backedge_segments,
@@ -1170,6 +1259,9 @@ def apply_ownership_module_plan(
         )
         inserted_shared_semantic += _commit_shared_semantic_replacements(
             function, shared_replacements
+        )
+        inserted_function_exit += _commit_shared_function_exit_cleanup(
+            function, function_exit
         )
         inserted_return += _commit_shared_return_cleanup(
             function, return_segments
@@ -1185,6 +1277,7 @@ def apply_ownership_module_plan(
         plan,
         inserted_domain,
         inserted_shared_semantic,
+        inserted_function_exit,
         inserted_return,
         inserted_control,
         inserted_backedge,
@@ -1231,10 +1324,14 @@ def apply_shared_ownership_trace(
     # Preflight every supported placement before the first CFG mutation so
     # a later control/backedge mismatch cannot leave earlier return cleanup
     # partially committed.
+    function_exit = _validate_shared_function_exit_cleanup(function, plan)
     _validate_shared_return_cleanup(function, plan)
     _validate_shared_loop_control_cleanup(function, plan)
     _validate_shared_loop_backedge_cleanup(function, plan)
 
+    inserted_function_exit = _commit_shared_function_exit_cleanup(
+        function, function_exit
+    )
     inserted_return = place_shared_return_cleanup(function, plan)
     inserted_control = place_shared_loop_control_cleanup(function, plan)
     inserted_backedge = place_shared_loop_backedge_cleanup(function, plan)
@@ -1243,6 +1340,7 @@ def apply_shared_ownership_trace(
         inserted_return,
         inserted_control,
         inserted_backedge,
+        inserted_function_exit,
     )
 
 __all__ = [
@@ -1266,6 +1364,7 @@ __all__ = [
     "SharedOwnershipSIRPlan",
     "SharedOwnershipSIRPlacement",
     "lower_shared_ownership_trace",
+    "place_shared_function_exit_cleanup",
     "place_shared_return_cleanup",
     "place_shared_loop_control_cleanup",
     "place_shared_loop_backedge_cleanup",
