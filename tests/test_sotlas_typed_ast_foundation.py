@@ -249,6 +249,80 @@ fn main(source: island Token, destination: Token) -> void {
         self.assertIs(event.source_domain, typed_ast.OwnershipDomain.ISLAND)
         self.assertIs(event.target_domain, typed_ast.OwnershipDomain.EXCLUSIVE)
 
+    def test_explicit_island_return_preserves_domain(self):
+        source = """module test::island_return;
+sole struct Token { value: u32; }
+fn forward(token: island Token) -> island Token {
+    return token;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<island-return>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        self.assertIs(
+            typed.functions[0].return_ownership_domain,
+            typed_ast.OwnershipDomain.ISLAND,
+        )
+        trace = typed_ast.analyze_function_ownership(
+            parsed, typed, "forward"
+        )
+        self.assertIs(
+            trace.final_env.state_of("token"),
+            typed_ast.VarState.MOVED,
+        )
+        event = next(
+            item for item in trace.events
+            if item.kind == "move"
+            and item.name == "token"
+            and item.via == "return"
+        )
+        self.assertIs(
+            event.source_domain,
+            typed_ast.OwnershipDomain.ISLAND,
+        )
+        self.assertIs(
+            event.target_domain,
+            typed_ast.OwnershipDomain.ISLAND,
+        )
+        graph = typed_ast.build_ownership_domain_graph(
+            typed_ast.OwnershipModuleAnalysis(
+                (), (("forward", trace),)
+            )
+        )
+        transfer = next(
+            item for item in graph.transfers
+            if item.binding == "token" and item.via == "return"
+        )
+        self.assertIs(
+            transfer.source_domain,
+            typed_ast.OwnershipDomain.ISLAND,
+        )
+        self.assertIs(
+            transfer.target_domain,
+            typed_ast.OwnershipDomain.ISLAND,
+        )
+
+    def test_island_return_cannot_implicitly_become_exclusive(self):
+        source = """module test::island_return_escape;
+sole struct Token { value: u32; }
+fn forward(token: island Token) -> Token {
+    return token;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<island-return-escape>"
+        )
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"return ownership domain mismatch for 'token': "
+            r"island -> exclusive",
+        ):
+            typed_ast.analyze_function_ownership(
+                parsed, typed, "forward"
+            )
+
     def test_c11_explicit_island_type_remains_fail_closed(self):
         source = """module test::island_c11_gate;
 sole struct Token { value: u32; }

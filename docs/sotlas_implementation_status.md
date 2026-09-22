@@ -127,7 +127,7 @@ Auditoria detalhada da Fase 0: [phase0_reality_audit.md](phase0_reality_audit.md
 ```text
 Fase 0 — Reality Reset              ~80%
 Fase 1 — Typed Semantic Core       100% ✅
-Fase 2 — Ownership Domains          ~52% 🟡
+Fase 2 — Ownership Domains          ~53% 🟡
 Fase 3 — Authority Domains          ~10%
 Fase 4 — State Spaces                ~0%
 Fase 5 — Effects                    ~10%
@@ -158,19 +158,19 @@ Este índice geral é apenas uma leitura agregada conservadora das fases acima; 
 | `region` | ~0% | ainda não implementado |
 | `device` | ~0% | ainda não implementado |
 | `external` | ~0% | ainda não implementado |
-| `island` | ~45% | qualificador público `island T` entra no Typed AST/OwnershipEnv, exige `sole` by-value, integra handover e mantém backend fail-closed |
+| `island` | ~55% | qualificador público, seed ISLAND/LIVE, handover explícito e retorno ISLAND→ISLAND com contrato de domínio já existem; aliases/runtime ainda faltam |
 | `whisper` | ~0% | ainda não implementado |
 | `direct` | ~0% | ainda não implementado |
 | `handover` | ~60% | transições EXCLUSIVE→EXCLUSIVE e ISLAND→EXCLUSIVE possuem source/target/destination domain explícitos no graph; outros domínios/backend/e2e faltam |
 | `quarantine` | ~40% | EXCLUSIVE→ISLAND é fato de transição explícito e validado no Ownership Domain Graph; weak invalidation/runtime/e2e faltam |
 | runtime/backend + e2e por domínio | ~5% | gates/fail-closed existem, mas execução real de Ownership Domains ainda não |
 
-A combinação ponderada dessas macroentregas coloca a Fase 2 em **~52%**.
+A combinação ponderada dessas macroentregas coloca a Fase 2 em **~53%**.
 
 ### Fase 2 detalhada
 
 ```text
-Fase 2 — Ownership Domains                  ~52%
+Fase 2 — Ownership Domains                  ~53%
 
 ✅ sole / exclusive
 ✅ move semantics
@@ -263,6 +263,9 @@ Fase 2 — Ownership Domains                  ~52%
 ✅ island qualifier restricted to direct by-value sole types                     ← NOVO
 ✅ explicit island participates in handover reacquisition                         ← NOVO
 ✅ C11 island-qualified types remain fail-closed                                  ← NOVO
+✅ island return signature preserves ISLAND → ISLAND transfer                      ← NOVO
+✅ island → exclusive return escape is rejected fail-closed                        ← NOVO
+✅ return transfer direction is explicit in Ownership Domain Graph                 ← NOVO
 ✅ unsupported call shapes and assign/block/method/try defer payloads remain fail-closed
 
 ⬜ general call/assign/block/method/try defer payload lowering

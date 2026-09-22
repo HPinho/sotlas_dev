@@ -1297,6 +1297,55 @@ def _apply_quarantine(
     return result
 
 
+def _apply_return_ownership_transfer(
+    env: OwnershipEnv,
+    name: str,
+    typed_function: TypedFunction,
+    events: list[OwnershipEvent],
+) -> OwnershipEnv:
+    """Transfer one direct owned binding through the function return contract.
+
+    Return-domain changes are never implicit. EXCLUSIVE returns require an
+    EXCLUSIVE source; ISLAND returns require an ISLAND source. The source
+    binding becomes MOVED while preserving its original domain in the local
+    environment, and the event freezes source/target domain facts for the graph.
+    """
+    source_domain = env.domain_of(name)
+    target_domain = typed_function.return_ownership_domain
+    if source_domain is None or target_domain is None:
+        raise Phase1SemanticError(
+            f"return ownership transfer for {name!r} is not tracked"
+        )
+    if source_domain is not target_domain:
+        raise Phase1SemanticError(
+            f"return ownership domain mismatch for {name!r}: "
+            f"{source_domain.value} -> {target_domain.value}"
+        )
+    env.require_live(name)
+    next_state = move_state(name, env.state_of(name))
+    updated = tuple(
+        OwnershipBinding(
+            binding.name,
+            binding.type,
+            next_state if binding.name == name else binding.state,
+            binding.domain,
+        )
+        for binding in env.bindings
+    )
+    events.append(
+        OwnershipEvent(
+            "move",
+            name,
+            "return",
+            source_domain,
+            type=env.type_of(name),
+            source_domain=source_domain,
+            target_domain=target_domain,
+        )
+    )
+    return OwnershipEnv(updated)
+
+
 def analyze_linear_function_ownership(
     parsed_module, typed_module: TypedModule, function_name: str
 ) -> OwnershipTrace:
@@ -1426,16 +1475,18 @@ def analyze_linear_function_ownership(
                     if type(value).__name__ == "MoveExpr"
                     else value
                 ).__name__ == "Name"
-                and is_sole_type(typed_function.result, typed_module)
+                and typed_function.return_ownership_domain is not None
             ):
                 moved_value = (
                     getattr(value, "value")
                     if type(value).__name__ == "MoveExpr"
                     else value
                 )
-                env = env.move(moved_value.value)
-                events.append(
-                    OwnershipEvent("move", moved_value.value, "return")
+                env = _apply_return_ownership_transfer(
+                    env,
+                    moved_value.value,
+                    typed_function,
+                    events,
                 )
             continue
 
@@ -1715,16 +1766,18 @@ def _analyze_block_ownership(
                     if type(value).__name__ == "MoveExpr"
                     else value
                 ).__name__ == "Name"
-                and is_sole_type(typed_function.result, typed_module)
+                and typed_function.return_ownership_domain is not None
             ):
                 moved_value = (
                     getattr(value, "value")
                     if type(value).__name__ == "MoveExpr"
                     else value
                 )
-                result = result.move(moved_value.value)
-                events.append(
-                    OwnershipEvent("move", moved_value.value, "return")
+                result = _apply_return_ownership_transfer(
+                    result,
+                    moved_value.value,
+                    typed_function,
+                    events,
                 )
             elif type(value).__name__ == "Call":
                 result = _move_call_arguments(
@@ -2308,6 +2361,16 @@ def build_ownership_domain_graph(
                     if destination_domain is not target_domain:
                         raise Phase1SemanticError(
                             f"handover destination domain mismatch for "
+                            f"{function_name}::{event.name}"
+                        )
+                elif event.kind == "move" and event.via == "return":
+                    if source_domain is None:
+                        source_domain = binding.domain
+                    if target_domain is None:
+                        target_domain = source_domain
+                    if source_domain is not target_domain:
+                        raise Phase1SemanticError(
+                            f"return transfer changes ownership domain for "
                             f"{function_name}::{event.name}"
                         )
                 elif source_domain is None:
