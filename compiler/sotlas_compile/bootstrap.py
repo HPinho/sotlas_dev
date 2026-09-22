@@ -324,7 +324,9 @@ class Break(Stmt): pass
 @dataclass
 class Continue(Stmt): pass
 @dataclass
-class Handover(Stmt): value: Expr
+class Handover(Stmt):
+    value: Expr
+    destination: Expr | None = None
 @dataclass
 class Loop(Stmt): body: list[Stmt]
 @dataclass
@@ -831,8 +833,12 @@ class Parser:
             return Continue(token)
         if self.accept("handover"):
             value = self.expression()
+            destination = None
+            if self.current.kind == "IDENT" and self.current.text == "to":
+                self.at += 1
+                destination = self.expression()
             self.expect(";")
-            return Handover(token, value)
+            return Handover(token, value, destination)
         if self.accept("if"):
             condition = self.expression()
             then_body = self.block()
@@ -2273,6 +2279,41 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
                         item.token.line, item.token.column, filename, source,
                     )
                 expr_type(item.value, scope, in_unsafe, is_system_fn)
+                if item.destination is not None:
+                    if not isinstance(item.destination, Name):
+                        raise SotlasBootstrapError(
+                            "handover destino exige binding direto de ownership",
+                            item.token.line, item.token.column, filename, source,
+                        )
+                    if item.destination.value == item.value.value:
+                        raise SotlasBootstrapError(
+                            "handover origem e destino devem ser bindings distintos",
+                            item.token.line, item.token.column, filename, source,
+                        )
+                    destination_type = scope.get(item.destination.value)
+                    destination_struct = (
+                        struct_map.get(destination_type.name)
+                        if destination_type is not None else None
+                    )
+                    if (
+                        destination_type is None
+                        or destination_struct is None
+                        or not destination_struct.is_sole
+                        or destination_type.pointer
+                        or destination_type.is_reference
+                    ):
+                        raise SotlasBootstrapError(
+                            f"handover destino exige valor sole exclusivo: {item.destination.value}",
+                            item.token.line, item.token.column, filename, source,
+                        )
+                    if destination_type != target_type:
+                        raise SotlasBootstrapError(
+                            "handover origem e destino devem ter o mesmo tipo exclusivo",
+                            item.token.line, item.token.column, filename, source,
+                        )
+                    expr_type(
+                        item.destination, scope, in_unsafe, is_system_fn
+                    )
             elif isinstance(item, Return):
                 if item.value is not None:
                     actual = expr_type(

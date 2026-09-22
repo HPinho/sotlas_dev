@@ -507,6 +507,7 @@ class OwnershipEvent:
     point_id: str | None = None
     defer_call: tuple[str, tuple[str, ...]] | None = None
     type: SemanticType | None = None
+    destination: str | None = None
 
 
 @dataclass(frozen=True)
@@ -1092,8 +1093,14 @@ def _apply_explicit_handover(
     env: OwnershipEnv,
     expr,
     events: list[OwnershipEvent],
+    destination=None,
 ) -> OwnershipEnv:
-    """Apply source-level handover to one whole exclusive binding."""
+    """Apply source-level handover to one whole exclusive binding.
+
+    Targetless handover preserves the original explicit sink semantics.
+    A handover with an explicit destination transfers the exclusive obligation
+    into a previously MOVED binding of the same canonical type.
+    """
     if type(expr).__name__ != "Name":
         raise Phase1SemanticError(
             "handover currently requires a direct exclusive ownership binding"
@@ -1110,7 +1117,61 @@ def _apply_explicit_handover(
         )
     env.require_live(name)
     type_info = env.type_of(name)
-    moved = env.move(name)
+
+    destination_name = None
+    result = env.move(name)
+    if destination is not None:
+        if type(destination).__name__ != "Name":
+            raise Phase1SemanticError(
+                "handover destination must be a direct exclusive ownership binding"
+            )
+        destination_name = getattr(destination, "value", None)
+        if destination_name == name:
+            raise Phase1SemanticError(
+                "handover source and destination must be distinct bindings"
+            )
+        destination_domain = env.domain_of(destination_name)
+        if destination_domain is None:
+            raise Phase1SemanticError(
+                f"handover destination {destination_name!r} is not tracked"
+            )
+        if destination_domain is not OwnershipDomain.EXCLUSIVE:
+            raise Phase1SemanticError(
+                f"handover destination {destination_name!r} must be exclusive, "
+                f"got {destination_domain.value}"
+            )
+        destination_type = env.type_of(destination_name)
+        if destination_type != type_info:
+            raise Phase1SemanticError(
+                f"handover destination {destination_name!r} has incompatible type"
+            )
+        destination_state = env.state_of(destination_name)
+        if destination_state is not VarState.MOVED:
+            state_name = (
+                destination_state.value
+                if destination_state is not None
+                else "untracked"
+            )
+            raise Phase1SemanticError(
+                f"handover destination {destination_name!r} must be MOVED "
+                f"before reacquisition, got {state_name}"
+            )
+
+        updated: list[OwnershipBinding] = []
+        for binding in result.bindings:
+            if binding.name == destination_name:
+                updated.append(
+                    OwnershipBinding(
+                        binding.name,
+                        binding.type,
+                        VarState.LIVE,
+                        binding.domain,
+                    )
+                )
+            else:
+                updated.append(binding)
+        result = OwnershipEnv(tuple(updated))
+
     events.append(
         OwnershipEvent(
             "handover",
@@ -1118,9 +1179,10 @@ def _apply_explicit_handover(
             "handover",
             OwnershipDomain.EXCLUSIVE,
             type=type_info,
+            destination=destination_name,
         )
     )
-    return moved
+    return result
 
 
 def analyze_linear_function_ownership(
@@ -1231,6 +1293,7 @@ def analyze_linear_function_ownership(
                 env,
                 getattr(statement, "value", None),
                 events,
+                getattr(statement, "destination", None),
             )
             continue
 
@@ -1448,6 +1511,7 @@ def _analyze_block_ownership(
                 result,
                 getattr(statement, "value", None),
                 events,
+                getattr(statement, "destination", None),
             )
             continue
 
@@ -2024,6 +2088,7 @@ class OwnershipDomainTransfer:
     binding: str
     domain: OwnershipDomain
     via: str
+    destination: str | None = None
 
     @property
     def source_key(self) -> str:
@@ -2096,6 +2161,7 @@ def build_ownership_domain_graph(
                         binding=event.name,
                         domain=binding.domain,
                         via=event.via,
+                        destination=event.destination,
                     )
                 )
                 continue

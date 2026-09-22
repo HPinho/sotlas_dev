@@ -127,7 +127,7 @@ Auditoria detalhada da Fase 0: [phase0_reality_audit.md](phase0_reality_audit.md
 ```text
 Fase 0 — Reality Reset              ~80%
 Fase 1 — Typed Semantic Core       100% ✅
-Fase 2 — Ownership Domains          ~47% 🟡
+Fase 2 — Ownership Domains          ~48% 🟡
 Fase 3 — Authority Domains          ~10%
 Fase 4 — State Spaces                ~0%
 Fase 5 — Effects                    ~10%
@@ -145,6 +145,9 @@ Fase 16 — Native Machine Backend      ~5%
 Fase 17 — Tooling avançado          ~15%
 ```
 
+**Desenvolvimento geral aproximado da linguagem: ~17%.**  
+Este índice geral é apenas uma leitura agregada conservadora das fases acima; não equivale a `SUPPORTED` e não substitui os gates formais.
+
 ### Fase 2 — leitura por macroentregas
 
 | Macroentrega | Estado aproximado | Observação |
@@ -158,16 +161,16 @@ Fase 17 — Tooling avançado          ~15%
 | `island` | ~0% | ainda não implementado |
 | `whisper` | ~0% | ainda não implementado |
 | `direct` | ~0% | ainda não implementado |
-| `handover` | ~30% | statement canônico, invalidação EXCLUSIVE e graph existem; destino/reacquisition/backend faltam |
+| `handover` | ~45% | statement canônico, destino explícito entre bindings EXCLUSIVE, reacquisition controlada e graph existem; transições entre domínios/backend/e2e faltam |
 | `quarantine` | ~0% | ainda não implementado |
 | runtime/backend + e2e por domínio | ~5% | gates/fail-closed existem, mas execução real de Ownership Domains ainda não |
 
-A combinação ponderada dessas macroentregas coloca a Fase 2 em **~47%**.
+A combinação ponderada dessas macroentregas coloca a Fase 2 em **~48%**.
 
 ### Fase 2 detalhada
 
 ```text
-Fase 2 — Ownership Domains                  ~47%
+Fase 2 — Ownership Domains                  ~48%
 
 ✅ sole / exclusive
 ✅ move semantics
@@ -240,6 +243,9 @@ Fase 2 — Ownership Domains                  ~47%
 ✅ SIR can lower validated direct deferred-call payloads once to CallInst before ARC
 ✅ break/continue placement preserves defer → release → destroy order    ← NOVO
 ✅ shared → sole-consuming call/defer-call requires explicit handover            ← CORRIGIDO
+✅ handover EXCLUSIVE source → MOVED binding destination                     ← NOVO
+✅ handover destination reacquisition requires same type + prior MOVED state ← NOVO
+✅ Ownership Domain Graph preserves explicit handover destination            ← NOVO
 ✅ unsupported call shapes and assign/block/method/try defer payloads remain fail-closed
 
 ⬜ general call/assign/block/method/try defer payload lowering

@@ -1488,6 +1488,93 @@ fn main(token: Token) -> void {
             trace.events,
         )
 
+    def test_canonical_handover_transfers_into_moved_destination(self):
+        source = """module test::handover_binding_destination;
+sole struct Token { value: u32; }
+fn consume(token: Token) -> void { return; }
+fn main(source: Token, destination: Token) -> void {
+    consume(destination);
+    handover source to destination;
+    destination.value;
+    return;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<handover-binding-destination>"
+        )
+        bootstrap.check(parsed)
+        statement = parsed.functions[-1].body[1]
+        self.assertEqual(type(statement).__name__, "Handover")
+        self.assertEqual(statement.value.value, "source")
+        self.assertEqual(statement.destination.value, "destination")
+
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(
+            parsed, typed, "main"
+        )
+        self.assertIs(
+            trace.final_env.state_of("source"),
+            typed_ast.VarState.MOVED,
+        )
+        self.assertIs(
+            trace.final_env.state_of("destination"),
+            typed_ast.VarState.LIVE,
+        )
+        event = next(
+            item for item in trace.events
+            if item.kind == "handover" and item.name == "source"
+        )
+        self.assertEqual(event.destination, "destination")
+
+        graph = typed_ast.build_ownership_domain_graph(
+            typed_ast.OwnershipModuleAnalysis((), (("main", trace),))
+        )
+        transfer = next(
+            item for item in graph.transfers
+            if item.binding == "source" and item.via == "handover"
+        )
+        self.assertEqual(transfer.destination, "destination")
+
+    def test_canonical_handover_destination_must_already_be_moved(self):
+        source = """module test::handover_live_destination;
+sole struct Token { value: u32; }
+fn main(source: Token, destination: Token) -> void {
+    handover source to destination;
+    return;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<handover-live-destination>"
+        )
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"handover destination 'destination' must be MOVED before "
+            r"reacquisition, got live",
+        ):
+            typed_ast.analyze_function_ownership(
+                parsed, typed, "main"
+            )
+
+    def test_canonical_handover_destination_requires_same_exclusive_type(self):
+        source = """module test::handover_type_mismatch;
+sole struct Token { value: u32; }
+sole struct Other { value: u32; }
+fn main(source: Token, destination: Other) -> void {
+    handover source to destination;
+    return;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<handover-type-mismatch>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"handover origem e destino devem ter o mesmo tipo exclusivo",
+        ):
+            bootstrap.check(parsed)
+
     def test_canonical_handover_rejects_use_after_transfer(self):
         source = """module test::handover_use_after;
 sole struct Token { value: u32; }
