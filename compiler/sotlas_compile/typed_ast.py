@@ -1829,6 +1829,8 @@ def _analyze_block_ownership(
                 result = _move_struct_literal_fields(
                     result, value, typed_module, events
                 )
+            else:
+                require_expr_ownership_live(result, value)
             if local_type is not None:
                 before = result
                 result = result.declare(
