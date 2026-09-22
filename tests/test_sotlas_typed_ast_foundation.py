@@ -1462,6 +1462,135 @@ fn main(t: Token) -> void {
         self.assertIs(env.state_of("t"), typed_ast.VarState.LIVE)
         self.assertIsNone(env.state_of("copy"))
 
+    def test_canonical_quarantine_moves_exclusive_binding_into_island(self):
+        source = """module test::canonical_quarantine;
+sole struct Token { value: u32; }
+fn main(token: Token) -> void {
+    quarantine token;
+    token.value;
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<canonical-quarantine>")
+        bootstrap.check(parsed)
+        self.assertEqual(type(parsed.functions[0].body[0]).__name__, "Quarantine")
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(parsed, typed, "main")
+
+        self.assertIs(
+            trace.final_env.domain_of("token"),
+            typed_ast.OwnershipDomain.ISLAND,
+        )
+        self.assertIs(
+            trace.final_env.state_of("token"),
+            typed_ast.VarState.LIVE,
+        )
+        self.assertIn(
+            typed_ast.OwnershipEvent(
+                "quarantine",
+                "token",
+                "quarantine",
+                typed_ast.OwnershipDomain.ISLAND,
+                type=typed_ast.SemanticType("Token"),
+            ),
+            trace.events,
+        )
+
+        graph = typed_ast.build_ownership_domain_graph(
+            typed_ast.OwnershipModuleAnalysis((), (("main", trace),))
+        )
+        transfer = next(
+            item for item in graph.transfers
+            if item.binding == "token" and item.via == "quarantine"
+        )
+        self.assertIs(transfer.domain, typed_ast.OwnershipDomain.ISLAND)
+
+    def test_canonical_quarantine_rejects_shared_owner(self):
+        source = """module test::quarantine_shared;
+sole struct Token { value: u32; }
+fn main(token: Token) -> void {
+    let peer = share token;
+    quarantine peer;
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<quarantine-shared>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"unsupported ownership domain transition for 'peer': "
+            r"shared -> island via quarantine",
+        ):
+            typed_ast.analyze_function_ownership(parsed, typed, "main")
+
+    def test_canonical_quarantine_blocks_implicit_escape_and_move(self):
+        source = """module test::quarantine_escape;
+sole struct Token { value: u32; }
+fn consume(token: Token) -> void { return; }
+fn main(token: Token) -> void {
+    quarantine token;
+    consume(token);
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<quarantine-escape>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"island owner 'token' cannot escape quarantine through "
+            r"sole parameter of 'consume'",
+        ):
+            typed_ast.analyze_function_ownership(parsed, typed, "main")
+
+        source = """module test::quarantine_move;
+sole struct Token { value: u32; }
+fn main(token: Token) -> void {
+    quarantine token;
+    let moved = token;
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<quarantine-move>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"island owner 'token' cannot move implicitly after quarantine",
+        ):
+            typed_ast.analyze_function_ownership(parsed, typed, "main")
+
+    def test_canonical_quarantine_rejects_copyable_value(self):
+        source = """module test::quarantine_copyable;
+fn main(count: u32) -> void {
+    quarantine count;
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<quarantine-copyable>")
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"quarantine exige valor sole exclusivo",
+        ):
+            bootstrap.check(parsed)
+
+    def test_c11_quarantine_remains_fail_closed(self):
+        source = """module test::quarantine_c11_gate;
+sole struct Token { value: u32; }
+fn main(token: Token) -> void {
+    quarantine token;
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<quarantine-c11-gate>")
+        bootstrap.check(parsed)
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"C11 backend does not lower quarantine ownership yet",
+        ):
+            bootstrap.emit_c(parsed)
+
     def test_canonical_handover_moves_exclusive_binding(self):
         source = """module test::canonical_handover;
 sole struct Token { value: u32; }

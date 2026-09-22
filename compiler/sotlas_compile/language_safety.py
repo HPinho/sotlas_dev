@@ -350,6 +350,7 @@ class _StrictSafetyChecker:
                 self._infer(item.value, scope, depth, system_context)
             elif isinstance(item, b.Return): self._infer(item.value, scope, depth, system_context)
             elif isinstance(item, b.Handover): self._infer(item.value, scope, depth, system_context)
+            elif isinstance(item, b.Quarantine): self._infer(item.value, scope, depth, system_context)
             elif isinstance(item, b.Expression): self._infer(item.value, scope, depth, system_context)
             elif isinstance(item, b.If):
                 self._infer(item.condition, scope, depth, system_context)

@@ -328,6 +328,8 @@ class Handover(Stmt):
     value: Expr
     destination: Expr | None = None
 @dataclass
+class Quarantine(Stmt): value: Expr
+@dataclass
 class Loop(Stmt): body: list[Stmt]
 @dataclass
 class If(Stmt): condition: Expr; then_body: list[Stmt]; else_body: list[Stmt]
@@ -839,6 +841,11 @@ class Parser:
                 destination = self.expression()
             self.expect(";")
             return Handover(token, value, destination)
+        if self.current.kind == "IDENT" and self.current.text == "quarantine":
+            self.at += 1
+            value = self.expression()
+            self.expect(";")
+            return Quarantine(token, value)
         if self.accept("if"):
             condition = self.expression()
             then_body = self.block()
@@ -2314,6 +2321,29 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
                     expr_type(
                         item.destination, scope, in_unsafe, is_system_fn
                     )
+            elif isinstance(item, Quarantine):
+                if not isinstance(item.value, Name):
+                    raise SotlasBootstrapError(
+                        "quarantine exige binding direto de ownership",
+                        item.token.line, item.token.column, filename, source,
+                    )
+                target_type = scope.get(item.value.value)
+                target_struct = (
+                    struct_map.get(target_type.name)
+                    if target_type is not None else None
+                )
+                if (
+                    target_type is None
+                    or target_struct is None
+                    or not target_struct.is_sole
+                    or target_type.pointer
+                    or target_type.is_reference
+                ):
+                    raise SotlasBootstrapError(
+                        f"quarantine exige valor sole exclusivo: {item.value.value}",
+                        item.token.line, item.token.column, filename, source,
+                    )
+                expr_type(item.value, scope, in_unsafe, is_system_fn)
             elif isinstance(item, Return):
                 if item.value is not None:
                     actual = expr_type(
@@ -3175,6 +3205,11 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
             elif isinstance(item, Handover):
                 raise SotlasBootstrapError(
                     "C11 backend does not lower handover ownership yet",
+                    item.token.line, item.token.column,
+                )
+            elif isinstance(item, Quarantine):
+                raise SotlasBootstrapError(
+                    "C11 backend does not lower quarantine ownership yet",
                     item.token.line, item.token.column,
                 )
             elif isinstance(item, Defer):

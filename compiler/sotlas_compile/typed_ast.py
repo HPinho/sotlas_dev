@@ -31,6 +31,7 @@ class VarState(str, Enum):
 class OwnershipDomain(str, Enum):
     EXCLUSIVE = "exclusive"
     SHARED = "shared"
+    ISLAND = "island"
 
 
 def sole_type_names(module: TypedModule) -> frozenset[str]:
@@ -139,6 +140,11 @@ class OwnershipEnv:
             raise Phase1SemanticError(
                 f"ownership binding {name!r} is not tracked"
             )
+        domain = self.domain_of(name)
+        if domain is OwnershipDomain.ISLAND:
+            raise Phase1SemanticError(
+                f"island owner {name!r} cannot move implicitly after quarantine"
+            )
         next_state = move_state(name, state)
         updated = []
         replaced = False
@@ -227,6 +233,19 @@ def plan_ownership_domain_transition(
         binding.domain is OwnershipDomain.EXCLUSIVE
         and target is OwnershipDomain.SHARED
         and operation == "share"
+    ):
+        return OwnershipDomainTransition(
+            binding=binding.name,
+            type=binding.type,
+            source=binding.domain,
+            target=target,
+            source_state=binding.state,
+            operation=operation,
+        )
+    if (
+        binding.domain is OwnershipDomain.EXCLUSIVE
+        and target is OwnershipDomain.ISLAND
+        and operation == "quarantine"
     ):
         return OwnershipDomainTransition(
             binding=binding.name,
@@ -940,6 +959,11 @@ def _move_call_arguments(
                         f"shared owner {name!r} cannot be consumed by sole "
                         f"parameter of {callee.name!r} without explicit handover"
                     )
+                if result.domain_of(name) is OwnershipDomain.ISLAND:
+                    raise Phase1SemanticError(
+                        f"island owner {name!r} cannot escape quarantine through "
+                        f"sole parameter of {callee.name!r}"
+                    )
                 result = result.move(name)
                 events.append(OwnershipEvent("move", name, f"call:{callee.name}"))
                 continue
@@ -984,6 +1008,11 @@ def _move_method_call_arguments(
                     raise Phase1SemanticError(
                         f"shared owner {name!r} cannot be consumed by sole "
                         f"parameter of method {callee.name!r} without explicit handover"
+                    )
+                if result.domain_of(name) is OwnershipDomain.ISLAND:
+                    raise Phase1SemanticError(
+                        f"island owner {name!r} cannot escape quarantine through "
+                        f"sole parameter of method {callee.name!r}"
                     )
                 result = result.move(name)
                 events.append(
@@ -1185,6 +1214,56 @@ def _apply_explicit_handover(
     return result
 
 
+def _apply_quarantine(
+    env: OwnershipEnv,
+    expr,
+    events: list[OwnershipEvent],
+) -> OwnershipEnv:
+    """Move one LIVE exclusive binding into the canonical island domain."""
+    if type(expr).__name__ != "Name":
+        raise Phase1SemanticError(
+            "quarantine currently requires a direct exclusive ownership binding"
+        )
+    name = getattr(expr, "value", None)
+    source = next(
+        (binding for binding in env.bindings if binding.name == name),
+        None,
+    )
+    if source is None:
+        raise Phase1SemanticError(
+            f"quarantine target {name!r} is not a tracked ownership binding"
+        )
+    transition = plan_ownership_domain_transition(
+        source,
+        OwnershipDomain.ISLAND,
+        "quarantine",
+    )
+    updated: list[OwnershipBinding] = []
+    for binding in env.bindings:
+        if binding.name == name:
+            updated.append(
+                OwnershipBinding(
+                    binding.name,
+                    binding.type,
+                    VarState.LIVE,
+                    OwnershipDomain.ISLAND,
+                )
+            )
+        else:
+            updated.append(binding)
+    result = OwnershipEnv(tuple(updated))
+    events.append(
+        OwnershipEvent(
+            "quarantine",
+            name,
+            "quarantine",
+            OwnershipDomain.ISLAND,
+            type=transition.type,
+        )
+    )
+    return result
+
+
 def analyze_linear_function_ownership(
     parsed_module, typed_module: TypedModule, function_name: str
 ) -> OwnershipTrace:
@@ -1294,6 +1373,14 @@ def analyze_linear_function_ownership(
                 getattr(statement, "value", None),
                 events,
                 getattr(statement, "destination", None),
+            )
+            continue
+
+        if kind == "Quarantine":
+            env = _apply_quarantine(
+                env,
+                getattr(statement, "value", None),
+                events,
             )
             continue
 
@@ -1512,6 +1599,14 @@ def _analyze_block_ownership(
                 getattr(statement, "value", None),
                 events,
                 getattr(statement, "destination", None),
+            )
+            continue
+
+        if kind == "Quarantine":
+            result = _apply_quarantine(
+                result,
+                getattr(statement, "value", None),
+                events,
             )
             continue
 
@@ -2148,7 +2243,7 @@ def build_ownership_domain_graph(
             nodes.append(node)
 
         for event in trace.events:
-            if event.kind in ("move", "handover"):
+            if event.kind in ("move", "handover", "quarantine"):
                 binding = bindings.get(event.name)
                 if binding is None:
                     raise Phase1SemanticError(
