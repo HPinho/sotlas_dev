@@ -14,6 +14,7 @@ from sotlas.sir import (
     OwnershipDomainSIRPlan, place_ownership_domain_transfers,
     OwnershipFunctionSIRPlan, OwnershipModuleSIRPlan,
     apply_ownership_module_domain_transfers, apply_ownership_module_plan,
+    SharedOwnershipSIRPlan,
     ShareInst, RetainInst, ReleaseInst, DestroyInst, DeferUseInst,
     lower_ownership_domain_trace,
     lower_ownership_module_analysis,
