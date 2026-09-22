@@ -32,6 +32,7 @@ class OwnershipDomain(str, Enum):
     EXCLUSIVE = "exclusive"
     SHARED = "shared"
     ISLAND = "island"
+    WHISPER = "whisper"
 
 
 def sole_type_names(module: TypedModule) -> frozenset[str]:
@@ -2839,7 +2840,8 @@ def summarize_module_ownership(
                 params=tuple(
                     OwnershipParamContract(
                         param.name,
-                        param.ownership_domain is not None,
+                        param.ownership_domain
+                        not in (None, OwnershipDomain.WHISPER),
                         param.ownership_domain,
                     )
                     for param in function.params
@@ -4974,7 +4976,11 @@ def semantic_type(type_obj) -> SemanticType:
         declared_ownership_domain=(
             OwnershipDomain.ISLAND
             if getattr(type_obj, "ownership_domain", None) == "island"
-            else None
+            else (
+                OwnershipDomain.WHISPER
+                if getattr(type_obj, "ownership_domain", None) == "whisper"
+                else None
+            )
         ),
     )
 
@@ -5092,6 +5098,11 @@ def build_declaration_typed_ast(module) -> TypedModule:
     def explicit_domain(type_obj) -> OwnershipDomain | None:
         frozen = semantic_type(type_obj)
         declared = frozen.declared_ownership_domain
+        if declared is OwnershipDomain.WHISPER:
+            raise Phase1SemanticError(
+                "whisper lifetime ownership is currently supported only "
+                "for function parameters"
+            )
         if declared is OwnershipDomain.ISLAND:
             if frozen.pointer or frozen.is_reference or frozen.is_array:
                 raise Phase1SemanticError(
@@ -5107,6 +5118,16 @@ def build_declaration_typed_ast(module) -> TypedModule:
         if frozen.name in exclusive_type_names:
             return OwnershipDomain.EXCLUSIVE
         return None
+
+    def parameter_domain(type_obj) -> OwnershipDomain | None:
+        frozen = semantic_type(type_obj)
+        if frozen.declared_ownership_domain is OwnershipDomain.WHISPER:
+            if not frozen.pointer or not frozen.is_reference or frozen.mutable:
+                raise Phase1SemanticError(
+                    "whisper parameter must be an immutable borrowed reference"
+                )
+            return OwnershipDomain.WHISPER
+        return explicit_domain(type_obj)
 
     def global_domain(type_obj) -> OwnershipDomain | None:
         domain = explicit_domain(type_obj)
@@ -5169,7 +5190,7 @@ def build_declaration_typed_ast(module) -> TypedModule:
                     TypedParam(
                         name,
                         semantic_type(type_obj),
-                        explicit_domain(type_obj),
+                        parameter_domain(type_obj),
                     )
                     for name, type_obj in item.params
                 ),
@@ -5217,7 +5238,7 @@ def build_declaration_typed_ast(module) -> TypedModule:
                             TypedParam(
                                 name,
                                 semantic_type(type_obj),
-                                explicit_domain(type_obj),
+                                parameter_domain(type_obj),
                             )
                             for name, type_obj in method.params
                         ),

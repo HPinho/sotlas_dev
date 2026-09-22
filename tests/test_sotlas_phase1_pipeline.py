@@ -112,6 +112,29 @@ fn main(token: Token) -> void {
         self.assertEqual(account.strong_refs, 2)
         self.assertTrue(account.point_id.startswith("share@"))
 
+    def test_public_phase1_pipeline_preserves_non_owning_whisper_contract(self):
+        source = """module test::phase1_whisper;
+sole struct Token { value: u32; }
+fn inspect(token: whisper Token) -> void { return; }
+"""
+        result = sotlas_compile.analyze_source_phase1(
+            source, filename="<phase1-whisper>"
+        )
+        function = result.semantic.typed_module.functions[0]
+        self.assertIs(
+            function.params[0].ownership_domain,
+            typed_ast.OwnershipDomain.WHISPER,
+        )
+        summary = result.semantic.ownership.summaries[0]
+        self.assertFalse(summary.params[0].takes_ownership)
+        self.assertIs(
+            summary.params[0].domain,
+            typed_ast.OwnershipDomain.WHISPER,
+        )
+        self.assertEqual(
+            result.semantic.ownership_domains.nodes, ()
+        )
+
     def test_public_phase1_pipeline_exposes_empty_ownership_sir_for_plain_code(self):
         source = """module test::phase1_plain_sir;
 fn main(value: u32) -> u32 {

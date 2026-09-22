@@ -127,7 +127,7 @@ Auditoria detalhada da Fase 0: [phase0_reality_audit.md](phase0_reality_audit.md
 ```text
 Fase 0 — Reality Reset              ~80%
 Fase 1 — Typed Semantic Core       100% ✅
-Fase 2 — Ownership Domains          ~72% 🟡
+Fase 2 — Ownership Domains          ~73% 🟡
 Fase 3 — Authority Domains          ~10%
 Fase 4 — State Spaces                ~0%
 Fase 5 — Effects                    ~10%
@@ -159,18 +159,18 @@ Este índice geral é apenas uma leitura agregada conservadora das fases acima; 
 | `device` | ~0% | ainda não implementado |
 | `external` | ~0% | ainda não implementado |
 | `island` | ~90% | fronteiras funcionais estão cobertas; aliases, storage global e campos ARC/class têm gates fail-closed explícitos; runtime/backend real ainda falta |
-| `whisper` | ~0% | ainda não implementado |
+| `whisper` | ~20% | qualificador canônico em parâmetros, contrato non-owning e Typed AST implementados; lifetime graph, weak invalidation, runtime/backend e demais posições ainda faltam |
 | `direct` | ~0% | ainda não implementado |
 | `handover` | ~60% | transições EXCLUSIVE→EXCLUSIVE e ISLAND→EXCLUSIVE possuem source/target/destination domain explícitos no graph; outros domínios/backend/e2e faltam |
 | `quarantine` | ~40% | EXCLUSIVE→ISLAND é fato de transição explícito e validado no Ownership Domain Graph; weak invalidation/runtime/e2e faltam |
 | runtime/backend + e2e por domínio | ~5% | gates/fail-closed existem, mas execução real de Ownership Domains ainda não |
 
-A combinação ponderada dessas macroentregas coloca a Fase 2 em **~72%**.
+A combinação ponderada dessas macroentregas coloca a Fase 2 em **~73%**.
 
 ### Fase 2 detalhada
 
 ```text
-Fase 2 — Ownership Domains                  ~72%
+Fase 2 — Ownership Domains                  ~73%
 
 ✅ sole / exclusive
 ✅ move semantics
@@ -257,6 +257,10 @@ Fase 2 — Ownership Domains                  ~72%
 ✅ missing/duplicate canonical domain source points fail before CFG mutation                  ← NOVO
 ✅ SIR composition boundary consumes parsed_module + ownership_sir without frontend cycle ← NOVO
 ✅ malformed checked-module contracts fail-closed before SIR generation                  ← NOVO
+✅ canonical whisper parameter qualifier freezes immutable non-owning borrow metadata ← NOVO
+✅ whisper parameters do not consume sole ownership or enter OwnershipEnv as owners    ← NOVO
+✅ whisper fields/globals/returns remain fail-closed until lifetime graph is formalized ← NOVO
+✅ C11 rejects whisper domain explicitly until weak/lifetime lowering exists            ← NOVO
 ✅ fail-closed when ownership type is unknown ← NOVO
 
 ✅ normal function_exit ARC cleanup placed before one implicit fallthrough return ← NOVO

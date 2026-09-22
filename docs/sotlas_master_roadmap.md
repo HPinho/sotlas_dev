@@ -3816,7 +3816,7 @@ Extensões construídas sobre a fundação, mas que **não promovem a linguagem 
 
 ### 2. Ownership Domains — 🟡 EM CONSTRUÇÃO
 
-**Progresso aproximado atual: ~72%.**
+**Progresso aproximado atual: ~73%.**
 
 **Desenvolvimento geral aproximado da linguagem: ~17%.** Esse índice é uma leitura agregada conservadora das fases do roadmap e não representa promoção global para `SUPPORTED`.
 
@@ -3862,6 +3862,7 @@ Ainda necessário para concluir a Fase 2 canônica:
 - [x] cleanup ARC de scope normal (`function_exit`) possui placement real no único retorno sintético de fallthrough representável; explicit returns continuam usando cleanup source-stable próprio e múltiplos fallthrough returns são rejeitados fail-closed;
 - [x] `OwnershipDomainGraph` materializa também o lado shared: transições canônicas EXCLUSIVE→SHARED e contas ARC function-scoped com owners, strong_refs e identidade `share@L:C`, rejeitando retain órfão/inconsistente;
 - [x] lowering SIR de `share`/`retain` é dirigido pelas contas/transições do `OwnershipDomainGraph`; o trace fica restrito às obrigações path-sensitive de cleanup/defer, e divergências graph↔trace falham antes do placement;
+- [x] primeiro contrato canônico de `whisper`: parâmetro `whisper T` é congelado no Typed AST como borrow imutável non-owning, não consome `sole` nem entra no OwnershipEnv como owner; storage/return/lifetime graph/runtime permanecem fail-closed;
 - [ ] `handover` como operação formal de transferência entre bindings/domínios — além dos contratos EXCLUSIVE existentes, `handover <source> to <destination>;` agora permite saída explícita de ISLAND para um destino EXCLUSIVE do mesmo tipo e já MOVED; origem ISLAND vira MOVED, destino EXCLUSIVE volta a LIVE, evento/graph preservam domínio de origem e destino; handover sem destino a partir de ISLAND continua fail-closed, e demais domínios/runtime/backend/e2e ainda faltam;
 - [ ] `quarantine` como isolamento verificável antes de reuse/dispatch — primeiro slice canônico `quarantine <binding>;` implementa EXCLUSIVE → ISLAND, exige source LIVE direto, bloqueia escape/move implícito, registra graph e mantém C11 fail-closed; weak invalidation, reuse/dispatch, runtime/backend e e2e ainda faltam;
 - [x] grafo canônico de ownership/domains no snapshot semântico para owners rastreados e transferências, incluindo direção explícita EXCLUSIVE→ISLAND e ISLAND→EXCLUSIVE e validação fail-closed de fatos incompletos;

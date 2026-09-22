@@ -163,9 +163,70 @@ fn main() -> void { return; }
             )
         )
 
+    def test_whisper_parameter_is_canonical_non_owning_borrow(self):
+        source = """module test::whisper_param;
+sole struct Token { value: u32; }
+
+fn inspect(token: whisper Token) -> void {
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<whisper-param>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        function = typed.functions[0]
+        param = function.params[0]
+
+        self.assertIs(
+            param.ownership_domain, typed_ast.OwnershipDomain.WHISPER
+        )
+        self.assertIs(
+            param.type.declared_ownership_domain,
+            typed_ast.OwnershipDomain.WHISPER,
+        )
+        self.assertTrue(param.type.pointer)
+        self.assertTrue(param.type.is_reference)
+        self.assertFalse(param.type.mutable)
+
+        summary = typed_ast.summarize_module_ownership(parsed, typed)[0]
+        self.assertFalse(summary.params[0].takes_ownership)
+        self.assertIs(
+            summary.params[0].domain, typed_ast.OwnershipDomain.WHISPER
+        )
+        env = typed_ast.seed_function_ownership(parsed, typed, "inspect")
+        self.assertIsNone(env.state_of("token"))
+
+    def test_whisper_non_parameter_storage_remains_fail_closed(self):
+        source = """module test::whisper_field;
+sole struct Token { value: u32; }
+struct Holder { token: whisper Token; }
+fn main() -> void { return; }
+"""
+        parsed = bootstrap.parse(source, filename="<whisper-field>")
+        bootstrap.check(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"whisper lifetime ownership is currently supported only "
+            r"for function parameters",
+        ):
+            typed_ast.build_declaration_typed_ast(parsed)
+
+    def test_whisper_c11_backend_remains_fail_closed(self):
+        source = """module test::whisper_c11;
+sole struct Token { value: u32; }
+fn inspect(token: whisper Token) -> void { return; }
+"""
+        parsed = bootstrap.parse(source, filename="<whisper-c11>")
+        bootstrap.check(parsed)
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"C11 backend does not lower whisper ownership domain yet",
+        ):
+            bootstrap.emit_c(parsed)
+
     def test_unimplemented_ownership_domain_types_fail_before_c11(self):
         for domain in ("exclusive", "shared", "region", "device", "external",
-                       "whisper", "direct", "quarantine"):
+                       "direct", "quarantine"):
             with self.subTest(domain=domain):
                 source = (
                     "module test::domain_gate; "

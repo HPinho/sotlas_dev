@@ -478,14 +478,31 @@ class Parser:
         return self.type()
 
     def type(self) -> Type:
-        if self.current.kind == "IDENT" and self.current.text == "island":
+        if (
+            self.current.kind == "IDENT"
+            and self.current.text in ("island", "whisper")
+        ):
             token = self.current
+            domain = self.current.text
             self.at += 1
             inner = self.type()
             if getattr(inner, "ownership_domain", None) is not None:
                 raise SotlasBootstrapError(
                     "ownership modifier duplicado",
                     token.line, token.column, self.filename, self.source,
+                )
+            if domain == "whisper":
+                if inner.is_array or inner.is_fn_ptr:
+                    raise SotlasBootstrapError(
+                        "whisper atualmente exige tipo direto não-array",
+                        token.line, token.column, self.filename, self.source,
+                    )
+                return replace(
+                    inner,
+                    pointer=True,
+                    mutable=False,
+                    is_reference=True,
+                    ownership_domain="whisper",
                 )
             return replace(inner, ownership_domain="island")
         if self.accept("!"):
@@ -1797,31 +1814,50 @@ def _c_struct_attributes(attributes: list[str]) -> str:
 
 def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
            include_import_headers: bool = False) -> str:
-    def _contains_island(type_obj: Type | None) -> bool:
+    def _contains_domain(type_obj: Type | None, domain: str) -> bool:
         if type_obj is None:
             return False
-        if getattr(type_obj, "ownership_domain", None) == "island":
+        if getattr(type_obj, "ownership_domain", None) == domain:
             return True
-        if getattr(type_obj, "elem_type", None) is not None and _contains_island(type_obj.elem_type):
+        if (
+            getattr(type_obj, "elem_type", None) is not None
+            and _contains_domain(type_obj.elem_type, domain)
+        ):
             return True
-        if any(_contains_island(param) for param in getattr(type_obj, "fn_params", ())):
+        if any(
+            _contains_domain(param, domain)
+            for param in getattr(type_obj, "fn_params", ())
+        ):
             return True
-        return _contains_island(getattr(type_obj, "fn_ret", None))
+        return _contains_domain(getattr(type_obj, "fn_ret", None), domain)
 
-    island_type_found = (
-        any(_contains_island(field.type) for struct in module.structs for field in struct.fields)
-        or any(_contains_island(item.type) for item in module.globals)
-        or any(
-            _contains_island(getattr(variant, "payload_type", None))
-            for enum in module.enums
-            for variant in enum.variants
+    def _module_contains_domain(domain: str) -> bool:
+        return (
+            any(
+                _contains_domain(field.type, domain)
+                for struct in module.structs for field in struct.fields
+            )
+            or any(_contains_domain(item.type, domain) for item in module.globals)
+            or any(
+                _contains_domain(getattr(variant, "payload_type", None), domain)
+                for enum in module.enums
+                for variant in enum.variants
+            )
+            or any(
+                _contains_domain(type_obj, domain)
+                for fn in module.functions for _, type_obj in fn.params
+            )
+            or any(_contains_domain(fn.result, domain) for fn in module.functions)
         )
-        or any(_contains_island(type_obj) for fn in module.functions for _, type_obj in fn.params)
-        or any(_contains_island(fn.result) for fn in module.functions)
-    )
-    if island_type_found:
+
+    if _module_contains_domain("island"):
         raise SotlasBootstrapError(
             "C11 backend does not lower island ownership domain yet",
+            1, 1, module.filename, module.source,
+        )
+    if _module_contains_domain("whisper"):
+        raise SotlasBootstrapError(
+            "C11 backend does not lower whisper ownership domain yet",
             1, 1, module.filename, module.source,
         )
 
@@ -2026,6 +2062,8 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                     if (
                         parameter_type.name in sole_types
                         and not parameter_type.pointer
+                        and getattr(parameter_type, "ownership_domain", None)
+                            != "whisper"
                     ):
                         moved_argument = (
                             argument.value
@@ -2166,6 +2204,8 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                 if (
                     param_type.name in sole_types
                     and not param_type.pointer
+                    and getattr(param_type, "ownership_domain", None)
+                        != "whisper"
                     and param_type.name in deinit_methods
                 ):
                     token = Token("IDENT", param_name, 0, 0)
