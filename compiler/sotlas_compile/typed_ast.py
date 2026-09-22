@@ -1124,31 +1124,34 @@ def _apply_explicit_handover(
     events: list[OwnershipEvent],
     destination=None,
 ) -> OwnershipEnv:
-    """Apply source-level handover to one whole exclusive binding.
+    """Apply explicit ownership transfer between canonical domains.
 
-    Targetless handover preserves the original explicit sink semantics.
-    A handover with an explicit destination transfers the exclusive obligation
-    into a previously MOVED binding of the same canonical type.
+    EXCLUSIVE supports the original sink form and binding-to-binding transfer.
+    A quarantined ISLAND owner may leave isolation only through an explicit
+    destination that is EXCLUSIVE, type-compatible, and already MOVED.
     """
     if type(expr).__name__ != "Name":
         raise Phase1SemanticError(
-            "handover currently requires a direct exclusive ownership binding"
+            "handover currently requires a direct ownership binding"
         )
     name = getattr(expr, "value", None)
-    domain = env.domain_of(name)
-    if domain is None:
+    source_domain = env.domain_of(name)
+    if source_domain is None:
         raise Phase1SemanticError(
             f"handover target {name!r} is not a tracked exclusive value"
         )
-    if domain is not OwnershipDomain.EXCLUSIVE:
+    if source_domain is OwnershipDomain.SHARED:
         raise Phase1SemanticError(
-            f"handover target {name!r} must be exclusive, got {domain.value}"
+            f"handover target {name!r} must be exclusive, got {source_domain.value}"
+        )
+    if source_domain is OwnershipDomain.ISLAND and destination is None:
+        raise Phase1SemanticError(
+            f"island handover for {name!r} requires an explicit exclusive destination"
         )
     env.require_live(name)
     type_info = env.type_of(name)
 
     destination_name = None
-    result = env.move(name)
     if destination is not None:
         if type(destination).__name__ != "Name":
             raise Phase1SemanticError(
@@ -1186,33 +1189,45 @@ def _apply_explicit_handover(
                 f"before reacquisition, got {state_name}"
             )
 
-        updated: list[OwnershipBinding] = []
-        for binding in result.bindings:
-            if binding.name == destination_name:
-                updated.append(
-                    OwnershipBinding(
-                        binding.name,
-                        binding.type,
-                        VarState.LIVE,
-                        binding.domain,
-                    )
+    next_source_state = move_state(name, env.state_of(name))
+    updated: list[OwnershipBinding] = []
+    for binding in env.bindings:
+        if binding.name == name:
+            updated.append(
+                OwnershipBinding(
+                    binding.name,
+                    binding.type,
+                    next_source_state,
+                    binding.domain,
                 )
-            else:
-                updated.append(binding)
-        result = OwnershipEnv(tuple(updated))
+            )
+        elif (
+            destination_name is not None
+            and binding.name == destination_name
+        ):
+            updated.append(
+                OwnershipBinding(
+                    binding.name,
+                    binding.type,
+                    VarState.LIVE,
+                    binding.domain,
+                )
+            )
+        else:
+            updated.append(binding)
+    result = OwnershipEnv(tuple(updated))
 
     events.append(
         OwnershipEvent(
             "handover",
             name,
             "handover",
-            OwnershipDomain.EXCLUSIVE,
+            source_domain,
             type=type_info,
             destination=destination_name,
         )
     )
     return result
-
 
 def _apply_quarantine(
     env: OwnershipEnv,

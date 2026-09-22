@@ -1591,6 +1591,83 @@ fn main(token: Token) -> void {
         ):
             bootstrap.emit_c(parsed)
 
+    def test_quarantined_handover_reacquires_exclusive_destination(self):
+        source = """module test::quarantine_handover_reacquire;
+sole struct Token { value: u32; }
+fn consume(token: Token) -> void { return; }
+fn main(source: Token, destination: Token) -> void {
+    consume(destination);
+    quarantine source;
+    handover source to destination;
+    destination.value;
+    return;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<quarantine-handover-reacquire>"
+        )
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(
+            parsed, typed, "main"
+        )
+
+        self.assertIs(
+            trace.final_env.domain_of("source"),
+            typed_ast.OwnershipDomain.ISLAND,
+        )
+        self.assertIs(
+            trace.final_env.state_of("source"),
+            typed_ast.VarState.MOVED,
+        )
+        self.assertIs(
+            trace.final_env.domain_of("destination"),
+            typed_ast.OwnershipDomain.EXCLUSIVE,
+        )
+        self.assertIs(
+            trace.final_env.state_of("destination"),
+            typed_ast.VarState.LIVE,
+        )
+
+        event = next(
+            item for item in trace.events
+            if item.kind == "handover" and item.name == "source"
+        )
+        self.assertIs(event.domain, typed_ast.OwnershipDomain.ISLAND)
+        self.assertEqual(event.destination, "destination")
+
+        graph = typed_ast.build_ownership_domain_graph(
+            typed_ast.OwnershipModuleAnalysis((), (("main", trace),))
+        )
+        transfer = next(
+            item for item in graph.transfers
+            if item.binding == "source" and item.via == "handover"
+        )
+        self.assertIs(transfer.domain, typed_ast.OwnershipDomain.ISLAND)
+        self.assertEqual(transfer.destination, "destination")
+
+    def test_quarantined_handover_requires_explicit_destination(self):
+        source = """module test::quarantine_handover_sink;
+sole struct Token { value: u32; }
+fn main(token: Token) -> void {
+    quarantine token;
+    handover token;
+    return;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<quarantine-handover-sink>"
+        )
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"island handover for 'token' requires an explicit exclusive destination",
+        ):
+            typed_ast.analyze_function_ownership(
+                parsed, typed, "main"
+            )
+
     def test_canonical_handover_moves_exclusive_binding(self):
         source = """module test::canonical_handover;
 sole struct Token { value: u32; }

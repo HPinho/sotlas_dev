@@ -3816,7 +3816,7 @@ Extensões construídas sobre a fundação, mas que **não promovem a linguagem 
 
 ### 2. Ownership Domains — 🟡 EM CONSTRUÇÃO
 
-**Progresso aproximado atual: ~49%.**
+**Progresso aproximado atual: ~50%.**
 
 **Desenvolvimento geral aproximado da linguagem: ~17%.** Esse índice é uma leitura agregada conservadora das fases do roadmap e não representa promoção global para `SUPPORTED`.
 
@@ -3846,10 +3846,10 @@ Ainda necessário para concluir a Fase 2 canônica:
 - [ ] `region` como domínio de lifetime/ownership verificável;
 - [ ] `device` como transferência de ownership CPU ↔ dispositivo com completion/reacquisition;
 - [ ] `external` como ownership/lifetime atravessando FFI ou recurso externo;
-- [ ] `island` como subgrafo/região de ownership isolado — primeiro domínio canônico existe via `quarantine`, preservando owner LIVE em ISLAND e bloqueando moves/escapes implícitos; aliases, fronteiras completas e runtime ainda faltam;
+- [ ] `island` como subgrafo/região de ownership isolado — `quarantine` cria o domínio canônico, moves/escapes implícitos permanecem bloqueados e a saída agora exige `handover source to destination` para um binding EXCLUSIVE do mesmo tipo já MOVED; aliases, demais fronteiras e runtime ainda faltam;
 - [ ] `whisper` como referência não-owning/weak com validação de lifetime;
 - [ ] `direct` como acesso SRG de baixo nível com obrigações explícitas;
-- [ ] `handover` como operação formal de transferência entre bindings/domínios — `handover <binding>;` e `handover <source> to <destination>;` possuem semântica canônica EXCLUSIVE; no segundo formato a origem vira MOVED e o destino, que obrigatoriamente já estava MOVED e possui o mesmo tipo/domínio, é reativado LIVE; evento/graph preservam o destino e C11 continua fail-closed; transições entre domínios, runtime/backend e e2e ainda faltam;
+- [ ] `handover` como operação formal de transferência entre bindings/domínios — além dos contratos EXCLUSIVE existentes, `handover <source> to <destination>;` agora permite saída explícita de ISLAND para um destino EXCLUSIVE do mesmo tipo e já MOVED; origem ISLAND vira MOVED, destino EXCLUSIVE volta a LIVE, evento/graph preservam domínio de origem e destino; handover sem destino a partir de ISLAND continua fail-closed, e demais domínios/runtime/backend/e2e ainda faltam;
 - [ ] `quarantine` como isolamento verificável antes de reuse/dispatch — primeiro slice canônico `quarantine <binding>;` implementa EXCLUSIVE → ISLAND, exige source LIVE direto, bloqueia escape/move implícito, registra graph e mantém C11 fail-closed; weak invalidation, reuse/dispatch, runtime/backend e e2e ainda faltam;
 - [x] grafo canônico de ownership/domains no snapshot semântico para owners rastreados e transferências `exclusive`;
 - [x] merge de Ownership Domain em branches exige domínio idêntico e registra LIVE/MOVED/MAYBE_MOVED no grafo;
