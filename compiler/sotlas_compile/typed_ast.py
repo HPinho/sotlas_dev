@@ -881,10 +881,34 @@ def _statement_referenced_owned_names(
     return frozenset(names)
 
 
+def _reject_island_reference_alias(
+    env: OwnershipEnv, expr
+) -> None:
+    """Reject reference aliases derived from an ISLAND owner.
+
+    Island borrow/weak-alias lifetime semantics are not frozen yet. Until the
+    whisper/island alias contract exists, creating a reference to an island
+    owner or one of its members is fail-closed rather than silently exposing
+    the isolated subgraph.
+    """
+    if type(expr).__name__ != "Unary" or getattr(expr, "op", None) != "&":
+        return
+    target = getattr(expr, "value", None)
+    owner = _root_owned_name(target)
+    if owner is None or env.domain_of(owner) is not OwnershipDomain.ISLAND:
+        return
+    env.require_live(owner)
+    raise Phase1SemanticError(
+        f"reference alias from island owner {owner!r} requires an explicit "
+        "whisper/island alias contract"
+    )
+
+
 def require_expr_ownership_live(env: OwnershipEnv, expr) -> None:
-    """Reject reads through a moved or maybe-moved sole owner."""
+    """Reject invalid owner reads and unmodeled island reference aliases."""
     if expr is None:
         return
+    _reject_island_reference_alias(env, expr)
     owner = _root_owned_name(expr)
     if owner is not None and env.state_of(owner) is not None:
         env.require_live(owner)
@@ -1629,6 +1653,8 @@ def analyze_linear_function_ownership(
                     typed_function,
                     events,
                 )
+            else:
+                require_expr_ownership_live(env, value)
             continue
 
         if kind in ("If", "While", "Loop", "For"):

@@ -588,6 +588,108 @@ fn main() -> void { return; }
         ):
             bootstrap.emit_c(parsed)
 
+    def test_island_reference_alias_is_fail_closed(self):
+        source = """module test::island_ref_alias;
+sole struct Token { value: u32; }
+fn main(token: island Token) -> void {
+    let alias = &token;
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<island-ref-alias>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"reference alias from island owner 'token' requires an explicit "
+            r"whisper/island alias contract",
+        ):
+            typed_ast.analyze_function_ownership(parsed, typed, "main")
+
+    def test_island_member_reference_alias_is_fail_closed(self):
+        source = """module test::island_member_ref_alias;
+sole struct Token { value: u32; }
+fn main(token: island Token) -> void {
+    let alias = &token.value;
+    return;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<island-member-ref-alias>"
+        )
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"reference alias from island owner 'token' requires an explicit "
+            r"whisper/island alias contract",
+        ):
+            typed_ast.analyze_function_ownership(parsed, typed, "main")
+
+    def test_island_reference_argument_is_fail_closed(self):
+        source = """module test::island_ref_argument;
+sole struct Token { value: u32; }
+fn inspect(token: &Token) -> void { return; }
+fn main(token: island Token) -> void {
+    inspect(&token);
+    return;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<island-ref-argument>"
+        )
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"reference alias from island owner 'token' requires an explicit "
+            r"whisper/island alias contract",
+        ):
+            typed_ast.analyze_function_ownership(parsed, typed, "main")
+
+    def test_island_share_transition_remains_fail_closed(self):
+        source = """module test::island_share;
+sole struct Token { value: u32; }
+fn main(token: island Token) -> void {
+    let alias = share token;
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<island-share>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"unsupported ownership domain transition for 'token': "
+            r"island -> shared via share",
+        ):
+            typed_ast.analyze_function_ownership(parsed, typed, "main")
+
+    def test_island_member_read_remains_allowed(self):
+        source = """module test::island_member_read;
+sole struct Token { value: u32; }
+fn main(token: island Token) -> void {
+    let value: u32 = token.value;
+    return;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<island-member-read>"
+        )
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(
+            parsed, typed, "main"
+        )
+        self.assertIs(
+            trace.final_env.state_of("token"),
+            typed_ast.VarState.LIVE,
+        )
+        self.assertIs(
+            trace.final_env.domain_of("token"),
+            typed_ast.OwnershipDomain.ISLAND,
+        )
+
     def test_explicit_island_return_preserves_domain(self):
         source = """module test::island_return;
 sole struct Token { value: u32; }
