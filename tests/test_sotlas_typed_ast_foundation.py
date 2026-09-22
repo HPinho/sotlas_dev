@@ -810,6 +810,25 @@ fn forward(token: island Token) -> island Token {
             typed_ast.OwnershipDomain.ISLAND,
         )
 
+    def test_domain_graph_freezes_quarantine_source_point(self):
+        source = """module test::domain_point;
+sole struct Token { value: u32; }
+
+fn isolate(token: Token) -> void {
+    quarantine token;
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, "<domain-point>")
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        analysis = typed_ast.analyze_module_ownership(parsed, typed)
+        graph = typed_ast.build_ownership_domain_graph(analysis)
+        transfer = next(
+            item for item in graph.transfers
+            if item.via == "quarantine"
+        )
+        self.assertEqual(transfer.point_id, "quarantine@5:5")
+
     def test_island_return_cannot_implicitly_become_exclusive(self):
         source = """module test::island_return_escape;
 sole struct Token { value: u32; }

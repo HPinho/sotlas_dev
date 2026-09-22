@@ -92,14 +92,17 @@ class OwnershipDomainTransferInst(SIRInstruction):
     source_domain: str
     target_domain: str
     destination: Optional[SIRValue] = None
+    point_id: str | None = None
 
     def __str__(self) -> str:
         destination = (
             f" -> {self.destination}" if self.destination is not None else ""
         )
+        point = f" // {self.point_id}" if self.point_id else ""
         return (
             f"  ownership_transfer {self.operation} {self.source}"
             f"{destination} [{self.source_domain}->{self.target_domain}]"
+            f"{point}"
         )
 
 

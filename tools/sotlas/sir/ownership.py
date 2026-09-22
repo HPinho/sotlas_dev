@@ -233,6 +233,14 @@ def lower_ownership_domain_graph(
                     )
                 destination_value = SIRValue(destination, type_name)
 
+        point_id = getattr(transfer, "point_id", None)
+        if point_id is not None and not str(point_id).startswith(
+            f"{operation}@"
+        ):
+            raise ValueError(
+                f"ownership domain graph has invalid source point "
+                f"{point_id!r} for {function_name}::{binding}"
+            )
         instructions.append(
             OwnershipDomainTransferInst(
                 operation=operation,
@@ -240,6 +248,7 @@ def lower_ownership_domain_graph(
                 source_domain=source_domain,
                 target_domain=target_domain,
                 destination=destination_value,
+                point_id=point_id,
             )
         )
 
@@ -314,6 +323,7 @@ def lower_ownership_domain_trace(trace: Any) -> OwnershipDomainSIRPlan:
                 source_domain=source_domain,
                 target_domain=target_domain,
                 destination=destination_value,
+                point_id=getattr(event, "point_id", None),
             )
         )
 
@@ -337,17 +347,45 @@ def _ownership_domain_transfer_replacements(
             f"{len(markers)} marker(s) vs {len(plan.instructions)} transfer(s)"
         )
 
-    seen_points: set[str] = set()
-    for marker, transfer in zip(markers, plan.instructions):
-        if marker.point_id in seen_points:
+    marker_by_point: dict[str, OwnershipDomainPointInst] = {}
+    for marker in markers:
+        if marker.point_id in marker_by_point:
             raise ValueError(
                 f"duplicate ownership domain SIR point {marker.point_id!r}"
             )
-        seen_points.add(marker.point_id)
         if not marker.point_id.startswith(f"{marker.operation}@"):
             raise ValueError(
                 f"invalid ownership domain point identity {marker.point_id!r}"
             )
+        marker_by_point[marker.point_id] = marker
+
+    exact = all(
+        getattr(transfer, "point_id", None) is not None
+        for transfer in plan.instructions
+    )
+    pairs: list[
+        tuple[OwnershipDomainPointInst, OwnershipDomainTransferInst]
+    ] = []
+    if exact:
+        seen_transfer_points: set[str] = set()
+        for transfer in plan.instructions:
+            point_id = str(transfer.point_id)
+            if point_id in seen_transfer_points:
+                raise ValueError(
+                    f"duplicate ownership domain transfer point {point_id!r}"
+                )
+            seen_transfer_points.add(point_id)
+            marker = marker_by_point.get(point_id)
+            if marker is None:
+                raise ValueError(
+                    f"ownership domain transfer point {point_id!r} "
+                    f"missing from SIR CFG for {function.name!r}"
+                )
+            pairs.append((marker, transfer))
+    else:
+        pairs = list(zip(markers, plan.instructions))
+
+    for marker, transfer in pairs:
         if marker.operation != transfer.operation:
             raise ValueError(
                 f"ownership domain operation mismatch at {marker.point_id!r}"
@@ -365,10 +403,7 @@ def _ownership_domain_transfer_replacements(
                 f"ownership domain destination mismatch at {marker.point_id!r}"
             )
 
-    return {
-        id(marker): transfer
-        for marker, transfer in zip(markers, plan.instructions)
-    }
+    return {id(marker): transfer for marker, transfer in pairs}
 
 
 def _commit_ownership_domain_replacements(

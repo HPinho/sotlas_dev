@@ -1279,6 +1279,8 @@ def _apply_explicit_handover(
     expr,
     events: list[OwnershipEvent],
     destination=None,
+    *,
+    point_id: str | None = None,
 ) -> OwnershipEnv:
     """Apply explicit ownership transfer between canonical domains.
 
@@ -1381,6 +1383,7 @@ def _apply_explicit_handover(
             source_domain,
             type=type_info,
             destination=destination_name,
+            point_id=point_id,
             source_domain=source_domain,
             target_domain=(
                 OwnershipDomain.EXCLUSIVE
@@ -1400,6 +1403,8 @@ def _apply_quarantine(
     env: OwnershipEnv,
     expr,
     events: list[OwnershipEvent],
+    *,
+    point_id: str | None = None,
 ) -> OwnershipEnv:
     """Move one LIVE exclusive binding into the canonical island domain."""
     if type(expr).__name__ != "Name":
@@ -1440,6 +1445,7 @@ def _apply_quarantine(
             name,
             "quarantine",
             OwnershipDomain.ISLAND,
+            point_id=point_id,
             type=transition.type,
             source_domain=transition.source,
             target_domain=transition.target,
@@ -1623,6 +1629,7 @@ def analyze_linear_function_ownership(
                 getattr(statement, "value", None),
                 events,
                 getattr(statement, "destination", None),
+                point_id=_cleanup_point_id(statement, "handover"),
             )
             continue
 
@@ -1631,6 +1638,7 @@ def analyze_linear_function_ownership(
                 env,
                 getattr(statement, "value", None),
                 events,
+                point_id=_cleanup_point_id(statement, "quarantine"),
             )
             continue
 
@@ -1872,6 +1880,7 @@ def _analyze_block_ownership(
                 getattr(statement, "value", None),
                 events,
                 getattr(statement, "destination", None),
+                point_id=_cleanup_point_id(statement, "handover"),
             )
             continue
 
@@ -1880,6 +1889,7 @@ def _analyze_block_ownership(
                 result,
                 getattr(statement, "value", None),
                 events,
+                point_id=_cleanup_point_id(statement, "quarantine"),
             )
             continue
 
@@ -2459,6 +2469,7 @@ class OwnershipDomainTransfer:
     domain: OwnershipDomain
     via: str
     destination: str | None = None
+    point_id: str | None = field(default=None, compare=False)
     source_domain: OwnershipDomain | None = field(default=None, compare=False)
     target_domain: OwnershipDomain | None = field(default=None, compare=False)
     destination_domain: OwnershipDomain | None = field(default=None, compare=False)
@@ -2588,6 +2599,7 @@ def build_ownership_domain_graph(
                         domain=binding.domain,
                         via=event.via,
                         destination=event.destination,
+                        point_id=event.point_id,
                         source_domain=source_domain,
                         target_domain=target_domain,
                         destination_domain=destination_domain,

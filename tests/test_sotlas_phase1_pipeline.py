@@ -85,6 +85,10 @@ fn isolate(token: Token) -> void {
         self.assertEqual(
             transfer.source.name, graph_transfer.binding
         )
+        self.assertEqual(
+            transfer.point_id, graph_transfer.point_id
+        )
+        self.assertTrue(transfer.point_id.startswith("quarantine@"))
 
     def test_public_phase1_pipeline_exposes_empty_ownership_sir_for_plain_code(self):
         source = """module test::phase1_plain_sir;

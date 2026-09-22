@@ -760,6 +760,95 @@ class SotlasSIRTests(unittest.TestCase):
         )
         self.assertEqual(plan.functions[0].shared.semantic, ())
 
+    def test_domain_graph_preserves_source_stable_transfer_points(self):
+        token_type = SimpleNamespace(name="Token")
+        graph = SimpleNamespace(
+            nodes=(
+                SimpleNamespace(
+                    function="isolate", binding="token", type=token_type
+                ),
+            ),
+            transfers=(
+                SimpleNamespace(
+                    function="isolate",
+                    binding="token",
+                    via="quarantine",
+                    destination=None,
+                    point_id="quarantine@5:5",
+                    source_domain=SimpleNamespace(value="exclusive"),
+                    target_domain=SimpleNamespace(value="island"),
+                    destination_domain=None,
+                ),
+            ),
+        )
+        plan = lower_ownership_domain_graph(graph, "isolate")
+        self.assertEqual(
+            plan.instructions[0].point_id, "quarantine@5:5"
+        )
+
+    def test_domain_transfer_placement_matches_exact_source_point_not_order(self):
+        fn = SIRFunction("isolate", [], "void")
+        block = fn.add_block("0")
+        second = OwnershipDomainPointInst(
+            "handover", "token", "peer", "handover@6:5"
+        )
+        first = OwnershipDomainPointInst(
+            "quarantine", "token", None, "quarantine@5:5"
+        )
+        # Deliberately reverse CFG marker order. Canonical point IDs must win.
+        block.add(second)
+        block.add(first)
+
+        token = SIRValue("token", "Token")
+        peer = SIRValue("peer", "Token")
+        plan = OwnershipDomainSIRPlan((
+            OwnershipDomainTransferInst(
+                "quarantine", token, "exclusive", "island",
+                point_id="quarantine@5:5",
+            ),
+            OwnershipDomainTransferInst(
+                "handover", token, "island", "exclusive", peer,
+                point_id="handover@6:5",
+            ),
+        ))
+
+        placement = place_ownership_domain_transfers(fn, plan)
+
+        self.assertEqual(placement.inserted_instructions, 2)
+        self.assertEqual(
+            tuple(item.operation for item in block.instructions),
+            ("handover", "quarantine"),
+        )
+        self.assertEqual(
+            tuple(item.point_id for item in block.instructions),
+            ("handover@6:5", "quarantine@5:5"),
+        )
+
+    def test_domain_transfer_placement_rejects_missing_exact_source_point(self):
+        fn = SIRFunction("isolate", [], "void")
+        block = fn.add_block("0")
+        marker = OwnershipDomainPointInst(
+            "quarantine", "token", None, "quarantine@5:5"
+        )
+        block.add(marker)
+        plan = OwnershipDomainSIRPlan((
+            OwnershipDomainTransferInst(
+                "quarantine",
+                SIRValue("token", "Token"),
+                "exclusive",
+                "island",
+                point_id="quarantine@99:1",
+            ),
+        ))
+
+        with self.assertRaisesRegex(
+            ValueError,
+            r"transfer point 'quarantine@99:1' missing from SIR CFG",
+        ):
+            place_ownership_domain_transfers(fn, plan)
+
+        self.assertIs(block.instructions[0], marker)
+
     def test_domain_trace_lowers_quarantine_and_handover(self):
         token_type = SimpleNamespace(name="Token")
         exclusive = SimpleNamespace(value="exclusive")
