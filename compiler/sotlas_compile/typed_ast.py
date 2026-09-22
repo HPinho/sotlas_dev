@@ -998,7 +998,6 @@ def _move_call_arguments(
                         "move",
                         name,
                         f"call:{callee.name}",
-                        OwnershipDomain.EXCLUSIVE,
                         source_domain=OwnershipDomain.EXCLUSIVE,
                         target_domain=OwnershipDomain.EXCLUSIVE,
                     )
@@ -1068,7 +1067,6 @@ def _move_method_call_arguments(
                         "move",
                         name,
                         f"method:{callee.name}",
-                        OwnershipDomain.EXCLUSIVE,
                         source_domain=OwnershipDomain.EXCLUSIVE,
                         target_domain=OwnershipDomain.EXCLUSIVE,
                     )
