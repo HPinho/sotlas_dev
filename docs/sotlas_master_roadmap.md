@@ -3867,7 +3867,7 @@ Ainda necessário para concluir a Fase 2 canônica:
 - [ ] integração completa com `defer`, cleanup e unwind/early-return de todos os recursos;
 - [x] identidade source-stable de registros `defer` é preservada separadamente da identidade do control-exit, preparando lowering executável sem apagar payload;
 - [x] `defer Name;` sobre owner shared possui operação SIR explícita (`DeferUseInst`) e placement antes de ARC em break/continue;
-- [x] chamadas diretas diferidas com argumentos nomeados e tipados pelo plano shared geram `CallInst` uma vez por defer, antes do ARC, preservando `defer@L:C`; demais formatos de call e payloads de assign/block/method/try permanecem fail-closed;
+- [x] payloads de chamadas diretas diferidas já validados semanticamente podem gerar `CallInst` uma vez por defer, antes do ARC, preservando `defer@L:C`; transferência implícita `shared → sole` é rejeitada até existir `handover`/reacquisition explícito, e demais formatos de call/assign/block/method/try permanecem fail-closed;
 - [x] primeiro lowering backend-neutral de shared ownership para plano SIR explícito (`share/retain/release/destroy`), ainda sem placement CFG;
 - [x] identidade source-stable para pontos de cleanup ownership em return/break/continue/backedge, preservada no plano SIR;
 - [x] placement real de cleanup ARC imediatamente antes de `ReturnInst` identificado por `point_id`, com erro para pontos ausentes/duplicados;

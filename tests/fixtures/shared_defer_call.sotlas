@@ -1,3 +1,4 @@
+// Negative ownership fixture: shared -> sole-consuming deferred call requires explicit handover.
 module test::defer_call;
 
 sole struct Token { value: u32; }

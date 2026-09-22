@@ -888,6 +888,33 @@ fn main(token: Token) -> void {
             trace.events,
         )
 
+    def test_shared_defer_registration_does_not_move_owner(self):
+        source = """module test::shared_defer_registration_live;
+sole struct Token { value: u32; }
+fn main(token: Token) -> void {
+    let peer = share token;
+    defer peer;
+    peer.value;
+    return;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<shared-defer-registration-live>"
+        )
+        bootstrap.check(parsed)
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(
+            parsed, typed_module, "main"
+        )
+        self.assertIs(
+            trace.final_env.state_of("peer"),
+            typed_ast.VarState.LIVE,
+        )
+        self.assertIs(
+            trace.final_env.domain_of("peer"),
+            typed_ast.OwnershipDomain.SHARED,
+        )
+
     def test_shared_exit_runs_defer_before_arc_releases(self):
         source = """module test::shared_defer_order;
 sole struct Token { value: u32; }
@@ -1228,31 +1255,44 @@ fn main(flag: bool) -> void {
         self.assertTrue(actions[0].defer_point_id.startswith("defer@"))
         self.assertNotEqual(actions[0].point_id, actions[0].defer_point_id)
 
-    def test_loop_control_preserves_direct_deferred_call(self):
+    def test_shared_deferred_call_to_sole_parameter_requires_handover(self):
         fixture = ROOT / "tests" / "fixtures" / "shared_defer_call.sotlas"
         source = fixture.read_text(encoding="utf-8")
         parsed = bootstrap.parse(source, filename="<defer-call>")
         bootstrap.check(parsed)
-        with self.assertRaisesRegex(
-            bootstrap.SotlasBootstrapError, "share|shared|ARC"
-        ):
-            bootstrap.emit_c(parsed)
         typed_module = typed_ast.build_declaration_typed_ast(parsed)
-        trace = typed_ast.analyze_function_ownership(
-            parsed, typed_module, "main"
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"shared owner 'peer' cannot be consumed by sole parameter "
+            r"of 'inspect' without explicit handover",
+        ):
+            typed_ast.analyze_function_ownership(
+                parsed, typed_module, "main"
+            )
+
+    def test_direct_shared_call_to_sole_parameter_requires_handover(self):
+        source = """module test::shared_call_requires_handover;
+sole struct Token { value: u32; }
+fn consume(token: Token) -> void { return; }
+fn main(token: Token) -> void {
+    let peer = share token;
+    consume(peer);
+    return;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<shared-call-requires-handover>"
         )
-        self.assertEqual(
-            trace.shared_loop_control_exit.actions[0].defer_call,
-            ("inspect", ("peer",)),
-        )
-        sys.path.insert(0, str(ROOT / "tools"))
-        from sotlas.sir import CallInst, lower_shared_ownership_trace
-        segment = next(
-            item for item in lower_shared_ownership_trace(trace).cleanup_segments
-            if item.via == "loop_control:continue"
-        )
-        self.assertIsInstance(segment.instructions[0], CallInst)
-        self.assertEqual(segment.instructions[0].arguments[0].name, "peer")
+        bootstrap.check(parsed)
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"shared owner 'peer' cannot be consumed by sole parameter "
+            r"of 'consume' without explicit handover",
+        ):
+            typed_ast.analyze_function_ownership(
+                parsed, typed_module, "main"
+            )
 
     def test_shared_deferred_member_call_remains_fail_closed_in_sir(self):
         source = """module test::defer_member_call;

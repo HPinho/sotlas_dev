@@ -926,6 +926,11 @@ def _move_call_arguments(
                 moved_argument = getattr(argument, "value", None)
             if type(moved_argument).__name__ == "Name":
                 name = moved_argument.value
+                if result.domain_of(name) is OwnershipDomain.SHARED:
+                    raise Phase1SemanticError(
+                        f"shared owner {name!r} cannot be consumed by sole "
+                        f"parameter of {callee.name!r} without explicit handover"
+                    )
                 result = result.move(name)
                 events.append(OwnershipEvent("move", name, f"call:{callee.name}"))
                 continue
@@ -966,6 +971,11 @@ def _move_method_call_arguments(
                 moved_argument = getattr(argument, "value", None)
             if type(moved_argument).__name__ == "Name":
                 name = moved_argument.value
+                if result.domain_of(name) is OwnershipDomain.SHARED:
+                    raise Phase1SemanticError(
+                        f"shared owner {name!r} cannot be consumed by sole "
+                        f"parameter of method {callee.name!r} without explicit handover"
+                    )
                 result = result.move(name)
                 events.append(
                     OwnershipEvent("move", name, f"method:{callee.name}")

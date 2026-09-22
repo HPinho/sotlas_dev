@@ -214,8 +214,9 @@ Fase 2 — Ownership Domains                  ~98%
 ✅ control-exit point and defer-registration point remain distinct
 ✅ SIR rejects anonymous/invalid defer obligations fail-closed
 ✅ expression-name defer lowers to DeferUseInst before ARC cleanup       ← NOVO
-✅ direct deferred calls with named, typed shared arguments lower once to CallInst before ARC
+✅ SIR can lower validated direct deferred-call payloads once to CallInst before ARC
 ✅ break/continue placement preserves defer → release → destroy order    ← NOVO
+✅ shared → sole-consuming call/defer-call requires explicit handover            ← CORRIGIDO
 ✅ unsupported call shapes and assign/block/method/try defer payloads remain fail-closed
 
 ⬜ general call/assign/block/method/try defer payload lowering
