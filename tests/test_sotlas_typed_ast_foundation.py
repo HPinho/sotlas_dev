@@ -1551,7 +1551,7 @@ fn main(source: Token, destination: Token) -> void {
         with self.assertRaisesRegex(
             typed_ast.Phase1SemanticError,
             r"handover destination 'destination' must be MOVED before "
-            r"reacquisition, got live",
+            r"reacquisition, got LIVE",
         ):
             typed_ast.analyze_function_ownership(
                 parsed, typed, "main"
