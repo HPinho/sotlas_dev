@@ -1344,6 +1344,68 @@ fn main(token: Token) -> void {
             {"share@4:5"},
         )
 
+    def test_domain_graph_materializes_canonical_shared_account(self):
+        source = """module test::shared_graph;
+sole struct Token { value: u32; }
+fn main(token: Token) -> void {
+    let peer = share token;
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<shared-graph>")
+        bootstrap.check(parsed)
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        analysis = typed_ast.analyze_module_ownership(parsed, typed_module)
+        graph = typed_ast.build_ownership_domain_graph(analysis)
+
+        self.assertEqual(len(graph.planned_transitions), 1)
+        transition = graph.planned_transitions[0]
+        self.assertEqual(transition.binding, "token")
+        self.assertEqual(transition.function, "main")
+        self.assertEqual(transition.point_id, "share@4:5")
+        self.assertIs(
+            transition.source, typed_ast.OwnershipDomain.EXCLUSIVE
+        )
+        self.assertIs(
+            transition.target, typed_ast.OwnershipDomain.SHARED
+        )
+
+        self.assertEqual(len(graph.shared_accounts), 1)
+        account = graph.shared_accounts[0]
+        self.assertEqual(account.binding, "token")
+        self.assertEqual(account.function, "main")
+        self.assertEqual(account.owners, ("token", "peer"))
+        self.assertEqual(account.strong_refs, 2)
+        self.assertEqual(account.point_id, "share@4:5")
+        self.assertEqual(account.accounting, "arc")
+
+    def test_domain_graph_shared_accounts_are_function_scoped(self):
+        source = """module test::shared_graph_scope;
+sole struct Token { value: u32; }
+fn first(token: Token) -> void {
+    let peer = share token;
+    return;
+}
+fn second(token: Token) -> void {
+    let peer = share token;
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<shared-graph-scope>")
+        bootstrap.check(parsed)
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        analysis = typed_ast.analyze_module_ownership(parsed, typed_module)
+        graph = typed_ast.build_ownership_domain_graph(analysis)
+
+        self.assertEqual(len(graph.shared_accounts), 2)
+        self.assertEqual(
+            {account.function for account in graph.shared_accounts},
+            {"first", "second"},
+        )
+        self.assertTrue(
+            all(account.binding == "token" for account in graph.shared_accounts)
+        )
+
     def test_public_share_syntax_remains_fail_closed_in_c11(self):
         source = """module test::share_c11_gate;
 sole struct Token { value: u32; }

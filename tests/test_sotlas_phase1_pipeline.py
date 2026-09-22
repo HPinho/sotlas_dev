@@ -90,6 +90,28 @@ fn isolate(token: Token) -> void {
         )
         self.assertTrue(transfer.point_id.startswith("quarantine@"))
 
+    def test_public_phase1_pipeline_exposes_canonical_shared_graph_account(self):
+        source = """module test::phase1_shared_graph;
+sole struct Token { value: u32; }
+
+fn main(token: Token) -> void {
+    let peer = share token;
+    return;
+}
+"""
+        result = sotlas_compile.analyze_source_phase1(
+            source, filename="<phase1-shared-graph>"
+        )
+        graph = result.semantic.ownership_domains
+        self.assertEqual(len(graph.planned_transitions), 1)
+        self.assertEqual(len(graph.shared_accounts), 1)
+        account = graph.shared_accounts[0]
+        self.assertEqual(account.function, "main")
+        self.assertEqual(account.binding, "token")
+        self.assertEqual(account.owners, ("token", "peer"))
+        self.assertEqual(account.strong_refs, 2)
+        self.assertTrue(account.point_id.startswith("share@"))
+
     def test_public_phase1_pipeline_exposes_empty_ownership_sir_for_plain_code(self):
         source = """module test::phase1_plain_sir;
 fn main(value: u32) -> u32 {

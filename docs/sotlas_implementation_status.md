@@ -127,7 +127,7 @@ Auditoria detalhada da Fase 0: [phase0_reality_audit.md](phase0_reality_audit.md
 ```text
 Fase 0 — Reality Reset              ~80%
 Fase 1 — Typed Semantic Core       100% ✅
-Fase 2 — Ownership Domains          ~70% 🟡
+Fase 2 — Ownership Domains          ~71% 🟡
 Fase 3 — Authority Domains          ~10%
 Fase 4 — State Spaces                ~0%
 Fase 5 — Effects                    ~10%
@@ -153,7 +153,7 @@ Este índice geral é apenas uma leitura agregada conservadora das fases acima; 
 | Macroentrega | Estado aproximado | Observação |
 |---|---:|---|
 | `sole` / `exclusive` | ~100% semântico | domínio explícito congelado em structs, parâmetros, retornos, bindings e graph; backend geral da Fase 2 continua separado |
-| `shared` / co-owned / ARC semântico | ~75% | frontend, accounting, cleanup e SIR avançados; runtime/backend e e2e ainda faltam |
+| `shared` / co-owned / ARC semântico | ~80% | frontend, accounting, cleanup e SIR avançados; runtime/backend e e2e ainda faltam |
 | CFG + cleanup + defer para ownership | ~65% | vários paths reais cobertos; CFG arbitrário e todos os payloads de defer ainda não |
 | `region` | ~0% | ainda não implementado |
 | `device` | ~0% | ainda não implementado |
@@ -165,12 +165,12 @@ Este índice geral é apenas uma leitura agregada conservadora das fases acima; 
 | `quarantine` | ~40% | EXCLUSIVE→ISLAND é fato de transição explícito e validado no Ownership Domain Graph; weak invalidation/runtime/e2e faltam |
 | runtime/backend + e2e por domínio | ~5% | gates/fail-closed existem, mas execução real de Ownership Domains ainda não |
 
-A combinação ponderada dessas macroentregas coloca a Fase 2 em **~70%**.
+A combinação ponderada dessas macroentregas coloca a Fase 2 em **~71%**.
 
 ### Fase 2 detalhada
 
 ```text
-Fase 2 — Ownership Domains                  ~70%
+Fase 2 — Ownership Domains                  ~71%
 
 ✅ sole / exclusive
 ✅ move semantics
@@ -242,6 +242,10 @@ Fase 2 — Ownership Domains                  ~70%
 ✅ duplicate/missing shared semantic source points fail before module CFG mutation       ← NOVO
 ✅ checked frontend module can generate + ownership-place one SIRModule in one API       ← NOVO
 ✅ canonical OwnershipDomainGraph now drives quarantine/handover SIR lowering              ← NOVO
+✅ OwnershipDomainGraph now materializes canonical EXCLUSIVE→SHARED transitions             ← NOVO
+✅ graph shared_accounts preserve function/account/owners/strong_refs/share@L:C              ← NOVO
+✅ shared account identity is function-scoped even when local binding names repeat           ← NOVO
+✅ retain without canonical share account or with mismatched source point fails-closed       ← NOVO
 ✅ public checked pipeline composes graph-based domains with trace-based shared/ARC         ← NOVO
 ✅ missing canonical graph node/type/domain facts fail-closed before SIR placement          ← NOVO
 ✅ quarantine/handover source points are frozen into OwnershipDomainGraph transfers          ← NOVO

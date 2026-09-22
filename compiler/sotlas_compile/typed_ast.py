@@ -220,6 +220,8 @@ class OwnershipDomainTransition:
     target: OwnershipDomain
     source_state: VarState
     operation: str
+    function: str | None = field(default=None, compare=False)
+    point_id: str | None = field(default=None, compare=False)
 
 
 def plan_ownership_domain_transition(
@@ -281,6 +283,9 @@ class SharedOwnershipAccount:
     type: SemanticType
     strong_refs: int
     accounting: str = "arc"
+    function: str | None = field(default=None, compare=False)
+    owners: tuple[str, ...] = field(default=(), compare=False)
+    point_id: str | None = field(default=None, compare=False)
 
     @property
     def should_destroy(self) -> bool:
@@ -322,6 +327,9 @@ def retain_shared_owner(
         type=account.type,
         strong_refs=account.strong_refs + 1,
         accounting=account.accounting,
+        function=account.function,
+        owners=account.owners,
+        point_id=account.point_id,
     )
 
 
@@ -338,6 +346,9 @@ def release_shared_owner(
         type=account.type,
         strong_refs=account.strong_refs - 1,
         accounting=account.accounting,
+        function=account.function,
+        owners=account.owners,
+        point_id=account.point_id,
     )
 
 
@@ -2512,6 +2523,8 @@ def build_ownership_domain_graph(
     nodes: list[OwnershipDomainNode] = []
     transfers: list[OwnershipDomainTransfer] = []
     merges: list[OwnershipDomainMerge] = []
+    planned_transitions: list[OwnershipDomainTransition] = []
+    shared_accounts: list[SharedOwnershipAccount] = []
     node_keys: set[str] = set()
 
     for function_name, trace in analysis.traces:
@@ -2531,7 +2544,98 @@ def build_ownership_domain_graph(
             node_keys.add(node.key)
             nodes.append(node)
 
+        shared_by_account: dict[str, dict[str, object]] = {}
+
         for event in trace.events:
+            if (
+                event.kind == "domain_transition"
+                and event.domain is OwnershipDomain.SHARED
+                and event.via.startswith("share:")
+            ):
+                binding = bindings.get(event.name)
+                if binding is None:
+                    raise Phase1SemanticError(
+                        f"shared transition for untracked binding "
+                        f"{function_name}::{event.name}"
+                    )
+                if binding.domain is not OwnershipDomain.SHARED:
+                    raise Phase1SemanticError(
+                        f"shared transition final domain mismatch for "
+                        f"{function_name}::{event.name}"
+                    )
+                alias = event.via.split(":", 1)[1]
+                point_id = event.point_id
+                if point_id is None or not point_id.startswith("share@"):
+                    raise Phase1SemanticError(
+                        f"shared transition for {function_name}::{event.name} "
+                        "lacks canonical share source point"
+                    )
+                if event.name in shared_by_account:
+                    raise Phase1SemanticError(
+                        f"duplicate shared ownership account for "
+                        f"{function_name}::{event.name}"
+                    )
+                type_info = event.type or binding.type
+                planned_transitions.append(
+                    OwnershipDomainTransition(
+                        binding=event.name,
+                        type=type_info,
+                        source=OwnershipDomain.EXCLUSIVE,
+                        target=OwnershipDomain.SHARED,
+                        source_state=VarState.LIVE,
+                        operation="share",
+                        function=function_name,
+                        point_id=point_id,
+                    )
+                )
+                shared_by_account[event.name] = {
+                    "type": type_info,
+                    "owners": [event.name],
+                    "point_id": point_id,
+                    "expected_alias": alias,
+                }
+                continue
+
+            if (
+                event.kind == "retain"
+                and event.domain is OwnershipDomain.SHARED
+                and event.via.startswith("share:")
+            ):
+                account_name = event.via.split(":", 1)[1]
+                account = shared_by_account.get(account_name)
+                if account is None:
+                    raise Phase1SemanticError(
+                        f"retain for unknown canonical shared account "
+                        f"{function_name}::{account_name}"
+                    )
+                if event.point_id != account["point_id"]:
+                    raise Phase1SemanticError(
+                        f"retain source point mismatch for "
+                        f"{function_name}::{event.name}"
+                    )
+                alias_binding = bindings.get(event.name)
+                if (
+                    alias_binding is None
+                    or alias_binding.domain is not OwnershipDomain.SHARED
+                ):
+                    raise Phase1SemanticError(
+                        f"retain owner {function_name}::{event.name} is not "
+                        "a tracked shared binding"
+                    )
+                expected_alias = account["expected_alias"]
+                if expected_alias and event.name != expected_alias:
+                    raise Phase1SemanticError(
+                        f"retain alias mismatch for canonical shared account "
+                        f"{function_name}::{account_name}"
+                    )
+                owners = account["owners"]
+                if event.name in owners:
+                    raise Phase1SemanticError(
+                        f"duplicate retain owner {function_name}::{event.name}"
+                    )
+                owners.append(event.name)
+                continue
+
             if event.kind in ("move", "handover", "quarantine"):
                 binding = bindings.get(event.name)
                 if binding is None:
@@ -2629,8 +2733,32 @@ def build_ownership_domain_graph(
                     )
                 )
 
+        for account_name, data in shared_by_account.items():
+            owners = tuple(data["owners"])
+            expected_alias = data["expected_alias"]
+            if expected_alias and expected_alias not in owners:
+                raise Phase1SemanticError(
+                    f"shared account {function_name}::{account_name} lacks "
+                    f"retain event for alias {expected_alias!r}"
+                )
+            shared_accounts.append(
+                SharedOwnershipAccount(
+                    binding=account_name,
+                    type=data["type"],
+                    strong_refs=len(owners),
+                    accounting="arc",
+                    function=function_name,
+                    owners=owners,
+                    point_id=data["point_id"],
+                )
+            )
+
     return OwnershipDomainGraph(
-        tuple(nodes), tuple(transfers), tuple(merges)
+        tuple(nodes),
+        tuple(transfers),
+        tuple(merges),
+        tuple(planned_transitions),
+        tuple(shared_accounts),
     )
 
 
