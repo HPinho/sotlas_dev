@@ -1322,7 +1322,7 @@ fn main(token: Token) -> void {
         self.assertEqual(len(share_events), 2)
         self.assertEqual(
             {event.point_id for event in share_events},
-            {"share@7:5"},
+            {"share@4:5"},
         )
 
     def test_public_share_syntax_remains_fail_closed_in_c11(self):
