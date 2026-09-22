@@ -9,7 +9,7 @@ Maturity: ISOLATED_PHASE1.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 
@@ -527,9 +527,9 @@ class OwnershipEvent:
     defer_call: tuple[str, tuple[str, ...]] | None = None
     type: SemanticType | None = None
     destination: str | None = None
-    source_domain: OwnershipDomain | None = None
-    target_domain: OwnershipDomain | None = None
-    destination_domain: OwnershipDomain | None = None
+    source_domain: OwnershipDomain | None = field(default=None, compare=False)
+    target_domain: OwnershipDomain | None = field(default=None, compare=False)
+    destination_domain: OwnershipDomain | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True)
@@ -2215,9 +2215,9 @@ class OwnershipDomainTransfer:
     domain: OwnershipDomain
     via: str
     destination: str | None = None
-    source_domain: OwnershipDomain | None = None
-    target_domain: OwnershipDomain | None = None
-    destination_domain: OwnershipDomain | None = None
+    source_domain: OwnershipDomain | None = field(default=None, compare=False)
+    target_domain: OwnershipDomain | None = field(default=None, compare=False)
+    destination_domain: OwnershipDomain | None = field(default=None, compare=False)
 
     @property
     def source_key(self) -> str:
