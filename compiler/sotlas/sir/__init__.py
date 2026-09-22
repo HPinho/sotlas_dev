@@ -11,6 +11,7 @@ from .instructions import (
     StoreInst,
     LoadInst,
     CallInst,
+    OwnershipDomainTransferInst,
     ShareInst,
     RetainInst,
     ReleaseInst,
@@ -28,6 +29,8 @@ from .instructions import (
 )
 from .generator import SIRGenerator
 from .ownership import (
+    OwnershipDomainSIRPlan,
+    lower_ownership_domain_trace,
     SharedOwnershipSIRSegment,
     SharedOwnershipSIRPlan,
     SharedOwnershipSIRPlacement,
@@ -52,6 +55,7 @@ __all__ = [
     "StoreInst",
     "LoadInst",
     "CallInst",
+    "OwnershipDomainTransferInst",
     "ShareInst",
     "RetainInst",
     "ReleaseInst",
@@ -65,6 +69,8 @@ __all__ = [
     "SIRFunction",
     "SIRModule",
     "SIRGenerator",
+    "OwnershipDomainSIRPlan",
+    "lower_ownership_domain_trace",
     "SharedOwnershipSIRSegment",
     "SharedOwnershipSIRPlan",
     "SharedOwnershipSIRPlacement",

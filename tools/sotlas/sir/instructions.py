@@ -68,6 +68,24 @@ class CallInst(SIRInstruction):
 
 
 @dataclass
+class OwnershipDomainTransferInst(SIRInstruction):
+    operation: str
+    source: SIRValue
+    source_domain: str
+    target_domain: str
+    destination: Optional[SIRValue] = None
+
+    def __str__(self) -> str:
+        destination = (
+            f" -> {self.destination}" if self.destination is not None else ""
+        )
+        return (
+            f"  ownership_transfer {self.operation} {self.source}"
+            f"{destination} [{self.source_domain}->{self.target_domain}]"
+        )
+
+
+@dataclass
 class ShareInst(SIRInstruction):
     value: SIRValue
 

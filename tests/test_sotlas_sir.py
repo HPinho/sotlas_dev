@@ -10,7 +10,9 @@ sys.path.insert(0, str(ROOT / "tools"))
 from sotlas.sir import (
     SIRModule, SIRFunction, SIRBasicBlock, SIRValue,
     AllocStackInst, StoreInst, LoadInst, CallInst, ReturnInst, BranchInst, CondBranchInst,
+    OwnershipDomainTransferInst,
     ShareInst, RetainInst, ReleaseInst, DestroyInst, DeferUseInst,
+    lower_ownership_domain_trace,
     lower_shared_ownership_trace, place_shared_return_cleanup,
     place_shared_loop_control_cleanup, place_shared_loop_backedge_cleanup,
     apply_shared_ownership_trace,
@@ -47,6 +49,109 @@ class SotlasSIRTests(unittest.TestCase):
             "defer@7:9",
             str(DeferUseInst(value, "defer@7:9")),
         )
+
+    def test_ownership_domain_transfer_instruction_string(self):
+        source = SIRValue("token", "Token")
+        destination = SIRValue("peer", "Token")
+        quarantine = OwnershipDomainTransferInst(
+            "quarantine", source, "exclusive", "island"
+        )
+        handover = OwnershipDomainTransferInst(
+            "handover", source, "island", "exclusive", destination
+        )
+        self.assertIn("ownership_transfer quarantine", str(quarantine))
+        self.assertIn("[exclusive->island]", str(quarantine))
+        self.assertIn("-> %peer: Token", str(handover))
+        self.assertIn("[island->exclusive]", str(handover))
+
+    def test_domain_trace_lowers_quarantine_and_handover(self):
+        token_type = SimpleNamespace(name="Token")
+        exclusive = SimpleNamespace(value="exclusive")
+        island = SimpleNamespace(value="island")
+        trace = SimpleNamespace(
+            final_env=SimpleNamespace(bindings=(
+                SimpleNamespace(name="source", type=token_type),
+                SimpleNamespace(name="destination", type=token_type),
+            )),
+            events=(
+                SimpleNamespace(
+                    kind="quarantine",
+                    name="source",
+                    type=token_type,
+                    source_domain=exclusive,
+                    target_domain=island,
+                    destination=None,
+                    destination_domain=None,
+                ),
+                SimpleNamespace(
+                    kind="handover",
+                    name="source",
+                    type=token_type,
+                    source_domain=island,
+                    target_domain=exclusive,
+                    destination="destination",
+                    destination_domain=exclusive,
+                ),
+            ),
+        )
+        plan = lower_ownership_domain_trace(trace)
+        self.assertEqual(len(plan.instructions), 2)
+        quarantine, handover = plan.instructions
+        self.assertIsInstance(quarantine, OwnershipDomainTransferInst)
+        self.assertEqual(quarantine.operation, "quarantine")
+        self.assertEqual(quarantine.source_domain, "exclusive")
+        self.assertEqual(quarantine.target_domain, "island")
+        self.assertIsNone(quarantine.destination)
+        self.assertEqual(handover.operation, "handover")
+        self.assertEqual(handover.source_domain, "island")
+        self.assertEqual(handover.target_domain, "exclusive")
+        self.assertEqual(handover.destination.name, "destination")
+
+    def test_domain_trace_rejects_incomplete_quarantine_facts(self):
+        token_type = SimpleNamespace(name="Token")
+        trace = SimpleNamespace(
+            final_env=SimpleNamespace(bindings=(
+                SimpleNamespace(name="token", type=token_type),
+            )),
+            events=(
+                SimpleNamespace(
+                    kind="quarantine",
+                    name="token",
+                    type=token_type,
+                    source_domain=None,
+                    target_domain=SimpleNamespace(value="island"),
+                ),
+            ),
+        )
+        with self.assertRaisesRegex(
+            ValueError,
+            r"lacks complete domains for quarantine 'token'",
+        ):
+            lower_ownership_domain_trace(trace)
+
+    def test_domain_trace_rejects_island_handover_without_destination(self):
+        token_type = SimpleNamespace(name="Token")
+        trace = SimpleNamespace(
+            final_env=SimpleNamespace(bindings=(
+                SimpleNamespace(name="token", type=token_type),
+            )),
+            events=(
+                SimpleNamespace(
+                    kind="handover",
+                    name="token",
+                    type=token_type,
+                    source_domain=SimpleNamespace(value="island"),
+                    target_domain=SimpleNamespace(value="exclusive"),
+                    destination=None,
+                    destination_domain=None,
+                ),
+            ),
+        )
+        with self.assertRaisesRegex(
+            ValueError,
+            r"island handover 'token' requires explicit destination",
+        ):
+            lower_ownership_domain_trace(trace)
 
     def test_shared_ownership_trace_lowers_to_backend_neutral_sir_plan(self):
         token_type = SimpleNamespace(name="Token")

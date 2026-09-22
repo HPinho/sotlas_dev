@@ -16,6 +16,7 @@ from .instructions import (
     SIRFunction,
     ReturnInst,
     BranchInst,
+    OwnershipDomainTransferInst,
     ShareInst,
     RetainInst,
     ReleaseInst,
@@ -23,6 +24,11 @@ from .instructions import (
     DeferUseInst,
     CallInst,
 )
+
+
+@dataclass(frozen=True)
+class OwnershipDomainSIRPlan:
+    instructions: Tuple[SIRInstruction, ...]
 
 
 @dataclass(frozen=True)
@@ -80,6 +86,86 @@ def _value(name: str, types: dict[str, str]) -> SIRValue:
             f"shared ownership SIR lowering lacks type for binding {name!r}"
         )
     return SIRValue(name, type_name)
+
+
+def _domain_name(domain: Any) -> str | None:
+    if domain is None:
+        return None
+    return str(getattr(domain, "value", domain))
+
+
+def lower_ownership_domain_trace(trace: Any) -> OwnershipDomainSIRPlan:
+    """Lower quarantine/handover domain facts into backend-neutral SIR.
+
+    This stage records semantic ownership movement only. It does not select a
+    runtime ABI, emit C, or claim target-specific synchronization behavior.
+    """
+    types = _type_map(trace)
+    instructions: list[SIRInstruction] = []
+
+    for event in getattr(trace, "events", ()) or ():
+        kind = getattr(event, "kind", None)
+        if kind not in ("quarantine", "handover"):
+            continue
+
+        name = getattr(event, "name", "")
+        event_type = getattr(event, "type", None)
+        type_name = getattr(event_type, "name", None)
+        if name and name not in types and type_name:
+            types[name] = type_name
+
+        source_domain = _domain_name(getattr(event, "source_domain", None))
+        target_domain = _domain_name(getattr(event, "target_domain", None))
+        if source_domain is None or target_domain is None:
+            raise ValueError(
+                f"ownership domain SIR lowering lacks complete domains for "
+                f"{kind} {name!r}"
+            )
+
+        if kind == "quarantine":
+            if source_domain != "exclusive" or target_domain != "island":
+                raise ValueError(
+                    f"invalid quarantine ownership transition "
+                    f"{source_domain}->{target_domain} for {name!r}"
+                )
+            destination_value = None
+        else:
+            destination = getattr(event, "destination", None)
+            destination_value = None
+            if destination is not None:
+                destination_domain = _domain_name(
+                    getattr(event, "destination_domain", None)
+                )
+                if destination_domain != target_domain:
+                    raise ValueError(
+                        f"handover destination domain mismatch for {name!r}"
+                    )
+                if destination not in types:
+                    source_type = types.get(name) or type_name
+                    if source_type is None:
+                        raise ValueError(
+                            f"ownership domain SIR lowering lacks type for "
+                            f"handover destination {destination!r}"
+                        )
+                    types[destination] = source_type
+                destination_value = _value(destination, types)
+            elif source_domain == "island":
+                raise ValueError(
+                    f"island handover {name!r} requires explicit destination "
+                    "for SIR lowering"
+                )
+
+        instructions.append(
+            OwnershipDomainTransferInst(
+                operation=kind,
+                source=_value(name, types),
+                source_domain=source_domain,
+                target_domain=target_domain,
+                destination=destination_value,
+            )
+        )
+
+    return OwnershipDomainSIRPlan(tuple(instructions))
 
 
 def _cleanup_instructions(
@@ -504,6 +590,8 @@ def apply_shared_ownership_trace(
     )
 
 __all__ = [
+    "OwnershipDomainSIRPlan",
+    "lower_ownership_domain_trace",
     "SharedOwnershipSIRSegment",
     "SharedOwnershipSIRPlan",
     "SharedOwnershipSIRPlacement",
