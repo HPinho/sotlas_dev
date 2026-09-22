@@ -1057,6 +1057,54 @@ fn main(flag: bool) -> void {
         self.assertIsNone(trace.final_env.domain_of("local"))
         self.assertIsNone(trace.final_env.domain_of("peer"))
 
+    def test_conditional_continue_preserves_normal_backedge_cleanup(self):
+        source = """module test::loop_conditional_continue_cleanup;
+sole struct Token { value: u32; }
+fn main(flag: bool, skip: bool) -> void {
+    while flag {
+        let local: Token = Token { value: 1u32 };
+        let peer = share local;
+        if skip {
+            continue;
+        }
+    }
+    return;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<loop-conditional-continue-cleanup>"
+        )
+        bootstrap.check(parsed)
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(
+            parsed, typed_module, "main"
+        )
+
+        self.assertEqual(
+            tuple(action.kind for action in trace.shared_loop_control_exit.actions),
+            ("release", "release", "destroy"),
+        )
+        self.assertEqual(
+            tuple(step.owner for step in trace.shared_loop_cleanup.steps),
+            ("peer", "local"),
+        )
+        self.assertTrue(
+            all(
+                action.point_id.startswith("continue@")
+                for action in trace.shared_loop_control_exit.actions
+            )
+        )
+        self.assertTrue(
+            all(
+                step.point_id.startswith("while_backedge@")
+                for step in trace.shared_loop_cleanup.steps
+            )
+        )
+        self.assertNotEqual(
+            trace.shared_loop_control_exit.actions[0].point_id,
+            trace.shared_loop_cleanup.steps[0].point_id,
+        )
+
     def test_continue_releases_loop_local_shared_account(self):
         source = """module test::loop_continue_cleanup;
 sole struct Token { value: u32; }

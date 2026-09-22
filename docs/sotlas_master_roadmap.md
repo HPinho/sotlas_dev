@@ -3860,6 +3860,7 @@ Ainda necessário para concluir a Fase 2 canônica:
 - [x] loops exigem invariância de tipo, Ownership Domain e VarState no backedge para bindings visíveis;
 - [x] contas shared criadas inteiramente dentro da iteração recebem cleanup determinístico antes do backedge;
 - [x] break/continue possuem cleanup path-specific para shared locals, inclusive em branches aninhados, com defers LIFO antes dos releases e sem duplicar cleanup de backedge;
+- [x] caminhos condicionais de break/continue são separados do fallthrough: um salto em um ramo não suprime o cleanup do backedge normal do outro ramo;
 - [ ] integração completa com `defer`, cleanup e unwind/early-return de todos os recursos;
 - [x] primeiro lowering backend-neutral de shared ownership para plano SIR explícito (`share/retain/release/destroy`), ainda sem placement CFG;
 - [x] identidade source-stable para pontos de cleanup ownership em return/break/continue/backedge, preservada no plano SIR;

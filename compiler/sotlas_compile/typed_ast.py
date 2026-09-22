@@ -1224,6 +1224,11 @@ def _block_definitely_terminates(statements) -> bool:
     return False
 
 
+def _block_may_fallthrough(statements) -> bool:
+    """Return whether at least one path can reach the end of this block."""
+    return not _block_definitely_terminates(statements)
+
+
 def _statement_definitely_returns(statement) -> bool:
     """Return whether one statement exits the current function on every path."""
     kind = type(statement).__name__
@@ -1534,16 +1539,10 @@ def _analyze_block_ownership(
             )
             then_env = _project_ownership_env(then_env, visible)
             else_env = _project_ownership_env(else_env, visible)
-            then_returns = _block_definitely_returns(then_body)
-            else_returns = _block_definitely_returns(else_body)
-            then_terminates = _block_definitely_terminates(then_body)
-            else_terminates = _block_definitely_terminates(else_body)
+            then_fallthrough = _block_may_fallthrough(then_body)
+            else_fallthrough = _block_may_fallthrough(else_body)
 
-            if then_returns and not else_returns:
-                result = else_env
-            elif else_returns and not then_returns:
-                result = then_env
-            else:
+            if then_fallthrough and else_fallthrough:
                 merged_env = then_env.merge(else_env)
                 for name in visible:
                     left_binding = next(
@@ -1570,13 +1569,17 @@ def _analyze_block_ownership(
                         )
                     )
                 result = merged_env
+            elif then_fallthrough:
+                result = then_env
+            elif else_fallthrough:
+                result = else_env
 
             events.append(
                 OwnershipEvent("branch", typed_function.name, "if")
             )
             events.extend(then_events)
             events.extend(else_events)
-            if then_terminates and else_terminates:
+            if not then_fallthrough and not else_fallthrough:
                 break
             continue
 
@@ -1783,12 +1786,8 @@ def _analyze_block_ownership(
                 and binding.domain is OwnershipDomain.SHARED
                 and binding.state is VarState.LIVE
             )
-            has_control_exit = any(
-                event.kind == "control"
-                and event.via in ("break", "continue")
-                for event in body_events
-            )
-            if local_shared and not has_control_exit:
+            body_may_fallthrough = _block_may_fallthrough(loop_body)
+            if local_shared and body_may_fallthrough:
                 local_env = OwnershipEnv(local_shared)
                 local_plan = plan_shared_scope_cleanup(
                     local_env,
