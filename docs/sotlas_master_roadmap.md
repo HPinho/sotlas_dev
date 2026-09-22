@@ -3816,7 +3816,7 @@ Extensões construídas sobre a fundação, mas que **não promovem a linguagem 
 
 ### 2. Ownership Domains — 🟡 EM CONSTRUÇÃO
 
-**Progresso aproximado atual: ~50%.**
+**Progresso aproximado atual: ~51%.**
 
 **Desenvolvimento geral aproximado da linguagem: ~17%.** Esse índice é uma leitura agregada conservadora das fases do roadmap e não representa promoção global para `SUPPORTED`.
 
@@ -3835,7 +3835,7 @@ Fundação já implementada:
 - [x] transferência para campos `sole` de structs;
 - [x] transferência para payload `sole` de enums;
 - [x] cleanup/deinit possui integração parcial com transferências `sole` no backend existente.
-- [x] grafo backend-neutral de Ownership Domains registra owner, tipo, domínio, estado final e sink das transferências.
+- [x] grafo backend-neutral de Ownership Domains registra owner, tipo, domínio, estado final e sink das transferências; transições cross-domain de quarantine/handover agora preservam source domain, target domain e domínio do destino sem inferência pelo backend.
 
 Ainda necessário para concluir a Fase 2 canônica:
 
@@ -3851,7 +3851,7 @@ Ainda necessário para concluir a Fase 2 canônica:
 - [ ] `direct` como acesso SRG de baixo nível com obrigações explícitas;
 - [ ] `handover` como operação formal de transferência entre bindings/domínios — além dos contratos EXCLUSIVE existentes, `handover <source> to <destination>;` agora permite saída explícita de ISLAND para um destino EXCLUSIVE do mesmo tipo e já MOVED; origem ISLAND vira MOVED, destino EXCLUSIVE volta a LIVE, evento/graph preservam domínio de origem e destino; handover sem destino a partir de ISLAND continua fail-closed, e demais domínios/runtime/backend/e2e ainda faltam;
 - [ ] `quarantine` como isolamento verificável antes de reuse/dispatch — primeiro slice canônico `quarantine <binding>;` implementa EXCLUSIVE → ISLAND, exige source LIVE direto, bloqueia escape/move implícito, registra graph e mantém C11 fail-closed; weak invalidation, reuse/dispatch, runtime/backend e e2e ainda faltam;
-- [x] grafo canônico de ownership/domains no snapshot semântico para owners rastreados e transferências `exclusive`;
+- [x] grafo canônico de ownership/domains no snapshot semântico para owners rastreados e transferências, incluindo direção explícita EXCLUSIVE→ISLAND e ISLAND→EXCLUSIVE e validação fail-closed de fatos incompletos;
 - [x] merge de Ownership Domain em branches exige domínio idêntico e registra LIVE/MOVED/MAYBE_MOVED no grafo;
 - [x] contrato semântico backend-neutral para planejar `exclusive → shared` via `share`, exigindo owner LIVE e sem mutação/runtime implícito;
 - [x] aplicação semântica de `exclusive → shared` no OwnershipEnv, preservando owner original como strong owner compartilhado;

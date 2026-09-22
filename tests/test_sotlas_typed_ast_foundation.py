@@ -1504,6 +1504,15 @@ fn main(token: Token) -> void {
             if item.binding == "token" and item.via == "quarantine"
         )
         self.assertIs(transfer.domain, typed_ast.OwnershipDomain.ISLAND)
+        self.assertIs(
+            transfer.source_domain,
+            typed_ast.OwnershipDomain.EXCLUSIVE,
+        )
+        self.assertIs(
+            transfer.target_domain,
+            typed_ast.OwnershipDomain.ISLAND,
+        )
+        self.assertIsNone(transfer.destination_domain)
 
     def test_canonical_quarantine_rejects_shared_owner(self):
         source = """module test::quarantine_shared;
@@ -1645,6 +1654,48 @@ fn main(source: Token, destination: Token) -> void {
         )
         self.assertIs(transfer.domain, typed_ast.OwnershipDomain.ISLAND)
         self.assertEqual(transfer.destination, "destination")
+        self.assertIs(
+            transfer.source_domain,
+            typed_ast.OwnershipDomain.ISLAND,
+        )
+        self.assertIs(
+            transfer.target_domain,
+            typed_ast.OwnershipDomain.EXCLUSIVE,
+        )
+        self.assertIs(
+            transfer.destination_domain,
+            typed_ast.OwnershipDomain.EXCLUSIVE,
+        )
+
+    def test_domain_graph_rejects_incomplete_quarantine_transition_fact(self):
+        trace = typed_ast.OwnershipTrace(
+            typed_ast.OwnershipEnv((
+                typed_ast.OwnershipBinding(
+                    "token",
+                    typed_ast.SemanticType("Token"),
+                    typed_ast.VarState.LIVE,
+                    typed_ast.OwnershipDomain.ISLAND,
+                ),
+            )),
+            (
+                typed_ast.OwnershipEvent(
+                    "quarantine",
+                    "token",
+                    "quarantine",
+                    typed_ast.OwnershipDomain.ISLAND,
+                    type=typed_ast.SemanticType("Token"),
+                ),
+            ),
+        )
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"incomplete quarantine domain transition",
+        ):
+            typed_ast.build_ownership_domain_graph(
+                typed_ast.OwnershipModuleAnalysis(
+                    (), (("main", trace),)
+                )
+            )
 
     def test_quarantined_handover_requires_explicit_destination(self):
         source = """module test::quarantine_handover_sink;

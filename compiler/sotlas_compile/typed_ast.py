@@ -527,6 +527,9 @@ class OwnershipEvent:
     defer_call: tuple[str, tuple[str, ...]] | None = None
     type: SemanticType | None = None
     destination: str | None = None
+    source_domain: OwnershipDomain | None = None
+    target_domain: OwnershipDomain | None = None
+    destination_domain: OwnershipDomain | None = None
 
 
 @dataclass(frozen=True)
@@ -1225,6 +1228,17 @@ def _apply_explicit_handover(
             source_domain,
             type=type_info,
             destination=destination_name,
+            source_domain=source_domain,
+            target_domain=(
+                OwnershipDomain.EXCLUSIVE
+                if destination_name is not None
+                else None
+            ),
+            destination_domain=(
+                OwnershipDomain.EXCLUSIVE
+                if destination_name is not None
+                else None
+            ),
         )
     )
     return result
@@ -1274,6 +1288,8 @@ def _apply_quarantine(
             "quarantine",
             OwnershipDomain.ISLAND,
             type=transition.type,
+            source_domain=transition.source,
+            target_domain=transition.target,
         )
     )
     return result
@@ -2199,6 +2215,9 @@ class OwnershipDomainTransfer:
     domain: OwnershipDomain
     via: str
     destination: str | None = None
+    source_domain: OwnershipDomain | None = None
+    target_domain: OwnershipDomain | None = None
+    destination_domain: OwnershipDomain | None = None
 
     @property
     def source_key(self) -> str:
@@ -2265,6 +2284,33 @@ def build_ownership_domain_graph(
                         f"ownership transfer for untracked binding "
                         f"{function_name}::{event.name}"
                     )
+                source_domain = event.source_domain
+                target_domain = event.target_domain
+                destination_domain = event.destination_domain
+
+                if event.kind == "quarantine":
+                    if (
+                        source_domain is not OwnershipDomain.EXCLUSIVE
+                        or target_domain is not OwnershipDomain.ISLAND
+                    ):
+                        raise Phase1SemanticError(
+                            f"incomplete quarantine domain transition for "
+                            f"{function_name}::{event.name}"
+                        )
+                elif event.kind == "handover" and event.destination is not None:
+                    if source_domain is None or target_domain is None:
+                        raise Phase1SemanticError(
+                            f"incomplete handover domain transition for "
+                            f"{function_name}::{event.name}"
+                        )
+                    if destination_domain is not target_domain:
+                        raise Phase1SemanticError(
+                            f"handover destination domain mismatch for "
+                            f"{function_name}::{event.name}"
+                        )
+                elif source_domain is None:
+                    source_domain = binding.domain
+
                 transfers.append(
                     OwnershipDomainTransfer(
                         function=function_name,
@@ -2272,6 +2318,9 @@ def build_ownership_domain_graph(
                         domain=binding.domain,
                         via=event.via,
                         destination=event.destination,
+                        source_domain=source_domain,
+                        target_domain=target_domain,
+                        destination_domain=destination_domain,
                     )
                 )
                 continue
