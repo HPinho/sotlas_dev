@@ -58,6 +58,15 @@ class OwnershipModuleSIRPlacement:
 
 
 @dataclass(frozen=True)
+class OwnershipModulePlacement:
+    plan: OwnershipModuleSIRPlan
+    inserted_domain_instructions: int
+    inserted_return_cleanup_instructions: int
+    inserted_loop_control_instructions: int
+    inserted_backedge_instructions: int
+
+
+@dataclass(frozen=True)
 class SharedOwnershipSIRSegment:
     via: str
     instructions: Tuple[SIRInstruction, ...]
@@ -649,15 +658,12 @@ def _validate_shared_loop_backedge_cleanup(
     return segments
 
 
-def place_shared_return_cleanup(
+def _commit_shared_return_cleanup(
     function: SIRFunction,
-    plan: SharedOwnershipSIRPlan,
+    segments: dict[str, SharedOwnershipSIRSegment],
 ) -> int:
-    """Atomically insert ARC cleanup before source-identified return points."""
-    segments = _validate_shared_return_cleanup(function, plan)
     if not segments:
         return 0
-
     rewrites: list[tuple[Any, list[SIRInstruction]]] = []
     inserted = 0
     for block in function.blocks:
@@ -672,21 +678,26 @@ def place_shared_return_cleanup(
                 inserted += len(segment.instructions)
             rewritten.append(instruction)
         rewrites.append((block, rewritten))
-
     for block, rewritten in rewrites:
         block.instructions = rewritten
     return inserted
 
 
-def place_shared_loop_control_cleanup(
+def place_shared_return_cleanup(
     function: SIRFunction,
     plan: SharedOwnershipSIRPlan,
 ) -> int:
-    """Atomically insert ARC cleanup before identified break/continue branches."""
-    segments = _validate_shared_loop_control_cleanup(function, plan)
+    """Atomically insert ARC cleanup before source-identified return points."""
+    segments = _validate_shared_return_cleanup(function, plan)
+    return _commit_shared_return_cleanup(function, segments)
+
+
+def _commit_shared_loop_control_cleanup(
+    function: SIRFunction,
+    segments: dict[tuple[str, str], SharedOwnershipSIRSegment],
+) -> int:
     if not segments:
         return 0
-
     rewrites: list[tuple[Any, list[SIRInstruction]]] = []
     inserted = 0
     for block in function.blocks:
@@ -700,21 +711,26 @@ def place_shared_loop_control_cleanup(
                     inserted += len(segment.instructions)
             rewritten.append(instruction)
         rewrites.append((block, rewritten))
-
     for block, rewritten in rewrites:
         block.instructions = rewritten
     return inserted
 
 
-def place_shared_loop_backedge_cleanup(
+def place_shared_loop_control_cleanup(
     function: SIRFunction,
     plan: SharedOwnershipSIRPlan,
 ) -> int:
-    """Atomically insert ARC cleanup before identified normal loop backedges."""
-    segments = _validate_shared_loop_backedge_cleanup(function, plan)
+    """Atomically insert ARC cleanup before identified break/continue branches."""
+    segments = _validate_shared_loop_control_cleanup(function, plan)
+    return _commit_shared_loop_control_cleanup(function, segments)
+
+
+def _commit_shared_loop_backedge_cleanup(
+    function: SIRFunction,
+    segments: dict[str, SharedOwnershipSIRSegment],
+) -> int:
     if not segments:
         return 0
-
     rewrites: list[tuple[Any, list[SIRInstruction]]] = []
     inserted = 0
     for block in function.blocks:
@@ -730,10 +746,115 @@ def place_shared_loop_backedge_cleanup(
                 inserted += len(segment.instructions)
             rewritten.append(instruction)
         rewrites.append((block, rewritten))
-
     for block, rewritten in rewrites:
         block.instructions = rewritten
     return inserted
+
+
+def place_shared_loop_backedge_cleanup(
+    function: SIRFunction,
+    plan: SharedOwnershipSIRPlan,
+) -> int:
+    """Atomically insert ARC cleanup before identified normal loop backedges."""
+    segments = _validate_shared_loop_backedge_cleanup(function, plan)
+    return _commit_shared_loop_backedge_cleanup(function, segments)
+
+def apply_ownership_module_plan(
+    module: SIRModule,
+    plan: OwnershipModuleSIRPlan,
+) -> OwnershipModulePlacement:
+    """Apply all currently placeable ownership semantics atomically.
+
+    Domain-transfer markers and all supported ARC cleanup points are preflighted
+    across the entire module before the first CFG mutation. Shared semantic
+    ShareInst/RetainInst operations remain in the plan until source-stable
+    placement points exist for them.
+    """
+    functions: dict[str, SIRFunction] = {}
+    for function in module.functions:
+        if function.name in functions:
+            raise ValueError(
+                f"duplicate SIR function {function.name!r} during ownership placement"
+            )
+        functions[function.name] = function
+
+    preflight: list[
+        tuple[
+            SIRFunction,
+            dict[int, OwnershipDomainTransferInst],
+            dict[str, SharedOwnershipSIRSegment],
+            dict[tuple[str, str], SharedOwnershipSIRSegment],
+            dict[str, SharedOwnershipSIRSegment],
+        ]
+    ] = []
+    seen_plans: set[str] = set()
+    for function_plan in plan.functions:
+        name = function_plan.function
+        if name in seen_plans:
+            raise ValueError(
+                f"duplicate ownership SIR plan for function {name!r}"
+            )
+        seen_plans.add(name)
+        function = functions.get(name)
+        if function is None:
+            raise ValueError(
+                f"ownership SIR plan references missing function {name!r}"
+            )
+
+        replacements = _ownership_domain_transfer_replacements(
+            function, function_plan.domain
+        )
+        return_segments = _validate_shared_return_cleanup(
+            function, function_plan.shared
+        )
+        control_segments = _validate_shared_loop_control_cleanup(
+            function, function_plan.shared
+        )
+        backedge_segments = _validate_shared_loop_backedge_cleanup(
+            function, function_plan.shared
+        )
+        preflight.append(
+            (
+                function,
+                replacements,
+                return_segments,
+                control_segments,
+                backedge_segments,
+            )
+        )
+
+    inserted_domain = 0
+    inserted_return = 0
+    inserted_control = 0
+    inserted_backedge = 0
+    for (
+        function,
+        replacements,
+        return_segments,
+        control_segments,
+        backedge_segments,
+    ) in preflight:
+        inserted_domain += _commit_ownership_domain_replacements(
+            function, replacements
+        )
+        inserted_return += _commit_shared_return_cleanup(
+            function, return_segments
+        )
+        inserted_control += _commit_shared_loop_control_cleanup(
+            function, control_segments
+        )
+        inserted_backedge += _commit_shared_loop_backedge_cleanup(
+            function, backedge_segments
+        )
+
+    return OwnershipModulePlacement(
+        plan,
+        inserted_domain,
+        inserted_return,
+        inserted_control,
+        inserted_backedge,
+    )
+
 
 def apply_shared_ownership_trace(
     function: SIRFunction,
@@ -770,6 +891,8 @@ __all__ = [
     "place_ownership_domain_transfers",
     "OwnershipModuleSIRPlacement",
     "apply_ownership_module_domain_transfers",
+    "OwnershipModulePlacement",
+    "apply_ownership_module_plan",
     "OwnershipFunctionSIRPlan",
     "OwnershipModuleSIRPlan",
     "lower_ownership_module_analysis",

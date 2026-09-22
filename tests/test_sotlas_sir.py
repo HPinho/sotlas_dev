@@ -13,7 +13,7 @@ from sotlas.sir import (
     OwnershipDomainPointInst, OwnershipDomainTransferInst,
     OwnershipDomainSIRPlan, place_ownership_domain_transfers,
     OwnershipFunctionSIRPlan, OwnershipModuleSIRPlan,
-    apply_ownership_module_domain_transfers,
+    apply_ownership_module_domain_transfers, apply_ownership_module_plan,
     ShareInst, RetainInst, ReleaseInst, DestroyInst, DeferUseInst,
     lower_ownership_domain_trace,
     lower_ownership_module_analysis,
@@ -301,6 +301,129 @@ class SotlasSIRTests(unittest.TestCase):
             r"references missing function 'missing'",
         ):
             apply_ownership_module_domain_transfers(module, plan)
+
+    def test_full_module_ownership_placement_combines_domain_and_arc(self):
+        module = SIRModule("test")
+
+        isolate = SIRFunction("isolate", [], "void")
+        isolate_block = isolate.add_block("0")
+        isolate_block.add(
+            OwnershipDomainPointInst(
+                "quarantine", "token", None, "quarantine@5:5"
+            )
+        )
+        isolate_block.add(ReturnInst(point_id="return@6:5"))
+
+        cleanup = SIRFunction("cleanup", [], "void")
+        cleanup_block = cleanup.add_block("0")
+        cleanup_block.add(ReturnInst(point_id="return@10:5"))
+
+        module.add_function(isolate)
+        module.add_function(cleanup)
+
+        token = SIRValue("token", "Token")
+        peer = SIRValue("peer", "Token")
+        empty_shared = SharedOwnershipSIRPlan((), ())
+        cleanup_shared = SharedOwnershipSIRPlan(
+            (),
+            (
+                SimpleNamespace(
+                    via="early_return",
+                    point_id="return@10:5",
+                    instructions=(ReleaseInst(peer), DestroyInst(peer)),
+                ),
+            ),
+        )
+        plan = OwnershipModuleSIRPlan((
+            OwnershipFunctionSIRPlan(
+                "isolate",
+                OwnershipDomainSIRPlan((
+                    OwnershipDomainTransferInst(
+                        "quarantine", token, "exclusive", "island"
+                    ),
+                )),
+                empty_shared,
+            ),
+            OwnershipFunctionSIRPlan(
+                "cleanup",
+                OwnershipDomainSIRPlan(()),
+                cleanup_shared,
+            ),
+        ))
+
+        placement = apply_ownership_module_plan(module, plan)
+
+        self.assertEqual(placement.inserted_domain_instructions, 1)
+        self.assertEqual(
+            placement.inserted_return_cleanup_instructions, 2
+        )
+        self.assertEqual(placement.inserted_loop_control_instructions, 0)
+        self.assertEqual(placement.inserted_backedge_instructions, 0)
+        self.assertIsInstance(
+            isolate_block.instructions[0],
+            OwnershipDomainTransferInst,
+        )
+        self.assertEqual(
+            tuple(type(item) for item in cleanup_block.instructions),
+            (ReleaseInst, DestroyInst, ReturnInst),
+        )
+
+    def test_full_module_ownership_placement_preflights_arc_before_domain_mutation(self):
+        module = SIRModule("test")
+
+        isolate = SIRFunction("isolate", [], "void")
+        isolate_block = isolate.add_block("0")
+        marker = OwnershipDomainPointInst(
+            "quarantine", "token", None, "quarantine@5:5"
+        )
+        isolate_block.add(marker)
+        isolate_block.add(ReturnInst(point_id="return@6:5"))
+
+        broken = SIRFunction("broken", [], "void")
+        broken_block = broken.add_block("0")
+        broken_return = ReturnInst(point_id="return@9:5")
+        broken_block.add(broken_return)
+
+        module.add_function(isolate)
+        module.add_function(broken)
+
+        token = SIRValue("token", "Token")
+        empty_shared = SharedOwnershipSIRPlan((), ())
+        broken_shared = SharedOwnershipSIRPlan(
+            (),
+            (
+                SimpleNamespace(
+                    via="early_return",
+                    point_id="return@99:1",
+                    instructions=(ReleaseInst(token),),
+                ),
+            ),
+        )
+        plan = OwnershipModuleSIRPlan((
+            OwnershipFunctionSIRPlan(
+                "isolate",
+                OwnershipDomainSIRPlan((
+                    OwnershipDomainTransferInst(
+                        "quarantine", token, "exclusive", "island"
+                    ),
+                )),
+                empty_shared,
+            ),
+            OwnershipFunctionSIRPlan(
+                "broken",
+                OwnershipDomainSIRPlan(()),
+                broken_shared,
+            ),
+        ))
+
+        with self.assertRaisesRegex(
+            ValueError,
+            r"shared ARC return cleanup point\(s\) missing from SIR CFG",
+        ):
+            apply_ownership_module_plan(module, plan)
+
+        self.assertIs(isolate_block.instructions[0], marker)
+        self.assertIs(broken_block.instructions[0], broken_return)
 
     def test_domain_trace_lowers_quarantine_and_handover(self):
         token_type = SimpleNamespace(name="Token")
