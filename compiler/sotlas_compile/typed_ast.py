@@ -971,18 +971,38 @@ def _move_call_arguments(
                 moved_argument = getattr(argument, "value", None)
             if type(moved_argument).__name__ == "Name":
                 name = moved_argument.value
-                if result.domain_of(name) is OwnershipDomain.SHARED:
+                source_domain = result.domain_of(name)
+                target_domain = parameter.ownership_domain
+                if source_domain is OwnershipDomain.SHARED:
                     raise Phase1SemanticError(
                         f"shared owner {name!r} cannot be consumed by sole "
                         f"parameter of {callee.name!r} without explicit handover"
                     )
-                if result.domain_of(name) is OwnershipDomain.ISLAND:
+                if target_domain is OwnershipDomain.ISLAND:
+                    result = _transfer_owned_binding_to_domain(
+                        result,
+                        name,
+                        OwnershipDomain.ISLAND,
+                        f"call:{callee.name}",
+                        events,
+                    )
+                    continue
+                if source_domain is OwnershipDomain.ISLAND:
                     raise Phase1SemanticError(
                         f"island owner {name!r} cannot escape quarantine through "
                         f"sole parameter of {callee.name!r}"
                     )
                 result = result.move(name)
-                events.append(OwnershipEvent("move", name, f"call:{callee.name}"))
+                events.append(
+                    OwnershipEvent(
+                        "move",
+                        name,
+                        f"call:{callee.name}",
+                        OwnershipDomain.EXCLUSIVE,
+                        source_domain=OwnershipDomain.EXCLUSIVE,
+                        target_domain=OwnershipDomain.EXCLUSIVE,
+                    )
+                )
                 continue
         require_expr_ownership_live(result, argument)
     return result
@@ -1021,19 +1041,37 @@ def _move_method_call_arguments(
                 moved_argument = getattr(argument, "value", None)
             if type(moved_argument).__name__ == "Name":
                 name = moved_argument.value
-                if result.domain_of(name) is OwnershipDomain.SHARED:
+                source_domain = result.domain_of(name)
+                target_domain = parameter.ownership_domain
+                if source_domain is OwnershipDomain.SHARED:
                     raise Phase1SemanticError(
                         f"shared owner {name!r} cannot be consumed by sole "
                         f"parameter of method {callee.name!r} without explicit handover"
                     )
-                if result.domain_of(name) is OwnershipDomain.ISLAND:
+                if target_domain is OwnershipDomain.ISLAND:
+                    result = _transfer_owned_binding_to_domain(
+                        result,
+                        name,
+                        OwnershipDomain.ISLAND,
+                        f"method:{callee.name}",
+                        events,
+                    )
+                    continue
+                if source_domain is OwnershipDomain.ISLAND:
                     raise Phase1SemanticError(
                         f"island owner {name!r} cannot escape quarantine through "
                         f"sole parameter of method {callee.name!r}"
                     )
                 result = result.move(name)
                 events.append(
-                    OwnershipEvent("move", name, f"method:{callee.name}")
+                    OwnershipEvent(
+                        "move",
+                        name,
+                        f"method:{callee.name}",
+                        OwnershipDomain.EXCLUSIVE,
+                        source_domain=OwnershipDomain.EXCLUSIVE,
+                        target_domain=OwnershipDomain.EXCLUSIVE,
+                    )
                 )
                 continue
         require_expr_ownership_live(result, argument)
@@ -2473,6 +2511,21 @@ def build_ownership_domain_graph(
                         raise Phase1SemanticError(
                             f"return transfer changes ownership domain for "
                             f"{function_name}::{event.name}"
+                        )
+                elif (
+                    event.kind == "move"
+                    and (
+                        event.via.startswith("call:")
+                        or event.via.startswith("method:")
+                    )
+                    and target_domain is not None
+                ):
+                    if source_domain is None:
+                        source_domain = binding.domain
+                    if source_domain is not target_domain:
+                        raise Phase1SemanticError(
+                            f"call transfer changes ownership domain for "
+                            f"{function_name}::{event.name} via {event.via}"
                         )
                 elif source_domain is None:
                     source_domain = binding.domain

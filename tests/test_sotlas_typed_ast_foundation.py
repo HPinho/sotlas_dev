@@ -249,6 +249,114 @@ fn main(source: island Token, destination: Token) -> void {
         self.assertIs(event.source_domain, typed_ast.OwnershipDomain.ISLAND)
         self.assertIs(event.target_domain, typed_ast.OwnershipDomain.EXCLUSIVE)
 
+    def test_explicit_island_call_preserves_domain(self):
+        source = """module test::island_call;
+sole struct Token { value: u32; }
+fn consume(token: island Token) -> void { return; }
+fn main(token: island Token) -> void {
+    consume(token);
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<island-call>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(parsed, typed, "main")
+        self.assertIs(
+            trace.final_env.state_of("token"),
+            typed_ast.VarState.MOVED,
+        )
+        event = next(
+            item for item in trace.events
+            if item.kind == "move" and item.via == "call:consume"
+        )
+        self.assertIs(
+            event.source_domain,
+            typed_ast.OwnershipDomain.ISLAND,
+        )
+        self.assertIs(
+            event.target_domain,
+            typed_ast.OwnershipDomain.ISLAND,
+        )
+        graph = typed_ast.build_ownership_domain_graph(
+            typed_ast.OwnershipModuleAnalysis(
+                (), (("main", trace),)
+            )
+        )
+        transfer = next(
+            item for item in graph.transfers
+            if item.binding == "token" and item.via == "call:consume"
+        )
+        self.assertIs(
+            transfer.source_domain,
+            typed_ast.OwnershipDomain.ISLAND,
+        )
+        self.assertIs(
+            transfer.target_domain,
+            typed_ast.OwnershipDomain.ISLAND,
+        )
+
+    def test_exclusive_cannot_implicitly_enter_island_parameter(self):
+        source = """module test::island_call_mismatch;
+sole struct Token { value: u32; }
+fn consume(token: island Token) -> void { return; }
+fn main(token: Token) -> void {
+    consume(token);
+    return;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<island-call-mismatch>"
+        )
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"ownership domain mismatch for 'token' via call:consume: "
+            r"exclusive -> island",
+        ):
+            typed_ast.analyze_function_ownership(
+                parsed, typed, "main"
+            )
+
+    def test_explicit_island_method_argument_preserves_domain(self):
+        source = """module test::island_method_call;
+sole struct Token { value: u32; }
+struct Receiver {
+    value: u32;
+    fn accept(&mut self, token: island Token) -> void { return; }
+}
+fn main(receiver: Receiver, token: island Token) -> void {
+    receiver.accept(token);
+    return;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<island-method-call>"
+        )
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(
+            parsed, typed, "main"
+        )
+        self.assertIs(
+            trace.final_env.state_of("token"),
+            typed_ast.VarState.MOVED,
+        )
+        event = next(
+            item for item in trace.events
+            if item.kind == "move"
+            and item.via == "method:Receiver_accept"
+        )
+        self.assertIs(
+            event.source_domain,
+            typed_ast.OwnershipDomain.ISLAND,
+        )
+        self.assertIs(
+            event.target_domain,
+            typed_ast.OwnershipDomain.ISLAND,
+        )
+
     def test_explicit_island_local_preserves_domain(self):
         source = """module test::island_local;
 sole struct Token { value: u32; }
