@@ -7,7 +7,8 @@ from typing import Any, Optional
 from .instructions import (
     SIRModule, SIRFunction, SIRBasicBlock, SIRValue,
     AllocStackInst, StoreInst, LoadInst, CallInst,
-    OwnershipDomainPointInst, SharedOwnershipPointInst,
+    OwnershipDomainPointInst, SharedOwnershipPointInst, DirectAccessInst,
+    WhisperBorrowInst,
     ReturnInst, BranchInst, CondBranchInst, SystemOpInst
 )
 
@@ -39,6 +40,11 @@ class SIRGenerator:
 
         name = getattr(type_info, "name", None)
         if isinstance(name, str) and name:
+            if (
+                getattr(type_info, "pointer", False)
+                or getattr(type_info, "is_reference", False)
+            ):
+                return f"{name}*"
             return name
 
         primitive = getattr(type_info, "primitive", None)
@@ -126,10 +132,138 @@ class SIRGenerator:
             return False
 
         body = getattr(fn, "body", None) or []
-        if not body or type(body[0]).__name__ not in ("If", "IfNode"):
+        if not body:
             return False
 
-        if_node = body[0]
+        if_indexes = [
+            index for index, statement in enumerate(body)
+            if type(statement).__name__ in ("If", "IfNode")
+        ]
+        if len(if_indexes) != 1:
+            return False
+        if_index = if_indexes[0]
+        prefix = body[:if_index]
+        tail = body[if_index:]
+        shared_aliases: set[str] = set()
+        shared_alias_types: dict[str, Any] = {}
+        shared_markers: list[SharedOwnershipPointInst] = []
+        direct_markers: list[DirectAccessInst] = []
+        caller_params = dict(
+            item for item in getattr(fn, "params", ())
+            if isinstance(item, tuple) and len(item) == 2
+        )
+
+        def direct_defer_names(value: Any) -> tuple[str, ...] | None:
+            kind = type(value).__name__
+            if kind == "Name":
+                names = (getattr(value, "value", None),)
+            elif kind == "Call":
+                args = tuple(getattr(value, "args", ()))
+                names_list = []
+                for argument in args:
+                    if type(argument).__name__ == "Name":
+                        names_list.append(argument.value)
+                    elif (
+                        type(argument).__name__ == "Unary"
+                        and getattr(argument, "op", None) == "&"
+                        and type(getattr(argument, "value", None)).__name__
+                        == "Name"
+                    ):
+                        names_list.append(argument.value.value)
+                    else:
+                        return None
+                names = tuple(names_list)
+            elif kind == "MethodCall":
+                receiver = getattr(value, "target", None)
+                args = tuple(getattr(value, "args", ()))
+                if type(receiver).__name__ != "Name" or any(
+                    type(arg).__name__ != "Name" for arg in args
+                ):
+                    return None
+                names = (
+                    getattr(receiver, "value", None),
+                    *(getattr(arg, "value", None) for arg in args),
+                )
+            else:
+                return None
+            if not all(isinstance(name, str) and name for name in names):
+                return None
+            return names
+
+        for statement in prefix:
+            kind = type(statement).__name__
+            if kind == "Let":
+                value = getattr(statement, "value", None)
+                if type(value).__name__ != "ShareExpr":
+                    return False
+                source = getattr(value, "value", None)
+                source_name = (
+                    getattr(source, "value", None)
+                    or getattr(source, "name", None)
+                )
+                alias_name = getattr(statement, "name", None)
+                if (
+                    not isinstance(source_name, str) or not source_name
+                    or not isinstance(alias_name, str) or not alias_name
+                ):
+                    return False
+                shared_aliases.add(alias_name)
+                shared_alias_types[alias_name] = caller_params.get(source_name)
+                shared_markers.append(
+                    SharedOwnershipPointInst(
+                        source_name=source_name,
+                        alias_name=alias_name,
+                        point_id=self._statement_point_id(statement, "share"),
+                    )
+                )
+                continue
+            if kind == "Defer":
+                deferred = getattr(statement, "value", None)
+                names = direct_defer_names(deferred)
+                if names is None or not shared_aliases.intersection(names):
+                    return False
+                if type(deferred).__name__ == "Call":
+                    callee = getattr(self, "_parsed_functions", {}).get(
+                        deferred.callee
+                    )
+                    callee_params = tuple(
+                        getattr(callee, "params", ()) if callee is not None else ()
+                    )
+                    if len(callee_params) != len(deferred.args):
+                        return False
+                    for argument, (parameter_name, parameter_type) in zip(
+                        deferred.args, callee_params
+                    ):
+                        if (
+                            getattr(parameter_type, "ownership_domain", None)
+                            != "direct"
+                            or type(argument).__name__ != "Unary"
+                            or getattr(argument, "op", None) != "&"
+                            or type(getattr(argument, "value", None)).__name__
+                            != "Name"
+                        ):
+                            continue
+                        source_name = argument.value.value
+                        source_type = shared_alias_types.get(source_name)
+                        if source_type is None or getattr(
+                            source_type, "name", None
+                        ) != getattr(parameter_type, "name", None):
+                            return False
+                        direct_markers.append(DirectAccessInst(
+                            source=SIRValue(source_name, source_type.name),
+                            callee=deferred.callee,
+                            parameter=parameter_name,
+                            source_domain="shared",
+                            point_id=self._statement_point_id(
+                                deferred, "direct"
+                            ),
+                        ))
+                continue
+            return False
+
+        if_node = tail[0]
+        if type(if_node).__name__ not in ("If", "IfNode"):
+            return False
         condition = self._simple_condition_value(
             getattr(if_node, "condition", None),
             sir_params,
@@ -149,14 +283,18 @@ class SIRGenerator:
         else_label = f"if_{if_line}_{if_col}_else"
         cont_label = f"if_{if_line}_{if_col}_cont"
 
-        if else_body is not None:
+        if else_body:
             if not isinstance(else_body, list):
                 return False
             if len(else_body) != 1 or type(else_body[0]).__name__ not in ("Return", "ReturnNode"):
                 return False
-            if len(body) != 1:
+            if len(tail) != 1:
                 return False
 
+            for marker in shared_markers:
+                entry_block.add(marker)
+            for marker in direct_markers:
+                entry_block.add(marker)
             entry_block.add(
                 CondBranchInst(
                     condition=condition,
@@ -178,9 +316,13 @@ class SIRGenerator:
             )
             return True
 
-        if len(body) != 2 or type(body[1]).__name__ not in ("Return", "ReturnNode"):
+        if len(tail) != 2 or type(tail[1]).__name__ not in ("Return", "ReturnNode"):
             return False
 
+        for marker in shared_markers:
+            entry_block.add(marker)
+        for marker in direct_markers:
+            entry_block.add(marker)
         entry_block.add(
             CondBranchInst(
                 condition=condition,
@@ -197,7 +339,7 @@ class SIRGenerator:
         )
         cont_block.add(
             ReturnInst(
-                point_id=self._statement_point_id(body[1], "return")
+                point_id=self._statement_point_id(tail[1], "return")
             )
         )
         return True
@@ -385,10 +527,187 @@ class SIRGenerator:
         )
         return True
 
+    def _try_lower_direct_call_subset(
+        self,
+        fn: Any,
+        entry_block: SIRBasicBlock,
+        sir_params: list[SIRValue],
+        return_type: str,
+    ) -> bool:
+        """Lower straight-line direct/whisper borrows of whole bindings."""
+        body = getattr(fn, "body", None) or []
+        if not body or type(body[-1]).__name__ not in ("Return", "ReturnNode"):
+            return False
+        if return_type != "void" or any(
+            type(item).__name__ not in ("Expression", "Defer")
+            or type(getattr(item, "value", None)).__name__ != "Call"
+            for item in body[:-1]
+        ):
+            return False
+
+        parsed_functions = getattr(self, "_parsed_functions", {})
+        sole_names = getattr(self, "_sole_names", frozenset())
+        caller_params = {}
+        for param in getattr(fn, "params", ()):
+            if isinstance(param, tuple) and len(param) == 2:
+                caller_params[param[0]] = param[1]
+            else:
+                caller_params[getattr(param, "name", "")] = (
+                    getattr(param, "type_ann", None)
+                    or getattr(param, "type", None)
+                )
+        slots = {
+            instruction.var_name: instruction.result
+            for instruction in entry_block.instructions
+            if isinstance(instruction, AllocStackInst)
+        }
+
+        direct_params = []
+        direct_calls = []
+        direct_loads_by_call = []
+        for statement in body[:-1]:
+            call = statement.value
+            callee = parsed_functions.get(call.callee)
+            if callee is None:
+                return False
+            target_params = []
+            for parameter in getattr(callee, "params", ()):
+                if isinstance(parameter, tuple) and len(parameter) == 2:
+                    target_params.append((parameter[0], parameter[1]))
+                else:
+                    target_params.append((
+                        getattr(parameter, "name", ""),
+                        getattr(parameter, "type_ann", None)
+                        or getattr(parameter, "type", None),
+                    ))
+            if (
+                len(target_params) != len(call.args)
+                or not target_params
+                or any(
+                    getattr(param_type, "ownership_domain", None)
+                    not in ("direct", "whisper")
+                    for _, param_type in target_params
+                )
+            ):
+                return False
+            call_loads = []
+            call_values = []
+            for argument, (target_name, target_type) in zip(
+                call.args, target_params
+            ):
+                source_domain = "exclusive"
+                if type(argument).__name__ == "Unary":
+                    if (
+                        getattr(argument, "op", None) != "&"
+                        or type(getattr(argument, "value", None)).__name__
+                        != "Name"
+                    ):
+                        return False
+                    source_name = argument.value.value
+                    source_type = caller_params.get(source_name)
+                    if (
+                        source_type is None
+                        or getattr(source_type, "name", None) not in sole_names
+                        or getattr(source_type, "name", None)
+                        != getattr(target_type, "name", None)
+                        or source_name not in slots
+                    ):
+                        return False
+                    call_values.append(SIRValue(
+                        slots[source_name].name,
+                        f"{source_type.name}*",
+                    ))
+                elif type(argument).__name__ == "Name":
+                    source_name = argument.value
+                    source_type = caller_params.get(source_name)
+                    if (
+                        source_type is None
+                        or getattr(source_type, "ownership_domain", None)
+                        != getattr(target_type, "ownership_domain", None)
+                        or getattr(source_type, "name", None)
+                        != getattr(target_type, "name", None)
+                        or source_name not in slots
+                    ):
+                        return False
+                    source_domain = getattr(source_type, "ownership_domain", None)
+                    loaded = self._next_val(
+                        f"direct_{source_name}",
+                        self._type_name(source_type),
+                    )
+                    call_loads.append(LoadInst(
+                        source=slots[source_name], result=loaded
+                    ))
+                    call_values.append(loaded)
+                else:
+                    return False
+                access_domain = getattr(target_type, "ownership_domain", None)
+                point_id = self._statement_point_id(call, access_domain)
+                direct_params.append((
+                    source_name, call.callee, target_name, point_id,
+                    source_type, source_domain, access_domain,
+                ))
+            direct_loads_by_call.append(call_loads)
+            direct_calls.append(CallInst(
+                callee=call.callee,
+                arguments=call_values,
+            ))
+
+        # Markers are inserted before calls at their source point so the
+        # ownership graph can verify that every borrow reached SIR.
+        rebuilt = list(entry_block.instructions)
+        rebuilt = rebuilt[:len(slots) * 2]
+        call_index = 0
+        for statement in body[:-1]:
+            call = statement.value
+            # Parameter-specific source identities distinguish mixed direct
+            # and whisper arguments at the same call site.
+            call_index_for_markers = call_index
+            rebuilt.extend(direct_loads_by_call[call_index_for_markers])
+            for (
+                source_name, callee_name, parameter_name, marker_point,
+                source_type, source_domain, access_domain,
+            ) in direct_params:
+                if callee_name == call.callee and marker_point.startswith(
+                    f"{access_domain}@{call.token.line}:{call.token.column}"
+                ):
+                    access_instruction = (
+                        DirectAccessInst(
+                            source=SIRValue(source_name, source_type.name),
+                            callee=callee_name,
+                            parameter=parameter_name,
+                            source_domain=source_domain,
+                            point_id=marker_point,
+                        )
+                        if access_domain == "direct"
+                        else WhisperBorrowInst(
+                            source=SIRValue(source_name, source_type.name),
+                            callee=callee_name,
+                            parameter=parameter_name,
+                            source_domain=source_domain,
+                            point_id=marker_point,
+                        )
+                    )
+                    rebuilt.append(access_instruction)
+            rebuilt.append(direct_calls[call_index])
+            call_index += 1
+        rebuilt.append(ReturnInst(
+            point_id=self._terminal_return_point_id(fn)
+        ))
+        entry_block.instructions = rebuilt
+        return True
+
     def generate_from_ast(self, ast: Any) -> SIRModule:
         """Gera o SIR a partir de um módulo AST parsed pelo frontend."""
         module_name = getattr(ast, "name", self.module_name)
         self.sir_mod = SIRModule(name=module_name)
+        self._parsed_functions = {
+            function.name: function
+            for function in getattr(ast, "functions", ())
+        }
+        self._sole_names = frozenset(
+            item.name for item in getattr(ast, "structs", ())
+            if getattr(item, "is_sole", False)
+        )
 
         # Suporta nós de função tanto do frontend rico quanto do bootstrap
         functions = getattr(ast, "functions", None)
@@ -417,8 +736,11 @@ class SIRGenerator:
 
         sir_params = []
         for p in params:
-            p_name = getattr(p, "name", "arg")
-            p_type = getattr(p, "type_ann", None) or getattr(p, "type", None)
+            if isinstance(p, tuple) and len(p) == 2:
+                p_name, p_type = p
+            else:
+                p_name = getattr(p, "name", "arg")
+                p_type = getattr(p, "type_ann", None) or getattr(p, "type", None)
             p_type_str = self._type_name(p_type, "any")
             sir_params.append(SIRValue(name=p_name, type_name=p_type_str))
 
@@ -437,6 +759,11 @@ class SIRGenerator:
             stack_slot = self._next_val(f"slot_{p.name}", p.type_name)
             entry_block.add(AllocStackInst(var_name=p.name, type_name=p.type_name, result=stack_slot))
             entry_block.add(StoreInst(destination=stack_slot, source=p))
+
+        if self._try_lower_direct_call_subset(
+            fn, entry_block, sir_params, ret_str
+        ):
+            return sir_fn
 
         # Primeiro subconjunto estruturado de CFG: if booleano por parâmetro
         # com retornos diretos. Só é ativado quando todos os caminhos podem ser

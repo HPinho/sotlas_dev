@@ -27,9 +27,13 @@ from pathlib import Path
 _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT))
 
-from sotlas import compile_source, SOTLAS_VERSION, SotlasBootstrapError
-from sotlas_compile import bootstrap as production_frontend
+from sotlas import SOTLAS_VERSION
+from sotlas.llvm_toolchain import canonical_llvm_frontend
 from sotlas.sir import SIRGenerator
+
+production_frontend = canonical_llvm_frontend()
+compile_source = production_frontend.compile_source
+SotlasBootstrapError = production_frontend.SotlasBootstrapError
 
 SOTLAS_EXT = ".sotlas"
 
@@ -298,9 +302,13 @@ def _run_dump_llvm(source_path: str, emit_debug: bool = False) -> int:
     _, text = loaded
     try:
         from sotlas.codegen_llvm import CodegenLLVM
+        from sotlas.llvm_toolchain import (
+            canonical_llvm_frontend,
+            generate_llvm_sir,
+        )
+        production_frontend = canonical_llvm_frontend()
         module = production_frontend.parse(text, filename=source_path)
-        gen = SIRGenerator()
-        sir_mod = gen.generate_from_ast(module)
+        sir_mod = generate_llvm_sir(module, production_frontend)
         llvm_ir = CodegenLLVM(sir_mod, emit_debug=emit_debug).emit()
         print(llvm_ir)
     except Exception as error:

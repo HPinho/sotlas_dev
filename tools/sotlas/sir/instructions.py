@@ -107,6 +107,40 @@ class OwnershipDomainTransferInst(SIRInstruction):
 
 
 @dataclass
+class WhisperBorrowInst(SIRInstruction):
+    """Backend-neutral call-scoped borrow fact; has no runtime effect."""
+
+    source: SIRValue
+    callee: str
+    parameter: str
+    source_domain: str
+    point_id: str
+
+    def __str__(self) -> str:
+        return (
+            f"  whisper_borrow {self.source} -> @{self.callee}.{self.parameter}"
+            f" [{self.source_domain}] // {self.point_id}"
+        )
+
+
+@dataclass
+class DirectAccessInst(SIRInstruction):
+    """Backend-neutral, call-scoped direct access fact; no runtime effect."""
+
+    source: SIRValue
+    callee: str
+    parameter: str
+    source_domain: str
+    point_id: str
+
+    def __str__(self) -> str:
+        return (
+            f"  direct_access {self.source} -> @{self.callee}.{self.parameter}"
+            f" [{self.source_domain}] // {self.point_id}"
+        )
+
+
+@dataclass
 class SharedOwnershipPointInst(SIRInstruction):
     source_name: str
     alias_name: str
@@ -292,7 +326,11 @@ class SIRModule:
         self.functions.append(fn)
 
     def dump(self) -> str:
-        lines = [f"// Sotlas Intermediate Representation (SIR) — Módulo {self.name}"]
+        lines = [
+            "// SIR PROTOTYPE — NOT THE PRODUCTION LOWERING PATH",
+            "// Function bodies and systems semantics are not yet lowered end to end.",
+            f"// Sotlas Intermediate Representation (SIR) — Módulo {self.name}",
+        ]
         for fn in self.functions:
             lines.append(str(fn))
         return "\n\n".join(lines)

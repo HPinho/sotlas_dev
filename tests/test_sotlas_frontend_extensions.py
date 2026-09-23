@@ -1,5 +1,6 @@
 """Regressões da gramática/lowering usados pelo compilador Sotlas modular."""
 from pathlib import Path
+import os
 import subprocess
 import sys
 import tempfile
@@ -94,6 +95,13 @@ class SotlasFrontendExtensionTests(unittest.TestCase):
                 cwd=temp,
                 capture_output=True,
                 text=True,
+                env={
+                    **os.environ,
+                    "PYTHONPATH": os.pathsep.join(
+                        [str(ROOT / "compiler"), str(ROOT / "tools")]
+                        + ([os.environ["PYTHONPATH"]] if os.environ.get("PYTHONPATH") else [])
+                    ),
+                },
             )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             emitted = output_path.read_text(encoding="utf-8")

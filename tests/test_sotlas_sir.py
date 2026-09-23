@@ -11,6 +11,7 @@ from sotlas.sir import (
     SIRModule, SIRFunction, SIRBasicBlock, SIRValue,
     AllocStackInst, StoreInst, LoadInst, CallInst, ReturnInst, BranchInst, CondBranchInst,
     OwnershipDomainPointInst, OwnershipDomainTransferInst,
+    DirectAccessInst,
     SharedOwnershipPointInst,
     OwnershipDomainSIRPlan, place_ownership_domain_transfers,
     OwnershipFunctionSIRPlan, OwnershipModuleSIRPlan,
@@ -661,11 +662,13 @@ class SotlasSIRTests(unittest.TestCase):
                     function="isolate",
                     binding="source",
                     type=token_type,
+                    domain=island,
                 ),
                 SimpleNamespace(
                     function="isolate",
                     binding="destination",
                     type=token_type,
+                    domain=exclusive,
                 ),
             ),
             transfers=(
@@ -698,6 +701,133 @@ class SotlasSIRTests(unittest.TestCase):
         self.assertEqual(
             plan.instructions[1].destination.name, "destination"
         )
+
+    def test_domain_graph_lowers_canonical_direct_access(self):
+        graph = SimpleNamespace(
+            nodes=(SimpleNamespace(
+                function="caller",
+                binding="token",
+                type=SimpleNamespace(name="Token"),
+                domain=SimpleNamespace(value="exclusive"),
+            ),),
+            transfers=(),
+            whisper_borrows=(),
+            direct_accesses=(SimpleNamespace(
+                function="caller",
+                source="token",
+                callee="inspect",
+                parameter="token",
+                type=SimpleNamespace(name="Token"),
+                source_domain=SimpleNamespace(value="exclusive"),
+                point_id="direct@3:17",
+            ),),
+        )
+        plan = lower_ownership_domain_graph(graph, "caller")
+        self.assertEqual(len(plan.instructions), 1)
+        self.assertIsInstance(plan.instructions[0], DirectAccessInst)
+        self.assertEqual(plan.instructions[0].point_id, "direct@3:17")
+
+    def test_domain_graph_rejects_handover_without_destination_node(self):
+        graph = SimpleNamespace(
+            nodes=(
+                SimpleNamespace(
+                    function="isolate",
+                    binding="source",
+                    type=SimpleNamespace(name="Token"),
+                    domain=SimpleNamespace(value="island"),
+                ),
+            ),
+            transfers=(
+                SimpleNamespace(
+                    function="isolate",
+                    binding="source",
+                    via="handover",
+                    destination="destination",
+                    source_domain=SimpleNamespace(value="island"),
+                    target_domain=SimpleNamespace(value="exclusive"),
+                    destination_domain=SimpleNamespace(value="exclusive"),
+                    point_id="handover@4:5",
+                ),
+            ),
+        )
+        with self.assertRaisesRegex(
+            ValueError,
+            r"lacks destination node for isolate::destination",
+        ):
+            lower_ownership_domain_graph(graph, "isolate")
+
+    def test_domain_graph_lowers_region_device_external_same_domain_handover(self):
+        for domain in ("region", "device", "external"):
+            with self.subTest(domain=domain):
+                graph = SimpleNamespace(
+                    nodes=(
+                        SimpleNamespace(
+                            function="transfer",
+                            binding="source",
+                            type=SimpleNamespace(name="Token"),
+                            domain=SimpleNamespace(value=domain),
+                        ),
+                        SimpleNamespace(
+                            function="transfer",
+                            binding="destination",
+                            type=SimpleNamespace(name="Token"),
+                            domain=SimpleNamespace(value=domain),
+                        ),
+                    ),
+                    transfers=(SimpleNamespace(
+                        function="transfer",
+                        binding="source",
+                        via="handover",
+                        destination="destination",
+                        source_domain=SimpleNamespace(value=domain),
+                        target_domain=SimpleNamespace(value=domain),
+                        destination_domain=SimpleNamespace(value=domain),
+                        point_id="handover@4:5",
+                    ),),
+                    whisper_borrows=(),
+                    direct_accesses=(),
+                )
+                plan = lower_ownership_domain_graph(graph, "transfer")
+                transfer = plan.instructions[0]
+                self.assertIsInstance(transfer, OwnershipDomainTransferInst)
+                self.assertEqual(transfer.source_domain, domain)
+                self.assertEqual(transfer.target_domain, domain)
+                self.assertEqual(transfer.destination.name, "destination")
+
+    def test_domain_graph_rejects_handover_same_name_incompatible_type(self):
+        graph = SimpleNamespace(
+            nodes=(
+                SimpleNamespace(
+                    function="isolate",
+                    binding="source",
+                    type=SimpleNamespace(name="Token", pointer=False),
+                    domain=SimpleNamespace(value="island"),
+                ),
+                SimpleNamespace(
+                    function="isolate",
+                    binding="destination",
+                    type=SimpleNamespace(name="Token", pointer=True),
+                    domain=SimpleNamespace(value="exclusive"),
+                ),
+            ),
+            transfers=(
+                SimpleNamespace(
+                    function="isolate",
+                    binding="source",
+                    via="handover",
+                    destination="destination",
+                    source_domain=SimpleNamespace(value="island"),
+                    target_domain=SimpleNamespace(value="exclusive"),
+                    destination_domain=SimpleNamespace(value="exclusive"),
+                    point_id="handover@4:5",
+                ),
+            ),
+        )
+        with self.assertRaisesRegex(
+            ValueError,
+            r"handover destination type mismatch for isolate::source",
+        ):
+            lower_ownership_domain_graph(graph, "isolate")
 
     def test_domain_graph_rejects_transfer_without_canonical_node(self):
         graph = SimpleNamespace(
@@ -1254,7 +1384,7 @@ class SotlasSIRTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(
             ValueError,
-            r"does not match one source \+ one strong alias",
+            r"does not match its strong-owner accounting",
         ):
             lower_shared_ownership_graph(graph, "main", trace)
 
@@ -1418,6 +1548,72 @@ class SotlasSIRTests(unittest.TestCase):
             all(segment.via == "early_return" for segment in plan.cleanup_segments)
         )
 
+    def test_shared_function_exit_lowers_deferred_call_before_arc_once(self):
+        token_type = SimpleNamespace(name="Token")
+        empty = SimpleNamespace(steps=())
+        cleanup = SimpleNamespace(steps=(
+            SimpleNamespace(
+                owner="peer", account="token", destroy_after=False,
+                via="scope_exit", point_id=None,
+            ),
+            SimpleNamespace(
+                owner="token", account="token", destroy_after=True,
+                via="scope_exit", point_id=None,
+            ),
+        ))
+        call = ("inspect", ("token", "peer"))
+        exit_actions = (
+            SimpleNamespace(
+                kind="defer", owner="peer", via="call",
+                defer_point_id="defer@7:5", defer_call=call,
+            ),
+            SimpleNamespace(
+                kind="defer", owner="token", via="call",
+                defer_point_id="defer@7:5", defer_call=call,
+            ),
+            SimpleNamespace(kind="release", owner="peer", via="scope_exit"),
+            SimpleNamespace(kind="release", owner="token", via="scope_exit"),
+            SimpleNamespace(kind="destroy", owner="token", via="scope_exit"),
+        )
+        trace = SimpleNamespace(
+            final_env=SimpleNamespace(bindings=(
+                SimpleNamespace(name="token", type=token_type),
+                SimpleNamespace(name="peer", type=token_type),
+            )),
+            events=(),
+            shared_cleanup=cleanup,
+            shared_path_cleanup=empty,
+            shared_loop_cleanup=empty,
+            shared_loop_control_exit=SimpleNamespace(actions=()),
+            shared_exit=SimpleNamespace(actions=exit_actions),
+        )
+
+        plan = lower_shared_ownership_trace(trace)
+        segment = next(
+            item for item in plan.cleanup_segments
+            if item.point_id == "function_exit"
+        )
+        self.assertEqual(
+            tuple(type(item) for item in segment.instructions),
+            (CallInst, ReleaseInst, ReleaseInst, DestroyInst),
+        )
+        call_inst = segment.instructions[0]
+        self.assertEqual(call_inst.callee, "inspect")
+        self.assertEqual(
+            tuple(value.name for value in call_inst.arguments),
+            ("token", "peer"),
+        )
+        self.assertEqual(call_inst.defer_point_id, "defer@7:5")
+
+        fn = SIRFunction("main", [], "void")
+        block = fn.add_block("entry")
+        block.add(ReturnInst())
+        self.assertEqual(place_shared_function_exit_cleanup(fn, plan), 4)
+        self.assertEqual(
+            tuple(type(item) for item in block.instructions),
+            (CallInst, ReleaseInst, ReleaseInst, DestroyInst, ReturnInst),
+        )
+
     def test_shared_function_exit_cleanup_precedes_implicit_fallthrough_return(self):
         fn = SIRFunction("main", [], "void")
         block = fn.add_block("entry")
@@ -1470,6 +1666,41 @@ class SotlasSIRTests(unittest.TestCase):
 
         self.assertEqual(inserted, 0)
         self.assertEqual(block.instructions, [explicit])
+
+    def test_shared_cleanup_covers_early_return_and_fallthrough_paths(self):
+        token = SIRValue("token", "Token")
+        peer = SIRValue("peer", "Token")
+        fn = SIRFunction("main", [], "void")
+        explicit_block = fn.add_block("explicit")
+        fallthrough_block = fn.add_block("fallthrough")
+        explicit_return = ReturnInst(point_id="return@4:5")
+        fallthrough_return = ReturnInst()
+        explicit_block.add(explicit_return)
+        fallthrough_block.add(fallthrough_return)
+        plan = SharedOwnershipSIRPlan(
+            (),
+            (
+                SimpleNamespace(
+                    via="early_return", point_id="return@4:5",
+                    instructions=(ReleaseInst(peer), ReleaseInst(token), DestroyInst(token)),
+                ),
+                SimpleNamespace(
+                    via="scope_exit", point_id="function_exit",
+                    instructions=(ReleaseInst(peer), ReleaseInst(token), DestroyInst(token)),
+                ),
+            ),
+        )
+
+        self.assertEqual(place_shared_return_cleanup(fn, plan), 3)
+        self.assertEqual(place_shared_function_exit_cleanup(fn, plan), 3)
+        self.assertEqual(
+            tuple(type(item) for item in explicit_block.instructions),
+            (ReleaseInst, ReleaseInst, DestroyInst, ReturnInst),
+        )
+        self.assertEqual(
+            tuple(type(item) for item in fallthrough_block.instructions),
+            (ReleaseInst, ReleaseInst, DestroyInst, ReturnInst),
+        )
 
     def test_shared_function_exit_cleanup_rejects_ambiguous_implicit_returns(self):
         fn = SIRFunction("main", [], "void")
@@ -1554,6 +1785,113 @@ class SotlasSIRTests(unittest.TestCase):
                          (ReleaseInst, ReleaseInst, DestroyInst, ReturnInst))
         self.assertEqual(first.instructions[-1].point_id, "return@8:9")
         self.assertEqual(second.instructions[-1].point_id, "return@10:5")
+
+    def test_shared_early_return_defer_precedes_path_arc_cleanup(self):
+        token_type = SimpleNamespace(name="Token")
+        trace = SimpleNamespace(
+            final_env=SimpleNamespace(bindings=(
+                SimpleNamespace(name="token", type=token_type),
+                SimpleNamespace(name="peer", type=token_type),
+            )),
+            events=(SimpleNamespace(
+                kind="domain_transition", name="token", via="share:peer",
+                type=token_type,
+            ),),
+            shared_cleanup=SimpleNamespace(steps=()),
+            shared_path_cleanup=SimpleNamespace(steps=(
+                SimpleNamespace(
+                    owner="peer", account="token", destroy_after=False,
+                    via="early_return", point_id="return@8:9",
+                ),
+                SimpleNamespace(
+                    owner="token", account="token", destroy_after=True,
+                    via="early_return", point_id="return@8:9",
+                ),
+            )),
+            shared_loop_cleanup=SimpleNamespace(steps=()),
+            shared_loop_control_exit=SimpleNamespace(actions=()),
+            shared_return_exit=SimpleNamespace(actions=(
+                SimpleNamespace(
+                    kind="defer", owner="peer", via="return:expression",
+                    point_id="return@8:9", defer_point_id="defer@7:9",
+                ),
+                SimpleNamespace(
+                    kind="release", owner="peer", via="return:early_return",
+                    point_id="return@8:9",
+                ),
+                SimpleNamespace(
+                    kind="release", owner="token", via="return:early_return",
+                    point_id="return@8:9",
+                ),
+                SimpleNamespace(
+                    kind="destroy", owner="token", via="return:early_return",
+                    point_id="return@8:9",
+                ),
+            )),
+        )
+
+        plan = lower_shared_ownership_trace(trace)
+        segment = next(
+            item for item in plan.cleanup_segments
+            if item.point_id == "return@8:9"
+        )
+        self.assertEqual(
+            tuple(type(item) for item in segment.instructions),
+            (DeferUseInst, ReleaseInst, ReleaseInst, DestroyInst),
+        )
+
+        fn = SIRFunction("main", [], "void")
+        block = fn.add_block("entry")
+        block.add(ReturnInst(point_id="return@8:9"))
+        inserted = place_shared_return_cleanup(fn, plan)
+        self.assertEqual(inserted, 4)
+        self.assertEqual(
+            tuple(type(item) for item in block.instructions),
+            (DeferUseInst, ReleaseInst, ReleaseInst, DestroyInst, ReturnInst),
+        )
+
+    def test_shared_early_return_lowers_direct_defer_call_once_before_arc(self):
+        token_type = SimpleNamespace(name="Token")
+        trace = SimpleNamespace(
+            final_env=SimpleNamespace(bindings=(
+                SimpleNamespace(name="token", type=token_type),
+                SimpleNamespace(name="peer", type=token_type),
+            )),
+            events=(SimpleNamespace(
+                kind="domain_transition", name="token", via="share:peer",
+                type=token_type,
+            ),),
+            shared_cleanup=SimpleNamespace(steps=()),
+            shared_path_cleanup=SimpleNamespace(steps=(
+                SimpleNamespace(owner="peer", account="token", destroy_after=False,
+                                 via="early_return", point_id="return@8:9"),
+                SimpleNamespace(owner="token", account="token", destroy_after=True,
+                                 via="early_return", point_id="return@8:9"),
+            )),
+            shared_loop_cleanup=SimpleNamespace(steps=()),
+            shared_loop_control_exit=SimpleNamespace(actions=()),
+            shared_return_exit=SimpleNamespace(actions=(
+                SimpleNamespace(kind="defer", owner="peer", via="return:call",
+                                 point_id="return@8:9", defer_point_id="defer@7:9",
+                                 defer_call=("observe", ("peer",))),
+                SimpleNamespace(kind="defer", owner="peer", via="return:call",
+                                 point_id="return@8:9", defer_point_id="defer@7:9",
+                                 defer_call=("observe", ("peer",))),
+                SimpleNamespace(kind="release", owner="peer", via="return:early_return",
+                                 point_id="return@8:9"),
+                SimpleNamespace(kind="release", owner="token", via="return:early_return",
+                                 point_id="return@8:9"),
+                SimpleNamespace(kind="destroy", owner="token", via="return:early_return",
+                                 point_id="return@8:9"),
+            )),
+        )
+
+        plan = lower_shared_ownership_trace(trace)
+        segment = next(item for item in plan.cleanup_segments if item.point_id == "return@8:9")
+        self.assertEqual(tuple(type(item) for item in segment.instructions),
+                         (CallInst, ReleaseInst, ReleaseInst, DestroyInst))
+        self.assertEqual(segment.instructions[0].callee, "observe")
+        self.assertEqual(segment.instructions[0].defer_point_id, "defer@7:9")
 
     def test_shared_return_cleanup_leaves_non_return_segments_unplaced(self):
         fn = SIRFunction("main", [], "void")

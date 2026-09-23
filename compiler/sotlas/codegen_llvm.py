@@ -10,6 +10,10 @@ from typing import Dict, List, Optional
 from .sir.instructions import (
     SIRModule, SIRFunction, SIRBasicBlock, SIRInstruction, SIRValue,
     AllocStackInst, StoreInst, LoadInst, CallInst, RetainInst, ReleaseInst,
+    DestroyInst, OwnershipDomainPointInst, OwnershipDomainTransferInst,
+    WhisperBorrowInst,
+    DirectAccessInst,
+    SharedOwnershipPointInst, DeferUseInst, ShareInst,
     BranchInst, CondBranchInst, ReturnInst, SystemOpInst, AsmInst, AwaitInst
 )
 
@@ -159,9 +163,51 @@ class CodegenLLVM:
             else:
                 self._out.write(f"  call {res_type} @{inst.callee}({args_str}){dbg_suffix}\n")
         elif isinstance(inst, RetainInst):
-            self._out.write(f"  ; arc retain %{inst.value.name}\n")
+            raise ValueError(
+                "LLVM backend does not lower ARC retain until the runtime ABI is defined"
+            )
         elif isinstance(inst, ReleaseInst):
-            self._out.write(f"  ; arc release %{inst.value.name}\n")
+            raise ValueError(
+                "LLVM backend does not lower ARC release until the runtime ABI is defined"
+            )
+        elif isinstance(inst, DirectAccessInst):
+            if (
+                inst.source_domain not in ("exclusive", "shared", "direct")
+                or not inst.point_id.startswith("direct@")
+            ):
+                raise ValueError("LLVM backend received an invalid direct access fact")
+            # Direct access is call-scoped and has no runtime bookkeeping.
+            # The canonical frontend proves its no-escape obligation.
+            self._out.write(
+                f"  ; direct access %{inst.source.name} -> "
+                f"@{inst.callee}.{inst.parameter} [{inst.point_id}]\n"
+            )
+        elif isinstance(inst, WhisperBorrowInst):
+            if (
+                inst.source_domain not in ("exclusive", "shared", "whisper")
+                or not inst.point_id.startswith("whisper@")
+            ):
+                raise ValueError("LLVM backend received an invalid whisper borrow fact")
+            # The canonical checker proves this immutable borrow cannot escape.
+            self._out.write(
+                f"  ; whisper borrow %{inst.source.name} -> "
+                f"@{inst.callee}.{inst.parameter} [{inst.point_id}]\n"
+            )
+        elif isinstance(
+            inst,
+            (
+                ShareInst,
+                DestroyInst,
+                OwnershipDomainPointInst,
+                OwnershipDomainTransferInst,
+                SharedOwnershipPointInst,
+                DeferUseInst,
+            ),
+        ):
+            raise ValueError(
+                f"LLVM backend does not lower ownership instruction "
+                f"{type(inst).__name__} until the runtime ABI is defined"
+            )
         elif isinstance(inst, BranchInst):
             t_str = str(inst.target_block)
             target = f"bb{t_str}" if not t_str.startswith("bb") else t_str
