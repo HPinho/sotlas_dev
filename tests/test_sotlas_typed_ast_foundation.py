@@ -4021,6 +4021,60 @@ fn main(source: Token, destination: Token) -> void {
                 self.assertIs(transfer.source_domain, expected)
                 self.assertIs(transfer.target_domain, expected)
 
+    def test_exclusive_to_device_handover_is_graphed_but_c11_stays_fail_closed(self):
+        source = """module test::device_submission_graph;
+sole struct Buffer { value: u32; }
+fn take_device(buffer: device Buffer) -> void { return; }
+fn submit(source: Buffer, destination: device Buffer) -> void {
+    take_device(move destination);
+    handover source to destination;
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<device-submission-graph>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(parsed, typed, "submit")
+        graph = typed_ast.build_ownership_domain_graph(
+            typed_ast.OwnershipModuleAnalysis((), (("submit", trace),))
+        )
+        transfer = next(
+            item for item in graph.transfers
+            if item.binding == "source" and item.via == "handover"
+        )
+        self.assertIs(
+            transfer.source_domain, typed_ast.OwnershipDomain.EXCLUSIVE
+        )
+        self.assertIs(
+            transfer.target_domain, typed_ast.OwnershipDomain.DEVICE
+        )
+        self.assertEqual(transfer.destination, "destination")
+
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            "C11 backend does not lower device ownership domain yet",
+        ):
+            bootstrap.compile_source(source)
+
+    def test_device_to_exclusive_handover_requires_completion_contract(self):
+        source = """module test::device_reacquire_gate;
+sole struct Buffer { value: u32; }
+fn take_exclusive(buffer: Buffer) -> void { return; }
+fn reacquire(source: device Buffer, destination: Buffer) -> void {
+    take_exclusive(move destination);
+    handover source to destination;
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<device-reacquire-gate>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"handover destination 'destination' must share source domain 'device'",
+        ):
+            typed_ast.analyze_function_ownership(parsed, typed, "reacquire")
+
     def test_region_rejects_cross_domain_call_and_use_after_move(self):
         cross_domain = """module test::region_cross_domain_call;
 sole struct Token { value: u32; }

@@ -1740,9 +1740,10 @@ def _apply_explicit_handover(
 ) -> OwnershipEnv:
     """Apply explicit ownership transfer between canonical domains.
 
-    Exclusive and external resource owners support binding-to-binding transfer.
-    A quarantined ISLAND owner may leave isolation only through an explicit
-    destination that is EXCLUSIVE, type-compatible, and already MOVED.
+    Binding-to-binding handover requires a type-compatible destination that
+    is already MOVED. Exclusive owners may be submitted into DEVICE domain;
+    an ISLAND owner may be reacquired as EXCLUSIVE. Device reacquisition still
+    requires a completion protocol and is deliberately not accepted here.
     """
     if type(expr).__name__ != "Name":
         raise Phase1SemanticError(
@@ -1787,11 +1788,15 @@ def _apply_explicit_handover(
                 source_domain is OwnershipDomain.ISLAND
                 and destination_domain is OwnershipDomain.EXCLUSIVE
             )
+            or (
+                source_domain is OwnershipDomain.EXCLUSIVE
+                and destination_domain is OwnershipDomain.DEVICE
+            )
         ):
             raise Phase1SemanticError(
                 f"handover destination {destination_name!r} must share source "
-                f"domain {source_domain.value!r} (or reacquire island as "
-                f"exclusive), got {destination_domain.value}"
+                f"domain {source_domain.value!r} (or an explicit supported "
+                f"domain handover), got {destination_domain.value}"
             )
         destination_type = env.type_of(destination_name)
         if destination_type != type_info:
@@ -3557,6 +3562,10 @@ def build_ownership_domain_graph(
                         )
                         and target_domain is source_domain
                     )
+                    allowed_device_submission = (
+                        source_domain is OwnershipDomain.EXCLUSIVE
+                        and target_domain is OwnershipDomain.DEVICE
+                    )
                     if not (
                         (
                             source_domain in (
@@ -3566,6 +3575,7 @@ def build_ownership_domain_graph(
                             and target_domain is OwnershipDomain.EXCLUSIVE
                         )
                         or allowed_same_domain_handover
+                        or allowed_device_submission
                     ):
                         raise Phase1SemanticError(
                             f"unsupported handover domain transition "
