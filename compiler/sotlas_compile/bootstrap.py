@@ -4699,6 +4699,36 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                 out.append(
                     f"{pad}{destination_name} = {source_name};"
                 )
+                destination_type = shared_local_types.get(destination_name)
+                if destination_type is not None:
+                    destination_cleanup = region_cleanup_for(
+                        destination_type, destination_name, item.token
+                    )
+                    if destination_cleanup is None and (
+                        destination_type.name in deinit_methods
+                        and destination_type.name in sole_types
+                        and not destination_type.pointer
+                    ):
+                        takes_ptr = deinit_methods[destination_type.name]
+                        arg_node = (
+                            Unary(
+                                item.token, "&",
+                                Name(item.token, destination_name),
+                            )
+                            if takes_ptr
+                            else Name(item.token, destination_name)
+                        )
+                        destination_cleanup = Defer(
+                            item.token,
+                            value=Call(
+                                item.token,
+                                f"{destination_type.name}_deinit",
+                                [arg_node],
+                            ),
+                            auto_cleanup_name=destination_name,
+                        )
+                    if destination_cleanup is not None:
+                        defer_scopes[-1].append(destination_cleanup)
             elif isinstance(item, Quarantine):
                 source_name = (
                     item.value.value

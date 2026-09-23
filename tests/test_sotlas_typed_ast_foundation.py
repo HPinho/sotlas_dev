@@ -3997,6 +3997,39 @@ fn main(source: Token, destination: Token) -> void {
                 self.assertIs(transfer.target_domain, expected)
                 self.assertEqual(transfer.destination, "destination")
 
+    def test_island_handover_preserves_isolation_in_canonical_graph(self):
+        source = """module test::island_same_domain_handover;
+sole struct Token { value: u32; }
+fn consume(token: island Token) -> void { return; }
+fn transfer(source: island Token, destination: island Token) -> void {
+    consume(move destination);
+    handover source to destination;
+    destination.value;
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<island-same-domain-handover>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(parsed, typed, "transfer")
+        event = next(
+            item for item in trace.events
+            if item.kind == "handover" and item.name == "source"
+        )
+        self.assertIs(event.source_domain, typed_ast.OwnershipDomain.ISLAND)
+        self.assertIs(event.target_domain, typed_ast.OwnershipDomain.ISLAND)
+        self.assertIs(trace.final_env.state_of("source"), typed_ast.VarState.MOVED)
+        self.assertIs(trace.final_env.state_of("destination"), typed_ast.VarState.LIVE)
+        graph = typed_ast.build_ownership_domain_graph(
+            typed_ast.OwnershipModuleAnalysis((), (("transfer", trace),))
+        )
+        transfer = next(
+            item for item in graph.transfers if item.via == "handover"
+        )
+        self.assertIs(transfer.source_domain, typed_ast.OwnershipDomain.ISLAND)
+        self.assertIs(transfer.target_domain, typed_ast.OwnershipDomain.ISLAND)
+        self.assertEqual(transfer.destination, "destination")
+
     def test_region_device_external_call_transfer_preserves_domain_in_graph(self):
         for domain in ("region", "device", "external"):
             with self.subTest(domain=domain):

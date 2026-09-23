@@ -3559,6 +3559,7 @@ def build_ownership_domain_graph(
                             OwnershipDomain.REGION,
                             OwnershipDomain.DEVICE,
                             OwnershipDomain.EXTERNAL,
+                            OwnershipDomain.ISLAND,
                         )
                         and target_domain is source_domain
                     )
