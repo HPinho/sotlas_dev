@@ -1911,6 +1911,53 @@ fn main() -> i32 {
         )
         self.assertEqual(executed.returncode, 0, executed.stderr)
 
+    def test_region_handover_rearms_region_drop_at_destination(self):
+        source = """module app::region_handover_rearm;
+sole struct Token { value: u32; }
+static mut destroy_count: u32 = 0;
+fn Token_deinit(self: *mut Token) {
+    unsafe { destroy_count = destroy_count + 1; }
+}
+fn discard(token: region Token) -> void { return; }
+pub fn run() -> u32 {
+    let source: region Token = Token { value: 41u32 };
+    let destination: region Token = Token { value: 9u32 };
+    discard(move destination);
+    handover source to destination;
+    return destination.value;
+}
+pub fn count_destroys() -> u32 { return destroy_count; }
+"""
+        driver_c = ROOT / "build" / "test_region_handover_rearm_main.c"
+        driver_exe = ROOT / "build" / "test_region_handover_rearm.exe"
+        self.addCleanup(driver_c.unlink, missing_ok=True)
+        self.addCleanup(driver_exe.unlink, missing_ok=True)
+        parsed = bootstrap.parse(source, filename="<region-handover-rearm>")
+        bootstrap.check(parsed)
+        self.output_c.write_text(bootstrap.emit_c(parsed), encoding="utf-8")
+        driver_c.write_text("""
+#include <stdint.h>
+uint32_t run(void);
+uint32_t count_destroys(void);
+int main(void) {
+    uint32_t value = run();
+    return value == 41 && count_destroys() == 2 ? 0 : 1;
+}
+""", encoding="utf-8")
+        compiler = _host_c_compiler()
+        env = dict(os.environ)
+        env["PATH"] = str(compiler.parent) + os.pathsep + env.get("PATH", "")
+        compiled = subprocess.run(
+            [str(compiler), "-std=c11", "-Wall", "-Wextra", "-Werror",
+             str(self.output_c), str(driver_c), "-o", str(driver_exe)],
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(compiled.returncode, 0, compiled.stderr)
+        executed = subprocess.run(
+            [str(driver_exe)], capture_output=True, text=True, env=env
+        )
+        self.assertEqual(executed.returncode, 0, executed.stderr)
+
     def test_island_to_island_handover_runs_through_c11(self):
         source = """module app::island_same_domain_runtime;
 sole struct Token { value: u32; }
