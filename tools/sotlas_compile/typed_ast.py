@@ -1070,10 +1070,21 @@ def require_expr_ownership_live(env: OwnershipEnv, expr) -> None:
     _reject_island_reference_alias(env, expr)
     kind = type(expr).__name__
     owner = _root_owned_name(expr)
+    if (
+        owner is None and kind == "Unary"
+        and getattr(expr, "op", None) == "&"
+    ):
+        owner = _root_owned_name(getattr(expr, "value", None))
     if owner is not None and env.state_of(owner) is not None:
         owner_domain = env.domain_of(owner)
         if (
-            _contains_resource_field_access(expr, owner)
+            (
+                _contains_resource_field_access(expr, owner)
+                or (
+                    kind == "Unary"
+                    and getattr(expr, "op", None) == "&"
+                )
+            )
             and owner_domain in (
                 OwnershipDomain.DEVICE, OwnershipDomain.EXTERNAL
             )

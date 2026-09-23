@@ -639,6 +639,29 @@ fn dispose(token: external Token) -> void {
                             parsed, typed, "read"
                         )
 
+    def test_device_and_external_owner_addresses_cannot_escape_to_raw_host_pointers(self):
+        for domain in ("device", "external"):
+            with self.subTest(domain=domain):
+                source = (
+                    "module test::opaque_resource_raw_pointer; "
+                    "sole struct Resource { value: u32; } "
+                    f"fn read(resource: {domain} Resource) -> u32 "
+                    f"{{ let mut local: {domain} Resource = move resource; "
+                    "let pointer = &mut local; return 0u32; }"
+                )
+                parsed = bootstrap.parse(
+                    source, filename=f"<{domain}-raw-pointer>"
+                )
+                bootstrap.check(parsed)
+                typed = typed_ast.build_declaration_typed_ast(parsed)
+                with self.assertRaisesRegex(
+                    typed_ast.Phase1SemanticError,
+                    rf"{domain} owner 'local' cannot be accessed directly from host code",
+                ):
+                    typed_ast.analyze_function_ownership(
+                        parsed, typed, "read"
+                    )
+
     def test_explicit_island_parameter_enters_island_domain(self):
         source = """module test::explicit_island_param;
 sole struct Token { value: u32; }
