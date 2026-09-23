@@ -2043,6 +2043,47 @@ int main(void) {
         )
         self.assertEqual(executed.returncode, 0, executed.stderr)
 
+    def test_direct_island_method_receiver_runs_through_c11(self):
+        source = """module app::direct_island_receiver_runtime;
+sole struct Token {
+    value: u32;
+    fn inspect(self: direct Token) -> u32 { return self.value; }
+}
+pub fn read_island(token: island Token) -> u32 {
+    return token.inspect();
+}
+"""
+        driver_c = ROOT / "build" / "test_direct_island_receiver_main.c"
+        driver_exe = ROOT / "build" / "test_direct_island_receiver.exe"
+        self.addCleanup(driver_c.unlink, missing_ok=True)
+        self.addCleanup(driver_exe.unlink, missing_ok=True)
+        parsed = bootstrap.parse(
+            source, filename="<direct-island-receiver-runtime>"
+        )
+        bootstrap.check(parsed)
+        self.output_c.write_text(bootstrap.emit_c(parsed), encoding="utf-8")
+        driver_c.write_text("""
+#include <stdint.h>
+typedef struct Token { uint32_t value; } Token;
+uint32_t read_island(Token token);
+int main(void) {
+    return read_island((Token){81}) == 81 ? 0 : 1;
+}
+""", encoding="utf-8")
+        compiler = _host_c_compiler()
+        env = dict(os.environ)
+        env["PATH"] = str(compiler.parent) + os.pathsep + env.get("PATH", "")
+        compiled = subprocess.run(
+            [str(compiler), "-std=c11", "-Wall", "-Wextra", "-Werror",
+             str(self.output_c), str(driver_c), "-o", str(driver_exe)],
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(compiled.returncode, 0, compiled.stderr)
+        executed = subprocess.run(
+            [str(driver_exe)], capture_output=True, text=True, env=env
+        )
+        self.assertEqual(executed.returncode, 0, executed.stderr)
+
     def test_region_nested_owner_deinit_that_captures_self_fails_closed(self):
         source = """module app::region_nested_deinit_gate;
 sole struct Token { value: u32; }

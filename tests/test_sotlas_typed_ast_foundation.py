@@ -395,6 +395,31 @@ fn read_island(token: island Token) -> u32 { return inspect(&token); }
         self.assertEqual(len(plan.instructions), 1)
         self.assertEqual(plan.instructions[0].source_domain, "island")
 
+    def test_direct_method_receiver_borrow_from_island_reaches_graph_and_sir(self):
+        source = """module test::direct_island_receiver;
+sole struct Token {
+    value: u32;
+    fn inspect(self: direct Token) -> u32 { return self.value; }
+}
+fn read_island(token: island Token) -> u32 { return token.inspect(); }
+"""
+        parsed = bootstrap.parse(source, filename="<direct-island-receiver>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(
+            parsed, typed, "read_island"
+        )
+        graph = typed_ast.build_ownership_domain_graph(
+            typed_ast.OwnershipModuleAnalysis((), (("read_island", trace),))
+        )
+        access = next(item for item in graph.direct_accesses)
+        self.assertEqual(access.callee, "Token_inspect")
+        self.assertEqual(access.source, "token")
+        self.assertIs(access.source_domain, typed_ast.OwnershipDomain.ISLAND)
+        plan = ownership_sir.lower_ownership_domain_graph(graph, "read_island")
+        self.assertEqual(len(plan.instructions), 1)
+        self.assertEqual(plan.instructions[0].source_domain, "island")
+
     def test_region_owner_borrows_reach_graph_and_sir_for_direct_and_whisper(self):
         source = """module test::region_borrow_graph;
 sole struct Token { value: u32; }
