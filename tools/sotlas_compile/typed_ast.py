@@ -1068,12 +1068,22 @@ def require_expr_ownership_live(env: OwnershipEnv, expr) -> None:
     if expr is None:
         return
     _reject_island_reference_alias(env, expr)
+    kind = type(expr).__name__
     owner = _root_owned_name(expr)
     if owner is not None and env.state_of(owner) is not None:
+        owner_domain = env.domain_of(owner)
+        if (
+            kind in ("Member", "Index")
+            and owner_domain in (
+                OwnershipDomain.DEVICE, OwnershipDomain.EXTERNAL
+            )
+        ):
+            raise Phase1SemanticError(
+                f"{owner_domain.value} owner {owner!r} cannot be accessed "
+                "directly from host code"
+            )
         env.require_live(owner)
         return
-
-    kind = type(expr).__name__
     if kind == "Binary":
         require_expr_ownership_live(env, getattr(expr, "left", None))
         require_expr_ownership_live(env, getattr(expr, "right", None))
