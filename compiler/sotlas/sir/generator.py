@@ -527,6 +527,73 @@ class SIRGenerator:
         )
         return True
 
+    def _try_lower_sequential_if_returns(
+        self,
+        fn: Any,
+        sir_fn: SIRFunction,
+        entry_block: SIRBasicBlock,
+        sir_params: list[SIRValue],
+        return_type: str,
+    ) -> bool:
+        """Lower multiple parameter-boolean early returns followed by return.
+
+        This adds real, source-identified exits to the current CFG subset while
+        keeping conditions and branch bodies deliberately restricted.
+        """
+        if return_type != "void":
+            return False
+        body = getattr(fn, "body", None) or []
+        if len(body) < 3 or type(body[-1]).__name__ not in ("Return", "ReturnNode"):
+            return False
+        if_nodes = body[:-1]
+        if len(if_nodes) < 2:
+            return False
+        if any(type(node).__name__ not in ("If", "IfNode") for node in if_nodes):
+            return False
+        branches = []
+        labels = set()
+        for node in if_nodes:
+            condition = self._simple_condition_value(
+                getattr(node, "condition", None), sir_params
+            )
+            then_body = getattr(node, "then_body", None) or []
+            if (
+                condition is None
+                or getattr(node, "else_body", None)
+                or len(then_body) != 1
+                or type(then_body[0]).__name__ not in ("Return", "ReturnNode")
+            ):
+                return False
+            source_point = self._statement_point_id(node, "if")
+            return_point = self._statement_point_id(then_body[0], "return")
+            line_column = source_point.removeprefix("if@")
+            exit_label = f"if_{line_column.replace(':', '_')}_then"
+            next_label = f"if_{line_column.replace(':', '_')}_next"
+            if exit_label in labels or next_label in labels:
+                return False
+            labels.update((exit_label, next_label))
+            branches.append((condition, return_point, exit_label, next_label))
+        final_return_point = self._statement_point_id(body[-1], "return")
+
+        next_label = None
+        for index, (condition, return_point, exit_label, next_label) in enumerate(branches):
+            test_block = entry_block if index == 0 else sir_fn.add_block(next_label_before)
+            test_block.add(CondBranchInst(
+                condition=condition,
+                true_block=exit_label,
+                false_block=next_label,
+            ))
+            sir_fn.add_block(exit_label).add(ReturnInst(
+                point_id=return_point
+            ))
+            next_label_before = next_label
+
+        final_block = sir_fn.add_block(next_label)
+        final_block.add(ReturnInst(
+            point_id=final_return_point
+        ))
+        return True
+
     def _try_lower_direct_call_subset(
         self,
         fn: Any,
@@ -769,6 +836,11 @@ class SIRGenerator:
         # com retornos diretos. Só é ativado quando todos os caminhos podem ser
         # representados honestamente pelo protótipo atual.
         if self._try_lower_simple_if_returns(
+            fn, sir_fn, entry_block, sir_params, ret_str
+        ):
+            return sir_fn
+
+        if self._try_lower_sequential_if_returns(
             fn, sir_fn, entry_block, sir_params, ret_str
         ):
             return sir_fn

@@ -270,6 +270,26 @@ fn main(token: Token) -> void {
                 backend="llvm",
             )
 
+    def test_llvm_backend_fails_closed_for_unlowered_region_device_external(self):
+        for domain in ("region", "device", "external"):
+            with self.subTest(domain=domain):
+                source = (
+                    "module test::llvm_domain_gate; "
+                    "sole struct Resource { value: u32; } "
+                    f"fn use(resource: {domain} Resource) -> void {{ return; }}"
+                )
+                with self.assertRaisesRegex(
+                    LLVMToolchainError,
+                    "LLVM backend does not lower canonical Ownership Domains yet",
+                ):
+                    self.toolchain.compile_source_to_native(
+                        source,
+                        f"test::llvm_{domain}_gate",
+                        self.tmp_path / f"{domain}.ll",
+                        emit_type="llvm",
+                        backend="llvm",
+                    )
+
 
 if __name__ == "__main__":
     unittest.main()

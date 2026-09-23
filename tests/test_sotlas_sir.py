@@ -2066,8 +2066,11 @@ class SotlasSIRTests(unittest.TestCase):
         source = """
         module test::sir_arc_if_integration;
 
-        pub fn maybe_stop(flag: bool) -> void {
-            if flag {
+        pub fn maybe_stop(first: bool, second: bool) -> void {
+            if first {
+                return;
+            }
+            if second {
                 return;
             }
             return;
@@ -2077,11 +2080,13 @@ class SotlasSIRTests(unittest.TestCase):
         ast = Parser(tokens, "<sir-arc-if-integration>").parse()
         fn = SIRGenerator().generate_from_ast(ast).functions[0]
 
-        if_node = ast.decls[0].body[0]
-        first_return = if_node.then_body[0]
-        second_return = ast.decls[0].body[1]
-        first_point = f"return@{first_return.span.line}:{first_return.span.col}"
-        second_point = f"return@{second_return.span.line}:{second_return.span.col}"
+        first_return = ast.decls[0].body[0].then_body[0]
+        second_return = ast.decls[0].body[1].then_body[0]
+        final_return = ast.decls[0].body[2]
+        return_points = tuple(
+            f"return@{item.span.line}:{item.span.col}"
+            for item in (first_return, second_return, final_return)
+        )
 
         token_type = SimpleNamespace(name="Token")
         trace = SimpleNamespace(
@@ -2100,27 +2105,21 @@ class SotlasSIRTests(unittest.TestCase):
                 ),
             ),
             shared_cleanup=SimpleNamespace(steps=()),
-            shared_path_cleanup=SimpleNamespace(steps=(
-                SimpleNamespace(
-                    owner="peer", account="token",
-                    destroy_after=False, via="early_return",
-                    point_id=first_point,
-                ),
-                SimpleNamespace(
-                    owner="token", account="token",
-                    destroy_after=True, via="early_return",
-                    point_id=first_point,
-                ),
-                SimpleNamespace(
-                    owner="peer", account="token",
-                    destroy_after=False, via="early_return",
-                    point_id=second_point,
-                ),
-                SimpleNamespace(
-                    owner="token", account="token",
-                    destroy_after=True, via="early_return",
-                    point_id=second_point,
-                ),
+            shared_path_cleanup=SimpleNamespace(steps=tuple(
+                action
+                for point_id in return_points
+                for action in (
+                    SimpleNamespace(
+                        owner="peer", account="token",
+                        destroy_after=False, via="early_return",
+                        point_id=point_id,
+                    ),
+                    SimpleNamespace(
+                        owner="token", account="token",
+                        destroy_after=True, via="early_return",
+                        point_id=point_id,
+                    ),
+                )
             )),
             shared_loop_cleanup=SimpleNamespace(steps=()),
             shared_loop_control_exit=SimpleNamespace(actions=()),
@@ -2128,12 +2127,14 @@ class SotlasSIRTests(unittest.TestCase):
 
         placement = apply_shared_ownership_trace(fn, trace)
 
-        self.assertEqual(placement.inserted_return_instructions, 6)
+        self.assertEqual(placement.inserted_return_instructions, 9)
         self.assertEqual(
             tuple(type(inst) for inst in placement.plan.semantic),
             (ShareInst, RetainInst),
         )
-        for block in fn.blocks[1:]:
+        for block in fn.blocks:
+            if not isinstance(block.instructions[-1], ReturnInst):
+                continue
             self.assertEqual(
                 tuple(type(inst) for inst in block.instructions),
                 (ReleaseInst, ReleaseInst, DestroyInst, ReturnInst),
@@ -2544,6 +2545,40 @@ class SotlasSIRTests(unittest.TestCase):
         ]
         self.assertEqual(len(returns), 2)
         self.assertTrue(all(inst.point_id.startswith("return@") for inst in returns))
+
+    def test_sir_generator_builds_sequential_early_return_cfg(self):
+        source = """
+        module test::sir_sequential_early_returns;
+        pub fn stop_if_any(first: bool, second: bool) -> void {
+            if first { return; }
+            if second { return; }
+            return;
+        }
+        """
+        tokens = Lexer(source, "<sir-sequential-early-returns>").tokenize()
+        ast = Parser(tokens, "<sir-sequential-early-returns>").parse()
+        fn = SIRGenerator().generate_from_ast(ast).functions[0]
+
+        self.assertEqual(len(fn.blocks), 5)
+        self.assertIsInstance(fn.blocks[0].instructions[-1], CondBranchInst)
+        self.assertIsInstance(fn.blocks[2].instructions[-1], CondBranchInst)
+        returns = [
+            inst
+            for block in fn.blocks
+            for inst in block.instructions
+            if isinstance(inst, ReturnInst)
+        ]
+        expected = {
+            f"return@{stmt.span.line}:{stmt.span.col}"
+            for node in ast.decls[0].body
+            for stmt in (
+                [node.then_body[0]]
+                if type(node).__name__ in ("If", "IfNode")
+                else [node]
+            )
+        }
+        self.assertEqual({item.point_id for item in returns}, expected)
+        self.assertEqual(len(expected), 3)
 
     def test_sir_generator_builds_continue_loop_cfg_with_identity(self):
         source = """

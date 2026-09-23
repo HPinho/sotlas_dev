@@ -124,6 +124,7 @@ Auditoria detalhada da Fase 0: [phase0_reality_audit.md](phase0_reality_audit.md
 - [x] placement de return falha fechado para point_id ausente ou duplicado
 - [x] SIRGenerator preserva `ReturnInst.point_id` para return terminal linear diretamente representável pela AST
 - [x] CFG estruturado inicial para funções `void`: `if flag { return; } return;` e `if/else` com retornos diretos, preservando point_id por branch; subset aceita prefixo de `share` e defer direto sobre alias
+- [x] sequência de `if` com condições booleanas de parâmetros e retornos antecipados diretos, seguida de retorno final, gera blocos e identidades `return@L:C` distintas; placement ARC executa release/destroy em cada saída
 - [x] condições ainda não representáveis no SIR não recebem CFG/point_id fictício
 - [ ] expansão do CFG estruturado para expressões condicionais e corpos arbitrários
 - [x] placement de break/continue/backedge no CFG de produção para o subset estruturado atualmente representável
@@ -176,7 +177,7 @@ Este índice geral é apenas uma leitura agregada conservadora das fases acima; 
 |---|---:|---|
 | `sole` / `exclusive` | ~100% semântico | domínio explícito congelado em structs, parâmetros, retornos, bindings e graph; backend geral da Fase 2 continua separado |
 | `shared` / co-owned / ARC semântico | ~91% | frontend, accounting, cleanup e SIR avançados; lowering C11 experimental cobre aliases locais imutáveis, payload escalar/POD, hooks detached de owner/wrapper e drop glue recursivo em ordem reversa para campos e arrays fixos `sole` multidimensionais; owner compartilhado por parâmetro agora também limpa no fallthrough da saída da função, com `defer` antes do release e execução nativa confirmando observação e destruição; formas C11 estáticas ainda não cobrem payloads com ponteiros, CFG geral ou e2e amplo |
-| CFG + cleanup + defer para ownership | ~65% | vários paths reais cobertos; CFG arbitrário e todos os payloads de defer ainda não |
+| CFG + cleanup + defer para ownership | ~66% | múltiplos retornos antecipados condicionados a parâmetros agora têm blocos e IDs source-stable próprios; CFG arbitrário e todos os payloads de defer ainda não |
 | `region` | ~35% | parser/Typed AST, moves/merges, retorno e handover same-domain chegam ao graph/SIR; C11 roda a análise canônica e executa transferência entre funções/bindings com drop único; arena/lifetime graph e validação ampla de escapes ainda faltam |
 | `device` | ~15% | parser/Typed AST e graph preservam owners e handovers same-domain; sincronização CPU/dispositivo, completion/reacquisition e runtime permanecem pendentes |
 | `external` | ~15% | parser/Typed AST e graph preservam owners e handovers same-domain; contrato FFI, lifetime e runtime permanecem pendentes |
@@ -190,9 +191,10 @@ Este índice geral é apenas uma leitura agregada conservadora das fases acima; 
 A combinação ponderada dessas macroentregas coloca a Fase 2 em **~79%**.
 
 `region`, `device` e `external` agora possuem identidade no enum canônico
-`OwnershipDomain`, mas não têm tipos, transições, merges, lowering ou backend.
-Essa representação é apenas preparação do modelo; os três domínios continuam
-em ~0% de implementação funcional e qualquer transição permanece rejeitada.
+`OwnershipDomain`, com qualificador, moves, merges same-domain, transferências
+por chamada/handover no grafo; `region` também possui lowering C11 e execução
+nativa restritos. `device` e `external` seguem sem runtime específico e são
+rejeitados explicitamente pelos backends disponíveis.
 
 ### Fase 2 detalhada
 
