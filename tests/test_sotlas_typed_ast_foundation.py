@@ -3818,6 +3818,48 @@ fn main(source: Token, destination: Token) -> void {
                 self.assertIs(transfer.source_domain, expected)
                 self.assertIs(transfer.target_domain, expected)
 
+    def test_region_rejects_cross_domain_call_and_use_after_move(self):
+        cross_domain = """module test::region_cross_domain_call;
+sole struct Token { value: u32; }
+fn consume(token: Token) -> void { return; }
+fn caller(token: region Token) -> void {
+    consume(move token);
+    return;
+}
+"""
+        parsed = bootstrap.parse(cross_domain, filename="<region-cross-domain>")
+        bootstrap.check(parsed)
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            "C11 region failed canonical ownership validation: "
+            "ownership domain transfer for 'token' requires explicit handover",
+        ):
+            bootstrap.compile_source(cross_domain, filename="<region-cross-domain-c11>")
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            "ownership domain transfer for 'token' requires explicit handover",
+        ):
+            typed_ast.analyze_function_ownership(parsed, typed, "caller")
+
+        use_after_move = """module test::region_use_after_move;
+sole struct Token { value: u32; }
+fn consume(token: region Token) -> void { return; }
+fn caller(token: region Token) -> void {
+    consume(move token);
+    token.value;
+    return;
+}
+"""
+        parsed = bootstrap.parse(use_after_move, filename="<region-use-after-move>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            "use of sole value 'token' after move",
+        ):
+            typed_ast.analyze_function_ownership(parsed, typed, "caller")
+
     def test_canonical_handover_destination_must_already_be_moved(self):
         source = """module test::handover_live_destination;
 sole struct Token { value: u32; }

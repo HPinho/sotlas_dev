@@ -3430,6 +3430,29 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
             or any(_contains_domain(fn.result, domain) for fn in module.functions)
         )
 
+    if _module_contains_domain("region"):
+        try:
+            typed_ast_module = importlib.import_module(
+                f"{__package__}.typed_ast"
+                if __package__ else "sotlas_compile.typed_ast"
+            )
+            typed_region_module = (
+                typed_ast_module.build_declaration_typed_ast(module)
+            )
+            typed_region_analysis = (
+                typed_ast_module.analyze_module_ownership(
+                    module, typed_region_module
+                )
+            )
+            typed_ast_module.build_ownership_domain_graph(
+                typed_region_analysis
+            )
+        except (ImportError, ValueError) as error:
+            raise SotlasBootstrapError(
+                f"C11 region failed canonical ownership validation: {error}",
+                1, 1, module.filename, module.source,
+            ) from error
+
     for domain in ("device", "external"):
         if _module_contains_domain(domain):
             raise SotlasBootstrapError(

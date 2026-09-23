@@ -149,7 +149,7 @@ Auditoria detalhada da Fase 0: [phase0_reality_audit.md](phase0_reality_audit.md
 ```text
 Fase 0 — Reality Reset              ~80%
 Fase 1 — Typed Semantic Core       100% ✅
-Fase 2 — Ownership Domains          ~76% 🟡
+Fase 2 — Ownership Domains          ~77% 🟡
 Fase 3 — Authority Domains          ~10%
 Fase 4 — State Spaces                ~0%
 Fase 5 — Effects                    ~10%
@@ -177,7 +177,7 @@ Este índice geral é apenas uma leitura agregada conservadora das fases acima; 
 | `sole` / `exclusive` | ~100% semântico | domínio explícito congelado em structs, parâmetros, retornos, bindings e graph; backend geral da Fase 2 continua separado |
 | `shared` / co-owned / ARC semântico | ~91% | frontend, accounting, cleanup e SIR avançados; lowering C11 experimental cobre aliases locais imutáveis, payload escalar/POD, hooks detached de owner/wrapper e drop glue recursivo em ordem reversa para campos e arrays fixos `sole` multidimensionais; owner compartilhado por parâmetro agora também limpa no fallthrough da saída da função, com `defer` antes do release e execução nativa confirmando observação e destruição; formas C11 estáticas ainda não cobrem payloads com ponteiros, CFG geral ou e2e amplo |
 | CFG + cleanup + defer para ownership | ~65% | vários paths reais cobertos; CFG arbitrário e todos os payloads de defer ainda não |
-| `region` | ~25% | parser/Typed AST, moves/merges e handover same-domain chegam ao graph/SIR; C11 executa handover e drop exatamente uma vez; arena/lifetime graph e validação ampla de escapes ainda faltam |
+| `region` | ~30% | parser/Typed AST, moves/merges e handover same-domain chegam ao graph/SIR; C11 roda a análise canônica, rejeita cruzamento implícito e executa handover/drop exatamente uma vez; arena/lifetime graph e validação ampla de escapes ainda faltam |
 | `device` | ~0% | ainda não implementado |
 | `external` | ~0% | ainda não implementado |
 | `island` | ~93% | fronteiras funcionais e subset C11 por valor em parâmetros/retornos e campos `sole` com payload POD recursivo estão cobertos; aliases, globals, enum e classes seguem bloqueados; runtime de aliases ainda falta |
@@ -187,7 +187,7 @@ Este índice geral é apenas uma leitura agregada conservadora das fases acima; 
 | `quarantine` | ~66% | EXCLUSIVE→ISLAND é validado no grafo e tem lowering estático C11; o gate de produção rastreia aliases locais/campos, distingue ramos mutuamente exclusivos e conserva a rejeição após joins ambíguos; teste C11 compila e executa a leitura no ramo oposto ao quarantine e verifica a destruição nos dois caminhos; weak invalidation/runtime, CFG path-sensitive geral e e2e amplo faltam |
 | runtime/backend + e2e por domínio | ~5% | gates/fail-closed existem, mas execução real de Ownership Domains ainda não |
 
-A combinação ponderada dessas macroentregas coloca a Fase 2 em **~76%**.
+A combinação ponderada dessas macroentregas coloca a Fase 2 em **~77%**.
 
 `region`, `device` e `external` agora possuem identidade no enum canônico
 `OwnershipDomain`, mas não têm tipos, transições, merges, lowering ou backend.
@@ -199,7 +199,7 @@ em ~0% de implementação funcional e qualquer transição permanece rejeitada.
 O contrato canônico de `direct T` está restrito a parâmetros: acesso imutável durante a chamada, passado por `&binding` de owner `exclusive/shared` vivo. Não consome ownership; aliases locais de frame são permitidos, e forwarding `direct → direct` preserva o source domain no grafo e SIR. Defer de função interna com argumento `&shared_alias` é executado antes dos releases em break/continue; retorno, campo/global, outras formas de defer, FFI opaca e acesso a `island` exigem contratos ainda ausentes. Cada chamada gera aresta `direct@L:C` no grafo e `DirectAccessInst` em SIR. C11 compila e executa o subset como ponteiro const; LLVM fonte→objeto aceita apenas funções `void` lineares com structs `sole` triviais, gera chamada e consome a prova canônica no graph. Payloads com destrutor/ownership aninhado, ARC, CFG amplo e escape permanecem fail-closed. Isso inicia o backend; não promove `direct` a completo.
 
 ```text
-Fase 2 — Ownership Domains                  ~76%
+Fase 2 — Ownership Domains                  ~77%
 
 ✅ sole / exclusive
 ✅ move semantics
