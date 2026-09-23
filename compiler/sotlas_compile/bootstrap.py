@@ -3503,6 +3503,55 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
         for region_name in region_structs:
             collect_region_drop_types(region_name)
 
+        def region_deinit_references_self(node) -> bool:
+            if node is None:
+                return False
+            if type(node).__name__ == "Name":
+                return getattr(node, "value", None) == "self"
+            if isinstance(node, (tuple, list)):
+                return any(region_deinit_references_self(item) for item in node)
+            fields = getattr(node, "__dataclass_fields__", None)
+            if not fields:
+                return False
+            return any(
+                region_deinit_references_self(getattr(node, field_name, None))
+                for field_name in fields
+                if field_name != "token"
+            )
+
+        for struct_name, struct in region_structs.items():
+            has_region_children = False
+            for field in struct.fields:
+                child_type = field.type
+                while child_type.is_array and child_type.elem_type is not None:
+                    child_type = child_type.elem_type
+                if (
+                    child_type.name in region_structs
+                    and child_type.ownership_domain == "region"
+                    and not child_type.pointer and not child_type.is_reference
+                    and not child_type.is_fn_ptr
+                ):
+                    has_region_children = True
+                    break
+            if not has_region_children:
+                continue
+            deinit = next(
+                (
+                    fn for fn in module.functions
+                    if fn.name == f"{struct_name}_deinit" and fn.params
+                ),
+                None,
+            )
+            if deinit is not None and any(
+                region_deinit_references_self(statement)
+                for statement in deinit.body
+            ):
+                raise SotlasBootstrapError(
+                    "C11 region recursive cleanup requires a detached owner "
+                    "deinit when region-owned fields are present",
+                    1, 1, module.filename, module.source,
+                )
+
     for domain in ("device", "external"):
         if _module_contains_domain(domain):
             raise SotlasBootstrapError(

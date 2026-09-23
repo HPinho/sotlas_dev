@@ -1873,6 +1873,25 @@ fn main() -> i32 {
         )
         self.assertEqual(executed.returncode, 0, executed.stderr)
 
+    def test_region_nested_owner_deinit_that_captures_self_fails_closed(self):
+        source = """module app::region_nested_deinit_gate;
+sole struct Token { value: u32; }
+sole struct Bundle { token: region Token; }
+fn Bundle_deinit(self: *mut Bundle) { unsafe { self.token.value; } }
+fn consume(bundle: region Bundle) -> void { return; }
+fn main() -> i32 {
+    let token: region Token = Token { value: 37u32 };
+    let bundle: region Bundle = Bundle { token: move token };
+    consume(move bundle);
+    return 0;
+}
+"""
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            "C11 region recursive cleanup requires a detached owner deinit",
+        ):
+            bootstrap.compile_source(source, filename="<region-nested-deinit>")
+
     def test_whisper_borrows_island_owner_for_internal_call_in_c11(self):
         source = """module app::whisper_island_runtime;
 sole struct Token { value: u32; }

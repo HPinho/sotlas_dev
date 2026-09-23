@@ -181,7 +181,7 @@ Este índice geral é apenas uma leitura agregada conservadora das fases acima; 
 | `sole` / `exclusive` | ~100% semântico | domínio explícito congelado em structs, parâmetros, retornos, bindings e graph; backend geral da Fase 2 continua separado |
 | `shared` / co-owned / ARC semântico | ~91% | frontend, accounting, cleanup e SIR avançados; lowering C11 experimental cobre aliases locais imutáveis, payload escalar/POD, hooks detached de owner/wrapper e drop glue recursivo em ordem reversa para campos e arrays fixos `sole` multidimensionais; owner compartilhado por parâmetro agora também limpa no fallthrough da saída da função, com `defer` antes do release e execução nativa confirmando observação e destruição; formas C11 estáticas ainda não cobrem payloads com ponteiros, CFG geral ou e2e amplo |
 | CFG + cleanup + defer para ownership | ~68% | retornos e loops com condições booleanas diretas, negadas ou compostas `&&`/`||` têm CFG explícito; corpos arbitrários e todos os payloads de defer ainda não |
-| `region` | ~42% | parser/Typed AST, moves/merges, retorno e handover same-domain chegam ao graph/SIR; C11 executa transferência com drop único e agora gera cleanup recursivo para campos `region` `sole` por valor, incluindo parâmetro/owner externo e ordem de deinit antes dos filhos, validado nativamente; arena/lifetime graph e validação ampla de escapes ainda faltam |
+| `region` | ~42% | parser/Typed AST, moves/merges, retorno e handover same-domain chegam ao graph/SIR; C11 executa transferência com drop único e gera cleanup recursivo para campos `region` `sole` por valor, incluindo parâmetros e owners locais; `deinit` do wrapper que acessa `self` com filhos region-owned é rejeitado para evitar double-drop; arena/lifetime graph e validação ampla de escapes ainda faltam |
 | `device` | ~15% | parser/Typed AST e graph preservam owners e handovers same-domain; sincronização CPU/dispositivo, completion/reacquisition e runtime permanecem pendentes |
 | `external` | ~15% | parser/Typed AST e graph preservam owners e handovers same-domain; contrato FFI, lifetime e runtime permanecem pendentes |
 | `island` | ~97% | fronteiras funcionais, subset C11 por valor em parâmetros/retornos e campos `sole` com payload POD recursivo estão cobertos; borrow `whisper` call-scoped de owner island com no-escape provado chega ao graph/SIR/LLVM e executa no C11; aliases armazenados, globals, enum/classes fora do subset e runtime de aliases ainda faltam |
@@ -196,7 +196,8 @@ A combinação ponderada dessas macroentregas coloca a Fase 2 em **~81%**.
 `region`, `device` e `external` agora possuem identidade no enum canônico
 `OwnershipDomain`, com qualificador, moves, merges same-domain, transferências
 por chamada/handover no grafo; `region` possui lowering C11 restrito com drop
-recursivo de campos `region` `sole` e execução nativa para transferência e
+recursivo de campos `region` `sole`, rejeita `deinit` do wrapper que captura
+`self` com filhos region-owned e possui execução nativa para transferência e
 destruição única. `device` e `external` seguem sem runtime específico e são
 rejeitados explicitamente pelos backends disponíveis.
 
