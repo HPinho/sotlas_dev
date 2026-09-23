@@ -195,13 +195,18 @@ class CodegenLLVM:
                 f"  ; whisper borrow %{inst.source.name} -> "
                 f"@{inst.callee}.{inst.parameter} [{inst.point_id}]\n"
             )
+        elif isinstance(inst, OwnershipDomainTransferInst):
+            raise ValueError(
+                f"LLVM backend does not lower {inst.operation} ownership "
+                f"transfer {inst.source_domain}->{inst.target_domain} until "
+                "the ownership-domain runtime ABI is defined"
+            )
         elif isinstance(
             inst,
             (
                 ShareInst,
                 DestroyInst,
                 OwnershipDomainPointInst,
-                OwnershipDomainTransferInst,
                 SharedOwnershipPointInst,
                 DeferUseInst,
             ),

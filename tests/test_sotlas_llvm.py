@@ -86,6 +86,28 @@ class TestCodegenLLVM(unittest.TestCase):
                 ):
                     CodegenLLVM(module).emit()
 
+    def test_resource_domain_transfers_fail_closed_with_domain_specific_abi_gate(self):
+        for domain in ("region", "device", "external"):
+            with self.subTest(domain=domain):
+                module = SIRModule(name="resource_domain_backend_gate")
+                function = SIRFunction(
+                    name="main", parameters=[], return_type="Void"
+                )
+                block = function.add_block("0")
+                block.add(OwnershipDomainTransferInst(
+                    "handover", SIRValue("owner", "Token"), domain, domain,
+                    destination=SIRValue("destination", "Token"),
+                    point_id="handover@1:1",
+                ))
+                block.add(ReturnInst())
+                module.add_function(function)
+                with self.assertRaisesRegex(
+                    ValueError,
+                    rf"LLVM backend does not lower handover ownership transfer "
+                    rf"{domain}->{domain} until the ownership-domain runtime ABI",
+                ):
+                    CodegenLLVM(module).emit()
+
     def test_direct_access_instruction_lowers_as_verified_noop(self):
         module = SIRModule(name="direct_access_backend")
         function = SIRFunction(name="main", parameters=[], return_type="Void")
