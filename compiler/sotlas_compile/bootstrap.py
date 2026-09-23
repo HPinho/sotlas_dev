@@ -3455,45 +3455,23 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                 f"C11 region failed canonical ownership validation: {error}",
                 1, 1, module.filename, module.source,
             ) from error
-        region_names = {
+        region_root_names = {
             node.type.name
             for node in region_graph.nodes
             if node.domain is typed_ast_module.OwnershipDomain.REGION
         }
-        pending_region_names = list(region_names)
-        while pending_region_names:
-            owner_name = pending_region_names.pop()
-            owner = next(
-                (item for item in module.structs if item.name == owner_name),
-                None,
-            )
-            if owner is None:
-                continue
-            for field in owner.fields:
-                child_type = field.type
-                while child_type.is_array and child_type.elem_type is not None:
-                    child_type = child_type.elem_type
-                if (
-                    child_type.ownership_domain == "region"
-                    and child_type.name not in region_names
-                ):
-                    region_names.add(child_type.name)
-                    pending_region_names.append(child_type.name)
-        region_structs = {
-            item.name: item for item in module.structs
-            if item.name in region_names and item.is_sole
-        }
+        all_region_structs = {item.name: item for item in module.structs}
         region_struct_order = {
             item.name: index for index, item in enumerate(module.structs)
         }
         region_drop_visiting: set[str] = set()
 
-        def collect_region_drop_types(struct_name: str) -> bool:
-            if struct_name in region_drop_types:
-                return True
+        def collect_region_drop_types(
+            struct_name: str, region_owned: bool = False
+        ) -> bool:
             if struct_name in region_drop_visiting:
-                return False
-            struct = region_structs.get(struct_name)
+                return True
+            struct = all_region_structs.get(struct_name)
             if struct is None:
                 return False
             region_drop_visiting.add(struct_name)
@@ -3502,25 +3480,27 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                 field_type = field.type
                 while field_type.is_array and field_type.elem_type is not None:
                     field_type = field_type.elem_type
-                child = region_structs.get(field_type.name)
+                child = all_region_structs.get(field_type.name)
                 if (
-                    child is not None
-                    and field_type.ownership_domain == "region"
-                    and not field_type.pointer and not field_type.is_reference
-                    and not field_type.is_fn_ptr
+                    child is None or field_type.pointer
+                    or field_type.is_reference or field_type.is_fn_ptr
                 ):
-                    has_region_child = (
-                        collect_region_drop_types(child.name)
-                        or has_region_child
-                    )
+                    continue
+                child_has_region = collect_region_drop_types(
+                    child.name, field_type.ownership_domain == "region"
+                )
+                if child_has_region:
+                    region_structs[child.name] = child
+                    has_region_child = True
             region_drop_visiting.remove(struct_name)
-            if struct.is_sole or has_region_child:
+            if region_owned or has_region_child:
+                region_structs[struct_name] = struct
                 region_drop_types.add(struct_name)
                 return True
             return False
 
-        for region_name in region_structs:
-            collect_region_drop_types(region_name)
+        for region_name in region_root_names:
+            collect_region_drop_types(region_name, region_owned=True)
 
         def region_deinit_references_self(node) -> bool:
             if node is None:
@@ -3544,12 +3524,7 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                 child_type = field.type
                 while child_type.is_array and child_type.elem_type is not None:
                     child_type = child_type.elem_type
-                if (
-                    child_type.name in region_structs
-                    and child_type.ownership_domain == "region"
-                    and not child_type.pointer and not child_type.is_reference
-                    and not child_type.is_fn_ptr
-                ):
+                if child_type.name in region_drop_types:
                     has_region_children = True
                     break
             if not has_region_children:
@@ -3952,7 +3927,6 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                 child = region_structs.get(field_type.name)
                 if (
                     child is None or child.name not in region_drop_types
-                    or field_type.ownership_domain != "region"
                     or field_type.pointer or field_type.is_reference
                     or field_type.is_fn_ptr
                 ):
