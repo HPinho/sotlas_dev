@@ -3433,6 +3433,7 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
     region_structs: dict[str, Struct] = {}
     region_struct_order: dict[str, int] = {}
     region_drop_types: set[str] = set()
+    region_composite_drop_types: set[str] = set()
     if _module_contains_domain("region"):
         try:
             typed_ast_module = importlib.import_module(
@@ -3493,6 +3494,8 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                     region_structs[child.name] = child
                     has_region_child = True
             region_drop_visiting.remove(struct_name)
+            if has_region_child:
+                region_composite_drop_types.add(struct_name)
             if region_owned or has_region_child:
                 region_structs[struct_name] = struct
                 region_drop_types.add(struct_name)
@@ -4295,8 +4298,11 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
             typ: Type, name: str, token: Token
         ) -> Defer | None:
             if (
-                typ.ownership_domain != "region"
-                or typ.name not in region_drop_types
+                typ.name not in region_drop_types
+                or not (
+                    typ.ownership_domain == "region"
+                    or typ.name in region_composite_drop_types
+                )
                 or typ.pointer or typ.is_array or typ.is_reference
             ):
                 return None
@@ -4416,7 +4422,7 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                         defer_scopes[-1].append(region_cleanup)
                     if (
                         typ.name in deinit_methods and not typ.pointer
-                        and typ.ownership_domain != "region"
+                        and region_cleanup is None
                     ):
                         takes_ptr = deinit_methods[typ.name]
                         arg_node = Unary(item.token, "&", Name(item.token, item.name)) if takes_ptr else Name(item.token, item.name)
@@ -4442,7 +4448,7 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                         defer_scopes[-1].append(region_cleanup)
                     if (
                         typ.name in deinit_methods
-                        and typ.ownership_domain != "region"
+                        and region_cleanup is None
                     ):
                         takes_ptr = deinit_methods[typ.name]
                         arg_node = (

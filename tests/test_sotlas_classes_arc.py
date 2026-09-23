@@ -2023,12 +2023,18 @@ fn Token_deinit(self: *mut Token) {
     unsafe { destroy_sum = destroy_sum + self.value; }
 }
 fn consume(bundle: region Bundle) -> void { return; }
+fn make_wrapper() -> void {
+    let leftover_token: region Token = Token { value: 44u32 };
+    let leftover = Metadata { token: move leftover_token };
+    return;
+}
 fn main() -> i32 {
     let token: region Token = Token { value: 43u32 };
     let metadata = Metadata { token: move token };
     let bundle: region Bundle = Bundle { metadata: metadata };
     consume(move bundle);
-    if destroy_sum == 43u32 { return 0; }
+    make_wrapper();
+    if destroy_sum == 87u32 { return 0; }
     return 1;
 }
 """
