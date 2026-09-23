@@ -554,6 +554,40 @@ fn main(token: Token) -> void { inspect(&token); return; }
                 ):
                     bootstrap.compile_source(source)
 
+    def test_external_owner_transfer_to_ffi_is_preserved_in_graph(self):
+        source = """module test::external_ffi_transfer;
+sole struct Token { value: u32; }
+@extern(C) fn release(token: external Token) -> void { return; }
+fn dispose(token: external Token) -> void {
+    release(move token);
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<external-ffi-transfer>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(parsed, typed, "dispose")
+        graph = typed_ast.build_ownership_domain_graph(
+            typed_ast.OwnershipModuleAnalysis((), (("dispose", trace),))
+        )
+        transfer = next(
+            item for item in graph.transfers
+            if item.binding == "token" and item.via == "call:release"
+        )
+        self.assertIs(transfer.source_domain, typed_ast.OwnershipDomain.EXTERNAL)
+        self.assertIs(transfer.target_domain, typed_ast.OwnershipDomain.EXTERNAL)
+        move = next(
+            item for item in trace.events
+            if item.kind == "move" and item.via == "call:release"
+        )
+        self.assertIs(move.source_domain, typed_ast.OwnershipDomain.EXTERNAL)
+        self.assertIs(move.target_domain, typed_ast.OwnershipDomain.EXTERNAL)
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            "C11 backend does not lower external ownership domain yet",
+        ):
+            bootstrap.emit_c(parsed)
+
     def test_explicit_island_parameter_enters_island_domain(self):
         source = """module test::explicit_island_param;
 sole struct Token { value: u32; }
