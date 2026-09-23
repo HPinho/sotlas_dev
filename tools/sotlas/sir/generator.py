@@ -114,9 +114,9 @@ class SIRGenerator:
         true_target: str,
         false_target: str,
         label_prefix: str,
-    ) -> list[tuple[str, CondBranchInst]] | None:
-        """Build short-circuit CFG edges for boolean params, !, &&, and ||."""
-        branches: list[tuple[str, CondBranchInst]] = []
+    ) -> list[tuple[str, Any]] | None:
+        """Build CFG edges for boolean literals, params, !, &&, and ||."""
+        branches: list[tuple[str, Any]] = []
         labels: set[str] = set()
         serial = 0
 
@@ -125,6 +125,14 @@ class SIRGenerator:
             if depth > 32:
                 return False
             kind = type(node).__name__
+            if kind == "LiteralNode":
+                token_kind = getattr(node, "kind", None)
+                token_name = getattr(token_kind, "name", None)
+                if token_name not in ("KW_TRUE", "KW_FALSE"):
+                    return False
+                target = yes if token_name == "KW_TRUE" else no
+                branches.append((label, BranchInst(target)))
+                return True
             if kind in ("UnaryExprNode", "Unary"):
                 operator = getattr(node, "op", None)
                 if getattr(operator, "name", None) not in ("NOT", "BANG"):
@@ -170,7 +178,7 @@ class SIRGenerator:
     def _install_condition_branch_plan(
         sir_fn: SIRFunction,
         start_block: SIRBasicBlock,
-        plan: list[tuple[str, CondBranchInst]],
+        plan: list[tuple[str, Any]],
     ) -> None:
         for label, branch in plan:
             block = start_block if label == start_block.label else sir_fn.add_block(label)

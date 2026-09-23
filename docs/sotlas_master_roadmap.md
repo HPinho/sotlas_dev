@@ -3912,7 +3912,8 @@ Ainda necessário para concluir a Fase 2 canônica:
 - [x] sequência de `if` com condições booleanas de parâmetros e retornos antecipados diretos, seguida de retorno final, gera saídas e identidades `return@L:C` distintas no CFG, com placement ARC de release/destroy em cada saída;
 - [x] condições `!param` em `if` e `while` invertem as arestas de controle usando o valor SSA existente, mantendo IDs source-stable e placement de cleanup;
 - [x] expressões booleanas `&&`/`||` sobre parâmetros e `!` baixam com curto-circuito em blocos SIR, preservando os destinos de return/break/continue e cleanup;
-- [ ] expandir CFG estruturado para condições/corpos arbitrários e demais terminadores;
+- [x] literais `true`/`false` em condições de `if`/`while` geram arestas SIR incondicionais ao destino escolhido, sem valor SSA fictício;
+- [ ] expandir CFG estruturado além desse subset protótipo, cobrindo expressões/corpos arbitrários, integração com lowering de produção e demais terminadores;
 - [x] integração direta `OwnershipTrace → plano SIR → placement` para retornos identificados, inclusive no CFG estruturado inicial de `if`;
 - [x] placement ARC para `break`/`continue` em `BranchInst` source-identified, com validação fail-closed;
 - [x] SIRGenerator emite CFG mínimo de `while` com `break`/`continue` source-identified e compatível com placement ARC;

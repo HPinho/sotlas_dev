@@ -2575,6 +2575,56 @@ class SotlasSIRTests(unittest.TestCase):
         self.assertEqual(len(returns), 2)
         self.assertTrue(all(inst.point_id.startswith("return@") for inst in returns))
 
+    def test_sir_generator_lowers_boolean_literal_if_conditions_without_fake_ssa(self):
+        source = """
+        module test::sir_boolean_literal_cfg;
+
+        pub fn constant_true() -> void {
+            if true { return; }
+            return;
+        }
+
+        pub fn constant_false() -> void {
+            if false { return; }
+            return;
+        }
+        """
+        tokens = Lexer(source, "<sir-boolean-literal-cfg>").tokenize()
+        ast = Parser(tokens, "<sir-boolean-literal-cfg>").parse()
+
+        true_fn, false_fn = SIRGenerator().generate_from_ast(ast).functions
+        for fn in (true_fn, false_fn):
+            self.assertEqual(len(fn.blocks), 3)
+            self.assertTrue(all(
+                not isinstance(inst, CondBranchInst)
+                for block in fn.blocks
+                for inst in block.instructions
+            ))
+
+        true_branch = true_fn.blocks[0].instructions[-1]
+        self.assertIsInstance(true_branch, BranchInst)
+        self.assertIn("_then", true_branch.target_block)
+        false_branch = false_fn.blocks[0].instructions[-1]
+        self.assertIsInstance(false_branch, BranchInst)
+        self.assertIn("_cont", false_branch.target_block)
+
+    def test_sir_generator_lowers_boolean_literal_while_conditions(self):
+        source = """
+        module test::sir_boolean_while;
+        pub fn skip_loop() -> void {
+            while false { break; }
+            return;
+        }
+        """
+        tokens = Lexer(source, "<sir-boolean-while>").tokenize()
+        ast = Parser(tokens, "<sir-boolean-while>").parse()
+        fn = SIRGenerator().generate_from_ast(ast).functions[0]
+
+        self.assertIsInstance(fn.blocks[0].instructions[-1], BranchInst)
+        condition_branch = fn.blocks[1].instructions[-1]
+        self.assertIsInstance(condition_branch, BranchInst)
+        self.assertIn("_exit", condition_branch.target_block)
+
     def test_sir_generator_builds_sequential_early_return_cfg(self):
         source = """
         module test::sir_sequential_early_returns;

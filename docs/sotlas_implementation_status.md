@@ -127,8 +127,9 @@ Auditoria detalhada da Fase 0: [phase0_reality_audit.md](phase0_reality_audit.md
 - [x] sequência de `if` com condições booleanas de parâmetros e retornos antecipados diretos, seguida de retorno final, gera blocos e identidades `return@L:C` distintas; placement ARC executa release/destroy em cada saída
 - [x] condições `!param` em `if` e `while` invertem arestas do CFG sobre o valor SSA existente, sem placeholder, preservando break/continue/backedge e cleanup
 - [x] condições booleanas compostas `&&`/`||` com curto-circuito entre parâmetros e `!` geram blocos condicionais explícitos; cleanup ARC continua associado às saídas source-stable
+- [x] condições literais `true`/`false` em `if` e `while` usam arestas SIR incondicionais para o destino constante, sem fabricar valor SSA; validado para retorno antecipado e saída de loop
 - [x] condições ainda não representáveis no SIR não recebem CFG/point_id fictício
-- [ ] expansão do CFG estruturado para expressões condicionais e corpos arbitrários
+- [ ] expansão do CFG estruturado além desse subset protótipo, cobrindo expressões condicionais, corpos arbitrários e integração com o lowering de produção
 - [x] placement de break/continue/backedge no CFG de produção para o subset estruturado atualmente representável
 - [ ] runtime/backend completo para tornar `share` executável em todos os payloads/caminhos; o subset C11 experimental cobre aliases locais, payload POD, criação lexical e drop glue recursivo para campos `sole` por valor em execução nativa
 - [ ] transições para `region/device/external` e merges correspondentes
@@ -153,7 +154,7 @@ Auditoria detalhada da Fase 0: [phase0_reality_audit.md](phase0_reality_audit.md
 ```text
 Fase 0 — Reality Reset              ~80%
 Fase 1 — Typed Semantic Core       100% ✅
-Fase 2 — Ownership Domains          ~80% 🟡
+Fase 2 — Ownership Domains          ~83% 🟡
 Fase 3 — Authority Domains          ~10%
 Fase 4 — State Spaces                ~0%
 Fase 5 — Effects                    ~10%
