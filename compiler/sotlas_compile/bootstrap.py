@@ -3430,6 +3430,9 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
             or any(_contains_domain(fn.result, domain) for fn in module.functions)
         )
 
+    region_structs: dict[str, Struct] = {}
+    region_struct_order: dict[str, int] = {}
+    region_drop_types: set[str] = set()
     if _module_contains_domain("region"):
         try:
             typed_ast_module = importlib.import_module(
@@ -3444,7 +3447,7 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                     module, typed_region_module
                 )
             )
-            typed_ast_module.build_ownership_domain_graph(
+            region_graph = typed_ast_module.build_ownership_domain_graph(
                 typed_region_analysis
             )
         except (ImportError, ValueError) as error:
@@ -3452,6 +3455,53 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                 f"C11 region failed canonical ownership validation: {error}",
                 1, 1, module.filename, module.source,
             ) from error
+        region_names = {
+            node.type.name
+            for node in region_graph.nodes
+            if node.domain is typed_ast_module.OwnershipDomain.REGION
+        }
+        region_structs = {
+            item.name: item for item in module.structs
+            if item.name in region_names and item.is_sole
+        }
+        region_struct_order = {
+            item.name: index for index, item in enumerate(module.structs)
+        }
+        region_drop_visiting: set[str] = set()
+
+        def collect_region_drop_types(struct_name: str) -> bool:
+            if struct_name in region_drop_types:
+                return True
+            if struct_name in region_drop_visiting:
+                return False
+            struct = region_structs.get(struct_name)
+            if struct is None:
+                return False
+            region_drop_visiting.add(struct_name)
+            has_region_child = False
+            for field in struct.fields:
+                field_type = field.type
+                while field_type.is_array and field_type.elem_type is not None:
+                    field_type = field_type.elem_type
+                child = region_structs.get(field_type.name)
+                if (
+                    child is not None
+                    and field_type.ownership_domain == "region"
+                    and not field_type.pointer and not field_type.is_reference
+                    and not field_type.is_fn_ptr
+                ):
+                    has_region_child = (
+                        collect_region_drop_types(child.name)
+                        or has_region_child
+                    )
+            region_drop_visiting.remove(struct_name)
+            if struct.is_sole or has_region_child:
+                region_drop_types.add(struct_name)
+                return True
+            return False
+
+        for region_name in region_structs:
+            collect_region_drop_types(region_name)
 
     for domain in ("device", "external"):
         if _module_contains_domain(domain):
@@ -3799,6 +3849,68 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
             ])
         lines.append("")
 
+    if region_drop_types:
+        lines.append("/* Region ownership recursive cleanup. */")
+        for struct_name in sorted(region_drop_types):
+            lines.append(
+                f"static inline void __sotlas_region_drop_{struct_name}"
+                f"({struct_name} *value);"
+            )
+        for struct_name in sorted(
+            region_drop_types,
+            key=lambda name: region_struct_order[name],
+        ):
+            struct = region_structs[struct_name]
+            deinit = next(
+                (
+                    fn for fn in module.functions
+                    if fn.name == f"{struct_name}_deinit" and fn.params
+                ),
+                None,
+            )
+            lines.append(
+                f"static inline void __sotlas_region_drop_{struct_name}"
+                f"({struct_name} *value) {{"
+            )
+            if deinit is not None:
+                arg = "value" if deinit.params[0][1].pointer else "*value"
+                lines.append(f"    {struct_name}_deinit({arg});")
+            for field in reversed(struct.fields):
+                field_type = field.type
+                array_dims = []
+                while field_type.is_array and field_type.elem_type is not None:
+                    array_dims.append(field_type)
+                    field_type = field_type.elem_type
+                child = region_structs.get(field_type.name)
+                if (
+                    child is None or child.name not in region_drop_types
+                    or field_type.ownership_domain != "region"
+                    or field_type.pointer or field_type.is_reference
+                    or field_type.is_fn_ptr
+                ):
+                    continue
+                indent = "    "
+                access = f"value->{field.name}"
+                for dimension, _ in enumerate(array_dims):
+                    index_name = _c_ident(
+                        f"__sotlas_region_drop_{struct_name}_"
+                        f"{field.name}_{dimension}"
+                    )
+                    lines.append(
+                        f"{indent}for (size_t {index_name} = sizeof({access}) / "
+                        f"sizeof({access}[0]); {index_name} > 0; --{index_name}) {{"
+                    )
+                    indent += "    "
+                    access += f"[{index_name} - 1]"
+                lines.append(
+                    f"{indent}__sotlas_region_drop_{child.name}(&{access});"
+                )
+                for _ in array_dims:
+                    indent = indent[:-4]
+                    lines.append(f"{indent}}}")
+            lines.append("}")
+        lines.append("")
+
     # Globals / Consts
     for g in module.globals:
         if g.is_const and not g.type.is_array:
@@ -4137,11 +4249,37 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                 sname = fn.name.rsplit("_deinit", 1)[0]
                 deinit_methods[sname] = fn.params[0][1].pointer
 
+        def region_cleanup_for(
+            typ: Type, name: str, token: Token
+        ) -> Defer | None:
+            if (
+                typ.ownership_domain != "region"
+                or typ.name not in region_drop_types
+                or typ.pointer or typ.is_array or typ.is_reference
+            ):
+                return None
+            return Defer(
+                token,
+                value=Call(
+                    token,
+                    f"__sotlas_region_drop_{typ.name}",
+                    [Unary(token, "&", Name(token, name))],
+                ),
+                auto_cleanup_name=name,
+            )
+
         if owned_params is not None:
             for param_name, param_type in owned_params:
+                region_cleanup = region_cleanup_for(
+                    param_type, param_name,
+                    Token("IDENT", param_name, 0, 0),
+                )
+                if region_cleanup is not None:
+                    defer_scopes[-1].append(region_cleanup)
                 if (
                     param_type.name in sole_types
                     and not param_type.pointer
+                    and param_type.ownership_domain != "region"
                     and getattr(param_type, "ownership_domain", None)
                         != "whisper"
                     and param_type.name in deinit_methods
@@ -4229,7 +4367,15 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                         out.append(f"{pad}{prefix_spec}{decl} = {_emit_expr(item.value, prefix)};")
                     else:
                         out.append(f"{pad}{typ.c_decl(item.name)} = {_emit_expr(item.value, prefix, shared_boxes)};")
-                    if typ.name in deinit_methods and not typ.pointer:
+                    region_cleanup = region_cleanup_for(
+                        typ, item.name, item.token
+                    )
+                    if region_cleanup is not None:
+                        defer_scopes[-1].append(region_cleanup)
+                    if (
+                        typ.name in deinit_methods and not typ.pointer
+                        and typ.ownership_domain != "region"
+                    ):
                         takes_ptr = deinit_methods[typ.name]
                         arg_node = Unary(item.token, "&", Name(item.token, item.name)) if takes_ptr else Name(item.token, item.name)
                         call_expr = Call(item.token, f"{typ.name}_deinit", [arg_node])
@@ -4247,7 +4393,15 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                         f"{pad}{typ.c_decl(item.name)} = "
                         f"{_emit_expr(item.value, prefix, shared_boxes)};"
                     )
-                    if typ.name in deinit_methods:
+                    region_cleanup = region_cleanup_for(
+                        typ, item.name, item.token
+                    )
+                    if region_cleanup is not None:
+                        defer_scopes[-1].append(region_cleanup)
+                    if (
+                        typ.name in deinit_methods
+                        and typ.ownership_domain != "region"
+                    ):
                         takes_ptr = deinit_methods[typ.name]
                         arg_node = (
                             Unary(item.token, "&", Name(item.token, item.name))
