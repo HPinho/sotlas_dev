@@ -3909,6 +3909,7 @@ Ainda necessário para concluir a Fase 2 canônica:
 - [x] gerador SIR protótipo preserva `point_id` em return terminal linear diretamente representável, sem fabricar CFG para retornos aninhados;
 - [x] primeiro CFG estruturado para funções `void` com `if` booleano simples e retornos diretos, preservando `point_id` distinto por caminho;
 - [x] sequência de `if` com condições booleanas de parâmetros e retornos antecipados diretos, seguida de retorno final, gera saídas e identidades `return@L:C` distintas no CFG, com placement ARC de release/destroy em cada saída;
+- [x] condições `!param` em `if` e `while` invertem as arestas de controle usando o valor SSA existente, mantendo IDs source-stable e placement de cleanup;
 - [ ] expandir CFG estruturado para condições/corpos arbitrários e demais terminadores;
 - [x] integração direta `OwnershipTrace → plano SIR → placement` para retornos identificados, inclusive no CFG estruturado inicial de `if`;
 - [x] placement ARC para `break`/`continue` em `BranchInst` source-identified, com validação fail-closed;

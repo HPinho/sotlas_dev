@@ -2488,7 +2488,7 @@ class SotlasSIRTests(unittest.TestCase):
         module test::sir_nested_return_probe;
 
         pub fn maybe_stop(flag: bool) -> void {
-            if flag {
+            if !flag {
                 return;
             }
             return;
@@ -2501,7 +2501,10 @@ class SotlasSIRTests(unittest.TestCase):
         fn = sir_mod.functions[0]
 
         self.assertEqual(len(fn.blocks), 3)
-        self.assertIsInstance(fn.blocks[0].instructions[-1], CondBranchInst)
+        branch = fn.blocks[0].instructions[-1]
+        self.assertIsInstance(branch, CondBranchInst)
+        self.assertIn("_cont", branch.true_block)
+        self.assertIn("_then", branch.false_block)
 
         if_node = ast.decls[0].body[0]
         nested_return = if_node.then_body[0]
@@ -2551,7 +2554,7 @@ class SotlasSIRTests(unittest.TestCase):
         module test::sir_sequential_early_returns;
         pub fn stop_if_any(first: bool, second: bool) -> void {
             if first { return; }
-            if second { return; }
+            if !second { return; }
             return;
         }
         """
@@ -2562,6 +2565,9 @@ class SotlasSIRTests(unittest.TestCase):
         self.assertEqual(len(fn.blocks), 5)
         self.assertIsInstance(fn.blocks[0].instructions[-1], CondBranchInst)
         self.assertIsInstance(fn.blocks[2].instructions[-1], CondBranchInst)
+        negated_branch = fn.blocks[2].instructions[-1]
+        self.assertIn("_next", negated_branch.true_block)
+        self.assertIn("_then", negated_branch.false_block)
         returns = [
             inst
             for block in fn.blocks
@@ -2585,7 +2591,7 @@ class SotlasSIRTests(unittest.TestCase):
         module test::sir_continue_loop;
 
         pub fn spin(flag: bool) -> void {
-            while flag {
+            while !flag {
                 continue;
             }
             return;
@@ -2599,6 +2605,9 @@ class SotlasSIRTests(unittest.TestCase):
         self.assertEqual(len(fn.blocks), 4)
         self.assertIsInstance(fn.blocks[0].instructions[-1], BranchInst)
         self.assertIsInstance(fn.blocks[1].instructions[-1], CondBranchInst)
+        condition_branch = fn.blocks[1].instructions[-1]
+        self.assertIn("_exit", condition_branch.true_block)
+        self.assertIn("_body", condition_branch.false_block)
         control = fn.blocks[2].instructions[-1]
         self.assertIsInstance(control, BranchInst)
         self.assertEqual(control.control_kind, "continue")

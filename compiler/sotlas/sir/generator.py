@@ -106,6 +106,24 @@ class SIRGenerator:
                 return param
         return None
 
+    @classmethod
+    def _simple_condition_with_polarity(
+        cls, condition: Any, params: list[SIRValue]
+    ) -> tuple[SIRValue, bool] | None:
+        """Resolve a parameter boolean or its direct logical negation."""
+        negated = False
+        if type(condition).__name__ in ("UnaryExprNode", "Unary"):
+            operator = getattr(condition, "op", None)
+            if getattr(operator, "name", None) not in ("NOT", "BANG"):
+                return None
+            operand = getattr(condition, "operand", None)
+            if operand is None:
+                operand = getattr(condition, "value", None)
+            condition = operand
+            negated = True
+        value = cls._simple_condition_value(condition, params)
+        return (value, negated) if value is not None else None
+
     def _try_lower_simple_if_returns(
         self,
         fn: Any,
@@ -264,12 +282,13 @@ class SIRGenerator:
         if_node = tail[0]
         if type(if_node).__name__ not in ("If", "IfNode"):
             return False
-        condition = self._simple_condition_value(
+        condition_info = self._simple_condition_with_polarity(
             getattr(if_node, "condition", None),
             sir_params,
         )
-        if condition is None:
+        if condition_info is None:
             return False
+        condition, negated = condition_info
 
         then_body = getattr(if_node, "then_body", None) or []
         else_body = getattr(if_node, "else_body", None)
@@ -298,8 +317,8 @@ class SIRGenerator:
             entry_block.add(
                 CondBranchInst(
                     condition=condition,
-                    true_block=then_label,
-                    false_block=else_label,
+                    true_block=else_label if negated else then_label,
+                    false_block=then_label if negated else else_label,
                 )
             )
             then_block = sir_fn.add_block(then_label)
@@ -326,8 +345,8 @@ class SIRGenerator:
         entry_block.add(
             CondBranchInst(
                 condition=condition,
-                true_block=then_label,
-                false_block=cont_label,
+                true_block=cont_label if negated else then_label,
+                false_block=then_label if negated else cont_label,
             )
         )
         then_block = sir_fn.add_block(then_label)
@@ -361,12 +380,13 @@ class SIRGenerator:
             return False
 
         loop = body[0]
-        condition = self._simple_condition_value(
+        condition_info = self._simple_condition_with_polarity(
             getattr(loop, "condition", None),
             sir_params,
         )
-        if condition is None:
+        if condition_info is None:
             return False
+        condition, negated = condition_info
 
         loop_body = getattr(loop, "body", None) or []
         control_stmt = None
@@ -403,8 +423,8 @@ class SIRGenerator:
         cond_block.add(
             CondBranchInst(
                 condition=condition,
-                true_block=body_label,
-                false_block=exit_label,
+                true_block=exit_label if negated else body_label,
+                false_block=body_label if negated else exit_label,
             )
         )
 
@@ -553,12 +573,12 @@ class SIRGenerator:
         branches = []
         labels = set()
         for node in if_nodes:
-            condition = self._simple_condition_value(
+            condition_info = self._simple_condition_with_polarity(
                 getattr(node, "condition", None), sir_params
             )
             then_body = getattr(node, "then_body", None) or []
             if (
-                condition is None
+                condition_info is None
                 or getattr(node, "else_body", None)
                 or len(then_body) != 1
                 or type(then_body[0]).__name__ not in ("Return", "ReturnNode")
@@ -566,22 +586,23 @@ class SIRGenerator:
                 return False
             source_point = self._statement_point_id(node, "if")
             return_point = self._statement_point_id(then_body[0], "return")
+            condition, negated = condition_info
             line_column = source_point.removeprefix("if@")
             exit_label = f"if_{line_column.replace(':', '_')}_then"
             next_label = f"if_{line_column.replace(':', '_')}_next"
             if exit_label in labels or next_label in labels:
                 return False
             labels.update((exit_label, next_label))
-            branches.append((condition, return_point, exit_label, next_label))
+            branches.append((condition, negated, return_point, exit_label, next_label))
         final_return_point = self._statement_point_id(body[-1], "return")
 
         next_label = None
-        for index, (condition, return_point, exit_label, next_label) in enumerate(branches):
+        for index, (condition, negated, return_point, exit_label, next_label) in enumerate(branches):
             test_block = entry_block if index == 0 else sir_fn.add_block(next_label_before)
             test_block.add(CondBranchInst(
                 condition=condition,
-                true_block=exit_label,
-                false_block=next_label,
+                true_block=next_label if negated else exit_label,
+                false_block=exit_label if negated else next_label,
             ))
             sir_fn.add_block(exit_label).add(ReturnInst(
                 point_id=return_point
