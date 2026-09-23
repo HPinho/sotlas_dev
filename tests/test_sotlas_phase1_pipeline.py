@@ -135,6 +135,21 @@ fn inspect(token: whisper Token) -> void { return; }
             result.semantic.ownership_domains.nodes, ()
         )
 
+    def test_public_phase1_pipeline_rejects_nested_whisper_type_shapes(self):
+        for inner_type in ("*Token", "*mut Token", "&Token", "&mut Token"):
+            with self.subTest(inner_type=inner_type):
+                source = (
+                    "module test::phase1_whisper_shape; "
+                    "sole struct Token { value: u32; } "
+                    f"fn inspect(token: whisper {inner_type}) -> void "
+                    "{ return; }"
+                )
+                with self.assertRaisesRegex(
+                    sotlas_compile.SotlasBootstrapError,
+                    "whisper currently requires an unqualified, direct",
+                ):
+                    sotlas_compile.analyze_source_phase1(source)
+
     def test_public_phase1_pipeline_exposes_empty_ownership_sir_for_plain_code(self):
         source = """module test::phase1_plain_sir;
 fn main(value: u32) -> u32 {

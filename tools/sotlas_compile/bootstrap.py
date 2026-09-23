@@ -492,9 +492,16 @@ class Parser:
                     token.line, token.column, self.filename, self.source,
                 )
             if domain == "whisper":
-                if inner.is_array or inner.is_fn_ptr:
+                if (
+                    inner.is_array
+                    or inner.is_fn_ptr
+                    or inner.pointer
+                    or inner.is_reference
+                    or inner.mutable
+                ):
                     raise SotlasBootstrapError(
-                        "whisper atualmente exige tipo direto não-array",
+                        "whisper currently requires an unqualified, direct "
+                        "non-array value type",
                         token.line, token.column, self.filename, self.source,
                     )
                 return replace(
