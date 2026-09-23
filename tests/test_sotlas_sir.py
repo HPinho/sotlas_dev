@@ -1206,6 +1206,32 @@ class SotlasSIRTests(unittest.TestCase):
         ):
             lower_ownership_domain_trace(trace)
 
+    def test_resource_domain_handovers_without_destination_name_domain(self):
+        for domain in ("region", "device", "external"):
+            with self.subTest(domain=domain):
+                token_type = SimpleNamespace(name="Token")
+                trace = SimpleNamespace(
+                    final_env=SimpleNamespace(bindings=(
+                        SimpleNamespace(name="token", type=token_type),
+                    )),
+                    events=(
+                        SimpleNamespace(
+                            kind="handover",
+                            name="token",
+                            type=token_type,
+                            source_domain=SimpleNamespace(value=domain),
+                            target_domain=SimpleNamespace(value=domain),
+                            destination=None,
+                            destination_domain=None,
+                        ),
+                    ),
+                )
+                with self.assertRaisesRegex(
+                    ValueError,
+                    rf"{domain} handover 'token' requires explicit destination",
+                ):
+                    lower_ownership_domain_trace(trace)
+
     def test_module_ownership_analysis_lowers_all_function_plans(self):
         token_type = SimpleNamespace(name="Token")
         exclusive = SimpleNamespace(value="exclusive")

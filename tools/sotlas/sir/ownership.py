@@ -215,7 +215,7 @@ def lower_ownership_domain_graph(
                 "island", "region", "device", "external"
             ):
                 raise ValueError(
-                    f"island handover {function_name}::{binding} requires "
+                    f"{source_domain} handover {function_name}::{binding} requires "
                     "explicit destination for SIR lowering"
                 )
             if destination is not None:
@@ -458,7 +458,7 @@ def lower_ownership_domain_trace(trace: Any) -> OwnershipDomainSIRPlan:
                 destination_value = _value(destination, types)
             elif source_domain in ("island", "region", "device", "external"):
                 raise ValueError(
-                    f"island handover {name!r} requires explicit destination "
+                    f"{source_domain} handover {name!r} requires explicit destination "
                     "for SIR lowering"
                 )
 
