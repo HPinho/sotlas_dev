@@ -175,6 +175,28 @@ fn caller(token: Token) -> void { inspect(&token, &token); return; }
         self.toolchain.compile_llvm_ir_to_obj(ir, obj_file)
         self.assertGreater(obj_file.stat().st_size, 0)
 
+    def test_llvm_source_backend_forwards_direct_borrow_to_whisper(self):
+        source = """module test::llvm_direct_to_whisper;
+sole struct Token { value: u32; }
+fn inspect(token: whisper Token) -> void { return; }
+fn forward(token: direct Token) -> void { inspect(token); return; }
+fn caller(token: Token) -> void { forward(&token); return; }
+"""
+        ll_file = self.tmp_path / "direct_to_whisper.ll"
+        obj_file = self.tmp_path / "direct_to_whisper.obj"
+        self.toolchain.compile_source_to_native(
+            source,
+            "test::llvm_direct_to_whisper",
+            ll_file,
+            emit_type="llvm",
+            backend="llvm",
+        )
+        ir = ll_file.read_text(encoding="utf-8")
+        self.assertIn("whisper borrow %token -> @inspect.token [whisper@", ir)
+        self.assertIn("call void @inspect(ptr %direct_token", ir)
+        self.toolchain.compile_llvm_ir_to_obj(ir, obj_file)
+        self.assertGreater(obj_file.stat().st_size, 0)
+
 
     def test_llvm_source_backend_preserves_forwarded_direct_access(self):
         source = """module test::llvm_direct_forward;

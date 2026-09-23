@@ -193,6 +193,37 @@ fn main() -> i32 {
         )
         self.assertEqual(executed.returncode, 31, executed.stderr)
 
+    def test_direct_borrow_forwards_to_verified_whisper_call_in_c11(self):
+        source = ROOT / "bootstrap" / "sotlas" / "test_direct_whisper_forward_temp.sotlas"
+        executable = ROOT / "build" / "test_direct_whisper_forward.exe"
+        self.addCleanup(source.unlink, missing_ok=True)
+        self.addCleanup(executable.unlink, missing_ok=True)
+        source.write_text("""module app::direct_whisper_forward;
+sole struct Token { value: u32; }
+fn inspect(token: whisper Token) -> u32 { return token.value; }
+fn forward(token: direct Token) -> u32 { return inspect(token); }
+fn call(token: Token) -> u32 { return forward(&token); }
+fn main() -> i32 {
+    let mut token: Token = 0;
+    token.value = 43;
+    return call(move token) as i32;
+}
+""", encoding="utf-8")
+        bootstrap.emit_c_project(source, self.output_c)
+        compiler = _host_c_compiler()
+        env = dict(os.environ)
+        env["PATH"] = str(compiler.parent) + os.pathsep + env.get("PATH", "")
+        compiled = subprocess.run(
+            [str(compiler), "-std=c11", "-Wall", "-Wextra", "-Werror",
+             str(self.output_c), "-o", str(executable)],
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(compiled.returncode, 0, compiled.stderr)
+        executed = subprocess.run(
+            [str(executable)], capture_output=True, text=True, env=env
+        )
+        self.assertEqual(executed.returncode, 43, executed.stderr)
+
     def test_whisper_method_receiver_is_lowered_as_const_borrow(self):
         source = ROOT / "bootstrap" / "sotlas" / "test_whisper_receiver_temp.sotlas"
         executable = ROOT / "build" / "test_whisper_receiver.exe"

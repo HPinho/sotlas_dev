@@ -243,8 +243,16 @@ def require_llvm_ownership_supported(module, frontend):
                         source_type = caller_params.get(source_name)
                         forwarded = (
                             source_type is not None
-                            and getattr(source_type, "ownership_domain", None)
-                            == getattr(target_type, "ownership_domain", None)
+                            and (
+                                getattr(source_type, "ownership_domain", None)
+                                == getattr(target_type, "ownership_domain", None)
+                                or (
+                                    getattr(source_type, "ownership_domain", None)
+                                    == "direct"
+                                    and getattr(target_type, "ownership_domain", None)
+                                    == "whisper"
+                                )
+                            )
                             and getattr(source_type, "name", None)
                             == getattr(target_type, "name", None)
                         )

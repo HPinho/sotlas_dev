@@ -769,10 +769,19 @@ class SIRGenerator:
                 elif type(argument).__name__ == "Name":
                     source_name = argument.value
                     source_type = caller_params.get(source_name)
+                    source_domain = getattr(
+                        source_type, "ownership_domain", None
+                    )
+                    target_domain = getattr(
+                        target_type, "ownership_domain", None
+                    )
+                    compatible_forward = (
+                        source_domain == target_domain
+                        or (source_domain == "direct" and target_domain == "whisper")
+                    )
                     if (
                         source_type is None
-                        or getattr(source_type, "ownership_domain", None)
-                        != getattr(target_type, "ownership_domain", None)
+                        or not compatible_forward
                         or getattr(source_type, "name", None)
                         != getattr(target_type, "name", None)
                         or source_name not in slots

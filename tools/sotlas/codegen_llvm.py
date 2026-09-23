@@ -185,7 +185,7 @@ class CodegenLLVM:
         elif isinstance(inst, WhisperBorrowInst):
             if (
                 inst.source_domain not in (
-                    "exclusive", "shared", "island", "whisper"
+                    "exclusive", "shared", "island", "whisper", "direct"
                 )
                 or not inst.point_id.startswith("whisper@")
             ):

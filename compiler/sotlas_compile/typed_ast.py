@@ -1190,16 +1190,28 @@ def _move_call_arguments(
                 ),
                 None,
             )
-            if (
+            same_borrow_domain = (
                 forwarded is not None
                 and parameter.ownership_domain is forwarded.ownership_domain
+            )
+            direct_to_whisper = (
+                forwarded is not None
+                and forwarded.ownership_domain is OwnershipDomain.DIRECT
+                and parameter.ownership_domain is OwnershipDomain.WHISPER
+            )
+            if (
+                (same_borrow_domain or direct_to_whisper)
                 and forwarded.type.name == parameter.type.name
             ):
                 events.append(
                     OwnershipEvent(
                         "borrow",
                         forwarded.name,
-                        f"{parameter.ownership_domain.value}_forward",
+                        (
+                            "whisper_direct_forward"
+                            if direct_to_whisper
+                            else f"{parameter.ownership_domain.value}_forward"
+                        ),
                         parameter.ownership_domain,
                         point_id=_cleanup_point_id(
                             call, parameter.ownership_domain.value
@@ -3224,7 +3236,9 @@ def build_ownership_domain_graph(
                         ),
                         *(
                             (OwnershipDomain.DIRECT,)
-                            if event.via == "direct_forward" else ()
+                            if event.via in (
+                                "direct_forward", "whisper_direct_forward"
+                            ) else ()
                         ),
                     )
                     or event.name != event.source_binding

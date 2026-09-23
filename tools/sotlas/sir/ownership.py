@@ -284,7 +284,7 @@ def lower_ownership_domain_graph(
             or not isinstance(parameter, str) or not parameter
             or not getattr(type_info, "name", None)
             or source_domain not in (
-                "exclusive", "shared", "island", "whisper"
+                "exclusive", "shared", "island", "whisper", "direct"
             )
             or not isinstance(point_id, str)
             or not point_id.startswith("whisper@")

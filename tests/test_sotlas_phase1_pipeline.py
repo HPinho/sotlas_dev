@@ -441,6 +441,34 @@ fn caller(token: Token) -> u32 { return forward(&token); }
         self.assertEqual(borrow.source_domain, "whisper")
         self.assertEqual(borrow.callee, "inspect")
 
+    def test_direct_borrow_can_forward_to_verified_whisper_parameter(self):
+        source = """module test::phase1_direct_to_whisper;
+sole struct Token { value: u32; }
+fn inspect(token: whisper Token) -> u32 { return token.value; }
+fn forward(token: direct Token) -> u32 { return inspect(token); }
+fn caller(token: Token) -> u32 { return forward(&token); }
+"""
+        checked = sotlas_compile.analyze_source_phase1(
+            source, filename="<phase1-direct-to-whisper>"
+        )
+        borrow = next(
+            item for item in checked.semantic.ownership_domains.whisper_borrows
+            if item.function == "forward"
+        )
+        self.assertEqual(borrow.source, "token")
+        self.assertIs(
+            borrow.source_domain, typed_ast.OwnershipDomain.DIRECT
+        )
+        forward_fn = next(
+            item for item in checked.ownership_sir.functions
+            if item.function == "forward"
+        )
+        sir_borrow = next(
+            item for item in forward_fn.domain.instructions
+            if type(item).__name__ == "WhisperBorrowInst"
+        )
+        self.assertEqual(sir_borrow.source_domain, "direct")
+
     def test_whisper_forwarding_inside_defer_preserves_borrow_domain(self):
         source = """module test::phase1_whisper_defer_forward;
 sole struct Token { value: u32; }
@@ -915,6 +943,25 @@ fn relay(token: whisper Token) -> *Token {
         with self.assertRaisesRegex(
             sotlas_compile.SotlasBootstrapError,
             "whisper-derived reference cannot be forwarded through a call without a verified no-escape parameter summary",
+        ):
+            sotlas_compile.bootstrap.check(parsed)
+
+    def test_production_checker_rejects_direct_forwarding_to_escaping_function(self):
+        source = """module test::production_direct_unsafe_forward;
+sole struct Token { value: u32; }
+fn leak(token: &Token) -> *Token {
+    unsafe { return token as *Token; }
+}
+fn relay(token: direct Token) -> *Token {
+    unsafe { return leak(token); }
+}
+"""
+        parsed = sotlas_compile.bootstrap.parse(
+            source, filename="<production-direct-unsafe-forward>"
+        )
+        with self.assertRaisesRegex(
+            sotlas_compile.SotlasBootstrapError,
+            "direct-derived reference cannot be forwarded through a call without a verified no-escape parameter summary",
         ):
             sotlas_compile.bootstrap.check(parsed)
 
