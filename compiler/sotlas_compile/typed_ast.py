@@ -1481,14 +1481,6 @@ def _record_nonowning_access(
             f"parameter {parameter.name!r}"
         )
     if (
-        parameter.ownership_domain is OwnershipDomain.WHISPER
-        and source_domain is OwnershipDomain.ISLAND
-    ):
-        raise Phase1SemanticError(
-            f"whisper borrow from island owner {source!r} requires an "
-            "explicit island alias contract"
-        )
-    if (
         parameter.ownership_domain is OwnershipDomain.DIRECT
         and source_domain is OwnershipDomain.ISLAND
     ):
@@ -3225,6 +3217,7 @@ def build_ownership_domain_graph(
                     or event.source_domain not in (
                         OwnershipDomain.EXCLUSIVE,
                         OwnershipDomain.SHARED,
+                        OwnershipDomain.ISLAND,
                         *(
                             (OwnershipDomain.WHISPER,)
                             if event.via == "whisper_forward" else ()

@@ -1805,6 +1805,39 @@ fn main() -> i32 {
         )
         self.assertEqual(executed.returncode, 0, executed.stderr)
 
+    def test_whisper_borrows_island_owner_for_internal_call_in_c11(self):
+        source = """module app::whisper_island_runtime;
+sole struct Token { value: u32; }
+fn inspect(token: whisper Token) -> u32 { return token.value; }
+fn read_island(token: island Token) -> u32 { return inspect(&token); }
+fn main() -> i32 {
+    let token = Token { value: 64u32 };
+    quarantine token;
+    let value = read_island(move token);
+    if value == 64u32 { return 0; }
+    return 1;
+}
+"""
+        source_file = ROOT / "bootstrap" / "sotlas" / "test_whisper_island_temp.sotlas"
+        executable = self.output_c.with_suffix(".exe")
+        self.addCleanup(source_file.unlink, missing_ok=True)
+        self.addCleanup(executable.unlink, missing_ok=True)
+        source_file.write_text(source, encoding="utf-8")
+        bootstrap.emit_c_project(source_file, self.output_c)
+        compiler = _host_c_compiler()
+        env = dict(os.environ)
+        env["PATH"] = str(compiler.parent) + os.pathsep + env.get("PATH", "")
+        compiled = subprocess.run(
+            [str(compiler), "-std=c11", "-Wall", "-Wextra", "-Werror",
+             str(self.output_c), "-o", str(executable)],
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(compiled.returncode, 0, compiled.stderr)
+        executed = subprocess.run(
+            [str(executable)], capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(executed.returncode, 0, executed.stderr)
+
     def test_island_field_in_sole_container_runs_through_c11(self):
         source = ROOT / "bootstrap" / "sotlas" / "test_island_field_temp.sotlas"
         executable = ROOT / "build" / "test_island_field.exe"

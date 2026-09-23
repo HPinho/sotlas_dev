@@ -184,7 +184,9 @@ class CodegenLLVM:
             )
         elif isinstance(inst, WhisperBorrowInst):
             if (
-                inst.source_domain not in ("exclusive", "shared", "whisper")
+                inst.source_domain not in (
+                    "exclusive", "shared", "island", "whisper"
+                )
                 or not inst.point_id.startswith("whisper@")
             ):
                 raise ValueError("LLVM backend received an invalid whisper borrow fact")

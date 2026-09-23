@@ -149,7 +149,7 @@ Auditoria detalhada da Fase 0: [phase0_reality_audit.md](phase0_reality_audit.md
 ```text
 Fase 0 — Reality Reset              ~80%
 Fase 1 — Typed Semantic Core       100% ✅
-Fase 2 — Ownership Domains          ~77% 🟡
+Fase 2 — Ownership Domains          ~79% 🟡
 Fase 3 — Authority Domains          ~10%
 Fase 4 — State Spaces                ~0%
 Fase 5 — Effects                    ~10%
@@ -178,16 +178,16 @@ Este índice geral é apenas uma leitura agregada conservadora das fases acima; 
 | `shared` / co-owned / ARC semântico | ~91% | frontend, accounting, cleanup e SIR avançados; lowering C11 experimental cobre aliases locais imutáveis, payload escalar/POD, hooks detached de owner/wrapper e drop glue recursivo em ordem reversa para campos e arrays fixos `sole` multidimensionais; owner compartilhado por parâmetro agora também limpa no fallthrough da saída da função, com `defer` antes do release e execução nativa confirmando observação e destruição; formas C11 estáticas ainda não cobrem payloads com ponteiros, CFG geral ou e2e amplo |
 | CFG + cleanup + defer para ownership | ~65% | vários paths reais cobertos; CFG arbitrário e todos os payloads de defer ainda não |
 | `region` | ~35% | parser/Typed AST, moves/merges, retorno e handover same-domain chegam ao graph/SIR; C11 roda a análise canônica e executa transferência entre funções/bindings com drop único; arena/lifetime graph e validação ampla de escapes ainda faltam |
-| `device` | ~0% | ainda não implementado |
-| `external` | ~0% | ainda não implementado |
-| `island` | ~93% | fronteiras funcionais e subset C11 por valor em parâmetros/retornos e campos `sole` com payload POD recursivo estão cobertos; aliases, globals, enum e classes seguem bloqueados; runtime de aliases ainda falta |
-| `whisper` | ~60% | qualificador canônico em parâmetros; chamadas non-owning produzem aresta source-stable no Ownership Domain Graph e `WhisperBorrowInst` para owners `exclusive/shared` LIVE, e o forwarding verificado preserva o source domain `whisper`, inclusive em chamada registrada por `defer`; o checker de produção rejeita escape local e prova summaries no-escape interprocedurais; leitura escalar, forwarding e receivers internos baixam e executam no C11 como ponteiro const; LLVM emite marker de borrow validado e compila objeto para chamadas lineares internas; weak invalidation, lifetime CFG completo, lowering do defer e FFI continuam pendentes |
+| `device` | ~15% | parser/Typed AST e graph preservam owners e handovers same-domain; sincronização CPU/dispositivo, completion/reacquisition e runtime permanecem pendentes |
+| `external` | ~15% | parser/Typed AST e graph preservam owners e handovers same-domain; contrato FFI, lifetime e runtime permanecem pendentes |
+| `island` | ~97% | fronteiras funcionais, subset C11 por valor em parâmetros/retornos e campos `sole` com payload POD recursivo estão cobertos; borrow `whisper` call-scoped de owner island com no-escape provado chega ao graph/SIR/LLVM e executa no C11; aliases armazenados, globals, enum/classes fora do subset e runtime de aliases ainda faltam |
+| `whisper` | ~70% | qualificador canônico em parâmetros; chamadas non-owning produzem aresta source-stable no Ownership Domain Graph e `WhisperBorrowInst` para owners `exclusive/shared/island` LIVE, e forwarding verificado preserva o source domain `whisper`; o checker de produção rejeita escape local e prova summaries no-escape; leitura escalar e receivers internos executam no C11 como ponteiro const; LLVM valida também borrow oriundo de `island`; weak invalidation, lifetime CFG completo, lowering amplo de defer e FFI continuam pendentes |
 | `direct` | ~56% | parâmetro imutável call-scoped preservado no Typed AST, graph e SIR; forwarding `direct → direct` preserva o domínio e passou execução C11 e LLVM fonte→objeto no subset linear; `defer inspect(&shared_alias)` agora preserva argumento pointer-typed e marker source-stable no SIR, com chamada antes dos releases em cada early return; defer C11 cobre também `continue`/`break`, argumentos `whisper` no-escape e escalares; LLVM baixa defer linear interno `direct → direct` e valida objeto; lifetime CFG geral, aliases complexos, mutabilidade, ABI ARC LLVM e e2e amplo ainda faltam |
 | `handover` | ~70% | transições EXCLUSIVE→EXCLUSIVE e ISLAND→EXCLUSIVE possuem contrato no graph e C11 baixa destino binding validado; demais destinos/domínios e e2e amplo faltam |
 | `quarantine` | ~66% | EXCLUSIVE→ISLAND é validado no grafo e tem lowering estático C11; o gate de produção rastreia aliases locais/campos, distingue ramos mutuamente exclusivos e conserva a rejeição após joins ambíguos; teste C11 compila e executa a leitura no ramo oposto ao quarantine e verifica a destruição nos dois caminhos; weak invalidation/runtime, CFG path-sensitive geral e e2e amplo faltam |
 | runtime/backend + e2e por domínio | ~5% | gates/fail-closed existem, mas execução real de Ownership Domains ainda não |
 
-A combinação ponderada dessas macroentregas coloca a Fase 2 em **~77%**.
+A combinação ponderada dessas macroentregas coloca a Fase 2 em **~79%**.
 
 `region`, `device` e `external` agora possuem identidade no enum canônico
 `OwnershipDomain`, mas não têm tipos, transições, merges, lowering ou backend.
@@ -199,7 +199,7 @@ em ~0% de implementação funcional e qualquer transição permanece rejeitada.
 O contrato canônico de `direct T` está restrito a parâmetros: acesso imutável durante a chamada, passado por `&binding` de owner `exclusive/shared` vivo. Não consome ownership; aliases locais de frame são permitidos, e forwarding `direct → direct` preserva o source domain no grafo e SIR. Defer de função interna com argumento `&shared_alias` é executado antes dos releases em break/continue; retorno, campo/global, outras formas de defer, FFI opaca e acesso a `island` exigem contratos ainda ausentes. Cada chamada gera aresta `direct@L:C` no grafo e `DirectAccessInst` em SIR. C11 compila e executa o subset como ponteiro const; LLVM fonte→objeto aceita apenas funções `void` lineares com structs `sole` triviais, gera chamada e consome a prova canônica no graph. Payloads com destrutor/ownership aninhado, ARC, CFG amplo e escape permanecem fail-closed. Isso inicia o backend; não promove `direct` a completo.
 
 ```text
-Fase 2 — Ownership Domains                  ~77%
+Fase 2 — Ownership Domains                  ~79%
 
 ✅ sole / exclusive
 ✅ move semantics

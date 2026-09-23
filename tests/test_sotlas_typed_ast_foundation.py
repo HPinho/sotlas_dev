@@ -355,6 +355,25 @@ fn inspect(token: whisper Token) -> void {
         env = typed_ast.seed_function_ownership(parsed, typed, "inspect")
         self.assertIsNone(env.state_of("token"))
 
+    def test_whisper_call_borrow_from_island_owner_reaches_graph_and_sir(self):
+        source = """module test::whisper_island_call;
+sole struct Token { value: u32; }
+fn inspect(token: whisper Token) -> u32 { return token.value; }
+fn read_island(token: island Token) -> u32 { return inspect(&token); }
+"""
+        parsed = bootstrap.parse(source, filename="<whisper-island-call>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(parsed, typed, "read_island")
+        graph = typed_ast.build_ownership_domain_graph(
+            typed_ast.OwnershipModuleAnalysis((), (("read_island", trace),))
+        )
+        borrow = next(item for item in graph.whisper_borrows)
+        self.assertIs(borrow.source_domain, typed_ast.OwnershipDomain.ISLAND)
+        plan = ownership_sir.lower_ownership_domain_graph(graph, "read_island")
+        self.assertEqual(len(plan.instructions), 1)
+        self.assertEqual(plan.instructions[0].source_domain, "island")
+
     def test_whisper_non_parameter_storage_remains_fail_closed(self):
         source = """module test::whisper_field;
 sole struct Token { value: u32; }

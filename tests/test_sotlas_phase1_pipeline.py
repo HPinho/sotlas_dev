@@ -1020,7 +1020,7 @@ fn caller(token: Token) -> void {
         self.assertEqual(borrows[0].source, "alias")
         self.assertIs(borrows[0].source_domain, typed_ast.OwnershipDomain.SHARED)
 
-    def test_whisper_borrow_rejects_island_owner_without_alias_contract(self):
+    def test_whisper_borrow_from_island_owner_reaches_graph_and_sir(self):
         source = """module test::phase1_whisper_island;
 sole struct Token { value: u32; }
 fn inspect(token: whisper Token) -> void { return; }
@@ -1029,13 +1029,21 @@ fn caller(token: island Token) -> void {
     return;
 }
 """
-        with self.assertRaisesRegex(
-            typed_ast.Phase1SemanticError,
-            "whisper borrow from island owner 'token'",
-        ):
-            sotlas_compile.analyze_source_phase1(
-                source, filename="<phase1-whisper-island>"
-            )
+        result = sotlas_compile.analyze_source_phase1(
+            source, filename="<phase1-whisper-island>"
+        )
+        borrow = result.semantic.ownership_domains.whisper_borrows[0]
+        self.assertEqual(borrow.source, "token")
+        self.assertIs(borrow.source_domain, typed_ast.OwnershipDomain.ISLAND)
+        sir_function = next(
+            item for item in result.ownership_sir.functions
+            if item.function == "caller"
+        )
+        sir_borrow = next(
+            item for item in sir_function.domain.instructions
+            if type(item).__name__ == "WhisperBorrowInst"
+        )
+        self.assertEqual(sir_borrow.source_domain, "island")
 
     def test_whisper_call_rejects_moved_sole_argument(self):
         source = """module test::phase1_whisper_moved;

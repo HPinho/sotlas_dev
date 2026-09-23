@@ -156,6 +156,27 @@ class TestCodegenLLVM(unittest.TestCase):
             llvm_ir,
         )
 
+    def test_whisper_borrow_from_island_is_validated_by_llvm(self):
+        module = SIRModule(name="whisper_island_borrow_backend")
+        function = SIRFunction(name="main", parameters=[], return_type="Void")
+        block = function.add_block("0")
+        block.add(WhisperBorrowInst(
+            SIRValue("owner", "Token"),
+            "inspect",
+            "token",
+            "island",
+            "whisper@4:8",
+        ))
+        block.add(ReturnInst())
+        module.add_function(function)
+
+        llvm_ir = CodegenLLVM(module).emit()
+
+        self.assertIn(
+            "; whisper borrow %owner -> @inspect.token [whisper@4:8]",
+            llvm_ir,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
