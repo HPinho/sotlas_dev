@@ -929,6 +929,31 @@ fn observe(token: &Token) -> u32 { return token.value; }
         )
         sotlas_compile.bootstrap.check(parsed)
 
+    def test_production_checker_rejects_recursive_cycle_with_escaping_member(self):
+        source = """module test::production_whisper_recursive_escape;
+sole struct Token { value: u32; }
+fn left(token: whisper Token, again: bool) -> u32 {
+    if again { return right(token, false); }
+    return token.value;
+}
+fn right(token: whisper Token, again: bool) -> u32 {
+    if again { return left(token, false); }
+    let escaped = leak(token);
+    return token.value;
+}
+fn leak(token: whisper Token) -> *Token {
+    unsafe { return token as *Token; }
+}
+"""
+        parsed = sotlas_compile.bootstrap.parse(
+            source, filename="<production-whisper-recursive-escape>"
+        )
+        with self.assertRaisesRegex(
+            sotlas_compile.SotlasBootstrapError,
+            "whisper-derived reference cannot be forwarded through a call without a verified no-escape parameter summary",
+        ):
+            sotlas_compile.bootstrap.check(parsed)
+
     def test_production_checker_rejects_forwarding_to_escaping_function(self):
         source = """module test::production_whisper_unsafe_forward;
 sole struct Token { value: u32; }

@@ -5959,6 +5959,39 @@ def _validate_whisper_lifetimes(
             noescape_parameters.add(key)
             changed = True
 
+    # Resolve recursive no-escape summaries as a greatest fixed point. Each
+    # remaining candidate is checked while assuming the whole tentative set is
+    # safe; candidates with any escaping path are removed, then callers are
+    # rechecked against the smaller set. This admits closed recursive SCCs
+    # without blessing a cycle that contains a storage, return, defer, or
+    # opaque-call escape.
+    tentative_noescape = {
+        (typed_function.name, index)
+        for parsed_function, typed_function, index, parameter in candidates
+        if (typed_function.name, index) not in noescape_parameters
+    }
+    while tentative_noescape:
+        rejected: set[tuple[str, int]] = set()
+        assumed_noescape = noescape_parameters | tentative_noescape
+        for parsed_function, typed_function, index, parameter in candidates:
+            key = (typed_function.name, index)
+            if key not in tentative_noescape:
+                continue
+            env = {param.name: param.type for param in typed_function.params}
+            try:
+                visit_block(
+                    parsed_function.body,
+                    env,
+                    {parameter.name},
+                    assumed_noescape,
+                )
+            except Phase1SemanticError:
+                rejected.add(key)
+        if not rejected:
+            noescape_parameters.update(tentative_noescape)
+            break
+        tentative_noescape.difference_update(rejected)
+
     for parsed_function in parsed_functions:
         typed_function = typed_functions.get(parsed_function.name)
         if typed_function is None:
