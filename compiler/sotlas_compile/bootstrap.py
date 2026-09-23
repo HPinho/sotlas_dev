@@ -3460,6 +3460,25 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
             for node in region_graph.nodes
             if node.domain is typed_ast_module.OwnershipDomain.REGION
         }
+        pending_region_names = list(region_names)
+        while pending_region_names:
+            owner_name = pending_region_names.pop()
+            owner = next(
+                (item for item in module.structs if item.name == owner_name),
+                None,
+            )
+            if owner is None:
+                continue
+            for field in owner.fields:
+                child_type = field.type
+                while child_type.is_array and child_type.elem_type is not None:
+                    child_type = child_type.elem_type
+                if (
+                    child_type.ownership_domain == "region"
+                    and child_type.name not in region_names
+                ):
+                    region_names.add(child_type.name)
+                    pending_region_names.append(child_type.name)
         region_structs = {
             item.name: item for item in module.structs
             if item.name in region_names and item.is_sole
