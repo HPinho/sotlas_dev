@@ -192,7 +192,7 @@ def require_llvm_ownership_supported(module, frontend):
             params = tuple(getattr(function, "params", ()))
             if any(
                 getattr(type_obj, "ownership_domain", None)
-                not in (None, "direct", "whisper")
+                not in (None, "direct", "whisper", "island")
                 for _, type_obj in params
             ):
                 nonowning_only = False

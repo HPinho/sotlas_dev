@@ -197,6 +197,30 @@ fn caller(token: Token) -> void { forward(&token); return; }
         self.toolchain.compile_llvm_ir_to_obj(ir, obj_file)
         self.assertGreater(obj_file.stat().st_size, 0)
 
+    def test_llvm_source_backend_accepts_direct_borrow_from_island(self):
+        source = """module test::llvm_direct_island;
+sole struct Token { value: u32; }
+fn inspect(token: direct Token) -> void { return; }
+fn read_island(token: island Token) -> void {
+    inspect(&token);
+    return;
+}
+"""
+        ll_file = self.tmp_path / "direct_island.ll"
+        obj_file = self.tmp_path / "direct_island.obj"
+        self.toolchain.compile_source_to_native(
+            source,
+            "test::llvm_direct_island",
+            ll_file,
+            emit_type="llvm",
+            backend="llvm",
+        )
+        ir = ll_file.read_text(encoding="utf-8")
+        self.assertIn("direct access %token -> @inspect.token", ir)
+        self.assertIn("call void @inspect(ptr %slot_token", ir)
+        self.toolchain.compile_llvm_ir_to_obj(ir, obj_file)
+        self.assertGreater(obj_file.stat().st_size, 0)
+
 
     def test_llvm_source_backend_preserves_forwarded_direct_access(self):
         source = """module test::llvm_direct_forward;

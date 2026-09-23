@@ -133,6 +133,13 @@ class TestCodegenLLVM(unittest.TestCase):
             "region",
             "direct@4:5",
         ))
+        block.add(DirectAccessInst(
+            SIRValue("island_owner", "*Token"),
+            "inspect",
+            "token",
+            "island",
+            "direct@5:6",
+        ))
         block.add(ReturnInst())
         module.add_function(function)
 
@@ -150,6 +157,10 @@ class TestCodegenLLVM(unittest.TestCase):
             "; direct access %region_owner -> @inspect.token [direct@4:5]",
             llvm_ir,
         )
+        self.assertIn(
+            "; direct access %island_owner -> @inspect.token [direct@5:6]",
+            llvm_ir,
+        )
 
     def test_direct_access_instruction_rejects_unverified_fact(self):
         module = SIRModule(name="direct_access_backend_gate")
@@ -159,7 +170,7 @@ class TestCodegenLLVM(unittest.TestCase):
             SIRValue("owner", "*Token"),
             "inspect",
             "token",
-            "island",
+            "device",
             "direct@2:3",
         ))
         block.add(ReturnInst())

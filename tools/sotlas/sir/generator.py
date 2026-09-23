@@ -762,6 +762,10 @@ class SIRGenerator:
                         return False
                     source_name = argument.value.value
                     source_type = caller_params.get(source_name)
+                    source_domain = (
+                        getattr(source_type, "ownership_domain", None)
+                        or "exclusive"
+                    )
                     if (
                         source_type is None
                         or getattr(source_type, "name", None) not in sole_names

@@ -1505,8 +1505,8 @@ def _record_nonowning_access(
     """Record a call-scoped immutable access without changing ownership state.
 
     This slice admits only an explicit borrow of a whole tracked sole binding.
-    Member, temporary, raw-pointer, and island aliases require their own
-    lifetime and aliasing contracts.
+    Member, temporary, and raw-pointer aliases require their own lifetime and
+    aliasing contracts.
     """
     if (
         type(argument).__name__ == "Unary"
@@ -1540,14 +1540,6 @@ def _record_nonowning_access(
         raise Phase1SemanticError(
             f"{parameter.ownership_domain.value} source type mismatch for "
             f"parameter {parameter.name!r}"
-        )
-    if (
-        parameter.ownership_domain is OwnershipDomain.DIRECT
-        and source_domain is OwnershipDomain.ISLAND
-    ):
-        raise Phase1SemanticError(
-            f"direct access to island owner {source!r} requires an "
-            "explicit island alias contract"
         )
     try:
         env.require_live(source)

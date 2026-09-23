@@ -845,20 +845,22 @@ extern "C" { fn sink(token: whisper Token); }
         ):
             sotlas_compile.bootstrap.check(parsed)
 
-    def test_direct_access_from_island_requires_alias_contract(self):
-        source = """module test::direct_island_alias;
+    def test_direct_access_from_device_owner_is_rejected(self):
+        source = """module test::direct_device_alias;
 sole struct Token { value: u32; }
 fn inspect(token: direct Token) -> u32 { return token.value; }
-fn caller(token: island Token) -> u32 { return inspect(&token); }
+fn caller(token: device Token) -> u32 { return inspect(&token); }
 """
         parsed = sotlas_compile.bootstrap.parse(
-            source, filename="<direct-island-alias>"
+            source, filename="<direct-device-alias>"
         )
         with self.assertRaisesRegex(
-            sotlas_compile.SotlasBootstrapError,
-            "direct access to island owner 'token' requires an explicit island alias contract",
+            typed_ast.Phase1SemanticError,
+            "device owner 'token' cannot be borrowed into host code",
         ):
-            sotlas_compile.bootstrap.check(parsed)
+            typed_ast.analyze_function_ownership(
+                parsed, typed_ast.build_declaration_typed_ast(parsed), "caller"
+            )
 
     def test_production_checker_rejects_indirect_direct_parameters(self):
         source = """module test::direct_fn_pointer;

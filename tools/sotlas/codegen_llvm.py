@@ -172,7 +172,9 @@ class CodegenLLVM:
             )
         elif isinstance(inst, DirectAccessInst):
             if (
-                inst.source_domain not in ("exclusive", "shared", "region", "direct")
+                inst.source_domain not in (
+                    "exclusive", "shared", "island", "region", "direct"
+                )
                 or not inst.point_id.startswith("direct@")
             ):
                 raise ValueError("LLVM backend received an invalid direct access fact")
