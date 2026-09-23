@@ -1518,6 +1518,13 @@ def _record_nonowning_access(
             f"{parameter.ownership_domain.value} source {source!r} is not a "
             "tracked ownership binding"
         )
+    if source_domain in (
+        OwnershipDomain.DEVICE, OwnershipDomain.EXTERNAL
+    ):
+        raise Phase1SemanticError(
+            f"{source_domain.value} owner {source!r} cannot be borrowed into "
+            "host code"
+        )
     if source_type.name != parameter.type.name:
         raise Phase1SemanticError(
             f"{parameter.ownership_domain.value} source type mismatch for "

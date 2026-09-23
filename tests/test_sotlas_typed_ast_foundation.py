@@ -614,6 +614,31 @@ fn dispose(token: external Token) -> void {
                             parsed, typed, "read"
                         )
 
+    def test_device_and_external_owners_cannot_be_borrowed_into_host_functions(self):
+        for domain in ("device", "external"):
+            for borrow_domain in ("direct", "whisper"):
+                with self.subTest(domain=domain, borrow_domain=borrow_domain):
+                    source = (
+                        "module test::opaque_resource_borrow; "
+                        "sole struct Resource { value: u32; } "
+                        f"fn inspect(resource: {borrow_domain} Resource) -> u32 "
+                        "{ return resource.value; } "
+                        f"fn read(resource: {domain} Resource) -> u32 "
+                        "{ return inspect(&resource); }"
+                    )
+                    parsed = bootstrap.parse(
+                        source, filename=f"<{domain}-{borrow_domain}-borrow>"
+                    )
+                    bootstrap.check(parsed)
+                    typed = typed_ast.build_declaration_typed_ast(parsed)
+                    with self.assertRaisesRegex(
+                        typed_ast.Phase1SemanticError,
+                        rf"{domain} owner 'resource' cannot be borrowed into host code",
+                    ):
+                        typed_ast.analyze_function_ownership(
+                            parsed, typed, "read"
+                        )
+
     def test_explicit_island_parameter_enters_island_domain(self):
         source = """module test::explicit_island_param;
 sole struct Token { value: u32; }
