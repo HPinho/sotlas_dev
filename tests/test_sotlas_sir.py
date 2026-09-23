@@ -2067,7 +2067,7 @@ class SotlasSIRTests(unittest.TestCase):
         module test::sir_arc_if_integration;
 
         pub fn maybe_stop(first: bool, second: bool) -> void {
-            if first {
+            if first && second {
                 return;
             }
             if second {
@@ -2553,7 +2553,7 @@ class SotlasSIRTests(unittest.TestCase):
         source = """
         module test::sir_sequential_early_returns;
         pub fn stop_if_any(first: bool, second: bool) -> void {
-            if first { return; }
+            if first && !second { return; }
             if !second { return; }
             return;
         }
@@ -2562,10 +2562,14 @@ class SotlasSIRTests(unittest.TestCase):
         ast = Parser(tokens, "<sir-sequential-early-returns>").parse()
         fn = SIRGenerator().generate_from_ast(ast).functions[0]
 
-        self.assertEqual(len(fn.blocks), 5)
+        self.assertEqual(len(fn.blocks), 6)
         self.assertIsInstance(fn.blocks[0].instructions[-1], CondBranchInst)
-        self.assertIsInstance(fn.blocks[2].instructions[-1], CondBranchInst)
-        negated_branch = fn.blocks[2].instructions[-1]
+        self.assertIn("_logic_", fn.blocks[0].instructions[-1].true_block)
+        self.assertIsInstance(fn.blocks[1].instructions[-1], CondBranchInst)
+        self.assertIsInstance(fn.blocks[3].instructions[-1], CondBranchInst)
+        and_right = fn.blocks[1].instructions[-1]
+        self.assertEqual(and_right.false_block, fn.blocks[2].label)
+        negated_branch = fn.blocks[3].instructions[-1]
         self.assertIn("_next", negated_branch.true_block)
         self.assertIn("_then", negated_branch.false_block)
         returns = [
@@ -2684,24 +2688,36 @@ class SotlasSIRTests(unittest.TestCase):
             (ReleaseInst, DestroyInst, BranchInst),
         )
 
-    def test_unrepresentable_loop_control_keeps_fallback_prototype(self):
-        source = """
-        module test::sir_complex_loop;
+    def test_loop_condition_short_circuit_cfg_preserves_and_or_paths(self):
+        for operator in ("&&", "||"):
+            with self.subTest(operator=operator):
+                source = f"""
+                module test::sir_short_circuit_loop;
+                pub fn spin(left: bool, right: bool) -> void {{
+                    while left {operator} right {{ continue; }}
+                }}
+                """
+                tokens = Lexer(source, "<sir-short-circuit-loop>").tokenize()
+                ast = Parser(tokens, "<sir-short-circuit-loop>").parse()
+                fn = SIRGenerator().generate_from_ast(ast).functions[0]
 
-        pub fn spin(flag: bool) -> void {
-            while flag && flag {
-                continue;
-            }
-        }
-        """
-        tokens = Lexer(source, "<sir-complex-loop>").tokenize()
-        ast = Parser(tokens, "<sir-complex-loop>").parse()
-
-        fn = SIRGenerator().generate_from_ast(ast).functions[0]
-
-        self.assertEqual(len(fn.blocks), 1)
-        self.assertIsInstance(fn.blocks[0].instructions[-1], ReturnInst)
-        self.assertIsNone(fn.blocks[0].instructions[-1].point_id)
+                self.assertEqual(len(fn.blocks), 5)
+                first_check = fn.blocks[1].instructions[-1]
+                second_check = fn.blocks[2].instructions[-1]
+                self.assertIsInstance(first_check, CondBranchInst)
+                self.assertIsInstance(second_check, CondBranchInst)
+                body_label = fn.blocks[3].label
+                exit_label = fn.blocks[4].label
+                if operator == "&&":
+                    self.assertIn("_logic_", first_check.true_block)
+                    self.assertEqual(first_check.false_block, exit_label)
+                    self.assertEqual(second_check.true_block, body_label)
+                    self.assertEqual(second_check.false_block, exit_label)
+                else:
+                    self.assertEqual(first_check.true_block, body_label)
+                    self.assertIn("_logic_", first_check.false_block)
+                    self.assertEqual(second_check.true_block, body_label)
+                    self.assertEqual(second_check.false_block, exit_label)
 
     def test_sir_generator_builds_empty_loop_backedge_identity(self):
         source = """

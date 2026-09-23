@@ -126,6 +126,7 @@ Auditoria detalhada da Fase 0: [phase0_reality_audit.md](phase0_reality_audit.md
 - [x] CFG estruturado inicial para funções `void`: `if flag { return; } return;` e `if/else` com retornos diretos, preservando point_id por branch; subset aceita prefixo de `share` e defer direto sobre alias
 - [x] sequência de `if` com condições booleanas de parâmetros e retornos antecipados diretos, seguida de retorno final, gera blocos e identidades `return@L:C` distintas; placement ARC executa release/destroy em cada saída
 - [x] condições `!param` em `if` e `while` invertem arestas do CFG sobre o valor SSA existente, sem placeholder, preservando break/continue/backedge e cleanup
+- [x] condições booleanas compostas `&&`/`||` com curto-circuito entre parâmetros e `!` geram blocos condicionais explícitos; cleanup ARC continua associado às saídas source-stable
 - [x] condições ainda não representáveis no SIR não recebem CFG/point_id fictício
 - [ ] expansão do CFG estruturado para expressões condicionais e corpos arbitrários
 - [x] placement de break/continue/backedge no CFG de produção para o subset estruturado atualmente representável
@@ -178,7 +179,7 @@ Este índice geral é apenas uma leitura agregada conservadora das fases acima; 
 |---|---:|---|
 | `sole` / `exclusive` | ~100% semântico | domínio explícito congelado em structs, parâmetros, retornos, bindings e graph; backend geral da Fase 2 continua separado |
 | `shared` / co-owned / ARC semântico | ~91% | frontend, accounting, cleanup e SIR avançados; lowering C11 experimental cobre aliases locais imutáveis, payload escalar/POD, hooks detached de owner/wrapper e drop glue recursivo em ordem reversa para campos e arrays fixos `sole` multidimensionais; owner compartilhado por parâmetro agora também limpa no fallthrough da saída da função, com `defer` antes do release e execução nativa confirmando observação e destruição; formas C11 estáticas ainda não cobrem payloads com ponteiros, CFG geral ou e2e amplo |
-| CFG + cleanup + defer para ownership | ~67% | múltiplos retornos antecipados com condição booleana direta ou negada têm blocos e IDs source-stable; CFG arbitrário e todos os payloads de defer ainda não |
+| CFG + cleanup + defer para ownership | ~68% | retornos e loops com condições booleanas diretas, negadas ou compostas `&&`/`||` têm CFG explícito; corpos arbitrários e todos os payloads de defer ainda não |
 | `region` | ~35% | parser/Typed AST, moves/merges, retorno e handover same-domain chegam ao graph/SIR; C11 roda a análise canônica e executa transferência entre funções/bindings com drop único; arena/lifetime graph e validação ampla de escapes ainda faltam |
 | `device` | ~15% | parser/Typed AST e graph preservam owners e handovers same-domain; sincronização CPU/dispositivo, completion/reacquisition e runtime permanecem pendentes |
 | `external` | ~15% | parser/Typed AST e graph preservam owners e handovers same-domain; contrato FFI, lifetime e runtime permanecem pendentes |
