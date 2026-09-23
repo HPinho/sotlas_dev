@@ -152,7 +152,7 @@ Auditoria detalhada da Fase 0: [phase0_reality_audit.md](phase0_reality_audit.md
 ```text
 Fase 0 — Reality Reset              ~80%
 Fase 1 — Typed Semantic Core       100% ✅
-Fase 2 — Ownership Domains          ~79% 🟡
+Fase 2 — Ownership Domains          ~80% 🟡
 Fase 3 — Authority Domains          ~10%
 Fase 4 — State Spaces                ~0%
 Fase 5 — Effects                    ~10%
@@ -190,7 +190,7 @@ Este índice geral é apenas uma leitura agregada conservadora das fases acima; 
 | `quarantine` | ~66% | EXCLUSIVE→ISLAND é validado no grafo e tem lowering estático C11; o gate de produção rastreia aliases locais/campos, distingue ramos mutuamente exclusivos e conserva a rejeição após joins ambíguos; teste C11 compila e executa a leitura no ramo oposto ao quarantine e verifica a destruição nos dois caminhos; weak invalidation/runtime, CFG path-sensitive geral e e2e amplo faltam |
 | runtime/backend + e2e por domínio | ~5% | gates/fail-closed existem, mas execução real de Ownership Domains ainda não |
 
-A combinação ponderada dessas macroentregas coloca a Fase 2 em **~79%**.
+A combinação ponderada dessas macroentregas coloca a Fase 2 em **~80%**.
 
 `region`, `device` e `external` agora possuem identidade no enum canônico
 `OwnershipDomain`, com qualificador, moves, merges same-domain, transferências
@@ -203,7 +203,7 @@ rejeitados explicitamente pelos backends disponíveis.
 O contrato canônico de `direct T` está restrito a parâmetros: acesso imutável durante a chamada, passado por `&binding` de owner `exclusive/shared` vivo. Não consome ownership; aliases locais de frame são permitidos, e forwarding `direct → direct` preserva o source domain no grafo e SIR. Defer de função interna com argumento `&shared_alias` é executado antes dos releases em break/continue; retorno, campo/global, outras formas de defer, FFI opaca e acesso a `island` exigem contratos ainda ausentes. Cada chamada gera aresta `direct@L:C` no grafo e `DirectAccessInst` em SIR. C11 compila e executa o subset como ponteiro const; LLVM fonte→objeto aceita apenas funções `void` lineares com structs `sole` triviais, gera chamada e consome a prova canônica no graph. Payloads com destrutor/ownership aninhado, ARC, CFG amplo e escape permanecem fail-closed. Isso inicia o backend; não promove `direct` a completo.
 
 ```text
-Fase 2 — Ownership Domains                  ~79%
+Fase 2 — Ownership Domains                  ~80%
 
 ✅ sole / exclusive
 ✅ move semantics
