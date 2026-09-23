@@ -1930,6 +1930,50 @@ fn main() -> i32 {
         )
         self.assertEqual(executed.returncode, 0, executed.stderr)
 
+    def test_region_cleanup_runs_defer_before_drop_on_return_and_fallthrough(self):
+        source = """module app::region_cleanup_paths;
+sole struct Token { value: u32; }
+static mut cleanup_order: u32 = 0;
+fn record_defer() -> void {
+    unsafe { cleanup_order = cleanup_order * 10u32 + 1u32; }
+}
+fn Token_deinit(self: *mut Token) {
+    unsafe { cleanup_order = cleanup_order * 10u32 + 2u32; }
+}
+fn consume(token: region Token, early: bool) -> void {
+    defer record_defer();
+    if early { return; }
+    return;
+}
+fn main() -> i32 {
+    let first: region Token = Token { value: 1u32 };
+    let second: region Token = Token { value: 2u32 };
+    consume(move first, true);
+    consume(move second, false);
+    if cleanup_order == 1212u32 { return 0; }
+    return 1;
+}
+"""
+        source_file = ROOT / "bootstrap" / "sotlas" / "test_region_cleanup_temp.sotlas"
+        executable = self.output_c.with_suffix(".exe")
+        self.addCleanup(source_file.unlink, missing_ok=True)
+        self.addCleanup(executable.unlink, missing_ok=True)
+        source_file.write_text(source, encoding="utf-8")
+        bootstrap.emit_c_project(source_file, self.output_c)
+        compiler = _host_c_compiler()
+        env = dict(os.environ)
+        env["PATH"] = str(compiler.parent) + os.pathsep + env.get("PATH", "")
+        compiled = subprocess.run(
+            [str(compiler), "-std=c11", "-Wall", "-Wextra", "-Werror",
+             str(self.output_c), "-o", str(executable)],
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(compiled.returncode, 0, compiled.stderr)
+        executed = subprocess.run(
+            [str(executable)], capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(executed.returncode, 0, executed.stderr)
+
     def test_whisper_borrows_island_owner_for_internal_call_in_c11(self):
         source = """module app::whisper_island_runtime;
 sole struct Token { value: u32; }
