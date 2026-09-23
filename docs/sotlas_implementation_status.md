@@ -139,8 +139,9 @@ Auditoria detalhada da Fase 0: [phase0_reality_audit.md](phase0_reality_audit.md
 - [x] defers shared ativos no escopo do loop executam em LIFO antes dos releases ARC no salto
 - [x] caminhos break/continue não recebem também cleanup de backedge, evitando double-release
 - [ ] integração completa de cleanup/early return/defer
-- [ ] lowering backend-neutral dos domains
-- [ ] implementação/rejeição explícita por backend
+- [x] lowering backend-neutral inicial de `handover`/`quarantine` como `OwnershipDomainTransferInst`, com domínio/origem/destino e identity source-stable preservados
+- [x] C11 e LLVM têm gates fail-closed exercitados para combinações ainda não suportadas de `region/device/external` e runtime ARC/domains
+- [ ] lowering executável e matriz positiva/negativa completa de cada operação por domínio/backend
 - [ ] testes positivos + negativos + end-to-end por domínio
 
 ## Progresso das fases
