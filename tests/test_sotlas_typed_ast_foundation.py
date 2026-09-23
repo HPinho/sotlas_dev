@@ -590,25 +590,29 @@ fn dispose(token: external Token) -> void {
 
     def test_device_and_external_owners_reject_implicit_host_field_access(self):
         for domain in ("device", "external"):
-            with self.subTest(domain=domain):
-                source = (
-                    "module test::opaque_resource_access; "
-                    "sole struct Resource { value: u32; } "
-                    f"fn read(resource: {domain} Resource) -> u32 {{ "
-                    "return resource.value; }"
-                )
-                parsed = bootstrap.parse(
-                    source, filename=f"<{domain}-host-access>"
-                )
-                bootstrap.check(parsed)
-                typed = typed_ast.build_declaration_typed_ast(parsed)
-                with self.assertRaisesRegex(
-                    typed_ast.Phase1SemanticError,
-                    rf"{domain} owner 'resource' cannot be accessed directly from host code",
-                ):
-                    typed_ast.analyze_function_ownership(
-                        parsed, typed, "read"
+            for body, result_type in (
+                ("return resource.value;", "u32"),
+                ("let address = &resource.value; return;", "void"),
+            ):
+                with self.subTest(domain=domain, body=body):
+                    source = (
+                        "module test::opaque_resource_access; "
+                        "sole struct Resource { value: u32; } "
+                        f"fn read(resource: {domain} Resource) -> {result_type} "
+                        f"{{ {body} }}"
                     )
+                    parsed = bootstrap.parse(
+                        source, filename=f"<{domain}-host-access>"
+                    )
+                    bootstrap.check(parsed)
+                    typed = typed_ast.build_declaration_typed_ast(parsed)
+                    with self.assertRaisesRegex(
+                        typed_ast.Phase1SemanticError,
+                        rf"{domain} owner 'resource' cannot be accessed directly from host code",
+                    ):
+                        typed_ast.analyze_function_ownership(
+                            parsed, typed, "read"
+                        )
 
     def test_explicit_island_parameter_enters_island_domain(self):
         source = """module test::explicit_island_param;

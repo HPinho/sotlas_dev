@@ -1073,7 +1073,7 @@ def require_expr_ownership_live(env: OwnershipEnv, expr) -> None:
     if owner is not None and env.state_of(owner) is not None:
         owner_domain = env.domain_of(owner)
         if (
-            kind in ("Member", "Index")
+            _contains_resource_field_access(expr, owner)
             and owner_domain in (
                 OwnershipDomain.DEVICE, OwnershipDomain.EXTERNAL
             )
@@ -1100,6 +1100,27 @@ def require_expr_ownership_live(env: OwnershipEnv, expr) -> None:
         require_expr_ownership_live(env, getattr(expr, "target", None))
         for argument in getattr(expr, "args", ()):
             require_expr_ownership_live(env, argument)
+
+
+def _contains_resource_field_access(expr, owner: str) -> bool:
+    if expr is None:
+        return False
+    kind = type(expr).__name__
+    if (
+        kind in ("Member", "Index")
+        and _root_owned_name(expr) == owner
+    ):
+        return True
+    if isinstance(expr, (tuple, list)):
+        return any(_contains_resource_field_access(item, owner) for item in expr)
+    fields = getattr(expr, "__dataclass_fields__", None)
+    if not fields:
+        return False
+    return any(
+        _contains_resource_field_access(getattr(expr, field_name, None), owner)
+        for field_name in fields
+        if field_name != "token"
+    )
 
 
 def _typed_enum_constructor(
