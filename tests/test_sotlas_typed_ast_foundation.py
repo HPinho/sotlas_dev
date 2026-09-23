@@ -3860,6 +3860,21 @@ fn caller(token: region Token) -> void {
         ):
             typed_ast.analyze_function_ownership(parsed, typed, "caller")
 
+    def test_region_pointer_return_rejected_by_c11_typecheck(self):
+        source = """module test::region_reference_escape;
+sole struct Token { value: u32; }
+fn leak() -> *const Token {
+    let token: region Token = Token { value: 3u32 };
+    return (&token as *const Token);
+}
+fn main() -> i32 { return 0; }
+"""
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            "retorno incompat",
+        ):
+            bootstrap.compile_source(source, filename="<region-reference-escape>")
+
     def test_canonical_handover_destination_must_already_be_moved(self):
         source = """module test::handover_live_destination;
 sole struct Token { value: u32; }
