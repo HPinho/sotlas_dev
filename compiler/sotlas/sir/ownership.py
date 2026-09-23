@@ -284,7 +284,7 @@ def lower_ownership_domain_graph(
             or not isinstance(parameter, str) or not parameter
             or not getattr(type_info, "name", None)
             or source_domain not in (
-                "exclusive", "shared", "island", "whisper", "direct"
+                "exclusive", "shared", "island", "region", "whisper", "direct"
             )
             or not isinstance(point_id, str)
             or not point_id.startswith("whisper@")
@@ -322,7 +322,7 @@ def lower_ownership_domain_graph(
             or not isinstance(callee, str) or not callee
             or not isinstance(parameter, str) or not parameter
             or not getattr(type_info, "name", None)
-            or source_domain not in ("exclusive", "shared", "direct")
+                or source_domain not in ("exclusive", "shared", "region", "direct")
             or (
                 forwarded_direct
                 and source_node is not None
@@ -385,7 +385,7 @@ def lower_ownership_domain_trace(trace: Any) -> OwnershipDomainSIRPlan:
                 or not isinstance(parameter, str) or not parameter
                 or not getattr(event_type, "name", None)
                 or source_domain not in (
-                    "exclusive", "shared", "whisper", "direct"
+                    "exclusive", "shared", "region", "whisper", "direct"
                 )
                 or not isinstance(point_id, str)
                 or not point_id.startswith(f"{event_domain}@")

@@ -126,6 +126,13 @@ class TestCodegenLLVM(unittest.TestCase):
             "direct",
             "direct@3:4",
         ))
+        block.add(DirectAccessInst(
+            SIRValue("region_owner", "*Token"),
+            "inspect",
+            "token",
+            "region",
+            "direct@4:5",
+        ))
         block.add(ReturnInst())
         module.add_function(function)
 
@@ -137,6 +144,10 @@ class TestCodegenLLVM(unittest.TestCase):
         )
         self.assertIn(
             "; direct access %borrowed -> @inspect.token [direct@3:4]",
+            llvm_ir,
+        )
+        self.assertIn(
+            "; direct access %region_owner -> @inspect.token [direct@4:5]",
             llvm_ir,
         )
 
@@ -168,6 +179,13 @@ class TestCodegenLLVM(unittest.TestCase):
             "exclusive",
             "whisper@2:3",
         ))
+        block.add(WhisperBorrowInst(
+            SIRValue("region_owner", "Token"),
+            "inspect",
+            "token",
+            "region",
+            "whisper@3:4",
+        ))
         block.add(ReturnInst())
         module.add_function(function)
 
@@ -175,6 +193,10 @@ class TestCodegenLLVM(unittest.TestCase):
 
         self.assertIn(
             "; whisper borrow %owner -> @inspect.token [whisper@2:3]",
+            llvm_ir,
+        )
+        self.assertIn(
+            "; whisper borrow %region_owner -> @inspect.token [whisper@3:4]",
             llvm_ir,
         )
 

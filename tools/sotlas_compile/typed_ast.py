@@ -3230,6 +3230,7 @@ def build_ownership_domain_graph(
                         OwnershipDomain.EXCLUSIVE,
                         OwnershipDomain.SHARED,
                         OwnershipDomain.ISLAND,
+                        OwnershipDomain.REGION,
                         *(
                             (OwnershipDomain.WHISPER,)
                             if event.via == "whisper_forward" else ()

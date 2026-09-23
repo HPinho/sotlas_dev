@@ -374,6 +374,38 @@ fn read_island(token: island Token) -> u32 { return inspect(&token); }
         self.assertEqual(len(plan.instructions), 1)
         self.assertEqual(plan.instructions[0].source_domain, "island")
 
+    def test_region_owner_borrows_reach_graph_and_sir_for_direct_and_whisper(self):
+        source = """module test::region_borrow_graph;
+sole struct Token { value: u32; }
+fn inspect_whisper(token: whisper Token) -> void { return; }
+fn inspect_direct(token: direct Token) -> void { return; }
+fn read(token: region Token) -> void {
+    inspect_whisper(&token);
+    inspect_direct(&token);
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<region-borrow-graph>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(parsed, typed, "read")
+        graph = typed_ast.build_ownership_domain_graph(
+            typed_ast.OwnershipModuleAnalysis((), (("read", trace),))
+        )
+        self.assertEqual(
+            [item.source_domain for item in graph.whisper_borrows],
+            [typed_ast.OwnershipDomain.REGION],
+        )
+        self.assertEqual(
+            [item.source_domain for item in graph.direct_accesses],
+            [typed_ast.OwnershipDomain.REGION],
+        )
+        plan = ownership_sir.lower_ownership_domain_graph(graph, "read")
+        self.assertEqual(
+            [item.source_domain for item in plan.instructions],
+            ["region", "region"],
+        )
+
     def test_whisper_non_parameter_storage_remains_fail_closed(self):
         source = """module test::whisper_field;
 sole struct Token { value: u32; }
