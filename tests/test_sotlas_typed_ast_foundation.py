@@ -2321,6 +2321,10 @@ fn main(token: Token) -> void {
             item for item in graph.transfers
             if item.binding == "token" and item.via == "quarantine"
         )
+        transition = next(
+            item for item in graph.planned_transitions
+            if item.binding == "token" and item.operation == "quarantine"
+        )
         self.assertIs(transfer.domain, typed_ast.OwnershipDomain.ISLAND)
         self.assertIs(
             transfer.source_domain,
@@ -2331,6 +2335,12 @@ fn main(token: Token) -> void {
             typed_ast.OwnershipDomain.ISLAND,
         )
         self.assertIsNone(transfer.destination_domain)
+        self.assertEqual(transition.point_id, transfer.point_id)
+        self.assertEqual(transition.point_id, "quarantine@4:5")
+        self.assertIs(transition.source, typed_ast.OwnershipDomain.EXCLUSIVE)
+        self.assertIs(transition.target, typed_ast.OwnershipDomain.ISLAND)
+        self.assertIs(transition.source_state, typed_ast.VarState.LIVE)
+        self.assertEqual(transition.type, typed_ast.SemanticType("Token"))
 
     def test_canonical_quarantine_rejects_shared_owner(self):
         source = """module test::quarantine_shared;

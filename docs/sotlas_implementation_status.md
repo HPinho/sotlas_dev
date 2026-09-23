@@ -65,6 +65,7 @@ Auditoria detalhada da Fase 0: [phase0_reality_audit.md](phase0_reality_audit.md
 - [x] nomes de domínios ainda sem semântica rejeitados antes do backend C11
 - [x] cleanup `sole` isolado por ramo C11 em retornos antecipados; transferência condicional que continua é rejeitada
 - [x] grafo canônico de Ownership Domains integrado ao snapshot semântico, com nós function-scoped e arestas de transferência
+- [x] `quarantine` produz transição tipada no grafo canônico com origem `exclusive`, destino `island`, fonte `LIVE` e ponto source-stable; isso fecha a validação semântica/IR da transição, sem habilitar runtime/backend
 
 ### Falta para concluir a Fase 2
 

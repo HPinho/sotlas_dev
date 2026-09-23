@@ -2657,6 +2657,25 @@ def build_ownership_domain_graph(
                             f"incomplete quarantine domain transition for "
                             f"{function_name}::{event.name}"
                         )
+                    point_id = event.point_id
+                    if point_id is None or not point_id.startswith("quarantine@"):
+                        raise Phase1SemanticError(
+                            f"quarantine transition for "
+                            f"{function_name}::{event.name} lacks canonical "
+                            "quarantine source point"
+                        )
+                    planned_transitions.append(
+                        OwnershipDomainTransition(
+                            binding=event.name,
+                            type=event.type or binding.type,
+                            source=source_domain,
+                            target=target_domain,
+                            source_state=VarState.LIVE,
+                            operation="quarantine",
+                            function=function_name,
+                            point_id=point_id,
+                        )
+                    )
                 elif event.kind == "handover" and event.destination is not None:
                     if source_domain is None or target_domain is None:
                         raise Phase1SemanticError(
