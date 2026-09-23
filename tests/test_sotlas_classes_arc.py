@@ -159,6 +159,44 @@ fn main() -> i32 {
         )
         self.assertEqual(executed.returncode, 37, executed.stderr)
 
+    def test_external_owner_transfers_once_across_c_ffi_boundary(self):
+        source = ROOT / "bootstrap" / "sotlas" / "test_external_ffi_temp.sotlas"
+        executable = ROOT / "build" / "test_external_ffi.exe"
+        self.addCleanup(source.unlink, missing_ok=True)
+        self.addCleanup(executable.unlink, missing_ok=True)
+        source.write_text("""module app::external_ffi;
+@repr(C) sole struct Token { value: u32; }
+@extern(C) fn release(token: external Token) -> void;
+@system @export fn dispose(token: external Token) -> void {
+    release(move token);
+    return;
+}
+""", encoding="utf-8")
+        bootstrap.emit_c_project(source, self.output_c)
+        self.output_c.write_text(
+            self.output_c.read_text(encoding="utf-8")
+            + "\nstatic uint32_t released_value;\n"
+            + "static uint32_t release_count;\n"
+            + "void release(Token token) { released_value = token.value; "
+            + "++release_count; }\n"
+            + "int main(void) { Token token = {41}; dispose(token); "
+            + "return released_value == 41 && release_count == 1 ? 0 : 1; }\n",
+            encoding="utf-8",
+        )
+        compiler = _host_c_compiler()
+        env = dict(os.environ)
+        env["PATH"] = str(compiler.parent) + os.pathsep + env.get("PATH", "")
+        compiled = subprocess.run(
+            [str(compiler), "-std=c11", "-Wall", "-Wextra", "-Werror",
+             str(self.output_c), "-o", str(executable)],
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(compiled.returncode, 0, compiled.stderr)
+        executed = subprocess.run(
+            [str(executable)], capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(executed.returncode, 0, executed.stderr)
+
     def test_direct_parameter_forwarding_runs_without_ownership_bookkeeping(self):
         source = ROOT / "bootstrap" / "sotlas" / "test_direct_forward_temp.sotlas"
         executable = ROOT / "build" / "test_direct_forward.exe"

@@ -541,24 +541,22 @@ fn main(token: Token) -> void { inspect(&token); return; }
                     bootstrap.compile_source(source)
 
     def test_device_external_fail_closed_at_c11_backend_gate(self):
-        for domain in ("device", "external"):
-            with self.subTest(domain=domain):
-                source = (
-                    "module test::domain_backend_gate; "
-                    "sole struct Resource { value: u32; } "
-                    f"fn use(resource: {domain} Resource) -> void {{ return; }}"
-                )
-                with self.assertRaisesRegex(
-                    bootstrap.SotlasBootstrapError,
-                    f"C11 backend does not lower {domain} ownership domain yet",
-                ):
-                    bootstrap.compile_source(source)
+        source = (
+            "module test::device_backend_gate; "
+            "sole struct Resource { value: u32; } "
+            "fn use(resource: device Resource) -> void { return; }"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            "C11 backend does not lower device ownership domain yet",
+        ):
+            bootstrap.compile_source(source)
 
     def test_external_owner_transfer_to_ffi_is_preserved_in_graph(self):
         source = """module test::external_ffi_transfer;
-sole struct Token { value: u32; }
-@extern(C) fn release(token: external Token) -> void { return; }
-fn dispose(token: external Token) -> void {
+@repr(C) sole struct Token { value: u32; }
+@extern(C) fn release(token: external Token) -> void;
+@export fn dispose(token: external Token) -> void {
     release(move token);
     return;
 }
@@ -582,11 +580,57 @@ fn dispose(token: external Token) -> void {
         )
         self.assertIs(move.source_domain, typed_ast.OwnershipDomain.EXTERNAL)
         self.assertIs(move.target_domain, typed_ast.OwnershipDomain.EXTERNAL)
+        generated = bootstrap.emit_c(parsed)
+        self.assertIn("void release(Token token);", generated)
+        self.assertNotIn("void release(Token token) {", generated)
+        self.assertIn("void dispose(Token token) {", generated)
+        self.assertIn("release(token);", generated)
+
+    def test_external_c11_rejects_missing_repr_c_and_unconsumed_owners(self):
+        missing_repr = """module test::external_no_repr;
+sole struct Token { value: u32; }
+@extern(C) fn release(token: external Token) -> void;
+"""
         with self.assertRaisesRegex(
             bootstrap.SotlasBootstrapError,
-            "C11 backend does not lower external ownership domain yet",
+            "C11 external lowering supports only repr\\(C\\) sole owners",
         ):
-            bootstrap.emit_c(parsed)
+            bootstrap.compile_source(missing_repr)
+
+        unconsumed = """module test::external_unconsumed;
+@repr(C) sole struct Token { value: u32; }
+@extern(C) fn release(token: external Token) -> void;
+@export fn leak(token: external Token) -> void { return; }
+"""
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            "C11 external lowering supports only repr\\(C\\) sole owners",
+        ):
+            bootstrap.compile_source(unconsumed)
+
+        partial_path = """module test::external_partial_path;
+@repr(C) sole struct Token { value: u32; }
+@extern(C) fn release(token: external Token) -> void;
+@export fn maybe_release(token: external Token, flag: bool) -> void {
+    if flag { release(move token); }
+    return;
+}
+"""
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            "C11 external lowering supports only repr\\(C\\) sole owners",
+        ):
+            bootstrap.compile_source(partial_path)
+
+    def test_bodyless_function_declaration_requires_extern_c(self):
+        source = """module test::bodyless_internal;
+fn missing_body(value: u32) -> void;
+"""
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            "function declarations without a body require @extern\\(C\\)",
+        ):
+            bootstrap.parse(source)
 
     def test_device_and_external_owners_reject_implicit_host_field_access(self):
         for domain in ("device", "external"):

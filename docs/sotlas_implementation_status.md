@@ -90,7 +90,7 @@ Auditoria detalhada da Fase 0: [phase0_reality_audit.md](phase0_reality_audit.md
 - [ ] integração completa do ARC com bindings, aliases, cleanup, lowering e runtime/backend
 - [ ] `region` | qualificador tipado em parâmetro/local `sole` por valor; moves, merges sem mudança de domínio e handover same-domain são validados no Ownership Domain Graph; lifetime/allocator e lowering C11/runtime seguem pendentes
 - [ ] `device` | qualificador tipado em parâmetro/local `sole` por valor; moves, merges sem mudança de domínio e handover same-domain são validados no Ownership Domain Graph; transferência CPU/dispositivo, completion/sync e runtime seguem pendentes
-- [ ] `external` | qualificador tipado em parâmetro/local `sole` por valor; moves, merges sem mudança de domínio e handover same-domain são validados no Ownership Domain Graph; contrato FFI, lifetime e runtime seguem pendentes
+- [ ] `external` | O backend C11 aceita owners sole repr(C) por valor em parametro exportado quando consumidos exatamente uma vez por uma declaracao @extern(C) sem corpo; layouts sem repr(C), storage/campos/retornos, owners nao consumidos e fronteiras opacas falham fechado; ABI geral de handles, lifetime e runtime seguem pendentes
 - [ ] `island`
 - [ ] `whisper` | parâmetros de funções internas com no-escape provado baixam no C11 como `const T *` e passam execução nativa para leitura escalar; storage, retorno, FFI e invalidação weak seguem pendentes
 - [ ] `direct`
@@ -133,7 +133,7 @@ Auditoria detalhada da Fase 0: [phase0_reality_audit.md](phase0_reality_audit.md
 - [x] placement de break/continue/backedge no CFG de produção para o subset estruturado atualmente representável
 - [ ] runtime/backend completo para tornar `share` executável em todos os payloads/caminhos; o subset C11 experimental cobre aliases locais, payload POD, criação lexical e drop glue recursivo para campos `sole` por valor em execução nativa
 - [ ] transições para `region/device/external` e merges correspondentes
-- [x] parser e Typed AST preservam `region/device/external` em owners `sole` por valor; move, merge same-domain e transferências same-domain por chamada/handover chegam ao grafo canônico; cruzamentos implícitos são rejeitados e C11 falha fechado com diagnóstico explícito até existir runtime por domínio
+- [x] parser e Typed AST preservam owners sole region/device/external por valor; moves, merges e transferencias same-domain chegam ao grafo canonico; cruzamentos implicitos sao rejeitados; device segue fail-closed, region tem subset C11 e external tem fronteira C11 restrita com repr(C) verificado
 - [x] invariância canônica de tipo/domínio/estado no backedge de loops para owners visíveis
 - [x] contas shared inteiramente locais à iteração recebem release reverso antes do backedge
 - [x] cleanup path-specific de shared locals em `break`/`continue`, inclusive em branches aninhados
@@ -154,7 +154,7 @@ Auditoria detalhada da Fase 0: [phase0_reality_audit.md](phase0_reality_audit.md
 ```text
 Fase 0 — Reality Reset              ~80%
 Fase 1 — Typed Semantic Core       100% ✅
-Fase 2 — Ownership Domains          ~83% 🟡
+Fase 2 — Ownership Domains          ~84% 🟡
 Fase 3 — Authority Domains          ~10%
 Fase 4 — State Spaces                ~0%
 Fase 5 — Effects                    ~10%
@@ -184,7 +184,7 @@ Este índice geral é apenas uma leitura agregada conservadora das fases acima; 
 | CFG + cleanup + defer para ownership | ~68% | retornos e loops com condições booleanas diretas, negadas ou compostas `&&`/`||` têm CFG explícito; corpos arbitrários e todos os payloads de defer ainda não |
 | `region` | ~56% | parser/Typed AST, moves/merges, retorno e handover same-domain chegam ao graph/SIR; C11 executa transferência com drop único e gera cleanup recursivo por campos, arrays fixos e wrappers POD comuns que contêm owners `region` `sole`, inclusive wrappers locais, em ordem reversa; borrows call-scoped para parâmetros `direct`/`whisper` chegam ao graph/SIR/LLVM/C11; testes nativos cobrem `defer` antes do drop em early return/fallthrough e destruição de locals em `continue`/`break`; `deinit` do wrapper que acessa `self` com filhos region-owned é rejeitado para evitar double-drop; arena/lifetime graph e validação ampla de escapes ainda faltam |
 | `device` | ~19% | parser/Typed AST e graph preservam owners, moves e handovers same-domain; leitura de campos, escapes de endereço e borrows `direct`/`whisper` para código host são rejeitados; sincronização CPU/dispositivo, completion/reacquisition e runtime permanecem pendentes |
-| `external` | ~21% | parser/Typed AST e graph preservam moves e handovers same-domain; consumo por parâmetro `external` de função `@extern(C)` é validado e mantém origem/destino no graph; leitura de campos, escapes de endereço e borrows `direct`/`whisper` para código host são rejeitados; ABI de handle, lifetime e lowering/runtime seguem pendentes e C11 continua fail-closed |
+| `external` | ~32% | parser/Typed AST e graph preservam moves e handovers same-domain; owner sole repr(C) atravessa por valor uma declaracao @extern(C) sem corpo quando consumidor exportado prova consumo exatamente uma vez em todos os caminhos; execucao nativa confere o handle recebido; storage/retorno, transferencia opaca, ABI geral de handles, lifetime e runtime continuam pendentes |
 | `island` | ~97% | fronteiras funcionais, subset C11 por valor em parâmetros/retornos e campos `sole` com payload POD recursivo estão cobertos; borrow `whisper` call-scoped de owner island com no-escape provado chega ao graph/SIR/LLVM e executa no C11; aliases armazenados, globals, enum/classes fora do subset e runtime de aliases ainda faltam |
 | `whisper` | ~72% | qualificador canônico em parâmetros; chamadas non-owning produzem aresta source-stable no Ownership Domain Graph e `WhisperBorrowInst` para owners `exclusive/shared/island/region/direct` LIVE; forwarding `direct → whisper` exige no-escape provado e executa em C11 e LLVM; o checker rejeita escapes; leitura escalar e receivers internos executam como ponteiro const; weak invalidation, lifetime CFG completo, lowering amplo de defer e FFI continuam pendentes |
 | `direct` | ~58% | parâmetro imutável call-scoped preservado no Typed AST, graph e SIR; owners `region` também podem originar acesso `direct` verificado; forwarding `direct → direct` e para `whisper` no-escape preserva o domínio de origem e executa em C11/LLVM; `defer inspect(&shared_alias)` preserva argumento pointer-typed e marker source-stable no SIR, com chamada antes dos releases em cada early return; defer C11 cobre também `continue`/`break`, argumentos `whisper` no-escape e escalares; lifetime CFG geral, aliases complexos, mutabilidade, ABI ARC LLVM e e2e amplo ainda faltam |
@@ -192,22 +192,19 @@ Este índice geral é apenas uma leitura agregada conservadora das fases acima; 
 | `quarantine` | ~66% | EXCLUSIVE→ISLAND é validado no grafo e tem lowering estático C11; o gate de produção rastreia aliases locais/campos, distingue ramos mutuamente exclusivos e conserva a rejeição após joins ambíguos; teste C11 compila e executa a leitura no ramo oposto ao quarantine e verifica a destruição nos dois caminhos; weak invalidation/runtime, CFG path-sensitive geral e e2e amplo faltam |
 | runtime/backend + e2e por domínio | ~5% | gates/fail-closed existem, mas execução real de Ownership Domains ainda não |
 
-A combinação ponderada dessas macroentregas coloca a Fase 2 em **~83%**.
+A combinacao ponderada dessas macroentregas coloca a Fase 2 em **~84%**.
 
-`region`, `device` e `external` agora possuem identidade no enum canônico
-`OwnershipDomain`, com qualificador, moves, merges same-domain, transferências
-por chamada/handover no grafo; `region` possui lowering C11 restrito com drop
-recursivo de campos `region` `sole`, rejeita `deinit` do wrapper que captura
-`self` com filhos region-owned e possui execução nativa para transferência e
-destruição única. `device` e `external` seguem sem runtime específico e são
-rejeitados explicitamente pelos backends disponíveis.
+`region`, `device` e `external` possuem identidade no enum canonico OwnershipDomain, com qualificador, moves, merges same-domain e transferencias por chamada/handover no grafo.
+`region` tem lowering C11 restrito com drop recursivo de campos sole, validacao de cleanup e execucao nativa com destruicao unica; arena/lifetime graph e validacao ampla de escapes seguem pendentes.
+`device` continua fail-closed ate existir transferencia CPU/dispositivo, completion e runtime.
+`external` tem caminho C11 restrito a handles sole repr(C) passados por valor a declaracoes @extern(C) sem corpo, com consumo validado e execucao nativa; ABI geral e lifetime seguem pendentes.
 
 ### Fase 2 detalhada
 
 O contrato canônico de `direct T` está restrito a parâmetros: acesso imutável durante a chamada, passado por `&binding` de owner `exclusive/shared/region` vivo. Não consome ownership; aliases locais de frame são permitidos, e forwarding `direct → direct` preserva o source domain no grafo e SIR. Defer de função interna com argumento `&shared_alias` é executado antes dos releases em break/continue; retorno, campo/global, outras formas de defer, FFI opaca e acesso a `island` exigem contratos ainda ausentes. Cada chamada gera aresta `direct@L:C` no grafo e `DirectAccessInst` em SIR. C11 compila e executa o subset como ponteiro const; LLVM fonte→objeto aceita apenas funções `void` lineares com structs `sole` triviais, gera chamada e consome a prova canônica no graph. Payloads com destrutor/ownership aninhado, ARC, CFG amplo e escape permanecem fail-closed. Isso inicia o backend; não promove `direct` a completo.
 
 ```text
-Fase 2 — Ownership Domains                  ~80%
+Fase 2 — Ownership Domains                  ~84%
 
 ✅ sole / exclusive
 ✅ move semantics

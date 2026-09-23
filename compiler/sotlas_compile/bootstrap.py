@@ -836,7 +836,16 @@ class Parser:
                 self.expect(",")
         result = Type("void")
         if self.accept("->"): result = self.type()
-        return Function(name, params, result, self.block(), public, attributes or [])
+        attributes = attributes or []
+        if self.accept(";"):
+            if "@extern(C)" not in attributes:
+                raise SotlasBootstrapError(
+                    "function declarations without a body require @extern(C)",
+                    self.current.line, self.current.column,
+                    self.filename, self.source,
+                )
+            return Function(name, params, result, [], public, attributes)
+        return Function(name, params, result, self.block(), public, attributes)
 
     def block(self) -> list[Stmt]:
         self.expect("{"); body = []
@@ -3549,12 +3558,128 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                     1, 1, module.filename, module.source,
                 )
 
-    for domain in ("device", "external"):
-        if _module_contains_domain(domain):
-            raise SotlasBootstrapError(
-                f"C11 backend does not lower {domain} ownership domain yet",
-                1, 1, module.filename, module.source,
+    if _module_contains_domain("device"):
+        raise SotlasBootstrapError(
+            "C11 backend does not lower device ownership domain yet",
+            1, 1, module.filename, module.source,
+        )
+
+    if _module_contains_domain("external"):
+        external_error = (
+            "C11 external lowering supports only repr(C) sole owners "
+            "consumed by an explicit external function boundary"
+        )
+        external_structs = {
+            item.name: item
+            for item in module.structs
+            if item.is_sole and "@repr(C)" in item.attributes
+        }
+        external_types = {
+            (param_type.name, param_type.ownership_domain)
+            for function in module.functions
+            for _, param_type in function.params
+            if _contains_domain(param_type, "external")
+        }
+        has_external_storage = (
+            any(
+                _contains_domain(field.type, "external")
+                for struct in module.structs for field in struct.fields
             )
+            or any(_contains_domain(item.type, "external") for item in module.globals)
+            or any(
+                _contains_domain(getattr(variant, "payload_type", None), "external")
+                for enum in module.enums for variant in enum.variants
+            )
+            or any(
+                _contains_domain(field.type, "external")
+                for cls in module.classes for field in cls.fields
+            )
+            or any(
+                _contains_domain(function.result, "external")
+                for function in module.functions
+            )
+        )
+        if (
+            has_external_storage
+            or any(
+                domain != "external"
+                or type_name not in external_structs
+                for type_name, domain in external_types
+            )
+        ):
+            raise SotlasBootstrapError(
+                external_error, 1, 1, module.filename, module.source,
+            )
+
+        external_declarations = {
+            function.name
+            for function in module.functions
+            if "@extern(C)" in function.attributes and not function.body
+        }
+        for function in module.functions:
+            if "@extern(C)" in function.attributes and function.body and any(
+                _contains_domain(param_type, "external")
+                for _, param_type in function.params
+            ):
+                raise SotlasBootstrapError(
+                    "C11 external owner boundary must be a bodyless @extern(C) declaration",
+                    1, 1, module.filename, module.source,
+                )
+            if any(
+                isinstance(item, Let)
+                and item.type is not None
+                and item.type.ownership_domain == "external"
+                for item in _walk_statements_recursive(function.body)
+            ):
+                raise SotlasBootstrapError(
+                    external_error, 1, 1, module.filename, module.source,
+                )
+
+        try:
+            typed_ast_module = importlib.import_module(
+                f"{__package__}.typed_ast"
+                if __package__ else "sotlas_compile.typed_ast"
+            )
+            typed_external_module = (
+                typed_ast_module.build_declaration_typed_ast(module)
+            )
+            for function in module.functions:
+                external_params = [
+                    name for name, param_type in function.params
+                    if param_type.ownership_domain == "external"
+                ]
+                if not external_params or not function.body:
+                    continue
+                trace = typed_ast_module.analyze_function_ownership(
+                    module, typed_external_module, function.name
+                )
+                for name in external_params:
+                    sinks = [
+                        event for event in trace.events
+                        if event.kind == "move"
+                        and event.name == name
+                        and event.source_domain
+                        is typed_ast_module.OwnershipDomain.EXTERNAL
+                    ]
+                    if (
+                        len(sinks) != 1
+                        or trace.final_env.state_of(name)
+                        is not typed_ast_module.VarState.MOVED
+                        or not sinks[0].via.startswith("call:")
+                        or sinks[0].via.removeprefix("call:")
+                        not in external_declarations
+                    ):
+                        raise SotlasBootstrapError(
+                            external_error, 1, 1,
+                            module.filename, module.source,
+                        )
+        except SotlasBootstrapError:
+            raise
+        except (ImportError, ValueError) as error:
+            raise SotlasBootstrapError(
+                f"C11 external failed canonical ownership validation: {error}",
+                1, 1, module.filename, module.source,
+            ) from error
 
     if _module_contains_domain("island"):
         sole_type_names = {
@@ -3756,7 +3881,12 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
     # Forward declarations das funções (antes dos globais para suportar ponteiros de função)
     for function in module.functions:
         is_export = "@export" in function.attributes or function.public
-        fname = function.name if (is_export or not mangle) else f"{prefix}{function.name}"
+        is_extern_c = "@extern(C)" in function.attributes
+        fname = (
+            function.name
+            if (is_export or is_extern_c or not mangle)
+            else f"{prefix}{function.name}"
+        )
         parameters = ", ".join(f"{typ.c_decl(name)}" for name, typ in function.params) or "void"
         inline_attr = "static inline " if "@inline" in function.attributes and not is_export else ""
         extra_attrs = _c_func_attributes(function.attributes)
@@ -4899,8 +5029,15 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
 
 
     for function in module.functions:
+        if not function.body and "@extern(C)" in function.attributes:
+            continue
         is_export = "@export" in function.attributes or function.public
-        fname = function.name if (is_export or not mangle) else f"{prefix}{function.name}"
+        is_extern_c = "@extern(C)" in function.attributes
+        fname = (
+            function.name
+            if (is_export or is_extern_c or not mangle)
+            else f"{prefix}{function.name}"
+        )
         parameters = ", ".join(f"{typ.c_decl(name)}" for name, typ in function.params) or "void"
         inline_attr = "static inline " if "@inline" in function.attributes and not is_export else ""
         extra_attrs = _c_func_attributes(function.attributes)
