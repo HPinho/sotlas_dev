@@ -2712,6 +2712,34 @@ class SotlasSIRTests(unittest.TestCase):
             ),
         )
 
+    def test_sir_generator_lowers_nested_if_else_return_tree(self):
+        source = """module test::sir_nested_if_return;
+pub fn choose(flag: bool, left: u32, right: u32) -> void {
+    if flag {
+        if left < right { return; } else { return; }
+    } else {
+        return;
+    }
+}
+"""
+        parsed = bootstrap.parse(source, filename="<sir-nested-if-return>")
+        fn = SIRGenerator().generate_from_ast(parsed).functions[0]
+        self.assertEqual(len(fn.blocks), 5)
+        self.assertTrue(
+            any(isinstance(inst, CompareInst)
+                for block in fn.blocks for inst in block.instructions)
+        )
+        self.assertTrue(
+            any(isinstance(inst, CondBranchInst)
+                for block in fn.blocks for inst in block.instructions)
+        )
+        returns = [
+            inst for block in fn.blocks for inst in block.instructions
+            if isinstance(inst, ReturnInst)
+        ]
+        self.assertEqual(len(returns), 3)
+        self.assertTrue(all(item.point_id.startswith("return@") for item in returns))
+
     def test_sir_generator_builds_continue_loop_cfg_with_identity(self):
         source = """
         module test::sir_continue_loop;

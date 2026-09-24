@@ -23,6 +23,7 @@ LLVM_TYPE_MAP: Dict[str, str] = {
     "Void": "void",
     "void": "void",
     "Bool": "i1",
+    "bool": "i1",
     "UInt8": "i8",
     "Int8": "i8",
     "u8": "i8",

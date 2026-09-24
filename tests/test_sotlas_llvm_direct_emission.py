@@ -127,6 +127,39 @@ pub fn answer() -> i32 {
         self.assertIn("ModuleID", content)
         self.assertIn("@answer", content)
 
+    def test_llvm_source_backend_emits_nested_if_return_cfg(self):
+        source = """module test::llvm_nested_if_return;
+pub fn choose(flag: bool, left: u32, right: u32) -> void {
+    if flag {
+        if left < right { return; } else { return; }
+    } else {
+        return;
+    }
+}
+"""
+        ll_file = self.tmp_path / "nested_if_return.ll"
+        result = self.toolchain.compile_source_to_native(
+            source,
+            "test::llvm_nested_if_return",
+            ll_file,
+            emit_type="llvm",
+            backend="llvm",
+        )
+        self.assertTrue(result.is_file())
+        content = result.read_text(encoding="utf-8")
+        self.assertIn("icmp ult i32 %left, %right", content)
+        self.assertEqual(content.count("ret void"), 3)
+        object_file = self.tmp_path / "nested_if_return.obj"
+        object_result = self.toolchain.compile_source_to_native(
+            source,
+            "test::llvm_nested_if_return",
+            object_file,
+            emit_type="obj",
+            backend="llvm",
+        )
+        self.assertTrue(object_result.is_file())
+        self.assertGreater(object_result.stat().st_size, 100)
+
     def test_llvm_source_backend_lowers_trivial_call_scoped_direct_domain(self):
         source = """module test::llvm_direct;
 sole struct Token { value: u32; }

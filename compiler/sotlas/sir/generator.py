@@ -665,6 +665,90 @@ class SIRGenerator:
         )
         return True
 
+    def _try_lower_nested_if_returns(
+        self,
+        fn: Any,
+        sir_fn: SIRFunction,
+        entry_block: SIRBasicBlock,
+        sir_params: list[SIRValue],
+        return_type: str,
+    ) -> bool:
+        """Lower nested, fully terminating void if/else decision trees.
+
+        Leaves must be direct returns. Conditions use the existing verified
+        parameter/literal/comparison subset; statements with side effects stay
+        on the conservative fallback path.
+        """
+        if return_type != "void":
+            return False
+        body = getattr(fn, "body", None) or []
+        if len(body) != 1 or type(body[0]).__name__ not in ("If", "IfNode"):
+            return False
+
+        used_labels = {entry_block.label}
+        pending: list[tuple[Any, str]] = [(body[0], entry_block.label)]
+        plans: list[list[tuple[str, Any]]] = []
+        leaves: list[tuple[str, Any]] = []
+        reserved_labels: set[str] = set()
+
+        while pending:
+            node, start_label = pending.pop()
+            then_body = getattr(node, "then_body", None) or []
+            else_body = getattr(node, "else_body", None)
+            if not isinstance(else_body, list) or not else_body:
+                return False
+            if len(then_body) != 1 or len(else_body) != 1:
+                return False
+            children = (then_body[0], else_body[0])
+            if any(
+                type(child).__name__ not in (
+                    "If", "IfNode", "Return", "ReturnNode"
+                )
+                for child in children
+            ):
+                return False
+
+            point = self._statement_point_id(node, "if").removeprefix("if@")
+            line, column = point.split(":", 1)
+            then_label = f"if_{line}_{column}_then"
+            else_label = f"if_{line}_{column}_else"
+            if then_label in used_labels or else_label in used_labels:
+                return False
+            used_labels.update((then_label, else_label))
+            reserved_labels.update((then_label, else_label))
+            plan = self._condition_branch_plan(
+                getattr(node, "condition", None),
+                sir_params,
+                start_label,
+                then_label,
+                else_label,
+                f"if_{line}_{column}",
+            )
+            if plan is None:
+                return False
+            plans.append(plan)
+            for label, _ in plan:
+                if label != entry_block.label:
+                    reserved_labels.add(label)
+            for child, label in zip(children, (then_label, else_label)):
+                if type(child).__name__ in ("If", "IfNode"):
+                    pending.append((child, label))
+                else:
+                    leaves.append((label, child))
+
+        blocks = {block.label: block for block in sir_fn.blocks}
+        for label in sorted(reserved_labels):
+            if label not in blocks:
+                blocks[label] = sir_fn.add_block(label)
+        for plan in plans:
+            for label, instruction in plan:
+                blocks[label].add(instruction)
+        for label, statement in leaves:
+            blocks[label].add(
+                ReturnInst(point_id=self._statement_point_id(statement, "return"))
+            )
+        return True
+
     def _try_lower_sequential_if_returns(
         self,
         fn: Any,
@@ -1000,6 +1084,11 @@ class SIRGenerator:
             return sir_fn
 
         if self._try_lower_sequential_if_returns(
+            fn, sir_fn, entry_block, sir_params, ret_str
+        ):
+            return sir_fn
+
+        if self._try_lower_nested_if_returns(
             fn, sir_fn, entry_block, sir_params, ret_str
         ):
             return sir_fn

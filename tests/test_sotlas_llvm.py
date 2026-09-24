@@ -23,6 +23,7 @@ class TestCodegenLLVM(unittest.TestCase):
         self.assertEqual(to_llvm_type("UInt32"), "i32")
         self.assertEqual(to_llvm_type("Int64"), "i64")
         self.assertEqual(to_llvm_type("Bool"), "i1")
+        self.assertEqual(to_llvm_type("bool"), "i1")
         self.assertEqual(to_llvm_type("Void"), "void")
         self.assertEqual(to_llvm_type("*rawphys UInt8"), "ptr")
 
