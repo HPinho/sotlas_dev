@@ -49,6 +49,7 @@ except ImportError:
     _shared_sir_package = sir_module
 RetainInst = _shared_sir_package.RetainInst
 DirectAccessInst = _shared_sir_package.DirectAccessInst
+OwnershipDomainTransferInst = _shared_sir_package.OwnershipDomainTransferInst
 generate_checked_ownership_sir = (
     _shared_sir_package.generate_checked_ownership_sir
 )
@@ -60,6 +61,45 @@ CallInst, DestroyInst, ReleaseInst, ReturnInst, ShareInst = (
 
 
 class SotlasPhase1PipelineTests(unittest.TestCase):
+    def test_nested_cfg_places_quarantine_on_each_branch(self):
+        source = """module test::phase1_island_branch_quarantine;
+sole struct Buffer { value: u32; }
+fn isolate(flag: bool, cpu_a: Buffer, cpu_b: Buffer) -> void {
+    if flag {
+        quarantine cpu_a;
+        return;
+    } else {
+        quarantine cpu_b;
+        return;
+    }
+}
+"""
+        checked = sotlas_compile.analyze_source_phase1(
+            source, filename="<phase1-island-branch-quarantine>"
+        )
+        result = generate_checked_ownership_sir(checked)
+        function = next(
+            item for item in result.module.functions
+            if item.name == "isolate"
+        )
+        transfers = [
+            (block.label, instruction)
+            for block in function.blocks
+            for instruction in block.instructions
+            if isinstance(instruction, OwnershipDomainTransferInst)
+        ]
+        self.assertEqual(len(transfers), 2)
+        self.assertEqual(
+            {(item.source.name, item.destination,
+              item.operation, item.source_domain, item.target_domain)
+             for _, item in transfers},
+            {
+                ("cpu_a", None, "quarantine", "exclusive", "island"),
+                ("cpu_b", None, "quarantine", "exclusive", "island"),
+            },
+        )
+        self.assertEqual(len({block for block, _ in transfers}), 2)
+
     def test_public_phase1_pipeline_is_explicit_and_preserves_bootstrap_check(self):
         source = """module test::phase1_public;
 sole struct Token { value: u32; }

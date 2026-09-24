@@ -697,15 +697,32 @@ class SIRGenerator:
             else_body = getattr(node, "else_body", None)
             if not isinstance(else_body, list) or not else_body:
                 return False
-            if len(then_body) != 1 or len(else_body) != 1:
+            branch_bodies = (then_body, else_body)
+            if any(not branch for branch in branch_bodies):
                 return False
-            children = (then_body[0], else_body[0])
-            if any(
-                type(child).__name__ not in (
-                    "If", "IfNode", "Return", "ReturnNode"
-                )
-                for child in children
-            ):
+            for branch in branch_bodies:
+                kinds = tuple(type(statement).__name__ for statement in branch)
+                if kinds == ("If",) or kinds == ("IfNode",):
+                    continue
+                if kinds in (("Return",), ("ReturnNode",)):
+                    continue
+                if kinds in (
+                    ("Handover", "Return"),
+                    ("Handover", "ReturnNode"),
+                    ("Quarantine", "Return"),
+                    ("Quarantine", "ReturnNode"),
+                ):
+                    operation = branch[0]
+                    source = getattr(operation, "value", None)
+                    if not getattr(source, "value", None):
+                        return False
+                    destination = getattr(operation, "destination", None)
+                    if (
+                        kinds[0] == "Handover"
+                        and not getattr(destination, "value", None)
+                    ):
+                        return False
+                    continue
                 return False
 
             point = self._statement_point_id(node, "if").removeprefix("if@")
@@ -730,11 +747,12 @@ class SIRGenerator:
             for label, _ in plan:
                 if label != entry_block.label:
                     reserved_labels.add(label)
-            for child, label in zip(children, (then_label, else_label)):
-                if type(child).__name__ in ("If", "IfNode"):
-                    pending.append((child, label))
+            for branch, label in zip(branch_bodies, (then_label, else_label)):
+                first = branch[0]
+                if type(first).__name__ in ("If", "IfNode"):
+                    pending.append((first, label))
                 else:
-                    leaves.append((label, child))
+                    leaves.append((label, tuple(branch)))
 
         blocks = {block.label: block for block in sir_fn.blocks}
         for label in sorted(reserved_labels):
@@ -743,10 +761,29 @@ class SIRGenerator:
         for plan in plans:
             for label, instruction in plan:
                 blocks[label].add(instruction)
-        for label, statement in leaves:
-            blocks[label].add(
-                ReturnInst(point_id=self._statement_point_id(statement, "return"))
-            )
+        for label, statements in leaves:
+            block = blocks[label]
+            if len(statements) == 2:
+                operation, _ = statements
+                operation_kind = type(operation).__name__.lower()
+                source = getattr(operation, "value", None)
+                source_name = getattr(source, "value", None)
+                destination = getattr(operation, "destination", None)
+                destination_name = getattr(destination, "value", None)
+                block.add(OwnershipDomainPointInst(
+                    operation=operation_kind,
+                    source_name=source_name,
+                    destination_name=destination_name,
+                    point_id=self._statement_point_id(
+                        operation, operation_kind
+                    ),
+                ))
+            return_statement = statements[-1]
+            block.add(ReturnInst(
+                point_id=self._statement_point_id(
+                    return_statement, "return"
+                )
+            ))
         return True
 
     def _try_lower_sequential_if_returns(
