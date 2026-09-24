@@ -3610,26 +3610,31 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
             if struct.name in visiting:
                 return False
             next_visiting = visiting | {struct.name}
-            for field in struct.fields:
-                field_type = field.type
-                if type_contains_external(field_type):
-                    if (
-                        field_type.ownership_domain != "external"
-                        or field_type.name not in external_structs
-                        or field_type.pointer or field_type.is_array
-                        or field_type.is_reference or field_type.is_fn_ptr
-                        or not external_wrapper_is_representable(
-                            external_structs[field_type.name], next_visiting
-                        )
-                    ):
-                        return False
-                elif (
-                    field_type.name not in external_pod_fields
-                    or field_type.pointer or field_type.is_array
-                    or field_type.is_reference or field_type.is_fn_ptr
+
+            def field_is_representable(field_type: Type) -> bool:
+                if (
+                    field_type.pointer or field_type.is_reference
+                    or field_type.is_fn_ptr
                 ):
                     return False
-            return True
+                if field_type.is_array:
+                    return (
+                        isinstance(field_type.array_size, int)
+                        and field_type.array_size > 0
+                        and field_type.elem_type is not None
+                        and field_is_representable(field_type.elem_type)
+                    )
+                if type_contains_external(field_type):
+                    return (
+                        field_type.ownership_domain == "external"
+                        and field_type.name in external_structs
+                        and external_wrapper_is_representable(
+                            external_structs[field_type.name], next_visiting
+                        )
+                    )
+                return field_type.name in external_pod_fields
+
+            return all(field_is_representable(field.type) for field in struct.fields)
 
         has_external_storage = (
             any(

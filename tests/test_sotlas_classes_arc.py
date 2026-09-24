@@ -322,6 +322,67 @@ fn main() -> i32 {
         )
         self.assertEqual(executed.returncode, 0, executed.stderr)
 
+    def test_external_repr_c_wrapper_transfers_fixed_handle_array(self):
+        source = ROOT / "bootstrap" / "sotlas" / "test_external_array_temp.sotlas"
+        executable = ROOT / "build" / "test_external_array.exe"
+        self.addCleanup(source.unlink, missing_ok=True)
+        self.addCleanup(executable.unlink, missing_ok=True)
+        source.write_text("""module app::external_array;
+@repr(C) sole struct Token { value: u32; }
+@repr(C) sole struct Bundle { tokens: [[external Token; 2]; 2]; tag: u32; }
+@extern(C) fn consume_bundle(bundle: external Bundle) -> void;
+@system @export fn dispose(bundle: external Bundle) -> void {
+    consume_bundle(move bundle);
+    return;
+}
+""", encoding="utf-8")
+        bootstrap.emit_c_project(source, self.output_c)
+        self.output_c.write_text(
+            self.output_c.read_text(encoding="utf-8")
+            + "\nstatic uint32_t observed_sum;\n"
+            + "void consume_bundle(Bundle bundle) { "
+            + "observed_sum = bundle.tokens[0][0].value + "
+            + "bundle.tokens[0][1].value + bundle.tokens[1][0].value + "
+            + "bundle.tokens[1][1].value + bundle.tag; }\n"
+            + "int main(void) { Bundle bundle = {{{{1}, {2}}, {{3}, {4}}}, 7}; "
+            + "dispose(bundle); return observed_sum == 17 ? 0 : 1; }\n",
+            encoding="utf-8",
+        )
+        compiler = _host_c_compiler()
+        env = dict(os.environ)
+        env["PATH"] = str(compiler.parent) + os.pathsep + env.get("PATH", "")
+        compiled = subprocess.run(
+            [str(compiler), "-std=c11", "-Wall", "-Wextra", "-Werror",
+             str(self.output_c), "-o", str(executable)],
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(compiled.returncode, 0, compiled.stderr)
+        executed = subprocess.run(
+            [str(executable)], capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(executed.returncode, 0, executed.stderr)
+
+    def test_external_repr_c_wrapper_rejects_pointer_array(self):
+        source = ROOT / "bootstrap" / "sotlas" / "test_external_array_bad_temp.sotlas"
+        self.addCleanup(source.unlink, missing_ok=True)
+        source.write_text("""module app::external_array_bad;
+@repr(C) sole struct Token { value: u32; }
+@repr(C) sole struct Bundle {
+    token: external Token;
+    pointers: [*mut u32; 2];
+}
+@extern(C) fn consume_bundle(bundle: external Bundle) -> void;
+@system @export fn dispose(bundle: external Bundle) -> void {
+    consume_bundle(move bundle);
+    return;
+}
+""", encoding="utf-8")
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            "C11 external lowering supports only repr\\(C\\) sole owners",
+        ):
+            bootstrap.emit_c_project(source, self.output_c)
+
     def test_external_repr_c_wrapper_rejects_pointer_fields(self):
         source = ROOT / "bootstrap" / "sotlas" / "test_external_wrapper_bad_temp.sotlas"
         self.addCleanup(source.unlink, missing_ok=True)
