@@ -757,6 +757,50 @@ class SIRGenerator:
                 arguments=arguments,
             ))
 
+        def consuming_call_spec(statement: Any):
+            if (
+                type(statement).__name__ != "Expression"
+                or type(getattr(statement, "value", None)).__name__ != "Call"
+            ):
+                return None
+            call = statement.value
+            callee = getattr(self, "_parsed_functions", {}).get(call.callee)
+            parameters = tuple(getattr(callee, "params", ()) or ())
+            result_type = getattr(callee, "result", None)
+            if (
+                callee is None
+                or getattr(result_type, "name", result_type) != "void"
+                or len(parameters) != len(call.args)
+                or not parameters
+            ):
+                return None
+            arguments: list[SIRValue] = []
+            for argument, parameter in zip(call.args, parameters):
+                if isinstance(parameter, tuple) and len(parameter) == 2:
+                    _, target_type = parameter
+                else:
+                    target_type = (
+                        getattr(parameter, "type_ann", None)
+                        or getattr(parameter, "type", None)
+                    )
+                moved = getattr(argument, "value", None)
+                if (
+                    type(argument).__name__ != "MoveExpr"
+                    or type(moved).__name__ != "Name"
+                ):
+                    return None
+                source_type = caller_params.get(moved.value)
+                if (
+                    source_type is None
+                    or getattr(source_type, "ownership_domain", None) is None
+                    or getattr(target_type, "ownership_domain", None) is None
+                    or getattr(source_type, "name", None)
+                    != getattr(target_type, "name", None)
+                ):
+                    return None
+                arguments.append(SIRValue(moved.value, source_type.name))
+            return CallInst(callee=call.callee, arguments=arguments)
+
         used_labels = {entry_block.label}
         pending: list[tuple[Any, str]] = [(body[-1], entry_block.label)]
         plans: list[list[tuple[str, Any]]] = []
@@ -795,6 +839,28 @@ class SIRGenerator:
                     ):
                         return False
                     continue
+                if kinds[-1:] in (("Return",), ("ReturnNode",)):
+                    operation_index = len(branch) - 2
+                    has_transfer = (
+                        operation_index >= 0
+                        and type(branch[operation_index]).__name__
+                        in ("Handover", "Quarantine")
+                    )
+                    call_end = operation_index if has_transfer else len(branch) - 1
+                    if call_end > 0 and all(
+                        consuming_call_spec(item) is not None
+                        for item in branch[:call_end]
+                    ):
+                        if has_transfer:
+                            operation = branch[operation_index]
+                            if not getattr(getattr(operation, "value", None), "value", None):
+                                return False
+                            if (
+                                type(operation).__name__ == "Handover"
+                                and not getattr(getattr(operation, "destination", None), "value", None)
+                            ):
+                                return False
+                        continue
                 if kinds in (("Expression", "Return"), ("Expression", "ReturnNode")):
                     call = getattr(branch[0], "value", None)
                     if type(call).__name__ != "Call":
@@ -874,7 +940,22 @@ class SIRGenerator:
                 blocks[label].add(instruction)
         for label, statements in leaves:
             block = blocks[label]
-            if type(statements[0]).__name__ == "Expression":
+            final_return = statements[-1]
+            operation_index = len(statements) - 2
+            has_transfer = (
+                operation_index >= 0
+                and type(statements[operation_index]).__name__
+                in ("Handover", "Quarantine")
+            )
+            call_end = operation_index if has_transfer else len(statements) - 1
+            consuming_calls = (
+                [consuming_call_spec(item) for item in statements[:call_end]]
+                if call_end > 0 else []
+            )
+            if consuming_calls and all(item is not None for item in consuming_calls):
+                for call_instruction in consuming_calls:
+                    block.add(call_instruction)
+            elif type(statements[0]).__name__ == "Expression":
                 call = statements[0].value
                 callee = self._parsed_functions[call.callee]
                 parameters = tuple(getattr(callee, "params", ()) or ())
@@ -925,8 +1006,8 @@ class SIRGenerator:
                 for marker in access_markers:
                     block.add(marker)
                 block.add(CallInst(callee=call.callee, arguments=arguments))
-            if len(statements) == 2 and type(statements[0]).__name__ not in ("Expression", "Return", "ReturnNode"):
-                operation, _ = statements
+            if has_transfer:
+                operation = statements[operation_index]
                 operation_kind = type(operation).__name__.lower()
                 source = getattr(operation, "value", None)
                 source_name = getattr(source, "value", None)
@@ -940,7 +1021,20 @@ class SIRGenerator:
                         operation, operation_kind
                     ),
                 ))
-            return_statement = statements[-1]
+            elif not consuming_calls and len(statements) == 2 and type(statements[0]).__name__ not in ("Expression", "Return", "ReturnNode"):
+                operation, _ = statements
+                operation_kind = type(operation).__name__.lower()
+                source = getattr(operation, "value", None)
+                source_name = getattr(source, "value", None)
+                destination = getattr(operation, "destination", None)
+                destination_name = getattr(destination, "value", None)
+                block.add(OwnershipDomainPointInst(
+                    operation=operation_kind,
+                    source_name=source_name,
+                    destination_name=destination_name,
+                    point_id=self._statement_point_id(operation, operation_kind),
+                ))
+            return_statement = final_return
             block.add(ReturnInst(
                 point_id=self._statement_point_id(
                     return_statement, "return"

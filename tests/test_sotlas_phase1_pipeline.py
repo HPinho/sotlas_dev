@@ -191,6 +191,53 @@ fn submit(flag: bool, cpu_a: Buffer, cpu_b: Buffer,
         )
         self.assertEqual(len({block for block, _ in transfers}), 2)
 
+    def test_nested_cfg_places_device_consumer_before_branch_handover(self):
+        source = """module test::phase1_device_branch_consumer;
+sole struct Buffer { value: u32; }
+fn accept_device(buffer: device Buffer) -> void { return; }
+fn submit(flag: bool, cpu_a: Buffer, cpu_b: Buffer,
+          device_a: device Buffer, device_b: device Buffer) -> void {
+    if flag {
+        accept_device(move device_a);
+        handover cpu_a to device_a;
+        return;
+    } else {
+        accept_device(move device_b);
+        handover cpu_b to device_b;
+        return;
+    }
+}
+"""
+        checked = sotlas_compile.analyze_source_phase1(
+            source, filename="<phase1-device-branch-consumer>"
+        )
+        result = generate_checked_ownership_sir(checked)
+        function = next(
+            item for item in result.module.functions if item.name == "submit"
+        )
+        transfer_blocks = [
+            block for block in function.blocks
+            if any(isinstance(item, OwnershipDomainTransferInst)
+                   for item in block.instructions)
+        ]
+        self.assertEqual(len(transfer_blocks), 2)
+        for block in transfer_blocks:
+            instructions = block.instructions
+            call_index = next(
+                index for index, item in enumerate(instructions)
+                if isinstance(item, CallInst) and item.callee == "accept_device"
+            )
+            transfer_index = next(
+                index for index, item in enumerate(instructions)
+                if isinstance(item, OwnershipDomainTransferInst)
+            )
+            return_index = next(
+                index for index, item in enumerate(instructions)
+                if isinstance(item, ReturnInst)
+            )
+            self.assertLess(call_index, transfer_index)
+            self.assertLess(transfer_index, return_index)
+
     def test_nested_cfg_places_arc_cleanup_on_every_return_path(self):
         source = """module test::phase1_nested_shared_returns;
 sole struct Token { value: u32; }
