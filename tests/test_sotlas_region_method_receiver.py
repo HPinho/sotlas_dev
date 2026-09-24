@@ -67,9 +67,12 @@ fn read(token: region Token) -> u32 {
 }
 """
         module = bootstrap.parse(source, filename="<region-alias-receiver>")
+        # The narrow REGION pass deliberately does not infer a new reference
+        # type for unannotated aliases.  Losing receiver type identity therefore
+        # fails closed at method resolution instead of guessing a self contract.
         with self.assertRaisesRegex(
             bootstrap.SotlasBootstrapError,
-            r"region owner 'token'.*method receiver.*direct or whisper",
+            r"region owner 'token'.*unresolved method 'inspect'",
         ):
             bootstrap.check(module)
 
