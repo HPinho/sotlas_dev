@@ -18,6 +18,7 @@ from collections import deque
 from dataclasses import dataclass
 from typing import Any
 
+from .canonical_sir import build_canonical_checked_ownership_sir
 from .region_frontend import plan_checked_region_lifetime
 from .region_lifetime import RegionLifetimePlan
 from .region_sir import validate_region_lifetime_sir
@@ -316,12 +317,14 @@ def certify_checked_region_lifetime_cfg(
         checked_module,
         function=function,
     )
+
+    # The checked-module plan is still validated at its original composition
+    # boundary.  CFG generation, however, must never depend on whichever public
+    # ``sotlas`` package happened to be imported first in this Python process.
     ownership_sir = getattr(checked_module, "ownership_sir", None)
     validate_region_lifetime_sir(lifetime, ownership_sir)
 
-    from sotlas.sir import generate_checked_ownership_sir
-
-    checked_sir = generate_checked_ownership_sir(checked_module)
+    checked_sir, _ = build_canonical_checked_ownership_sir(checked_module)
     return certify_region_lifetime_cfg(lifetime, checked_sir.module)
 
 
