@@ -148,6 +148,11 @@ class CodegenLLVM:
 
     def _emit_instruction(self, inst: SIRInstruction, loc_id: Optional[int] = None) -> None:
         dbg_suffix = f", !dbg !{loc_id}" if loc_id is not None else ""
+        if type(inst).__name__ == "RegionCallTransferInst":
+            raise ValueError(
+                "LLVM backend does not lower REGION call-transfer facts until "
+                "the interprocedural ownership ABI is defined"
+            )
         if isinstance(inst, AllocStackInst):
             llvm_type = to_llvm_type(inst.type_name)
             self._out.write(f"  %{inst.result.name} = alloca {llvm_type}, align 8{dbg_suffix}\n")
