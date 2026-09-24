@@ -221,6 +221,28 @@ fn read_island(token: island Token) -> void {
         self.toolchain.compile_llvm_ir_to_obj(ir, obj_file)
         self.assertGreater(obj_file.stat().st_size, 0)
 
+    def test_llvm_source_backend_lowers_integer_comparison_condition(self):
+        source = """module test::llvm_integer_compare_condition;
+fn choose(left: u32, right: u32) -> void {
+    if left < right { return; }
+    return;
+}
+"""
+        ll_file = self.tmp_path / "integer_compare_condition.ll"
+        obj_file = self.tmp_path / "integer_compare_condition.obj"
+        self.toolchain.compile_source_to_native(
+            source,
+            "test::llvm_integer_compare_condition",
+            ll_file,
+            emit_type="llvm",
+            backend="llvm",
+        )
+        ir = ll_file.read_text(encoding="utf-8")
+        self.assertRegex(ir, r"icmp ult i32 %left, %right")
+        self.assertRegex(ir, r"br i1 %cmp\d+, label %bb")
+        self.toolchain.compile_llvm_ir_to_obj(ir, obj_file)
+        self.assertGreater(obj_file.stat().st_size, 0)
+
 
     def test_llvm_source_backend_preserves_forwarded_direct_access(self):
         source = """module test::llvm_direct_forward;

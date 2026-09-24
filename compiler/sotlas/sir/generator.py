@@ -9,7 +9,7 @@ from .instructions import (
     AllocStackInst, StoreInst, LoadInst, CallInst,
     OwnershipDomainPointInst, SharedOwnershipPointInst, DirectAccessInst,
     WhisperBorrowInst,
-    ReturnInst, BranchInst, CondBranchInst, SystemOpInst
+    ReturnInst, BranchInst, CondBranchInst, CompareInst, SystemOpInst
 )
 
 
@@ -119,6 +119,53 @@ class SIRGenerator:
         branches: list[tuple[str, Any]] = []
         labels: set[str] = set()
         serial = 0
+        operator_names = {
+            "==": "EQ", "!=": "NEQ", "<": "LT", "<=": "LTE",
+            ">": "GT", ">=": "GTE", "&&": "AND", "||": "OR",
+        }
+
+        def condition_operator(node: Any) -> str | None:
+            operator = getattr(node, "op", None)
+            return getattr(operator, "name", None) or operator_names.get(
+                operator
+            )
+
+        def simple_integer_comparison(node: Any) -> CompareInst | None:
+            if type(node).__name__ not in ("BinaryExprNode", "Binary"):
+                return None
+            operation = condition_operator(node)
+            if operation not in ("EQ", "NEQ", "LT", "LTE", "GT", "GTE"):
+                return None
+            left_node = getattr(node, "left", None)
+            right_node = getattr(node, "right", None)
+            if type(left_node).__name__ not in ("IdentNode", "Name") or type(
+                right_node
+            ).__name__ not in ("IdentNode", "Name"):
+                return None
+            left_name = getattr(left_node, "name", None) or getattr(
+                left_node, "value", None
+            )
+            right_name = getattr(right_node, "name", None) or getattr(
+                right_node, "value", None
+            )
+            left_value = next(
+                (param for param in params if param.name == left_name), None
+            )
+            right_value = next(
+                (param for param in params if param.name == right_name), None
+            )
+            integer_types = {
+                "u8", "i8", "u16", "i16", "u32", "i32", "u64", "i64",
+                "usize", "isize",
+            }
+            if (
+                left_value is None or right_value is None
+                or left_value.type_name not in integer_types
+                or right_value.type_name != left_value.type_name
+            ):
+                return None
+            result = self._next_val("cmp", "bool")
+            return CompareInst(operation, left_value, right_value, result)
 
         def emit(node: Any, label: str, yes: str, no: str, depth: int = 0) -> bool:
             nonlocal serial
@@ -142,23 +189,32 @@ class SIRGenerator:
                     operand = getattr(node, "value", None)
                 return emit(operand, label, no, yes, depth + 1)
             if kind in ("BinaryExprNode", "Binary"):
-                operator = getattr(getattr(node, "op", None), "name", None)
-                if operator not in ("AND", "OR"):
-                    return False
-                intermediate = f"{label_prefix}_logic_{serial}"
-                serial += 1
-                if intermediate in labels or intermediate in (yes, no, start_label):
-                    return False
-                labels.add(intermediate)
-                left = getattr(node, "left", None)
-                right = getattr(node, "right", None)
-                if operator == "AND":
-                    return emit(left, label, intermediate, no, depth + 1) and emit(
+                operator = condition_operator(node)
+                if operator in ("AND", "OR"):
+                    intermediate = f"{label_prefix}_logic_{serial}"
+                    serial += 1
+                    if intermediate in labels or intermediate in (yes, no, start_label):
+                        return False
+                    labels.add(intermediate)
+                    left = getattr(node, "left", None)
+                    right = getattr(node, "right", None)
+                    if operator == "AND":
+                        return emit(left, label, intermediate, no, depth + 1) and emit(
+                            right, intermediate, yes, no, depth + 1
+                        )
+                    return emit(left, label, yes, intermediate, depth + 1) and emit(
                         right, intermediate, yes, no, depth + 1
                     )
-                return emit(left, label, yes, intermediate, depth + 1) and emit(
-                    right, intermediate, yes, no, depth + 1
-                )
+
+            comparison = simple_integer_comparison(node)
+            if comparison is not None:
+                branches.append((label, comparison))
+                branches.append((label, CondBranchInst(
+                    condition=comparison.result,
+                    true_block=yes,
+                    false_block=no,
+                )))
+                return True
 
             value = self._simple_condition_value(node, params)
             if value is None:

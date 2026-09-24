@@ -11,6 +11,7 @@ from sotlas.sir import (
     SIRModule, SIRFunction, SIRBasicBlock, SIRValue,
     AllocStackInst, StoreInst, LoadInst, CallInst, ReturnInst, BranchInst, CondBranchInst,
     OwnershipDomainPointInst, OwnershipDomainTransferInst,
+    CompareInst,
     DirectAccessInst,
     SharedOwnershipPointInst,
     OwnershipDomainSIRPlan, place_ownership_domain_transfers,
@@ -31,6 +32,7 @@ from sotlas.sir import (
 )
 from sotlas.lexer import Lexer
 from sotlas.parser import Parser
+from sotlas_compile import bootstrap
 
 
 class SotlasSIRTests(unittest.TestCase):
@@ -2665,6 +2667,50 @@ class SotlasSIRTests(unittest.TestCase):
         }
         self.assertEqual({item.point_id for item in returns}, expected)
         self.assertEqual(len(expected), 3)
+
+    def test_sir_generator_lowers_integer_comparison_if_condition(self):
+        source = """
+        module test::sir_integer_compare_condition;
+        pub fn choose(left: u32, right: u32) -> void {
+            if left < right { return; }
+            return;
+        }
+        """
+        tokens = Lexer(source, "<sir-integer-compare-condition>").tokenize()
+        ast = Parser(tokens, "<sir-integer-compare-condition>").parse()
+        fn = SIRGenerator().generate_from_ast(ast).functions[0]
+        comparison, branch = fn.blocks[0].instructions[-2:]
+        self.assertIsInstance(comparison, CompareInst)
+        self.assertEqual(comparison.operation, "LT")
+        self.assertEqual(comparison.result.type_name, "bool")
+        self.assertEqual(comparison.left.name, "left")
+        self.assertEqual(comparison.right.name, "right")
+        self.assertIsInstance(branch, CondBranchInst)
+        self.assertEqual(branch.condition, comparison.result)
+
+        bootstrap_module = bootstrap.parse(
+            "module test::bootstrap_compare; "
+            "fn choose(left: u32, right: u32) -> void { "
+            "if left < right { return; } return; }"
+        )
+        bootstrap_fn = SIRGenerator().generate_from_ast(
+            bootstrap_module
+        ).functions[0]
+        self.assertTrue(
+            any(
+                isinstance(inst, CompareInst)
+                for inst in bootstrap_fn.blocks[0].instructions
+            ),
+            (
+                [type(inst).__name__ for inst in bootstrap_fn.blocks[0].instructions],
+                type(bootstrap_module.functions[0].body[0].condition).__name__,
+                repr(bootstrap_module.functions[0].body[0].condition.op),
+                getattr(
+                    bootstrap_module.functions[0].body[0].condition.op,
+                    "name", None,
+                ),
+            ),
+        )
 
     def test_sir_generator_builds_continue_loop_cfg_with_identity(self):
         source = """

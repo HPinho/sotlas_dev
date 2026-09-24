@@ -215,6 +215,20 @@ class CondBranchInst(SIRInstruction):
 
 
 @dataclass
+class CompareInst(SIRInstruction):
+    operation: str
+    left: SIRValue
+    right: SIRValue
+    result: SIRValue
+
+    def __str__(self) -> str:
+        return (
+            f"  {self.result} = icmp {self.operation} "
+            f"{self.left}, {self.right}"
+        )
+
+
+@dataclass
 class ReturnInst(SIRInstruction):
     value: Optional[SIRValue] = None
     point_id: str | None = None

@@ -3910,6 +3910,7 @@ Ainda necessário para concluir a Fase 2 canônica:
 - [x] gerador SIR protótipo preserva `point_id` em return terminal linear diretamente representável, sem fabricar CFG para retornos aninhados;
 - [x] primeiro CFG estruturado para funções `void` com `if` booleano simples e retornos diretos, preservando `point_id` distinto por caminho;
 - [x] sequência de `if` com condições booleanas de parâmetros e retornos antecipados diretos, seguida de retorno final, gera saídas e identidades `return@L:C` distintas no CFG, com placement ARC de release/destroy em cada saída;
+- [x] comparações `==`, `!=`, `<`, `<=`, `>` e `>=` entre parâmetros inteiros baixam para `CompareInst` antes da aresta condicional; LLVM emite `icmp` signed/unsigned e o teste fonte→objeto compila; literais e expressões condicionais fora do subset permanecem rejeitados;
 - [x] condições `!param` em `if` e `while` invertem as arestas de controle usando o valor SSA existente, mantendo IDs source-stable e placement de cleanup;
 - [x] expressões booleanas `&&`/`||` sobre parâmetros e `!` baixam com curto-circuito em blocos SIR, preservando os destinos de return/break/continue e cleanup;
 - [x] literais `true`/`false` em condições de `if`/`while` geram arestas SIR incondicionais ao destino escolhido, sem valor SSA fictício;

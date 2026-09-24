@@ -14,7 +14,8 @@ from .sir.instructions import (
     WhisperBorrowInst,
     DirectAccessInst,
     SharedOwnershipPointInst, DeferUseInst, ShareInst,
-    BranchInst, CondBranchInst, ReturnInst, SystemOpInst, AsmInst, AwaitInst
+    BranchInst, CondBranchInst, CompareInst, ReturnInst, SystemOpInst,
+    AsmInst, AwaitInst
 )
 
 
@@ -227,6 +228,31 @@ class CodegenLLVM:
             true_b = f"bb{tb}" if not tb.startswith("bb") else tb
             false_b = f"bb{fb}" if not fb.startswith("bb") else fb
             self._out.write(f"  br i1 %{inst.condition.name}, label %{true_b}, label %{false_b}\n")
+        elif isinstance(inst, CompareInst):
+            if inst.left.type_name != inst.right.type_name:
+                raise ValueError("LLVM comparison operands have different types")
+            integer_type = inst.left.type_name
+            predicates = {
+                "EQ": "eq", "NEQ": "ne",
+                "LT": "ult" if integer_type.startswith("u") else "slt",
+                "LTE": "ule" if integer_type.startswith("u") else "sle",
+                "GT": "ugt" if integer_type.startswith("u") else "sgt",
+                "GTE": "uge" if integer_type.startswith("u") else "sge",
+            }
+            predicate = predicates.get(inst.operation)
+            if predicate is None or integer_type not in {
+                "u8", "i8", "u16", "i16", "u32", "i32", "u64", "i64",
+                "usize", "isize",
+            }:
+                raise ValueError(
+                    f"LLVM backend does not lower integer comparison "
+                    f"{inst.operation!r} for {integer_type!r}"
+                )
+            llvm_type = to_llvm_type(integer_type)
+            self._out.write(
+                f"  %{inst.result.name} = icmp {predicate} {llvm_type} "
+                f"%{inst.left.name}, %{inst.right.name}{dbg_suffix}\n"
+            )
         elif isinstance(inst, ReturnInst):
             if inst.value:
                 val_type = to_llvm_type(inst.value.type_name)
