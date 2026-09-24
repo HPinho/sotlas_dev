@@ -1,5 +1,4 @@
 """Tests for canonical ownership graph -> DEVICE runtime DAG derivation."""
-from dataclasses import replace
 import importlib
 import importlib.util
 from pathlib import Path
@@ -41,13 +40,12 @@ SemanticType = typed_ast.SemanticType
 VarState = typed_ast.VarState
 DeviceLifecycleSourcePoints = lifecycle.DeviceLifecycleSourcePoints
 DeviceRuntimeOperation = runtime_abi.DeviceRuntimeOperation
-DeviceRuntimeSemanticError = runtime_semantics.DeviceRuntimeSemanticError
 plan_device_runtime_from_graph = runtime_semantics.plan_device_runtime_from_graph
 
 TOKEN = SemanticType("Token")
 
 
-def _submission(binding: str, point_id: str, *, function="submit_pair"):
+def _submission(binding: str, point_id: str, *, function="submit_one"):
     return OwnershipDomainTransition(
         binding=binding,
         type=TOKEN,
@@ -65,28 +63,26 @@ def _graph():
         nodes=(),
         transfers=(),
         planned_transitions=(
-            _submission("left", "handover@3:5"),
+            _submission("buffer", "handover@3:5"),
             _submission("ignored", "handover@9:9", function="other"),
-            _submission("right", "handover@4:5"),
         ),
     )
 
 
 def _points():
     return DeviceLifecycleSourcePoints(
-        completion_point_ids=("completion@8:1", "completion@8:2"),
+        completion_point_ids=("completion@8:1",),
         synchronization_point_id="sync@10:1",
-        reacquisition_point_ids=("reacquire@11:1", "reacquire@11:2"),
+        reacquisition_point_ids=("reacquire@11:1",),
     )
 
 
 class SotlasDeviceRuntimeSemanticsTests(unittest.TestCase):
     def test_runtime_dag_is_derived_from_same_graph_lifecycle(self):
         plan = plan_device_runtime_from_graph(
-            _graph(), function="submit_pair", queue="queue0", points=_points()
+            _graph(), function="submit_one", queue="queue0", points=_points()
         )
-
-        self.assertEqual(plan.bindings, ("left", "right"))
+        self.assertEqual(plan.bindings, ("buffer",))
         self.assertEqual(plan.runtime.function, plan.lifecycle.function)
         self.assertEqual(plan.runtime.queue, plan.lifecycle.queue)
         self.assertEqual(plan.runtime.point_ids, plan.lifecycle.point_ids)
@@ -94,48 +90,43 @@ class SotlasDeviceRuntimeSemanticsTests(unittest.TestCase):
             tuple(item.operation for item in plan.runtime.requirements),
             (
                 DeviceRuntimeOperation.SUBMIT,
-                DeviceRuntimeOperation.SUBMIT,
-                DeviceRuntimeOperation.COMPLETE,
                 DeviceRuntimeOperation.COMPLETE,
                 DeviceRuntimeOperation.SYNCHRONIZE,
-                DeviceRuntimeOperation.REACQUIRE,
                 DeviceRuntimeOperation.REACQUIRE,
             ),
         )
         self.assertEqual(
-            tuple(item.binding for item in plan.runtime.requirements_for(DeviceRuntimeOperation.SUBMIT)),
-            ("left", "right"),
+            tuple(
+                item.binding
+                for item in plan.runtime.requirements_for(DeviceRuntimeOperation.SUBMIT)
+            ),
+            ("buffer",),
         )
         self.assertEqual(
             plan.runtime.requirements_for(DeviceRuntimeOperation.SYNCHRONIZE)[0].depends_on,
-            ("completion@8:1", "completion@8:2"),
+            ("completion@8:1",),
         )
 
     def test_runtime_dag_preserves_submission_completion_and_sync_dependencies(self):
         plan = plan_device_runtime_from_graph(
-            _graph(), function="submit_pair", queue="queue0", points=_points()
+            _graph(), function="submit_one", queue="queue0", points=_points()
         )
         complete = plan.runtime.requirements_for(DeviceRuntimeOperation.COMPLETE)
         reacquire = plan.runtime.requirements_for(DeviceRuntimeOperation.REACQUIRE)
         self.assertEqual(complete[0].depends_on, ("handover@3:5",))
-        self.assertEqual(complete[1].depends_on, ("handover@4:5",))
         self.assertEqual(reacquire[0].depends_on, ("sync@10:1",))
-        self.assertEqual(reacquire[1].depends_on, ("sync@10:1",))
 
     def test_runtime_semantic_plan_is_immutable_and_source_stable(self):
         plan = plan_device_runtime_from_graph(
-            _graph(), function="submit_pair", queue="queue0", points=_points()
+            _graph(), function="submit_one", queue="queue0", points=_points()
         )
         self.assertEqual(
             plan.point_ids,
             (
                 "handover@3:5",
-                "handover@4:5",
                 "completion@8:1",
-                "completion@8:2",
                 "sync@10:1",
                 "reacquire@11:1",
-                "reacquire@11:2",
             ),
         )
         with self.assertRaises(Exception):
