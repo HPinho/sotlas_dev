@@ -1,21 +1,32 @@
-"""Stable loader for the canonical ``compiler/sotlas/sir`` package.
+"""Stable loader and composition bridge for the canonical compiler SIR.
 
-The test/tooling process may already have imported the historical ``tools/sotlas``
-package under the public name ``sotlas``.  Importing ``sotlas.sir`` after that
+Tests and tooling may already have imported the historical ``tools/sotlas``
+package under the public name ``sotlas``. Importing ``sotlas.sir`` after that
 would silently bind production semantic facts to legacy SIR classes.
 
-Load only the canonical SIR package under a private, stable namespace instead.
-This is a composition helper, not a second lowering: the code executed is the
-same ``compiler/sotlas/sir`` implementation shipped by the production tree.
+This module always loads ``compiler/sotlas/sir`` under a private namespace and
+uses the narrow REGION-aware generator extension only for source shapes that the
+prototype base generator does not yet represent. Ownership placement remains the
+canonical validator: no marker bypasses graph/type/source-point verification.
 """
 from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
-from types import SimpleNamespace
 import sys
 
+from .region_cfg_generator import make_region_cfg_generator
+
 _CANONICAL_SIR_PACKAGE = "_sotlas_compiler_canonical_sir"
+
+
+def _repository_root() -> Path:
+    current = Path(__file__).resolve()
+    for parent in current.parents:
+        candidate = parent / "compiler" / "sotlas" / "sir" / "__init__.py"
+        if candidate.is_file():
+            return parent
+    raise RuntimeError("cannot locate repository root for canonical compiler SIR")
 
 
 def load_canonical_sir():
@@ -23,7 +34,7 @@ def load_canonical_sir():
     if existing is not None:
         return existing
 
-    package_dir = Path(__file__).resolve().parents[1] / "sotlas" / "sir"
+    package_dir = _repository_root() / "compiler" / "sotlas" / "sir"
     spec = importlib.util.spec_from_file_location(
         _CANONICAL_SIR_PACKAGE,
         package_dir / "__init__.py",
@@ -38,7 +49,7 @@ def load_canonical_sir():
 
 
 def build_canonical_checked_ownership_sir(checked_module: object):
-    """Rebuild and place ownership SIR from the canonical semantic snapshot."""
+    """Generate and place canonical ownership SIR from one semantic snapshot."""
     parsed_module = getattr(checked_module, "parsed_module", None)
     semantic = getattr(checked_module, "semantic", None)
     if parsed_module is None or semantic is None:
@@ -52,8 +63,14 @@ def build_canonical_checked_ownership_sir(checked_module: object):
 
     sir = load_canonical_sir()
     plan = sir.lower_ownership_module_semantics(ownership, domains)
-    checked = SimpleNamespace(parsed_module=parsed_module, ownership_sir=plan)
-    return sir.generate_checked_ownership_sir(checked), plan
+
+    generator_type = make_region_cfg_generator(sir)
+    generator = generator_type(
+        module_name=getattr(parsed_module, "name", "main")
+    )
+    module = generator.generate_from_ast(parsed_module)
+    placement = sir.apply_ownership_module_plan(module, plan)
+    return sir.CheckedOwnershipSIR(module, placement), plan
 
 
 __all__ = ["load_canonical_sir", "build_canonical_checked_ownership_sir"]
