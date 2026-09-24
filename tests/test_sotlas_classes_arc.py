@@ -2077,6 +2077,55 @@ int main(void) {
         )
         self.assertEqual(executed.returncode, 0, executed.stderr)
 
+    def test_region_handover_in_each_returning_branch_drops_once(self):
+        source = """module app::region_branch_handover;
+sole struct Token { value: u32; }
+static mut destroy_count: u32 = 0;
+fn Token_deinit(self: *mut Token) {
+    unsafe { destroy_count = destroy_count + 1; }
+}
+fn discard(token: region Token) -> void { return; }
+fn run(flag: bool) -> u32 {
+    let source: region Token = Token { value: 41u32 };
+    let destination: region Token = Token { value: 9u32 };
+    discard(move destination);
+    if flag {
+        handover source to destination;
+        return destination.value;
+    } else {
+        handover source to destination;
+        return destination.value;
+    }
+}
+fn main() -> i32 {
+    let first: u32 = run(true);
+    let second: u32 = run(false);
+    if first == 41u32 && second == 41u32 && destroy_count == 4u32 {
+        return 0;
+    }
+    return 1;
+}
+"""
+        source_file = ROOT / "bootstrap" / "sotlas" / "test_region_branch_handover_temp.sotlas"
+        executable = self.output_c.with_suffix(".exe")
+        self.addCleanup(source_file.unlink, missing_ok=True)
+        self.addCleanup(executable.unlink, missing_ok=True)
+        source_file.write_text(source, encoding="utf-8")
+        bootstrap.emit_c_project(source_file, self.output_c)
+        compiler = _host_c_compiler()
+        env = dict(os.environ)
+        env["PATH"] = str(compiler.parent) + os.pathsep + env.get("PATH", "")
+        compiled = subprocess.run(
+            [str(compiler), "-std=c11", "-Wall", "-Wextra", "-Werror",
+             str(self.output_c), "-o", str(executable)],
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(compiled.returncode, 0, compiled.stderr)
+        executed = subprocess.run(
+            [str(executable)], capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(executed.returncode, 0, executed.stderr)
+
     def test_island_to_island_handover_runs_through_c11(self):
         source = """module app::island_same_domain_runtime;
 sole struct Token { value: u32; }
