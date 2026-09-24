@@ -6,9 +6,11 @@
 from . import bootstrap as bootstrap
 from .frontend_extensions import install as _install_frontend_extensions
 from .language_safety import install as _install_language_safety
+from .region_method_safety import install as _install_region_method_safety
 
 _install_frontend_extensions(bootstrap)
 _install_language_safety(bootstrap)
+_install_region_method_safety(bootstrap)
 
 from .errors import SotlasError
 from .phase1_pipeline import (
