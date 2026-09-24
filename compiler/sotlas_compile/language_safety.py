@@ -305,6 +305,10 @@ class _StrictSafetyChecker:
             and not getattr(typ, "pointer", False)
             and not getattr(typ, "is_reference", False)
         }
+        region_owners = {
+            name for name, typ in function.params
+            if name in owners and getattr(typ, "ownership_domain", None) == "region"
+        }
         aliases: dict[str, set[str]] = {}
         invalid: dict[str, str] = {}
         quarantined_owners: set[str] = set()
@@ -412,6 +416,28 @@ class _StrictSafetyChecker:
                     return inherited
             return set()
 
+        def type_stores_reference(typ, visiting=frozenset()) -> bool:
+            if typ is None:
+                return False
+            if (
+                getattr(typ, "pointer", False)
+                or getattr(typ, "is_reference", False)
+                or getattr(typ, "is_fn_ptr", False)
+            ):
+                return True
+            if getattr(typ, "is_array", False):
+                return type_stores_reference(
+                    getattr(typ, "elem_type", None), visiting
+                )
+            name = getattr(typ, "name", "")
+            struct = self.structs.get(name)
+            if struct is None or name in visiting:
+                return False
+            return any(
+                type_stores_reference(field.type, visiting | {name})
+                for field in struct.fields
+            )
+
         def flatten(items):
             for item in items:
                 yield item
@@ -506,6 +532,21 @@ class _StrictSafetyChecker:
 
         for item in statements:
             exprs = statement_exprs(item)
+            if isinstance(item, b.Return) and item.value is not None:
+                returned = alias_sources(item.value).intersection(region_owners)
+                if returned:
+                    try:
+                        result_type = self._infer(
+                            item.value, scope, 1, False
+                        ).type_obj
+                    except Exception:
+                        result_type = None
+                    if type_stores_reference(result_type):
+                        owner = sorted(returned)[0]
+                        self.error(
+                            f"reference to region owner {owner!r} cannot escape through return",
+                            item.token,
+                        )
             if isinstance(item, b.Let) and item.name in invalid:
                 if item.name not in expr_names(item.value):
                     invalid.pop(item.name, None)
@@ -589,6 +630,8 @@ class _StrictSafetyChecker:
                         and not getattr(typ, "is_reference", False)
                     ):
                         owners.add(item.name)
+                        if getattr(typ, "ownership_domain", None) == "region":
+                            region_owners.add(item.name)
                 if related:
                     aliases[item.name] = related
                 else:
@@ -596,6 +639,16 @@ class _StrictSafetyChecker:
 
             elif isinstance(item, b.Assign):
                 related = alias_sources(item.value)
+                escaping_region = related.intersection(region_owners)
+                if escaping_region and (
+                    root_name(item.target) in self.globals
+                    or isinstance(item.target, (b.Member, b.Index))
+                ):
+                    owner = sorted(escaping_region)[0]
+                    self.error(
+                        f"reference to region owner {owner!r} cannot escape through storage",
+                        item.token,
+                    )
                 quarantined_related = {
                     owner for owner in related if quarantined_on_path(owner, item)
                 }

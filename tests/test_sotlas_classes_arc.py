@@ -2539,6 +2539,55 @@ fn main() -> i32 {
         )
         self.assertEqual(executed.returncode, 0, executed.stderr)
 
+    def test_region_reference_alias_cannot_escape_to_global_storage(self):
+        source = """module app::region_global_escape;
+sole struct Token { value: u32; }
+static mut leaked: *const Token = null;
+fn leak() -> void {
+    let token: region Token = Token { value: 3u32 };
+    let alias = &token;
+    unsafe { leaked = alias as *const Token; }
+    return;
+}
+"""
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            "reference to region owner 'token' cannot escape through storage",
+        ):
+            bootstrap.compile_source(source)
+
+    def test_region_reference_cannot_escape_through_return(self):
+        source = """module app::region_return_escape;
+sole struct Token { value: u32; }
+fn leak() -> &Token {
+    let token: region Token = Token { value: 3u32 };
+    let alias = &token;
+    return alias;
+}
+"""
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            "reference to region owner 'token' cannot escape through return",
+        ):
+            bootstrap.compile_source(source)
+
+    def test_region_reference_cannot_be_stored_in_struct_field(self):
+        source = """module app::region_field_escape;
+sole struct Token { value: u32; }
+struct Holder { pointer: &Token; }
+fn store() -> void {
+    let token: region Token = Token { value: 3u32 };
+    let mut holder: Holder = 0;
+    holder.pointer = &token;
+    return;
+}
+"""
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            "reference to region owner 'token' cannot escape through storage",
+        ):
+            bootstrap.compile_source(source)
+
     def test_region_drop_walks_through_plain_wrappers(self):
         source = """module app::region_wrapper_runtime;
 sole struct Token { value: u32; }

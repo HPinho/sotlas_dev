@@ -200,7 +200,7 @@ Este índice geral é apenas uma leitura agregada conservadora das fases acima; 
 A combinacao ponderada dessas macroentregas coloca a Fase 2 em **~84%**.
 
 `region`, `device` e `external` possuem identidade no enum canonico OwnershipDomain, com qualificador, moves, merges same-domain e transferencias por chamada/handover no grafo.
-`region` tem lowering C11 restrito com drop recursivo de campos sole, validacao de cleanup e execucao nativa com destruicao unica; arena/lifetime graph e validacao ampla de escapes seguem pendentes.
+`region` tem lowering C11 restrito com drop recursivo de campos sole, validacao de cleanup e execucao nativa com destruicao unica; o gate de producao rejeita aliases de owners region retornados como referencia ou armazenados em globals/campos. Arena/lifetime graph e escapes por chamadas opacas ainda seguem pendentes.
 `device` continua fail-closed ate existir transferencia CPU/dispositivo, completion e runtime.
 `external` tem caminho C11 restrito a handles sole repr(C) passados por valor a declaracoes @extern(C) sem corpo, com consumo validado e execucao nativa; ABI geral e lifetime seguem pendentes.
 
