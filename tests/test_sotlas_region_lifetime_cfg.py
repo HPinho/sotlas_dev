@@ -63,6 +63,17 @@ fn route(flag: bool, source: region Token, destination: region Token) -> void {
 }
 """
 
+LOOP_BORROW = """module app::region_cfg_loop_borrow;
+sole struct Token { value: u32; }
+fn inspect(token: direct Token) -> void { return; }
+fn run(flag: bool, token: region Token) -> void {
+    while flag {
+        inspect(&token);
+    }
+    return;
+}
+"""
+
 
 class SotlasRegionLifetimeCFGTests(unittest.TestCase):
     def test_real_sequential_borrow_before_handover_is_certified(self):
@@ -102,6 +113,23 @@ class SotlasRegionLifetimeCFGTests(unittest.TestCase):
             item for item in certificate.locations if item.kind == "handover"
         )
         self.assertNotEqual(direct.block, handover.block)
+
+    def test_call_scoped_region_borrow_inside_loop_is_certified(self):
+        checked = package.analyze_source_phase1(
+            LOOP_BORROW,
+            filename="<region-cfg-loop-borrow>",
+        )
+        certificate = region_cfg.certify_checked_region_lifetime_cfg(
+            checked,
+            function="run",
+        )
+        direct = next(item for item in certificate.locations if item.kind == "direct")
+        self.assertEqual(direct.source, "token")
+        self.assertFalse(certificate.acyclic_points)
+        self.assertEqual(
+            certificate.cyclic_borrow_point_ids,
+            (direct.point_id,),
+        )
 
     def test_tampered_cfg_borrow_after_handover_is_rejected(self):
         checked = package.analyze_source_phase1(
