@@ -1,23 +1,49 @@
 """Tests for backend-neutral DEVICE completion and reacquisition semantics."""
 from dataclasses import replace
+import importlib
+import importlib.util
+from pathlib import Path
+import sys
 import unittest
 
-from sotlas_compile.device_ownership import (
-    DeviceTransferState,
-    complete_device_transfer,
-    mark_device_reacquired,
-    open_device_completion,
-    plan_device_reacquisition,
-)
-from sotlas_compile.typed_ast import (
-    OwnershipDomain,
-    OwnershipDomainGraph,
-    OwnershipDomainTransition,
-    Phase1SemanticError,
-    SemanticType,
-    VarState,
-)
+ROOT = Path(__file__).resolve().parents[1]
+PACKAGE_DIR = ROOT / "compiler" / "sotlas_compile"
 
+
+def _load_canonical_package():
+    """Load compiler/sotlas_compile without legacy tools-package hijacking."""
+    name = "sotlas_device_completion_package"
+    if name in sys.modules:
+        return sys.modules[name]
+    spec = importlib.util.spec_from_file_location(
+        name,
+        PACKAGE_DIR / "__init__.py",
+        submodule_search_locations=[str(PACKAGE_DIR)],
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+sotlas_compile = _load_canonical_package()
+device_ownership = importlib.import_module(
+    f"{sotlas_compile.__name__}.device_ownership"
+)
+typed_ast = importlib.import_module(f"{sotlas_compile.__name__}.typed_ast")
+
+DeviceTransferState = device_ownership.DeviceTransferState
+complete_device_transfer = device_ownership.complete_device_transfer
+mark_device_reacquired = device_ownership.mark_device_reacquired
+open_device_completion = device_ownership.open_device_completion
+plan_device_reacquisition = device_ownership.plan_device_reacquisition
+OwnershipDomain = typed_ast.OwnershipDomain
+OwnershipDomainGraph = typed_ast.OwnershipDomainGraph
+OwnershipDomainTransition = typed_ast.OwnershipDomainTransition
+Phase1SemanticError = typed_ast.Phase1SemanticError
+SemanticType = typed_ast.SemanticType
+VarState = typed_ast.VarState
 
 TOKEN = SemanticType("Token")
 
