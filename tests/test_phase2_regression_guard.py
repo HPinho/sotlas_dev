@@ -80,6 +80,23 @@ class Phase2RegressionGuardTests(unittest.TestCase):
         missing = [name for name in required if not hasattr(sir_instructions, name)]
         self.assertEqual(missing, [], f"Ownership SIR surface disappeared: {missing}")
 
+    def test_loop_control_skips_auto_release_before_canonical_shared_cleanup(self):
+        bootstrap_source = (
+            ROOT / "compiler" / "sotlas_compile" / "bootstrap.py"
+        ).read_text(encoding="utf-8")
+        guard = (
+            "loop_shared_cleanup_entry_count is not None\n"
+            "                            and isinstance(d.value, Call)\n"
+            "                            and d.value.callee.startswith("
+            "\"__sotlas_shared_release_\")"
+        )
+        self.assertEqual(
+            bootstrap_source.count(guard),
+            2,
+            "break and continue must both suppress automatic shared-release "
+            "defers before canonical loop-local cleanup",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
