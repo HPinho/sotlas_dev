@@ -192,7 +192,6 @@ class Type:
     fn_params: tuple = ()  # tuple[Type, ...]
     fn_ret: Type | None = None
     is_reference: bool = False
-    ownership_domain: str | None = None
 
     def base_c(self) -> str:
         if self.is_fn_ptr:
@@ -309,12 +308,6 @@ class Return(Stmt): value: Expr | None
 class Break(Stmt): pass
 @dataclass
 class Continue(Stmt): pass
-@dataclass
-class Handover(Stmt):
-    value: Expr
-    destination: Expr | None = None
-@dataclass
-class Quarantine(Stmt): value: Expr
 @dataclass
 class Loop(Stmt): body: list[Stmt]
 @dataclass
@@ -478,40 +471,6 @@ class Parser:
         return self.type()
 
     def type(self) -> Type:
-        if (
-            self.current.kind == "IDENT"
-            and self.current.text in ("island", "whisper")
-        ):
-            token = self.current
-            domain = self.current.text
-            self.at += 1
-            inner = self.type()
-            if getattr(inner, "ownership_domain", None) is not None:
-                raise SotlasBootstrapError(
-                    "ownership modifier duplicado",
-                    token.line, token.column, self.filename, self.source,
-                )
-            if domain == "whisper":
-                if (
-                    inner.is_array
-                    or inner.is_fn_ptr
-                    or inner.pointer
-                    or inner.is_reference
-                    or inner.mutable
-                ):
-                    raise SotlasBootstrapError(
-                        "whisper currently requires an unqualified, direct "
-                        "non-array value type",
-                        token.line, token.column, self.filename, self.source,
-                    )
-                return replace(
-                    inner,
-                    pointer=True,
-                    mutable=False,
-                    is_reference=True,
-                    ownership_domain="whisper",
-                )
-            return replace(inner, ownership_domain="island")
         if self.accept("!"):
             return Type("void")
         if self.accept("fn"):
@@ -839,19 +798,6 @@ class Parser:
         if self.accept("continue"):
             self.expect(";")
             return Continue(token)
-        if self.accept("handover"):
-            value = self.expression()
-            destination = None
-            if self.current.kind == "IDENT" and self.current.text == "to":
-                self.at += 1
-                destination = self.expression()
-            self.expect(";")
-            return Handover(token, value, destination)
-        if self.current.kind == "IDENT" and self.current.text == "quarantine":
-            self.at += 1
-            value = self.expression()
-            self.expect(";")
-            return Quarantine(token, value)
         if self.accept("if"):
             condition = self.expression()
             then_body = self.block()
@@ -1463,93 +1409,6 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
                         "atribuição incompatível", item.token.line,
                         item.token.column, filename, source,
                     )
-            elif isinstance(item, Handover):
-                if not isinstance(item.value, Name):
-                    raise SotlasBootstrapError(
-                        "handover exige binding direto de ownership",
-                        item.token.line, item.token.column, filename, source,
-                    )
-                target_type = scope.get(item.value.value)
-                target_struct = (
-                    struct_map.get(target_type.name)
-                    if target_type is not None else None
-                )
-                if (
-                    target_type is None
-                    or target_struct is None
-                    or not target_struct.is_sole
-                    or target_type.pointer
-                    or target_type.is_reference
-                ):
-                    raise SotlasBootstrapError(
-                        f"handover exige valor sole exclusivo: {item.value.value}",
-                        item.token.line, item.token.column, filename, source,
-                    )
-                expr_type(item.value, scope, in_unsafe, is_system_fn)
-                if item.destination is not None:
-                    if not isinstance(item.destination, Name):
-                        raise SotlasBootstrapError(
-                            "handover destino exige binding direto de ownership",
-                            item.token.line, item.token.column, filename, source,
-                        )
-                    if item.destination.value == item.value.value:
-                        raise SotlasBootstrapError(
-                            "handover origem e destino devem ser bindings distintos",
-                            item.token.line, item.token.column, filename, source,
-                        )
-                    destination_type = scope.get(item.destination.value)
-                    destination_struct = (
-                        struct_map.get(destination_type.name)
-                        if destination_type is not None else None
-                    )
-                    if (
-                        destination_type is None
-                        or destination_struct is None
-                        or not destination_struct.is_sole
-                        or destination_type.pointer
-                        or destination_type.is_reference
-                    ):
-                        raise SotlasBootstrapError(
-                            f"handover destino exige valor sole exclusivo: {item.destination.value}",
-                            item.token.line, item.token.column, filename, source,
-                        )
-                    comparable_destination = replace(
-                        destination_type, ownership_domain=None
-                    )
-                    comparable_source = replace(
-                        target_type, ownership_domain=None
-                    )
-                    if comparable_destination != comparable_source:
-                        raise SotlasBootstrapError(
-                            "handover origem e destino devem ter o mesmo tipo exclusivo",
-                            item.token.line, item.token.column, filename, source,
-                        )
-                    expr_type(
-                        item.destination, scope, in_unsafe, is_system_fn
-                    )
-            elif isinstance(item, Quarantine):
-                if not isinstance(item.value, Name):
-                    raise SotlasBootstrapError(
-                        "quarantine exige binding direto de ownership",
-                        item.token.line, item.token.column, filename, source,
-                    )
-                target_type = scope.get(item.value.value)
-                target_struct = (
-                    struct_map.get(target_type.name)
-                    if target_type is not None else None
-                )
-                if (
-                    target_type is None
-                    or target_struct is None
-                    or not target_struct.is_sole
-                    or target_type.pointer
-                    or target_type.is_reference
-                ):
-                    raise SotlasBootstrapError(
-                        f"quarantine exige valor sole exclusivo: {item.value.value}",
-                        item.token.line, item.token.column, filename, source,
-                    )
-                expr_type(item.value, scope, in_unsafe, is_system_fn)
             elif isinstance(item, Return):
                 if item.value is not None:
                     actual = expr_type(item.value, scope, in_unsafe, is_system_fn)
@@ -1821,53 +1680,6 @@ def _c_struct_attributes(attributes: list[str]) -> str:
 
 def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
            include_import_headers: bool = False) -> str:
-    def _contains_domain(type_obj: Type | None, domain: str) -> bool:
-        if type_obj is None:
-            return False
-        if getattr(type_obj, "ownership_domain", None) == domain:
-            return True
-        if (
-            getattr(type_obj, "elem_type", None) is not None
-            and _contains_domain(type_obj.elem_type, domain)
-        ):
-            return True
-        if any(
-            _contains_domain(param, domain)
-            for param in getattr(type_obj, "fn_params", ())
-        ):
-            return True
-        return _contains_domain(getattr(type_obj, "fn_ret", None), domain)
-
-    def _module_contains_domain(domain: str) -> bool:
-        return (
-            any(
-                _contains_domain(field.type, domain)
-                for struct in module.structs for field in struct.fields
-            )
-            or any(_contains_domain(item.type, domain) for item in module.globals)
-            or any(
-                _contains_domain(getattr(variant, "payload_type", None), domain)
-                for enum in module.enums
-                for variant in enum.variants
-            )
-            or any(
-                _contains_domain(type_obj, domain)
-                for fn in module.functions for _, type_obj in fn.params
-            )
-            or any(_contains_domain(fn.result, domain) for fn in module.functions)
-        )
-
-    if _module_contains_domain("island"):
-        raise SotlasBootstrapError(
-            "C11 backend does not lower island ownership domain yet",
-            1, 1, module.filename, module.source,
-        )
-    if _module_contains_domain("whisper"):
-        raise SotlasBootstrapError(
-            "C11 backend does not lower whisper ownership domain yet",
-            1, 1, module.filename, module.source,
-        )
-
     prefix = f"{_c_ident(module.name)}__" if mangle else ""
     guards: list[str] = []
     fn_names = {f.name for f in module.functions}
@@ -2069,8 +1881,6 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                     if (
                         parameter_type.name in sole_types
                         and not parameter_type.pointer
-                        and getattr(parameter_type, "ownership_domain", None)
-                            != "whisper"
                     ):
                         moved_argument = (
                             argument.value
@@ -2211,8 +2021,6 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                 if (
                     param_type.name in sole_types
                     and not param_type.pointer
-                    and getattr(param_type, "ownership_domain", None)
-                        != "whisper"
                     and param_type.name in deinit_methods
                 ):
                     token = Token("IDENT", param_name, 0, 0)
@@ -2359,16 +2167,6 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                     out.append(f"{pad}__builtin_memset(&({target_str}), 0, sizeof({target_str}));")
                 else:
                     out.append(f"{pad}{target_str} = {_emit_expr(item.value, prefix)};")
-            elif isinstance(item, Handover):
-                raise SotlasBootstrapError(
-                    "C11 backend does not lower handover ownership yet",
-                    item.token.line, item.token.column,
-                )
-            elif isinstance(item, Quarantine):
-                raise SotlasBootstrapError(
-                    "C11 backend does not lower quarantine ownership yet",
-                    item.token.line, item.token.column,
-                )
             elif isinstance(item, Defer):
                 defer_scopes[-1].append(item)
             elif isinstance(item, Return):

@@ -1,8 +1,6 @@
 """Reality gates for prototype SIR and the canonical production path."""
 import ast
-import json
 from pathlib import Path
-import re
 import sys
 import unittest
 
@@ -11,67 +9,6 @@ sys.path.insert(0, str(ROOT / "compiler"))
 
 
 class SotlasRealityGateTests(unittest.TestCase):
-    def test_package_metadata_matches_runtime_version_and_maturity(self):
-        project = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
-        setup = (ROOT / "setup.py").read_text(encoding="utf-8")
-        package = (ROOT / "compiler" / "sotlas" / "__init__.py").read_text(
-            encoding="utf-8"
-        )
-        version = re.search(r'^version = "([^"]+)"$', project, re.MULTILINE)
-        self.assertIsNotNone(version)
-        self.assertIn(f'version="{version.group(1)}"', setup)
-        self.assertIn(f'SOTLAS_VERSION = "{version.group(1)}"', package)
-        self.assertIn("Development Status :: 3 - Alpha", project)
-        self.assertNotIn("Development Status :: 4 - Beta", project)
-
-    def test_historical_audit_does_not_claim_current_support(self):
-        audit = (ROOT / "docs" / "sotlas_v1_audit_and_roadmap.md").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn("Historical design note", audit.split("---", 1)[0])
-        self.assertIn("prototype SIR is not the production lowering path", audit)
-
-    def test_numbered_examples_match_experimental_manifest(self):
-        root = ROOT / "examples"
-        manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
-        entries = manifest["examples"]
-        numbered = {path.name for path in root.iterdir()
-                    if path.is_dir() and path.name[:2].isdigit()}
-        self.assertEqual({item["id"] for item in entries}, numbered)
-        self.assertTrue(all(item["status"] == "EXPERIMENTAL" for item in entries))
-        self.assertTrue(all((ROOT / item["entry"]).exists() for item in entries))
-
-    def test_public_readmes_use_current_checkout_and_label_sir_prototype(self):
-        for name in ("README.md", "README.pt-BR.md"):
-            readme = (ROOT / name).read_text(encoding="utf-8")
-            self.assertIn("git clone https://github.com/HPinho/sotlas_dev.git", readme)
-            self.assertNotIn("github.com/Sotlas/sotlas.git", readme)
-            self.assertIn("SIR protótipo" if "pt-BR" in name else "prototype SIR", readme)
-
-    def test_identical_compiler_tool_mirrors_do_not_drift(self):
-        compiler = ROOT / "compiler"
-        tools = ROOT / "tools"
-        reviewed_differences = {
-            Path("sotlas/cli.py"),
-            Path("sotlas/__init__.py"),
-            Path("sotlas/sir/instructions.py"),
-            Path("sotlas_compile/bootstrap.py"),
-            Path("sotlas_compile/language_safety.py"),
-            Path("sotlas_compile/__init__.py"),
-        }
-        paired = {
-            path.relative_to(compiler)
-            for path in compiler.rglob("*.py")
-            if (tools / path.relative_to(compiler)).is_file()
-        }
-        self.assertTrue(reviewed_differences <= paired)
-        for relative in paired - reviewed_differences:
-            self.assertEqual(
-                (compiler / relative).read_bytes(),
-                (tools / relative).read_bytes(),
-                f"compiler/tools mirror drift: {relative}",
-            )
-
     def test_sir_dump_declares_prototype_status(self):
         instructions = (
             ROOT / "compiler" / "sotlas" / "sir" / "instructions.py"

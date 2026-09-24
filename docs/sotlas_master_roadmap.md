@@ -1,4 +1,4 @@
-﻿# SOTLAS — ESPECIFICAÇÃO MESTRA
+# SOTLAS — ESPECIFICAÇÃO MESTRA
 
 > Documento consolidado da arquitetura-base da linguagem Sotlas e da extensão Sotlas Domains.
 
@@ -3760,7 +3760,6 @@ Status atual:
 - [x] reality gates para impedir regressão da maturidade do Typed AST;
 - [x] regra formal de que testes são contratos, não obstáculos;
 - [x] `check` e backend C11 possuem gate para não aceitar silenciosamente lowering ainda não implementado;
-- [x] fixtures `.sotlas` exercitam os dois lados do gate: enum escalar gera e executa binário C11; `share` com defer chega ao SIR, enquanto o backend C11 o rejeita explicitamente;
 - [ ] eliminação completa de todo legado/duplicação histórica do projeto;
 - [ ] auditoria final de todos os exemplos, documentação pública e claims antigos.
 
@@ -3810,17 +3809,10 @@ Extensões construídas sobre a fundação, mas que **não promovem a linguagem 
 - [ ] lowering C11 completo de enum com payload;
 - [ ] cleanup/destruição de payload `sole` armazenado em enum;
 - [ ] teste end-to-end de enum com payload até backend/binário.
-- [x] teste end-to-end do subconjunto escalar de enum com payload a partir de fixture `.sotlas`, emitindo C11 e executando binário; payloads não escalares e cleanup `sole` seguem pendentes.
 
 **Nota de certificação:** esta fase está certificada como núcleo semântico isolado. Isso não equivale a afirmar que todo o compilador, SIR, backend, stdlib e todas as features documentadas estão `SUPPORTED`.
 
 ### 2. Ownership Domains — 🟡 EM CONSTRUÇÃO
-
-**Progresso aproximado atual: ~84%.**
-
-**Desenvolvimento geral aproximado da linguagem: ~17%.** Esse índice é uma leitura agregada conservadora das fases do roadmap e não representa promoção global para `SUPPORTED`.
-
-> Este percentual é calculado por macroentregas, não por número de subchecks. O trabalho avançado em `shared`/ARC não substitui os domínios ainda ausentes (`region`, `device`, `external`, `island`, `whisper`, `direct`, `handover`, `quarantine`) nem runtime/backend e testes end-to-end por domínio.
 
 `exclusive`, `shared`, `region`, `device`, `external`.
 
@@ -3835,45 +3827,23 @@ Fundação já implementada:
 - [x] transferência para campos `sole` de structs;
 - [x] transferência para payload `sole` de enums;
 - [x] cleanup/deinit possui integração parcial com transferências `sole` no backend existente.
-- [x] grafo backend-neutral de Ownership Domains registra owner, tipo, domínio, estado final e sink das transferências; transições cross-domain de quarantine/handover preservam source domain, target domain e domínio do destino sem inferência pelo backend; pontos duplicados ou compartilhados entre movimento, `share`, `handover` e `quarantine`, destinos incompletos/incompatíveis e resultados inconsistentes de merge falham fechado.
+- [x] grafo backend-neutral de Ownership Domains registra owner, tipo, domínio, estado final e sink das transferências.
 
 Ainda necessário para concluir a Fase 2 canônica:
 
-- [x] `exclusive` formalizado como Ownership Domain explícito no Typed AST: declarações `sole`, parâmetros, retornos, bindings e summaries preservam o domínio canônico;
-- [ ] `shared` end-to-end como domínio de ownership com custo e estratégia observáveis; sintaxe/frontend, accounting/SIR e lowering C11 experimental existem, incluindo drop glue recursivo testado para árvores de campos `sole` por valor através de wrappers e arrays fixos multidimensionais, com deinit do owner antes dos campos; owner compartilhado recebido por parâmetro agora libera aliases no fallthrough da saída da própria função, depois dos `defer`, validado por execução nativa; escopos internos com owner externo continuam fail-closed, e backend/runtime ainda cobrem apenas subconjuntos com os contratos amplos de CFG/ABI pendentes;
+- [ ] formalizar `exclusive` como Ownership Domain explícito além da semântica atual de `sole`;
+- [ ] `shared` como domínio de ownership com custo e estratégia observáveis; o domínio já existe internamente como destino planejável, mas ainda não possui sintaxe/runtime/ARC;
 - [x] contrato semântico backend-neutral de `co-owned`/ARC com contador forte explícito, retain/release determinísticos e destruição elegível quando strong_refs chega a zero;
-- [ ] integração completa desse accounting com aliases reais, cleanup, Typed AST, lowering canônico e runtime/backend; o release C11 experimental já libera recursivamente campos `sole` por valor em payloads compartilhados testados;
-- [ ] `region` como domínio de lifetime/ownership verificável; parser/Typed AST e graph preservam owners `sole` por valor, moves, merges invariantes, retornos, handovers same-domain e borrows call-scoped por `direct`/`whisper`; C11 executa análise canônica, rearma drop glue no destino de handover e testes nativos confirmam drop único, inclusive em handovers nos dois ramos exclusivos com early return, além de cleanup recursivo de campos, arrays fixos e wrappers POD comuns contendo owners `region` `sole`, inclusive wrappers locais, em ordem reversa; `defer` vem antes do drop em early return e fallthrough e locals são destruídos em `continue`/`break` (deinit detached do owner antes dos filhos); deinit de wrapper que acessa `self` com filhos region-owned falha fechado. Arena/lifetime graph e validação ampla de escapes ainda faltam;
-- [ ] `device` como transferencia de ownership CPU ? dispositivo com completion/reacquisition; parser/Typed AST e graph preservam owners, moves, merges same-domain e handover explicito exclusive->device; o pipeline SIR posiciona esses handovers em ramos apos chamadas consumidoras tipadas; leitura de campos, escapes de endereco e borrows host sao rejeitados; transferencia real, completion, sincronizacao, reacquisition e runtime continuam pendentes;
-- [ ] `external` como ownership/lifetime em FFI e recursos externos; parser/Typed AST e graph preservam owners sole, transferencias same-domain e consumo FFI; C11 suporta owners sole `repr(C)` e wrappers `sole repr(C)` com campos `external` diretos, arrays fixos multidimensionais de handles e escalares POD por valor via declaracao @extern(C) sem corpo, exigindo consumo exatamente uma vez em todos os caminhos; testes nativos cobrem wrapper, ramos aninhados e falha para saida sem consumo/layout com ponteiro; globals, classes/enums, arrays dinamicos, retornos, transferencias opacas, ABI geral de handles, lifetime e runtime seguem pendentes;
-- [ ] `island` como subgrafo/região de ownership isolado — além de `quarantine`, `island T` é preservado nas fronteiras funcionais, locais e campos suportados; C11 cobre por valor parâmetros/retornos e campos `sole` com payload POD recursivo. Borrows `whisper` e `direct` call-scoped de `island` com no-escape provado chegam ao graph/SIR/LLVM e executam em C11; LLVM cobre o subset POD linear. Handover `ISLAND→ISLAND` repõe cleanup no destino. Aliases armazenados, globals, enum/classes fora do subset e runtime de aliases continuam pendentes;
-- [ ] `whisper` como referência non-owning/weak com validação de lifetime; parâmetros internos com no-escape provado baixam no C11 como `const T *` e passam execução nativa para leitura escalar; borrows de owners `exclusive/shared/island/region/direct` chegam ao graph/SIR/LLVM; forwarding `direct → whisper` exige summary no-escape e passou execução C11/LLVM; storage, retorno, FFI e invalidação weak seguem fail-closed;
-- [ ] `direct` como acesso SRG de baixo nível com obrigações explícitas; o contrato canônico aceita `direct T` apenas em parâmetros como acesso imutável limitado à chamada, exige `&binding` para owner LIVE `exclusive/shared/region/island` e registra `direct@L:C` em graph e `DirectAccessInst` em SIR; forwarding `direct → direct` e para `whisper` com no-escape preserva a origem e passou execução C11/LLVM, sem bookkeeping; borrows por argumento e receiver de método sobre owner `island` passam graph/SIR e execução C11, e o borrow por argumento passou LLVM até objeto no subset POD linear. `defer inspect(&shared_alias)` preserva o borrow no graph→SIR e coloca a chamada antes dos releases em cada early return; C11 executa defer com `direct`, `whisper` no-escape e argumentos escalares antes do drop. Retorno, campo/global e FFI opaca seguem fail-closed; ABI ARC LLVM, payloads/destrutores gerais, lifetime CFG geral, mutabilidade, alias graph e e2e amplo ainda faltam;
-- [x] lowering backend-neutral de `quarantine`/`handover` para SIR por meio de `OwnershipDomainTransferInst`, preservando origem/destino e rejeitando fatos incompletos antes de qualquer backend;
-- [x] ponte module-level `OwnershipModuleAnalysis → OwnershipModuleSIRPlan`, gerando plano por função que compõe domain transfers e shared/ARC sem placement CFG nem backend;
-- [x] pipeline público `analyze_source_phase1` / `analyze_module_phase1` agora compõe automaticamente o snapshot semântico com `OwnershipModuleSIRPlan` em `Phase1CheckedModule`, mantendo Typed AST sem dependência direta de SIR;
-- [x] placement SIR de `quarantine`/`handover`: além do subset linear, o generator emite markers source-stable em ramos estruturados com folhas de transferência seguidas de `return`; o plano semântico substitui os pontos nos blocos corretos após validar operação/origem/destino;
-- [x] aplicação module-level transacional dos domain transfers: todos os planos por função são pré-validados contra o `SIRModule` antes da primeira mutação, com falha fechada para função/plano duplicado, função ausente ou marker incompatível;
-- [x] placement ownership module-level unificado: domain transfers, `ShareInst`/`RetainInst` e cleanups ARC posicionáveis (return/break/continue/backedge) são pré-validados antes da primeira mutação; `share` usa identidade source-stable `share@L:C` comum ao par share/retain;
-- [x] ponte pública SIR pós-check sem acoplamento reverso: `generate_checked_ownership_sir` consome o contrato `parsed_module + ownership_sir`, gera o `SIRModule` e aplica o placement ownership transacional em uma única operação;
-- [x] `OwnershipDomainGraph` passou a ser a fonte canônica do lowering SIR de `quarantine`/`handover`; traces permanecem responsáveis pelo plano shared/ARC, eliminando revalidação concorrente de domínio no pipeline público;
-- [x] identidade source-stable de domain transfer propagada end-to-end: eventos → `OwnershipDomainGraph` → `OwnershipDomainTransferInst`; placement usa `quarantine@L:C`/`handover@L:C` exatos em vez de depender da ordem dos markers;
-- [x] placement de `share`/`retain` também usa identidade canônica `share@L:C` por lookup exato, rejeitando pontos ausentes/duplicados antes de qualquer mutação e sem depender da ordem do CFG;
-- [x] cleanup ARC de scope normal (`function_exit`) possui placement real no único retorno sintético de fallthrough representável; explicit returns continuam usando cleanup source-stable próprio e múltiplos fallthrough returns são rejeitados fail-closed;
-- [x] cleanup `function_exit` e cleanup de return explícito são colocados juntos quando ambos os caminhos existem, mantendo cada plano no retorno correspondente;
-- [x] `OwnershipDomainGraph` materializa também o lado shared: transições canônicas EXCLUSIVE→SHARED e contas ARC function-scoped com owners, strong_refs e identidade `share@L:C`, rejeitando retain órfão/inconsistente;
-- [x] lowering SIR de `share`/`retain` é dirigido pelas contas/transições do `OwnershipDomainGraph`; o trace fica restrito às obrigações path-sensitive de cleanup/defer, e divergências graph↔trace falham antes do placement;
-- [x] primeiro contrato canônico de `whisper`: parâmetro `whisper T` é congelado no Typed AST como borrow imutável non-owning, não consome `sole` nem entra no OwnershipEnv como owner; storage/return/lifetime graph/runtime permanecem fail-closed;
-- [x] calls e receivers diretos de parâmetros `whisper` registram borrows source-stable no Ownership Domain Graph; `exclusive/shared` LIVE são preservados sem move, `island` e formas indiretas são rejeitados, e o fato chega ao plano SIR como `WhisperBorrowInst` sem claim de lowering/runtime;
-- [x] escape checks locais rejeitam retorno de referências derivadas por membro/cast, casts que apagam a forma de ponteiro, aliases retornados e encaminhamento sem contrato; leituras escalares seguem permitidas;
-- [x] checker de produção prova summaries no-escape em ponto fixo para parâmetros por referência/ponteiro de funções com corpo; o maior ponto fixo admite ciclos recursivos fechados e remove candidatos cujo corpo ou dependências escapam; aliases `whisper` só podem ser encaminhados a parâmetros com summary verificado, inclusive em chamadas registradas por `defer`; extern, chamada indireta e ciclos com caminhos escapantes permanecem fail-closed;
-- [x] Ownership Domain Graph e SIR preservam encaminhamento de parâmetro `whisper` para outro parâmetro `whisper` como borrow source-stable cujo source domain continua `whisper`; compilação e execução C11 validam encaminhamento em cadeia linear e em funções mutuamente recursivas provadas no-escape;
-- [x] forwarding de `direct` para parâmetro `whisper` com summary no-escape preserva source domain `direct` no graph/SIR e passou execução nativa C11 e lowering LLVM até objeto;
-- [x] backend C11 baixa parâmetros e receivers de método `whisper` internos com lifetime/no-escape verificados como `const T *`; leitura escalar foi compilada com warnings-as-errors e executada nativamente, enquanto storage, retorno e FFI continuam rejeitados;
-- [ ] lifetime/weak invalidation em CFG e validação backend/runtime para `whisper` seguem pendentes;
-- [ ] `handover` como operação formal de transferência entre bindings/domínios — contratos EXCLUSIVE → EXCLUSIVE, ISLAND → EXCLUSIVE e ISLAND → ISLAND preservam origem/destino no graph; C11 baixa bindings validados, suprime cleanup da origem e rearma cleanup/deinit no destino, com execução nativa confirmando uma destruição por owner. Handover sem destino continua fail-closed; outros domínios e e2e completo ainda faltam;
-- [ ] `quarantine` como isolamento verificável antes de reuse/dispatch — `quarantine <binding>;` implementa EXCLUSIVE → ISLAND, exige source LIVE direto, bloqueia escape/move implícito, registra graph e C11 o baixa como transição estática sem custo de runtime; o gate de produção rejeita usos posteriores de aliases locais rastreáveis, inclusive os propagados para campos, falha fechado se aliases forem enviados a chamadas opacas ou armazenados fora do escopo, aceita aliases mortos antes da transição e distingue usos em ramos mutuamente exclusivos; teste C11 executa o ramo de quarantine e o ramo oposto que lê o alias, verificando destruição nos dois caminhos; joins ambíguos e loops com aliases do owner continuam conservadores; weak invalidation/runtime, CFG path-sensitive geral, reuse/dispatch e e2e amplo ainda faltam;
-- [x] grafo canônico de ownership/domains no snapshot semântico para owners rastreados e transferências, incluindo direção explícita EXCLUSIVE→ISLAND e ISLAND→EXCLUSIVE e validação fail-closed de fatos incompletos, tipo/domínio de destino, resultado de merge, source points duplicados e colisões entre movimento, share e transições;
+- [ ] integração desse accounting com aliases reais, cleanup, Typed AST de expressões e lowering canônico;
+- [ ] `region` como domínio de lifetime/ownership verificável;
+- [ ] `device` como transferência de ownership CPU ↔ dispositivo com completion/reacquisition;
+- [ ] `external` como ownership/lifetime atravessando FFI ou recurso externo;
+- [ ] `island` como subgrafo/região de ownership isolado;
+- [ ] `whisper` como referência não-owning/weak com validação de lifetime;
+- [ ] `direct` como acesso SRG de baixo nível com obrigações explícitas;
+- [ ] `handover` como operação formal de transferência entre bindings/domínios;
+- [ ] `quarantine` como isolamento verificável antes de reuse/dispatch;
+- [x] grafo canônico de ownership/domains no snapshot semântico para owners rastreados e transferências `exclusive`;
 - [x] merge de Ownership Domain em branches exige domínio idêntico e registra LIVE/MOVED/MAYBE_MOVED no grafo;
 - [x] contrato semântico backend-neutral para planejar `exclusive → shared` via `share`, exigindo owner LIVE e sem mutação/runtime implícito;
 - [x] aplicação semântica de `exclusive → shared` no OwnershipEnv, preservando owner original como strong owner compartilhado;
@@ -3881,16 +3851,12 @@ Ainda necessário para concluir a Fase 2 canônica:
 - [x] integração backend-neutral com Typed AST por meio de `TypedShareExpression` para bindings inteiros;
 - [x] membros, índices e temporários continuam fail-closed até existir contrato formal de aliasing parcial;
 - [x] sintaxe pública `let alias = share owner;` com nó AST dedicado, typecheck e integração ao OwnershipEnv;
-- [x] backend C11 tem lowering experimental para aliases locais múltiplos e imutáveis, com preflight graph/trace canônico, retain por alias e cleanup reverso; leituras de aliases externos em `if`/loops/`unsafe` possuem cleanup nativo em retornos, `break` e `continue`, e `if/else` terminal é aceito quando ambos os ramos retornam; shares locais com fallthrough/retorno limpam no escopo criador, inclusive em `for`/`while`/`loop`, em cada backedge normal e antes de `break`, `continue` e `return` aninhados; share de owner recebido por parâmetro também limpa no fallthrough da saída da função, com `defer` LIFO antes do release, validado por execução nativa. `defer` local no backedge continua fail-closed. O release final executa drop glue recursivo em ordem reversa para campos `sole` por valor através de wrappers e arrays multidimensionais, chamando hooks detached de owner/wrapper antes dos deinits de folhas; owners externos em blocos internos com fallthrough, hooks de deinit com descendentes owned que referenciam `self`, mutação/escape, CFG arbitrário e payloads com ponteiros continuam fail-closed;
-- [x] C11 compila/executa aliases `shared` com payload escalar e struct POD aninhada sem ownership; cleanup recursivo para campos `sole/co-owned`, payloads gerais e CFG ainda permanece bloqueado;
+- [x] backend C11 rejeita `share` explicitamente enquanto ARC/cleanup não estiver implementado;
 - [x] plano semântico de cleanup para saída normal de função, com release reverso e destroy apenas no último strong owner;
 - [x] cleanup path-sensitive de shared ownership em early-return e branches, sem contaminar o caminho de fallthrough;
 - [x] integração semântica de shared ownership com `defer`: captura shared preserva LIVE, defers rodam em LIFO antes dos releases ARC e `sole` continua exigindo transferência;
-- [x] C11 executa `defer receiver.readonly_method(scalar)` e bloco com uma chamada equivalente para alias local `shared` antes dos releases ARC em early return, `break` e `continue`, quando o método é interno, recebe `&self` imutável e o argumento não captura o alias shared; leitura do alias como argumento continua fail-closed;
-- [x] C11 executa `defer internal_direct(&shared_alias, &shared_alias, scalar)` com parâmetros `direct`, `whisper` no-escape e escalares em cleanup paths de early return, continue e break, antes do release/destroy ARC e sem release duplicado; teste nativo cobre valor calculado por iteração e leitura pelo borrow `whisper`; o frontend rejeita a variante que escapa o argumento `whisper`, e receiver `direct` continua fail-closed;
 - [ ] integração com runtime/backend;
-- [x] moves e merges invariantes same-domain para `region/device/external` são validados no Ownership Domain Graph; handovers explícitos same-domain chegam ao SIR e cruzamentos implícitos são rejeitados;
-- [ ] runtimes e protocolos de lifetime para `region`, transferência/completion CPU-device e ownership FFI para `external`;
+- [ ] transições e merges para `region`, `device` e `external`;
 - [x] loops exigem invariância de tipo, Ownership Domain e VarState no backedge para bindings visíveis;
 - [x] contas shared criadas inteiramente dentro da iteração recebem cleanup determinístico antes do backedge;
 - [x] break/continue possuem cleanup path-specific para shared locals, inclusive em branches aninhados, com defers LIFO antes dos releases e sem duplicar cleanup de backedge;
@@ -3898,28 +3864,17 @@ Ainda necessário para concluir a Fase 2 canônica:
 - [x] snapshots de OwnershipEnv em exits de loop preservam a validação de invariância sem contaminar o ambiente de fallthrough;
 - [ ] integração completa com `defer`, cleanup e unwind/early-return de todos os recursos;
 - [x] identidade source-stable de registros `defer` é preservada separadamente da identidade do control-exit, preparando lowering executável sem apagar payload;
-- [x] `defer Name;` sobre owner shared possui operação SIR explícita (`DeferUseInst`) e placement antes de ARC em fallthrough, break/continue e early returns source-identified; defers registrados somente em um ramo não contaminam outros retornos;
-- [x] payloads de chamadas diferidas validados semanticamente geram `CallInst` antes do ARC em break/continue e no fallthrough normal; `defer inspect(&shared_alias)` também chega por graph→SIR antes dos releases em cada early return estruturado, preservando `defer@L:C` e o `DirectAccessInst` source-stable. Transferência implícita `shared → sole` e formatos assign/try permanecem fail-closed;
-- [x] `defer receiver.method(named_args)` gera `CallInst` com receiver e argumentos nomeados, preservando `defer@L:C` em break/continue e nos early returns estruturados suportados;
-- [x] um bloco `defer { call(named_args); }` com exatamente uma chamada direta ou de método e bindings diretos preserva o payload e baixa para `CallInst` source-stable em break/continue e em cada early return;
-- [ ] argumentos que recapturam aliases shared, argumentos complexos em `defer method`, blocos com múltiplas instruções e formatos assign/try permanecem fail-closed até payload tipado/lowering dedicado;
-- [x] defer shared em fallthrough de bloco condicional/unsafe e backedge de loop sem placement lexical próprio é rejeitado fail-closed; defer branch-local nunca é anexado ao cleanup normal da função;
+- [x] `defer Name;` sobre owner shared possui operação SIR explícita (`DeferUseInst`) e placement antes de ARC em break/continue; payloads de call/assign/block/method/try permanecem fail-closed;
 - [x] primeiro lowering backend-neutral de shared ownership para plano SIR explícito (`share/retain/release/destroy`), ainda sem placement CFG;
 - [x] identidade source-stable para pontos de cleanup ownership em return/break/continue/backedge, preservada no plano SIR;
 - [x] placement real de cleanup ARC imediatamente antes de `ReturnInst` identificado por `point_id`, com erro para pontos ausentes/duplicados;
 - [x] gerador SIR protótipo preserva `point_id` em return terminal linear diretamente representável, sem fabricar CFG para retornos aninhados;
 - [x] primeiro CFG estruturado para funções `void` com `if` booleano simples e retornos diretos, preservando `point_id` distinto por caminho;
-- [x] sequência de `if` com condições booleanas de parâmetros e retornos antecipados diretos, seguida de retorno final, gera saídas e identidades `return@L:C` distintas no CFG, com placement ARC de release/destroy em cada saída;
-- [x] comparações `==`, `!=`, `<`, `<=`, `>` e `>=` entre parâmetros inteiros baixam para `CompareInst` antes da aresta condicional; LLVM emite `icmp` signed/unsigned e o teste fonte→objeto compila; literais e expressões condicionais fora do subset permanecem rejeitados;
-- [x] condições `!param` em `if` e `while` invertem as arestas de controle usando o valor SSA existente, mantendo IDs source-stable e placement de cleanup;
-- [x] expressões booleanas `&&`/`||` sobre parâmetros e `!` baixam com curto-circuito em blocos SIR, preservando os destinos de return/break/continue e cleanup;
-- [x] literais `true`/`false` em condições de `if`/`while` geram arestas SIR incondicionais ao destino escolhido, sem valor SSA fictício;
-- [ ] expandir CFG estruturado além desse subset protótipo; produção baixa árvores aninhadas `if/else` com folhas `return` void, `return if` escalar com valores de parâmetros via `phi`, condições booleanas/comparações inteiras e markers de `share`/`quarantine`/`handover` nos blocos de origem, além de cleanup ARC em cada folha; joins de valores calculados, corpos arbitrários, integração geral de cleanup e demais terminadores ainda faltam;
+- [ ] expandir CFG estruturado para condições/corpos arbitrários e demais terminadores;
 - [x] integração direta `OwnershipTrace → plano SIR → placement` para retornos identificados, inclusive no CFG estruturado inicial de `if`;
 - [x] placement ARC para `break`/`continue` em `BranchInst` source-identified, com validação fail-closed;
 - [x] SIRGenerator emite CFG mínimo de `while` com `break`/`continue` source-identified e compatível com placement ARC;
 - [x] identidade e placement ARC do backedge normal de `while`, distintos de `continue`;
-- [x] placement ARC de return/break/continue/backedge é transacional: todos os pontos CFG são validados antes de qualquer mutação, inclusive no apply integrado;
 - [ ] backend C11 correspondente ou rejeição explícita por domínio;
 - [ ] testes positivos, negativos e end-to-end para cada domínio;
 - [ ] promoção individual para `SUPPORTED` apenas após o gate completo.

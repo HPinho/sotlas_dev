@@ -1,15 +1,15 @@
 """Phase-1 Typed AST and semantic-core foundation.
 
-The complete Typed AST and ownership snapshot remains opt-in and does not
-replace the production checker. The narrow whisper lifetime validator is
-shared with production safety so accepted non-owning borrows receive the same
-escape checks in both entry points.
+This module remains intentionally isolated from the production bootstrap
+pipeline. It freezes canonical declarations, materializes structured
+function-body types, validates contextual expression contracts, and records
+ownership facts without mutating or replacing the production checker.
 
 Maturity: ISOLATED_PHASE1.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 
 
@@ -31,12 +31,6 @@ class VarState(str, Enum):
 class OwnershipDomain(str, Enum):
     EXCLUSIVE = "exclusive"
     SHARED = "shared"
-    REGION = "region"
-    DEVICE = "device"
-    EXTERNAL = "external"
-    ISLAND = "island"
-    WHISPER = "whisper"
-    DIRECT = "direct"
 
 
 def sole_type_names(module: TypedModule) -> frozenset[str]:
@@ -56,45 +50,8 @@ def is_sole_type(type_info: SemanticType, module: TypedModule) -> bool:
 def ownership_domain(
     type_info: SemanticType, module: TypedModule
 ) -> OwnershipDomain | None:
-    """Resolve and validate the ownership domain frozen in the Typed AST."""
-    if type_info.declared_ownership_domain in {
-        OwnershipDomain.REGION,
-        OwnershipDomain.DEVICE,
-        OwnershipDomain.EXTERNAL,
-    }:
-        domain = type_info.declared_ownership_domain
-        if type_info.pointer or type_info.is_reference or type_info.is_array:
-            raise Phase1SemanticError(
-                f"{domain.value} ownership requires a direct by-value sole type"
-            )
-        if not is_sole_type(type_info, module):
-            raise Phase1SemanticError(
-                f"{domain.value} ownership requires sole type, got {type_info.name!r}"
-            )
-        return domain
-    if type_info.declared_ownership_domain is OwnershipDomain.ISLAND:
-        if type_info.pointer or type_info.is_reference or type_info.is_array:
-            raise Phase1SemanticError(
-                "island ownership requires a direct by-value sole type"
-            )
-        island_struct = next(
-            (item for item in module.structs if item.name == type_info.name),
-            None,
-        )
-        if island_struct is None or not island_struct.is_sole:
-            raise Phase1SemanticError(
-                f"island ownership requires sole type, got {type_info.name!r}"
-            )
-        return OwnershipDomain.ISLAND
-    if type_info.pointer or type_info.is_reference:
-        return None
-    struct = next(
-        (item for item in module.structs if item.name == type_info.name),
-        None,
-    )
-    if struct is None:
-        return None
-    return struct.ownership_domain
+    """Map the supported sole contract to its explicit ownership domain."""
+    return OwnershipDomain.EXCLUSIVE if is_sole_type(type_info, module) else None
 
 
 def initial_ownership_state(
@@ -122,7 +79,6 @@ class OwnershipBinding:
     type: SemanticType
     state: VarState
     domain: OwnershipDomain
-    shared_account: str | None = None
 
 
 @dataclass(frozen=True)
@@ -175,21 +131,13 @@ class OwnershipEnv:
             raise Phase1SemanticError(
                 f"ownership binding {name!r} is not tracked"
             )
-        domain = self.domain_of(name)
-        if domain is OwnershipDomain.ISLAND:
-            raise Phase1SemanticError(
-                f"island owner {name!r} cannot move implicitly after quarantine"
-            )
         next_state = move_state(name, state)
         updated = []
         replaced = False
         for binding in self.bindings:
             if binding.name == name and not replaced:
                 updated.append(
-                    OwnershipBinding(
-                        binding.name, binding.type, next_state, binding.domain,
-                        binding.shared_account,
-                    )
+                    OwnershipBinding(binding.name, binding.type, next_state, binding.domain)
                 )
                 replaced = True
             else:
@@ -228,16 +176,11 @@ def merge_ownership_bindings(
             f"ownership binding {left.name!r} changed domain across branches: "
             f"{left.domain.value} vs {right.domain.value}"
         )
-    if left.shared_account != right.shared_account:
-        raise Phase1SemanticError(
-            f"ownership binding {left.name!r} changed shared account across branches"
-        )
     return OwnershipBinding(
         left.name,
         left.type,
         merge_branch_states(left.state, right.state),
         left.domain,
-        left.shared_account,
     )
 
 
@@ -249,8 +192,6 @@ class OwnershipDomainTransition:
     target: OwnershipDomain
     source_state: VarState
     operation: str
-    function: str | None = field(default=None, compare=False)
-    point_id: str | None = field(default=None, compare=False)
 
 
 def plan_ownership_domain_transition(
@@ -269,7 +210,7 @@ def plan_ownership_domain_transition(
             f"ownership domain transition for {binding.name!r} requires LIVE "
             f"source, got {binding.state.value}"
         )
-    if binding.domain is target and operation not in {"share_alias", "handover"}:
+    if binding.domain is target:
         raise Phase1SemanticError(
             f"ownership binding {binding.name!r} is already in domain "
             f"{target.value!r}"
@@ -278,49 +219,6 @@ def plan_ownership_domain_transition(
         binding.domain is OwnershipDomain.EXCLUSIVE
         and target is OwnershipDomain.SHARED
         and operation == "share"
-    ):
-        return OwnershipDomainTransition(
-            binding=binding.name,
-            type=binding.type,
-            source=binding.domain,
-            target=target,
-            source_state=binding.state,
-            operation=operation,
-        )
-    if (
-        binding.domain is OwnershipDomain.EXCLUSIVE
-        and target is OwnershipDomain.ISLAND
-        and operation == "quarantine"
-    ):
-        return OwnershipDomainTransition(
-            binding=binding.name,
-            type=binding.type,
-            source=binding.domain,
-            target=target,
-            source_state=binding.state,
-            operation=operation,
-        )
-    if (
-        binding.domain is OwnershipDomain.SHARED
-        and target is OwnershipDomain.SHARED
-        and operation == "share_alias"
-    ):
-        return OwnershipDomainTransition(
-            binding=binding.name,
-            type=binding.type,
-            source=binding.domain,
-            target=target,
-            source_state=binding.state,
-            operation=operation,
-        )
-    if (
-        binding.domain in {
-            OwnershipDomain.REGION,
-            OwnershipDomain.DEVICE,
-            OwnershipDomain.EXTERNAL,
-        }
-        and target is binding.domain
-        and operation == "handover"
     ):
         return OwnershipDomainTransition(
             binding=binding.name,
@@ -342,9 +240,6 @@ class SharedOwnershipAccount:
     type: SemanticType
     strong_refs: int
     accounting: str = "arc"
-    function: str | None = field(default=None, compare=False)
-    owners: tuple[str, ...] = field(default=(), compare=False)
-    point_id: str | None = field(default=None, compare=False)
 
     @property
     def should_destroy(self) -> bool:
@@ -386,9 +281,6 @@ def retain_shared_owner(
         type=account.type,
         strong_refs=account.strong_refs + 1,
         accounting=account.accounting,
-        function=account.function,
-        owners=account.owners,
-        point_id=account.point_id,
     )
 
 
@@ -405,9 +297,6 @@ def release_shared_owner(
         type=account.type,
         strong_refs=account.strong_refs - 1,
         accounting=account.accounting,
-        function=account.function,
-        owners=account.owners,
-        point_id=account.point_id,
     )
 
 
@@ -468,7 +357,6 @@ def apply_shared_transition(
         source.type,
         VarState.LIVE,
         OwnershipDomain.SHARED,
-        transition.binding,
     )
     owners = [source.name]
 
@@ -485,7 +373,6 @@ def apply_shared_transition(
                 source.type,
                 VarState.LIVE,
                 OwnershipDomain.SHARED,
-                transition.binding,
             )
         )
         account = retain_shared_owner(account)
@@ -495,71 +382,6 @@ def apply_shared_transition(
         env=OwnershipEnv(tuple(updated)),
         account=account,
         owners=tuple(owners),
-    )
-
-
-def apply_shared_alias(
-    env: OwnershipEnv,
-    transition: OwnershipDomainTransition,
-    *,
-    alias: str,
-) -> SharedOwnershipApplication:
-    """Add one explicit strong alias to a live shared ownership account."""
-    source = next(
-        (binding for binding in env.bindings if binding.name == transition.binding),
-        None,
-    )
-    if (
-        source is None
-        or source.type != transition.type
-        or source.domain is not OwnershipDomain.SHARED
-        or source.state is not VarState.LIVE
-        or transition.source is not OwnershipDomain.SHARED
-        or transition.target is not OwnershipDomain.SHARED
-        or transition.operation != "share_alias"
-        or source.shared_account is None
-    ):
-        raise Phase1SemanticError(
-            f"shared alias source {transition.binding!r} does not match a live shared account"
-        )
-    if not alias:
-        raise Phase1SemanticError("shared ownership alias cannot be empty")
-    if any(binding.name == alias for binding in env.bindings):
-        raise Phase1SemanticError(
-            f"shared ownership alias {alias!r} already exists"
-        )
-    account_bindings = tuple(
-        binding.name for binding in env.bindings
-        if binding.shared_account == source.shared_account
-        and binding.domain is OwnershipDomain.SHARED
-    )
-    if any(
-        binding.state is not VarState.LIVE
-        for binding in env.bindings
-        if binding.name in account_bindings
-    ):
-        raise Phase1SemanticError(
-            f"shared ownership account {source.shared_account!r} has a non-live owner"
-        )
-    owners = account_bindings
-    if transition.binding not in owners:
-        raise Phase1SemanticError(
-            f"shared ownership source {transition.binding!r} is not a live account owner"
-        )
-    account = SharedOwnershipAccount(
-        source.shared_account,
-        source.type,
-        len(owners),
-        accounting="arc",
-        owners=owners,
-    )
-    account = retain_shared_owner(account)
-    updated = env.bindings + (OwnershipBinding(
-        alias, source.type, VarState.LIVE, OwnershipDomain.SHARED,
-        source.shared_account,
-    ),)
-    return SharedOwnershipApplication(
-        OwnershipEnv(updated), account, owners + (alias,)
     )
 
 
@@ -588,24 +410,6 @@ def build_typed_share_expression(
     if source is None:
         raise Phase1SemanticError(
             f"share source {source_name!r} is not a tracked ownership binding"
-        )
-    if source.domain is OwnershipDomain.SHARED:
-        if alias is None:
-            raise Phase1SemanticError(
-                "share of a shared owner requires an explicit alias binding"
-            )
-        transition = plan_ownership_domain_transition(
-            source, OwnershipDomain.SHARED, "share_alias"
-        )
-        application = apply_shared_alias(env, transition, alias=alias)
-        return TypedShareExpression(
-            expr=TypedExprNode(
-                "SharedAlias", source.type, f"share:{source_name}->{alias}"
-            ),
-            source=source_name,
-            alias=alias,
-            transition=transition,
-            application=application,
         )
     transition = plan_ownership_domain_transition(
         source,
@@ -692,16 +496,7 @@ class OwnershipEvent:
     left_state: VarState | None = None
     right_state: VarState | None = None
     result_state: VarState | None = None
-    point_id: str | None = field(default=None, compare=False)
-    defer_call: tuple[str, tuple[str, ...]] | None = None
-    type: SemanticType | None = None
-    destination: str | None = None
-    source_domain: OwnershipDomain | None = field(default=None, compare=False)
-    target_domain: OwnershipDomain | None = field(default=None, compare=False)
-    destination_domain: OwnershipDomain | None = field(default=None, compare=False)
-    source_binding: str | None = None
-    callee: str | None = None
-    parameter: str | None = None
+    point_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -727,7 +522,6 @@ class SharedExitAction:
     via: str
     point_id: str | None = None
     defer_point_id: str | None = None
-    defer_call: tuple[str, tuple[str, ...]] | None = None
 
 
 @dataclass(frozen=True)
@@ -744,7 +538,6 @@ class OwnershipTrace:
     shared_loop_cleanup: SharedCleanupPlan = SharedCleanupPlan(())
     shared_loop_control_exit: SharedExitPlan = SharedExitPlan(())
     shared_exit: SharedExitPlan = SharedExitPlan(())
-    shared_return_exit: SharedExitPlan = SharedExitPlan(())
 
 
 def plan_shared_scope_cleanup(
@@ -871,7 +664,6 @@ def plan_shared_exit(
                     event.name,
                     event.via,
                     defer_point_id=event.point_id,
-                    defer_call=event.defer_call,
                 )
             )
     for step in cleanup.steps:
@@ -902,7 +694,6 @@ def plan_shared_control_exit(
                 f"{control}:{action.via}",
                 point_id,
                 action.defer_point_id,
-                action.defer_call,
             )
             for action in base.actions
         )
@@ -1040,61 +831,16 @@ def _statement_referenced_owned_names(
     return frozenset(names)
 
 
-def _reject_island_reference_alias(
-    env: OwnershipEnv, expr
-) -> None:
-    """Reject reference aliases derived from an ISLAND owner.
-
-    Island borrow/weak-alias lifetime semantics are not frozen yet. Until the
-    whisper/island alias contract exists, creating a reference to an island
-    owner or one of its members is fail-closed rather than silently exposing
-    the isolated subgraph.
-    """
-    if type(expr).__name__ != "Unary" or getattr(expr, "op", None) != "&":
-        return
-    target = getattr(expr, "value", None)
-    owner = _root_owned_name(target)
-    if owner is None or env.domain_of(owner) is not OwnershipDomain.ISLAND:
-        return
-    env.require_live(owner)
-    raise Phase1SemanticError(
-        f"reference alias from island owner {owner!r} requires an explicit "
-        "whisper/island alias contract"
-    )
-
-
 def require_expr_ownership_live(env: OwnershipEnv, expr) -> None:
-    """Reject invalid owner reads and unmodeled island reference aliases."""
+    """Reject reads through a moved or maybe-moved sole owner."""
     if expr is None:
         return
-    _reject_island_reference_alias(env, expr)
-    kind = type(expr).__name__
     owner = _root_owned_name(expr)
-    if (
-        owner is None and kind == "Unary"
-        and getattr(expr, "op", None) == "&"
-    ):
-        owner = _root_owned_name(getattr(expr, "value", None))
     if owner is not None and env.state_of(owner) is not None:
-        owner_domain = env.domain_of(owner)
-        if (
-            (
-                _contains_resource_field_access(expr, owner)
-                or (
-                    kind == "Unary"
-                    and getattr(expr, "op", None) == "&"
-                )
-            )
-            and owner_domain in (
-                OwnershipDomain.DEVICE, OwnershipDomain.EXTERNAL
-            )
-        ):
-            raise Phase1SemanticError(
-                f"{owner_domain.value} owner {owner!r} cannot be accessed "
-                "directly from host code"
-            )
         env.require_live(owner)
         return
+
+    kind = type(expr).__name__
     if kind == "Binary":
         require_expr_ownership_live(env, getattr(expr, "left", None))
         require_expr_ownership_live(env, getattr(expr, "right", None))
@@ -1113,27 +859,6 @@ def require_expr_ownership_live(env: OwnershipEnv, expr) -> None:
             require_expr_ownership_live(env, argument)
 
 
-def _contains_resource_field_access(expr, owner: str) -> bool:
-    if expr is None:
-        return False
-    kind = type(expr).__name__
-    if (
-        kind in ("Member", "Index")
-        and _root_owned_name(expr) == owner
-    ):
-        return True
-    if isinstance(expr, (tuple, list)):
-        return any(_contains_resource_field_access(item, owner) for item in expr)
-    fields = getattr(expr, "__dataclass_fields__", None)
-    if not fields:
-        return False
-    return any(
-        _contains_resource_field_access(getattr(expr, field_name, None), owner)
-        for field_name in fields
-        if field_name != "token"
-    )
-
-
 def _typed_enum_constructor(
     module: TypedModule, callee: str
 ):
@@ -1150,7 +875,6 @@ def _move_call_arguments(
     call,
     typed_module: TypedModule,
     events: list[OwnershipEvent],
-    caller_function: TypedFunction | None = None,
 ) -> OwnershipEnv:
     callee_name = getattr(call, "callee", "")
 
@@ -1173,24 +897,6 @@ def _move_call_arguments(
             if type(moved_argument).__name__ == "Name":
                 name = moved_argument.value
                 if result.type_of(name) is not None:
-                    target_domain = ownership_domain(
-                        variant.payload_type, typed_module
-                    )
-                    source_domain = result.domain_of(name)
-                    if target_domain is OwnershipDomain.ISLAND:
-                        result = _transfer_owned_binding_to_domain(
-                            result,
-                            name,
-                            OwnershipDomain.ISLAND,
-                            f"enum:{enum.name}::{variant.name}",
-                            events,
-                        )
-                        return result
-                    if source_domain is OwnershipDomain.ISLAND:
-                        raise Phase1SemanticError(
-                            f"island owner {name!r} cannot escape quarantine through "
-                            f"enum payload {enum.name}::{variant.name}"
-                        )
                     result = result.move(name)
                     events.append(
                         OwnershipEvent(
@@ -1209,116 +915,14 @@ def _move_call_arguments(
         return env
     result = env
     for argument, parameter in zip(getattr(call, "args", ()), callee.params):
-        if parameter.ownership_domain in (
-            OwnershipDomain.WHISPER, OwnershipDomain.DIRECT
-        ):
-            if "@extern(C)" in callee.attributes:
-                raise Phase1SemanticError(
-                    f"{parameter.ownership_domain.value} access cannot be "
-                    f"passed to external function {callee.name!r} without "
-                    "a verified no-escape body"
-                )
-            forwarded = next(
-                (
-                    source_param
-                    for source_param in (
-                        caller_function.params if caller_function else ()
-                    )
-                    if type(argument).__name__ == "Name"
-                    and source_param.name == argument.value
-                    and source_param.ownership_domain in (
-                        OwnershipDomain.WHISPER, OwnershipDomain.DIRECT
-                    )
-                ),
-                None,
-            )
-            same_borrow_domain = (
-                forwarded is not None
-                and parameter.ownership_domain is forwarded.ownership_domain
-            )
-            direct_to_whisper = (
-                forwarded is not None
-                and forwarded.ownership_domain is OwnershipDomain.DIRECT
-                and parameter.ownership_domain is OwnershipDomain.WHISPER
-            )
-            if (
-                (same_borrow_domain or direct_to_whisper)
-                and forwarded.type.name == parameter.type.name
-            ):
-                events.append(
-                    OwnershipEvent(
-                        "borrow",
-                        forwarded.name,
-                        (
-                            "whisper_direct_forward"
-                            if direct_to_whisper
-                            else f"{parameter.ownership_domain.value}_forward"
-                        ),
-                        parameter.ownership_domain,
-                        point_id=_cleanup_point_id(
-                            call, parameter.ownership_domain.value
-                        ),
-                        type=forwarded.type,
-                        source_domain=forwarded.ownership_domain,
-                        source_binding=forwarded.name,
-                        callee=callee.name,
-                        parameter=parameter.name,
-                    )
-                )
-                continue
-            _record_nonowning_access(
-                result, argument, parameter, callee.name, events, call
-            )
-            continue
         if is_sole_type(parameter.type, typed_module):
             moved_argument = argument
             if type(argument).__name__ == "MoveExpr":
                 moved_argument = getattr(argument, "value", None)
             if type(moved_argument).__name__ == "Name":
                 name = moved_argument.value
-                source_domain = result.domain_of(name)
-                target_domain = parameter.ownership_domain
-                if source_domain is OwnershipDomain.SHARED:
-                    raise Phase1SemanticError(
-                        f"shared owner {name!r} cannot be consumed by sole "
-                        f"parameter of {callee.name!r} without explicit handover"
-                    )
-                if target_domain is OwnershipDomain.ISLAND:
-                    if source_domain not in (
-                        OwnershipDomain.EXCLUSIVE, OwnershipDomain.ISLAND
-                    ):
-                        raise Phase1SemanticError(
-                            f"ownership domain mismatch for {name!r} via "
-                            f"call:{callee.name}: {source_domain.value} -> "
-                            f"island"
-                        )
-                    result = _transfer_owned_binding_to_domain(
-                        result,
-                        name,
-                        OwnershipDomain.ISLAND,
-                        f"call:{callee.name}",
-                        events,
-                    )
-                    continue
-                if source_domain is OwnershipDomain.ISLAND:
-                    raise Phase1SemanticError(
-                        f"island owner {name!r} cannot escape quarantine through "
-                        f"sole parameter of {callee.name!r}"
-                    )
-                if target_domain is not source_domain:
-                    raise Phase1SemanticError(
-                        f"ownership domain transfer for {name!r} requires explicit handover"
-                    )
                 result = result.move(name)
-                events.append(
-                    OwnershipEvent(
-                        "move",
-                        name,
-                        f"call:{callee.name}",
-                        source_domain=source_domain,
-                        target_domain=target_domain,
-                    )
-                )
+                events.append(OwnershipEvent("move", name, f"call:{callee.name}"))
                 continue
         require_expr_ownership_live(result, argument)
     return result
@@ -1348,270 +952,22 @@ def _move_method_call_arguments(
         return env
 
     result = env
-    receiver = getattr(call, "target", None)
-    self_parameter = callee.params[0] if callee.params else None
-    if (
-        self_parameter is not None
-        and self_parameter.ownership_domain in (
-            OwnershipDomain.WHISPER, OwnershipDomain.DIRECT
-        )
-    ):
-        if "@extern(C)" in callee.attributes:
-            raise Phase1SemanticError(
-                f"{self_parameter.ownership_domain.value} access cannot be "
-                f"passed to external method {callee.name!r} without a "
-                "verified no-escape body"
-            )
-        _record_nonowning_access(
-            result, receiver, self_parameter, callee.name, events, call,
-            allow_direct_receiver=True,
-        )
-    elif (
-        self_parameter is not None
-        and is_sole_type(self_parameter.type, typed_module)
-    ):
-        moved_receiver = (
-            getattr(receiver, "value", None)
-            if type(receiver).__name__ == "MoveExpr"
-            else receiver
-        )
-        if type(moved_receiver).__name__ != "Name":
-            if _referenced_owned_names(result, receiver):
-                raise Phase1SemanticError(
-                    f"sole receiver of method {callee.name!r} requires a "
-                    "direct ownership binding"
-                )
-            require_expr_ownership_live(result, receiver)
-        else:
-            name = moved_receiver.value
-            if result.state_of(name) is None:
-                raise Phase1SemanticError(
-                    f"sole receiver {name!r} of method {callee.name!r} "
-                    "is not tracked"
-                )
-            result.require_live(name)
-            source_domain = result.domain_of(name)
-            target_domain = self_parameter.ownership_domain
-            if source_domain is OwnershipDomain.SHARED:
-                raise Phase1SemanticError(
-                    f"shared owner {name!r} cannot be consumed as receiver "
-                    f"of method {callee.name!r} without explicit handover"
-                )
-            if target_domain is OwnershipDomain.ISLAND:
-                result = _transfer_owned_binding_to_domain(
-                    result,
-                    name,
-                    OwnershipDomain.ISLAND,
-                    f"method:{callee.name}",
-                    events,
-                )
-            elif source_domain is OwnershipDomain.ISLAND:
-                raise Phase1SemanticError(
-                    f"island owner {name!r} cannot escape quarantine through "
-                    f"receiver of method {callee.name!r}"
-                )
-            else:
-                result = result.move(name)
-                events.append(
-                    OwnershipEvent(
-                        "move",
-                        name,
-                        f"method:{callee.name}",
-                        source_domain=source_domain,
-                        target_domain=target_domain,
-                    )
-                )
-    else:
-        require_expr_ownership_live(result, receiver)
+    require_expr_ownership_live(result, getattr(call, "target", None))
     user_params = callee.params[1:] if callee.params else ()
     for argument, parameter in zip(getattr(call, "args", ()), user_params):
-        if parameter.ownership_domain in (
-            OwnershipDomain.WHISPER, OwnershipDomain.DIRECT
-        ):
-            if "@extern(C)" in callee.attributes:
-                raise Phase1SemanticError(
-                    f"{parameter.ownership_domain.value} access cannot be "
-                    f"passed to external function {callee.name!r} without "
-                    "a verified no-escape body"
-                )
-            _record_nonowning_access(
-                result, argument, parameter, callee.name, events, call
-            )
-            continue
         if is_sole_type(parameter.type, typed_module):
             moved_argument = argument
             if type(argument).__name__ == "MoveExpr":
                 moved_argument = getattr(argument, "value", None)
             if type(moved_argument).__name__ == "Name":
                 name = moved_argument.value
-                source_domain = result.domain_of(name)
-                target_domain = parameter.ownership_domain
-                if source_domain is OwnershipDomain.SHARED:
-                    raise Phase1SemanticError(
-                        f"shared owner {name!r} cannot be consumed by sole "
-                        f"parameter of method {callee.name!r} without explicit handover"
-                    )
-                if target_domain is OwnershipDomain.ISLAND:
-                    if source_domain not in (
-                        OwnershipDomain.EXCLUSIVE, OwnershipDomain.ISLAND
-                    ):
-                        raise Phase1SemanticError(
-                            f"ownership domain mismatch for {name!r} via "
-                            f"method:{callee.name}: {source_domain.value} -> "
-                            f"island"
-                        )
-                    result = _transfer_owned_binding_to_domain(
-                        result,
-                        name,
-                        OwnershipDomain.ISLAND,
-                        f"method:{callee.name}",
-                        events,
-                    )
-                    continue
-                if source_domain is OwnershipDomain.ISLAND:
-                    raise Phase1SemanticError(
-                        f"island owner {name!r} cannot escape quarantine through "
-                        f"sole parameter of method {callee.name!r}"
-                    )
-                if target_domain is not source_domain:
-                    raise Phase1SemanticError(
-                        f"ownership domain transfer for {name!r} requires explicit handover"
-                    )
                 result = result.move(name)
                 events.append(
-                    OwnershipEvent(
-                        "move",
-                        name,
-                        f"method:{callee.name}",
-                        source_domain=source_domain,
-                        target_domain=target_domain,
-                    )
+                    OwnershipEvent("move", name, f"method:{callee.name}")
                 )
                 continue
         require_expr_ownership_live(result, argument)
     return result
-
-
-def _record_nonowning_access(
-    env: OwnershipEnv,
-    argument,
-    parameter,
-    callee: str,
-    events: list[OwnershipEvent],
-    call,
-    *,
-    allow_direct_receiver: bool = False,
-) -> None:
-    """Record a call-scoped immutable access without changing ownership state.
-
-    This slice admits only an explicit borrow of a whole tracked sole binding.
-    Member, temporary, and raw-pointer aliases require their own lifetime and
-    aliasing contracts.
-    """
-    if (
-        type(argument).__name__ == "Unary"
-        and getattr(argument, "op", None) == "&"
-        and type(getattr(argument, "value", None)).__name__ == "Name"
-    ):
-        source = argument.value.value
-    elif allow_direct_receiver and type(argument).__name__ == "Name":
-        source = argument.value
-    else:
-        raise Phase1SemanticError(
-            f"{parameter.ownership_domain.value} argument for {callee!r} "
-            "requires an explicit borrow "
-            "of a direct ownership binding"
-        )
-    source_type = env.type_of(source)
-    source_domain = env.domain_of(source)
-    if source_type is None or source_domain is None:
-        raise Phase1SemanticError(
-            f"{parameter.ownership_domain.value} source {source!r} is not a "
-            "tracked ownership binding"
-        )
-    if source_domain in (
-        OwnershipDomain.DEVICE, OwnershipDomain.EXTERNAL
-    ):
-        raise Phase1SemanticError(
-            f"{source_domain.value} owner {source!r} cannot be borrowed into "
-            "host code"
-        )
-    if source_type.name != parameter.type.name:
-        raise Phase1SemanticError(
-            f"{parameter.ownership_domain.value} source type mismatch for "
-            f"parameter {parameter.name!r}"
-        )
-    try:
-        env.require_live(source)
-    except Phase1SemanticError as error:
-        raise Phase1SemanticError(
-            f"{parameter.ownership_domain.value} source {source!r} is not "
-            f"live for this call-scoped access: {error}"
-        ) from error
-    domain = parameter.ownership_domain
-    point_id = _cleanup_point_id(call, domain.value)
-    events.append(
-        OwnershipEvent(
-            "borrow",
-            source,
-            f"{domain.value}_call",
-            domain,
-            point_id=point_id,
-            source_binding=source,
-            type=source_type,
-            source_domain=source_domain,
-            callee=callee,
-            parameter=parameter.name,
-        )
-    )
-
-
-def _transfer_owned_binding_to_domain(
-    env: OwnershipEnv,
-    name: str,
-    target_domain: OwnershipDomain,
-    via: str,
-    events: list[OwnershipEvent],
-) -> OwnershipEnv:
-    """Move one LIVE binding into a destination that declares a domain.
-
-    No implicit domain change is allowed here. The source must already inhabit
-    the destination domain; cross-domain changes remain reserved to explicit
-    operations such as quarantine/handover.
-    """
-    source_domain = env.domain_of(name)
-    if source_domain is None:
-        raise Phase1SemanticError(
-            f"ownership transfer source {name!r} is not tracked"
-        )
-    if source_domain is not target_domain:
-        raise Phase1SemanticError(
-            f"ownership domain mismatch for {name!r} via {via}: "
-            f"{source_domain.value} -> {target_domain.value}"
-        )
-    env.require_live(name)
-    next_state = move_state(name, env.state_of(name))
-    updated = tuple(
-        OwnershipBinding(
-            binding.name,
-            binding.type,
-            next_state if binding.name == name else binding.state,
-            binding.domain,
-        )
-        for binding in env.bindings
-    )
-    events.append(
-        OwnershipEvent(
-            "move",
-            name,
-            via,
-            source_domain,
-            type=env.type_of(name),
-            source_domain=source_domain,
-            target_domain=target_domain,
-        )
-    )
-    return OwnershipEnv(updated)
 
 
 def _move_struct_literal_fields(
@@ -1640,7 +996,6 @@ def _move_struct_literal_fields(
         if field is None:
             continue
 
-        field_domain = ownership_domain(field.type, typed_module)
         field_is_sole = is_sole_type(field.type, typed_module)
         if field_is_sole and not struct.is_sole:
             raise Phase1SemanticError(
@@ -1658,26 +1013,14 @@ def _move_struct_literal_fields(
             source_name = moved_field.value
             source_type = result.type_of(source_name)
             if source_type is not None:
-                if field_domain is OwnershipDomain.ISLAND:
-                    result = _transfer_owned_binding_to_domain(
-                        result,
+                result = result.move(source_name)
+                events.append(
+                    OwnershipEvent(
+                        "move",
                         source_name,
-                        OwnershipDomain.ISLAND,
                         f"struct:{struct.name}.{field_name}",
-                        events,
                     )
-                else:
-                    result = result.move(source_name)
-                    events.append(
-                        OwnershipEvent(
-                            "move",
-                            source_name,
-                            f"struct:{struct.name}.{field_name}",
-                            OwnershipDomain.EXCLUSIVE,
-                            source_domain=OwnershipDomain.EXCLUSIVE,
-                            target_domain=OwnershipDomain.EXCLUSIVE,
-                        )
-                    )
+                )
                 continue
 
         if type(field_expr).__name__ == "StructLit":
@@ -1720,245 +1063,6 @@ def _move_try_wrapped_call_arguments(
 
     require_expr_ownership_live(env, expr)
     return env
-
-
-def _apply_explicit_handover(
-    env: OwnershipEnv,
-    expr,
-    events: list[OwnershipEvent],
-    destination=None,
-    *,
-    point_id: str | None = None,
-) -> OwnershipEnv:
-    """Apply explicit ownership transfer between canonical domains.
-
-    Binding-to-binding handover requires a type-compatible destination that
-    is already MOVED. Exclusive owners may be submitted into DEVICE domain;
-    an ISLAND owner may be reacquired as EXCLUSIVE. Device reacquisition still
-    requires a completion protocol and is deliberately not accepted here.
-    """
-    if type(expr).__name__ != "Name":
-        raise Phase1SemanticError(
-            "handover currently requires a direct ownership binding"
-        )
-    name = getattr(expr, "value", None)
-    source_domain = env.domain_of(name)
-    if source_domain is None:
-        raise Phase1SemanticError(
-            f"handover target {name!r} is not a tracked exclusive value"
-        )
-    if source_domain is OwnershipDomain.SHARED:
-        raise Phase1SemanticError(
-            f"handover target {name!r} must be exclusive, got {source_domain.value}"
-        )
-    if source_domain is OwnershipDomain.ISLAND and destination is None:
-        raise Phase1SemanticError(
-            f"island handover for {name!r} requires an explicit exclusive destination"
-        )
-    env.require_live(name)
-    type_info = env.type_of(name)
-
-    destination_name = None
-    if destination is not None:
-        if type(destination).__name__ != "Name":
-            raise Phase1SemanticError(
-                "handover destination must be a direct exclusive ownership binding"
-            )
-        destination_name = getattr(destination, "value", None)
-        if destination_name == name:
-            raise Phase1SemanticError(
-                "handover source and destination must be distinct bindings"
-            )
-        destination_domain = env.domain_of(destination_name)
-        if destination_domain is None:
-            raise Phase1SemanticError(
-                f"handover destination {destination_name!r} is not tracked"
-            )
-        if not (
-            destination_domain is source_domain
-            or (
-                source_domain is OwnershipDomain.ISLAND
-                and destination_domain is OwnershipDomain.EXCLUSIVE
-            )
-            or (
-                source_domain is OwnershipDomain.EXCLUSIVE
-                and destination_domain is OwnershipDomain.DEVICE
-            )
-        ):
-            raise Phase1SemanticError(
-                f"handover destination {destination_name!r} must share source "
-                f"domain {source_domain.value!r} (or an explicit supported "
-                f"domain handover), got {destination_domain.value}"
-            )
-        destination_type = env.type_of(destination_name)
-        if destination_type != type_info:
-            raise Phase1SemanticError(
-                f"handover destination {destination_name!r} has incompatible type"
-            )
-        destination_state = env.state_of(destination_name)
-        if destination_state is not VarState.MOVED:
-            state_name = (
-                destination_state.value
-                if destination_state is not None
-                else "untracked"
-            )
-            raise Phase1SemanticError(
-                f"handover destination {destination_name!r} must be MOVED "
-                f"before reacquisition, got {state_name}"
-            )
-
-    next_source_state = move_state(name, env.state_of(name))
-    updated: list[OwnershipBinding] = []
-    for binding in env.bindings:
-        if binding.name == name:
-            updated.append(
-                OwnershipBinding(
-                    binding.name,
-                    binding.type,
-                    next_source_state,
-                    binding.domain,
-                )
-            )
-        elif (
-            destination_name is not None
-            and binding.name == destination_name
-        ):
-            updated.append(
-                OwnershipBinding(
-                    binding.name,
-                    binding.type,
-                    VarState.LIVE,
-                    binding.domain,
-                )
-            )
-        else:
-            updated.append(binding)
-    result = OwnershipEnv(tuple(updated))
-
-    events.append(
-        OwnershipEvent(
-            "handover",
-            name,
-            "handover",
-            source_domain,
-            type=type_info,
-            destination=destination_name,
-            point_id=point_id,
-            source_domain=source_domain,
-            target_domain=(
-                env.domain_of(destination_name)
-                if destination_name is not None else None
-            ),
-            destination_domain=(
-                env.domain_of(destination_name)
-                if destination_name is not None else None
-            ),
-        )
-    )
-    return result
-
-def _apply_quarantine(
-    env: OwnershipEnv,
-    expr,
-    events: list[OwnershipEvent],
-    *,
-    point_id: str | None = None,
-) -> OwnershipEnv:
-    """Move one LIVE exclusive binding into the canonical island domain."""
-    if type(expr).__name__ != "Name":
-        raise Phase1SemanticError(
-            "quarantine currently requires a direct exclusive ownership binding"
-        )
-    name = getattr(expr, "value", None)
-    source = next(
-        (binding for binding in env.bindings if binding.name == name),
-        None,
-    )
-    if source is None:
-        raise Phase1SemanticError(
-            f"quarantine target {name!r} is not a tracked ownership binding"
-        )
-    transition = plan_ownership_domain_transition(
-        source,
-        OwnershipDomain.ISLAND,
-        "quarantine",
-    )
-    updated: list[OwnershipBinding] = []
-    for binding in env.bindings:
-        if binding.name == name:
-            updated.append(
-                OwnershipBinding(
-                    binding.name,
-                    binding.type,
-                    VarState.LIVE,
-                    OwnershipDomain.ISLAND,
-                )
-            )
-        else:
-            updated.append(binding)
-    result = OwnershipEnv(tuple(updated))
-    events.append(
-        OwnershipEvent(
-            "quarantine",
-            name,
-            "quarantine",
-            OwnershipDomain.ISLAND,
-            point_id=point_id,
-            type=transition.type,
-            source_domain=transition.source,
-            target_domain=transition.target,
-        )
-    )
-    return result
-
-
-def _apply_return_ownership_transfer(
-    env: OwnershipEnv,
-    name: str,
-    typed_function: TypedFunction,
-    events: list[OwnershipEvent],
-) -> OwnershipEnv:
-    """Transfer one direct owned binding through the function return contract.
-
-    Return-domain changes are never implicit. EXCLUSIVE returns require an
-    EXCLUSIVE source; ISLAND returns require an ISLAND source. The source
-    binding becomes MOVED while preserving its original domain in the local
-    environment, and the event freezes source/target domain facts for the graph.
-    """
-    source_domain = env.domain_of(name)
-    target_domain = typed_function.return_ownership_domain
-    if source_domain is None or target_domain is None:
-        raise Phase1SemanticError(
-            f"return ownership transfer for {name!r} is not tracked"
-        )
-    if source_domain is not target_domain:
-        raise Phase1SemanticError(
-            f"return ownership domain mismatch for {name!r}: "
-            f"{source_domain.value} -> {target_domain.value}"
-        )
-    env.require_live(name)
-    next_state = move_state(name, env.state_of(name))
-    updated = tuple(
-        OwnershipBinding(
-            binding.name,
-            binding.type,
-            next_state if binding.name == name else binding.state,
-            binding.domain,
-        )
-        for binding in env.bindings
-    )
-    events.append(
-        OwnershipEvent(
-            "move",
-            name,
-            "return",
-            source_domain,
-            type=env.type_of(name),
-            source_domain=source_domain,
-            target_domain=target_domain,
-        )
-    )
-    return OwnershipEnv(updated)
 
 
 def analyze_linear_function_ownership(
@@ -2004,21 +1108,13 @@ def analyze_linear_function_ownership(
                     getattr(value, "value", None), env, alias=statement.name
                 )
                 env = shared.application.env
-                share_point_id = _cleanup_point_id(statement, "share")
-                is_clone = shared.transition.operation == "share_alias"
-                if not is_clone:
-                    events.append(OwnershipEvent(
-                        "domain_transition", shared.source,
-                        f"share:{statement.name}", OwnershipDomain.SHARED,
-                        point_id=share_point_id,
-                        type=env.type_of(shared.source),
-                    ))
+                events.append(OwnershipEvent(
+                    "domain_transition", shared.source,
+                    f"share:{statement.name}", OwnershipDomain.SHARED,
+                ))
                 events.append(OwnershipEvent(
                     "retain", statement.name,
-                    f"share:{shared.application.account.binding}",
-                    OwnershipDomain.SHARED,
-                    point_id=share_point_id,
-                    source_binding=shared.source,
+                    f"share:{shared.source}", OwnershipDomain.SHARED,
                 ))
                 continue
             moved_value = (
@@ -2030,24 +1126,10 @@ def analyze_linear_function_ownership(
                 source_name = moved_value.value
                 source_type = env.type_of(source_name)
                 if source_type is not None:
-                    local_domain = (
-                        ownership_domain(local_type, typed_module)
-                        if local_type is not None
-                        else None
+                    env = env.move(source_name)
+                    events.append(
+                        OwnershipEvent("move", source_name, f"let:{statement.name}")
                     )
-                    if local_domain is OwnershipDomain.ISLAND:
-                        env = _transfer_owned_binding_to_domain(
-                            env,
-                            source_name,
-                            OwnershipDomain.ISLAND,
-                            f"let:{statement.name}",
-                            events,
-                        )
-                    else:
-                        env = env.move(source_name)
-                        events.append(
-                            OwnershipEvent("move", source_name, f"let:{statement.name}")
-                        )
                     if local_type is None:
                         local_type = source_type
             if type(value).__name__ == "Call":
@@ -2085,25 +1167,6 @@ def analyze_linear_function_ownership(
                 require_expr_ownership_live(env, value)
             continue
 
-        if kind == "Handover":
-            env = _apply_explicit_handover(
-                env,
-                getattr(statement, "value", None),
-                events,
-                getattr(statement, "destination", None),
-                point_id=_cleanup_point_id(statement, "handover"),
-            )
-            continue
-
-        if kind == "Quarantine":
-            env = _apply_quarantine(
-                env,
-                getattr(statement, "value", None),
-                events,
-                point_id=_cleanup_point_id(statement, "quarantine"),
-            )
-            continue
-
         if kind == "Return":
             value = getattr(statement, "value", None)
             if (
@@ -2113,21 +1176,17 @@ def analyze_linear_function_ownership(
                     if type(value).__name__ == "MoveExpr"
                     else value
                 ).__name__ == "Name"
-                and typed_function.return_ownership_domain is not None
+                and is_sole_type(typed_function.result, typed_module)
             ):
                 moved_value = (
                     getattr(value, "value")
                     if type(value).__name__ == "MoveExpr"
                     else value
                 )
-                env = _apply_return_ownership_transfer(
-                    env,
-                    moved_value.value,
-                    typed_function,
-                    events,
+                env = env.move(moved_value.value)
+                events.append(
+                    OwnershipEvent("move", moved_value.value, "return")
                 )
-            else:
-                require_expr_ownership_live(env, value)
             continue
 
         if kind in ("If", "While", "Loop", "For"):
@@ -2214,8 +1273,6 @@ def _analyze_block_ownership(
     path_cleanup: list[SharedCleanupStep] | None = None,
     loop_cleanup: list[SharedCleanupStep] | None = None,
     loop_control_exit: list[SharedExitAction] | None = None,
-    return_exit: list[SharedExitAction] | None = None,
-    active_shared_defers: tuple[OwnershipEvent, ...] = (),
     loop_entry_names: tuple[str, ...] | None = None,
     loop_event_history: tuple[OwnershipEvent, ...] = (),
     loop_control_states: list[tuple[str, OwnershipEnv]] | None = None,
@@ -2234,9 +1291,6 @@ def _analyze_block_ownership(
         loop_cleanup = []
     if loop_control_exit is None:
         loop_control_exit = []
-    if return_exit is None:
-        return_exit = []
-    active_defers = list(active_shared_defers)
     if loop_control_states is None:
         loop_control_states = []
     for statement in statements:
@@ -2250,21 +1304,13 @@ def _analyze_block_ownership(
                     getattr(value, "value", None), result, alias=statement.name
                 )
                 result = shared.application.env
-                share_point_id = _cleanup_point_id(statement, "share")
-                is_clone = shared.transition.operation == "share_alias"
-                if not is_clone:
-                    events.append(OwnershipEvent(
-                        "domain_transition", shared.source,
-                        f"share:{statement.name}", OwnershipDomain.SHARED,
-                        point_id=share_point_id,
-                        type=result.type_of(shared.source),
-                    ))
+                events.append(OwnershipEvent(
+                    "domain_transition", shared.source,
+                    f"share:{statement.name}", OwnershipDomain.SHARED,
+                ))
                 events.append(OwnershipEvent(
                     "retain", statement.name,
-                    f"share:{shared.application.account.binding}",
-                    OwnershipDomain.SHARED,
-                    point_id=share_point_id,
-                    source_binding=shared.source,
+                    f"share:{shared.source}", OwnershipDomain.SHARED,
                 ))
                 continue
             moved_value = (
@@ -2276,31 +1322,17 @@ def _analyze_block_ownership(
                 source_name = moved_value.value
                 source_type = result.type_of(source_name)
                 if source_type is not None:
-                    local_domain = (
-                        ownership_domain(local_type, typed_module)
-                        if local_type is not None
-                        else None
+                    result = result.move(source_name)
+                    events.append(
+                        OwnershipEvent("move", source_name, f"let:{statement.name}")
                     )
-                    if local_domain is OwnershipDomain.ISLAND:
-                        result = _transfer_owned_binding_to_domain(
-                            result,
-                            source_name,
-                            OwnershipDomain.ISLAND,
-                            f"let:{statement.name}",
-                            events,
-                        )
-                    else:
-                        result = result.move(source_name)
-                        events.append(
-                            OwnershipEvent("move", source_name, f"let:{statement.name}")
-                        )
                     if local_type is None:
                         local_type = source_type
                 else:
                     require_expr_ownership_live(result, value)
             elif type(value).__name__ == "Call":
                 result = _move_call_arguments(
-                    result, value, typed_module, events, typed_function
+                    result, value, typed_module, events
                 )
             elif type(value).__name__ == "MethodCall":
                 result = _move_method_call_arguments(
@@ -2314,8 +1346,6 @@ def _analyze_block_ownership(
                 result = _move_struct_literal_fields(
                     result, value, typed_module, events
                 )
-            else:
-                require_expr_ownership_live(result, value)
             if local_type is not None:
                 before = result
                 result = result.declare(
@@ -2331,7 +1361,7 @@ def _analyze_block_ownership(
             value = getattr(statement, "value", None)
             if type(value).__name__ == "Call":
                 result = _move_call_arguments(
-                    result, value, typed_module, events, typed_function
+                    result, value, typed_module, events
                 )
             elif type(value).__name__ == "MethodCall":
                 result = _move_method_call_arguments(
@@ -2343,25 +1373,6 @@ def _analyze_block_ownership(
                 )
             else:
                 require_expr_ownership_live(result, value)
-            continue
-
-        if kind == "Handover":
-            result = _apply_explicit_handover(
-                result,
-                getattr(statement, "value", None),
-                events,
-                getattr(statement, "destination", None),
-                point_id=_cleanup_point_id(statement, "handover"),
-            )
-            continue
-
-        if kind == "Quarantine":
-            result = _apply_quarantine(
-                result,
-                getattr(statement, "value", None),
-                events,
-                point_id=_cleanup_point_id(statement, "quarantine"),
-            )
             continue
 
         if kind == "Assign":
@@ -2409,7 +1420,7 @@ def _analyze_block_ownership(
                     require_expr_ownership_live(result, value)
             elif type(value).__name__ == "Call":
                 result = _move_call_arguments(
-                    result, value, typed_module, events, typed_function
+                    result, value, typed_module, events
                 )
             elif type(value).__name__ == "MethodCall":
                 result = _move_method_call_arguments(
@@ -2436,22 +1447,20 @@ def _analyze_block_ownership(
                     if type(value).__name__ == "MoveExpr"
                     else value
                 ).__name__ == "Name"
-                and typed_function.return_ownership_domain is not None
+                and is_sole_type(typed_function.result, typed_module)
             ):
                 moved_value = (
                     getattr(value, "value")
                     if type(value).__name__ == "MoveExpr"
                     else value
                 )
-                result = _apply_return_ownership_transfer(
-                    result,
-                    moved_value.value,
-                    typed_function,
-                    events,
+                result = result.move(moved_value.value)
+                events.append(
+                    OwnershipEvent("move", moved_value.value, "return")
                 )
             elif type(value).__name__ == "Call":
                 result = _move_call_arguments(
-                    result, value, typed_module, events, typed_function
+                    result, value, typed_module, events
                 )
             elif type(value).__name__ == "MethodCall":
                 result = _move_method_call_arguments(
@@ -2464,40 +1473,14 @@ def _analyze_block_ownership(
             else:
                 require_expr_ownership_live(result, value)
             if collect_return_cleanup:
-                return_point_id = _cleanup_point_id(statement, "return")
-                path_events = history + tuple(events)
-                path_plan = _shared_cleanup_for_path(
-                    result,
-                    path_events,
-                    "early_return",
-                    point_id=return_point_id,
+                path_cleanup.extend(
+                    _shared_cleanup_for_path(
+                        result,
+                        history + tuple(events),
+                        "early_return",
+                        point_id=_cleanup_point_id(statement, "return"),
+                    )
                 )
-                path_cleanup.extend(path_plan)
-                for defer in reversed(active_defers):
-                    return_exit.append(
-                        SharedExitAction(
-                            "defer",
-                            defer.name,
-                            f"return:{defer.via}",
-                            return_point_id,
-                            defer.point_id,
-                            defer.defer_call,
-                        )
-                    )
-                for step in path_plan:
-                    return_exit.append(
-                        SharedExitAction(
-                            "release", step.owner, "return:early_return",
-                            return_point_id,
-                        )
-                    )
-                    if step.destroy_after:
-                        return_exit.append(
-                            SharedExitAction(
-                                "destroy", step.account, "return:early_return",
-                                return_point_id,
-                            )
-                        )
             break
 
         if kind in ("Break", "Continue"):
@@ -2553,8 +1536,6 @@ def _analyze_block_ownership(
                 path_cleanup=path_cleanup,
                 loop_cleanup=loop_cleanup,
                 loop_control_exit=loop_control_exit,
-                return_exit=return_exit,
-                active_shared_defers=tuple(active_defers),
                 loop_entry_names=loop_entry_names,
                 loop_event_history=loop_event_history + tuple(events),
                 loop_control_states=loop_control_states,
@@ -2570,8 +1551,6 @@ def _analyze_block_ownership(
                 path_cleanup=path_cleanup,
                 loop_cleanup=loop_cleanup,
                 loop_control_exit=loop_control_exit,
-                return_exit=return_exit,
-                active_shared_defers=tuple(active_defers),
                 loop_entry_names=loop_entry_names,
                 loop_event_history=loop_event_history + tuple(events),
                 loop_control_states=loop_control_states,
@@ -2581,21 +1560,6 @@ def _analyze_block_ownership(
             else_env = _project_ownership_env(else_env, visible)
             then_fallthrough = _block_may_fallthrough(then_body)
             else_fallthrough = _block_may_fallthrough(else_body)
-
-            if then_fallthrough and any(
-                event.kind == "shared_defer_use" for event in then_events
-            ):
-                raise Phase1SemanticError(
-                    "shared defer at conditional block fallthrough requires "
-                    "lexical block-exit SIR placement"
-                )
-            if else_fallthrough and any(
-                event.kind == "shared_defer_use" for event in else_events
-            ):
-                raise Phase1SemanticError(
-                    "shared defer at conditional block fallthrough requires "
-                    "lexical block-exit SIR placement"
-                )
 
             if then_fallthrough and else_fallthrough:
                 merged_env = then_env.merge(else_env)
@@ -2651,20 +1615,11 @@ def _analyze_block_ownership(
                 path_cleanup=path_cleanup,
                 loop_cleanup=loop_cleanup,
                 loop_control_exit=loop_control_exit,
-                return_exit=return_exit,
-                active_shared_defers=tuple(active_defers),
                 loop_entry_names=loop_entry_names,
                 loop_event_history=loop_event_history + tuple(events),
                 loop_control_states=loop_control_states,
                 collect_return_cleanup=collect_return_cleanup,
             )
-            if _block_may_fallthrough(getattr(statement, "body", ())) and any(
-                event.kind == "shared_defer_use" for event in body_events
-            ):
-                raise Phase1SemanticError(
-                    "shared defer at unsafe block fallthrough requires "
-                    "lexical block-exit SIR placement"
-                )
             result = _project_ownership_env(body_env, visible)
             events.append(
                 OwnershipEvent("unsafe", typed_function.name, "block")
@@ -2699,75 +1654,6 @@ def _analyze_block_ownership(
             deferred_body = getattr(statement, "body", None)
             deferred_value = getattr(statement, "value", None)
             deferred_events: list[OwnershipEvent] = []
-            defer_call = None
-            deferred_call_expr = deferred_value
-            if deferred_body is not None and len(deferred_body) == 1:
-                body_statement = deferred_body[0]
-                if type(body_statement).__name__ == "Expression":
-                    deferred_call_expr = getattr(body_statement, "value", None)
-
-            def deferred_argument_bindings(callee_name, arguments):
-                callee = _typed_function_map(typed_module).get(callee_name)
-                if callee is None or len(callee.params) != len(arguments):
-                    return None
-                bindings = []
-                for argument, parameter in zip(arguments, callee.params):
-                    if type(argument).__name__ == "Name":
-                        bindings.append(argument.value)
-                    elif (
-                        type(argument).__name__ == "Unary"
-                        and getattr(argument, "op", None) == "&"
-                        and type(getattr(argument, "value", None)).__name__
-                        == "Name"
-                        and parameter.ownership_domain in (
-                            OwnershipDomain.DIRECT, OwnershipDomain.WHISPER
-                        )
-                    ):
-                        bindings.append(f"&{argument.value.value}")
-                    else:
-                        return None
-                return tuple(bindings)
-
-            if type(deferred_call_expr).__name__ == "Call":
-                args = tuple(getattr(deferred_call_expr, "args", ()))
-                bindings = deferred_argument_bindings(
-                    deferred_call_expr.callee, args
-                )
-                if bindings is not None:
-                    defer_call = (
-                        deferred_call_expr.callee,
-                        bindings,
-                    )
-            elif type(deferred_call_expr).__name__ == "MethodCall":
-                receiver = getattr(deferred_call_expr, "target", None)
-                args = tuple(getattr(deferred_call_expr, "args", ()))
-                target_type = getattr(deferred_call_expr, "target_type", None)
-                owner_name = getattr(target_type, "name", None)
-                method_name = getattr(deferred_call_expr, "method", None)
-                callee_name = (
-                    f"{owner_name}_{method_name}"
-                    if owner_name and method_name else None
-                )
-                method = (
-                    _typed_function_map(typed_module).get(callee_name)
-                    if callee_name else None
-                )
-                bindings = (
-                    deferred_argument_bindings(
-                        callee_name, (receiver, *args)
-                    )
-                    if method is not None else None
-                )
-                if (
-                    type(receiver).__name__ == "Name"
-                    and owner_name
-                    and method_name
-                    and bindings is not None
-                ):
-                    defer_call = (
-                        callee_name,
-                        bindings,
-                    )
 
             if deferred_body is not None:
                 deferred_env = _analyze_block_ownership(
@@ -2810,7 +1696,6 @@ def _analyze_block_ownership(
                     deferred_value,
                     typed_module,
                     deferred_events,
-                    typed_function,
                 )
                 via = "call"
             elif type(deferred_value).__name__ == "MethodCall":
@@ -2847,10 +1732,8 @@ def _analyze_block_ownership(
                             via,
                             OwnershipDomain.SHARED,
                             point_id=defer_point_id,
-                            defer_call=defer_call,
                         )
                     )
-                    active_defers.append(events[-1])
                     continue
                 if before is after:
                     raise Phase1SemanticError(
@@ -2891,20 +1774,11 @@ def _analyze_block_ownership(
                 path_cleanup=path_cleanup,
                 loop_cleanup=loop_cleanup,
                 loop_control_exit=loop_control_exit,
-                return_exit=return_exit,
-                active_shared_defers=tuple(active_defers),
                 loop_entry_names=visible,
                 loop_event_history=(),
                 loop_control_states=body_control_states,
                 collect_return_cleanup=collect_return_cleanup,
             )
-            if _block_may_fallthrough(loop_body) and any(
-                event.kind == "shared_defer_use" for event in body_events
-            ):
-                raise Phase1SemanticError(
-                    "shared defer at loop backedge requires lexical "
-                    "backedge SIR placement"
-                )
 
             control_state_envs = [env for _, env in body_control_states]
             invariant_envs = [body_env, *control_state_envs]
@@ -3001,7 +1875,6 @@ def analyze_function_ownership(
     path_cleanup: list[SharedCleanupStep] = []
     loop_cleanup: list[SharedCleanupStep] = []
     loop_control_exit: list[SharedExitAction] = []
-    return_exit: list[SharedExitAction] = []
     env = _analyze_block_ownership(
         parsed_function.body,
         env,
@@ -3011,20 +1884,9 @@ def analyze_function_ownership(
         path_cleanup=path_cleanup,
         loop_cleanup=loop_cleanup,
         loop_control_exit=loop_control_exit,
-        return_exit=return_exit,
     )
     cleanup = plan_shared_scope_cleanup(env, events)
-    function_defer_points = {
-        _cleanup_point_id(statement, "defer")
-        for statement in parsed_function.body
-        if type(statement).__name__ == "Defer"
-    }
-    function_defer_events = tuple(
-        event for event in events
-        if event.kind == "shared_defer_use"
-        and event.point_id in function_defer_points
-    )
-    exit_plan = plan_shared_exit(function_defer_events, cleanup)
+    exit_plan = plan_shared_exit(events, cleanup)
     return OwnershipTrace(
         env,
         tuple(events),
@@ -3033,7 +1895,6 @@ def analyze_function_ownership(
         SharedCleanupPlan(tuple(loop_cleanup)),
         SharedExitPlan(tuple(loop_control_exit)),
         exit_plan,
-        SharedExitPlan(tuple(return_exit)),
     )
 
 
@@ -3078,11 +1939,6 @@ class OwnershipDomainTransfer:
     binding: str
     domain: OwnershipDomain
     via: str
-    destination: str | None = None
-    point_id: str | None = field(default=None, compare=False)
-    source_domain: OwnershipDomain | None = field(default=None, compare=False)
-    target_domain: OwnershipDomain | None = field(default=None, compare=False)
-    destination_domain: OwnershipDomain | None = field(default=None, compare=False)
 
     @property
     def source_key(self) -> str:
@@ -3101,51 +1957,12 @@ class OwnershipDomainMerge:
 
 
 @dataclass(frozen=True)
-class SharedOwnershipAliasPoint:
-    function: str
-    account: str
-    source: str
-    alias: str
-    point_id: str
-    operation: str
-
-
-@dataclass(frozen=True)
-class OwnershipWhisperBorrow:
-    """One validated, non-owning borrow that lasts only for a call."""
-
-    function: str
-    callee: str
-    parameter: str
-    source: str
-    type: SemanticType
-    source_domain: OwnershipDomain
-    point_id: str
-
-
-@dataclass(frozen=True)
-class OwnershipDirectAccess:
-    """One explicit, immutable direct access lasting only for a call."""
-
-    function: str
-    callee: str
-    parameter: str
-    source: str
-    type: SemanticType
-    source_domain: OwnershipDomain
-    point_id: str
-
-
-@dataclass(frozen=True)
 class OwnershipDomainGraph:
     nodes: tuple[OwnershipDomainNode, ...]
     transfers: tuple[OwnershipDomainTransfer, ...]
     merges: tuple[OwnershipDomainMerge, ...] = ()
     planned_transitions: tuple[OwnershipDomainTransition, ...] = ()
     shared_accounts: tuple[SharedOwnershipAccount, ...] = ()
-    shared_alias_points: tuple[SharedOwnershipAliasPoint, ...] = ()
-    whisper_borrows: tuple[OwnershipWhisperBorrow, ...] = ()
-    direct_accesses: tuple[OwnershipDirectAccess, ...] = ()
 
 
 def build_ownership_domain_graph(
@@ -3161,16 +1978,6 @@ def build_ownership_domain_graph(
     nodes: list[OwnershipDomainNode] = []
     transfers: list[OwnershipDomainTransfer] = []
     merges: list[OwnershipDomainMerge] = []
-    planned_transitions: list[OwnershipDomainTransition] = []
-    shared_accounts: list[SharedOwnershipAccount] = []
-    shared_alias_points: list[SharedOwnershipAliasPoint] = []
-    whisper_borrows: list[OwnershipWhisperBorrow] = []
-    direct_accesses: list[OwnershipDirectAccess] = []
-    borrow_points: set[tuple[str, str, str, str]] = set()
-    transfer_points: set[tuple[str, str]] = set()
-    transition_points: set[tuple[str, str]] = set()
-    handover_points: set[tuple[str, str]] = set()
-    non_handover_points: set[tuple[str, str]] = set()
     node_keys: set[str] = set()
 
     for function_name, trace in analysis.traces:
@@ -3190,445 +1997,20 @@ def build_ownership_domain_graph(
             node_keys.add(node.key)
             nodes.append(node)
 
-        shared_by_account: dict[str, dict[str, object]] = {}
-
         for event in trace.events:
-            if event.kind in ("move", "handover", "quarantine"):
-                if event.point_id is not None:
-                    identity = (function_name, event.point_id)
-                    if event.kind == "handover":
-                        if identity in non_handover_points:
-                            raise Phase1SemanticError(
-                                f"ownership point {event.point_id!r} is reused "
-                                "by handover and another transition"
-                            )
-                        if identity in handover_points:
-                            raise Phase1SemanticError(
-                                f"duplicate ownership handover point {event.point_id!r}"
-                            )
-                        handover_points.add(identity)
-                    else:
-                        if identity in handover_points:
-                            raise Phase1SemanticError(
-                                f"ownership point {event.point_id!r} is reused "
-                                "by handover and another transition"
-                            )
-                        if identity in transfer_points:
-                            raise Phase1SemanticError(
-                                f"duplicate ownership transfer point "
-                                f"{event.point_id!r}"
-                            )
-                        if identity in transition_points:
-                            raise Phase1SemanticError(
-                                f"ownership point {event.point_id!r} is reused "
-                                "by a transfer and another transition"
-                            )
-                        non_handover_points.add(identity)
-                        transfer_points.add(identity)
-            if (
-                event.kind == "domain_transition"
-                and event.domain is OwnershipDomain.SHARED
-                and event.via.startswith("share:")
-                and event.point_id is not None
-                and (function_name, event.point_id) in handover_points
-            ):
-                raise Phase1SemanticError(
-                    f"ownership point {event.point_id!r} is reused by "
-                    "handover and another transition"
-                )
-            if event.kind == "handover":
-                point_id = event.point_id
-                identity = (function_name, point_id)
-                if identity in transfer_points:
-                    raise Phase1SemanticError(
-                        f"ownership point {point_id!r} is reused by "
-                        "a transfer and another transition"
-                    )
-                if identity in transition_points:
-                    raise Phase1SemanticError(
-                        f"ownership point {point_id!r} is reused by "
-                        "handover and another transition"
-                    )
-                if (
-                    not isinstance(point_id, str)
-                    or not point_id.startswith("handover@")
-                ):
-                    raise Phase1SemanticError(
-                        f"handover transition for "
-                        f"{function_name}::{event.name} lacks canonical "
-                        "handover source point"
-                    )
-                handover_points.add(identity)
-            if event.kind == "borrow" and event.domain in (
-                OwnershipDomain.WHISPER, OwnershipDomain.DIRECT
-            ):
-                point_id = event.point_id
-                domain = event.domain
-                prefix = f"{domain.value}@"
-                if (
-                    not isinstance(point_id, str)
-                    or not point_id.startswith(prefix)
-                    or not event.callee
-                    or not event.parameter
-                    or not event.source_binding
-                    or event.type is None
-                    or event.source_domain not in (
-                        OwnershipDomain.EXCLUSIVE,
-                        OwnershipDomain.SHARED,
-                        OwnershipDomain.ISLAND,
-                        OwnershipDomain.REGION,
-                        *(
-                            (OwnershipDomain.WHISPER,)
-                            if event.via == "whisper_forward" else ()
-                        ),
-                        *(
-                            (OwnershipDomain.DIRECT,)
-                            if event.via in (
-                                "direct_forward", "whisper_direct_forward"
-                            ) else ()
-                        ),
-                    )
-                    or event.name != event.source_binding
-                ):
-                    raise Phase1SemanticError(
-                        f"incomplete {domain.value} access edge in "
-                        f"{function_name!r}"
-                    )
-                key = (
-                    function_name,
-                    point_id,
-                    event.parameter,
-                    event.source_binding,
-                )
-                if key in borrow_points:
-                    raise Phase1SemanticError(
-                        f"duplicate {domain.value} access edge at {point_id!r}"
-                    )
-                borrow_points.add(key)
-                edge = (
-                    OwnershipWhisperBorrow(
-                        function_name,
-                        event.callee,
-                        event.parameter,
-                        event.source_binding,
-                        event.type,
-                        event.source_domain,
-                        point_id,
-                    )
-                )
-                if domain is OwnershipDomain.WHISPER:
-                    whisper_borrows.append(edge)
-                else:
-                    direct_accesses.append(
-                        OwnershipDirectAccess(
-                            function_name,
-                            event.callee,
-                            event.parameter,
-                            event.source_binding,
-                            event.type,
-                            event.source_domain,
-                            point_id,
-                        )
-                    )
-                continue
-
-            if (
-                event.kind == "domain_transition"
-                and event.domain is OwnershipDomain.SHARED
-                and event.via.startswith("share:")
-            ):
-                binding = bindings.get(event.name)
-                if binding is None:
-                    raise Phase1SemanticError(
-                        f"shared transition for untracked binding "
-                        f"{function_name}::{event.name}"
-                    )
-                if binding.domain is not OwnershipDomain.SHARED:
-                    raise Phase1SemanticError(
-                        f"shared transition final domain mismatch for "
-                        f"{function_name}::{event.name}"
-                    )
-                alias = event.via.split(":", 1)[1]
-                point_id = event.point_id
-                if point_id is None or not point_id.startswith("share@"):
-                    raise Phase1SemanticError(
-                        f"shared transition for {function_name}::{event.name} "
-                        "lacks canonical share source point"
-                    )
-                identity = (function_name, point_id)
-                if identity in transfer_points:
-                    raise Phase1SemanticError(
-                        f"ownership point {point_id!r} is reused by "
-                        "a transfer and another transition"
-                    )
-                if identity in transition_points:
-                    raise Phase1SemanticError(
-                        f"duplicate ownership domain transition point {point_id!r}"
-                    )
-                transition_points.add(identity)
-                if event.name in shared_by_account:
-                    raise Phase1SemanticError(
-                        f"duplicate shared ownership account for "
-                        f"{function_name}::{event.name}"
-                    )
-                type_info = event.type or binding.type
-                planned_transitions.append(
-                    OwnershipDomainTransition(
-                        binding=event.name,
-                        type=type_info,
-                        source=OwnershipDomain.EXCLUSIVE,
-                        target=OwnershipDomain.SHARED,
-                        source_state=VarState.LIVE,
-                        operation="share",
-                        function=function_name,
-                        point_id=point_id,
-                    )
-                )
-                shared_by_account[event.name] = {
-                    "type": type_info,
-                    "owners": [event.name],
-                    "point_id": point_id,
-                    "expected_alias": alias,
-                    "expected_aliases": {point_id: alias},
-                    "seen_alias_points": set(),
-                }
-                shared_alias_points.append(SharedOwnershipAliasPoint(
-                    function_name, event.name, event.name, alias,
-                    point_id, "share",
-                ))
-                continue
-
-            if (
-                event.kind == "retain"
-                and event.domain is OwnershipDomain.SHARED
-                and event.via.startswith("share:")
-            ):
-                account_name = event.via.split(":", 1)[1]
-                account = shared_by_account.get(account_name)
-                if account is None:
-                    raise Phase1SemanticError(
-                        f"retain for unknown canonical shared account "
-                        f"{function_name}::{account_name}"
-                    )
-                point_id = event.point_id
-                if not isinstance(point_id, str) or not point_id.startswith("share@"):
-                    raise Phase1SemanticError(
-                        f"retain for {function_name}::{event.name} lacks canonical share point"
-                    )
-                alias_binding = bindings.get(event.name)
-                if (
-                    alias_binding is None
-                    or alias_binding.domain is not OwnershipDomain.SHARED
-                    or alias_binding.shared_account != account_name
-                ):
-                    raise Phase1SemanticError(
-                        f"retain owner {function_name}::{event.name} is not "
-                        "a tracked shared binding"
-                    )
-                owners = account["owners"]
-                expected_aliases = account["expected_aliases"]
-                if point_id == account["point_id"]:
-                    expected_alias = account["expected_alias"]
-                    source_binding = account_name
-                    operation = "share"
-                else:
-                    expected_alias = event.name
-                    source_binding = event.source_binding
-                    operation = "share_alias"
-                    source_owner = bindings.get(source_binding)
-                    if (
-                        source_binding not in owners
-                        or source_owner is None
-                        or source_owner.shared_account != account_name
-                    ):
-                        raise Phase1SemanticError(
-                            f"shared alias source {function_name}::{source_binding} "
-                            f"is not an owner of {account_name!r}"
-                        )
-                if expected_alias and event.name != expected_alias:
-                    raise Phase1SemanticError(
-                        f"retain alias mismatch for canonical shared account "
-                        f"{function_name}::{account_name}"
-                    )
-                if event.name in owners:
-                    raise Phase1SemanticError(
-                        f"duplicate retain owner {function_name}::{event.name}"
-                    )
-                owners.append(event.name)
-                if point_id in expected_aliases:
-                    if expected_aliases[point_id] != event.name:
-                        raise Phase1SemanticError(
-                            f"duplicate/mismatched shared alias point {point_id!r}"
-                        )
-                    if point_id in account["seen_alias_points"]:
-                        raise Phase1SemanticError(
-                            f"duplicate retain point {point_id!r}"
-                        )
-                    account["seen_alias_points"].add(point_id)
-                else:
-                    expected_aliases[point_id] = event.name
-                    account["seen_alias_points"].add(point_id)
-                    shared_alias_points.append(SharedOwnershipAliasPoint(
-                        function_name, account_name, source_binding,
-                        event.name, point_id, operation,
-                    ))
-                continue
-
-            if event.kind in ("move", "handover", "quarantine"):
+            if event.kind == "move":
                 binding = bindings.get(event.name)
                 if binding is None:
                     raise Phase1SemanticError(
                         f"ownership transfer for untracked binding "
                         f"{function_name}::{event.name}"
                     )
-                source_domain = event.source_domain
-                target_domain = event.target_domain
-                destination_domain = event.destination_domain
-
-                if event.kind == "quarantine":
-                    if (
-                        source_domain is not OwnershipDomain.EXCLUSIVE
-                        or target_domain is not OwnershipDomain.ISLAND
-                        or event.domain is not target_domain
-                        or (event.type is not None and event.type != binding.type)
-                    ):
-                        raise Phase1SemanticError(
-                            f"incomplete quarantine domain transition for "
-                            f"{function_name}::{event.name}"
-                        )
-                    point_id = event.point_id
-                    if point_id is None or not point_id.startswith("quarantine@"):
-                        raise Phase1SemanticError(
-                            f"quarantine transition for "
-                            f"{function_name}::{event.name} lacks canonical "
-                            "quarantine source point"
-                        )
-                    identity = (function_name, point_id)
-                    if identity in transition_points:
-                        raise Phase1SemanticError(
-                            f"duplicate ownership domain transition point {point_id!r}"
-                        )
-                    if identity in handover_points:
-                        raise Phase1SemanticError(
-                            f"ownership point {point_id!r} is reused by "
-                            "handover and another transition"
-                        )
-                    transition_points.add(identity)
-                    planned_transitions.append(
-                        OwnershipDomainTransition(
-                            binding=event.name,
-                            type=event.type or binding.type,
-                            source=source_domain,
-                            target=target_domain,
-                            source_state=VarState.LIVE,
-                            operation="quarantine",
-                            function=function_name,
-                            point_id=point_id,
-                        )
-                    )
-                elif event.kind == "handover" and event.destination is not None:
-                    if source_domain is None or target_domain is None:
-                        raise Phase1SemanticError(
-                            f"incomplete handover domain transition for "
-                            f"{function_name}::{event.name}"
-                        )
-                    if destination_domain is not target_domain:
-                        raise Phase1SemanticError(
-                            f"handover destination domain mismatch for "
-                            f"{function_name}::{event.name}"
-                        )
-                    if (
-                        event.domain is not source_domain
-                        or (event.type is not None and event.type != binding.type)
-                    ):
-                        raise Phase1SemanticError(
-                            f"handover source fact mismatch for "
-                            f"{function_name}::{event.name}"
-                        )
-                    allowed_same_domain_handover = (
-                        source_domain
-                        in (
-                            OwnershipDomain.REGION,
-                            OwnershipDomain.DEVICE,
-                            OwnershipDomain.EXTERNAL,
-                            OwnershipDomain.ISLAND,
-                        )
-                        and target_domain is source_domain
-                    )
-                    allowed_device_submission = (
-                        source_domain is OwnershipDomain.EXCLUSIVE
-                        and target_domain is OwnershipDomain.DEVICE
-                    )
-                    if not (
-                        (
-                            source_domain in (
-                                OwnershipDomain.EXCLUSIVE,
-                                OwnershipDomain.ISLAND,
-                            )
-                            and target_domain is OwnershipDomain.EXCLUSIVE
-                        )
-                        or allowed_same_domain_handover
-                        or allowed_device_submission
-                    ):
-                        raise Phase1SemanticError(
-                            f"unsupported handover domain transition "
-                            f"{source_domain.value} -> {target_domain.value} "
-                            f"for {function_name}::{event.name}"
-                        )
-                    destination_binding = bindings.get(event.destination)
-                    if destination_binding is None:
-                        raise Phase1SemanticError(
-                            f"handover destination "
-                            f"{function_name}::{event.destination} is untracked"
-                        )
-                    if (
-                        destination_binding.domain is not destination_domain
-                        or destination_binding.type != binding.type
-                    ):
-                        raise Phase1SemanticError(
-                            f"handover destination fact mismatch for "
-                            f"{function_name}::{event.destination}"
-                        )
-                elif event.kind == "move" and event.via == "return":
-                    if source_domain is None:
-                        source_domain = binding.domain
-                    if target_domain is None:
-                        target_domain = source_domain
-                    if source_domain is not target_domain:
-                        raise Phase1SemanticError(
-                            f"return transfer changes ownership domain for "
-                            f"{function_name}::{event.name}"
-                        )
-                elif (
-                    event.kind == "move"
-                    and (
-                        event.via.startswith("call:")
-                        or event.via.startswith("method:")
-                        or event.via.startswith("enum:")
-                    )
-                    and target_domain is not None
-                ):
-                    if source_domain is None:
-                        source_domain = binding.domain
-                    if source_domain is not target_domain:
-                        raise Phase1SemanticError(
-                            f"call transfer changes ownership domain for "
-                            f"{function_name}::{event.name} via {event.via}"
-                        )
-                elif source_domain is None:
-                    source_domain = binding.domain
-
                 transfers.append(
                     OwnershipDomainTransfer(
                         function=function_name,
                         binding=event.name,
                         domain=binding.domain,
                         via=event.via,
-                        destination=event.destination,
-                        point_id=event.point_id,
-                        source_domain=source_domain,
-                        target_domain=target_domain,
-                        destination_domain=destination_domain,
                     )
                 )
                 continue
@@ -3643,26 +2025,6 @@ def build_ownership_domain_graph(
                         f"incomplete ownership-domain merge fact for "
                         f"{function_name}::{event.name}"
                     )
-                binding = bindings.get(event.name)
-                if binding is None:
-                    raise Phase1SemanticError(
-                        f"ownership-domain merge for untracked binding "
-                        f"{function_name}::{event.name}"
-                    )
-                if binding.domain is not event.domain:
-                    raise Phase1SemanticError(
-                        f"ownership-domain merge domain mismatch for "
-                        f"{function_name}::{event.name}"
-                    )
-                merged_state = merge_branch_states(
-                    event.left_state, event.right_state
-                )
-                if merged_state is not event.result_state:
-                    raise Phase1SemanticError(
-                        f"ownership-domain merge result mismatch for "
-                        f"{function_name}::{event.name}: expected "
-                        f"{merged_state.value}, got {event.result_state.value}"
-                    )
                 merges.append(
                     OwnershipDomainMerge(
                         function=function_name,
@@ -3675,39 +2037,8 @@ def build_ownership_domain_graph(
                     )
                 )
 
-        for account_name, data in shared_by_account.items():
-            owners = tuple(data["owners"])
-            expected_alias = data["expected_alias"]
-            if expected_alias and expected_alias not in owners:
-                raise Phase1SemanticError(
-                    f"shared account {function_name}::{account_name} lacks "
-                    f"retain event for alias {expected_alias!r}"
-                )
-            shared_accounts.append(
-                SharedOwnershipAccount(
-                    binding=account_name,
-                    type=data["type"],
-                    strong_refs=len(owners),
-                    accounting="arc",
-                    function=function_name,
-                    owners=owners,
-                    point_id=data["point_id"],
-                )
-            )
-            if data["seen_alias_points"] != set(data["expected_aliases"]):
-                raise Phase1SemanticError(
-                    f"shared account {function_name}::{account_name} has an unpaired retain point"
-                )
-
     return OwnershipDomainGraph(
-        tuple(nodes),
-        tuple(transfers),
-        tuple(merges),
-        tuple(planned_transitions),
-        tuple(shared_accounts),
-        tuple(shared_alias_points),
-        tuple(whisper_borrows),
-        tuple(direct_accesses),
+        tuple(nodes), tuple(transfers), tuple(merges)
     )
 
 
@@ -3788,20 +2119,14 @@ def summarize_module_ownership(
                 params=tuple(
                     OwnershipParamContract(
                         param.name,
-                        param.ownership_domain not in (
-                            None, OwnershipDomain.WHISPER,
-                            OwnershipDomain.DIRECT,
-                        ),
-                        param.ownership_domain,
+                        is_sole_type(param.type, typed_module),
+                        ownership_domain(param.type, typed_module),
                     )
                     for param in function.params
                 ),
-                returns_sole=(
-                    function.return_ownership_domain
-                    is OwnershipDomain.EXCLUSIVE
-                ),
+                returns_sole=is_sole_type(function.result, typed_module),
                 calls=tuple(calls),
-                return_domain=function.return_ownership_domain,
+                return_domain=ownership_domain(function.result, typed_module),
             )
         )
     return tuple(summaries)
@@ -5105,13 +3430,8 @@ def _validate_statement_mutable_borrows(
     typed_module: TypedModule,
 ) -> None:
     kind = type(statement).__name__
-    if kind in ("Let", "Return", "Expression", "Quarantine"):
+    if kind in ("Let", "Return", "Expression"):
         expressions = (getattr(statement, "value", None),)
-    elif kind == "Handover":
-        expressions = (
-            getattr(statement, "value", None),
-            getattr(statement, "destination", None),
-        )
     elif kind == "Assign":
         expressions = (
             getattr(statement, "target", None),
@@ -5386,51 +3706,6 @@ def _build_typed_block(
             )
             continue
 
-        if kind == "Quarantine":
-            value = getattr(statement, "value", None)
-            expr = infer_expression_type(value, env, typed_module)
-            typed_statements.append(
-                TypedStmtNode(
-                    "Quarantine",
-                    getattr(value, "value", None)
-                    if type(value).__name__ == "Name"
-                    else None,
-                    expr.type,
-                    expr,
-                )
-            )
-            continue
-
-        if kind == "Handover":
-            value = getattr(statement, "value", None)
-            destination = getattr(statement, "destination", None)
-            expr = infer_expression_type(value, env, typed_module)
-            destination_expr = (
-                infer_expression_type(destination, env, typed_module)
-                if destination is not None
-                else None
-            )
-            if (
-                destination_expr is not None
-                and destination_expr.type != expr.type
-            ):
-                raise Phase1SemanticError(
-                    f"handover type mismatch: "
-                    f"{expr.type.name} -> {destination_expr.type.name}"
-                )
-            typed_statements.append(
-                TypedStmtNode(
-                    "Handover",
-                    getattr(value, "value", None)
-                    if type(value).__name__ == "Name"
-                    else None,
-                    expr.type,
-                    expr,
-                    extra_expr=destination_expr,
-                )
-            )
-            continue
-
         if kind == "Unsafe":
             body = _build_typed_block(
                 getattr(statement, "body", ()),
@@ -5557,706 +3832,6 @@ class Phase1ModuleSnapshot:
     maturity: str = MATURITY
 
 
-def _whisper_expr_children(expr) -> tuple[object, ...]:
-    kind = type(expr).__name__
-    if kind == "Binary":
-        return (getattr(expr, "left", None), getattr(expr, "right", None))
-    if kind in ("Unary", "MoveExpr", "ShareExpr", "UnsafeExpr"):
-        return (getattr(expr, "value", None),)
-    if kind == "Cast":
-        return (getattr(expr, "expr", None),)
-    if kind in ("Member",):
-        return (getattr(expr, "target", None),)
-    if kind == "Index":
-        return (getattr(expr, "target", None), getattr(expr, "index", None))
-    if kind == "Call":
-        return tuple(getattr(expr, "args", ()))
-    if kind == "MethodCall":
-        return (
-            getattr(expr, "target", None),
-            *tuple(getattr(expr, "args", ())),
-        )
-    if kind == "StructLit":
-        return tuple(value for _, value in getattr(expr, "fields", ()))
-    if kind == "ArrayLit":
-        return tuple(getattr(expr, "elements", ()))
-    if kind == "IfExpr":
-        return (
-            getattr(expr, "condition", None),
-            getattr(expr, "then_expr", None),
-            getattr(expr, "else_expr", None),
-        )
-    if kind == "TryExpr":
-        return (getattr(expr, "expr", None),)
-    return ()
-
-
-def _whisper_expr_references(expr, names: set[str]) -> bool:
-    if expr is None:
-        return False
-    if (
-        type(expr).__name__ == "Name"
-        and getattr(expr, "value", None) in names
-    ):
-        return True
-    return any(
-        _whisper_expr_references(child, names)
-        for child in _whisper_expr_children(expr)
-    )
-
-
-def _whisper_type_carries_alias(
-    type_info: SemanticType, module: TypedModule
-) -> bool:
-    return (
-        type_info.pointer
-        or type_info.is_reference
-        or type_info.is_array
-        or type_info.declared_ownership_domain is OwnershipDomain.WHISPER
-        or any(item.name == type_info.name for item in module.structs)
-        or any(item.name == type_info.name for item in module.enums)
-    )
-
-
-def _whisper_expr_is_derived_alias(
-    expr,
-    env: dict[str, SemanticType],
-    module: TypedModule,
-    tainted: set[str],
-) -> bool:
-    if not _whisper_expr_references(expr, tainted):
-        return False
-    if type(expr).__name__ == "Name" and getattr(expr, "value", None) in tainted:
-        return True
-    try:
-        expr_type = infer_expression_type(expr, env, module).type
-    except Phase1SemanticError:
-        return True
-    if _whisper_type_carries_alias(expr_type, module):
-        return True
-    if type(expr).__name__ == "Cast":
-        try:
-            source_type = infer_expression_type(
-                getattr(expr, "expr", None), env, module
-            ).type
-        except Phase1SemanticError:
-            return True
-        return _whisper_type_carries_alias(source_type, module)
-    return False
-
-
-def _validate_whisper_call_escapes(
-    expr,
-    env: dict[str, SemanticType],
-    module: TypedModule,
-    tainted: set[str],
-    noescape_parameters: set[tuple[str, int]],
-) -> None:
-    kind = type(expr).__name__
-    if kind == "Call":
-        arguments = tuple(getattr(expr, "args", ()))
-        callee = getattr(expr, "callee", None)
-        for index, argument in enumerate(arguments):
-            if (
-                _whisper_expr_is_derived_alias(argument, env, module, tainted)
-                and (
-                    callee in env
-                    or (callee, index) not in noescape_parameters
-                )
-            ):
-                raise Phase1SemanticError(
-                    "whisper-derived reference cannot be forwarded through a call "
-                    "without a verified no-escape parameter summary"
-                )
-    elif kind == "MethodCall":
-        target = getattr(expr, "target", None)
-        try:
-            target_type = infer_expression_type(
-                target, env, module
-            ).type.name
-        except Phase1SemanticError:
-            target_type = getattr(
-                getattr(expr, "target_type", None), "name", None
-            )
-        callee = (
-            f"{target_type}_{getattr(expr, 'method', '')}"
-            if target_type else None
-        )
-        arguments = (target, *tuple(getattr(expr, "args", ())))
-        for index, argument in enumerate(arguments):
-            if (
-                _whisper_expr_is_derived_alias(argument, env, module, tainted)
-                and (
-                    bool(getattr(expr, "is_vtable_call", False))
-                    or (callee, index) not in noescape_parameters
-                )
-            ):
-                raise Phase1SemanticError(
-                    "whisper-derived reference cannot be forwarded through a method "
-                    "without a verified no-escape parameter summary"
-                )
-    for child in _whisper_expr_children(expr):
-        _validate_whisper_call_escapes(
-            child, env, module, tainted, noescape_parameters
-        )
-
-
-def _validate_whisper_lifetimes(
-    parsed_module, typed_module: TypedModule
-) -> None:
-    """Reject escapes of non-owning whisper aliases from their call frame.
-
-    The analysis follows pointer/reference aliases through locals and aggregate
-    values. Unknown expression types fail closed. Scalar values read through a
-    whisper reference remain ordinary copied values.
-    """
-    typed_functions = {item.name: item for item in typed_module.functions}
-    for typed_class in typed_module.classes:
-        typed_functions.update(
-            (item.name, item) for item in typed_class.methods
-        )
-
-    def visit_block(
-        statements,
-        env: dict[str, SemanticType],
-        tainted: set[str],
-        noescape_parameters: set[tuple[str, int]],
-    ) -> tuple[dict[str, SemanticType], set[str]]:
-        result_env = dict(env)
-        result_tainted = set(tainted)
-        for statement in statements:
-            kind = type(statement).__name__
-            if kind == "Let":
-                value = getattr(statement, "value", None)
-                _validate_whisper_call_escapes(
-                    value, result_env, typed_module, result_tainted,
-                    noescape_parameters,
-                )
-                alias = _whisper_expr_is_derived_alias(
-                    value, result_env, typed_module, result_tainted
-                )
-                inferred = infer_expression_type(
-                    value, result_env, typed_module
-                ).type
-                declared = (
-                    semantic_type(statement.type)
-                    if getattr(statement, "type", None) is not None
-                    else inferred
-                )
-                if alias and bool(getattr(statement, "is_static", False)):
-                    raise Phase1SemanticError(
-                        "whisper-derived reference cannot be stored in static local storage"
-                    )
-                result_env[statement.name] = declared
-                if alias:
-                    result_tainted.add(statement.name)
-                else:
-                    result_tainted.discard(statement.name)
-                continue
-
-            if kind == "Assign":
-                value = getattr(statement, "value", None)
-                _validate_whisper_call_escapes(
-                    value, result_env, typed_module, result_tainted,
-                    noescape_parameters,
-                )
-                alias = _whisper_expr_is_derived_alias(
-                    value, result_env, typed_module, result_tainted
-                )
-                target = getattr(statement, "target", None)
-                if alias:
-                    if (
-                        type(target).__name__ != "Name"
-                        or getattr(target, "value", None) not in result_env
-                    ):
-                        raise Phase1SemanticError(
-                            "whisper-derived reference cannot be stored outside a local binding"
-                        )
-                    result_tainted.add(target.value)
-                elif type(target).__name__ == "Name":
-                    result_tainted.discard(getattr(target, "value", ""))
-                continue
-
-            if kind == "Return":
-                value = getattr(statement, "value", None)
-                _validate_whisper_call_escapes(
-                    value, result_env, typed_module, result_tainted,
-                    noescape_parameters,
-                )
-                if _whisper_expr_is_derived_alias(
-                    value, result_env, typed_module, result_tainted
-                ):
-                    try:
-                        return_type = infer_expression_type(
-                            value, result_env, typed_module
-                        ).type
-                    except Phase1SemanticError:
-                        raise Phase1SemanticError(
-                            "whisper-derived value cannot escape through return"
-                        )
-                    if _whisper_type_carries_alias(return_type, typed_module):
-                        raise Phase1SemanticError(
-                            "whisper-derived pointer cannot escape through return"
-                        )
-                    raise Phase1SemanticError(
-                        "whisper-derived value cannot escape through return"
-                    )
-                continue
-
-            if kind == "Expression":
-                value = getattr(statement, "value", None)
-                _validate_whisper_call_escapes(
-                    value, result_env, typed_module, result_tainted,
-                    noescape_parameters,
-                )
-                continue
-
-            if kind == "If":
-                condition = getattr(statement, "condition", None)
-                _validate_whisper_call_escapes(
-                    condition, result_env, typed_module, result_tainted,
-                    noescape_parameters,
-                )
-                then_env, then_tainted = visit_block(
-                    getattr(statement, "then_body", ()),
-                    result_env,
-                    result_tainted,
-                    noescape_parameters,
-                )
-                else_env, else_tainted = visit_block(
-                    getattr(statement, "else_body", ()),
-                    result_env,
-                    result_tainted,
-                    noescape_parameters,
-                )
-                for name in result_env:
-                    if name in then_tainted or name in else_tainted:
-                        result_tainted.add(name)
-                continue
-
-            if kind in ("While", "For", "Loop", "Unsafe"):
-                for attr in ("condition", "start", "end"):
-                    expr = getattr(statement, attr, None)
-                    _validate_whisper_call_escapes(
-                        expr, result_env, typed_module, result_tainted,
-                        noescape_parameters,
-                    )
-                _, body_tainted = visit_block(
-                    getattr(statement, "body", ()),
-                    result_env,
-                    result_tainted,
-                    noescape_parameters,
-                )
-                result_tainted.update(body_tainted)
-                continue
-
-            if kind == "Defer":
-                deferred_value = getattr(statement, "value", None)
-                _validate_whisper_call_escapes(
-                    deferred_value, result_env, typed_module, result_tainted,
-                    noescape_parameters,
-                )
-                if _whisper_expr_is_derived_alias(
-                    deferred_value, result_env, typed_module, result_tainted
-                ):
-                    raise Phase1SemanticError(
-                        "defer cannot capture a whisper-derived reference"
-                    )
-                for nested in getattr(statement, "body", ()) or ():
-                    _, nested_tainted = visit_block(
-                        (nested,), result_env, result_tainted,
-                        noescape_parameters,
-                    )
-                    if nested_tainted - result_tainted:
-                        raise Phase1SemanticError(
-                            "defer cannot extend a whisper-derived reference lifetime"
-                        )
-                continue
-
-            if kind == "Asm":
-                operands = (
-                    *tuple(getattr(statement, "inputs", ())),
-                    *tuple(getattr(statement, "outputs", ())),
-                )
-                if any(
-                    _whisper_expr_is_derived_alias(
-                        operand, result_env, typed_module, result_tainted
-                    )
-                    for operand in operands
-                ):
-                    raise Phase1SemanticError(
-                        "asm cannot retain or export a whisper-derived reference"
-                    )
-
-            if kind not in {
-                "Let", "Assign", "Return", "Expression", "If", "While",
-                "For", "Loop", "Unsafe", "Defer", "Asm", "Break",
-                "Continue",
-            }:
-                candidate_exprs = tuple(
-                    getattr(statement, attr, None)
-                    for attr in (
-                        "value", "target", "condition", "start", "end",
-                        "destination",
-                    )
-                ) + tuple(getattr(statement, "inputs", ())) + tuple(
-                    getattr(statement, "outputs", ())
-                )
-                if any(
-                    _whisper_expr_references(expr, result_tainted)
-                    for expr in candidate_exprs
-                ):
-                    raise Phase1SemanticError(
-                        "unsupported statement may retain or export a whisper-derived reference"
-                    )
-
-        return result_env, result_tainted
-
-    parsed_functions = list(parsed_module.functions)
-    for parsed_class in getattr(parsed_module, "classes", ()):
-        parsed_functions.extend(getattr(parsed_class, "methods", ()))
-    parsed_by_name = {item.name: item for item in parsed_functions}
-    noescape_parameters: set[tuple[str, int]] = set()
-
-    # A parameter receives a verified no-escape summary only when analyzing
-    # every path in its body proves that it is neither returned, stored beyond
-    # the frame, deferred, nor forwarded to a parameter with no proven summary.
-    candidates = [
-        (parsed_by_name.get(function.name), function, index, parameter)
-        for function in tuple(typed_module.functions) + tuple(
-            method
-            for typed_class in typed_module.classes
-            for method in typed_class.methods
-        )
-        for index, parameter in enumerate(function.params)
-        if parameter.type.pointer or parameter.type.is_reference
-    ]
-    candidates = [
-        item for item in candidates
-        if item[0] is not None
-        and not any(
-            "@extern" in attribute
-            for attribute in getattr(item[0], "attributes", ())
-        )
-    ]
-    changed = True
-    while changed:
-        changed = False
-        for parsed_function, typed_function, index, parameter in candidates:
-            key = (typed_function.name, index)
-            if key in noescape_parameters:
-                continue
-            env = {param.name: param.type for param in typed_function.params}
-            try:
-                visit_block(
-                    parsed_function.body,
-                    env,
-                    {parameter.name},
-                    noescape_parameters,
-                )
-            except Phase1SemanticError:
-                continue
-            noescape_parameters.add(key)
-            changed = True
-
-    # Resolve recursive no-escape summaries as a greatest fixed point. Each
-    # remaining candidate is checked while assuming the whole tentative set is
-    # safe; candidates with any escaping path are removed, then callers are
-    # rechecked against the smaller set. This admits closed recursive SCCs
-    # without blessing a cycle that contains a storage, return, defer, or
-    # opaque-call escape.
-    tentative_noescape = {
-        (typed_function.name, index)
-        for parsed_function, typed_function, index, parameter in candidates
-        if (typed_function.name, index) not in noescape_parameters
-    }
-    while tentative_noescape:
-        rejected: set[tuple[str, int]] = set()
-        assumed_noescape = noescape_parameters | tentative_noescape
-        for parsed_function, typed_function, index, parameter in candidates:
-            key = (typed_function.name, index)
-            if key not in tentative_noescape:
-                continue
-            env = {param.name: param.type for param in typed_function.params}
-            try:
-                visit_block(
-                    parsed_function.body,
-                    env,
-                    {parameter.name},
-                    assumed_noescape,
-                )
-            except Phase1SemanticError:
-                rejected.add(key)
-        if not rejected:
-            noescape_parameters.update(tentative_noescape)
-            break
-        tentative_noescape.difference_update(rejected)
-
-    for parsed_function in parsed_functions:
-        typed_function = typed_functions.get(parsed_function.name)
-        if typed_function is None:
-            continue
-        env = {param.name: param.type for param in typed_function.params}
-        tainted = {
-            param.name for param in typed_function.params
-            if param.ownership_domain in (
-                OwnershipDomain.WHISPER, OwnershipDomain.DIRECT
-            )
-        }
-        if tainted:
-            try:
-                visit_block(
-                    parsed_function.body, env, tainted, noescape_parameters
-                )
-            except Phase1SemanticError as error:
-                direct_only = (
-                    any(param.ownership_domain is OwnershipDomain.DIRECT
-                        for param in typed_function.params)
-                    and not any(param.ownership_domain is OwnershipDomain.WHISPER
-                                for param in typed_function.params)
-                )
-                if direct_only:
-                    raise Phase1SemanticError(
-                        str(error).replace("whisper-derived", "direct-derived")
-                    ) from error
-                raise
-
-
-def validate_whisper_lifetimes(parsed_module) -> None:
-    """Run the canonical local lifetime checks on a parsed module.
-
-    This narrow entry point lets the production checker share the Phase-1
-    lifetime contract without making all Phase-1 body typing mandatory.
-    """
-    typed_module = build_declaration_typed_ast(parsed_module)
-    _validate_whisper_lifetimes(parsed_module, typed_module)
-    if any(
-        param.ownership_domain in (
-            OwnershipDomain.WHISPER, OwnershipDomain.DIRECT
-        )
-        for function in typed_module.functions
-        for param in function.params
-    ) or any(
-        param.ownership_domain in (
-            OwnershipDomain.WHISPER, OwnershipDomain.DIRECT
-        )
-        for class_decl in typed_module.classes
-        for function in class_decl.methods
-        for param in function.params
-    ):
-        # The production checker shares this narrow entry point; non-owning
-        # accesses need canonical call/source/owner and opaque-boundary checks.
-        build_ownership_domain_graph(
-            analyze_module_ownership(parsed_module, typed_module)
-        )
-
-
-def _validate_quarantine_alias_lifetimes(
-    parsed_module, typed_module: TypedModule
-) -> None:
-    """Reject lexical uses of aliases after their source is quarantined.
-
-    This source-ordered check is conservative at joins and loops, while uses
-    in mutually exclusive if branches are checked independently.
-    """
-    typed_functions = {item.name: item for item in typed_module.functions}
-
-    def flatten(statements):
-        for statement in statements:
-            yield statement
-            kind = type(statement).__name__
-            nested_attrs = {
-                "If": ("then_body", "else_body"),
-                "While": ("body",),
-                "For": ("body",),
-                "Loop": ("body",),
-                "Unsafe": ("body",),
-                "Defer": ("body",),
-            }.get(kind, ())
-            for attr in nested_attrs:
-                yield from flatten(getattr(statement, attr, ()) or ())
-
-    def statement_expressions(statement):
-        kind = type(statement).__name__
-        attrs = {
-            "Let": ("value",),
-            "Assign": ("target", "value"),
-            "Return": ("value",),
-            "Expression": ("value",),
-            "If": ("condition",),
-            "While": ("condition",),
-            "For": ("start", "end"),
-            "Handover": ("value", "destination"),
-            "Quarantine": ("value",),
-            "Defer": ("value",),
-        }.get(kind, ())
-        return tuple(
-            getattr(statement, attr, None)
-            for attr in attrs
-            if getattr(statement, attr, None) is not None
-        )
-
-    def names_in_expr(expr) -> set[str]:
-        names: set[str] = set()
-        if expr is None:
-            return names
-        if type(expr).__name__ == "Name":
-            names.add(getattr(expr, "value", ""))
-        for child in _whisper_expr_children(expr):
-            names.update(names_in_expr(child))
-        return names
-
-    def contains_address_or_cast(expr) -> bool:
-        if expr is None:
-            return False
-        if type(expr).__name__ == "Cast":
-            return True
-        if type(expr).__name__ == "Unary" and getattr(expr, "op", None) == "&":
-            return True
-        return any(
-            contains_address_or_cast(child)
-            for child in _whisper_expr_children(expr)
-        )
-
-    def alias_owners(
-        expr,
-        env: dict[str, SemanticType],
-        owners: set[str],
-        aliases: dict[str, frozenset[str]],
-    ) -> frozenset[str]:
-        names = names_in_expr(expr)
-        inherited = set().union(
-            *(aliases[name] for name in names if name in aliases)
-        ) if any(name in aliases for name in names) else set()
-        if not contains_address_or_cast(expr) and not inherited:
-            try:
-                info = infer_expression_type(expr, env, typed_module).type
-            except Phase1SemanticError:
-                return frozenset()
-            if not (info.pointer or info.is_reference or info.is_array):
-                return frozenset()
-        direct = names.intersection(owners)
-        return frozenset(inherited | direct)
-
-    for parsed_function in parsed_module.functions:
-        typed_function = typed_functions.get(parsed_function.name)
-        if typed_function is None:
-            continue
-        env = {param.name: param.type for param in typed_function.params}
-        owners = {
-            param.name for param in typed_function.params
-            if ownership_domain(param.type, typed_module)
-            in (OwnershipDomain.EXCLUSIVE, OwnershipDomain.ISLAND)
-        }
-        aliases: dict[str, frozenset[str]] = {}
-        invalid_aliases: dict[str, str] = {}
-        branch_paths: dict[int, tuple[tuple[int, int], ...]] = {}
-
-        def record_paths(statements, path=()):
-            for statement in statements:
-                branch_paths[id(statement)] = path
-                kind = type(statement).__name__
-                if kind == "If":
-                    record_paths(
-                        getattr(statement, "then_body", ()) or (),
-                        path + ((id(statement), 0),),
-                    )
-                    record_paths(
-                        getattr(statement, "else_body", ()) or (),
-                        path + ((id(statement), 1),),
-                    )
-                else:
-                    nested = {
-                        "While": ("body",), "For": ("body",), "Loop": ("body",),
-                        "Unsafe": ("body",), "Defer": ("body",),
-                    }.get(kind, ())
-                    for attr in nested:
-                        record_paths(getattr(statement, attr, ()) or (), path)
-
-        record_paths(parsed_function.body)
-        invalidated_at: dict[str, tuple[tuple[int, int], ...]] = {}
-
-        def paths_are_disjoint(left, right) -> bool:
-            left_map = dict(left)
-            return any(
-                branch_id in left_map and left_map[branch_id] != branch
-                for branch_id, branch in right
-            )
-
-        statements = sorted(
-            flatten(parsed_function.body),
-            key=lambda item: (
-                getattr(getattr(item, "token", None), "line", 0),
-                getattr(getattr(item, "token", None), "column", 0),
-            ),
-        )
-
-        for statement in statements:
-            kind = type(statement).__name__
-            source_names = set().union(
-                *(names_in_expr(expr) for expr in statement_expressions(statement))
-            ) if statement_expressions(statement) else set()
-            for name in source_names.intersection(invalid_aliases):
-                if paths_are_disjoint(
-                    invalidated_at.get(name, ()),
-                    branch_paths.get(id(statement), ()),
-                ):
-                    continue
-                owner = invalid_aliases[name]
-                raise Phase1SemanticError(
-                    f"reference alias {name!r} to quarantined owner {owner!r} "
-                    "is used after quarantine"
-                )
-
-            if kind == "Let":
-                value = getattr(statement, "value", None)
-                try:
-                    local_type = (
-                        semantic_type(statement.type)
-                        if getattr(statement, "type", None) is not None
-                        else infer_expression_type(value, env, typed_module).type
-                    )
-                except Phase1SemanticError:
-                    local_type = None
-                related = alias_owners(value, env, owners, aliases)
-                env[statement.name] = local_type or SemanticType("unknown")
-                if related and (
-                    contains_address_or_cast(value)
-                    or bool(aliases.keys() & names_in_expr(value))
-                    or (local_type is not None and (
-                        local_type.pointer or local_type.is_reference
-                    ))
-                ):
-                    aliases[statement.name] = related
-                else:
-                    aliases.pop(statement.name, None)
-                    if local_type is not None and is_sole_type(local_type, typed_module):
-                        owners.add(statement.name)
-                continue
-
-            if kind == "Assign":
-                target = getattr(statement, "target", None)
-                if type(target).__name__ == "Name":
-                    target_name = getattr(target, "value", "")
-                    related = alias_owners(
-                        getattr(statement, "value", None), env, owners, aliases
-                    )
-                    if related:
-                        aliases[target_name] = related
-                    else:
-                        aliases.pop(target_name, None)
-                continue
-
-            if kind == "Quarantine":
-                value = getattr(statement, "value", None)
-                if type(value).__name__ == "Name":
-                    owner = getattr(value, "value", "")
-                    for alias, targets in aliases.items():
-                        if owner in targets:
-                            invalid_aliases[alias] = owner
-                            invalidated_at[alias] = branch_paths.get(id(statement), ())
-
-
 def build_phase1_semantic_snapshot(parsed_module) -> Phase1ModuleSnapshot:
     """Compose the isolated Phase-1 semantic passes without patching bootstrap.
 
@@ -6267,12 +3842,10 @@ def build_phase1_semantic_snapshot(parsed_module) -> Phase1ModuleSnapshot:
     """
     typed_module = build_declaration_typed_ast(parsed_module)
     validate_no_recursive_value_types(typed_module)
-    _validate_quarantine_alias_lifetimes(parsed_module, typed_module)
     bodies = tuple(
         build_linear_typed_body(parsed_module, typed_module, function.name)
         for function in typed_module.functions
     )
-    _validate_whisper_lifetimes(parsed_module, typed_module)
     ownership = analyze_module_ownership(parsed_module, typed_module)
     ownership_domains = build_ownership_domain_graph(ownership)
     enum_layouts = lower_module_enum_layouts(typed_module)
@@ -6392,7 +3965,6 @@ class SemanticType:
     is_fn_ptr: bool = False
     fn_params: tuple["SemanticType", ...] = ()
     fn_ret: "SemanticType | None" = None
-    declared_ownership_domain: OwnershipDomain | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True)
@@ -6564,7 +4136,6 @@ def lower_module_enum_storage_layouts(
 class TypedParam:
     name: str
     type: SemanticType
-    ownership_domain: OwnershipDomain | None = None
 
 
 @dataclass(frozen=True)
@@ -6574,7 +4145,6 @@ class TypedFunction:
     result: SemanticType
     public: bool
     attributes: tuple[str, ...]
-    return_ownership_domain: OwnershipDomain | None = None
 
 
 @dataclass(frozen=True)
@@ -6584,9 +4154,6 @@ class TypedGlobal:
     public: bool
     is_const: bool
     is_mut: bool
-    ownership_domain: OwnershipDomain | None = field(
-        default=None, compare=False
-    )
 
 
 @dataclass(frozen=True)
@@ -6623,11 +4190,6 @@ def semantic_type(type_obj) -> SemanticType:
         fn_ret=(
             semantic_type(type_obj.fn_ret)
             if getattr(type_obj, "fn_ret", None) is not None
-            else None
-        ),
-        declared_ownership_domain=(
-            OwnershipDomain(getattr(type_obj, "ownership_domain"))
-            if getattr(type_obj, "ownership_domain", None) is not None
             else None
         ),
     )
@@ -6737,125 +4299,13 @@ def build_declaration_typed_ast(module) -> TypedModule:
     This function neither calls nor replaces bootstrap.check and never mutates
     the production AST.
     """
-    exclusive_type_names = frozenset(
-        item.name
-        for item in module.structs
-        if bool(getattr(item, "is_sole", False))
-    )
-
-    def explicit_domain(type_obj) -> OwnershipDomain | None:
-        frozen = semantic_type(type_obj)
-        def contains_nested_direct(type_info: SemanticType) -> bool:
-            if type_info.declared_ownership_domain is OwnershipDomain.DIRECT:
-                return True
-            return (
-                (type_info.elem_type is not None
-                 and contains_nested_direct(type_info.elem_type))
-                or any(contains_nested_direct(item)
-                       for item in type_info.fn_params)
-                or (type_info.fn_ret is not None
-                    and contains_nested_direct(type_info.fn_ret))
-            )
-
-        nested_direct = (
-            any(contains_nested_direct(item) for item in frozen.fn_params)
-            or (frozen.fn_ret is not None
-                and contains_nested_direct(frozen.fn_ret))
-            or (frozen.elem_type is not None
-                and contains_nested_direct(frozen.elem_type))
-        )
-        if nested_direct:
-            raise Phase1SemanticError(
-                "direct access is not supported through nested or indirect "
-                "function parameter types"
-            )
-        declared = frozen.declared_ownership_domain
-        if declared in {
-            OwnershipDomain.REGION,
-            OwnershipDomain.DEVICE,
-            OwnershipDomain.EXTERNAL,
-        }:
-            if frozen.pointer or frozen.is_reference or frozen.is_array:
-                raise Phase1SemanticError(
-                    f"{declared.value} ownership requires a direct by-value sole type"
-                )
-            if frozen.name not in exclusive_type_names:
-                raise Phase1SemanticError(
-                    f"{declared.value} ownership requires sole type, got {frozen.name!r}"
-                )
-            return declared
-        if declared is OwnershipDomain.WHISPER:
-            raise Phase1SemanticError(
-                "whisper lifetime ownership is currently supported only "
-                "for function parameters"
-            )
-        if declared is OwnershipDomain.DIRECT:
-            raise Phase1SemanticError(
-                "direct access ownership is currently supported only for "
-                "function parameters"
-            )
-        if declared is OwnershipDomain.ISLAND:
-            if frozen.pointer or frozen.is_reference or frozen.is_array:
-                raise Phase1SemanticError(
-                    "island ownership requires a direct by-value sole type"
-                )
-            if frozen.name not in exclusive_type_names:
-                raise Phase1SemanticError(
-                    f"island ownership requires sole type, got {frozen.name!r}"
-                )
-            return OwnershipDomain.ISLAND
-        if frozen.pointer or frozen.is_reference:
-            return None
-        if frozen.name in exclusive_type_names:
-            return OwnershipDomain.EXCLUSIVE
-        return None
-
-    def parameter_domain(type_obj) -> OwnershipDomain | None:
-        frozen = semantic_type(type_obj)
-        if frozen.declared_ownership_domain is OwnershipDomain.DIRECT:
-            if not frozen.pointer or not frozen.is_reference or frozen.mutable:
-                raise Phase1SemanticError(
-                    "direct parameter must be an immutable borrowed reference"
-                )
-            return OwnershipDomain.DIRECT
-        if frozen.declared_ownership_domain is OwnershipDomain.WHISPER:
-            if not frozen.pointer or not frozen.is_reference or frozen.mutable:
-                raise Phase1SemanticError(
-                    "whisper parameter must be an immutable borrowed reference"
-                )
-            return OwnershipDomain.WHISPER
-        return explicit_domain(type_obj)
-
-    def global_domain(type_obj) -> OwnershipDomain | None:
-        domain = explicit_domain(type_obj)
-        if domain is OwnershipDomain.ISLAND:
-            raise Phase1SemanticError(
-                "island ownership is not supported for global storage yet"
-            )
-        return domain
-
-    def class_field_type(type_obj) -> SemanticType:
-        domain = explicit_domain(type_obj)
-        if domain is OwnershipDomain.ISLAND:
-            raise Phase1SemanticError(
-                "island ownership in class fields requires a formal "
-                "ARC/island containment contract"
-            )
-        return semantic_type(type_obj)
-
     return TypedModule(
         name=module.name,
         structs=tuple(
             TypedStruct(
                 name=item.name,
                 fields=tuple(
-                    TypedField(
-                        field.name,
-                        (
-                            explicit_domain(field.type),
-                            semantic_type(field.type),
-                        )[1],
-                    )
+                    TypedField(field.name, semantic_type(field.type))
                     for field in item.fields
                 ),
                 public=bool(item.public),
@@ -6876,7 +4326,6 @@ def build_declaration_typed_ast(module) -> TypedModule:
                 public=bool(item.public),
                 is_const=bool(item.is_const),
                 is_mut=bool(item.is_mut),
-                ownership_domain=global_domain(item.type),
             )
             for item in module.globals
         ),
@@ -6884,17 +4333,12 @@ def build_declaration_typed_ast(module) -> TypedModule:
             TypedFunction(
                 name=item.name,
                 params=tuple(
-                    TypedParam(
-                        name,
-                        semantic_type(type_obj),
-                        parameter_domain(type_obj),
-                    )
+                    TypedParam(name, semantic_type(type_obj))
                     for name, type_obj in item.params
                 ),
                 result=semantic_type(item.result),
                 public=bool(item.public),
                 attributes=tuple(item.attributes),
-                return_ownership_domain=explicit_domain(item.result),
             )
             for item in module.functions
         ),
@@ -6907,10 +4351,7 @@ def build_declaration_typed_ast(module) -> TypedModule:
                         variant.name,
                         variant.value,
                         (
-                            (
-                                explicit_domain(variant.payload_type),
-                                semantic_type(variant.payload_type),
-                            )[1]
+                            semantic_type(variant.payload_type)
                             if getattr(variant, "payload_type", None) is not None
                             else None
                         ),
@@ -6925,24 +4366,19 @@ def build_declaration_typed_ast(module) -> TypedModule:
             TypedClass(
                 name=item.name,
                 fields=tuple(
-                    TypedField(field.name, class_field_type(field.type))
+                    TypedField(field.name, semantic_type(field.type))
                     for field in item.fields
                 ),
                 methods=tuple(
                     TypedFunction(
                         name=method.name,
                         params=tuple(
-                            TypedParam(
-                                name,
-                                semantic_type(type_obj),
-                                parameter_domain(type_obj),
-                            )
+                            TypedParam(name, semantic_type(type_obj))
                             for name, type_obj in method.params
                         ),
                         result=semantic_type(method.result),
                         public=bool(method.public),
                         attributes=tuple(method.attributes),
-                        return_ownership_domain=explicit_domain(method.result),
                     )
                     for method in item.methods
                 ),
@@ -6967,13 +4403,11 @@ __all__ = [
     "OwnershipParamContract", "OwnershipFunctionSummary",
     "OwnershipModuleAnalysis", "OwnershipDomainNode", "OwnershipDomainTransfer",
     "OwnershipDomainMerge", "OwnershipDomainTransition",
-    "SharedOwnershipAccount", "OwnershipDomainGraph", "SharedOwnershipAliasPoint",
-    "OwnershipWhisperBorrow", "validate_whisper_lifetimes",
-    "build_ownership_domain_graph",
+    "SharedOwnershipAccount", "OwnershipDomainGraph", "build_ownership_domain_graph",
     "merge_ownership_bindings", "plan_ownership_domain_transition",
     "open_shared_ownership_account", "retain_shared_owner", "release_shared_owner",
     "SharedOwnershipApplication", "TypedShareExpression",
-    "apply_shared_transition", "apply_shared_alias", "build_typed_share_expression",
+    "apply_shared_transition", "build_typed_share_expression",
     "summarize_module_ownership", "analyze_module_ownership", "TypedExprNode", "TypedStmtNode",
     "TypedFunctionBody", "infer_expression_type",
     "infer_assignment_target_type", "build_linear_typed_body",

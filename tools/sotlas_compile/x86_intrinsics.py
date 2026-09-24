@@ -8,6 +8,7 @@ freestanding mínimos, que o GCC reduz para instruções reais da CPU.
 from __future__ import annotations
 
 _MARKER = "/* SOTLAS_X86_64_PRIVILEGED_INTRINSICS */"
+
 _C_INTRINSICS = r'''
 
 /* SOTLAS_X86_64_PRIVILEGED_INTRINSICS */
@@ -142,75 +143,101 @@ static inline void __lfence(void) {
 /* xchg with a memory operand is implicitly locked on x86 and acts as the
  * full ordering primitive used by Sotlas spinlocks. */
 static inline uint32_t __atomic_exchange_u32(uint64_t address, uint32_t value) {
-    return __atomic_exchange_n((volatile uint32_t *)(uintptr_t)address,
-                               value, __ATOMIC_SEQ_CST);
+    __asm__ __volatile__("xchgl %0,(%1)"
+                         : "+r"(value)
+                         : "r"((uintptr_t)address)
+                         : "memory");
+    return value;
 }
 
 static inline uint64_t __atomic_exchange_u64(uint64_t address, uint64_t value) {
-    return __atomic_exchange_n((volatile uint64_t *)(uintptr_t)address,
-                               value, __ATOMIC_SEQ_CST);
+    __asm__ __volatile__("xchgq %0,(%1)"
+                         : "+r"(value)
+                         : "r"((uintptr_t)address)
+                         : "memory");
+    return value;
 }
 
 /* lock xadd atomically adds value to *address and returns the OLD value. */
 static inline uint64_t __atomic_add_u64(uint64_t address, uint64_t value) {
-    return __atomic_fetch_add((volatile uint64_t *)(uintptr_t)address,
-                              value, __ATOMIC_SEQ_CST);
+    __asm__ __volatile__("lock xaddq %0,(%1)"
+                         : "+r"(value)
+                         : "r"((uintptr_t)address)
+                         : "memory");
+    return value;
 }
 
 static inline uint32_t __atomic_add_u32(uint64_t address, uint32_t value) {
-    return __atomic_fetch_add((volatile uint32_t *)(uintptr_t)address,
-                              value, __ATOMIC_SEQ_CST);
+    __asm__ __volatile__("lock xaddl %0,(%1)"
+                         : "+r"(value)
+                         : "r"((uintptr_t)address)
+                         : "memory");
+    return value;
 }
 
 /* Subtract is add-of-negative; returns the OLD value. */
 static inline uint64_t __atomic_sub_u64(uint64_t address, uint64_t value) {
-    return __atomic_fetch_sub((volatile uint64_t *)(uintptr_t)address,
-                              value, __ATOMIC_SEQ_CST);
+    uint64_t neg = (uint64_t)(-(int64_t)value);
+    __asm__ __volatile__("lock xaddq %0,(%1)"
+                         : "+r"(neg)
+                         : "r"((uintptr_t)address)
+                         : "memory");
+    return neg;
 }
 
 static inline uint32_t __atomic_sub_u32(uint64_t address, uint32_t value) {
-    return __atomic_fetch_sub((volatile uint32_t *)(uintptr_t)address,
-                              value, __ATOMIC_SEQ_CST);
+    uint32_t neg = (uint32_t)(-(int32_t)value);
+    __asm__ __volatile__("lock xaddl %0,(%1)"
+                         : "+r"(neg)
+                         : "r"((uintptr_t)address)
+                         : "memory");
+    return neg;
 }
 
 /* Relaxed atomic load — on x86 TSO, a plain mov is already acquire-like;
  * the compiler barrier prevents reordering at the IR level. */
 static inline uint32_t __atomic_load_u32(uint64_t address) {
-    return __atomic_load_n((volatile uint32_t *)(uintptr_t)address,
-                           __ATOMIC_SEQ_CST);
+    uint32_t value = *(volatile uint32_t *)(uintptr_t)address;
+    __asm__ __volatile__("" : : : "memory");
+    return value;
 }
 
 static inline uint64_t __atomic_load_u64(uint64_t address) {
-    return __atomic_load_n((volatile uint64_t *)(uintptr_t)address,
-                           __ATOMIC_SEQ_CST);
+    uint64_t value = *(volatile uint64_t *)(uintptr_t)address;
+    __asm__ __volatile__("" : : : "memory");
+    return value;
 }
 
 /* Relaxed atomic store — compiler barrier + plain mov. */
 static inline void __atomic_store_u32(uint64_t address, uint32_t value) {
-    __atomic_store_n((volatile uint32_t *)(uintptr_t)address, value,
-                     __ATOMIC_SEQ_CST);
+    __asm__ __volatile__("" : : : "memory");
+    *(volatile uint32_t *)(uintptr_t)address = value;
+    __asm__ __volatile__("" : : : "memory");
 }
 
 static inline void __atomic_store_u64(uint64_t address, uint64_t value) {
-    __atomic_store_n((volatile uint64_t *)(uintptr_t)address, value,
-                     __ATOMIC_SEQ_CST);
+    __asm__ __volatile__("" : : : "memory");
+    *(volatile uint64_t *)(uintptr_t)address = value;
+    __asm__ __volatile__("" : : : "memory");
 }
 
 /* lock cmpxchg — compare-and-swap. Returns the OLD value at address.
  * If old == expected, the swap happened; otherwise it did not. */
 static inline uint64_t __atomic_cmpxchg_u64(uint64_t address, uint64_t expected, uint64_t desired) {
     uint64_t old = expected;
-    __atomic_compare_exchange_n((volatile uint64_t *)(uintptr_t)address,
-                                &old, desired, false,
-                                __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+    __asm__ __volatile__("lock cmpxchgq %2,(%3)"
+                         : "+a"(old)
+                         : "a"(expected), "r"(desired), "r"((uintptr_t)address)
+                         : "memory", "cc");
     return old;
 }
 
 static inline uint32_t __atomic_cmpxchg_u32(uint64_t address, uint32_t expected, uint32_t desired) {
     uint32_t old = expected;
-    __atomic_compare_exchange_n((volatile uint32_t *)(uintptr_t)address,
-                                &old, desired, false,
-                                __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+    __asm__ __volatile__("lock cmpxchgl %2,(%3)"
+                         : "+a"(old)
+                         : "a"(expected), "r"(desired), "r"((uintptr_t)address)
+                         : "memory", "cc");
     return old;
 }
 

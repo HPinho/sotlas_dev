@@ -57,100 +57,12 @@ class CallInst(SIRInstruction):
     arguments: List[SIRValue]
     result: Optional[SIRValue] = None
     is_system: bool = False
-    defer_point_id: str | None = None
 
     def __str__(self) -> str:
         prefix = f"{self.result} = " if self.result else ""
         sys_mark = "@system " if self.is_system else ""
         args_str = ", ".join(str(a) for a in self.arguments)
-        defer_mark = f" // {self.defer_point_id}" if self.defer_point_id else ""
-        return f"  {prefix}{sys_mark}call @{self.callee}({args_str}){defer_mark}"
-
-
-@dataclass
-class OwnershipDomainPointInst(SIRInstruction):
-    operation: str
-    source_name: str
-    destination_name: str | None
-    point_id: str
-
-    def __str__(self) -> str:
-        destination = (
-            f" -> {self.destination_name}"
-            if self.destination_name is not None else ""
-        )
-        return (
-            f"  ownership_point {self.operation} {self.source_name}"
-            f"{destination} // {self.point_id}"
-        )
-
-
-@dataclass
-class OwnershipDomainTransferInst(SIRInstruction):
-    operation: str
-    source: SIRValue
-    source_domain: str
-    target_domain: str
-    destination: Optional[SIRValue] = None
-    point_id: str | None = None
-
-    def __str__(self) -> str:
-        destination = (
-            f" -> {self.destination}" if self.destination is not None else ""
-        )
-        point = f" // {self.point_id}" if self.point_id else ""
-        return (
-            f"  ownership_transfer {self.operation} {self.source}"
-            f"{destination} [{self.source_domain}->{self.target_domain}]"
-            f"{point}"
-        )
-
-
-@dataclass
-class WhisperBorrowInst(SIRInstruction):
-    """Backend-neutral call-scoped borrow fact; has no runtime effect."""
-
-    source: SIRValue
-    callee: str
-    parameter: str
-    source_domain: str
-    point_id: str
-
-    def __str__(self) -> str:
-        return (
-            f"  whisper_borrow {self.source} -> @{self.callee}.{self.parameter}"
-            f" [{self.source_domain}] // {self.point_id}"
-        )
-
-
-@dataclass
-class DirectAccessInst(SIRInstruction):
-    """Backend-neutral, call-scoped direct access fact; no runtime effect."""
-
-    source: SIRValue
-    callee: str
-    parameter: str
-    source_domain: str
-    point_id: str
-
-    def __str__(self) -> str:
-        return (
-            f"  direct_access {self.source} -> @{self.callee}.{self.parameter}"
-            f" [{self.source_domain}] // {self.point_id}"
-        )
-
-
-@dataclass
-class SharedOwnershipPointInst(SIRInstruction):
-    source_name: str
-    alias_name: str
-    point_id: str
-
-    def __str__(self) -> str:
-        return (
-            f"  shared_ownership_point {self.source_name} -> {self.alias_name}"
-            f" // {self.point_id}"
-        )
+        return f"  {prefix}{sys_mark}call @{self.callee}({args_str})"
 
 
 @dataclass
@@ -212,20 +124,6 @@ class CondBranchInst(SIRInstruction):
 
     def __str__(self) -> str:
         return f"  cond_br {self.condition}, bb{self.true_block}, bb{self.false_block}"
-
-
-@dataclass
-class CompareInst(SIRInstruction):
-    operation: str
-    left: SIRValue
-    right: SIRValue
-    result: SIRValue
-
-    def __str__(self) -> str:
-        return (
-            f"  {self.result} = icmp {self.operation} "
-            f"{self.left}, {self.right}"
-        )
 
 
 @dataclass
@@ -340,11 +238,7 @@ class SIRModule:
         self.functions.append(fn)
 
     def dump(self) -> str:
-        lines = [
-            "// SIR PROTOTYPE — NOT THE PRODUCTION LOWERING PATH",
-            "// Function bodies and systems semantics are not yet lowered end to end.",
-            f"// Sotlas Intermediate Representation (SIR) — Módulo {self.name}",
-        ]
+        lines = [f"// Sotlas Intermediate Representation (SIR) — Módulo {self.name}"]
         for fn in self.functions:
             lines.append(str(fn))
         return "\n\n".join(lines)

@@ -3,88 +3,46 @@ import core::mem::*;
 
 @repr(C)
 pub struct ArcHeader {
-    ref_count: u64;
+    ref_count: usize;
     data_size: usize;
 }
 
-@system
 pub fn arc_init(header: *mut ArcHeader, size: usize) {
     if header != null {
         unsafe {
-            __atomic_store_u64((&header.ref_count) as u64, 1);
+            header.ref_count = 1;
             header.data_size = size;
         }
     }
 }
 
-@system
 pub fn arc_retain(header: *mut ArcHeader) -> *mut ArcHeader {
-    if header == null {
-        return null;
-    }
-
-    let mut address: u64 = 0;
-    let mut count: u64 = 0;
-    unsafe {
-        address = (&header.ref_count) as u64;
-        count = __atomic_load_u64(address);
-    }
-    while count > 0 {
-        if count == 18446744073709551615u64 {
-            return null;
-        }
-        let mut observed: u64 = 0;
+    if header != null {
         unsafe {
-            observed = __atomic_cmpxchg_u64(
-                address,
-                count as u64,
-                (count + 1) as u64
-            );
+            header.ref_count = header.ref_count + 1;
         }
-        if observed == count {
-            return header;
-        }
-        count = observed;
     }
-    return null;
+    return header;
 }
 
-@system
 pub fn arc_release(header: *mut ArcHeader) -> bool {
-    if header == null {
-        return false;
-    }
-
-    let mut address: u64 = 0;
-    let mut count: u64 = 0;
-    unsafe {
-        address = (&header.ref_count) as u64;
-        count = __atomic_load_u64(address);
-    }
-    while count > 0 {
-        let mut observed: u64 = 0;
+    if header != null {
         unsafe {
-            observed = __atomic_cmpxchg_u64(
-                address,
-                count as u64,
-                (count - 1) as u64
-            );
+            if header.ref_count > 0 {
+                header.ref_count = header.ref_count - 1;
+            }
+            return header.ref_count == 0;
         }
-        if observed == count {
-            return count == 1;
-        }
-        count = observed;
     }
     return false;
 }
 
-@system
-pub fn arc_count(header: *const ArcHeader) -> u64 {
+pub fn arc_count(header: *const ArcHeader) -> usize {
     if header == null {
         return 0;
     }
     unsafe {
-        return __atomic_load_u64((&header.ref_count) as u64);
+        return header.ref_count;
     }
 }
 
@@ -92,12 +50,9 @@ pub class SharedCounter {
     header: ArcHeader;
     value: u64;
 
-    @system
     pub fn new(initial: u64) -> SharedCounter {
         let mut sc: SharedCounter = 0;
-        unsafe {
-            arc_init((&sc.header) as *mut ArcHeader, 8);
-        }
+        arc_init(&sc.header, 8);
         sc.value = initial;
         return sc;
     }
@@ -119,20 +74,18 @@ pub class SharedCounter {
         }
     }
 
-    @system
     pub fn retain(self: *mut SharedCounter) {
         if self != null {
             unsafe {
-                arc_retain((&self.header) as *mut ArcHeader);
+                arc_retain(&self.header);
             }
         }
     }
 
-    @system
     pub fn release(self: *mut SharedCounter) -> bool {
         if self != null {
             unsafe {
-                return arc_release((&self.header) as *mut ArcHeader);
+                return arc_release(&self.header);
             }
         }
         return false;

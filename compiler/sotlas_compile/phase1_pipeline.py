@@ -9,46 +9,21 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from . import bootstrap
-from .typed_ast import (
-    Phase1ModuleSnapshot,
-    build_phase1_semantic_snapshot,
-)
+from .typed_ast import Phase1ModuleSnapshot, build_phase1_semantic_snapshot
 
 
 @dataclass(frozen=True)
 class Phase1CheckedModule:
     parsed_module: object
     semantic: Phase1ModuleSnapshot
-    ownership_sir: object
 
 
 def analyze_module_phase1(parsed_module) -> Phase1CheckedModule:
-    """Run the canonical checker, semantic snapshot, and ownership SIR bridge."""
-    try:
-        bootstrap.check(parsed_module)
-    except bootstrap.SotlasBootstrapError as error:
-        # The production checker now runs the shared whisper escape validator.
-        # Keep Phase-1 callers' semantic error type stable while preserving the
-        # production diagnostic for the CLI and direct bootstrap API.
-        if "whisper" in error.message:
-            from .typed_ast import Phase1SemanticError
-            raise Phase1SemanticError(error.message) from error
-        raise
-    semantic = build_phase1_semantic_snapshot(parsed_module)
-
-    # Keep the Typed AST package independent from SIR imports. The public
-    # pipeline is the composition boundary between canonical semantic facts
-    # and the backend-neutral intermediate representation.
-    from sotlas.sir import lower_ownership_module_semantics
-
-    ownership_sir = lower_ownership_module_semantics(
-        semantic.ownership,
-        semantic.ownership_domains,
-    )
+    """Run the canonical checker, then the explicit Phase-1 semantic snapshot."""
+    bootstrap.check(parsed_module)
     return Phase1CheckedModule(
         parsed_module=parsed_module,
-        semantic=semantic,
-        ownership_sir=ownership_sir,
+        semantic=build_phase1_semantic_snapshot(parsed_module),
     )
 
 
