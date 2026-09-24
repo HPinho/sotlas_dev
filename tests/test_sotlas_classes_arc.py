@@ -197,6 +197,64 @@ fn main() -> i32 {
         )
         self.assertEqual(executed.returncode, 0, executed.stderr)
 
+    def test_external_owner_is_consumed_once_on_each_exclusive_branch(self):
+        source = ROOT / "bootstrap" / "sotlas" / "test_external_branch_temp.sotlas"
+        executable = ROOT / "build" / "test_external_branch.exe"
+        self.addCleanup(source.unlink, missing_ok=True)
+        self.addCleanup(executable.unlink, missing_ok=True)
+        source.write_text("""module app::external_branch;
+@repr(C) sole struct Token { value: u32; }
+@extern(C) fn release(token: external Token) -> void;
+@system @export fn dispose(token: external Token, flag: bool) -> void {
+    if flag {
+        release(move token);
+        return;
+    } else {
+        release(move token);
+        return;
+    }
+}
+""", encoding="utf-8")
+        bootstrap.emit_c_project(source, self.output_c)
+        self.output_c.write_text(
+            self.output_c.read_text(encoding="utf-8")
+            + "\nstatic uint32_t release_count;\n"
+            + "void release(Token token) { release_count += token.value != 0; }\n"
+            + "int main(void) { Token a = {1}, b = {2}; "
+            + "dispose(a, true); dispose(b, false); "
+            + "return release_count == 2 ? 0 : 1; }\n",
+            encoding="utf-8",
+        )
+        compiler = _host_c_compiler()
+        env = dict(os.environ)
+        env["PATH"] = str(compiler.parent) + os.pathsep + env.get("PATH", "")
+        compiled = subprocess.run(
+            [str(compiler), "-std=c11", "-Wall", "-Wextra", "-Werror",
+             str(self.output_c), "-o", str(executable)],
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(compiled.returncode, 0, compiled.stderr)
+        executed = subprocess.run(
+            [str(executable)], capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(executed.returncode, 0, executed.stderr)
+
+    def test_external_owner_branch_with_unconsumed_exit_is_rejected(self):
+        source = ROOT / "bootstrap" / "sotlas" / "test_external_branch_bad_temp.sotlas"
+        self.addCleanup(source.unlink, missing_ok=True)
+        source.write_text("""module app::external_branch_bad;
+@repr(C) sole struct Token { value: u32; }
+@extern(C) fn release(token: external Token) -> void;
+@system @export fn dispose(token: external Token, flag: bool) -> void {
+    if flag { release(move token); } else { return; }
+}
+""", encoding="utf-8")
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            "C11 external lowering supports only repr\\(C\\) sole owners",
+        ):
+            bootstrap.emit_c_project(source, self.output_c)
+
     def test_direct_parameter_forwarding_runs_without_ownership_bookkeeping(self):
         source = ROOT / "bootstrap" / "sotlas" / "test_direct_forward_temp.sotlas"
         executable = ROOT / "build" / "test_direct_forward.exe"

@@ -3616,6 +3616,63 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
             for function in module.functions
             if "@extern(C)" in function.attributes and not function.body
         }
+
+        def external_sink_count(statement, parameter_name: str) -> int:
+            if type(statement).__name__ != "Expression":
+                return 0
+            call = getattr(statement, "value", None)
+            if (
+                type(call).__name__ != "Call"
+                or getattr(call, "callee", None) not in external_declarations
+            ):
+                return 0
+            count = 0
+            for argument in getattr(call, "args", ()):
+                moved = (
+                    argument.value
+                    if type(argument).__name__ == "MoveExpr"
+                    else argument
+                )
+                if (
+                    type(moved).__name__ == "Name"
+                    and getattr(moved, "value", None) == parameter_name
+                ):
+                    count += 1
+            return count
+
+        def external_sink_paths(statements, incoming, parameter_name):
+            alive = set(incoming)
+            completed: set[int] = set()
+            for statement in statements or ():
+                if not alive:
+                    break
+                kind = type(statement).__name__
+                if kind == "If":
+                    then_alive, then_completed = external_sink_paths(
+                        statement.then_body, alive, parameter_name
+                    )
+                    if statement.else_body:
+                        else_alive, else_completed = external_sink_paths(
+                            statement.else_body, alive, parameter_name
+                        )
+                    else:
+                        else_alive, else_completed = set(alive), set()
+                    alive = then_alive | else_alive
+                    completed.update(then_completed)
+                    completed.update(else_completed)
+                elif kind == "Unsafe":
+                    alive, nested_completed = external_sink_paths(
+                        statement.body, alive, parameter_name
+                    )
+                    completed.update(nested_completed)
+                elif kind == "Return":
+                    completed.update(alive)
+                    alive.clear()
+                else:
+                    count = external_sink_count(statement, parameter_name)
+                    alive = {path_count + count for path_count in alive}
+            return alive, completed
+
         for function in module.functions:
             if "@extern(C)" in function.attributes and function.body and any(
                 _contains_domain(param_type, "external")
@@ -3661,13 +3718,26 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                         and event.source_domain
                         is typed_ast_module.OwnershipDomain.EXTERNAL
                     ]
+                    final_paths, completed_paths = external_sink_paths(
+                        function.body, {0}, name
+                    )
+                    completed_paths.update(final_paths)
+                    path_event_count = sum(
+                        external_sink_count(statement, name)
+                        for statement in _walk_statements_recursive(
+                            function.body
+                        )
+                    )
                     if (
-                        len(sinks) != 1
-                        or trace.final_env.state_of(name)
-                        is not typed_ast_module.VarState.MOVED
-                        or not sinks[0].via.startswith("call:")
-                        or sinks[0].via.removeprefix("call:")
-                        not in external_declarations
+                        not sinks
+                        or len(sinks) != path_event_count
+                        or completed_paths != {1}
+                        or any(
+                            not event.via.startswith("call:")
+                            or event.via.removeprefix("call:")
+                            not in external_declarations
+                            for event in sinks
+                        )
                     ):
                         raise SotlasBootstrapError(
                             external_error, 1, 1,
