@@ -37,6 +37,50 @@ class RegionCallSIRBridge:
     sites: tuple[RegionCallSIRSite, ...]
 
 
+def _validate_call_site_structure(sites: tuple[RegionCallSIRSite, ...]) -> None:
+    groups: dict[tuple[str, str], list[RegionCallSIRSite]] = {}
+    group_order: list[tuple[str, str]] = []
+    for site in sites:
+        key = (site.function, site.point_id)
+        if key not in groups:
+            groups[key] = []
+            group_order.append(key)
+        groups[key].append(site)
+
+    locations: dict[tuple[str, str], tuple[str, int]] = {}
+    for key in group_order:
+        group = groups[key]
+        call_locations = {
+            (item.block, item.instruction_index, item.callee) for item in group
+        }
+        if len(call_locations) != 1:
+            raise RegionCallSIRError(
+                f"REGION call point {key[0]}::{key[1]} maps to multiple SIR calls"
+            )
+        if len({item.argument_index for item in group}) != len(group):
+            raise RegionCallSIRError(
+                f"REGION call point {key[0]}::{key[1]} reuses one SIR argument position"
+            )
+        if len({item.parameter for item in group}) != len(group):
+            raise RegionCallSIRError(
+                f"REGION call point {key[0]}::{key[1]} reuses one parameter identity"
+            )
+        block, instruction_index, _ = next(iter(call_locations))
+        locations[key] = (block, instruction_index)
+
+    last_by_block: dict[tuple[str, str], int] = {}
+    for key in group_order:
+        block, instruction_index = locations[key]
+        block_key = (key[0], block)
+        previous = last_by_block.get(block_key)
+        if previous is not None and instruction_index <= previous:
+            raise RegionCallSIRError(
+                f"REGION call source order diverges from SIR order in "
+                f"{key[0]!r} block {block!r}"
+            )
+        last_by_block[block_key] = instruction_index
+
+
 def validate_region_call_sir(
     call_plan: RegionCallLifetimePlan,
     sir_module: object,
@@ -116,7 +160,9 @@ def validate_region_call_sir(
     if len(set(semantic_identities)) != len(semantic_identities):
         raise RegionCallSIRError("duplicate REGION call/SIR semantic identity")
 
-    return RegionCallSIRBridge(tuple(sites))
+    frozen_sites = tuple(sites)
+    _validate_call_site_structure(frozen_sites)
+    return RegionCallSIRBridge(frozen_sites)
 
 
 __all__ = [
