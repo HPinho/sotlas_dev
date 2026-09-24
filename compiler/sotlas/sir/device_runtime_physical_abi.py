@@ -16,6 +16,7 @@ from enum import Enum
 from typing import Any, Iterable
 
 from .device_runtime_lowering import (
+    CANONICAL_DEVICE_RUNTIME_SIGNATURES,
     DeviceRuntimeABIValueRole,
     DeviceRuntimeLoweringPlan,
     DeviceRuntimeLoweringRequirement,
@@ -101,15 +102,22 @@ def bind_device_runtime_physical_abi(
     contract: DeviceRuntimePhysicalABIContract,
 ) -> BoundDeviceRuntimePhysicalABIPlan:
     """Validate one backend's physical ABI without emitting executable calls."""
-    abi_name = _required_text(
-        getattr(contract, "abi_name", None), label="DEVICE physical ABI name"
-    )
+    if not isinstance(logical_plan, DeviceRuntimeLoweringPlan):
+        raise DeviceRuntimePhysicalABIError(
+            "DEVICE physical ABI requires a validated logical lowering plan"
+        )
+    if not isinstance(contract, DeviceRuntimePhysicalABIContract):
+        raise DeviceRuntimePhysicalABIError(
+            "DEVICE physical ABI requires a concrete contract declaration"
+        )
+
+    abi_name = _required_text(contract.abi_name, label="DEVICE physical ABI name")
     if abi_name != logical_plan.abi_name:
         raise DeviceRuntimePhysicalABIError(
             "DEVICE physical ABI name diverges from the logical runtime ABI"
         )
 
-    abi_version = getattr(contract, "abi_version", None)
+    abi_version = contract.abi_version
     if (
         not isinstance(abi_version, int)
         or isinstance(abi_version, bool)
@@ -123,20 +131,48 @@ def bind_device_runtime_physical_abi(
             "DEVICE physical ABI version diverges from the logical runtime ABI"
         )
 
-    backend = _required_text(
-        getattr(contract, "backend", None), label="DEVICE physical ABI backend"
-    )
+    backend = _required_text(contract.backend, label="DEVICE physical ABI backend")
     calling_convention = _required_text(
-        getattr(contract, "calling_convention", None),
+        contract.calling_convention,
         label="DEVICE physical ABI calling convention",
     )
     logical_calls = _materialize(
-        getattr(logical_plan, "calls", ()) or (), label="DEVICE logical lowering calls"
+        logical_plan.calls, label="DEVICE logical lowering calls"
     )
-    physical_operations = _materialize(
-        getattr(contract, "operations", ()) or (), label="DEVICE physical ABI operations"
-    )
+    for logical_call in logical_calls:
+        if not isinstance(logical_call, DeviceRuntimeLoweringRequirement):
+            raise DeviceRuntimePhysicalABIError(
+                "DEVICE logical lowering plan contains an invalid call requirement"
+            )
+        operation = _required_text(
+            logical_call.operation, label="DEVICE logical lowering operation"
+        )
+        canonical = CANONICAL_DEVICE_RUNTIME_SIGNATURES.get(operation)
+        if canonical is None:
+            raise DeviceRuntimePhysicalABIError(
+                f"DEVICE logical lowering contains unsupported operation {operation!r}"
+            )
+        if logical_call.signature != canonical:
+            raise DeviceRuntimePhysicalABIError(
+                f"DEVICE logical {operation} signature diverges from canonical ABI"
+            )
+        _required_text(
+            logical_call.point_id, label="DEVICE logical lowering lifecycle point"
+        )
+        _required_text(
+            logical_call.symbol, label="DEVICE logical lowering runtime symbol"
+        )
 
+    logical_operations = {call.operation for call in logical_calls}
+    canonical_operations = set(CANONICAL_DEVICE_RUNTIME_SIGNATURES)
+    if logical_operations != canonical_operations:
+        raise DeviceRuntimePhysicalABIError(
+            "DEVICE logical lowering plan does not cover the canonical operation set"
+        )
+
+    physical_operations = _materialize(
+        contract.operations, label="DEVICE physical ABI operations"
+    )
     operation_map: dict[str, DeviceRuntimePhysicalOperationABI] = {}
     for physical in physical_operations:
         if not isinstance(physical, DeviceRuntimePhysicalOperationABI):
@@ -152,7 +188,6 @@ def bind_device_runtime_physical_abi(
             )
         operation_map[operation] = physical
 
-    logical_operations = {call.operation for call in logical_calls}
     if set(operation_map) != logical_operations:
         missing = sorted(logical_operations - set(operation_map))
         extra = sorted(set(operation_map) - logical_operations)
@@ -167,38 +202,38 @@ def bind_device_runtime_physical_abi(
         )
 
     for operation, physical in operation_map.items():
-        logical_for_operation = next(
-            call for call in logical_calls if call.operation == operation
-        )
-        signature = logical_for_operation.signature
+        signature = CANONICAL_DEVICE_RUNTIME_SIGNATURES[operation]
 
         parameters = tuple(physical.parameters)
-        parameter_roles = tuple(parameter.role for parameter in parameters)
-        if parameter_roles != signature.parameters:
-            raise DeviceRuntimePhysicalABIError(
-                f"DEVICE physical {operation} parameter roles diverge from logical ABI"
-            )
         for parameter in parameters:
             if not isinstance(parameter, DeviceRuntimePhysicalParameter):
                 raise DeviceRuntimePhysicalABIError(
                     f"DEVICE physical {operation} contains an invalid parameter"
                 )
+            if not isinstance(parameter.role, DeviceRuntimeABIValueRole):
+                raise DeviceRuntimePhysicalABIError(
+                    f"DEVICE physical {operation} parameter has invalid role"
+                )
             _required_text(
                 parameter.type_name,
                 label=f"DEVICE physical {operation} parameter type",
             )
+        parameter_roles = tuple(parameter.role for parameter in parameters)
+        if parameter_roles != signature.parameters:
+            raise DeviceRuntimePhysicalABIError(
+                f"DEVICE physical {operation} parameter roles diverge from logical ABI"
+            )
 
         results = tuple(physical.results)
-        result_roles = tuple(result.role for result in results)
-        if result_roles != signature.results:
-            raise DeviceRuntimePhysicalABIError(
-                f"DEVICE physical {operation} result roles diverge from logical ABI"
-            )
         return_value_count = 0
         for result in results:
             if not isinstance(result, DeviceRuntimePhysicalResult):
                 raise DeviceRuntimePhysicalABIError(
                     f"DEVICE physical {operation} contains an invalid result"
+                )
+            if not isinstance(result.role, DeviceRuntimeABIValueRole):
+                raise DeviceRuntimePhysicalABIError(
+                    f"DEVICE physical {operation} result has invalid role"
                 )
             _required_text(
                 result.type_name,
@@ -210,6 +245,11 @@ def bind_device_runtime_physical_abi(
                 )
             if result.transport is DeviceRuntimeResultTransport.RETURN_VALUE:
                 return_value_count += 1
+        result_roles = tuple(result.role for result in results)
+        if result_roles != signature.results:
+            raise DeviceRuntimePhysicalABIError(
+                f"DEVICE physical {operation} result roles diverge from logical ABI"
+            )
         if return_value_count > 1:
             raise DeviceRuntimePhysicalABIError(
                 f"DEVICE physical {operation} cannot have multiple direct return values"
