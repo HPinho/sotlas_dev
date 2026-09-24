@@ -8,6 +8,7 @@ execution.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from .device_lifecycle import (
     DeviceLifecycleSemanticPlan,
@@ -56,6 +57,7 @@ def plan_device_runtime_from_graph(
     function: str,
     queue: str,
     points: DeviceLifecycleSourcePoints,
+    coexecution_certificate: Any = None,
 ) -> DeviceFrontendRuntimePlan:
     """Derive one exact runtime DAG from frontend canonical ownership facts."""
     lifecycle = plan_device_lifecycle_from_graph(
@@ -63,6 +65,7 @@ def plan_device_runtime_from_graph(
         function=function,
         queue=queue,
         points=points,
+        coexecution_certificate=coexecution_certificate,
     )
     runtime = plan_device_runtime_requirements(
         lifecycle.completed_tokens,
