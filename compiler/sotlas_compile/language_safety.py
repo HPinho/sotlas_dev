@@ -503,19 +503,45 @@ class _StrictSafetyChecker:
 
         branch_paths: dict[int, tuple[tuple[int, int], ...]] = {}
 
+        def returns_on_all_paths(items) -> bool:
+            for statement in items or ():
+                if isinstance(statement, b.Return):
+                    return True
+                if isinstance(statement, b.If) and (
+                    returns_on_all_paths(statement.then_body)
+                    and returns_on_all_paths(statement.else_body)
+                ):
+                    return True
+            return False
+
         def record_paths(items, path=()):
+            continuation = path
             for statement in items:
-                branch_paths[id(statement)] = path
+                branch_paths[id(statement)] = continuation
                 if isinstance(statement, b.If):
-                    record_paths(statement.then_body, path + ((id(statement), 0),))
-                    record_paths(statement.else_body, path + ((id(statement), 1),))
+                    record_paths(
+                        statement.then_body,
+                        continuation + ((id(statement), 0),),
+                    )
+                    record_paths(
+                        statement.else_body,
+                        continuation + ((id(statement), 1),),
+                    )
+                    then_returns = returns_on_all_paths(statement.then_body)
+                    else_returns = returns_on_all_paths(statement.else_body)
+                    if then_returns != else_returns:
+                        continuation += ((
+                            id(statement), 1 if then_returns else 0
+                        ),)
                 else:
                     nested = {
                         b.While: ("body",), b.For: ("body",), b.Loop: ("body",),
                         b.Unsafe: ("body",), b.Defer: ("body",),
                     }.get(type(statement), ())
                     for attr in nested:
-                        record_paths(getattr(statement, attr, ()) or (), path)
+                        record_paths(
+                            getattr(statement, attr, ()) or (), continuation
+                        )
 
         record_paths(function.body)
         statements = sorted(

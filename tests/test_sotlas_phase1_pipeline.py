@@ -937,6 +937,22 @@ fn isolate(token: Token, should_isolate: bool) -> void {
             source, filename="<quarantine-disjoint-branches>"
         )
 
+    def test_quarantine_returning_branch_preserves_alias_on_continuation(self):
+        source = """module test::quarantine_returning_branch;
+sole struct Token { value: u32; }
+fn isolate(token: Token, should_isolate: bool) -> u32 {
+    let alias = &token;
+    if should_isolate {
+        quarantine token;
+        return 0u32;
+    }
+    unsafe { return alias.value; }
+}
+"""
+        sotlas_compile.compile_source(
+            source, filename="<quarantine-returning-branch>"
+        )
+
     def test_quarantine_in_conditional_branch_still_invalidates_alias_after_join(self):
         source = """module test::quarantine_branch_join;
 sole struct Token { value: u32; }

@@ -2539,6 +2539,51 @@ fn main() -> i32 {
         )
         self.assertEqual(executed.returncode, 0, executed.stderr)
 
+    def test_quarantine_returning_branch_keeps_continuation_alias_live(self):
+        source = """module app::quarantine_returning_branch_runtime;
+sole struct Token { value: u32; }
+static mut destroy_count: u32 = 0;
+fn Token_deinit(self: *mut Token) {
+    unsafe { destroy_count = destroy_count + 1; }
+}
+fn isolate(token: Token, should_isolate: bool) -> u32 {
+    let alias = &token;
+    if should_isolate {
+        quarantine token;
+        return 0u32;
+    }
+    unsafe { return alias.value; }
+}
+fn main() -> i32 {
+    let first = Token { value: 73u32 };
+    let second = Token { value: 41u32 };
+    let quarantined = isolate(move first, true);
+    let borrowed = isolate(move second, false);
+    if quarantined == 0u32 && borrowed == 41u32
+        && destroy_count == 2u32 { return 0; }
+    return 1;
+}
+"""
+        source_file = ROOT / "bootstrap" / "sotlas" / "test_quarantine_returning_temp.sotlas"
+        executable = self.output_c.with_suffix(".exe")
+        self.addCleanup(source_file.unlink, missing_ok=True)
+        self.addCleanup(executable.unlink, missing_ok=True)
+        source_file.write_text(source, encoding="utf-8")
+        bootstrap.emit_c_project(source_file, self.output_c)
+        compiler = _host_c_compiler()
+        env = dict(os.environ)
+        env["PATH"] = str(compiler.parent) + os.pathsep + env.get("PATH", "")
+        compiled = subprocess.run(
+            [str(compiler), "-std=c11", "-Wall", "-Wextra", "-Werror",
+             str(self.output_c), "-o", str(executable)],
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(compiled.returncode, 0, compiled.stderr)
+        executed = subprocess.run(
+            [str(executable)], capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(executed.returncode, 0, executed.stderr)
+
     def test_region_reference_alias_cannot_escape_to_global_storage(self):
         source = """module app::region_global_escape;
 sole struct Token { value: u32; }
