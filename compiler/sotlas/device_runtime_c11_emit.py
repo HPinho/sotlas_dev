@@ -42,6 +42,7 @@ class C11DeviceRuntimeEmissionPlan:
     abi_version: int
     function: str
     queue: str
+    point_ids: tuple[str, ...]
     declaration_source: str
     storage_declarations: tuple[str, ...]
     call_statements: tuple[str, ...]
@@ -164,11 +165,18 @@ def emit_reference_c11_device_runtime_calls(
                 "DEVICE C11 host result identifiers are outside the safe subset"
             )
 
+    point_ids = tuple(call.point_id for call in materialized.calls)
+    if point_ids != declarations.point_ids:
+        raise DeviceRuntimeC11EmissionError(
+            "DEVICE C11 emission lost source-stable lifecycle point identities"
+        )
+
     return C11DeviceRuntimeEmissionPlan(
         abi_name=materialized.abi_name,
         abi_version=materialized.abi_version,
         function=materialized.function,
         queue=materialized.queue,
+        point_ids=point_ids,
         declaration_source=declarations.render_declarations(),
         storage_declarations=materialized.storage_declarations,
         call_statements=tuple(statements),
