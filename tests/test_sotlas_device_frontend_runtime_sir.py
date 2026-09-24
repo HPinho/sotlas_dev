@@ -67,36 +67,31 @@ lower_device_frontend_runtime_to_sir = frontend_sir.lower_device_frontend_runtim
 TOKEN = SemanticType("Token")
 
 
-def _submission(binding: str, point_id: str):
-    return OwnershipDomainTransition(
-        binding=binding,
-        type=TOKEN,
-        source=OwnershipDomain.EXCLUSIVE,
-        target=OwnershipDomain.DEVICE,
-        source_state=VarState.LIVE,
-        operation="handover",
-        function="submit_pair",
-        point_id=point_id,
-    )
-
-
 def _frontend_plan():
     graph = OwnershipDomainGraph(
         nodes=(),
         transfers=(),
         planned_transitions=(
-            _submission("left", "handover@3:5"),
-            _submission("right", "handover@4:5"),
+            OwnershipDomainTransition(
+                binding="buffer",
+                type=TOKEN,
+                source=OwnershipDomain.EXCLUSIVE,
+                target=OwnershipDomain.DEVICE,
+                source_state=VarState.LIVE,
+                operation="handover",
+                function="submit_one",
+                point_id="handover@3:5",
+            ),
         ),
     )
     return runtime_semantics.plan_device_runtime_from_graph(
         graph,
-        function="submit_pair",
+        function="submit_one",
         queue="queue0",
         points=DeviceLifecycleSourcePoints(
-            completion_point_ids=("completion@8:1", "completion@8:2"),
+            completion_point_ids=("completion@8:1",),
             synchronization_point_id="sync@10:1",
-            reacquisition_point_ids=("reacquire@11:1", "reacquire@11:2"),
+            reacquisition_point_ids=("reacquire@11:1",),
         ),
     )
 
@@ -104,14 +99,9 @@ def _frontend_plan():
 def _values():
     return (
         DeviceRuntimeSIRValueBinding(
-            "left",
-            sir.SIRValue("device_left", "Token"),
-            sir.SIRValue("host_left", "Token"),
-        ),
-        DeviceRuntimeSIRValueBinding(
-            "right",
-            sir.SIRValue("device_right", "Token"),
-            sir.SIRValue("host_right", "Token"),
+            "buffer",
+            sir.SIRValue("device_buffer", "Token"),
+            sir.SIRValue("host_buffer", "Token"),
         ),
     )
 
@@ -119,94 +109,65 @@ def _values():
 class SotlasDeviceFrontendRuntimeSIRTests(unittest.TestCase):
     def test_graph_derived_runtime_plan_lowers_to_exact_sir_lifecycle(self):
         plan = lower_device_frontend_runtime_to_sir(_frontend_plan(), _values())
-
-        self.assertEqual(plan.bindings, ("left", "right"))
+        self.assertEqual(plan.bindings, ("buffer",))
         self.assertEqual(
             plan.point_ids,
             (
                 "handover@3:5",
-                "handover@4:5",
                 "completion@8:1",
-                "completion@8:2",
                 "sync@10:1",
                 "reacquire@11:1",
-                "reacquire@11:2",
             ),
         )
-        self.assertEqual(len(plan.sir.instructions), 5)
-        self.assertTrue(
-            all(
-                isinstance(inst, device_sir.DeviceCompletionInst)
-                for inst in plan.sir.instructions[:2]
-            )
-        )
-        self.assertIsInstance(
-            plan.sir.instructions[2], device_sync_sir.DeviceSyncFenceInst
-        )
-        self.assertTrue(
-            all(
-                isinstance(inst, device_sir.DeviceReacquisitionInst)
-                for inst in plan.sir.instructions[3:]
-            )
-        )
+        self.assertEqual(len(plan.sir.instructions), 3)
+        self.assertIsInstance(plan.sir.instructions[0], device_sir.DeviceCompletionInst)
+        self.assertIsInstance(plan.sir.instructions[1], device_sync_sir.DeviceSyncFenceInst)
+        self.assertIsInstance(plan.sir.instructions[2], device_sir.DeviceReacquisitionInst)
         self.assertEqual(
             plan.bridge.sir_point_ids,
-            (
-                "completion@8:1",
-                "completion@8:2",
-                "sync@10:1",
-                "reacquire@11:1",
-                "reacquire@11:2",
-            ),
+            ("completion@8:1", "sync@10:1", "reacquire@11:1"),
         )
 
-    def test_bridge_rejects_semantic_binding_reordering(self):
-        values = _values()
+    def test_bridge_rejects_semantic_binding_mismatch(self):
+        values = (
+            DeviceRuntimeSIRValueBinding(
+                "other",
+                sir.SIRValue("device_buffer", "Token"),
+                sir.SIRValue("host_buffer", "Token"),
+            ),
+        )
         with self.assertRaisesRegex(
             DeviceFrontendRuntimeSIRError, "mapping order diverges"
         ):
-            lower_device_frontend_runtime_to_sir(
-                _frontend_plan(), tuple(reversed(values))
-            )
+            lower_device_frontend_runtime_to_sir(_frontend_plan(), values)
 
-    def test_bridge_requires_one_mapping_per_owner(self):
+    def test_bridge_requires_exactly_one_mapping_per_owner(self):
+        with self.assertRaisesRegex(
+            DeviceFrontendRuntimeSIRError, "at least one owner mapping"
+        ):
+            lower_device_frontend_runtime_to_sir(_frontend_plan(), ())
+        extra = _values() + (
+            DeviceRuntimeSIRValueBinding(
+                "extra",
+                sir.SIRValue("device_extra", "Token"),
+                sir.SIRValue("host_extra", "Token"),
+            ),
+        )
         with self.assertRaisesRegex(
             DeviceFrontendRuntimeSIRError, "one value mapping per owner"
         ):
-            lower_device_frontend_runtime_to_sir(_frontend_plan(), _values()[:1])
+            lower_device_frontend_runtime_to_sir(_frontend_plan(), extra)
 
     def test_bridge_rejects_same_source_and_destination_value(self):
-        values = list(_values())
-        values[0] = DeviceRuntimeSIRValueBinding(
-            "left",
-            sir.SIRValue("same", "Token"),
-            sir.SIRValue("same", "Token"),
+        values = (
+            DeviceRuntimeSIRValueBinding(
+                "buffer",
+                sir.SIRValue("same", "Token"),
+                sir.SIRValue("same", "Token"),
+            ),
         )
         with self.assertRaisesRegex(
             DeviceFrontendRuntimeSIRError, "source and destination must be distinct"
-        ):
-            lower_device_frontend_runtime_to_sir(_frontend_plan(), values)
-
-    def test_bridge_rejects_duplicate_source_or_destination_values(self):
-        values = list(_values())
-        values[1] = DeviceRuntimeSIRValueBinding(
-            "right",
-            sir.SIRValue("device_left", "Token"),
-            sir.SIRValue("host_right", "Token"),
-        )
-        with self.assertRaisesRegex(
-            DeviceFrontendRuntimeSIRError, "source values must be unique"
-        ):
-            lower_device_frontend_runtime_to_sir(_frontend_plan(), values)
-
-        values = list(_values())
-        values[1] = DeviceRuntimeSIRValueBinding(
-            "right",
-            sir.SIRValue("device_right", "Token"),
-            sir.SIRValue("host_left", "Token"),
-        )
-        with self.assertRaisesRegex(
-            DeviceFrontendRuntimeSIRError, "destination values must be unique"
         ):
             lower_device_frontend_runtime_to_sir(_frontend_plan(), values)
 
