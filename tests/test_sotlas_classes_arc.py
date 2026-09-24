@@ -2588,6 +2588,23 @@ fn store() -> void {
         ):
             bootstrap.compile_source(source)
 
+    def test_region_reference_cannot_escape_through_raw_pointer_call(self):
+        source = """module app::region_raw_call_escape;
+sole struct Token { value: u32; }
+fn observe(pointer: *const Token) -> void { return; }
+fn call() -> void {
+    let token: region Token = Token { value: 3u32 };
+    let alias = &token;
+    unsafe { observe(alias as *const Token); }
+    return;
+}
+"""
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            "reference to region owner 'token' cannot escape through an opaque call",
+        ):
+            bootstrap.compile_source(source)
+
     def test_region_drop_walks_through_plain_wrappers(self):
         source = """module app::region_wrapper_runtime;
 sole struct Token { value: u32; }

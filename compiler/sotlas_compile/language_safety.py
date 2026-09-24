@@ -383,6 +383,14 @@ class _StrictSafetyChecker:
                 for argument in call_arguments(child)
             )
 
+        def direct_calls(expr):
+            if expr is None:
+                return
+            if isinstance(expr, b.Call):
+                yield expr
+            for child in children(expr):
+                yield from direct_calls(child)
+
         def alias_sources(expr) -> set[str]:
             if expr is None:
                 return set()
@@ -588,6 +596,30 @@ class _StrictSafetyChecker:
                     )
 
             for expr in exprs:
+                for call in direct_calls(expr):
+                    callee = self.functions.get(call.callee)
+                    params = tuple(getattr(callee, "params", ()) or ())
+                    for index, argument in enumerate(call.args):
+                        borrowed_region = alias_sources(argument).intersection(
+                            region_owners
+                        )
+                        if not borrowed_region:
+                            continue
+                        parameter_type = (
+                            params[index][1]
+                            if index < len(params)
+                            and isinstance(params[index], tuple)
+                            and len(params[index]) == 2
+                            else None
+                        )
+                        if getattr(parameter_type, "ownership_domain", None) not in (
+                            "direct", "whisper"
+                        ):
+                            owner = sorted(borrowed_region)[0]
+                            self.error(
+                                f"reference to region owner {owner!r} cannot escape through an opaque call",
+                                call.token,
+                            )
                 for argument in call_arguments(expr):
                     for name in expr_names(argument):
                         escaped = aliases.get(name, ())
