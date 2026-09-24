@@ -1,4 +1,5 @@
 """Path-sensitive REGION lifetime certification against the real Phase-1 CFG."""
+from dataclasses import replace
 import importlib
 import importlib.util
 from pathlib import Path
@@ -147,6 +148,36 @@ class SotlasRegionLifetimeCFGTests(unittest.TestCase):
         ):
             region_cfg.certify_region_lifetime_cfg(
                 lifetime,
+                checked_sir.module,
+            )
+
+    def test_tampered_duplicate_lifetime_point_is_rejected_before_cfg_scan(self):
+        checked = package.analyze_source_phase1(
+            SEQUENTIAL,
+            filename="<region-cfg-duplicate-point>",
+        )
+        lifetime = frontend.plan_checked_region_lifetime(
+            checked,
+            function="run",
+        )
+        handover_point = next(
+            item.point_id
+            for item in lifetime.transfers
+            if item.via == "handover"
+        )
+        borrow = lifetime.borrows[0]
+        tampered = replace(
+            lifetime,
+            borrows=(replace(borrow, point_id=handover_point),),
+        )
+        checked_sir = sir.generate_checked_ownership_sir(checked)
+
+        with self.assertRaisesRegex(
+            region_cfg.RegionLifetimeCFGError,
+            r"duplicate REGION lifetime point identity",
+        ):
+            region_cfg.certify_region_lifetime_cfg(
+                tampered,
                 checked_sir.module,
             )
 
