@@ -206,7 +206,13 @@ def certify_device_submission_coexecution(
         _reject_cycles(successors)
 
     combined_path: list[str] = [locations[0].block]
-    for previous, current in zip(locations, locations[1:], strict=True):
+    # Adjacent-pair iteration intentionally uses indexes rather than
+    # ``zip(..., strict=True)``: the two slices have lengths N and N-1 by
+    # construction, so strict zip would reject every valid multi-submission
+    # certificate before checking the CFG.
+    for index in range(len(locations) - 1):
+        previous = locations[index]
+        current = locations[index + 1]
         if previous.block == current.block:
             if previous.instruction_index >= current.instruction_index:
                 raise DeviceCoexecutionError(
