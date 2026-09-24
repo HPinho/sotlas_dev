@@ -44,7 +44,33 @@ class RegionInterproceduralCallPathSummary:
     point_ids: tuple[str, ...]
     ordered_relations: tuple[RegionCallCFGRelation, ...]
     path_disjoint_relations: tuple[RegionCallCFGRelation, ...]
+    root_point_ids: tuple[str, ...]
     terminal_point_ids: tuple[str, ...]
+
+    def _require_point(self, point_id: str) -> None:
+        if point_id not in self.point_ids:
+            raise RegionInterproceduralLifetimeError(
+                f"REGION interprocedural call summary requires known call point "
+                f"{self.function}::{point_id}"
+            )
+
+    def ordered_successors(self, point_id: str) -> tuple[str, ...]:
+        """Return all certified ordered successors of one call site."""
+        self._require_point(point_id)
+        return tuple(
+            item.second_point_id
+            for item in self.ordered_relations
+            if item.first_point_id == point_id
+        )
+
+    def ordered_predecessors(self, point_id: str) -> tuple[str, ...]:
+        """Return all certified ordered predecessors of one call site."""
+        self._require_point(point_id)
+        return tuple(
+            item.first_point_id
+            for item in self.ordered_relations
+            if item.second_point_id == point_id
+        )
 
 
 @dataclass(frozen=True)
@@ -113,7 +139,7 @@ class RegionInterproceduralLifetimePlan:
         return matches[0]
 
     def call_path_summary(self, function: str) -> RegionInterproceduralCallPathSummary:
-        """Summarize certified call sites, path relations and terminal call points."""
+        """Summarize certified call sites, path relations and call-graph boundaries."""
         points = self.call_points(function)
         relations = self.call_relations(function)
         point_ids = tuple(item.point_id for item in points)
@@ -143,6 +169,10 @@ class RegionInterproceduralLifetimePlan:
                 )
 
         ordered_sources = {item.first_point_id for item in ordered}
+        ordered_targets = {item.second_point_id for item in ordered}
+        root_point_ids = tuple(
+            point_id for point_id in point_ids if point_id not in ordered_targets
+        )
         terminal_point_ids = tuple(
             point_id for point_id in point_ids if point_id not in ordered_sources
         )
@@ -151,6 +181,7 @@ class RegionInterproceduralLifetimePlan:
             point_ids=point_ids,
             ordered_relations=tuple(ordered),
             path_disjoint_relations=tuple(disjoint),
+            root_point_ids=root_point_ids,
             terminal_point_ids=terminal_point_ids,
         )
 

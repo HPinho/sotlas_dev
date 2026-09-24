@@ -97,11 +97,18 @@ class SotlasRegionInterproceduralLifetimeTests(unittest.TestCase):
         self.assertEqual(resolved_relation.relation, "ordered_path")
 
         summary = plan.call_path_summary("run")
+        first_call = run.calls[0].point_id
+        second_call = run.calls[1].point_id
         self.assertEqual(summary.function, "run")
-        self.assertEqual(summary.point_ids, tuple(item.point_id for item in run.calls))
+        self.assertEqual(summary.point_ids, (first_call, second_call))
         self.assertEqual(summary.ordered_relations, (relation,))
         self.assertEqual(summary.path_disjoint_relations, ())
-        self.assertEqual(summary.terminal_point_ids, (run.calls[1].point_id,))
+        self.assertEqual(summary.root_point_ids, (first_call,))
+        self.assertEqual(summary.terminal_point_ids, (second_call,))
+        self.assertEqual(summary.ordered_successors(first_call), (second_call,))
+        self.assertEqual(summary.ordered_successors(second_call), ())
+        self.assertEqual(summary.ordered_predecessors(first_call), ())
+        self.assertEqual(summary.ordered_predecessors(second_call), (first_call,))
 
         passed = plan.function("pass")
         self.assertEqual(
@@ -129,6 +136,7 @@ class SotlasRegionInterproceduralLifetimeTests(unittest.TestCase):
         self.assertEqual(summary.point_ids, ())
         self.assertEqual(summary.ordered_relations, ())
         self.assertEqual(summary.path_disjoint_relations, ())
+        self.assertEqual(summary.root_point_ids, ())
         self.assertEqual(summary.terminal_point_ids, ())
 
     def test_missing_call_point_and_relation_fail_closed(self):
@@ -153,6 +161,18 @@ class SotlasRegionInterproceduralLifetimeTests(unittest.TestCase):
                 run.calls[1].point_id,
                 run.calls[0].point_id,
             )
+
+        summary = plan.call_path_summary("run")
+        with self.assertRaisesRegex(
+            interprocedural.RegionInterproceduralLifetimeError,
+            "known call point",
+        ):
+            summary.ordered_successors("call@missing")
+        with self.assertRaisesRegex(
+            interprocedural.RegionInterproceduralLifetimeError,
+            "known call point",
+        ):
+            summary.ordered_predecessors("call@missing")
 
     def test_call_path_summary_rejects_unknown_relation_kind(self):
         checked = package.analyze_source_phase1(
