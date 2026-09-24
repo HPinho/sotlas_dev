@@ -1,5 +1,6 @@
 """Testes unitários para o Sotlas Intermediate Representation (SIR)."""
 from pathlib import Path
+import importlib.util
 import sys
 import unittest
 from types import SimpleNamespace
@@ -3048,6 +3049,42 @@ pub fn choose(flag: bool, yes: u32, no: u32) -> u32 {
         terminal = fn.blocks[0].instructions[-1]
         self.assertIsInstance(terminal, ReturnInst)
         self.assertIsNone(terminal.point_id)
+
+    def test_invalid_branch_borrow_does_not_leave_partial_cfg(self):
+        source = """module test::invalid_branch_borrow;
+sole struct Token { value: u32; }
+fn inspect(token: direct Token) -> void { return; }
+fn route(flag: bool, count: u32) -> void {
+    if flag { inspect(&count); return; }
+    else { return; }
+}
+"""
+        package_dir = ROOT / "compiler" / "sotlas_compile"
+        package_name = "_sotlas_compile_sir_branch_probe"
+        spec = importlib.util.spec_from_file_location(
+            package_name,
+            package_dir / "__init__.py",
+            submodule_search_locations=[str(package_dir)],
+        )
+        assert spec is not None and spec.loader is not None
+        production = sys.modules.get(package_name)
+        if production is None:
+            production = importlib.util.module_from_spec(spec)
+            sys.modules[package_name] = production
+            spec.loader.exec_module(production)
+        parsed = production.bootstrap.parse(
+            source, filename="<invalid-branch-borrow>"
+        )
+        generated = SIRGenerator().generate_from_ast(parsed)
+        function = next(
+            item for item in generated.functions if item.name == "route"
+        )
+        self.assertEqual(len(function.blocks), 1)
+        self.assertFalse(any(
+            isinstance(item, CondBranchInst)
+            for item in function.blocks[0].instructions
+        ))
+        self.assertIsInstance(function.blocks[0].instructions[-1], ReturnInst)
 
     def test_definite_initialization_pass_detects_uninitialized_read(self):
         fn = SIRFunction("bad_fn", [], "i32")

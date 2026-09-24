@@ -286,7 +286,6 @@ class SIRGenerator:
             item for item in getattr(fn, "params", ())
             if isinstance(item, tuple) and len(item) == 2
         )
-
         def direct_defer_names(value: Any) -> tuple[str, ...] | None:
             kind = type(value).__name__
             if kind == "Name":
@@ -689,6 +688,11 @@ class SIRGenerator:
             item for item in getattr(fn, "params", ())
             if isinstance(item, tuple) and len(item) == 2
         )
+        stack_slots = {
+            instruction.var_name: instruction.result
+            for instruction in entry_block.instructions
+            if isinstance(instruction, AllocStackInst)
+        }
         prefix_instructions: list[Any] = []
         for statement in prefix:
             value = getattr(statement, "value", None)
@@ -895,7 +899,31 @@ class SIRGenerator:
                             source = getattr(argument, "value", None)
                             if getattr(argument, "op", None) != "&" or type(source).__name__ != "Name":
                                 return False
-                        elif type(argument).__name__ != "Name":
+                            source_name = source.value
+                            source_type = caller_params.get(source_name)
+                            if (
+                                source_type is None
+                                or source_name not in stack_slots
+                                or getattr(source_type, "name", None)
+                                != getattr(target_type, "name", None)
+                            ):
+                                return False
+                        elif type(argument).__name__ == "Name":
+                            source_name = argument.value
+                            source_type = caller_params.get(source_name)
+                            source_domain = getattr(
+                                source_type, "ownership_domain", None
+                            )
+                            if (
+                                source_type is None
+                                or source_name not in stack_slots
+                                or source_domain not in (target_domain, "direct")
+                                or source_domain not in ("direct", "whisper")
+                                or getattr(source_type, "name", None)
+                                != getattr(target_type, "name", None)
+                            ):
+                                return False
+                        else:
                             return False
                     continue
                 return False
