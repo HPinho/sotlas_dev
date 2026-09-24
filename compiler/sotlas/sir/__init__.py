@@ -93,8 +93,6 @@ __all__ = [
     "PhiInst",
     "ReturnInst",
     "SystemOpInst",
-    "AsmInst",
-    "AwaitInst",
     "SIRBasicBlock",
     "SIRFunction",
     "SIRModule",
