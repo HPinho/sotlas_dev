@@ -33,15 +33,6 @@ from .instructions import (
     SIRFunction,
     SIRModule,
 )
-from .device import (
-    DeviceSIRLoweringError,
-    DeviceCompletionInst,
-    DeviceReacquisitionInst,
-    DeviceOwnershipSIRPlan,
-    lower_device_completion,
-    lower_device_reacquisition,
-    lower_device_lifecycle,
-)
 from .generator import SIRGenerator
 from .ownership import (
     OwnershipDomainSIRPlan,
@@ -107,13 +98,6 @@ __all__ = [
     "SIRBasicBlock",
     "SIRFunction",
     "SIRModule",
-    "DeviceSIRLoweringError",
-    "DeviceCompletionInst",
-    "DeviceReacquisitionInst",
-    "DeviceOwnershipSIRPlan",
-    "lower_device_completion",
-    "lower_device_reacquisition",
-    "lower_device_lifecycle",
     "SIRGenerator",
     "OwnershipDomainSIRPlan",
     "lower_ownership_domain_graph",
