@@ -284,20 +284,96 @@ def plan_reference_c11_device_runtime(
     if not bound_plan.calls:
         raise DeviceRuntimeC11ABIError("DEVICE C11 plan requires lifecycle calls")
 
+    logical_calls: list[DeviceRuntimeLoweringRequirement] = []
+    for bound in bound_plan.calls:
+        if not isinstance(bound.logical, DeviceRuntimeLoweringRequirement):
+            raise DeviceRuntimeC11ABIError(
+                "DEVICE C11 plan contains an invalid logical call requirement"
+            )
+        logical_calls.append(bound.logical)
+
+    operations = tuple(call.operation for call in logical_calls)
+    owner_count = operations.count("submit")
+    if owner_count == 0:
+        raise DeviceRuntimeC11ABIError(
+            "DEVICE C11 lifecycle requires at least one submitted owner"
+        )
+    expected_operations = (
+        ("submit",) * owner_count
+        + ("complete",) * owner_count
+        + ("synchronize",)
+        + ("reacquire",) * owner_count
+    )
+    if operations != expected_operations:
+        raise DeviceRuntimeC11ABIError(
+            "DEVICE C11 lifecycle operation order diverges from canonical ordering"
+        )
+
+    points = tuple(
+        _required_text(call.point_id, label="DEVICE C11 lifecycle point")
+        for call in logical_calls
+    )
+    if len(set(points)) != len(points):
+        raise DeviceRuntimeC11ABIError(
+            "DEVICE C11 lifecycle point identities must remain globally unique"
+        )
+    submissions = points[:owner_count]
+    completions = points[owner_count : owner_count * 2]
+    sync_index = owner_count * 2
+    sync_point = points[sync_index]
+
+    submit_bindings: list[str] = []
+    for index, logical in enumerate(logical_calls):
+        dependencies = tuple(logical.depends_on)
+        binding = logical.binding
+        if logical.operation == "submit":
+            if dependencies:
+                raise DeviceRuntimeC11ABIError(
+                    "DEVICE C11 submit cannot depend on a later lifecycle point"
+                )
+            submit_bindings.append(
+                _required_text(
+                    binding, label=f"DEVICE C11 submission binding {index}"
+                )
+            )
+        elif logical.operation == "complete":
+            owner_index = index - owner_count
+            if dependencies != (submissions[owner_index],):
+                raise DeviceRuntimeC11ABIError(
+                    "DEVICE C11 completion dependency diverges from submission"
+                )
+            if binding != submit_bindings[owner_index]:
+                raise DeviceRuntimeC11ABIError(
+                    "DEVICE C11 completion binding diverges from submission"
+                )
+        elif logical.operation == "synchronize":
+            if dependencies != completions:
+                raise DeviceRuntimeC11ABIError(
+                    "DEVICE C11 synchronization dependencies diverge from completions"
+                )
+            if binding is not None:
+                raise DeviceRuntimeC11ABIError(
+                    "DEVICE C11 synchronization must cover the batch"
+                )
+        elif logical.operation == "reacquire":
+            owner_index = index - (sync_index + 1)
+            if dependencies != (sync_point,):
+                raise DeviceRuntimeC11ABIError(
+                    "DEVICE C11 reacquisition dependency diverges from synchronization"
+                )
+            if binding != submit_bindings[owner_index]:
+                raise DeviceRuntimeC11ABIError(
+                    "DEVICE C11 reacquisition binding diverges from submission"
+                )
+
     reference_operations = {
         operation.operation: operation
         for operation in reference_c11_device_runtime_contract().operations
     }
     prototypes_by_operation: dict[str, C11DeviceRuntimePrototype] = {}
     calls: list[C11DeviceRuntimeCallLayout] = []
-    seen_points: set[str] = set()
 
-    for bound in bound_plan.calls:
-        logical = bound.logical
-        if not isinstance(logical, DeviceRuntimeLoweringRequirement):
-            raise DeviceRuntimeC11ABIError(
-                "DEVICE C11 plan contains an invalid logical call requirement"
-            )
+    for bound, logical in zip(bound_plan.calls, logical_calls, strict=True):
         operation = _required_text(logical.operation, label="DEVICE C11 operation")
         canonical_signature = CANONICAL_DEVICE_RUNTIME_SIGNATURES.get(operation)
         if canonical_signature is None or logical.signature != canonical_signature:
@@ -314,12 +390,6 @@ def plan_reference_c11_device_runtime(
             raise DeviceRuntimeC11ABIError(
                 f"DEVICE C11 {operation} symbol diverges from reference v1"
             )
-        point_id = _required_text(logical.point_id, label="DEVICE C11 lifecycle point")
-        if point_id in seen_points:
-            raise DeviceRuntimeC11ABIError(
-                "DEVICE C11 lifecycle point identities must remain globally unique"
-            )
-        seen_points.add(point_id)
 
         input_slots: list[C11DeviceRuntimeOperandSlot] = []
         parameter_slots: list[C11DeviceRuntimeOperandSlot] = []
@@ -390,7 +460,7 @@ def plan_reference_c11_device_runtime(
         calls.append(
             C11DeviceRuntimeCallLayout(
                 operation=operation,
-                point_id=point_id,
+                point_id=logical.point_id,
                 symbol=expected_symbol,
                 inputs=tuple(input_slots),
                 outputs=tuple(outputs),
@@ -398,12 +468,12 @@ def plan_reference_c11_device_runtime(
             )
         )
 
-    expected_operations = tuple(CANONICAL_C11_DEVICE_SYMBOLS)
-    if tuple(prototypes_by_operation) != expected_operations:
+    canonical_operation_order = tuple(CANONICAL_C11_DEVICE_SYMBOLS)
+    if tuple(prototypes_by_operation) != canonical_operation_order:
         raise DeviceRuntimeC11ABIError(
             "DEVICE C11 declarations do not cover canonical operations in order"
         )
-    if tuple(call.point_id for call in calls) != bound_plan.point_ids:
+    if tuple(call.point_id for call in calls) != points:
         raise DeviceRuntimeC11ABIError(
             "DEVICE C11 declaration planning changed lifecycle point order"
         )
@@ -420,6 +490,9 @@ def plan_reference_c11_device_runtime(
             "typedef uintptr_t sotlas_device_completion_t;",
             "typedef uintptr_t sotlas_device_fence_t;",
         ),
-        prototypes=tuple(prototypes_by_operation[op] for op in expected_operations),
+        prototypes=tuple(
+            prototypes_by_operation[operation]
+            for operation in canonical_operation_order
+        ),
         calls=tuple(calls),
     )
