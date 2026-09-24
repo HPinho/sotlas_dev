@@ -85,8 +85,45 @@ class OwnershipDomainPointInst(SIRInstruction):
         )
 
 
+class _OwnershipDomainTransferMeta(type):
+    """Recognize the exact transfer schema across the legacy SIR mirror.
+
+    ``tools/sotlas`` and ``compiler/sotlas`` are still importable during the
+    migration to one canonical package.  Loading the same dataclass from both
+    trees gives it two Python identities even though the SIR contract is
+    identical.  Placement must not silently drop a transfer only because its
+    class object came from the compatibility mirror.
+
+    This is intentionally narrow: only the exact dataclass name and required
+    field schema are accepted.  All semantic point/domain/destination checks
+    remain in the ownership placement pass.
+    """
+
+    _required_fields = frozenset({
+        "operation",
+        "source",
+        "source_domain",
+        "target_domain",
+        "destination",
+        "point_id",
+    })
+
+    def __instancecheck__(cls, instance: object) -> bool:
+        if type.__instancecheck__(cls, instance):
+            return True
+        instance_type = type(instance)
+        if instance_type.__name__ != "OwnershipDomainTransferInst":
+            return False
+        fields = getattr(instance_type, "__dataclass_fields__", None)
+        if not isinstance(fields, dict):
+            return False
+        return cls._required_fields.issubset(fields)
+
+
 @dataclass
-class OwnershipDomainTransferInst(SIRInstruction):
+class OwnershipDomainTransferInst(
+    SIRInstruction, metaclass=_OwnershipDomainTransferMeta
+):
     operation: str
     source: SIRValue
     source_domain: str
