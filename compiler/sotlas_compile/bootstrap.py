@@ -4987,6 +4987,12 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                 if loop_scope_depth is not None:
                     loop_defers = [d for scope in reversed(defer_scopes[loop_scope_depth:]) for d in reversed(scope)]
                     for d in loop_defers:
+                        if (
+                            loop_shared_cleanup_entry_count is not None
+                            and isinstance(d.value, Call)
+                            and d.value.callee.startswith("__sotlas_shared_release_")
+                        ):
+                            continue
                         if d.body is not None:
                             out.extend(emit_statements(
                                 d.body, depth, defer_scopes,
@@ -5008,6 +5014,12 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                 if loop_scope_depth is not None:
                     loop_defers = [d for scope in reversed(defer_scopes[loop_scope_depth:]) for d in reversed(scope)]
                     for d in loop_defers:
+                        if (
+                            loop_shared_cleanup_entry_count is not None
+                            and isinstance(d.value, Call)
+                            and d.value.callee.startswith("__sotlas_shared_release_")
+                        ):
+                            continue
                         if d.body is not None:
                             out.extend(emit_statements(
                                 d.body, depth, defer_scopes,
