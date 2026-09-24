@@ -3574,29 +3574,87 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
             for item in module.structs
             if item.is_sole and "@repr(C)" in item.attributes
         }
+        all_external_structs = {item.name: item for item in module.structs}
         external_types = {
             (param_type.name, param_type.ownership_domain)
             for function in module.functions
             for _, param_type in function.params
             if _contains_domain(param_type, "external")
         }
+        external_pod_fields = {
+            "bool", "u8", "i8", "u16", "i16", "u32", "i32",
+            "u64", "i64", "usize", "isize", "f32", "f64",
+        }
+
+        def type_contains_external(
+            type_info: Type | None, visiting: frozenset[str] = frozenset()
+        ) -> bool:
+            if type_info is None:
+                return False
+            if _contains_domain(type_info, "external"):
+                return True
+            nested = all_external_structs.get(type_info.name)
+            if nested is None or nested.name in visiting:
+                return False
+            next_visiting = visiting | {nested.name}
+            return any(
+                type_contains_external(field.type, next_visiting)
+                for field in nested.fields
+            )
+
+        def external_wrapper_is_representable(
+            struct: Struct, visiting: frozenset[str] = frozenset()
+        ) -> bool:
+            if struct.name not in external_structs:
+                return False
+            if struct.name in visiting:
+                return False
+            next_visiting = visiting | {struct.name}
+            for field in struct.fields:
+                field_type = field.type
+                if type_contains_external(field_type):
+                    if (
+                        field_type.ownership_domain != "external"
+                        or field_type.name not in external_structs
+                        or field_type.pointer or field_type.is_array
+                        or field_type.is_reference or field_type.is_fn_ptr
+                        or not external_wrapper_is_representable(
+                            external_structs[field_type.name], next_visiting
+                        )
+                    ):
+                        return False
+                elif (
+                    field_type.name not in external_pod_fields
+                    or field_type.pointer or field_type.is_array
+                    or field_type.is_reference or field_type.is_fn_ptr
+                ):
+                    return False
+            return True
+
         has_external_storage = (
             any(
-                _contains_domain(field.type, "external")
+                type_contains_external(field.type)
+                and not external_wrapper_is_representable(struct)
                 for struct in module.structs for field in struct.fields
             )
-            or any(_contains_domain(item.type, "external") for item in module.globals)
+            or any(type_contains_external(item.type) for item in module.globals)
             or any(
-                _contains_domain(getattr(variant, "payload_type", None), "external")
+                type_contains_external(getattr(variant, "payload_type", None))
                 for enum in module.enums for variant in enum.variants
             )
             or any(
-                _contains_domain(field.type, "external")
+                type_contains_external(field.type)
                 for cls in module.classes for field in cls.fields
             )
             or any(
-                _contains_domain(function.result, "external")
+                type_contains_external(function.result)
                 for function in module.functions
+            )
+            or any(
+                type_contains_external(param_type)
+                and param_type.ownership_domain != "external"
+                for function in module.functions
+                for _, param_type in function.params
             )
         )
         if (

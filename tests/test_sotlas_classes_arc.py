@@ -239,6 +239,67 @@ fn main() -> i32 {
         )
         self.assertEqual(executed.returncode, 0, executed.stderr)
 
+    def test_external_repr_c_wrapper_transfers_nested_handle_by_value(self):
+        source = ROOT / "bootstrap" / "sotlas" / "test_external_wrapper_temp.sotlas"
+        executable = ROOT / "build" / "test_external_wrapper.exe"
+        self.addCleanup(source.unlink, missing_ok=True)
+        self.addCleanup(executable.unlink, missing_ok=True)
+        source.write_text("""module app::external_wrapper;
+@repr(C) sole struct Token { value: u32; }
+@repr(C) sole struct Bundle { token: external Token; tag: u32; }
+@extern(C) fn consume_bundle(bundle: external Bundle) -> void;
+@system @export fn dispose(bundle: external Bundle) -> void {
+    consume_bundle(move bundle);
+    return;
+}
+""", encoding="utf-8")
+        bootstrap.emit_c_project(source, self.output_c)
+        self.output_c.write_text(
+            self.output_c.read_text(encoding="utf-8")
+            + "\nstatic uint32_t observed_value;\n"
+            + "static uint32_t observed_tag;\n"
+            + "void consume_bundle(Bundle bundle) { "
+            + "observed_value = bundle.token.value; "
+            + "observed_tag = bundle.tag; }\n"
+            + "int main(void) { Bundle bundle = {{37}, 9}; dispose(bundle); "
+            + "return observed_value == 37 && observed_tag == 9 ? 0 : 1; }\n",
+            encoding="utf-8",
+        )
+        compiler = _host_c_compiler()
+        env = dict(os.environ)
+        env["PATH"] = str(compiler.parent) + os.pathsep + env.get("PATH", "")
+        compiled = subprocess.run(
+            [str(compiler), "-std=c11", "-Wall", "-Wextra", "-Werror",
+             str(self.output_c), "-o", str(executable)],
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(compiled.returncode, 0, compiled.stderr)
+        executed = subprocess.run(
+            [str(executable)], capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(executed.returncode, 0, executed.stderr)
+
+    def test_external_repr_c_wrapper_rejects_pointer_fields(self):
+        source = ROOT / "bootstrap" / "sotlas" / "test_external_wrapper_bad_temp.sotlas"
+        self.addCleanup(source.unlink, missing_ok=True)
+        source.write_text("""module app::external_wrapper_bad;
+@repr(C) sole struct Token { value: u32; }
+@repr(C) sole struct Bundle {
+    token: external Token;
+    pointer: *mut u32;
+}
+@extern(C) fn consume_bundle(bundle: external Bundle) -> void;
+@system @export fn dispose(bundle: external Bundle) -> void {
+    consume_bundle(move bundle);
+    return;
+}
+""", encoding="utf-8")
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            "C11 external lowering supports only repr\\(C\\) sole owners",
+        ):
+            bootstrap.emit_c_project(source, self.output_c)
+
     def test_external_owner_branch_with_unconsumed_exit_is_rejected(self):
         source = ROOT / "bootstrap" / "sotlas" / "test_external_branch_bad_temp.sotlas"
         self.addCleanup(source.unlink, missing_ok=True)
