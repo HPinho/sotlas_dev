@@ -1,10 +1,10 @@
 """Path-sensitive REGION lifetime certification over canonical SIR CFG.
 
-This layer does not create ownership facts.  It consumes a checked
+This layer does not create ownership facts. It consumes a checked
 ``RegionLifetimePlan`` plus the already generated SIR CFG and proves that the
 source-stable REGION handover/direct/whisper points are placed exactly once and
 that a borrow of an owner is never reachable after that owner has been handed
-over.  Explicit branch terminators are the only control-flow edges; block list
+over. Explicit branch terminators are the only control-flow edges; block list
 order is never treated as fallthrough.
 
 Lifetime points inside CFG cycles remain fail-closed until iteration identity is
@@ -128,6 +128,14 @@ def _block_is_cyclic(
 
 def _expected_points(lifetime: RegionLifetimePlan) -> dict[str, tuple[str, ...]]:
     expected: dict[str, tuple[str, ...]] = {}
+
+    def insert(point: str, payload: tuple[str, ...]) -> None:
+        if point in expected:
+            raise RegionLifetimeCFGError(
+                f"duplicate REGION lifetime point identity {point!r}"
+            )
+        expected[point] = payload
+
     for transfer in lifetime.transfers:
         if transfer.via != "handover" or transfer.point_id is None:
             continue
@@ -137,17 +145,13 @@ def _expected_points(lifetime: RegionLifetimePlan) -> dict[str, tuple[str, ...]]
         destination = _required_text(
             transfer.destination, label="REGION CFG handover destination"
         )
-        expected[point] = ("handover", transfer.source, destination)
+        insert(point, ("handover", transfer.source, destination))
     for borrow in lifetime.borrows:
         point = _required_text(borrow.point_id, label="REGION CFG borrow point")
-        expected[point] = (
-            borrow.mode,
-            borrow.source,
-            borrow.callee,
-            borrow.parameter,
+        insert(
+            point,
+            (borrow.mode, borrow.source, borrow.callee, borrow.parameter),
         )
-    if len(expected) != len(tuple(expected)):
-        raise RegionLifetimeCFGError("REGION CFG point identities must be unique")
     return expected
 
 
@@ -209,7 +213,11 @@ def certify_region_lifetime_cfg(
                 source_name = _required_text(
                     getattr(source, "name", None), label="REGION CFG borrow source"
                 )
-                mode = "whisper" if instruction_kind == "WhisperBorrowInst" else "direct"
+                mode = (
+                    "whisper"
+                    if instruction_kind == "WhisperBorrowInst"
+                    else "direct"
+                )
                 actual = (
                     mode,
                     source_name,
