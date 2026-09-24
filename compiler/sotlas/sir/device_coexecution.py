@@ -6,9 +6,10 @@ exclusive branch submissions.  This module reuses the already-placed SIR CFG to
 prove a narrow property: a requested ordered set of EXCLUSIVE -> DEVICE handover
 points occurs along one acyclic forward path.
 
-The certificate is intentionally conservative.  Cyclic CFGs are rejected for
-multi-submission certificates until loop iteration identity is modeled.  This
-module does not create completion/sync/reacquisition facts and does not enable a
+The certificate is intentionally conservative. Cyclic CFGs are rejected for
+multi-submission certificates until loop iteration identity is modeled, and
+block list order is never treated as an implicit control-flow edge. This module
+does not create completion/sync/reacquisition facts and does not enable a
 runtime/backend by itself.
 """
 from __future__ import annotations
@@ -61,7 +62,7 @@ def _successors(function: SIRFunction) -> dict[str, tuple[str, ...]]:
         raise DeviceCoexecutionError("DEVICE coexecution CFG has duplicate block labels")
     known = set(labels)
     result: dict[str, tuple[str, ...]] = {}
-    for index, block in enumerate(function.blocks):
+    for block in function.blocks:
         terminator = block.instructions[-1] if block.instructions else None
         if isinstance(terminator, BranchInst):
             targets = (terminator.target_block,)
@@ -69,10 +70,9 @@ def _successors(function: SIRFunction) -> dict[str, tuple[str, ...]]:
             targets = (terminator.true_block, terminator.false_block)
         elif isinstance(terminator, ReturnInst):
             targets = ()
-        elif index + 1 < len(function.blocks):
-            # SIR block order is the only legal fallthrough when no terminator exists.
-            targets = (function.blocks[index + 1].label,)
         else:
+            # The SIR does not define block-list order as a control-flow edge.
+            # Missing terminators therefore prove no cross-block reachability.
             targets = ()
         missing = tuple(target for target in targets if target not in known)
         if missing:
