@@ -37,6 +37,17 @@ class RegionInterproceduralFunctionPlan:
 
 
 @dataclass(frozen=True)
+class RegionInterproceduralCallPathSummary:
+    """Stable derived view of certified REGION call-path facts for one function."""
+
+    function: str
+    point_ids: tuple[str, ...]
+    ordered_relations: tuple[RegionCallCFGRelation, ...]
+    path_disjoint_relations: tuple[RegionCallCFGRelation, ...]
+    terminal_point_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class RegionInterproceduralLifetimePlan:
     functions: tuple[RegionInterproceduralFunctionPlan, ...]
     returns: RegionReturnLifetimePlan
@@ -100,6 +111,48 @@ class RegionInterproceduralLifetimePlan:
                 f"{function}::{first_point_id}->{second_point_id}"
             )
         return matches[0]
+
+    def call_path_summary(self, function: str) -> RegionInterproceduralCallPathSummary:
+        """Summarize certified call sites, path relations and terminal call points."""
+        points = self.call_points(function)
+        relations = self.call_relations(function)
+        point_ids = tuple(item.point_id for item in points)
+        if len(set(point_ids)) != len(point_ids):
+            raise RegionInterproceduralLifetimeError(
+                f"REGION interprocedural call summary contains duplicate points for {function!r}"
+            )
+        known_points = set(point_ids)
+        ordered: list[RegionCallCFGRelation] = []
+        disjoint: list[RegionCallCFGRelation] = []
+        for relation in relations:
+            if (
+                relation.first_point_id not in known_points
+                or relation.second_point_id not in known_points
+                or relation.first_point_id == relation.second_point_id
+            ):
+                raise RegionInterproceduralLifetimeError(
+                    f"REGION interprocedural call summary has invalid relation endpoints for {function!r}"
+                )
+            if relation.relation == "ordered_path":
+                ordered.append(relation)
+            elif relation.relation == "path_disjoint":
+                disjoint.append(relation)
+            else:
+                raise RegionInterproceduralLifetimeError(
+                    f"REGION interprocedural call summary has unknown relation {relation.relation!r}"
+                )
+
+        ordered_sources = {item.first_point_id for item in ordered}
+        terminal_point_ids = tuple(
+            point_id for point_id in point_ids if point_id not in ordered_sources
+        )
+        return RegionInterproceduralCallPathSummary(
+            function=function,
+            point_ids=point_ids,
+            ordered_relations=tuple(ordered),
+            path_disjoint_relations=tuple(disjoint),
+            terminal_point_ids=terminal_point_ids,
+        )
 
 
 def plan_checked_region_interprocedural(
@@ -207,6 +260,7 @@ def plan_checked_region_interprocedural(
 __all__ = [
     "RegionInterproceduralLifetimeError",
     "RegionInterproceduralFunctionPlan",
+    "RegionInterproceduralCallPathSummary",
     "RegionInterproceduralLifetimePlan",
     "plan_checked_region_interprocedural",
 ]

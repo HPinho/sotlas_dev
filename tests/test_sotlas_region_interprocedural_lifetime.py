@@ -1,4 +1,5 @@
 """Compose local, call, CFG and return REGION lifetime proofs."""
+from dataclasses import replace
 import importlib
 import importlib.util
 from pathlib import Path
@@ -95,6 +96,13 @@ class SotlasRegionInterproceduralLifetimeTests(unittest.TestCase):
         )
         self.assertEqual(resolved_relation.relation, "ordered_path")
 
+        summary = plan.call_path_summary("run")
+        self.assertEqual(summary.function, "run")
+        self.assertEqual(summary.point_ids, tuple(item.point_id for item in run.calls))
+        self.assertEqual(summary.ordered_relations, (relation,))
+        self.assertEqual(summary.path_disjoint_relations, ())
+        self.assertEqual(summary.terminal_point_ids, (run.calls[1].point_id,))
+
         passed = plan.function("pass")
         self.assertEqual(
             tuple((item.source, item.via) for item in passed.local.transfers),
@@ -116,6 +124,12 @@ class SotlasRegionInterproceduralLifetimeTests(unittest.TestCase):
         self.assertEqual(consume.calls, ())
         self.assertEqual(plan.call_points("consume"), ())
         self.assertEqual(plan.call_relations("consume"), ())
+
+        summary = plan.call_path_summary("consume")
+        self.assertEqual(summary.point_ids, ())
+        self.assertEqual(summary.ordered_relations, ())
+        self.assertEqual(summary.path_disjoint_relations, ())
+        self.assertEqual(summary.terminal_point_ids, ())
 
     def test_missing_call_point_and_relation_fail_closed(self):
         checked = package.analyze_source_phase1(
@@ -139,6 +153,22 @@ class SotlasRegionInterproceduralLifetimeTests(unittest.TestCase):
                 run.calls[1].point_id,
                 run.calls[0].point_id,
             )
+
+    def test_call_path_summary_rejects_unknown_relation_kind(self):
+        checked = package.analyze_source_phase1(
+            SOURCE, filename="<region-interprocedural-summary-tamper>"
+        )
+        plan = interprocedural.plan_checked_region_interprocedural(checked)
+        relation = plan.call_cfg.relations[0]
+        forged_relation = replace(relation, relation="unknown")
+        forged_cfg = replace(plan.call_cfg, relations=(forged_relation,))
+        forged_plan = replace(plan, call_cfg=forged_cfg)
+
+        with self.assertRaisesRegex(
+            interprocedural.RegionInterproceduralLifetimeError,
+            "unknown relation",
+        ):
+            forged_plan.call_path_summary("run")
 
     def test_non_checked_module_is_rejected(self):
         with self.assertRaisesRegex(
