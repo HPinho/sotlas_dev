@@ -46,7 +46,12 @@ def validate_region_call_sir(
             "REGION call/SIR bridge requires a RegionCallLifetimePlan"
         )
     sir = load_canonical_sir()
-    functions = tuple(getattr(sir_module, "functions", ()) or ())
+    module = getattr(sir_module, "module", sir_module)
+    if not isinstance(module, sir.SIRModule):
+        raise RegionCallSIRError(
+            "REGION call/SIR bridge requires canonical SIRModule or CheckedOwnershipSIR"
+        )
+    functions = tuple(module.functions)
     sites: list[RegionCallSIRSite] = []
 
     for transfer in call_plan.transfers:
