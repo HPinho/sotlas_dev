@@ -2435,6 +2435,49 @@ fn main() -> i32 {
         )
         self.assertEqual(executed.returncode, 0, executed.stderr)
 
+    def test_region_direct_and_whisper_borrows_execute_in_separate_branches(self):
+        source = """module app::region_branch_borrows_runtime;
+sole struct Token { value: u32; }
+static mut destroy_sum: u32 = 0;
+fn Token_deinit(self: *mut Token) {
+    unsafe { destroy_sum = destroy_sum + self.value; }
+}
+fn inspect_whisper(token: whisper Token) -> u32 { return token.value; }
+fn inspect_direct(token: direct Token) -> u32 { return token.value; }
+fn read(token: region Token, flag: bool) -> u32 {
+    if flag { return inspect_direct(&token); }
+    else { return inspect_whisper(&token); }
+}
+fn main() -> i32 {
+    let direct_token: region Token = Token { value: 31u32 };
+    let whisper_token: region Token = Token { value: 11u32 };
+    let direct_value = read(move direct_token, true);
+    let whisper_value = read(move whisper_token, false);
+    if direct_value == 31u32 && whisper_value == 11u32
+        && destroy_sum == 42u32 { return 0; }
+    return 1;
+}
+"""
+        source_file = ROOT / "bootstrap" / "sotlas" / "test_region_branch_borrows_temp.sotlas"
+        executable = self.output_c.with_suffix(".exe")
+        self.addCleanup(source_file.unlink, missing_ok=True)
+        self.addCleanup(executable.unlink, missing_ok=True)
+        source_file.write_text(source, encoding="utf-8")
+        bootstrap.emit_c_project(source_file, self.output_c)
+        compiler = _host_c_compiler()
+        env = dict(os.environ)
+        env["PATH"] = str(compiler.parent) + os.pathsep + env.get("PATH", "")
+        compiled = subprocess.run(
+            [str(compiler), "-std=c11", "-Wall", "-Wextra", "-Werror",
+             str(self.output_c), "-o", str(executable)],
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(compiled.returncode, 0, compiled.stderr)
+        executed = subprocess.run(
+            [str(executable)], capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(executed.returncode, 0, executed.stderr)
+
     def test_region_drop_walks_through_plain_wrappers(self):
         source = """module app::region_wrapper_runtime;
 sole struct Token { value: u32; }
