@@ -9,7 +9,7 @@ from .instructions import (
     AllocStackInst, StoreInst, LoadInst, CallInst,
     OwnershipDomainPointInst, SharedOwnershipPointInst, DirectAccessInst,
     WhisperBorrowInst,
-    ReturnInst, BranchInst, CondBranchInst, CompareInst, SystemOpInst
+    ReturnInst, BranchInst, CondBranchInst, CompareInst, PhiInst, SystemOpInst
 )
 
 
@@ -860,6 +860,91 @@ class SIRGenerator:
             ))
         return True
 
+    def _try_lower_if_expression_return(
+        self,
+        fn: Any,
+        sir_fn: SIRFunction,
+        entry_block: SIRBasicBlock,
+        sir_params: list[SIRValue],
+        return_type: str,
+    ) -> bool:
+        """Lower a scalar if-expression returned from one function path."""
+        body = getattr(fn, "body", None) or []
+        if (
+            len(body) != 1
+            or type(body[0]).__name__ not in ("Return", "ReturnNode")
+        ):
+            return False
+        return_statement = body[0]
+        expression = getattr(return_statement, "value", None)
+        if type(expression).__name__ != "IfExpr":
+            return False
+
+        scalar_types = {
+            "bool", "u8", "i8", "u16", "i16", "u32", "i32",
+            "u64", "i64", "usize", "isize", "f32", "f64",
+        }
+        if return_type not in scalar_types:
+            return False
+        parameters = {item.name: item for item in sir_params}
+        branch_values: list[SIRValue] = []
+        for branch in (
+            getattr(expression, "then_expr", None),
+            getattr(expression, "else_expr", None),
+        ):
+            if type(branch).__name__ != "Name":
+                return False
+            value = parameters.get(getattr(branch, "value", ""))
+            if value is None or value.type_name != return_type:
+                return False
+            branch_values.append(value)
+
+        point = self._statement_point_id(expression, "if").removeprefix("if@")
+        line, column = point.split(":", 1)
+        then_label = f"if_{line}_{column}_then"
+        else_label = f"if_{line}_{column}_else"
+        join_label = f"if_{line}_{column}_join"
+        if len({then_label, else_label, join_label, entry_block.label}) != 4:
+            return False
+        condition_plan = self._condition_branch_plan(
+            getattr(expression, "condition", None),
+            sir_params,
+            entry_block.label,
+            then_label,
+            else_label,
+            f"if_{line}_{column}",
+        )
+        if condition_plan is None:
+            return False
+
+        blocks = {block.label: block for block in sir_fn.blocks}
+        labels = {then_label, else_label, join_label}
+        labels.update(
+            label for label, _ in condition_plan
+            if label != entry_block.label
+        )
+        if any(label in blocks for label in labels):
+            return False
+        for label in sorted(labels):
+            blocks[label] = sir_fn.add_block(label)
+        for label, instruction in condition_plan:
+            blocks[label].add(instruction)
+        blocks[then_label].add(BranchInst(join_label))
+        blocks[else_label].add(BranchInst(join_label))
+        result = self._next_val("if_value", return_type)
+        blocks[join_label].add(PhiInst(
+            result=result,
+            incoming=[
+                (branch_values[0], then_label),
+                (branch_values[1], else_label),
+            ],
+        ))
+        blocks[join_label].add(ReturnInst(
+            value=result,
+            point_id=self._statement_point_id(return_statement, "return"),
+        ))
+        return True
+
     def _try_lower_sequential_if_returns(
         self,
         fn: Any,
@@ -1211,6 +1296,11 @@ class SIRGenerator:
 
         if self._try_lower_linear_ownership_points(
             fn, entry_block, ret_str
+        ):
+            return sir_fn
+
+        if self._try_lower_if_expression_return(
+            fn, sir_fn, entry_block, sir_params, ret_str
         ):
             return sir_fn
 

@@ -12,6 +12,7 @@ from sotlas.sir import (
     AllocStackInst, StoreInst, LoadInst, CallInst, ReturnInst, BranchInst, CondBranchInst,
     OwnershipDomainPointInst, OwnershipDomainTransferInst,
     CompareInst,
+    PhiInst,
     DirectAccessInst,
     SharedOwnershipPointInst,
     OwnershipDomainSIRPlan, place_ownership_domain_transfers,
@@ -2739,6 +2740,32 @@ pub fn choose(flag: bool, left: u32, right: u32) -> void {
         ]
         self.assertEqual(len(returns), 3)
         self.assertTrue(all(item.point_id.startswith("return@") for item in returns))
+
+    def test_sir_generator_lowers_if_expression_return_with_phi(self):
+        source = """module test::sir_if_expression_return;
+pub fn choose(flag: bool, yes: u32, no: u32) -> u32 {
+    return if flag { yes } else { no };
+}
+"""
+        parsed = bootstrap.parse(source, filename="<sir-if-expression-return>")
+        fn = SIRGenerator().generate_from_ast(parsed).functions[0]
+        phis = [
+            instruction for block in fn.blocks for instruction in block.instructions
+            if isinstance(instruction, PhiInst)
+        ]
+        self.assertEqual(len(phis), 1)
+        self.assertEqual(phis[0].result.type_name, "u32")
+        self.assertEqual(
+            [value.name for value, _ in phis[0].incoming], ["yes", "no"]
+        )
+        self.assertEqual(len(phis[0].incoming), 2)
+        self.assertEqual(
+            sum(
+                isinstance(instruction, ReturnInst)
+                for block in fn.blocks for instruction in block.instructions
+            ),
+            1,
+        )
 
     def test_sir_generator_builds_continue_loop_cfg_with_identity(self):
         source = """

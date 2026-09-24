@@ -3914,7 +3914,7 @@ Ainda necessário para concluir a Fase 2 canônica:
 - [x] condições `!param` em `if` e `while` invertem as arestas de controle usando o valor SSA existente, mantendo IDs source-stable e placement de cleanup;
 - [x] expressões booleanas `&&`/`||` sobre parâmetros e `!` baixam com curto-circuito em blocos SIR, preservando os destinos de return/break/continue e cleanup;
 - [x] literais `true`/`false` em condições de `if`/`while` geram arestas SIR incondicionais ao destino escolhido, sem valor SSA fictício;
-- [ ] expandir CFG estruturado além desse subset protótipo; produção agora baixa árvores aninhadas `if/else` com folhas `return` void e condições booleanas/comparações inteiras já representáveis, posiciona `share`/`quarantine` nos blocos de origem e faz cleanup ARC em cada folha; expressões como valores, corpos arbitrários, integração geral de cleanup e demais terminadores ainda faltam;
+- [ ] expandir CFG estruturado além desse subset protótipo; produção baixa árvores aninhadas `if/else` com folhas `return` void, `return if` escalar com valores de parâmetros via `phi`, condições booleanas/comparações inteiras e markers de `share`/`quarantine`/`handover` nos blocos de origem, além de cleanup ARC em cada folha; joins de valores calculados, corpos arbitrários, integração geral de cleanup e demais terminadores ainda faltam;
 - [x] integração direta `OwnershipTrace → plano SIR → placement` para retornos identificados, inclusive no CFG estruturado inicial de `if`;
 - [x] placement ARC para `break`/`continue` em `BranchInst` source-identified, com validação fail-closed;
 - [x] SIRGenerator emite CFG mínimo de `while` com `break`/`continue` source-identified e compatível com placement ARC;

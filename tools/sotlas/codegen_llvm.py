@@ -15,7 +15,7 @@ from .sir.instructions import (
     DirectAccessInst,
     SharedOwnershipPointInst, DeferUseInst, ShareInst,
     BranchInst, CondBranchInst, CompareInst, ReturnInst, SystemOpInst,
-    AsmInst, AwaitInst
+    AsmInst, AwaitInst, PhiInst
 )
 
 
@@ -253,6 +253,23 @@ class CodegenLLVM:
             self._out.write(
                 f"  %{inst.result.name} = icmp {predicate} {llvm_type} "
                 f"%{inst.left.name}, %{inst.right.name}{dbg_suffix}\n"
+            )
+        elif isinstance(inst, PhiInst):
+            if not inst.incoming:
+                raise ValueError("LLVM phi requires at least one incoming value")
+            if any(
+                value.type_name != inst.result.type_name
+                for value, _ in inst.incoming
+            ):
+                raise ValueError("LLVM phi incoming values have different types")
+            llvm_type = to_llvm_type(inst.result.type_name)
+            incoming = ", ".join(
+                f"[ %{value.name}, %bb{predecessor} ]"
+                for value, predecessor in inst.incoming
+            )
+            self._out.write(
+                f"  %{inst.result.name} = phi {llvm_type} "
+                f"{incoming}{dbg_suffix}\n"
             )
         elif isinstance(inst, ReturnInst):
             if inst.value:

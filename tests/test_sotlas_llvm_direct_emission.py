@@ -160,6 +160,34 @@ pub fn choose(flag: bool, left: u32, right: u32) -> void {
         self.assertTrue(object_result.is_file())
         self.assertGreater(object_result.stat().st_size, 100)
 
+    def test_llvm_source_backend_lowers_if_expression_return_phi(self):
+        source = """module test::llvm_if_expression_return;
+pub fn choose(flag: bool, yes: u32, no: u32) -> u32 {
+    return if flag { yes } else { no };
+}
+"""
+        ll_file = self.tmp_path / "if_expression_return.ll"
+        result = self.toolchain.compile_source_to_native(
+            source,
+            "test::llvm_if_expression_return",
+            ll_file,
+            emit_type="llvm",
+            backend="llvm",
+        )
+        content = result.read_text(encoding="utf-8")
+        self.assertIn(" = phi i32 ", content)
+        self.assertIn("ret i32 %if_value", content)
+        object_file = self.tmp_path / "if_expression_return.obj"
+        object_result = self.toolchain.compile_source_to_native(
+            source,
+            "test::llvm_if_expression_return",
+            object_file,
+            emit_type="obj",
+            backend="llvm",
+        )
+        self.assertTrue(object_result.is_file())
+        self.assertGreater(object_result.stat().st_size, 100)
+
     def test_llvm_source_backend_lowers_trivial_call_scoped_direct_domain(self):
         source = """module test::llvm_direct;
 sole struct Token { value: u32; }
