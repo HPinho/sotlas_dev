@@ -8,7 +8,6 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_DIR = ROOT / "compiler" / "sotlas_compile"
-COMPILER_DIR = ROOT / "compiler"
 
 
 def _load_package():
@@ -28,11 +27,9 @@ def _load_package():
 
 
 package = _load_package()
-if str(COMPILER_DIR) not in sys.path:
-    sys.path.insert(0, str(COMPILER_DIR))
-sir = importlib.import_module("sotlas.sir")
 frontend = importlib.import_module(f"{package.__name__}.region_frontend")
 region_cfg = importlib.import_module(f"{package.__name__}.region_cfg")
+canonical_sir = importlib.import_module(f"{package.__name__}.canonical_sir")
 
 
 SEQUENTIAL = """module app::region_cfg_sequential;
@@ -140,7 +137,7 @@ class SotlasRegionLifetimeCFGTests(unittest.TestCase):
             checked,
             function="run",
         )
-        checked_sir = sir.generate_checked_ownership_sir(checked)
+        checked_sir, _ = canonical_sir.build_canonical_checked_ownership_sir(checked)
         function = next(
             item for item in checked_sir.module.functions if item.name == "run"
         )
@@ -198,7 +195,7 @@ class SotlasRegionLifetimeCFGTests(unittest.TestCase):
             lifetime,
             borrows=(replace(borrow, point_id=handover_point),),
         )
-        checked_sir = sir.generate_checked_ownership_sir(checked)
+        checked_sir, _ = canonical_sir.build_canonical_checked_ownership_sir(checked)
 
         with self.assertRaisesRegex(
             region_cfg.RegionLifetimeCFGError,
