@@ -19,6 +19,8 @@ from .instructions import (
     BranchInst,
     OwnershipDomainPointInst,
     OwnershipDomainTransferInst,
+    WhisperBorrowInst,
+    DirectAccessInst,
     SharedOwnershipPointInst,
     ShareInst,
     RetainInst,
@@ -209,9 +211,11 @@ def lower_ownership_domain_graph(
                     "cannot have destination"
                 )
         else:
-            if destination is None and source_domain == "island":
+            if destination is None and source_domain in (
+                "island", "region", "device", "external"
+            ):
                 raise ValueError(
-                    f"island handover {function_name}::{binding} requires "
+                    f"{source_domain} handover {function_name}::{binding} requires "
                     "explicit destination for SIR lowering"
                 )
             if destination is not None:
@@ -224,11 +228,22 @@ def lower_ownership_domain_graph(
                         f"{function_name}::{binding}"
                     )
                 destination_node = nodes.get(destination)
-                destination_type = (
-                    getattr(getattr(destination_node, "type", None), "name", None)
-                    if destination_node is not None else None
+                if destination_node is None:
+                    raise ValueError(
+                        f"ownership domain graph lacks destination node for "
+                        f"{function_name}::{destination}"
+                    )
+                destination_type_info = getattr(destination_node, "type", None)
+                destination_type = getattr(destination_type_info, "name", None)
+                destination_node_domain = _domain_name(
+                    getattr(destination_node, "domain", None)
                 )
-                if destination_type is not None and destination_type != type_name:
+                if destination_node_domain != target_domain:
+                    raise ValueError(
+                        f"handover destination domain mismatch for "
+                        f"{function_name}::{binding}"
+                    )
+                if destination_type != type_name or destination_type_info != type_info:
                     raise ValueError(
                         f"handover destination type mismatch for "
                         f"{function_name}::{binding}"
@@ -254,6 +269,92 @@ def lower_ownership_domain_graph(
             )
         )
 
+    for borrow in getattr(graph, "whisper_borrows", ()) or ():
+        if getattr(borrow, "function", None) != function_name:
+            continue
+        source = getattr(borrow, "source", None)
+        callee = getattr(borrow, "callee", None)
+        parameter = getattr(borrow, "parameter", None)
+        type_info = getattr(borrow, "type", None)
+        source_domain = _domain_name(getattr(borrow, "source_domain", None))
+        point_id = getattr(borrow, "point_id", None)
+        if (
+            not isinstance(source, str) or not source
+            or not isinstance(callee, str) or not callee
+            or not isinstance(parameter, str) or not parameter
+            or not getattr(type_info, "name", None)
+            or source_domain not in (
+                "exclusive", "shared", "island", "region", "whisper", "direct"
+            )
+            or not isinstance(point_id, str)
+            or not point_id.startswith("whisper@")
+        ):
+            raise ValueError(
+                f"invalid canonical whisper borrow for {function_name!r}"
+            )
+        instructions.append(
+            WhisperBorrowInst(
+                source=SIRValue(source, type_info.name),
+                callee=callee,
+                parameter=parameter,
+                source_domain=source_domain,
+                point_id=point_id,
+            )
+        )
+
+    for access in getattr(graph, "direct_accesses", ()) or ():
+        if getattr(access, "function", None) != function_name:
+            continue
+        source = getattr(access, "source", None)
+        callee = getattr(access, "callee", None)
+        parameter = getattr(access, "parameter", None)
+        type_info = getattr(access, "type", None)
+        source_domain = _domain_name(getattr(access, "source_domain", None))
+        point_id = getattr(access, "point_id", None)
+        source_node = nodes.get(source)
+        source_node_domain = _domain_name(
+            getattr(source_node, "domain", None)
+        ) if source_node is not None else None
+        source_node_type = getattr(source_node, "type", None)
+        forwarded_direct = source_domain == "direct"
+        if (
+            not isinstance(source, str) or not source
+            or not isinstance(callee, str) or not callee
+            or not isinstance(parameter, str) or not parameter
+            or not getattr(type_info, "name", None)
+                or source_domain not in (
+                    "exclusive", "shared", "island", "region", "direct"
+                )
+            or (
+                forwarded_direct
+                and source_node is not None
+            )
+            or (
+                not forwarded_direct
+                and (
+                    source_node is None
+                    or source_node_domain != source_domain
+                    or getattr(source_node_type, "name", None)
+                    != getattr(type_info, "name", None)
+                )
+            )
+            or not isinstance(point_id, str)
+            or not point_id.startswith("direct@")
+        ):
+            raise ValueError(
+                f"invalid canonical direct access or owner node for "
+                f"{function_name!r}"
+            )
+        instructions.append(
+            DirectAccessInst(
+                source=SIRValue(source, type_info.name),
+                callee=callee,
+                parameter=parameter,
+                source_domain=source_domain,
+                point_id=point_id,
+            )
+        )
+
     return OwnershipDomainSIRPlan(tuple(instructions))
 
 
@@ -268,6 +369,52 @@ def lower_ownership_domain_trace(trace: Any) -> OwnershipDomainSIRPlan:
 
     for event in getattr(trace, "events", ()) or ():
         kind = getattr(event, "kind", None)
+        if kind == "borrow" and getattr(event, "domain", None) is not None:
+            event_domain = _domain_name(event.domain)
+            if event_domain not in ("whisper", "direct"):
+                continue
+            source = getattr(event, "source_binding", None)
+            callee = getattr(event, "callee", None)
+            parameter = getattr(event, "parameter", None)
+            event_type = getattr(event, "type", None)
+            source_domain = _domain_name(
+                getattr(event, "source_domain", None)
+            )
+            point_id = getattr(event, "point_id", None)
+            if (
+                not isinstance(source, str) or not source
+                or not isinstance(callee, str) or not callee
+                or not isinstance(parameter, str) or not parameter
+                or not getattr(event_type, "name", None)
+                or source_domain not in (
+                    "exclusive", "shared", "island", "region",
+                    "whisper", "direct"
+                )
+                or not isinstance(point_id, str)
+                or not point_id.startswith(f"{event_domain}@")
+            ):
+                raise ValueError(
+                    f"invalid {event_domain} access ownership trace event"
+                )
+            access_inst = (
+                WhisperBorrowInst(
+                    source=SIRValue(source, event_type.name),
+                    callee=callee,
+                    parameter=parameter,
+                    source_domain=source_domain,
+                    point_id=point_id,
+                )
+            )
+            if event_domain == "direct":
+                access_inst = DirectAccessInst(
+                    source=SIRValue(source, event_type.name),
+                    callee=callee,
+                    parameter=parameter,
+                    source_domain=source_domain,
+                    point_id=point_id,
+                )
+            instructions.append(access_inst)
+            continue
         if kind not in ("quarantine", "handover"):
             continue
 
@@ -312,9 +459,9 @@ def lower_ownership_domain_trace(trace: Any) -> OwnershipDomainSIRPlan:
                         )
                     types[destination] = source_type
                 destination_value = _value(destination, types)
-            elif source_domain == "island":
+            elif source_domain in ("island", "region", "device", "external"):
                 raise ValueError(
-                    f"island handover {name!r} requires explicit destination "
+                    f"{source_domain} handover {name!r} requires explicit destination "
                     "for SIR lowering"
                 )
 
@@ -343,10 +490,14 @@ def _ownership_domain_transfer_replacements(
             if isinstance(instruction, OwnershipDomainPointInst):
                 markers.append(instruction)
 
-    if len(markers) != len(plan.instructions):
+    transfers = tuple(
+        instruction for instruction in plan.instructions
+        if isinstance(instruction, OwnershipDomainTransferInst)
+    )
+    if len(markers) != len(transfers):
         raise ValueError(
             f"ownership domain SIR point count mismatch for {function.name!r}: "
-            f"{len(markers)} marker(s) vs {len(plan.instructions)} transfer(s)"
+            f"{len(markers)} marker(s) vs {len(transfers)} transfer(s)"
         )
 
     marker_by_point: dict[str, OwnershipDomainPointInst] = {}
@@ -363,14 +514,14 @@ def _ownership_domain_transfer_replacements(
 
     exact = all(
         getattr(transfer, "point_id", None) is not None
-        for transfer in plan.instructions
+        for transfer in transfers
     )
     pairs: list[
         tuple[OwnershipDomainPointInst, OwnershipDomainTransferInst]
     ] = []
     if exact:
         seen_transfer_points: set[str] = set()
-        for transfer in plan.instructions:
+        for transfer in transfers:
             point_id = str(transfer.point_id)
             if point_id in seen_transfer_points:
                 raise ValueError(
@@ -385,7 +536,7 @@ def _ownership_domain_transfer_replacements(
                 )
             pairs.append((marker, transfer))
     else:
-        pairs = list(zip(markers, plan.instructions))
+        pairs = list(zip(markers, transfers))
 
     for marker, transfer in pairs:
         if marker.operation != transfer.operation:
@@ -404,6 +555,108 @@ def _ownership_domain_transfer_replacements(
             raise ValueError(
                 f"ownership domain destination mismatch at {marker.point_id!r}"
             )
+
+    direct_markers = [
+        instruction
+        for block in function.blocks
+        for instruction in block.instructions
+        if isinstance(instruction, DirectAccessInst)
+    ]
+    direct_facts = [
+        instruction for instruction in plan.instructions
+        if isinstance(instruction, DirectAccessInst)
+    ]
+    if len(direct_markers) != len(direct_facts):
+        raise ValueError(
+            f"direct access SIR point count mismatch for {function.name!r}: "
+            f"{len(direct_markers)} marker(s) vs {len(direct_facts)} fact(s)"
+        )
+    direct_by_key = {}
+    for marker in direct_markers:
+        if not marker.point_id.startswith("direct@"):
+            raise ValueError(
+                f"invalid direct access SIR point {marker.point_id!r}"
+            )
+        key = (
+            marker.point_id,
+            marker.callee,
+            marker.parameter,
+            marker.source.name,
+        )
+        if key in direct_by_key:
+            raise ValueError(
+                f"duplicate direct access SIR fact at {marker.point_id!r}"
+            )
+        direct_by_key[key] = marker
+    for fact in direct_facts:
+        point_id = fact.point_id
+        key = (point_id, fact.callee, fact.parameter, fact.source.name)
+        marker = direct_by_key.pop(key, None)
+        if marker is None:
+            raise ValueError(
+                f"direct access graph fact at {point_id!r} missing from SIR CFG "
+                f"for {function.name!r}"
+            )
+        if (
+            marker.source_domain != fact.source_domain
+            or marker.source.type_name != fact.source.type_name
+        ):
+            raise ValueError(
+                f"direct access fact mismatch at {point_id!r}"
+            )
+    if direct_by_key:
+        point_id = next(iter(direct_by_key))[0]
+        raise ValueError(
+            f"unverified direct access SIR fact at {point_id!r}"
+        )
+
+    whisper_markers = [
+        instruction
+        for block in function.blocks
+        for instruction in block.instructions
+        if isinstance(instruction, WhisperBorrowInst)
+    ]
+    whisper_facts = [
+        instruction for instruction in plan.instructions
+        if isinstance(instruction, WhisperBorrowInst)
+    ]
+    if len(whisper_markers) != len(whisper_facts):
+        raise ValueError(
+            f"whisper borrow SIR point count mismatch for {function.name!r}: "
+            f"{len(whisper_markers)} marker(s) vs {len(whisper_facts)} fact(s)"
+        )
+    whisper_by_key = {}
+    for marker in whisper_markers:
+        if not marker.point_id.startswith("whisper@"):
+            raise ValueError(
+                f"invalid whisper borrow SIR point {marker.point_id!r}"
+            )
+        key = (
+            marker.point_id,
+            marker.callee,
+            marker.parameter,
+            marker.source.name,
+        )
+        if key in whisper_by_key:
+            raise ValueError(
+                f"duplicate whisper borrow SIR fact at {marker.point_id!r}"
+            )
+        whisper_by_key[key] = marker
+    for fact in whisper_facts:
+        key = (fact.point_id, fact.callee, fact.parameter, fact.source.name)
+        marker = whisper_by_key.pop(key, None)
+        if marker is None or (
+            marker.source_domain != fact.source_domain
+            or marker.source.type_name != fact.source.type_name
+        ):
+            raise ValueError(
+                f"whisper borrow fact mismatch at {fact.point_id!r}"
+            )
+    if whisper_by_key:
+        point_id = next(iter(whisper_by_key))[0]
+        raise ValueError(
+            f"unverified whisper borrow SIR fact at {point_id!r}"
+        )
 
     return {id(marker): transfer for marker, transfer in pairs}
 
@@ -492,6 +745,82 @@ def _cleanup_instructions(
     return tuple(instructions)
 
 
+def _defer_instruction(
+    action: Any,
+    types: dict[str, str],
+    lowered_calls: dict[tuple[str, str | None, str], tuple[str, tuple[str, ...]]],
+    context: str,
+) -> SIRInstruction | None:
+    owner = getattr(action, "owner", None)
+    defer_point_id = getattr(action, "defer_point_id", None)
+    if defer_point_id is None:
+        raise ValueError(f"{context} defer lacks source identity")
+    if not str(defer_point_id).startswith("defer@"):
+        raise ValueError(
+            f"{context} defer has invalid source identity {defer_point_id!r}"
+        )
+
+    via = str(getattr(action, "via", ""))
+    payload_kind = via.rsplit(":", 1)[-1]
+    call = getattr(action, "defer_call", None)
+    if payload_kind in ("call", "method") or (
+        payload_kind == "block" and call is not None
+    ):
+        if (not isinstance(call, tuple) or len(call) != 2
+                or not isinstance(call[0], str) or not call[0]
+                or not isinstance(call[1], tuple)
+                or not all(
+                    isinstance(arg, str)
+                    and (
+                        arg in types
+                        or (
+                            arg.startswith("&")
+                            and arg[1:] in types
+                            and not arg.startswith("&&")
+                        )
+                    )
+                    for arg in call[1]
+                )):
+            raise ValueError(
+                f"{context} defer {payload_kind} lacks typed direct arguments at "
+                f"{defer_point_id}"
+            )
+        control = via.split(":", 1)[0]
+        call_key = (
+            control,
+            getattr(action, "point_id", None),
+            str(defer_point_id),
+        )
+        if call_key in lowered_calls:
+            if lowered_calls[call_key] != call:
+                raise ValueError(
+                    f"conflicting shared defer call payload at {defer_point_id}"
+                )
+            return None
+        lowered_calls[call_key] = call
+        call_arguments = []
+        for argument in call[1]:
+            if argument.startswith("&"):
+                source = argument[1:]
+                call_arguments.append(
+                    SIRValue(source, f"{types[source]}*")
+                )
+            else:
+                call_arguments.append(_value(argument, types))
+        return CallInst(
+            call[0], call_arguments,
+            defer_point_id=str(defer_point_id),
+        )
+    if payload_kind == "expression":
+        if owner is None:
+            raise ValueError(f"{context} defer expression lacks owner")
+        return DeferUseInst(_value(owner, types), str(defer_point_id))
+    raise ValueError(
+        f"shared defer payload lowering is not implemented in SIR for "
+        f"{payload_kind or 'unknown'} payload at {defer_point_id}"
+    )
+
+
 def lower_shared_ownership_trace(trace: Any) -> SharedOwnershipSIRPlan:
     """Lower canonical shared ownership facts without claiming CFG placement."""
     types = _share_types(trace, _type_map(trace))
@@ -527,9 +856,14 @@ def lower_shared_ownership_trace(trace: Any) -> SharedOwnershipSIRPlan:
             if point_id is not None:
                 point = semantic_points.setdefault(
                     str(point_id),
-                    {"source": account, "alias": owner, "instructions": []},
+                    {
+                        "source": getattr(event, "source_binding", None) or account,
+                        "alias": owner,
+                        "instructions": [],
+                    },
                 )
-                if point["source"] != account or point["alias"] != owner:
+                event_source = getattr(event, "source_binding", None) or account
+                if point["source"] != event_source or point["alias"] != owner:
                     raise ValueError(
                         f"shared ownership SIR point {point_id!r} has "
                         "inconsistent source/alias facts"
@@ -550,10 +884,11 @@ def lower_shared_ownership_trace(trace: Any) -> SharedOwnershipSIRPlan:
             raise ValueError(
                 f"shared ownership SIR point has invalid identity {point.point_id!r}"
             )
-        if tuple(type(inst) for inst in point.instructions) != (ShareInst, RetainInst):
+        instruction_kinds = tuple(type(inst) for inst in point.instructions)
+        if instruction_kinds not in ((ShareInst, RetainInst), (RetainInst,)):
             raise ValueError(
-                f"shared ownership SIR point {point.point_id!r} lacks "
-                "paired share/retain operations"
+                f"shared ownership SIR point {point.point_id!r} has "
+                "unsupported share/retain operations"
             )
 
     segments: list[SharedOwnershipSIRSegment] = []
@@ -580,6 +915,148 @@ def lower_shared_ownership_trace(trace: Any) -> SharedOwnershipSIRPlan:
                 )
             )
 
+    exit_actions = tuple(
+        getattr(getattr(trace, "shared_exit", None), "actions", ()) or ()
+    )
+    if exit_actions:
+        exit_instructions: list[SIRInstruction] = []
+        lowered_exit_calls: dict[
+            tuple[str, str | None, str], tuple[str, tuple[str, ...]]
+        ] = {}
+        exit_arc_instructions: list[SIRInstruction] = []
+        for action in exit_actions:
+            kind = getattr(action, "kind", None)
+            owner = getattr(action, "owner", None)
+            if owner is None:
+                raise ValueError(
+                    f"shared function-exit SIR {kind} action lacks owner"
+                )
+            if kind == "defer":
+                instruction = _defer_instruction(
+                    action, types, lowered_exit_calls, "shared function-exit"
+                )
+                if instruction is not None:
+                    exit_instructions.append(instruction)
+            elif kind == "release":
+                instruction = ReleaseInst(_value(owner, types))
+                exit_arc_instructions.append(instruction)
+                exit_instructions.append(instruction)
+            elif kind == "destroy":
+                instruction = DestroyInst(_value(owner, types))
+                exit_arc_instructions.append(instruction)
+                exit_instructions.append(instruction)
+            else:
+                raise ValueError(
+                    f"unsupported shared function-exit action {kind!r}"
+                )
+
+        cleanup_index = next(
+            (
+                index for index, segment in enumerate(segments)
+                if segment.via == "scope_exit"
+                and segment.point_id == "function_exit"
+            ),
+            None,
+        )
+        if cleanup_index is not None:
+            cleanup_segment = segments[cleanup_index]
+            if tuple(exit_arc_instructions) != cleanup_segment.instructions:
+                raise ValueError(
+                    "shared function-exit actions do not match ARC cleanup segment"
+                )
+            segments[cleanup_index] = SharedOwnershipSIRSegment(
+                "scope_exit", tuple(exit_instructions), "function_exit"
+            )
+        elif exit_instructions:
+            if exit_arc_instructions:
+                raise ValueError(
+                    "shared function-exit actions lack a matching ARC cleanup segment"
+                )
+            segments.append(
+                SharedOwnershipSIRSegment(
+                    "scope_exit", tuple(exit_instructions), "function_exit"
+                )
+            )
+
+    return_actions = tuple(
+        getattr(getattr(trace, "shared_return_exit", None), "actions", ())
+        or ()
+    )
+    if return_actions:
+        grouped_return_actions: dict[str, list[Any]] = {}
+        for action in return_actions:
+            point_id = getattr(action, "point_id", None)
+            if not isinstance(point_id, str) or not point_id.startswith("return@"):
+                raise ValueError(
+                    "shared return-exit action lacks a source-identified return"
+                )
+            grouped_return_actions.setdefault(point_id, []).append(action)
+
+        lowered_return_calls: dict[
+            tuple[str, str | None, str], tuple[str, tuple[str, ...]]
+        ] = {}
+        for point_id, grouped in grouped_return_actions.items():
+            defer_instructions: list[SIRInstruction] = []
+            return_arc_instructions: list[SIRInstruction] = []
+            for action in grouped:
+                kind = getattr(action, "kind", None)
+                owner = getattr(action, "owner", None)
+                if owner is None:
+                    raise ValueError(
+                        f"shared return-exit SIR {kind} action lacks owner"
+                    )
+                if kind == "defer":
+                    instruction = _defer_instruction(
+                        action,
+                        types,
+                        lowered_return_calls,
+                        "shared return-exit",
+                    )
+                    if instruction is not None:
+                        defer_instructions.append(instruction)
+                elif kind == "release":
+                    return_arc_instructions.append(
+                        ReleaseInst(_value(owner, types))
+                    )
+                elif kind == "destroy":
+                    return_arc_instructions.append(
+                        DestroyInst(_value(owner, types))
+                    )
+                else:
+                    raise ValueError(
+                        f"unsupported shared return-exit action {kind!r}"
+                    )
+
+            cleanup_index = next(
+                (
+                    index for index, segment in enumerate(segments)
+                    if segment.via == "early_return"
+                    and segment.point_id == point_id
+                ),
+                None,
+            )
+            if cleanup_index is not None:
+                cleanup_segment = segments[cleanup_index]
+                if tuple(return_arc_instructions) != cleanup_segment.instructions:
+                    raise ValueError(
+                        "shared return-exit actions do not match ARC cleanup segment"
+                    )
+                segments[cleanup_index] = SharedOwnershipSIRSegment(
+                    "early_return",
+                    tuple(defer_instructions) + cleanup_segment.instructions,
+                    point_id,
+                )
+            elif return_arc_instructions:
+                raise ValueError(
+                    "shared return-exit actions lack a matching ARC cleanup segment"
+                )
+            elif defer_instructions:
+                segments.append(
+                    SharedOwnershipSIRSegment(
+                        "early_return", tuple(defer_instructions), point_id
+                    )
+                )
+
     control_plan = getattr(trace, "shared_loop_control_exit", None)
     actions = tuple(getattr(control_plan, "actions", ()) or ())
     if actions:
@@ -596,51 +1073,11 @@ def lower_shared_ownership_trace(trace: Any) -> SharedOwnershipSIRPlan:
                     f"shared ownership SIR {kind} action lacks owner"
                 )
             if kind == "defer":
-                defer_point_id = getattr(action, "defer_point_id", None)
-                if defer_point_id is None:
-                    raise ValueError(
-                        "shared loop-control defer lacks source identity"
-                    )
-                if not str(defer_point_id).startswith("defer@"):
-                    raise ValueError(
-                        f"shared loop-control defer has invalid source identity "
-                        f"{defer_point_id!r}"
-                    )
-                payload_kind = via.split(":", 1)[1] if ":" in via else ""
-                if payload_kind == "call":
-                    call = getattr(action, "defer_call", None)
-                    if (not isinstance(call, tuple) or len(call) != 2
-                            or not isinstance(call[0], str) or not call[0]
-                            or not isinstance(call[1], tuple)
-                            or not all(isinstance(arg, str) and arg in types
-                                       for arg in call[1])):
-                        raise ValueError(
-                            f"shared loop-control defer call lacks typed direct "
-                            f"arguments at {defer_point_id}"
-                        )
-                    call_key = (via.split(":", 1)[0],
-                                getattr(action, "point_id", None),
-                                str(defer_point_id))
-                    if call_key in lowered_calls:
-                        if lowered_calls[call_key] != call:
-                            raise ValueError(
-                                f"conflicting shared defer call payload at "
-                                f"{defer_point_id}"
-                            )
-                        continue
-                    lowered_calls[call_key] = call
-                    inst = CallInst(
-                        call[0], [_value(arg, types) for arg in call[1]],
-                        defer_point_id=str(defer_point_id),
-                    )
-                elif payload_kind == "expression":
-                    inst = DeferUseInst(_value(owner, types), str(defer_point_id))
-                else:
-                    raise ValueError(
-                        "shared loop-control defer payload lowering is not "
-                        f"implemented in SIR for {payload_kind or 'unknown'} "
-                        f"payload at {defer_point_id}"
-                    )
+                inst = _defer_instruction(
+                    action, types, lowered_calls, "shared loop-control"
+                )
+                if inst is None:
+                    continue
             elif kind == "release":
                 inst = ReleaseInst(_value(owner, types))
             elif kind == "destroy":
@@ -745,13 +1182,13 @@ def lower_shared_ownership_graph(
         owners = tuple(getattr(account, "owners", ()) or ())
         strong_refs = getattr(account, "strong_refs", None)
         if (
-            len(owners) != 2
+            len(owners) < 2
             or owners[0] != binding
             or strong_refs != len(owners)
         ):
             raise ValueError(
                 f"canonical shared account {function_name}::{binding} "
-                "does not match one source + one strong alias"
+                "does not match its strong-owner accounting"
             )
 
         type_info = getattr(account, "type", None)
@@ -776,6 +1213,43 @@ def lower_shared_ownership_graph(
                 instructions=(share_inst, retain_inst),
             )
         )
+
+        alias_points = tuple(
+            point for point in getattr(graph, "shared_alias_points", ()) or ()
+            if getattr(point, "function", None) == function_name
+            and getattr(point, "account", None) == binding
+            and getattr(point, "operation", None) == "share_alias"
+        )
+        if len(alias_points) != len(owners) - 2:
+            raise ValueError(
+                f"canonical shared account {function_name}::{binding} "
+                "lacks source-identified clone alias points"
+            )
+        seen_aliases = {binding, alias}
+        for alias_point in alias_points:
+            clone_source = getattr(alias_point, "source", None)
+            clone_alias = getattr(alias_point, "alias", None)
+            clone_point_id = getattr(alias_point, "point_id", None)
+            if (
+                clone_source not in seen_aliases
+                or clone_alias in seen_aliases
+                or clone_alias not in owners
+                or not isinstance(clone_point_id, str)
+                or not clone_point_id.startswith("share@")
+            ):
+                raise ValueError(
+                    f"invalid canonical shared alias point for "
+                    f"{function_name}::{binding}"
+                )
+            retain_clone = RetainInst(SIRValue(clone_alias, type_name))
+            semantic.append(retain_clone)
+            points.append(SharedOwnershipSIRSemanticPoint(
+                point_id=clone_point_id,
+                source=clone_source,
+                alias=clone_alias,
+                instructions=(retain_clone,),
+            ))
+            seen_aliases.add(clone_alias)
 
     extra_transitions = sorted(set(transition_by_binding) - seen_accounts)
     if extra_transitions:
@@ -992,9 +1466,6 @@ def _validate_shared_function_exit_cleanup(
     if segment is None:
         return None
 
-    if _return_cleanup_segments(plan):
-        return None
-
     unpointed_returns: list[ReturnInst] = []
     for block in function.blocks:
         for index, instruction in enumerate(block.instructions):
@@ -1008,6 +1479,9 @@ def _validate_shared_function_exit_cleanup(
                     "is not terminal"
                 )
             unpointed_returns.append(instruction)
+
+    if not unpointed_returns and _return_cleanup_segments(plan):
+        return None
 
     if len(unpointed_returns) != 1:
         raise ValueError(

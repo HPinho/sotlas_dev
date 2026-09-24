@@ -28,6 +28,14 @@ typed_ast = _load(
     "sotlas_phase1_typed_ast",
     ROOT / "compiler" / "sotlas_compile" / "typed_ast.py",
 )
+try:
+    _sir_package = importlib.import_module("sotlas.sir")
+except ImportError:
+    _sir_package = _load(
+    "_sotlas_phase1_sir",
+    ROOT / "compiler" / "sotlas" / "sir" / "__init__.py",
+    )
+ownership_sir = _sir_package.ownership
 
 
 SOURCE = """module test::phase1;
@@ -163,6 +171,157 @@ fn main() -> void { return; }
             )
         )
 
+    def test_reserved_ownership_domains_have_canonical_enum_identity(self):
+        self.assertIs(
+            typed_ast.OwnershipDomain("region"),
+            typed_ast.OwnershipDomain.REGION,
+        )
+        self.assertIs(
+            typed_ast.OwnershipDomain("device"),
+            typed_ast.OwnershipDomain.DEVICE,
+        )
+        self.assertIs(
+            typed_ast.OwnershipDomain("external"),
+            typed_ast.OwnershipDomain.EXTERNAL,
+        )
+        for label, expected in (
+            ("region", typed_ast.OwnershipDomain.REGION),
+            ("device", typed_ast.OwnershipDomain.DEVICE),
+            ("external", typed_ast.OwnershipDomain.EXTERNAL),
+        ):
+            with self.subTest(domain=label):
+                self.assertIs(
+                    typed_ast.semantic_type(
+                        bootstrap.Type("Resource", ownership_domain=label)
+                    ).declared_ownership_domain,
+                    expected,
+                )
+
+    def test_reserved_domains_do_not_gain_implicit_cross_domain_transitions(self):
+        for domain in (
+            typed_ast.OwnershipDomain.REGION,
+            typed_ast.OwnershipDomain.DEVICE,
+            typed_ast.OwnershipDomain.EXTERNAL,
+        ):
+            with self.subTest(domain=domain):
+                with self.assertRaisesRegex(
+                    typed_ast.Phase1SemanticError,
+                    "unsupported ownership domain transition",
+                ):
+                    typed_ast.plan_ownership_domain_transition(
+                        typed_ast.OwnershipBinding(
+                            "resource", typed_ast.SemanticType("Resource"),
+                            typed_ast.VarState.LIVE,
+                            typed_ast.OwnershipDomain.EXCLUSIVE,
+                        ),
+                        domain,
+                        "transfer",
+                    )
+
+    def test_reserved_domain_parameters_enter_typed_owner_environment(self):
+        module = typed_ast.TypedModule(
+            name="reserved_domain",
+            structs=(
+                typed_ast.TypedStruct(
+                    "Resource",
+                    (),
+                    False,
+                    (),
+                    True,
+                    typed_ast.OwnershipDomain.EXCLUSIVE,
+                ),
+            ),
+            globals=(),
+            functions=(
+                typed_ast.TypedFunction(
+                    "use",
+                    (typed_ast.TypedParam(
+                        "resource",
+                        typed_ast.SemanticType(
+                            "Resource",
+                            declared_ownership_domain=typed_ast.OwnershipDomain.REGION,
+                        ),
+                        typed_ast.OwnershipDomain.REGION,
+                    ),),
+                    typed_ast.SemanticType("void"),
+                    False,
+                    (),
+                ),
+            ),
+            filename=None,
+        )
+        self.assertIs(
+            typed_ast.ownership_domain(module.functions[0].params[0].type, module),
+            typed_ast.OwnershipDomain.REGION,
+        )
+        env = typed_ast.seed_function_ownership(
+            # seed_function_ownership needs parsed declarations, covered by source tests below.
+            bootstrap.parse(
+                "module test::region_owner; sole struct Resource { value: u32; } "
+                "fn use(resource: region Resource) -> void { return; }",
+                filename="<region-owner>",
+            ),
+            typed_ast.build_declaration_typed_ast(
+                bootstrap.parse(
+                    "module test::region_owner; sole struct Resource { value: u32; } "
+                    "fn use(resource: region Resource) -> void { return; }",
+                    filename="<region-owner>",
+                )
+            ),
+            "use",
+        )
+        self.assertIs(env.domain_of("resource"), typed_ast.OwnershipDomain.REGION)
+
+    def test_region_device_external_owner_domains_preserve_moves_and_merge(self):
+        for domain in ("region", "device", "external"):
+            with self.subTest(domain=domain):
+                source = (
+                    "module test::explicit_domain; "
+                    "sole struct Resource { value: u32; } "
+                    f"fn use(resource: {domain} Resource) -> void {{ return; }}"
+                )
+                parsed = bootstrap.parse(source, filename="<explicit-domain>")
+                bootstrap.check(parsed)
+                typed = typed_ast.build_declaration_typed_ast(parsed)
+                env = typed_ast.seed_function_ownership(parsed, typed, "use")
+                expected = typed_ast.OwnershipDomain(domain)
+                self.assertIs(env.domain_of("resource"), expected)
+                self.assertIs(env.state_of("resource"), typed_ast.VarState.LIVE)
+                moved = env.move("resource")
+                self.assertIs(moved.domain_of("resource"), expected)
+                self.assertIs(moved.state_of("resource"), typed_ast.VarState.MOVED)
+                merged = env.merge(env)
+                self.assertIs(merged.domain_of("resource"), expected)
+                self.assertIs(merged.state_of("resource"), typed_ast.VarState.LIVE)
+
+    def test_reserved_domain_handover_is_same_domain_only(self):
+        for domain in (typed_ast.OwnershipDomain.REGION,
+                       typed_ast.OwnershipDomain.DEVICE,
+                       typed_ast.OwnershipDomain.EXTERNAL):
+            with self.subTest(domain=domain):
+                transition = typed_ast.plan_ownership_domain_transition(
+                    typed_ast.OwnershipBinding(
+                        "resource", typed_ast.SemanticType("Resource"),
+                        typed_ast.VarState.LIVE, domain,
+                    ),
+                    domain,
+                    "handover",
+                )
+                self.assertIs(transition.source, domain)
+                self.assertIs(transition.target, domain)
+                with self.assertRaisesRegex(
+                    typed_ast.Phase1SemanticError,
+                    "unsupported ownership domain transition",
+                ):
+                    typed_ast.plan_ownership_domain_transition(
+                        typed_ast.OwnershipBinding(
+                            "resource", typed_ast.SemanticType("Resource"),
+                            typed_ast.VarState.LIVE, domain,
+                        ),
+                        typed_ast.OwnershipDomain.EXCLUSIVE,
+                        "handover",
+                    )
+
     def test_whisper_parameter_is_canonical_non_owning_borrow(self):
         source = """module test::whisper_param;
 sole struct Token { value: u32; }
@@ -196,6 +355,103 @@ fn inspect(token: whisper Token) -> void {
         env = typed_ast.seed_function_ownership(parsed, typed, "inspect")
         self.assertIsNone(env.state_of("token"))
 
+    def test_whisper_call_borrow_from_island_owner_reaches_graph_and_sir(self):
+        source = """module test::whisper_island_call;
+sole struct Token { value: u32; }
+fn inspect(token: whisper Token) -> u32 { return token.value; }
+fn read_island(token: island Token) -> u32 { return inspect(&token); }
+"""
+        parsed = bootstrap.parse(source, filename="<whisper-island-call>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(parsed, typed, "read_island")
+        graph = typed_ast.build_ownership_domain_graph(
+            typed_ast.OwnershipModuleAnalysis((), (("read_island", trace),))
+        )
+        borrow = next(item for item in graph.whisper_borrows)
+        self.assertIs(borrow.source_domain, typed_ast.OwnershipDomain.ISLAND)
+        plan = ownership_sir.lower_ownership_domain_graph(graph, "read_island")
+        self.assertEqual(len(plan.instructions), 1)
+        self.assertEqual(plan.instructions[0].source_domain, "island")
+
+    def test_direct_call_borrow_from_island_owner_reaches_graph_and_sir(self):
+        source = """module test::direct_island_call;
+sole struct Token { value: u32; }
+fn inspect(token: direct Token) -> u32 { return token.value; }
+fn read_island(token: island Token) -> u32 { return inspect(&token); }
+"""
+        parsed = bootstrap.parse(source, filename="<direct-island-call>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(
+            parsed, typed, "read_island"
+        )
+        graph = typed_ast.build_ownership_domain_graph(
+            typed_ast.OwnershipModuleAnalysis((), (("read_island", trace),))
+        )
+        access = next(item for item in graph.direct_accesses)
+        self.assertIs(access.source_domain, typed_ast.OwnershipDomain.ISLAND)
+        plan = ownership_sir.lower_ownership_domain_graph(graph, "read_island")
+        self.assertEqual(len(plan.instructions), 1)
+        self.assertEqual(plan.instructions[0].source_domain, "island")
+
+    def test_direct_method_receiver_borrow_from_island_reaches_graph_and_sir(self):
+        source = """module test::direct_island_receiver;
+sole struct Token {
+    value: u32;
+    fn inspect(self: direct Token) -> u32 { return self.value; }
+}
+fn read_island(token: island Token) -> u32 { return token.inspect(); }
+"""
+        parsed = bootstrap.parse(source, filename="<direct-island-receiver>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(
+            parsed, typed, "read_island"
+        )
+        graph = typed_ast.build_ownership_domain_graph(
+            typed_ast.OwnershipModuleAnalysis((), (("read_island", trace),))
+        )
+        access = next(item for item in graph.direct_accesses)
+        self.assertEqual(access.callee, "Token_inspect")
+        self.assertEqual(access.source, "token")
+        self.assertIs(access.source_domain, typed_ast.OwnershipDomain.ISLAND)
+        plan = ownership_sir.lower_ownership_domain_graph(graph, "read_island")
+        self.assertEqual(len(plan.instructions), 1)
+        self.assertEqual(plan.instructions[0].source_domain, "island")
+
+    def test_region_owner_borrows_reach_graph_and_sir_for_direct_and_whisper(self):
+        source = """module test::region_borrow_graph;
+sole struct Token { value: u32; }
+fn inspect_whisper(token: whisper Token) -> void { return; }
+fn inspect_direct(token: direct Token) -> void { return; }
+fn read(token: region Token) -> void {
+    inspect_whisper(&token);
+    inspect_direct(&token);
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<region-borrow-graph>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(parsed, typed, "read")
+        graph = typed_ast.build_ownership_domain_graph(
+            typed_ast.OwnershipModuleAnalysis((), (("read", trace),))
+        )
+        self.assertEqual(
+            [item.source_domain for item in graph.whisper_borrows],
+            [typed_ast.OwnershipDomain.REGION],
+        )
+        self.assertEqual(
+            [item.source_domain for item in graph.direct_accesses],
+            [typed_ast.OwnershipDomain.REGION],
+        )
+        plan = ownership_sir.lower_ownership_domain_graph(graph, "read")
+        self.assertEqual(
+            [item.source_domain for item in plan.instructions],
+            ["region", "region"],
+        )
+
     def test_whisper_non_parameter_storage_remains_fail_closed(self):
         source = """module test::whisper_field;
 sole struct Token { value: u32; }
@@ -211,22 +467,113 @@ fn main() -> void { return; }
         ):
             typed_ast.build_declaration_typed_ast(parsed)
 
-    def test_whisper_c11_backend_remains_fail_closed(self):
+    def test_whisper_c11_lowers_internal_parameter_as_const_borrow(self):
         source = """module test::whisper_c11;
 sole struct Token { value: u32; }
-fn inspect(token: whisper Token) -> void { return; }
+fn inspect(token: whisper Token) -> u32 { return token.value; }
+fn forward(token: whisper Token) -> u32 { return inspect(token); }
+fn call(token: Token) -> u32 { return forward(&token); }
 """
         parsed = bootstrap.parse(source, filename="<whisper-c11>")
         bootstrap.check(parsed)
+        generated = bootstrap.emit_c(parsed)
+        self.assertIn("const Token * token", generated)
+        self.assertIn("token->value", generated)
+        self.assertIn("inspect(token)", generated)
+        self.assertIn("forward((&token))", generated)
+
+    def test_whisper_ffi_parameter_remains_fail_closed(self):
+        source = """module test::whisper_ffi;
+sole struct Token { value: u32; }
+@extern(C) fn foreign(token: whisper Token) -> void { return; }
+"""
+        parsed = bootstrap.parse(source, filename="<whisper-ffi>")
+        bootstrap.check(parsed)
         with self.assertRaisesRegex(
             bootstrap.SotlasBootstrapError,
-            r"C11 backend does not lower whisper ownership domain yet",
+            "C11 whisper lowering supports only internal function parameters",
         ):
             bootstrap.emit_c(parsed)
 
+    def test_direct_parameter_is_call_scoped_non_owning_access(self):
+        source = """module test::direct_param;
+sole struct Token { value: u32; }
+fn inspect(token: direct Token) -> void { return; }
+fn main(token: Token) -> void { inspect(&token); return; }
+"""
+        parsed = bootstrap.parse(source, filename="<direct-param>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        inspect = next(item for item in typed.functions if item.name == "inspect")
+        param = inspect.params[0]
+        self.assertIs(param.ownership_domain, typed_ast.OwnershipDomain.DIRECT)
+        self.assertTrue(param.type.pointer and param.type.is_reference)
+        self.assertFalse(param.type.mutable)
+        summary = typed_ast.summarize_module_ownership(parsed, typed)[0]
+        self.assertFalse(summary.params[0].takes_ownership)
+
+        analysis = typed_ast.analyze_module_ownership(parsed, typed)
+        graph = typed_ast.build_ownership_domain_graph(analysis)
+        accesses = [edge for edge in graph.direct_accesses if edge.callee == "inspect"]
+        self.assertEqual(len(accesses), 1)
+        self.assertEqual(accesses[0].source, "token")
+        self.assertTrue(accesses[0].point_id.startswith("direct@"))
+
+    def test_direct_is_rejected_outside_parameter_and_lowers_in_c11(self):
+        field_source = """module test::direct_field;
+sole struct Token { value: u32; }
+struct Holder { token: direct Token; }
+fn main() -> void { return; }
+"""
+        parsed = bootstrap.parse(field_source, filename="<direct-field>")
+        bootstrap.check(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"direct access ownership is currently supported only for function parameters",
+        ):
+            typed_ast.build_declaration_typed_ast(parsed)
+
+        backend_source = """module test::direct_c11;
+sole struct Token { value: u32; }
+fn inspect(token: direct Token) -> void { return; }
+"""
+        parsed = bootstrap.parse(backend_source, filename="<direct-c11>")
+        bootstrap.check(parsed)
+        emitted = bootstrap.emit_c(parsed)
+        self.assertIn("inspect", emitted)
+
+    def test_direct_function_pointer_parameter_remains_fail_closed(self):
+        source = """module test::direct_fn_pointer;
+sole struct Token { value: u32; }
+fn invoke(callback: fn(direct Token) -> u32) -> void { return; }
+"""
+        parsed = bootstrap.parse(source, filename="<direct-fn-pointer>")
+        bootstrap.check(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            "direct access is not supported through nested or indirect function parameter types",
+        ):
+            typed_ast.build_declaration_typed_ast(parsed)
+
+    def test_direct_access_to_external_function_remains_fail_closed(self):
+        source = """module test::direct_external;
+sole struct Token { value: u32; }
+@extern(C) fn inspect(token: direct Token) -> void { return; }
+fn main(token: Token) -> void { inspect(&token); return; }
+"""
+        parsed = bootstrap.parse(source, filename="<direct-external>")
+        bootstrap.check(parsed)
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            "direct access cannot be passed to external function 'inspect'",
+        ):
+            typed_ast.analyze_function_ownership(
+                parsed, typed_module, "main"
+            )
+
     def test_unimplemented_ownership_domain_types_fail_before_c11(self):
-        for domain in ("exclusive", "shared", "region", "device", "external",
-                       "direct", "quarantine"):
+        for domain in ("exclusive", "shared", "quarantine"):
             with self.subTest(domain=domain):
                 source = (
                     "module test::domain_gate; "
@@ -238,6 +585,172 @@ fn inspect(token: whisper Token) -> void { return; }
                     f"ownership domain '{domain}' is reserved but not supported",
                 ):
                     bootstrap.compile_source(source)
+
+    def test_device_external_fail_closed_at_c11_backend_gate(self):
+        source = (
+            "module test::device_backend_gate; "
+            "sole struct Resource { value: u32; } "
+            "fn use(resource: device Resource) -> void { return; }"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            "C11 backend does not lower device ownership domain yet",
+        ):
+            bootstrap.compile_source(source)
+
+    def test_external_owner_transfer_to_ffi_is_preserved_in_graph(self):
+        source = """module test::external_ffi_transfer;
+@repr(C) sole struct Token { value: u32; }
+@extern(C) fn release(token: external Token) -> void;
+@export fn dispose(token: external Token) -> void {
+    release(move token);
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<external-ffi-transfer>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(parsed, typed, "dispose")
+        graph = typed_ast.build_ownership_domain_graph(
+            typed_ast.OwnershipModuleAnalysis((), (("dispose", trace),))
+        )
+        transfer = next(
+            item for item in graph.transfers
+            if item.binding == "token" and item.via == "call:release"
+        )
+        self.assertIs(transfer.source_domain, typed_ast.OwnershipDomain.EXTERNAL)
+        self.assertIs(transfer.target_domain, typed_ast.OwnershipDomain.EXTERNAL)
+        move = next(
+            item for item in trace.events
+            if item.kind == "move" and item.via == "call:release"
+        )
+        self.assertIs(move.source_domain, typed_ast.OwnershipDomain.EXTERNAL)
+        self.assertIs(move.target_domain, typed_ast.OwnershipDomain.EXTERNAL)
+        generated = bootstrap.emit_c(parsed)
+        self.assertIn("void release(Token token);", generated)
+        self.assertNotIn("void release(Token token) {", generated)
+        self.assertIn("void dispose(Token token) {", generated)
+        self.assertIn("release(token);", generated)
+
+    def test_external_c11_rejects_missing_repr_c_and_unconsumed_owners(self):
+        missing_repr = """module test::external_no_repr;
+sole struct Token { value: u32; }
+@extern(C) fn release(token: external Token) -> void;
+"""
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            "C11 external lowering supports only repr\\(C\\) sole owners",
+        ):
+            bootstrap.compile_source(missing_repr)
+
+        unconsumed = """module test::external_unconsumed;
+@repr(C) sole struct Token { value: u32; }
+@extern(C) fn release(token: external Token) -> void;
+@export fn leak(token: external Token) -> void { return; }
+"""
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            "C11 external lowering supports only repr\\(C\\) sole owners",
+        ):
+            bootstrap.compile_source(unconsumed)
+
+        partial_path = """module test::external_partial_path;
+@repr(C) sole struct Token { value: u32; }
+@extern(C) fn release(token: external Token) -> void;
+@export fn maybe_release(token: external Token, flag: bool) -> void {
+    if flag { release(move token); }
+    return;
+}
+"""
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            "C11 external lowering supports only repr\\(C\\) sole owners",
+        ):
+            bootstrap.compile_source(partial_path)
+
+    def test_bodyless_function_declaration_requires_extern_c(self):
+        source = """module test::bodyless_internal;
+fn missing_body(value: u32) -> void;
+"""
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            "function declarations without a body require @extern\\(C\\)",
+        ):
+            bootstrap.parse(source)
+
+    def test_device_and_external_owners_reject_implicit_host_field_access(self):
+        for domain in ("device", "external"):
+            for body, result_type in (
+                ("return resource.value;", "u32"),
+                ("let address = &resource.value; return;", "void"),
+            ):
+                with self.subTest(domain=domain, body=body):
+                    source = (
+                        "module test::opaque_resource_access; "
+                        "sole struct Resource { value: u32; } "
+                        f"fn read(resource: {domain} Resource) -> {result_type} "
+                        f"{{ {body} }}"
+                    )
+                    parsed = bootstrap.parse(
+                        source, filename=f"<{domain}-host-access>"
+                    )
+                    bootstrap.check(parsed)
+                    typed = typed_ast.build_declaration_typed_ast(parsed)
+                    with self.assertRaisesRegex(
+                        typed_ast.Phase1SemanticError,
+                        rf"{domain} owner 'resource' cannot be accessed directly from host code",
+                    ):
+                        typed_ast.analyze_function_ownership(
+                            parsed, typed, "read"
+                        )
+
+    def test_device_and_external_owners_cannot_be_borrowed_into_host_functions(self):
+        for domain in ("device", "external"):
+            for borrow_domain in ("direct", "whisper"):
+                with self.subTest(domain=domain, borrow_domain=borrow_domain):
+                    source = (
+                        "module test::opaque_resource_borrow; "
+                        "sole struct Resource { value: u32; } "
+                        f"fn inspect(resource: {borrow_domain} Resource) -> u32 "
+                        "{ return resource.value; } "
+                        f"fn read(resource: {domain} Resource) -> u32 "
+                        "{ return inspect(&resource); }"
+                    )
+                    parsed = bootstrap.parse(
+                        source, filename=f"<{domain}-{borrow_domain}-borrow>"
+                    )
+                    bootstrap.check(parsed)
+                    typed = typed_ast.build_declaration_typed_ast(parsed)
+                    with self.assertRaisesRegex(
+                        typed_ast.Phase1SemanticError,
+                        rf"{domain} owner 'resource' cannot be borrowed into host code",
+                    ):
+                        typed_ast.analyze_function_ownership(
+                            parsed, typed, "read"
+                        )
+
+    def test_device_and_external_owner_addresses_cannot_escape_to_raw_host_pointers(self):
+        for domain in ("device", "external"):
+            with self.subTest(domain=domain):
+                source = (
+                    "module test::opaque_resource_raw_pointer; "
+                    "sole struct Resource { value: u32; } "
+                    f"fn read(resource: {domain} Resource) -> u32 "
+                    f"{{ let mut local: {domain} Resource = move resource; "
+                    "let pointer = &mut local; return 0u32; }"
+                )
+                parsed = bootstrap.parse(
+                    source, filename=f"<{domain}-raw-pointer>"
+                )
+                bootstrap.check(parsed)
+                typed = typed_ast.build_declaration_typed_ast(parsed)
+                with self.assertRaisesRegex(
+                    typed_ast.Phase1SemanticError,
+                    rf"{domain} owner 'local' cannot be accessed directly from host code",
+                ):
+                    typed_ast.analyze_function_ownership(
+                        parsed, typed, "read"
+                    )
 
     def test_explicit_island_parameter_enters_island_domain(self):
         source = """module test::explicit_island_param;
@@ -645,7 +1158,7 @@ fn main() -> void { return; }
         bootstrap.check(parsed)
         with self.assertRaisesRegex(
             bootstrap.SotlasBootstrapError,
-            r"C11 backend does not lower island ownership domain yet",
+            r"C11 island lowering currently supports only direct by-value",
         ):
             bootstrap.emit_c(parsed)
 
@@ -911,18 +1424,24 @@ fn forward(token: island Token) -> Token {
                 parsed, typed, "forward"
             )
 
-    def test_c11_explicit_island_type_remains_fail_closed(self):
+    def test_c11_explicit_island_function_parameter_lowers_by_value(self):
         source = """module test::island_c11_gate;
 sole struct Token { value: u32; }
+fn quarantine_value(token: Token) -> island Token {
+    quarantine token;
+    return token;
+}
 fn main(token: island Token) -> void { return; }
 """
         parsed = bootstrap.parse(source, filename="<island-c11-gate>")
         bootstrap.check(parsed)
-        with self.assertRaisesRegex(
-            bootstrap.SotlasBootstrapError,
-            r"C11 backend does not lower island ownership domain yet",
-        ):
-            bootstrap.emit_c(parsed)
+        emitted = bootstrap.emit_c(parsed)
+        self.assertIn("void main(Token token)", emitted)
+        self.assertIn("Token quarantine_value(Token token)", emitted)
+        self.assertIn(
+            "quarantine token: compile-time ownership transition",
+            emitted,
+        )
 
     def test_sole_branch_return_keeps_cleanup_on_other_path(self):
         source = """module test::branch_cleanup;
@@ -1043,6 +1562,40 @@ fn maybe(flag: bool, token: Token) -> void {
         self.assertIs(merge.right_state, typed_ast.VarState.LIVE)
         self.assertIs(merge.result_state, typed_ast.VarState.MAYBE_MOVED)
         self.assertEqual(merge.via, "if")
+
+    def test_domain_graph_rejects_inconsistent_branch_merge_result(self):
+        source = """module test::bad_domain_merge;
+sole struct Token { id: u32; }
+fn consume(token: Token) -> void { return; }
+fn maybe(flag: bool, token: Token) -> void {
+    if flag { consume(token); }
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<bad-domain-merge>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(parsed, typed, "maybe")
+        event = next(item for item in trace.events if item.kind == "domain_merge")
+        malformed = typed_ast.OwnershipEvent(
+            event.kind, event.name, event.via, event.domain,
+            left_state=event.left_state,
+            right_state=event.right_state,
+            result_state=typed_ast.VarState.LIVE,
+        )
+        corrupted = typed_ast.OwnershipTrace(
+            trace.final_env,
+            tuple(malformed if item is event else item for item in trace.events),
+            trace.shared_cleanup,
+        )
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            "ownership-domain merge result mismatch for maybe::token: "
+            "expected MAYBE_MOVED, got LIVE",
+        ):
+            typed_ast.build_ownership_domain_graph(
+                typed_ast.OwnershipModuleAnalysis((), (("maybe", corrupted),))
+            )
 
     def test_canonical_domain_merge_rejects_domain_divergence(self):
         type_info = typed_ast.SemanticType("Token")
@@ -1329,6 +1882,34 @@ fn maybe(flag: bool, token: Token) -> void {
             2,
         )
 
+    def test_typed_shared_alias_chains_keep_one_account_identity(self):
+        token = bootstrap.Token("IDENT", "token", 1, 1)
+        type_info = typed_ast.SemanticType("Token")
+        env = typed_ast.OwnershipEnv((typed_ast.OwnershipBinding(
+            "token", type_info, typed_ast.VarState.LIVE,
+            typed_ast.OwnershipDomain.EXCLUSIVE,
+        ),))
+        first = typed_ast.build_typed_share_expression(
+            bootstrap.Name(token, "token"), env, alias="peer"
+        )
+        second = typed_ast.build_typed_share_expression(
+            bootstrap.Name(token, "peer"), first.application.env,
+            alias="peer2",
+        )
+        self.assertEqual(second.application.owners, ("token", "peer", "peer2"))
+        self.assertEqual(second.application.account.strong_refs, 3)
+        self.assertEqual(
+            {binding.shared_account for binding in second.application.env.bindings},
+            {"token"},
+        )
+        moved_source = second.application.env.move("peer")
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError, "requires LIVE source"
+        ):
+            typed_ast.build_typed_share_expression(
+                bootstrap.Name(token, "peer"), moved_source, alias="peer3"
+            )
+
     def test_typed_share_expression_rejects_partial_or_untracked_sources(self):
         token = bootstrap.Token("IDENT", "token", 1, 1)
         field = bootstrap.Member(
@@ -1388,12 +1969,12 @@ fn main(token: Token) -> void {
         trace = typed_ast.analyze_function_ownership(parsed, typed_module, "main")
         self.assertIs(trace.final_env.domain_of("token"), typed_ast.OwnershipDomain.SHARED)
         self.assertIs(trace.final_env.domain_of("peer"), typed_ast.OwnershipDomain.SHARED)
-        self.assertIn(
-            typed_ast.OwnershipEvent(
-                "retain", "peer", "share:token", typed_ast.OwnershipDomain.SHARED
-            ),
-            trace.events,
+        retain_event = next(
+            event for event in trace.events
+            if event.kind == "retain" and event.name == "peer"
         )
+        self.assertEqual(retain_event.source_binding, "token")
+        self.assertEqual(retain_event.point_id, "share@4:5")
         share_events = tuple(
             event for event in trace.events
             if event.kind in ("domain_transition", "retain")
@@ -1467,7 +2048,7 @@ fn second(token: Token) -> void {
             all(account.binding == "token" for account in graph.shared_accounts)
         )
 
-    def test_public_share_syntax_remains_fail_closed_in_c11(self):
+    def test_public_share_requires_arc_runtime_in_c11(self):
         source = """module test::share_c11_gate;
 sole struct Token { value: u32; }
 fn main(token: Token) -> void {
@@ -1479,9 +2060,193 @@ fn main(token: Token) -> void {
         bootstrap.check(parsed)
         with self.assertRaisesRegex(
             bootstrap.SotlasBootstrapError,
-            "C11 backend does not lower shared ownership yet",
+            "C11 share lowering requires import core::arc",
         ):
             bootstrap.emit_c(parsed)
+
+    def test_public_share_lowers_local_scalar_sole_to_arc_box(self):
+        source = """module test::share_c11;
+import core::arc::*;
+sole struct Token { value: u32; }
+fn read_shared(token: Token) -> u32 {
+    let peer = share token;
+    return peer.value;
+}
+"""
+        parsed = bootstrap.parse(source)
+        bootstrap.check(parsed)
+        generated = bootstrap.emit_c(parsed)
+        self.assertIn("__sotlas_shared_new_Token(token)", generated)
+        self.assertIn("arc_retain(&_st_shared_box_peer->header)", generated)
+        self.assertIn("(_st_shared_box_peer->value).value", generated)
+        self.assertEqual(generated.count("__sotlas_shared_release_Token(_st_shared_box_peer);"), 2)
+
+    def test_public_share_rejects_mutating_shared_source_and_alias(self):
+        for binding in ("token", "peer"):
+            with self.subTest(binding=binding):
+                source = f"""module test::share_mutation;
+import core::arc::*;
+sole struct Token {{ value: u32; }}
+fn mutate() -> u32 {{
+    let mut token: Token = 0;
+    let peer = share token;
+    {binding}.value = 7;
+    return peer.value;
+}}
+"""
+                parsed = bootstrap.parse(source)
+                bootstrap.check(parsed)
+                with self.assertRaisesRegex(
+                    bootstrap.SotlasBootstrapError,
+                    "C11 shared bindings are immutable",
+                ):
+                    bootstrap.emit_c(parsed)
+
+    def test_public_share_adds_a_second_canonical_strong_alias(self):
+        source = """module test::share_aliases;
+import core::arc::*;
+sole struct Token { value: u32; }
+fn read_shared(token: Token) -> u32 {
+    let peer = share token;
+    let peer2 = share peer;
+    return peer2.value;
+}
+"""
+        parsed = bootstrap.parse(source)
+        bootstrap.check(parsed)
+        generated = bootstrap.emit_c(parsed)
+        self.assertEqual(generated.count("if (arc_retain(&"), 2)
+        self.assertIn("_st_shared_box_peer2 = _st_shared_box_peer", generated)
+        self.assertEqual(
+            generated.count("__sotlas_shared_release_Token(_st_shared_box_peer);"),
+            2,
+        )
+        self.assertIn("__sotlas_shared_release_Token(_st_shared_box_peer2);", generated)
+
+    def test_public_share_cleans_every_alias_before_return(self):
+        source = """module test::share_alias_cleanup;
+import core::arc::*;
+sole struct Token { value: u32; }
+fn read_shared(token: Token) -> u32 {
+    let peer = share token;
+    let peer2 = share peer;
+    return peer2.value;
+}
+"""
+        parsed = bootstrap.parse(source)
+        bootstrap.check(parsed)
+        generated = bootstrap.emit_c(parsed)
+        self.assertEqual(generated.count("if (arc_retain(&"), 2)
+        self.assertEqual(generated.count("__sotlas_shared_release_Token("), 4)
+        cleanup = generated[generated.index("_st_ret = ("):]
+        self.assertLess(
+            cleanup.index("__sotlas_shared_release_Token(_st_shared_box_peer2);"),
+            cleanup.index("__sotlas_shared_release_Token(_st_shared_box_peer);"),
+        )
+        self.assertEqual(
+            cleanup.count("__sotlas_shared_release_Token(_st_shared_box_peer);"),
+            2,
+        )
+
+    def test_public_share_three_owner_chain_balances_every_retain(self):
+        parsed = bootstrap.parse("""module test::share_three_owners;
+import core::arc::*;
+sole struct Token { value: u32; }
+fn read_shared(token: Token) -> u32 {
+    let peer = share token;
+    let peer2 = share peer;
+    let peer3 = share peer2;
+    return peer3.value;
+}
+""")
+        bootstrap.check(parsed)
+        generated = bootstrap.emit_c(parsed)
+        self.assertEqual(generated.count("if (arc_retain(&"), 3)
+        self.assertEqual(generated.count("__sotlas_shared_release_Token("), 5)
+        cleanup = generated[generated.index("_st_ret = ("):]
+        release_order = [
+            cleanup.index(f"__sotlas_shared_release_Token({name});")
+            for name in (
+                "_st_shared_box_peer3",
+                "_st_shared_box_peer2",
+                "_st_shared_box_peer",
+            )
+        ]
+        self.assertEqual(release_order, sorted(release_order))
+
+    def test_public_share_rejects_implicit_alias_and_unclosed_fallthrough(self):
+        cases = (
+            ("let copy = peer;", "implicit shared alias copies"),
+            (
+                "if (true) { return peer.value; }",
+                "every path to return or explicitly transfer the owner",
+            ),
+        )
+        for statement, expected_error in cases:
+            with self.subTest(statement=statement):
+                source = """module test::share_limits;
+import core::arc::*;
+sole struct Token { value: u32; }
+fn run(token: Token) -> u32 {
+    let peer = share token;
+    """ + statement + "\n}\n"
+                parsed = bootstrap.parse(source)
+                bootstrap.check(parsed)
+                with self.assertRaisesRegex(
+                    bootstrap.SotlasBootstrapError, expected_error
+                ):
+                    bootstrap.emit_c(parsed)
+
+    def test_public_share_rejects_returning_shared_owner(self):
+        parsed = bootstrap.parse("""module test::share_escape;
+import core::arc::*;
+sole struct Token { value: u32; }
+fn escape(token: Token) -> Token {
+    let peer = share token;
+    return peer;
+}
+""")
+        bootstrap.check(parsed)
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            "C11 share failed canonical ownership validation",
+        ):
+            bootstrap.emit_c(parsed)
+
+    def test_shared_alias_graph_drives_source_identified_sir_retains(self):
+        if ownership_sir is None:
+            self.skipTest("SIR package is unavailable in isolated test mode")
+        source = """module test::share_aliases;
+sole struct Token { value: u32; }
+fn read_shared(token: Token) -> u32 {
+    let peer = share token;
+    let peer2 = share peer;
+    return peer2.value;
+}
+"""
+        parsed = bootstrap.parse(source)
+        bootstrap.check(parsed)
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        analysis = typed_ast.analyze_module_ownership(parsed, typed_module)
+        graph = typed_ast.build_ownership_domain_graph(analysis)
+        sir_plan = ownership_sir.lower_ownership_module_semantics(
+            analysis, graph
+        )
+        self.assertEqual(
+            [
+                (point.source, point.alias)
+                for point in graph.shared_alias_points
+            ],
+            [("token", "peer"), ("peer", "peer2")],
+        )
+        function_plan = sir_plan.functions[0]
+        self.assertEqual(
+            sum(
+                isinstance(item, ownership_sir.RetainInst)
+                for item in function_plan.shared.semantic
+            ),
+            2,
+        )
 
     def test_public_share_rejects_non_sole_and_partial_sources(self):
         parsed = bootstrap.parse("""module test::share_nonsole;
@@ -1758,6 +2523,96 @@ fn main(token: Token) -> void {
         self.assertEqual(trace.shared_exit.actions[1].owner, "peer")
         self.assertEqual(trace.shared_exit.actions[2].owner, "token")
         self.assertEqual(trace.shared_exit.actions[3].owner, "token")
+
+    def test_shared_early_return_defers_are_attached_to_only_their_path(self):
+        source = """module test::shared_early_return_defer;
+sole struct Token { value: u32; }
+fn main(flag: bool, token: Token) -> void {
+    if flag {
+        let peer = share token;
+        defer peer;
+        return;
+    }
+    return;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<shared-early-return-defer>"
+        )
+        bootstrap.check(parsed)
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(
+            parsed, typed_module, "main"
+        )
+
+        return_points = tuple(dict.fromkeys(
+            action.point_id for action in trace.shared_return_exit.actions
+        ))
+        self.assertEqual(len(return_points), 1)
+        point_id = return_points[0]
+        actions = tuple(
+            action for action in trace.shared_return_exit.actions
+            if action.point_id == point_id
+        )
+        self.assertEqual(
+            tuple(action.kind for action in actions),
+            ("defer", "release", "release", "destroy"),
+        )
+        self.assertEqual(actions[0].owner, "peer")
+        self.assertEqual(actions[0].via, "return:expression")
+        self.assertEqual(actions[0].defer_point_id, "defer@6:9")
+        self.assertTrue(all(action.point_id == point_id for action in actions))
+        self.assertFalse(
+            any(action.kind == "defer" for action in trace.shared_exit.actions)
+        )
+
+    def test_shared_defer_at_branch_fallthrough_fails_closed(self):
+        source = """module test::shared_branch_fallthrough_defer;
+sole struct Token { value: u32; }
+fn main(flag: bool, token: Token) -> void {
+    let peer = share token;
+    if flag {
+        defer peer;
+    }
+    return;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<shared-branch-fallthrough-defer>"
+        )
+        bootstrap.check(parsed)
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            "shared defer at conditional block fallthrough requires",
+        ):
+            typed_ast.analyze_function_ownership(
+                parsed, typed_module, "main"
+            )
+
+    def test_shared_defer_early_return_inside_unsafe_keeps_exit_plan(self):
+        source = """module test::shared_unsafe_return_defer;
+sole struct Token { value: u32; }
+fn main(token: Token) -> void {
+    let peer = share token;
+    unsafe {
+        defer peer;
+        return;
+    }
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<shared-unsafe-return-defer>"
+        )
+        bootstrap.check(parsed)
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(
+            parsed, typed_module, "main"
+        )
+        self.assertEqual(
+            tuple(action.kind for action in trace.shared_return_exit.actions),
+            ("defer", "release", "release", "destroy"),
+        )
 
     def test_multiple_shared_defers_are_lifo_before_release(self):
         source = """module test::shared_defer_lifo;
@@ -2088,6 +2943,227 @@ fn main(flag: bool) -> void {
                 parsed, typed_module, "main"
             )
 
+    def test_shared_deferred_direct_method_call_lowers_to_sir(self):
+        source = """module test::defer_method_call;
+sole struct Token {
+    value: u32;
+    fn inspect(&self) -> void { return; }
+}
+fn main(flag: bool) -> void {
+    while flag {
+        let local: Token = Token { value: 1u32 };
+        let peer = share local;
+        defer peer.inspect();
+        continue;
+    }
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<defer-method-call>")
+        bootstrap.check(parsed)
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(
+            parsed, typed_module, "main"
+        )
+        actions = trace.shared_loop_control_exit.actions
+        deferred = next(action for action in actions if action.kind == "defer")
+        self.assertEqual(
+            deferred.defer_call, ("Token_inspect", ("peer",))
+        )
+        plan = ownership_sir.lower_shared_ownership_trace(trace)
+        calls = [
+            instruction
+            for segment in plan.cleanup_segments
+            for instruction in segment.instructions
+            if type(instruction).__name__ == "CallInst"
+        ]
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0].callee, "Token_inspect")
+        self.assertEqual(calls[0].defer_point_id, deferred.defer_point_id)
+
+    def test_shared_deferred_single_call_block_lowers_to_sir(self):
+        source = """module test::defer_method_block;
+sole struct Token {
+    value: u32;
+    fn inspect(&self) -> void { return; }
+}
+fn main(flag: bool) -> void {
+    while flag {
+        let local: Token = Token { value: 1u32 };
+        let peer = share local;
+        defer { peer.inspect(); }
+        continue;
+    }
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<defer-method-block>")
+        bootstrap.check(parsed)
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(
+            parsed, typed_module, "main"
+        )
+        deferred = next(
+            action for action in trace.shared_loop_control_exit.actions
+            if action.kind == "defer"
+        )
+        self.assertEqual(deferred.defer_call, ("Token_inspect", ("peer",)))
+        plan = ownership_sir.lower_shared_ownership_trace(trace)
+        calls = [
+            instruction
+            for segment in plan.cleanup_segments
+            for instruction in segment.instructions
+            if type(instruction).__name__ == "CallInst"
+        ]
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0].callee, "Token_inspect")
+        self.assertEqual(calls[0].defer_point_id, deferred.defer_point_id)
+
+    def test_shared_deferred_single_call_block_lowers_on_each_early_return(self):
+        source = """module test::defer_method_block_returns;
+sole struct Token {
+    value: u32;
+    fn inspect(&self) -> void { return; }
+}
+fn main(flag: bool, token: Token) -> void {
+    let peer = share token;
+    defer { peer.inspect(); }
+    if flag { return; }
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<defer-method-block-returns>")
+        bootstrap.check(parsed)
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(
+            parsed, typed_module, "main"
+        )
+        actions = tuple(
+            action for action in trace.shared_return_exit.actions
+            if action.kind == "defer"
+        )
+        self.assertEqual(len(actions), 2)
+        self.assertEqual(
+            {action.defer_call for action in actions},
+            {("Token_inspect", ("peer",))},
+        )
+        plan = ownership_sir.lower_shared_ownership_trace(trace)
+        calls = [
+            instruction
+            for segment in plan.cleanup_segments
+            if segment.via == "early_return"
+            for instruction in segment.instructions
+            if type(instruction).__name__ == "CallInst"
+        ]
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(all(
+            instruction.defer_point_id == actions[0].defer_point_id
+            for instruction in calls
+        ))
+        self.assertEqual(len({
+            segment.point_id for segment in plan.cleanup_segments
+            if segment.via == "early_return"
+        }), 2)
+
+    def test_shared_deferred_multi_call_block_remains_fail_closed_in_sir(self):
+        source = """module test::defer_method_block_multiple;
+sole struct Token {
+    value: u32;
+    fn inspect(&self) -> void { return; }
+}
+fn main(token: Token) -> void {
+    let peer = share token;
+    defer { peer.inspect(); peer.inspect(); }
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<defer-method-block-multiple>")
+        bootstrap.check(parsed)
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(
+            parsed, typed_module, "main"
+        )
+        with self.assertRaisesRegex(
+            ValueError,
+            "shared defer payload lowering is not implemented in SIR for block",
+        ):
+            ownership_sir.lower_shared_ownership_trace(trace)
+
+    def test_shared_deferred_method_with_complex_argument_fails_closed(self):
+        source = """module test::defer_method_complex;
+sole struct Token {
+    value: u32;
+    fn inspect(&self, value: u32) -> void { return; }
+}
+fn main(flag: bool) -> void {
+    while flag {
+        let local: Token = Token { value: 1u32 };
+        let peer = share local;
+        defer peer.inspect(peer.value);
+        continue;
+    }
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<defer-method-complex>")
+        bootstrap.check(parsed)
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(
+            parsed, typed_module, "main"
+        )
+        with self.assertRaisesRegex(
+            ValueError, "defer method lacks typed direct arguments"
+        ):
+            ownership_sir.lower_shared_ownership_trace(trace)
+
+    def test_shared_deferred_method_call_is_placed_on_each_early_return(self):
+        source = """module test::defer_method_returns;
+sole struct Token {
+    value: u32;
+    fn inspect(&self) -> void { return; }
+}
+fn main(flag: bool, token: Token) -> void {
+    let peer = share token;
+    defer peer.inspect();
+    if flag { return; }
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<defer-method-returns>")
+        bootstrap.check(parsed)
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(
+            parsed, typed_module, "main"
+        )
+        defer_actions = tuple(
+            action for action in trace.shared_return_exit.actions
+            if action.kind == "defer"
+        )
+        self.assertEqual(len({action.point_id for action in defer_actions}), 2)
+        self.assertTrue(all(
+            action.defer_call == ("Token_inspect", ("peer",))
+            for action in defer_actions
+        ))
+        plan = ownership_sir.lower_shared_ownership_trace(trace)
+        calls = [
+            instruction
+            for segment in plan.cleanup_segments
+            if segment.via == "early_return"
+            for instruction in segment.instructions
+            if type(instruction).__name__ == "CallInst"
+        ]
+        self.assertEqual(
+            len(calls), 2,
+            [(segment.via, segment.point_id, call.defer_point_id)
+             for segment in plan.cleanup_segments
+             for call in segment.instructions
+             if type(call).__name__ == "CallInst"],
+        )
+        self.assertEqual(
+            {call.defer_point_id for call in calls},
+            {action.defer_point_id for action in defer_actions},
+        )
+
     def test_direct_shared_call_to_sole_parameter_requires_handover(self):
         source = """module test::shared_call_requires_handover;
 sole struct Token { value: u32; }
@@ -2111,6 +3187,61 @@ fn main(token: Token) -> void {
             typed_ast.analyze_function_ownership(
                 parsed, typed_module, "main"
             )
+
+    def test_shared_owner_cannot_be_consumed_as_method_receiver(self):
+        source = """module test::shared_method_receiver;
+sole struct Token {
+    value: u32;
+    fn consume(self: Token) -> void { return; }
+}
+fn main(token: Token) -> void {
+    let peer = share token;
+    peer.consume();
+    return;
+}
+"""
+        parsed = bootstrap.parse(
+            source, filename="<shared-method-receiver>"
+        )
+        bootstrap.check(parsed)
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"shared owner 'peer' cannot be consumed as receiver of method "
+            r"'Token_consume' without explicit handover",
+        ):
+            typed_ast.analyze_function_ownership(
+                parsed, typed_module, "main"
+            )
+
+    def test_sole_method_receiver_moves_its_owner(self):
+        source = """module test::sole_method_receiver;
+sole struct Token {
+    value: u32;
+    fn consume(self: Token) -> void { return; }
+}
+fn main(token: Token) -> void {
+    token.consume();
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<sole-method-receiver>")
+        bootstrap.check(parsed)
+        typed_module = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(
+            parsed, typed_module, "main"
+        )
+        self.assertIs(
+            trace.final_env.state_of("token"), typed_ast.VarState.MOVED
+        )
+        self.assertTrue(
+            any(
+                event.kind == "move"
+                and event.name == "token"
+                and event.via == "method:Token_consume"
+                for event in trace.events
+            )
+        )
 
     def test_shared_deferred_member_call_remains_fail_closed_in_sir(self):
         source = """module test::defer_member_call;
@@ -2342,6 +3473,135 @@ fn main(token: Token) -> void {
         self.assertIs(transition.source_state, typed_ast.VarState.LIVE)
         self.assertEqual(transition.type, typed_ast.SemanticType("Token"))
 
+    def test_domain_graph_rejects_duplicate_transfer_source_point(self):
+        parsed = bootstrap.parse("""module test::duplicate_transfer_point;
+sole struct Token { value: u32; }
+fn main(token: Token) -> void {
+    quarantine token;
+    return;
+}
+""", filename="<duplicate-transfer-point>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(parsed, typed, "main")
+        duplicate = typed_ast.OwnershipEvent(
+            "quarantine", "token", "quarantine",
+            typed_ast.OwnershipDomain.ISLAND,
+            point_id="quarantine@4:5",
+            type=typed_ast.SemanticType("Token"),
+            source_domain=typed_ast.OwnershipDomain.EXCLUSIVE,
+            target_domain=typed_ast.OwnershipDomain.ISLAND,
+        )
+        corrupted = typed_ast.OwnershipTrace(
+            trace.final_env, trace.events + (duplicate,), trace.shared_cleanup
+        )
+        analysis = typed_ast.OwnershipModuleAnalysis((), (("main", corrupted),))
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            "duplicate ownership transfer point 'quarantine@4:5'",
+        ):
+            typed_ast.build_ownership_domain_graph(analysis)
+
+    def test_domain_graph_rejects_quarantine_source_type_mismatch(self):
+        parsed = bootstrap.parse("""module test::quarantine_type_mismatch;
+sole struct Token { value: u32; }
+fn main(token: Token) -> void {
+    quarantine token;
+    return;
+}
+""", filename="<quarantine-type-mismatch>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(parsed, typed, "main")
+        event = next(item for item in trace.events if item.kind == "quarantine")
+        malformed = typed_ast.OwnershipEvent(
+            event.kind, event.name, event.via, event.domain,
+            point_id=event.point_id,
+            type=typed_ast.SemanticType("Other"),
+            source_domain=event.source_domain,
+            target_domain=event.target_domain,
+        )
+        corrupted = typed_ast.OwnershipTrace(
+            trace.final_env,
+            tuple(malformed if item is event else item for item in trace.events),
+            trace.shared_cleanup,
+        )
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            "incomplete quarantine domain transition for main::token",
+        ):
+            typed_ast.build_ownership_domain_graph(
+                typed_ast.OwnershipModuleAnalysis((), (("main", corrupted),))
+            )
+
+    def test_domain_graph_rejects_duplicate_share_transition_point(self):
+        parsed = bootstrap.parse("""module test::duplicate_domain_point;
+sole struct Token { value: u32; }
+fn main(token: Token) -> void {
+    let peer = share token;
+    return;
+}
+""", filename="<duplicate-domain-point>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(parsed, typed, "main")
+        original = next(
+            event for event in trace.events if event.kind == "domain_transition"
+        )
+        duplicate = typed_ast.OwnershipEvent(
+            original.kind, original.name, original.via, original.domain,
+            point_id=original.point_id, type=original.type,
+        )
+        corrupted = typed_ast.OwnershipTrace(
+            trace.final_env, trace.events + (duplicate,), trace.shared_cleanup
+        )
+        analysis = typed_ast.OwnershipModuleAnalysis((), (("main", corrupted),))
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            "duplicate ownership domain transition point 'share@4:5'",
+        ):
+            typed_ast.build_ownership_domain_graph(analysis)
+
+    def test_domain_graph_rejects_share_point_reused_by_move_in_any_order(self):
+        parsed = bootstrap.parse("""module test::share_move_point_collision;
+sole struct Token { value: u32; }
+fn main(token: Token) -> void {
+    let peer = share token;
+    return;
+}
+""", filename="<share-move-point-collision>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(parsed, typed, "main")
+        transition = next(
+            event for event in trace.events if event.kind == "domain_transition"
+        )
+        duplicate_move = typed_ast.OwnershipEvent(
+            "move", "token", "call:consume", transition.domain,
+            point_id=transition.point_id,
+            type=transition.type,
+            source_domain=typed_ast.OwnershipDomain.EXCLUSIVE,
+            target_domain=typed_ast.OwnershipDomain.EXCLUSIVE,
+        )
+        for events in (
+            trace.events + (duplicate_move,),
+            (duplicate_move,) + trace.events,
+        ):
+            corrupted = typed_ast.OwnershipTrace(
+                trace.final_env, events, trace.shared_cleanup
+            )
+            with self.subTest(move_first=events[0] is duplicate_move):
+                with self.assertRaisesRegex(
+                    typed_ast.Phase1SemanticError,
+                    "ownership point 'share@4:5' is reused by a transfer "
+                    "and another transition",
+                ):
+                    typed_ast.build_ownership_domain_graph(
+                        typed_ast.OwnershipModuleAnalysis(
+                            (), (("main", corrupted),)
+                        )
+                    )
+
     def test_canonical_quarantine_rejects_shared_owner(self):
         source = """module test::quarantine_shared;
 sole struct Token { value: u32; }
@@ -2412,7 +3672,7 @@ fn main(count: u32) -> void {
         ):
             bootstrap.check(parsed)
 
-    def test_c11_quarantine_remains_fail_closed(self):
+    def test_c11_lowers_validated_quarantine_as_compile_time_transition(self):
         source = """module test::quarantine_c11_gate;
 sole struct Token { value: u32; }
 fn main(token: Token) -> void {
@@ -2422,11 +3682,11 @@ fn main(token: Token) -> void {
 """
         parsed = bootstrap.parse(source, filename="<quarantine-c11-gate>")
         bootstrap.check(parsed)
-        with self.assertRaisesRegex(
-            bootstrap.SotlasBootstrapError,
-            r"C11 backend does not lower quarantine ownership yet",
-        ):
-            bootstrap.emit_c(parsed)
+        generated = bootstrap.emit_c(parsed)
+        self.assertIn(
+            "/* quarantine token: compile-time ownership transition */",
+            generated,
+        )
 
     def test_quarantined_handover_reacquires_exclusive_destination(self):
         source = """module test::quarantine_handover_reacquire;
@@ -2472,6 +3732,7 @@ fn main(source: Token, destination: Token) -> void {
         )
         self.assertIs(event.domain, typed_ast.OwnershipDomain.ISLAND)
         self.assertEqual(event.destination, "destination")
+        self.assertEqual(event.point_id, "handover@7:5")
 
         graph = typed_ast.build_ownership_domain_graph(
             typed_ast.OwnershipModuleAnalysis((), (("main", trace),))
@@ -2494,6 +3755,135 @@ fn main(source: Token, destination: Token) -> void {
             transfer.destination_domain,
             typed_ast.OwnershipDomain.EXCLUSIVE,
         )
+
+    def test_domain_graph_rejects_handover_to_untracked_destination(self):
+        parsed = bootstrap.parse("""module test::handover_missing_destination;
+sole struct Token { value: u32; }
+fn consume(token: Token) -> void { return; }
+fn main(source: Token, destination: Token) -> void {
+    consume(destination);
+    handover source to destination;
+    return;
+}
+""", filename="<handover-missing-destination>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(parsed, typed, "main")
+        corrupted_env = typed_ast.OwnershipEnv(
+            tuple(
+                binding for binding in trace.final_env.bindings
+                if binding.name != "destination"
+            )
+        )
+        corrupted = typed_ast.OwnershipTrace(
+            corrupted_env,
+            tuple(
+                event for event in trace.events
+                if not (event.kind == "move" and event.name == "destination")
+            ),
+            trace.shared_cleanup,
+        )
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            "handover destination main::destination is untracked",
+        ):
+            typed_ast.build_ownership_domain_graph(
+                typed_ast.OwnershipModuleAnalysis((), (("main", corrupted),))
+            )
+
+    def test_domain_graph_rejects_duplicate_handover_source_point(self):
+        parsed = bootstrap.parse("""module test::duplicate_handover_point;
+sole struct Token { value: u32; }
+fn main(token: Token) -> void {
+    handover token;
+    return;
+}
+""", filename="<duplicate-handover-point>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(parsed, typed, "main")
+        event = next(item for item in trace.events if item.kind == "handover")
+        duplicate = typed_ast.OwnershipEvent(
+            event.kind, event.name, event.via, event.domain,
+            point_id=event.point_id, type=event.type,
+            destination=event.destination,
+            source_domain=event.source_domain,
+            target_domain=event.target_domain,
+            destination_domain=event.destination_domain,
+        )
+        corrupted = typed_ast.OwnershipTrace(
+            trace.final_env, trace.events + (duplicate,), trace.shared_cleanup
+        )
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            f"duplicate ownership handover point '{event.point_id}'",
+        ):
+            typed_ast.build_ownership_domain_graph(
+                typed_ast.OwnershipModuleAnalysis((), (("main", corrupted),))
+            )
+
+    def test_domain_graph_requires_canonical_handover_sink_point(self):
+        parsed = bootstrap.parse("""module test::handover_sink_point;
+sole struct Token { value: u32; }
+fn main(token: Token) -> void {
+    handover token;
+    return;
+}
+""", filename="<handover-sink-point>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(parsed, typed, "main")
+        event = next(item for item in trace.events if item.kind == "handover")
+        malformed = typed_ast.OwnershipEvent(
+            event.kind, event.name, event.via, event.domain,
+            point_id=None, type=event.type,
+            source_domain=event.source_domain,
+        )
+        corrupted = typed_ast.OwnershipTrace(
+            trace.final_env,
+            tuple(malformed if item is event else item for item in trace.events),
+            trace.shared_cleanup,
+        )
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            "handover transition for main::token lacks canonical handover source point",
+        ):
+            typed_ast.build_ownership_domain_graph(
+                typed_ast.OwnershipModuleAnalysis((), (("main", corrupted),))
+            )
+
+    def test_domain_graph_rejects_handover_reusing_prior_share_point(self):
+        parsed = bootstrap.parse("""module test::handover_reuses_share_point;
+sole struct Token { value: u32; }
+fn main(token: Token) -> void {
+    let peer = share token;
+    return;
+}
+""", filename="<handover-reuses-share-point>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(parsed, typed, "main")
+        share = next(
+            event for event in trace.events if event.kind == "domain_transition"
+        )
+        handover = typed_ast.OwnershipEvent(
+            "handover", "token", "handover", share.domain,
+            point_id=share.point_id, type=share.type,
+            destination="peer",
+            source_domain=typed_ast.OwnershipDomain.EXCLUSIVE,
+            target_domain=typed_ast.OwnershipDomain.SHARED,
+            destination_domain=typed_ast.OwnershipDomain.SHARED,
+        )
+        corrupted = typed_ast.OwnershipTrace(
+            trace.final_env, trace.events + (handover,), trace.shared_cleanup
+        )
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            "ownership point 'share@4:5' is reused by handover and another transition",
+        ):
+            typed_ast.build_ownership_domain_graph(
+                typed_ast.OwnershipModuleAnalysis((), (("main", corrupted),))
+            )
 
     def test_domain_graph_rejects_incomplete_quarantine_transition_fact(self):
         trace = typed_ast.OwnershipTrace(
@@ -2620,6 +4010,207 @@ fn main(source: Token, destination: Token) -> void {
         )
         self.assertEqual(transfer.destination, "destination")
 
+    def test_region_device_external_handover_is_canonical_same_domain_transfer(self):
+        for domain in ("region", "device", "external"):
+            with self.subTest(domain=domain):
+                source = (
+                    "module test::same_domain_handover; "
+                    "sole struct Token { value: u32; } "
+                    f"fn consume(token: {domain} Token) -> void {{ return; }} "
+                    f"fn main(source: {domain} Token, destination: {domain} Token) -> void {{ "
+                    "consume(move destination); handover source to destination; "
+                    "return; }"
+                )
+                parsed = bootstrap.parse(source, filename="<same-domain-handover>")
+                bootstrap.check(parsed)
+                typed = typed_ast.build_declaration_typed_ast(parsed)
+                trace = typed_ast.analyze_function_ownership(parsed, typed, "main")
+                event = next(
+                    item for item in trace.events
+                    if item.kind == "handover" and item.name == "source"
+                )
+                expected = typed_ast.OwnershipDomain(domain)
+                self.assertIs(event.source_domain, expected)
+                self.assertIs(event.target_domain, expected)
+                graph = typed_ast.build_ownership_domain_graph(
+                    typed_ast.OwnershipModuleAnalysis((), (("main", trace),))
+                )
+                transfer = next(
+                    item for item in graph.transfers
+                    if item.binding == "source" and item.via == "handover"
+                )
+                self.assertIs(transfer.source_domain, expected)
+                self.assertIs(transfer.target_domain, expected)
+                self.assertEqual(transfer.destination, "destination")
+
+    def test_island_handover_preserves_isolation_in_canonical_graph(self):
+        source = """module test::island_same_domain_handover;
+sole struct Token { value: u32; }
+fn consume(token: island Token) -> void { return; }
+fn transfer(source: island Token, destination: island Token) -> void {
+    consume(move destination);
+    handover source to destination;
+    destination.value;
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<island-same-domain-handover>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(parsed, typed, "transfer")
+        event = next(
+            item for item in trace.events
+            if item.kind == "handover" and item.name == "source"
+        )
+        self.assertIs(event.source_domain, typed_ast.OwnershipDomain.ISLAND)
+        self.assertIs(event.target_domain, typed_ast.OwnershipDomain.ISLAND)
+        self.assertIs(trace.final_env.state_of("source"), typed_ast.VarState.MOVED)
+        self.assertIs(trace.final_env.state_of("destination"), typed_ast.VarState.LIVE)
+        graph = typed_ast.build_ownership_domain_graph(
+            typed_ast.OwnershipModuleAnalysis((), (("transfer", trace),))
+        )
+        transfer = next(
+            item for item in graph.transfers if item.via == "handover"
+        )
+        self.assertIs(transfer.source_domain, typed_ast.OwnershipDomain.ISLAND)
+        self.assertIs(transfer.target_domain, typed_ast.OwnershipDomain.ISLAND)
+        self.assertEqual(transfer.destination, "destination")
+
+    def test_region_device_external_call_transfer_preserves_domain_in_graph(self):
+        for domain in ("region", "device", "external"):
+            with self.subTest(domain=domain):
+                source = (
+                    "module test::domain_call_transfer; "
+                    "sole struct Token { value: u32; } "
+                    f"fn consume(token: {domain} Token) -> void {{ return; }} "
+                    f"fn caller(token: {domain} Token) -> void {{ consume(move token); return; }}"
+                )
+                parsed = bootstrap.parse(source, filename="<domain-call-transfer>")
+                bootstrap.check(parsed)
+                typed = typed_ast.build_declaration_typed_ast(parsed)
+                trace = typed_ast.analyze_function_ownership(parsed, typed, "caller")
+                moved = next(item for item in trace.events if item.kind == "move")
+                expected = typed_ast.OwnershipDomain(domain)
+                self.assertIs(moved.source_domain, expected)
+                self.assertIs(moved.target_domain, expected)
+                graph = typed_ast.build_ownership_domain_graph(
+                    typed_ast.OwnershipModuleAnalysis((), (("caller", trace),))
+                )
+                transfer = next(item for item in graph.transfers if item.via == "call:consume")
+                self.assertIs(transfer.source_domain, expected)
+                self.assertIs(transfer.target_domain, expected)
+
+    def test_exclusive_to_device_handover_is_graphed_but_c11_stays_fail_closed(self):
+        source = """module test::device_submission_graph;
+sole struct Buffer { value: u32; }
+fn take_device(buffer: device Buffer) -> void { return; }
+fn submit(source: Buffer, destination: device Buffer) -> void {
+    take_device(move destination);
+    handover source to destination;
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<device-submission-graph>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        trace = typed_ast.analyze_function_ownership(parsed, typed, "submit")
+        graph = typed_ast.build_ownership_domain_graph(
+            typed_ast.OwnershipModuleAnalysis((), (("submit", trace),))
+        )
+        transfer = next(
+            item for item in graph.transfers
+            if item.binding == "source" and item.via == "handover"
+        )
+        self.assertIs(
+            transfer.source_domain, typed_ast.OwnershipDomain.EXCLUSIVE
+        )
+        self.assertIs(
+            transfer.target_domain, typed_ast.OwnershipDomain.DEVICE
+        )
+        self.assertEqual(transfer.destination, "destination")
+
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            "C11 backend does not lower device ownership domain yet",
+        ):
+            bootstrap.compile_source(source)
+
+    def test_device_to_exclusive_handover_requires_completion_contract(self):
+        source = """module test::device_reacquire_gate;
+sole struct Buffer { value: u32; }
+fn take_exclusive(buffer: Buffer) -> void { return; }
+fn reacquire(source: device Buffer, destination: Buffer) -> void {
+    take_exclusive(move destination);
+    handover source to destination;
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<device-reacquire-gate>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"handover destination 'destination' must share source domain 'device'",
+        ):
+            typed_ast.analyze_function_ownership(parsed, typed, "reacquire")
+
+    def test_region_rejects_cross_domain_call_and_use_after_move(self):
+        cross_domain = """module test::region_cross_domain_call;
+sole struct Token { value: u32; }
+fn consume(token: Token) -> void { return; }
+fn caller(token: region Token) -> void {
+    consume(move token);
+    return;
+}
+"""
+        parsed = bootstrap.parse(cross_domain, filename="<region-cross-domain>")
+        bootstrap.check(parsed)
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            "C11 region failed canonical ownership validation: "
+            "ownership domain transfer for 'token' requires explicit handover",
+        ):
+            bootstrap.compile_source(cross_domain, filename="<region-cross-domain-c11>")
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            "ownership domain transfer for 'token' requires explicit handover",
+        ):
+            typed_ast.analyze_function_ownership(parsed, typed, "caller")
+
+        use_after_move = """module test::region_use_after_move;
+sole struct Token { value: u32; }
+fn consume(token: region Token) -> void { return; }
+fn caller(token: region Token) -> void {
+    consume(move token);
+    token.value;
+    return;
+}
+"""
+        parsed = bootstrap.parse(use_after_move, filename="<region-use-after-move>")
+        bootstrap.check(parsed)
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            "use of sole value 'token' after move",
+        ):
+            typed_ast.analyze_function_ownership(parsed, typed, "caller")
+
+    def test_region_pointer_return_rejected_by_c11_typecheck(self):
+        source = """module test::region_reference_escape;
+sole struct Token { value: u32; }
+fn leak() -> *const Token {
+    let token: region Token = Token { value: 3u32 };
+    return (&token as *const Token);
+}
+fn main() -> i32 { return 0; }
+"""
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            "retorno incompat",
+        ):
+            bootstrap.compile_source(source, filename="<region-reference-escape>")
+
     def test_canonical_handover_destination_must_already_be_moved(self):
         source = """module test::handover_live_destination;
 sole struct Token { value: u32; }
@@ -2711,7 +4302,7 @@ fn main(count: u32) -> void {
         ):
             bootstrap.check(parsed)
 
-    def test_c11_handover_remains_fail_closed(self):
+    def test_c11_handover_without_destination_remains_fail_closed(self):
         source = """module test::handover_c11_gate;
 sole struct Token { value: u32; }
 fn main(token: Token) -> void {
@@ -2723,9 +4314,42 @@ fn main(token: Token) -> void {
         bootstrap.check(parsed)
         with self.assertRaisesRegex(
             bootstrap.SotlasBootstrapError,
-            r"C11 backend does not lower handover ownership yet",
+            r"C11 handover requires a validated binding destination",
         ):
             bootstrap.emit_c(parsed)
+
+    def test_c11_lowers_validated_handover_to_binding_assignment(self):
+        source = """module test::handover_c11_binding;
+sole struct Token { value: u32; }
+fn consume(token: Token) -> void { return; }
+fn main(source: Token, destination: Token) -> void {
+    consume(destination);
+    handover source to destination;
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<handover-c11-binding>")
+        bootstrap.check(parsed)
+        generated = bootstrap.emit_c(parsed)
+        self.assertIn("destination = source;", generated)
+
+    def test_c11_handover_suppresses_source_auto_cleanup(self):
+        source = """module test::handover_c11_cleanup;
+sole struct Token { value: u32; }
+fn Token_deinit(self: &mut Token) -> void { return; }
+fn consume(token: Token) -> void { return; }
+fn main(source: Token, destination: Token) -> void {
+    consume(destination);
+    handover source to destination;
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<handover-c11-cleanup>")
+        bootstrap.check(parsed)
+        generated = bootstrap.emit_c(parsed)
+        main_body = generated.split("void main(", 1)[-1]
+        self.assertIn("destination = source;", main_body)
+        self.assertNotIn("Token_deinit(&source)", main_body)
 
     def test_linear_body_moves_sole_value_into_by_value_call(self):
         source = """module test::linear_call;

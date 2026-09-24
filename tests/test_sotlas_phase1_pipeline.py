@@ -33,9 +33,247 @@ def _load_canonical_package():
 
 sotlas_compile = _load_canonical_package()
 typed_ast = importlib.import_module(f"{sotlas_compile.__name__}.typed_ast")
+try:
+    _shared_sir_package = importlib.import_module("sotlas.sir")
+except ImportError:
+    sir_name = "sotlas_phase1_sir_package"
+    sir_spec = importlib.util.spec_from_file_location(
+        sir_name,
+        ROOT / "compiler" / "sotlas" / "sir" / "__init__.py",
+        submodule_search_locations=[str(ROOT / "compiler" / "sotlas" / "sir")],
+    )
+    assert sir_spec is not None and sir_spec.loader is not None
+    sir_module = importlib.util.module_from_spec(sir_spec)
+    sys.modules[sir_name] = sir_module
+    sir_spec.loader.exec_module(sir_module)
+    _shared_sir_package = sir_module
+RetainInst = _shared_sir_package.RetainInst
+DirectAccessInst = _shared_sir_package.DirectAccessInst
+OwnershipDomainTransferInst = _shared_sir_package.OwnershipDomainTransferInst
+generate_checked_ownership_sir = (
+    _shared_sir_package.generate_checked_ownership_sir
+)
+CallInst, DestroyInst, ReleaseInst, ReturnInst, ShareInst = (
+    _shared_sir_package.CallInst, _shared_sir_package.DestroyInst,
+    _shared_sir_package.ReleaseInst, _shared_sir_package.ReturnInst,
+    _shared_sir_package.ShareInst,
+)
 
 
 class SotlasPhase1PipelineTests(unittest.TestCase):
+    def test_nested_cfg_places_direct_and_whisper_borrows_per_branch(self):
+        source = """module test::phase1_direct_branch_borrow;
+sole struct Token { value: u32; }
+fn inspect_direct(token: direct Token) -> void { return; }
+fn inspect_whisper(token: whisper Token) -> void { return; }
+fn route(flag: bool, token: Token) -> void {
+    if flag {
+        inspect_direct(&token);
+        return;
+    } else {
+        inspect_whisper(&token);
+        return;
+    }
+}
+"""
+        checked = sotlas_compile.analyze_source_phase1(
+            source, filename="<phase1-direct-branch-borrow>"
+        )
+        result = generate_checked_ownership_sir(checked)
+        function = next(
+            item for item in result.module.functions if item.name == "route"
+        )
+        branches = [
+            block for block in function.blocks
+            if any(isinstance(item, ReturnInst) for item in block.instructions)
+        ]
+        self.assertEqual(len(branches), 2)
+        marker_kinds = {
+            type(item).__name__
+            for block in branches for item in block.instructions
+        }
+        self.assertEqual(marker_kinds, {"DirectAccessInst", "WhisperBorrowInst", "ReturnInst", "CallInst"})
+        for block in branches:
+            names = [type(item).__name__ for item in block.instructions]
+            call_index = names.index("CallInst")
+            return_index = names.index("ReturnInst")
+            marker_index = next(
+                index for index, item in enumerate(block.instructions)
+                if type(item).__name__ in ("DirectAccessInst", "WhisperBorrowInst")
+            )
+            self.assertLess(marker_index, call_index)
+            self.assertLess(call_index, return_index)
+
+    def test_nested_cfg_places_quarantine_on_each_branch(self):
+        source = """module test::phase1_island_branch_quarantine;
+sole struct Buffer { value: u32; }
+fn isolate(flag: bool, cpu_a: Buffer, cpu_b: Buffer) -> void {
+    if flag {
+        quarantine cpu_a;
+        return;
+    } else {
+        quarantine cpu_b;
+        return;
+    }
+}
+"""
+        checked = sotlas_compile.analyze_source_phase1(
+            source, filename="<phase1-island-branch-quarantine>"
+        )
+        result = generate_checked_ownership_sir(checked)
+        function = next(
+            item for item in result.module.functions
+            if item.name == "isolate"
+        )
+        transfers = [
+            (block.label, instruction)
+            for block in function.blocks
+            for instruction in block.instructions
+            if isinstance(instruction, OwnershipDomainTransferInst)
+        ]
+        self.assertEqual(len(transfers), 2)
+        self.assertEqual(
+            {(item.source.name, item.destination,
+              item.operation, item.source_domain, item.target_domain)
+             for _, item in transfers},
+            {
+                ("cpu_a", None, "quarantine", "exclusive", "island"),
+                ("cpu_b", None, "quarantine", "exclusive", "island"),
+            },
+        )
+        self.assertEqual(len({block for block, _ in transfers}), 2)
+
+    def test_nested_cfg_places_exclusive_to_device_handover_per_branch(self):
+        source = """module test::phase1_device_branch_handover;
+sole struct Buffer { value: u32; }
+fn accept_device(buffer: device Buffer) -> void { return; }
+fn submit(flag: bool, cpu_a: Buffer, cpu_b: Buffer,
+          device_a: device Buffer, device_b: device Buffer) -> void {
+    accept_device(move device_a);
+    accept_device(move device_b);
+    if flag {
+        handover cpu_a to device_a;
+        return;
+    } else {
+        handover cpu_b to device_b;
+        return;
+    }
+}
+"""
+        checked = sotlas_compile.analyze_source_phase1(
+            source, filename="<phase1-device-branch-handover>"
+        )
+        result = generate_checked_ownership_sir(checked)
+        function = next(
+            item for item in result.module.functions
+            if item.name == "submit"
+        )
+        calls = [
+            item for block in function.blocks for item in block.instructions
+            if isinstance(item, CallInst)
+            and item.callee == "accept_device"
+        ]
+        transfers = [
+            (block.label, instruction)
+            for block in function.blocks
+            for instruction in block.instructions
+            if isinstance(instruction, OwnershipDomainTransferInst)
+        ]
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(
+            {(item.source.name, item.destination.name,
+              item.source_domain, item.target_domain)
+             for _, item in transfers},
+            {
+                ("cpu_a", "device_a", "exclusive", "device"),
+                ("cpu_b", "device_b", "exclusive", "device"),
+            },
+        )
+        self.assertEqual(len({block for block, _ in transfers}), 2)
+
+    def test_nested_cfg_places_device_consumer_before_branch_handover(self):
+        source = """module test::phase1_device_branch_consumer;
+sole struct Buffer { value: u32; }
+fn accept_device(buffer: device Buffer) -> void { return; }
+fn submit(flag: bool, cpu_a: Buffer, cpu_b: Buffer,
+          device_a: device Buffer, device_b: device Buffer) -> void {
+    if flag {
+        accept_device(move device_a);
+        handover cpu_a to device_a;
+        return;
+    } else {
+        accept_device(move device_b);
+        handover cpu_b to device_b;
+        return;
+    }
+}
+"""
+        checked = sotlas_compile.analyze_source_phase1(
+            source, filename="<phase1-device-branch-consumer>"
+        )
+        result = generate_checked_ownership_sir(checked)
+        function = next(
+            item for item in result.module.functions if item.name == "submit"
+        )
+        transfer_blocks = [
+            block for block in function.blocks
+            if any(isinstance(item, OwnershipDomainTransferInst)
+                   for item in block.instructions)
+        ]
+        self.assertEqual(len(transfer_blocks), 2)
+        for block in transfer_blocks:
+            instructions = block.instructions
+            call_index = next(
+                index for index, item in enumerate(instructions)
+                if isinstance(item, CallInst) and item.callee == "accept_device"
+            )
+            transfer_index = next(
+                index for index, item in enumerate(instructions)
+                if isinstance(item, OwnershipDomainTransferInst)
+            )
+            return_index = next(
+                index for index, item in enumerate(instructions)
+                if isinstance(item, ReturnInst)
+            )
+            self.assertLess(call_index, transfer_index)
+            self.assertLess(transfer_index, return_index)
+
+    def test_nested_cfg_places_arc_cleanup_on_every_return_path(self):
+        source = """module test::phase1_nested_shared_returns;
+sole struct Token { value: u32; }
+fn route(outer: bool, inner: bool, token: Token) -> void {
+    let peer = share token;
+    if outer {
+        if inner { return; } else { return; }
+    } else {
+        return;
+    }
+}
+"""
+        checked = sotlas_compile.analyze_source_phase1(
+            source, filename="<phase1-nested-shared-returns>"
+        )
+        result = generate_checked_ownership_sir(checked)
+        function = next(
+            item for item in result.module.functions if item.name == "route"
+        )
+        return_blocks = [
+            block for block in function.blocks
+            if any(isinstance(item, ReturnInst) for item in block.instructions)
+        ]
+        self.assertEqual(len(return_blocks), 3)
+        for block in return_blocks:
+            return_index = next(
+                index for index, item in enumerate(block.instructions)
+                if isinstance(item, ReturnInst)
+            )
+            cleanup = [
+                index for index, item in enumerate(block.instructions)
+                if isinstance(item, (ReleaseInst, DestroyInst))
+            ]
+            self.assertTrue(cleanup)
+            self.assertLess(max(cleanup), return_index)
+
     def test_public_phase1_pipeline_is_explicit_and_preserves_bootstrap_check(self):
         source = """module test::phase1_public;
 sole struct Token { value: u32; }
@@ -112,6 +350,215 @@ fn main(token: Token) -> void {
         self.assertEqual(account.strong_refs, 2)
         self.assertTrue(account.point_id.startswith("share@"))
 
+    def test_public_phase1_pipeline_rejects_duplicate_quarantine_point(self):
+        from sotlas_phase1_public_package import typed_ast
+
+        source = """module test::phase1_duplicate_quarantine;
+sole struct Token { value: u32; }
+fn main(token: Token) -> void {
+    quarantine token;
+    return;
+}
+"""
+        result = sotlas_compile.analyze_source_phase1(
+            source, filename="<phase1-duplicate-quarantine>"
+        )
+        trace = result.semantic.ownership.traces[0][1]
+        duplicate = typed_ast.OwnershipEvent(
+            "quarantine", "token", "quarantine",
+            typed_ast.OwnershipDomain.ISLAND,
+            point_id="quarantine@4:5",
+            type=typed_ast.SemanticType("Token"),
+            source_domain=typed_ast.OwnershipDomain.EXCLUSIVE,
+            target_domain=typed_ast.OwnershipDomain.ISLAND,
+        )
+        malformed = typed_ast.OwnershipModuleAnalysis(
+            result.semantic.ownership.summaries,
+            (("main", typed_ast.OwnershipTrace(
+                trace.final_env, trace.events + (duplicate,),
+                trace.shared_cleanup,
+            )),),
+        )
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            "duplicate ownership transfer point 'quarantine@4:5'",
+        ):
+            typed_ast.build_ownership_domain_graph(malformed)
+
+    def test_public_phase1_pipeline_tracks_multiple_shared_alias_owners(self):
+        source = """module test::phase1_shared_aliases;
+sole struct Token { value: u32; }
+fn main(token: Token) -> void {
+    let peer = share token;
+    let peer2 = share peer;
+    return;
+}
+"""
+        result = sotlas_compile.analyze_source_phase1(source)
+        graph = result.semantic.ownership_domains
+        account = graph.shared_accounts[0]
+        self.assertEqual(account.owners, ("token", "peer", "peer2"))
+        self.assertEqual(account.strong_refs, 3)
+        self.assertEqual(
+            [(item.source, item.alias, item.operation)
+             for item in graph.shared_alias_points],
+            [("token", "peer", "share"), ("peer", "peer2", "share_alias")],
+        )
+        shared = result.ownership_sir.functions[0].shared
+        self.assertEqual(
+            sum(isinstance(item, RetainInst) for item in shared.semantic), 2
+        )
+
+    def test_checked_sir_places_every_shared_alias_retain_and_release(self):
+        source = """module test::phase1_shared_alias_sir;
+sole struct Token { value: u32; }
+fn main(token: Token) -> void {
+    let peer = share token;
+    let peer2 = share peer;
+    return;
+}
+"""
+        checked = sotlas_compile.analyze_source_phase1(source)
+        result = generate_checked_ownership_sir(checked)
+        instructions = tuple(
+            instruction
+            for function in result.module.functions
+            for block in function.blocks
+            for instruction in block.instructions
+        )
+        self.assertEqual(sum(isinstance(item, ShareInst) for item in instructions), 1)
+        self.assertEqual(sum(isinstance(item, RetainInst) for item in instructions), 2)
+        self.assertEqual(sum(isinstance(item, ReleaseInst) for item in instructions), 3)
+        self.assertEqual(sum(isinstance(item, DestroyInst) for item in instructions), 1)
+
+    def test_checked_sir_places_deferred_method_on_each_return_path(self):
+        source = """module test::phase1_deferred_method;
+sole struct Token {
+    value: u32;
+    fn inspect(&self) -> void { return; }
+}
+fn main(flag: bool, token: Token) -> void {
+    let peer = share token;
+    defer peer.inspect();
+    if flag { return; }
+    return;
+}
+"""
+        checked = sotlas_compile.analyze_source_phase1(
+            source, filename="<phase1-deferred-method>"
+        )
+        result = generate_checked_ownership_sir(checked)
+        function = next(
+            function for function in result.module.functions
+            if function.name == "main"
+        )
+        call_blocks = []
+        for block in function.blocks:
+            calls = [
+                instruction for instruction in block.instructions
+                if isinstance(instruction, CallInst)
+                and instruction.callee == "Token_inspect"
+            ]
+            if calls:
+                self.assertEqual(len(calls), 1)
+                call_index = block.instructions.index(calls[0])
+                return_index = next(
+                    index for index, instruction
+                    in enumerate(block.instructions)
+                    if isinstance(instruction, ReturnInst)
+                )
+                cleanup_indexes = [
+                    index for index, instruction
+                    in enumerate(block.instructions)
+                    if isinstance(instruction, (ReleaseInst, DestroyInst))
+                ]
+                self.assertTrue(cleanup_indexes)
+                self.assertTrue(
+                    all(call_index < index < return_index
+                        for index in cleanup_indexes)
+                )
+                call_blocks.append(calls[0])
+        self.assertEqual(len(call_blocks), 2)
+        self.assertEqual(
+            len({call.defer_point_id for call in call_blocks}), 1
+        )
+
+    def test_checked_sir_preserves_shared_direct_borrow_in_deferred_early_return(self):
+        source = """module test::phase1_deferred_direct_shared;
+sole struct Token { value: u32; }
+fn inspect(token: direct Token) -> void { return; }
+fn run(flag: bool, token: Token) -> void {
+    let peer = share token;
+    defer inspect(&peer);
+    if flag { return; }
+    return;
+}
+"""
+        checked = sotlas_compile.analyze_source_phase1(
+            source, filename="<phase1-deferred-direct-shared>"
+        )
+        result = generate_checked_ownership_sir(checked)
+        function = next(
+            function for function in result.module.functions
+            if function.name == "run"
+        )
+        direct_markers = [
+            item for block in function.blocks for item in block.instructions
+            if isinstance(item, DirectAccessInst)
+        ]
+        self.assertEqual(len(direct_markers), 1)
+        graph_access = next(
+            access for access in checked.semantic.ownership_domains.direct_accesses
+            if access.function == "run"
+        )
+        self.assertEqual(direct_markers[0].point_id, graph_access.point_id)
+        self.assertEqual(direct_markers[0].source_domain, "shared")
+        return_blocks = [
+            block for block in function.blocks
+            if any(isinstance(item, ReturnInst) for item in block.instructions)
+        ]
+        self.assertEqual(len(return_blocks), 2)
+        calls = []
+        for block in return_blocks:
+            call_index = next(
+                index for index, item in enumerate(block.instructions)
+                if isinstance(item, CallInst) and item.callee == "inspect"
+            )
+            call = block.instructions[call_index]
+            calls.append(call)
+            self.assertEqual(len(call.arguments), 1)
+            self.assertEqual(call.arguments[0].name, "peer")
+            self.assertEqual(call.arguments[0].type_name, "Token*")
+            return_index = next(
+                index for index, item in enumerate(block.instructions)
+                if isinstance(item, ReturnInst)
+            )
+            releases = [
+                index for index, item in enumerate(block.instructions)
+                if isinstance(item, (ReleaseInst, DestroyInst))
+            ]
+            self.assertTrue(releases)
+            self.assertTrue(call_index < min(releases) < return_index)
+        self.assertEqual(len({call.defer_point_id for call in calls}), 1)
+
+    def test_deferred_direct_call_rejects_shared_alias_without_explicit_borrow(self):
+        source = """module test::phase1_deferred_direct_requires_borrow;
+sole struct Token { value: u32; }
+fn inspect(token: direct Token) -> void { return; }
+fn run(token: Token) -> void {
+    let peer = share token;
+    defer inspect(peer);
+    return;
+}
+"""
+        with self.assertRaisesRegex(
+            sotlas_compile.bootstrap.SotlasBootstrapError,
+            r"argumento 1 incompat",
+        ):
+            sotlas_compile.analyze_source_phase1(
+                source, filename="<phase1-deferred-direct-requires-borrow>"
+            )
+
     def test_public_phase1_pipeline_preserves_non_owning_whisper_contract(self):
         source = """module test::phase1_whisper;
 sole struct Token { value: u32; }
@@ -134,6 +581,774 @@ fn inspect(token: whisper Token) -> void { return; }
         self.assertEqual(
             result.semantic.ownership_domains.nodes, ()
         )
+
+    def test_whisper_call_borrows_live_sole_argument_without_consuming_it(self):
+        source = """module test::phase1_whisper_call;
+sole struct Token { value: u32; }
+fn inspect(token: whisper Token) -> u32 { return 1; }
+fn caller(token: Token) -> u32 {
+    let result = inspect(&token);
+    return result;
+}
+"""
+        result = sotlas_compile.analyze_source_phase1(
+            source, filename="<phase1-whisper-call>"
+        )
+        _, trace = next(
+            item for item in result.semantic.ownership.traces
+            if item[0] == "caller"
+        )
+        self.assertIs(
+            trace.final_env.state_of("token"), typed_ast.VarState.LIVE
+        )
+        self.assertFalse(
+            any(event.kind == "move" and event.name == "token"
+                for event in trace.events)
+        )
+        graph = result.semantic.ownership_domains
+        self.assertEqual(len(graph.whisper_borrows), 1)
+        borrow = graph.whisper_borrows[0]
+        self.assertEqual(borrow.function, "caller")
+        self.assertEqual(borrow.callee, "inspect")
+        self.assertEqual(borrow.parameter, "token")
+        self.assertEqual(borrow.source, "token")
+        self.assertIs(borrow.source_domain, typed_ast.OwnershipDomain.EXCLUSIVE)
+        self.assertRegex(borrow.point_id, r"^whisper@\d+:\d+$")
+        sir_function = next(
+            item for item in result.ownership_sir.functions
+            if item.function == "caller"
+        )
+        sir_borrows = [
+            item for item in sir_function.domain.instructions
+            if type(item).__name__ == "WhisperBorrowInst"
+        ]
+        self.assertEqual(len(sir_borrows), 1)
+        self.assertEqual(sir_borrows[0].source.name, "token")
+        self.assertEqual(sir_borrows[0].callee, "inspect")
+
+    def test_whisper_forwarding_preserves_borrow_domain_through_sir(self):
+        source = """module test::phase1_whisper_forward;
+sole struct Token { value: u32; }
+fn inspect(token: whisper Token) -> u32 { return token.value; }
+fn forward(token: whisper Token) -> u32 { return inspect(token); }
+fn caller(token: Token) -> u32 { return forward(&token); }
+"""
+        checked = sotlas_compile.analyze_source_phase1(
+            source, filename="<phase1-whisper-forward>"
+        )
+        graph_borrow = next(
+            item for item in checked.semantic.ownership_domains.whisper_borrows
+            if item.function == "forward"
+        )
+        self.assertEqual(graph_borrow.source, "token")
+        self.assertIs(
+            graph_borrow.source_domain, typed_ast.OwnershipDomain.WHISPER
+        )
+        forward_fn = next(
+            item for item in checked.ownership_sir.functions
+            if item.function == "forward"
+        )
+        borrow = next(
+            item for item in forward_fn.domain.instructions
+            if type(item).__name__ == "WhisperBorrowInst"
+        )
+        self.assertEqual(borrow.source_domain, "whisper")
+        self.assertEqual(borrow.callee, "inspect")
+
+    def test_direct_borrow_can_forward_to_verified_whisper_parameter(self):
+        source = """module test::phase1_direct_to_whisper;
+sole struct Token { value: u32; }
+fn inspect(token: whisper Token) -> u32 { return token.value; }
+fn forward(token: direct Token) -> u32 { return inspect(token); }
+fn caller(token: Token) -> u32 { return forward(&token); }
+"""
+        checked = sotlas_compile.analyze_source_phase1(
+            source, filename="<phase1-direct-to-whisper>"
+        )
+        borrow = next(
+            item for item in checked.semantic.ownership_domains.whisper_borrows
+            if item.function == "forward"
+        )
+        self.assertEqual(borrow.source, "token")
+        self.assertIs(
+            borrow.source_domain, typed_ast.OwnershipDomain.DIRECT
+        )
+        forward_fn = next(
+            item for item in checked.ownership_sir.functions
+            if item.function == "forward"
+        )
+        sir_borrow = next(
+            item for item in forward_fn.domain.instructions
+            if type(item).__name__ == "WhisperBorrowInst"
+        )
+        self.assertEqual(sir_borrow.source_domain, "direct")
+
+    def test_whisper_forwarding_inside_defer_preserves_borrow_domain(self):
+        source = """module test::phase1_whisper_defer_forward;
+sole struct Token { value: u32; }
+fn inspect(token: whisper Token) -> void { return; }
+fn deferred(token: whisper Token) -> void {
+    defer inspect(token);
+    return;
+}
+"""
+        checked = sotlas_compile.analyze_source_phase1(
+            source, filename="<phase1-whisper-defer-forward>"
+        )
+        graph_borrow = next(
+            item for item in checked.semantic.ownership_domains.whisper_borrows
+            if item.function == "deferred"
+        )
+        self.assertEqual(graph_borrow.callee, "inspect")
+        self.assertEqual(graph_borrow.source, "token")
+        self.assertIs(
+            graph_borrow.source_domain, typed_ast.OwnershipDomain.WHISPER
+        )
+
+    def test_direct_access_is_preserved_from_graph_through_sir(self):
+        source = """module test::phase1_direct_call;
+sole struct Token { value: u32; }
+fn inspect(token: direct Token) -> u32 { return 1; }
+fn caller(token: Token) -> u32 {
+    let result = inspect(&token);
+    return result;
+}
+"""
+        result = sotlas_compile.analyze_source_phase1(
+            source, filename="<phase1-direct-call>"
+        )
+        _, trace = next(
+            item for item in result.semantic.ownership.traces
+            if item[0] == "caller"
+        )
+        self.assertIs(
+            trace.final_env.state_of("token"), typed_ast.VarState.LIVE
+        )
+        graph = result.semantic.ownership_domains
+        self.assertEqual(len(graph.direct_accesses), 1)
+        access = graph.direct_accesses[0]
+        self.assertEqual((access.callee, access.parameter, access.source),
+                         ("inspect", "token", "token"))
+        self.assertRegex(access.point_id, r"^direct@\d+:\d+$")
+        sir_function = next(
+            item for item in result.ownership_sir.functions
+            if item.function == "caller"
+        )
+        sir_accesses = [
+            item for item in sir_function.domain.instructions
+            if type(item).__name__ == "DirectAccessInst"
+        ]
+        self.assertEqual(len(sir_accesses), 1)
+        self.assertEqual(sir_accesses[0].point_id, access.point_id)
+
+    def test_direct_forwarding_preserves_call_scope_through_sir(self):
+        source = """module test::phase1_direct_forward;
+sole struct Token { value: u32; }
+fn inspect(token: direct Token) -> u32 { return token.value; }
+fn forward(token: direct Token) -> u32 { return inspect(token); }
+fn caller(token: Token) -> u32 { return forward(&token); }
+"""
+        checked = sotlas_compile.analyze_source_phase1(
+            source, filename="<phase1-direct-forward>"
+        )
+        access = next(
+            item for item in checked.semantic.ownership_domains.direct_accesses
+            if item.function == "forward"
+        )
+        self.assertEqual(access.source, "token")
+        self.assertIs(access.source_domain, typed_ast.OwnershipDomain.DIRECT)
+        forward_fn = next(
+            item for item in checked.ownership_sir.functions
+            if item.function == "forward"
+        )
+        sir_access = next(
+            item for item in forward_fn.domain.instructions
+            if type(item).__name__ == "DirectAccessInst"
+        )
+        self.assertEqual(sir_access.source_domain, "direct")
+
+    def test_direct_access_allows_frame_local_alias_and_scalar_read(self):
+        source = """module test::phase1_direct_local_alias;
+sole struct Token { value: u32; }
+fn inspect(token: direct Token) -> u32 {
+    let alias = token;
+    return alias.value;
+}
+"""
+        result = sotlas_compile.analyze_source_phase1(
+            source, filename="<phase1-direct-local-alias>"
+        )
+        self.assertEqual(result.semantic.ownership_domains.nodes, ())
+
+    def test_whisper_allows_copying_scalar_field_value(self):
+        source = """module test::phase1_whisper_scalar_read;
+sole struct Token { value: u32; }
+fn inspect(token: whisper Token) -> u32 { return token.value; }
+fn caller(token: Token) -> u32 { return inspect(&token); }
+"""
+        result = sotlas_compile.analyze_source_phase1(
+            source, filename="<phase1-whisper-scalar-read>"
+        )
+        self.assertEqual(len(result.semantic.ownership_domains.whisper_borrows), 1)
+
+    def test_whisper_method_receiver_records_call_scoped_borrow(self):
+        source = """module test::phase1_whisper_method;
+sole struct Token { value: u32; }
+impl Token {
+    fn inspect(self: whisper Token) -> void { return; }
+}
+fn caller(token: Token) -> void {
+    token.inspect();
+    return;
+}
+"""
+        result = sotlas_compile.analyze_source_phase1(
+            source, filename="<phase1-whisper-method>"
+        )
+        borrow = result.semantic.ownership_domains.whisper_borrows[0]
+        self.assertEqual(borrow.callee, "Token_inspect")
+        self.assertEqual(borrow.source, "token")
+        self.assertIs(borrow.source_domain, typed_ast.OwnershipDomain.EXCLUSIVE)
+
+    def test_quarantine_rejects_use_of_preexisting_reference_alias(self):
+        source = """module test::phase1_quarantine_alias;
+sole struct Token { value: u32; }
+fn isolate(token: Token) -> void {
+    let alias = &token;
+    quarantine token;
+    unsafe { alias.value; }
+    return;
+}
+        """
+        with self.assertRaisesRegex(
+            sotlas_compile.SotlasBootstrapError,
+            "reference alias 'alias' to quarantined owner 'token' is used after quarantine",
+        ):
+            sotlas_compile.compile_source(
+                source, filename="<canonical-quarantine-alias>"
+            )
+
+    def test_canonical_checker_rejects_alias_creation_after_quarantine(self):
+        source = """module test::canonical_quarantine_new_alias;
+sole struct Token { value: u32; }
+fn isolate(token: Token) -> void {
+    quarantine token;
+    let alias = &token;
+    unsafe { alias.value; }
+    return;
+}
+"""
+        with self.assertRaisesRegex(
+            sotlas_compile.SotlasBootstrapError,
+            "cannot create reference alias to quarantined owner 'token'",
+        ):
+              sotlas_compile.compile_source(
+                source, filename="<canonical-quarantine-new-alias>"
+            )
+
+    def test_canonical_checker_rejects_alias_saved_in_struct_after_quarantine(self):
+        source = """module test::canonical_quarantine_field_alias;
+sole struct Token { value: u32; }
+struct Holder { ptr: *mut Token; }
+fn isolate(token: Token) -> void {
+    let mut holder: Holder = 0;
+    unsafe { holder.ptr = (&token) as *mut Token; }
+    quarantine token;
+    unsafe { holder.ptr.value; }
+    return;
+}
+"""
+        with self.assertRaisesRegex(
+            sotlas_compile.SotlasBootstrapError,
+            "reference alias 'holder' to quarantined owner 'token' is used after quarantine",
+        ):
+              sotlas_compile.compile_source(
+                source, filename="<canonical-quarantine-field-alias>"
+            )
+
+    def test_canonical_checker_rejects_quarantine_after_alias_passed_to_call(self):
+        source = """module test::canonical_quarantine_escaped_alias;
+sole struct Token { value: u32; }
+fn observe(value: &Token) -> void { return; }
+fn isolate(token: Token) -> void {
+    let alias = &token;
+    observe(alias);
+    quarantine token;
+    return;
+}
+"""
+        with self.assertRaisesRegex(
+            sotlas_compile.SotlasBootstrapError,
+            "cannot quarantine owner 'token' after a reference alias escaped to a call",
+        ):
+            sotlas_compile.compile_source(
+                source, filename="<canonical-quarantine-call-escape>"
+            )
+
+    def test_canonical_checker_rejects_quarantine_with_alias_in_loop(self):
+        source = """module test::canonical_quarantine_loop_alias;
+sole struct Token { value: u32; }
+fn isolate(token: Token, again: bool) -> void {
+    let alias = &token;
+    while again {
+        alias.value;
+        quarantine token;
+    }
+    return;
+}
+"""
+        with self.assertRaisesRegex(
+            sotlas_compile.SotlasBootstrapError,
+            "quarantine of 'token' inside a loop with reference aliases requires path-sensitive lifetime analysis",
+        ):
+            sotlas_compile.compile_source(
+                source, filename="<canonical-quarantine-loop-alias>"
+            )
+
+    def test_quarantine_allows_alias_that_is_dead_before_transition(self):
+        source = """module test::phase1_quarantine_dead_alias;
+sole struct Token { value: u32; }
+fn isolate(token: Token) -> void {
+    let alias = &token;
+    alias.value;
+    quarantine token;
+    return;
+}
+"""
+        sotlas_compile.analyze_source_phase1(
+            source, filename="<phase1-quarantine-dead-alias>"
+        )
+
+    def test_quarantine_in_one_branch_does_not_invalidate_sibling_branch_alias(self):
+        source = """module test::quarantine_disjoint_branches;
+sole struct Token { value: u32; }
+fn isolate(token: Token, should_isolate: bool) -> void {
+    let alias = &token;
+    if should_isolate {
+        quarantine token;
+        return;
+    } else {
+        unsafe { alias.value; }
+        return;
+    }
+}
+"""
+        sotlas_compile.compile_source(
+            source, filename="<quarantine-disjoint-branches>"
+        )
+
+    def test_quarantine_in_conditional_branch_still_invalidates_alias_after_join(self):
+        source = """module test::quarantine_branch_join;
+sole struct Token { value: u32; }
+fn isolate(token: Token, should_isolate: bool) -> void {
+    let alias = &token;
+    if should_isolate {
+        quarantine token;
+    }
+    unsafe { alias.value; }
+    return;
+}
+"""
+        with self.assertRaisesRegex(
+            sotlas_compile.SotlasBootstrapError,
+            "reference alias 'alias' to quarantined owner 'token' is used after quarantine",
+        ):
+            sotlas_compile.compile_source(
+                source, filename="<quarantine-branch-join>"
+            )
+
+    def test_quarantined_alias_cannot_escape_through_opaque_call(self):
+        source = """module test::quarantine_opaque_alias;
+sole struct Token { value: u32; }
+fn observe(value: &Token) -> void { return; }
+fn isolate(token: Token) -> void {
+    let alias = &token;
+    quarantine token;
+    observe(alias);
+    return;
+}
+"""
+        with self.assertRaisesRegex(
+            sotlas_compile.SotlasBootstrapError,
+            "reference alias 'alias' to quarantined owner 'token' is used after quarantine",
+        ):
+            sotlas_compile.compile_source(
+                source, filename="<quarantine-opaque-alias>"
+            )
+
+    def test_whisper_rejects_returning_pointer_field_from_borrowed_owner(self):
+        source = """module test::phase1_whisper_field_escape;
+sole struct Token { value: u32; }
+sole struct Holder { token_ptr: *Token; }
+fn leak(holder: whisper Holder) -> *Token {
+    return holder.token_ptr;
+}
+"""
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            "whisper-derived pointer cannot escape through return",
+        ):
+            sotlas_compile.analyze_source_phase1(
+                source, filename="<phase1-whisper-field-escape>"
+            )
+
+    def test_direct_access_rejects_derived_pointer_escape(self):
+        source = """module test::phase1_direct_escape;
+sole struct Token { value: u32; }
+sole struct Holder { token_ptr: *Token; }
+fn leak(holder: direct Holder) -> *Token {
+    return holder.token_ptr;
+}
+"""
+        with self.assertRaisesRegex(
+            sotlas_compile.SotlasBootstrapError,
+            "direct-derived pointer cannot escape through return",
+        ):
+            sotlas_compile.analyze_source_phase1(
+                source, filename="<phase1-direct-escape>"
+            )
+
+    def test_direct_escape_is_rejected_by_production_checker(self):
+        source = """module test::production_direct_escape;
+sole struct Token { value: u32; }
+sole struct Holder { token_ptr: *Token; }
+fn leak(holder: direct Holder) -> *Token { return holder.token_ptr; }
+"""
+        parsed = sotlas_compile.bootstrap.parse(
+            source, filename="<production-direct-escape>"
+        )
+        with self.assertRaisesRegex(
+            sotlas_compile.SotlasBootstrapError,
+            "direct-derived pointer cannot escape through return",
+        ):
+            sotlas_compile.bootstrap.check(parsed)
+
+    def test_direct_access_cannot_cross_opaque_extern_boundary(self):
+        source = """module test::direct_extern;
+sole struct Token { value: u32; }
+extern "C" { fn sink(token: direct Token); }
+@system fn caller(token: Token) -> void {
+    unsafe { sink(&token); }
+    return;
+}
+"""
+        parsed = sotlas_compile.bootstrap.parse(
+            source, filename="<direct-extern>"
+        )
+        with self.assertRaisesRegex(
+            sotlas_compile.SotlasBootstrapError,
+            "direct access cannot be passed to external function 'sink'",
+        ):
+            sotlas_compile.bootstrap.check(parsed)
+
+    def test_whisper_borrow_cannot_cross_opaque_extern_boundary(self):
+        source = """module test::whisper_extern_boundary;
+sole struct Token { value: u32; }
+extern "C" { fn sink(token: whisper Token); }
+@system fn caller(token: Token) -> void {
+    unsafe { sink(&token); }
+    return;
+}
+"""
+        parsed = sotlas_compile.bootstrap.parse(
+            source, filename="<whisper-extern-boundary>"
+        )
+        with self.assertRaisesRegex(
+            sotlas_compile.SotlasBootstrapError,
+            "whisper access cannot be passed to external function 'sink'",
+        ):
+            sotlas_compile.bootstrap.check(parsed)
+
+    def test_direct_access_from_device_owner_is_rejected(self):
+        source = """module test::direct_device_alias;
+sole struct Token { value: u32; }
+fn inspect(token: direct Token) -> u32 { return token.value; }
+fn caller(token: device Token) -> u32 { return inspect(&token); }
+"""
+        parsed = sotlas_compile.bootstrap.parse(
+            source, filename="<direct-device-alias>"
+        )
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            "device owner 'token' cannot be borrowed into host code",
+        ):
+            typed_ast.analyze_function_ownership(
+                parsed, typed_ast.build_declaration_typed_ast(parsed), "caller"
+            )
+
+    def test_production_checker_rejects_indirect_direct_parameters(self):
+        source = """module test::direct_fn_pointer;
+sole struct Token { value: u32; }
+fn invoke(callback: fn(direct Token) -> u32) -> void { return; }
+"""
+        parsed = sotlas_compile.bootstrap.parse(
+            source, filename="<production-direct-fn-pointer>"
+        )
+        with self.assertRaisesRegex(
+            sotlas_compile.SotlasBootstrapError,
+            "direct access is not supported through nested or indirect function parameter types",
+        ):
+            sotlas_compile.bootstrap.check(parsed)
+
+    def test_whisper_rejects_unsafe_cast_escape(self):
+        source = """module test::phase1_whisper_cast_escape;
+sole struct Token { value: u32; }
+fn leak(token: whisper Token) -> *Token {
+    unsafe { return token as *Token; }
+}
+"""
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            "whisper-derived pointer cannot escape through return",
+        ):
+            sotlas_compile.analyze_source_phase1(
+                source, filename="<phase1-whisper-cast-escape>"
+            )
+
+    def test_production_checker_rejects_whisper_pointer_escape(self):
+        source = """module test::production_whisper_escape;
+sole struct Token { value: u32; }
+fn leak(token: whisper Token) -> *Token {
+    unsafe { return token as *Token; }
+}
+"""
+        parsed = sotlas_compile.bootstrap.parse(
+            source, filename="<production-whisper-escape>"
+        )
+        with self.assertRaisesRegex(
+            sotlas_compile.SotlasBootstrapError,
+            "whisper-derived pointer cannot escape through return",
+        ):
+            sotlas_compile.bootstrap.check(parsed)
+
+    def test_production_checker_allows_copying_scalar_from_whisper(self):
+        source = """module test::production_whisper_scalar;
+sole struct Token { value: u32; }
+fn read(token: whisper Token) -> u32 { return token.value; }
+"""
+        parsed = sotlas_compile.bootstrap.parse(
+            source, filename="<production-whisper-scalar>"
+        )
+        sotlas_compile.bootstrap.check(parsed)
+
+    def test_production_checker_allows_forwarding_to_verified_noescape_function(self):
+        source = """module test::production_whisper_forward;
+sole struct Token { value: u32; }
+fn relay(token: whisper Token) -> u32 { return forward(token); }
+fn forward(token: &Token) -> u32 { return observe(token); }
+fn observe(token: &Token) -> u32 { return token.value; }
+"""
+        parsed = sotlas_compile.bootstrap.parse(
+            source, filename="<production-whisper-forward>"
+        )
+        sotlas_compile.bootstrap.check(parsed)
+
+    def test_production_checker_rejects_recursive_cycle_with_escaping_member(self):
+        source = """module test::production_whisper_recursive_escape;
+sole struct Token { value: u32; }
+fn left(token: whisper Token, again: bool) -> u32 {
+    if again { return right(token, false); }
+    return token.value;
+}
+fn right(token: whisper Token, again: bool) -> u32 {
+    if again { return left(token, false); }
+    let escaped = leak(token);
+    return token.value;
+}
+fn leak(token: whisper Token) -> *Token {
+    unsafe { return token as *Token; }
+}
+"""
+        parsed = sotlas_compile.bootstrap.parse(
+            source, filename="<production-whisper-recursive-escape>"
+        )
+        with self.assertRaisesRegex(
+            sotlas_compile.SotlasBootstrapError,
+            "whisper-derived reference cannot be forwarded through a call without a verified no-escape parameter summary",
+        ):
+            sotlas_compile.bootstrap.check(parsed)
+
+    def test_production_checker_rejects_forwarding_to_escaping_function(self):
+        source = """module test::production_whisper_unsafe_forward;
+sole struct Token { value: u32; }
+fn leak(token: &Token) -> *Token {
+    unsafe { return token as *Token; }
+}
+fn relay(token: whisper Token) -> *Token {
+    unsafe { return leak(token); }
+}
+"""
+        parsed = sotlas_compile.bootstrap.parse(
+            source, filename="<production-whisper-unsafe-forward>"
+        )
+        with self.assertRaisesRegex(
+            sotlas_compile.SotlasBootstrapError,
+            "whisper-derived reference cannot be forwarded through a call without a verified no-escape parameter summary",
+        ):
+            sotlas_compile.bootstrap.check(parsed)
+
+    def test_production_checker_rejects_direct_forwarding_to_escaping_function(self):
+        source = """module test::production_direct_unsafe_forward;
+sole struct Token { value: u32; }
+fn leak(token: &Token) -> *Token {
+    unsafe { return token as *Token; }
+}
+fn relay(token: direct Token) -> *Token {
+    unsafe { return leak(token); }
+}
+"""
+        parsed = sotlas_compile.bootstrap.parse(
+            source, filename="<production-direct-unsafe-forward>"
+        )
+        with self.assertRaisesRegex(
+            sotlas_compile.SotlasBootstrapError,
+            "direct-derived reference cannot be forwarded through a call without a verified no-escape parameter summary",
+        ):
+            sotlas_compile.bootstrap.check(parsed)
+
+    def test_production_checker_allows_forwarding_to_verified_noescape_method(self):
+        source = """module test::production_whisper_method;
+sole struct Token { value: u32; }
+impl Token {
+    fn inspect(self: &Token) -> u32 { return self.value; }
+}
+fn relay(token: whisper Token) -> u32 { return token.inspect(); }
+"""
+        parsed = sotlas_compile.bootstrap.parse(
+            source, filename="<production-whisper-method>"
+        )
+        sotlas_compile.bootstrap.check(parsed)
+
+    def test_production_checker_rejects_forwarding_to_external_parameter(self):
+        source = """module test::production_whisper_extern;
+sole struct Token { value: u32; }
+extern "C" fn inspect(value: &Token) -> u32;
+@system fn relay(token: whisper Token) -> u32 {
+    return inspect(token);
+}
+"""
+        parsed = sotlas_compile.bootstrap.parse(
+            source, filename="<production-whisper-extern>"
+        )
+        with self.assertRaisesRegex(
+            sotlas_compile.SotlasBootstrapError,
+            "whisper-derived reference cannot be forwarded through a call without a verified no-escape parameter summary",
+        ):
+            sotlas_compile.bootstrap.check(parsed)
+
+    def test_production_checker_does_not_apply_direct_summary_to_shadowed_callee(self):
+        source = """module test::production_whisper_shadowed_callee;
+sole struct Token { value: u32; }
+fn observe(value: &Token) -> usize { return value.value as usize; }
+fn escape(value: &Token) -> usize {
+    unsafe { return value as *Token as usize; }
+}
+fn relay(token: whisper Token) -> usize {
+    let observe: fn(&Token) -> usize = escape;
+    return observe(token);
+}
+"""
+        parsed = sotlas_compile.bootstrap.parse(
+            source, filename="<production-whisper-shadowed-callee>"
+        )
+        with self.assertRaisesRegex(
+            sotlas_compile.SotlasBootstrapError,
+            "whisper-derived reference cannot be forwarded through a call without a verified no-escape parameter summary",
+        ):
+            sotlas_compile.bootstrap.check(parsed)
+
+    def test_whisper_rejects_pointer_cast_erased_to_integer_return(self):
+        source = """module test::phase1_whisper_integer_escape;
+sole struct Token { value: u32; }
+fn leak(token: whisper Token) -> usize {
+    unsafe { return token as usize; }
+}
+"""
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            "whisper-derived value cannot escape through return",
+        ):
+            sotlas_compile.analyze_source_phase1(
+                source, filename="<phase1-whisper-integer-escape>"
+            )
+
+    def test_whisper_rejects_pointer_alias_local_return_escape(self):
+        source = """module test::phase1_whisper_local_escape;
+sole struct Token { value: u32; }
+fn leak(token: whisper Token) -> *Token {
+    unsafe {
+        let saved: *Token = token as *Token;
+        return saved;
+    }
+}
+"""
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            "whisper-derived pointer cannot escape through return",
+        ):
+            sotlas_compile.analyze_source_phase1(
+                source, filename="<phase1-whisper-local-escape>"
+            )
+
+    def test_whisper_borrow_of_shared_owner_records_shared_source_domain(self):
+        source = """module test::phase1_whisper_shared;
+sole struct Token { value: u32; }
+fn inspect(token: whisper Token) -> void { return; }
+fn caller(token: Token) -> void {
+    let alias = share token;
+    inspect(&alias);
+    return;
+}
+"""
+        result = sotlas_compile.analyze_source_phase1(
+            source, filename="<phase1-whisper-shared>"
+        )
+        borrows = result.semantic.ownership_domains.whisper_borrows
+        self.assertEqual(len(borrows), 1)
+        self.assertEqual(borrows[0].source, "alias")
+        self.assertIs(borrows[0].source_domain, typed_ast.OwnershipDomain.SHARED)
+
+    def test_whisper_borrow_from_island_owner_reaches_graph_and_sir(self):
+        source = """module test::phase1_whisper_island;
+sole struct Token { value: u32; }
+fn inspect(token: whisper Token) -> void { return; }
+fn caller(token: island Token) -> void {
+    inspect(&token);
+    return;
+}
+"""
+        result = sotlas_compile.analyze_source_phase1(
+            source, filename="<phase1-whisper-island>"
+        )
+        borrow = result.semantic.ownership_domains.whisper_borrows[0]
+        self.assertEqual(borrow.source, "token")
+        self.assertIs(borrow.source_domain, typed_ast.OwnershipDomain.ISLAND)
+        sir_function = next(
+            item for item in result.ownership_sir.functions
+            if item.function == "caller"
+        )
+        sir_borrow = next(
+            item for item in sir_function.domain.instructions
+            if type(item).__name__ == "WhisperBorrowInst"
+        )
+        self.assertEqual(sir_borrow.source_domain, "island")
+
+    def test_whisper_call_rejects_moved_sole_argument(self):
+        source = """module test::phase1_whisper_moved;
+sole struct Token { value: u32; }
+fn inspect(token: whisper Token) -> u32 { return 1; }
+fn consume(token: Token) -> void { return; }
+fn caller(token: Token) -> u32 {
+    consume(move token);
+    return inspect(&token);
+}
+        """
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError, "after move"
+        ):
+            sotlas_compile.analyze_source_phase1(
+                source, filename="<phase1-whisper-moved>"
+            )
 
     def test_public_phase1_pipeline_rejects_nested_whisper_type_shapes(self):
         for inner_type in ("*Token", "*mut Token", "&Token", "&mut Token"):

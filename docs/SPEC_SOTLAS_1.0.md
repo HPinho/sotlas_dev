@@ -100,11 +100,71 @@ pub fn exemplo() {
 ### 4.2 `co-owned` (Propriedade Compartilhada com Contagem de Referência)
 Representa estruturas que possuem múltiplos proprietários simultâneos (como nós de um grafo ou conexões compartilhadas). O runtime gerencia incrementos e decrementos atômicos transparentemente via ARC.
 
-### 4.3 `direct` (Alocação em Valor / Inline)
-Valores com semântica de cópia direta (stack-allocated ou membros embutidos sem ponteiro).
+Quando a última referência forte é liberada, Sotlas executa primeiro o `deinit`
+definido para o owner e depois destrói recursivamente seus campos `sole` por
+valor na ordem inversa da declaração; arrays fixos owned, inclusive
+multidimensionais, também são percorridos em ordem reversa em cada dimensão.
+O hook `deinit` não substitui a
+destruição automática dos campos. O lowering C11 experimental valida essa
+ordem em payloads compartilhados, inclusive wrappers não `sole` com campos
+`sole` quando o hook não referencia `self`; hooks que acessam o wrapper com
+descendentes owned continuam fail-closed para evitar destruição dupla.
+
+### 4.3 `direct` (Acesso SRG de Baixo Bookkeeping)
+`direct` designa acesso/referência SRG de baixo bookkeeping para contextos de baixo nível. Não seleciona endereço físico nem substitui o contrato de lifetime: lifetime e segurança devem ser explícitos e combinam-se com a topologia do ponteiro. A definição anterior desta seção como alocação inline conflita com o contrato arquitetural atual e não deve ser usada para implementar o domínio; consulte `sotlas_master_roadmap.md`, seção “Gestão de Memória SRG”.
+
+O primeiro contrato executável é deliberadamente restrito a parâmetros de função:
+
+```sotlas
+fn inspect(token: direct Token) -> u32 { return token.value; }
+fn caller(token: Token) -> u32 { return inspect(&token); }
+```
+
+`direct T` nesse contexto é uma referência imutável válida apenas durante a
+chamada. A origem deve ser um binding direto `exclusive` ou `shared` vivo; a
+operação não move nem retém o owner. Chamadas livres e receivers de método
+podem usar a mesma origem, inclusive mais de um parâmetro na mesma chamada;
+aliases locais no frame são permitidos;
+retorno, armazenamento em campo/global, captura por `defer`, FFI opaca e
+encaminhamento sem prova no-escape são rejeitados. O C11 baixa esse subconjunto
+para ponteiro const sem contagem de referências e tem execução nativa de cobertura.
+O LLVM aceita fonte→objeto somente para chamadas lineares com owners `sole`
+triviais; o graph canônico valida cada borrow e `DirectAccessInst` baixa como
+no-op sem bookkeeping. Payloads com destrutores/ownership aninhado, ARC, CFG
+amplo e escape permanecem rejeitados. Esta fatia não conclui `direct` nem
+define ainda referências mutáveis, aliases locais ou lifetime graph geral.
 
 ### 4.4 `island` (Isolamento de Concorrência / Modelo de Atores)
 Regiões de memória isoladas garantindo que dados não sejam acessados concorrentemente sem sincronização explícita via fila de mensagens.
+
+### 4.5 `whisper` (Empréstimo Imutável Não Proprietário)
+`whisper T` descreve uma referência imutável não proprietária a um `T`; ela não
+retém, move nem prolonga a vida do owner. O owner deve permanecer vivo durante
+toda a chamada que recebe o empréstimo. A forma inicial admitida é explícita e
+direta:
+
+```sotlas
+fn inspect(token: whisper Token) -> void { return; }
+fn caller(token: Token) -> void {
+    inspect(&token);
+}
+```
+
+O grafo de ownership registra a chamada e sua origem, sem criar um owner novo.
+O subconjunto inicial admite fontes `exclusive` e `shared` comprovadamente
+vivas, incluindo receiver direto de método; empréstimos de `island`, membros,
+temporários, armazenamento, retorno ou captura exigem contratos próprios. A
+implementação deve rejeitar qualquer caminho cujo lifetime ou ausência de
+escape não consiga provar; suporte parcial no frontend não autoriza lowering de
+backend.
+
+O checker de produção valida escapes locais e deriva summaries no-escape por
+ponto fixo para parâmetros de referência/ponteiro de funções com corpo. Um
+empréstimo pode ser encaminhado somente se o parâmetro correspondente do alvo
+possuir summary provado. Funções `extern`, chamadas indiretas, ciclos sem prova
+e qualquer corpo que possa guardar, retornar ou exportar o alias permanecem
+fail-closed. Essa prova ainda não substitui o lifetime graph path-sensitive,
+a weak invalidation ou o runtime/backend de `whisper`.
 
 ---
 

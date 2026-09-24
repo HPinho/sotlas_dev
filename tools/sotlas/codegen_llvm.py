@@ -10,7 +10,12 @@ from typing import Dict, List, Optional
 from .sir.instructions import (
     SIRModule, SIRFunction, SIRBasicBlock, SIRInstruction, SIRValue,
     AllocStackInst, StoreInst, LoadInst, CallInst, RetainInst, ReleaseInst,
-    BranchInst, CondBranchInst, ReturnInst, SystemOpInst, AsmInst, AwaitInst
+    DestroyInst, OwnershipDomainPointInst, OwnershipDomainTransferInst,
+    WhisperBorrowInst,
+    DirectAccessInst,
+    SharedOwnershipPointInst, DeferUseInst, ShareInst,
+    BranchInst, CondBranchInst, CompareInst, ReturnInst, SystemOpInst,
+    AsmInst, AwaitInst, PhiInst
 )
 
 
@@ -18,6 +23,7 @@ LLVM_TYPE_MAP: Dict[str, str] = {
     "Void": "void",
     "void": "void",
     "Bool": "i1",
+    "bool": "i1",
     "UInt8": "i8",
     "Int8": "i8",
     "u8": "i8",
@@ -159,9 +165,60 @@ class CodegenLLVM:
             else:
                 self._out.write(f"  call {res_type} @{inst.callee}({args_str}){dbg_suffix}\n")
         elif isinstance(inst, RetainInst):
-            self._out.write(f"  ; arc retain %{inst.value.name}\n")
+            raise ValueError(
+                "LLVM backend does not lower ARC retain until the runtime ABI is defined"
+            )
         elif isinstance(inst, ReleaseInst):
-            self._out.write(f"  ; arc release %{inst.value.name}\n")
+            raise ValueError(
+                "LLVM backend does not lower ARC release until the runtime ABI is defined"
+            )
+        elif isinstance(inst, DirectAccessInst):
+            if (
+                inst.source_domain not in (
+                    "exclusive", "shared", "island", "region", "direct"
+                )
+                or not inst.point_id.startswith("direct@")
+            ):
+                raise ValueError("LLVM backend received an invalid direct access fact")
+            # Direct access is call-scoped and has no runtime bookkeeping.
+            # The canonical frontend proves its no-escape obligation.
+            self._out.write(
+                f"  ; direct access %{inst.source.name} -> "
+                f"@{inst.callee}.{inst.parameter} [{inst.point_id}]\n"
+            )
+        elif isinstance(inst, WhisperBorrowInst):
+            if (
+                inst.source_domain not in (
+                    "exclusive", "shared", "island", "region", "whisper", "direct"
+                )
+                or not inst.point_id.startswith("whisper@")
+            ):
+                raise ValueError("LLVM backend received an invalid whisper borrow fact")
+            # The canonical checker proves this immutable borrow cannot escape.
+            self._out.write(
+                f"  ; whisper borrow %{inst.source.name} -> "
+                f"@{inst.callee}.{inst.parameter} [{inst.point_id}]\n"
+            )
+        elif isinstance(inst, OwnershipDomainTransferInst):
+            raise ValueError(
+                f"LLVM backend does not lower {inst.operation} ownership "
+                f"transfer {inst.source_domain}->{inst.target_domain} until "
+                "the ownership-domain runtime ABI is defined"
+            )
+        elif isinstance(
+            inst,
+            (
+                ShareInst,
+                DestroyInst,
+                OwnershipDomainPointInst,
+                SharedOwnershipPointInst,
+                DeferUseInst,
+            ),
+        ):
+            raise ValueError(
+                f"LLVM backend does not lower ownership instruction "
+                f"{type(inst).__name__} until the runtime ABI is defined"
+            )
         elif isinstance(inst, BranchInst):
             t_str = str(inst.target_block)
             target = f"bb{t_str}" if not t_str.startswith("bb") else t_str
@@ -172,6 +229,48 @@ class CodegenLLVM:
             true_b = f"bb{tb}" if not tb.startswith("bb") else tb
             false_b = f"bb{fb}" if not fb.startswith("bb") else fb
             self._out.write(f"  br i1 %{inst.condition.name}, label %{true_b}, label %{false_b}\n")
+        elif isinstance(inst, CompareInst):
+            if inst.left.type_name != inst.right.type_name:
+                raise ValueError("LLVM comparison operands have different types")
+            integer_type = inst.left.type_name
+            predicates = {
+                "EQ": "eq", "NEQ": "ne",
+                "LT": "ult" if integer_type.startswith("u") else "slt",
+                "LTE": "ule" if integer_type.startswith("u") else "sle",
+                "GT": "ugt" if integer_type.startswith("u") else "sgt",
+                "GTE": "uge" if integer_type.startswith("u") else "sge",
+            }
+            predicate = predicates.get(inst.operation)
+            if predicate is None or integer_type not in {
+                "u8", "i8", "u16", "i16", "u32", "i32", "u64", "i64",
+                "usize", "isize",
+            }:
+                raise ValueError(
+                    f"LLVM backend does not lower integer comparison "
+                    f"{inst.operation!r} for {integer_type!r}"
+                )
+            llvm_type = to_llvm_type(integer_type)
+            self._out.write(
+                f"  %{inst.result.name} = icmp {predicate} {llvm_type} "
+                f"%{inst.left.name}, %{inst.right.name}{dbg_suffix}\n"
+            )
+        elif isinstance(inst, PhiInst):
+            if not inst.incoming:
+                raise ValueError("LLVM phi requires at least one incoming value")
+            if any(
+                value.type_name != inst.result.type_name
+                for value, _ in inst.incoming
+            ):
+                raise ValueError("LLVM phi incoming values have different types")
+            llvm_type = to_llvm_type(inst.result.type_name)
+            incoming = ", ".join(
+                f"[ %{value.name}, %bb{predecessor} ]"
+                for value, predecessor in inst.incoming
+            )
+            self._out.write(
+                f"  %{inst.result.name} = phi {llvm_type} "
+                f"{incoming}{dbg_suffix}\n"
+            )
         elif isinstance(inst, ReturnInst):
             if inst.value:
                 val_type = to_llvm_type(inst.value.type_name)

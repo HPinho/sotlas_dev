@@ -9,7 +9,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from . import bootstrap
-from .typed_ast import Phase1ModuleSnapshot, build_phase1_semantic_snapshot
+from .typed_ast import (
+    Phase1ModuleSnapshot,
+    build_phase1_semantic_snapshot,
+)
 
 
 @dataclass(frozen=True)
@@ -21,7 +24,16 @@ class Phase1CheckedModule:
 
 def analyze_module_phase1(parsed_module) -> Phase1CheckedModule:
     """Run the canonical checker, semantic snapshot, and ownership SIR bridge."""
-    bootstrap.check(parsed_module)
+    try:
+        bootstrap.check(parsed_module)
+    except bootstrap.SotlasBootstrapError as error:
+        # The production checker now runs the shared whisper escape validator.
+        # Keep Phase-1 callers' semantic error type stable while preserving the
+        # production diagnostic for the CLI and direct bootstrap API.
+        if "whisper" in error.message:
+            from .typed_ast import Phase1SemanticError
+            raise Phase1SemanticError(error.message) from error
+        raise
     semantic = build_phase1_semantic_snapshot(parsed_module)
 
     # Keep the Typed AST package independent from SIR imports. The public

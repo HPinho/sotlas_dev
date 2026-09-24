@@ -11,6 +11,9 @@ from sotlas.sir import (
     SIRModule, SIRFunction, SIRBasicBlock, SIRValue,
     AllocStackInst, StoreInst, LoadInst, CallInst, ReturnInst, BranchInst, CondBranchInst,
     OwnershipDomainPointInst, OwnershipDomainTransferInst,
+    CompareInst,
+    PhiInst,
+    DirectAccessInst,
     SharedOwnershipPointInst,
     OwnershipDomainSIRPlan, place_ownership_domain_transfers,
     OwnershipFunctionSIRPlan, OwnershipModuleSIRPlan,
@@ -30,6 +33,7 @@ from sotlas.sir import (
 )
 from sotlas.lexer import Lexer
 from sotlas.parser import Parser
+from sotlas_compile import bootstrap
 
 
 class SotlasSIRTests(unittest.TestCase):
@@ -661,11 +665,13 @@ class SotlasSIRTests(unittest.TestCase):
                     function="isolate",
                     binding="source",
                     type=token_type,
+                    domain=island,
                 ),
                 SimpleNamespace(
                     function="isolate",
                     binding="destination",
                     type=token_type,
+                    domain=exclusive,
                 ),
             ),
             transfers=(
@@ -698,6 +704,133 @@ class SotlasSIRTests(unittest.TestCase):
         self.assertEqual(
             plan.instructions[1].destination.name, "destination"
         )
+
+    def test_domain_graph_lowers_canonical_direct_access(self):
+        graph = SimpleNamespace(
+            nodes=(SimpleNamespace(
+                function="caller",
+                binding="token",
+                type=SimpleNamespace(name="Token"),
+                domain=SimpleNamespace(value="exclusive"),
+            ),),
+            transfers=(),
+            whisper_borrows=(),
+            direct_accesses=(SimpleNamespace(
+                function="caller",
+                source="token",
+                callee="inspect",
+                parameter="token",
+                type=SimpleNamespace(name="Token"),
+                source_domain=SimpleNamespace(value="exclusive"),
+                point_id="direct@3:17",
+            ),),
+        )
+        plan = lower_ownership_domain_graph(graph, "caller")
+        self.assertEqual(len(plan.instructions), 1)
+        self.assertIsInstance(plan.instructions[0], DirectAccessInst)
+        self.assertEqual(plan.instructions[0].point_id, "direct@3:17")
+
+    def test_domain_graph_rejects_handover_without_destination_node(self):
+        graph = SimpleNamespace(
+            nodes=(
+                SimpleNamespace(
+                    function="isolate",
+                    binding="source",
+                    type=SimpleNamespace(name="Token"),
+                    domain=SimpleNamespace(value="island"),
+                ),
+            ),
+            transfers=(
+                SimpleNamespace(
+                    function="isolate",
+                    binding="source",
+                    via="handover",
+                    destination="destination",
+                    source_domain=SimpleNamespace(value="island"),
+                    target_domain=SimpleNamespace(value="exclusive"),
+                    destination_domain=SimpleNamespace(value="exclusive"),
+                    point_id="handover@4:5",
+                ),
+            ),
+        )
+        with self.assertRaisesRegex(
+            ValueError,
+            r"lacks destination node for isolate::destination",
+        ):
+            lower_ownership_domain_graph(graph, "isolate")
+
+    def test_domain_graph_lowers_region_device_external_same_domain_handover(self):
+        for domain in ("region", "device", "external"):
+            with self.subTest(domain=domain):
+                graph = SimpleNamespace(
+                    nodes=(
+                        SimpleNamespace(
+                            function="transfer",
+                            binding="source",
+                            type=SimpleNamespace(name="Token"),
+                            domain=SimpleNamespace(value=domain),
+                        ),
+                        SimpleNamespace(
+                            function="transfer",
+                            binding="destination",
+                            type=SimpleNamespace(name="Token"),
+                            domain=SimpleNamespace(value=domain),
+                        ),
+                    ),
+                    transfers=(SimpleNamespace(
+                        function="transfer",
+                        binding="source",
+                        via="handover",
+                        destination="destination",
+                        source_domain=SimpleNamespace(value=domain),
+                        target_domain=SimpleNamespace(value=domain),
+                        destination_domain=SimpleNamespace(value=domain),
+                        point_id="handover@4:5",
+                    ),),
+                    whisper_borrows=(),
+                    direct_accesses=(),
+                )
+                plan = lower_ownership_domain_graph(graph, "transfer")
+                transfer = plan.instructions[0]
+                self.assertIsInstance(transfer, OwnershipDomainTransferInst)
+                self.assertEqual(transfer.source_domain, domain)
+                self.assertEqual(transfer.target_domain, domain)
+                self.assertEqual(transfer.destination.name, "destination")
+
+    def test_domain_graph_rejects_handover_same_name_incompatible_type(self):
+        graph = SimpleNamespace(
+            nodes=(
+                SimpleNamespace(
+                    function="isolate",
+                    binding="source",
+                    type=SimpleNamespace(name="Token", pointer=False),
+                    domain=SimpleNamespace(value="island"),
+                ),
+                SimpleNamespace(
+                    function="isolate",
+                    binding="destination",
+                    type=SimpleNamespace(name="Token", pointer=True),
+                    domain=SimpleNamespace(value="exclusive"),
+                ),
+            ),
+            transfers=(
+                SimpleNamespace(
+                    function="isolate",
+                    binding="source",
+                    via="handover",
+                    destination="destination",
+                    source_domain=SimpleNamespace(value="island"),
+                    target_domain=SimpleNamespace(value="exclusive"),
+                    destination_domain=SimpleNamespace(value="exclusive"),
+                    point_id="handover@4:5",
+                ),
+            ),
+        )
+        with self.assertRaisesRegex(
+            ValueError,
+            r"handover destination type mismatch for isolate::source",
+        ):
+            lower_ownership_domain_graph(graph, "isolate")
 
     def test_domain_graph_rejects_transfer_without_canonical_node(self):
         graph = SimpleNamespace(
@@ -1076,6 +1209,32 @@ class SotlasSIRTests(unittest.TestCase):
         ):
             lower_ownership_domain_trace(trace)
 
+    def test_resource_domain_handovers_without_destination_name_domain(self):
+        for domain in ("region", "device", "external"):
+            with self.subTest(domain=domain):
+                token_type = SimpleNamespace(name="Token")
+                trace = SimpleNamespace(
+                    final_env=SimpleNamespace(bindings=(
+                        SimpleNamespace(name="token", type=token_type),
+                    )),
+                    events=(
+                        SimpleNamespace(
+                            kind="handover",
+                            name="token",
+                            type=token_type,
+                            source_domain=SimpleNamespace(value=domain),
+                            target_domain=SimpleNamespace(value=domain),
+                            destination=None,
+                            destination_domain=None,
+                        ),
+                    ),
+                )
+                with self.assertRaisesRegex(
+                    ValueError,
+                    rf"{domain} handover 'token' requires explicit destination",
+                ):
+                    lower_ownership_domain_trace(trace)
+
     def test_module_ownership_analysis_lowers_all_function_plans(self):
         token_type = SimpleNamespace(name="Token")
         exclusive = SimpleNamespace(value="exclusive")
@@ -1254,7 +1413,7 @@ class SotlasSIRTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(
             ValueError,
-            r"does not match one source \+ one strong alias",
+            r"does not match its strong-owner accounting",
         ):
             lower_shared_ownership_graph(graph, "main", trace)
 
@@ -1418,6 +1577,72 @@ class SotlasSIRTests(unittest.TestCase):
             all(segment.via == "early_return" for segment in plan.cleanup_segments)
         )
 
+    def test_shared_function_exit_lowers_deferred_call_before_arc_once(self):
+        token_type = SimpleNamespace(name="Token")
+        empty = SimpleNamespace(steps=())
+        cleanup = SimpleNamespace(steps=(
+            SimpleNamespace(
+                owner="peer", account="token", destroy_after=False,
+                via="scope_exit", point_id=None,
+            ),
+            SimpleNamespace(
+                owner="token", account="token", destroy_after=True,
+                via="scope_exit", point_id=None,
+            ),
+        ))
+        call = ("inspect", ("token", "peer"))
+        exit_actions = (
+            SimpleNamespace(
+                kind="defer", owner="peer", via="call",
+                defer_point_id="defer@7:5", defer_call=call,
+            ),
+            SimpleNamespace(
+                kind="defer", owner="token", via="call",
+                defer_point_id="defer@7:5", defer_call=call,
+            ),
+            SimpleNamespace(kind="release", owner="peer", via="scope_exit"),
+            SimpleNamespace(kind="release", owner="token", via="scope_exit"),
+            SimpleNamespace(kind="destroy", owner="token", via="scope_exit"),
+        )
+        trace = SimpleNamespace(
+            final_env=SimpleNamespace(bindings=(
+                SimpleNamespace(name="token", type=token_type),
+                SimpleNamespace(name="peer", type=token_type),
+            )),
+            events=(),
+            shared_cleanup=cleanup,
+            shared_path_cleanup=empty,
+            shared_loop_cleanup=empty,
+            shared_loop_control_exit=SimpleNamespace(actions=()),
+            shared_exit=SimpleNamespace(actions=exit_actions),
+        )
+
+        plan = lower_shared_ownership_trace(trace)
+        segment = next(
+            item for item in plan.cleanup_segments
+            if item.point_id == "function_exit"
+        )
+        self.assertEqual(
+            tuple(type(item) for item in segment.instructions),
+            (CallInst, ReleaseInst, ReleaseInst, DestroyInst),
+        )
+        call_inst = segment.instructions[0]
+        self.assertEqual(call_inst.callee, "inspect")
+        self.assertEqual(
+            tuple(value.name for value in call_inst.arguments),
+            ("token", "peer"),
+        )
+        self.assertEqual(call_inst.defer_point_id, "defer@7:5")
+
+        fn = SIRFunction("main", [], "void")
+        block = fn.add_block("entry")
+        block.add(ReturnInst())
+        self.assertEqual(place_shared_function_exit_cleanup(fn, plan), 4)
+        self.assertEqual(
+            tuple(type(item) for item in block.instructions),
+            (CallInst, ReleaseInst, ReleaseInst, DestroyInst, ReturnInst),
+        )
+
     def test_shared_function_exit_cleanup_precedes_implicit_fallthrough_return(self):
         fn = SIRFunction("main", [], "void")
         block = fn.add_block("entry")
@@ -1470,6 +1695,41 @@ class SotlasSIRTests(unittest.TestCase):
 
         self.assertEqual(inserted, 0)
         self.assertEqual(block.instructions, [explicit])
+
+    def test_shared_cleanup_covers_early_return_and_fallthrough_paths(self):
+        token = SIRValue("token", "Token")
+        peer = SIRValue("peer", "Token")
+        fn = SIRFunction("main", [], "void")
+        explicit_block = fn.add_block("explicit")
+        fallthrough_block = fn.add_block("fallthrough")
+        explicit_return = ReturnInst(point_id="return@4:5")
+        fallthrough_return = ReturnInst()
+        explicit_block.add(explicit_return)
+        fallthrough_block.add(fallthrough_return)
+        plan = SharedOwnershipSIRPlan(
+            (),
+            (
+                SimpleNamespace(
+                    via="early_return", point_id="return@4:5",
+                    instructions=(ReleaseInst(peer), ReleaseInst(token), DestroyInst(token)),
+                ),
+                SimpleNamespace(
+                    via="scope_exit", point_id="function_exit",
+                    instructions=(ReleaseInst(peer), ReleaseInst(token), DestroyInst(token)),
+                ),
+            ),
+        )
+
+        self.assertEqual(place_shared_return_cleanup(fn, plan), 3)
+        self.assertEqual(place_shared_function_exit_cleanup(fn, plan), 3)
+        self.assertEqual(
+            tuple(type(item) for item in explicit_block.instructions),
+            (ReleaseInst, ReleaseInst, DestroyInst, ReturnInst),
+        )
+        self.assertEqual(
+            tuple(type(item) for item in fallthrough_block.instructions),
+            (ReleaseInst, ReleaseInst, DestroyInst, ReturnInst),
+        )
 
     def test_shared_function_exit_cleanup_rejects_ambiguous_implicit_returns(self):
         fn = SIRFunction("main", [], "void")
@@ -1554,6 +1814,113 @@ class SotlasSIRTests(unittest.TestCase):
                          (ReleaseInst, ReleaseInst, DestroyInst, ReturnInst))
         self.assertEqual(first.instructions[-1].point_id, "return@8:9")
         self.assertEqual(second.instructions[-1].point_id, "return@10:5")
+
+    def test_shared_early_return_defer_precedes_path_arc_cleanup(self):
+        token_type = SimpleNamespace(name="Token")
+        trace = SimpleNamespace(
+            final_env=SimpleNamespace(bindings=(
+                SimpleNamespace(name="token", type=token_type),
+                SimpleNamespace(name="peer", type=token_type),
+            )),
+            events=(SimpleNamespace(
+                kind="domain_transition", name="token", via="share:peer",
+                type=token_type,
+            ),),
+            shared_cleanup=SimpleNamespace(steps=()),
+            shared_path_cleanup=SimpleNamespace(steps=(
+                SimpleNamespace(
+                    owner="peer", account="token", destroy_after=False,
+                    via="early_return", point_id="return@8:9",
+                ),
+                SimpleNamespace(
+                    owner="token", account="token", destroy_after=True,
+                    via="early_return", point_id="return@8:9",
+                ),
+            )),
+            shared_loop_cleanup=SimpleNamespace(steps=()),
+            shared_loop_control_exit=SimpleNamespace(actions=()),
+            shared_return_exit=SimpleNamespace(actions=(
+                SimpleNamespace(
+                    kind="defer", owner="peer", via="return:expression",
+                    point_id="return@8:9", defer_point_id="defer@7:9",
+                ),
+                SimpleNamespace(
+                    kind="release", owner="peer", via="return:early_return",
+                    point_id="return@8:9",
+                ),
+                SimpleNamespace(
+                    kind="release", owner="token", via="return:early_return",
+                    point_id="return@8:9",
+                ),
+                SimpleNamespace(
+                    kind="destroy", owner="token", via="return:early_return",
+                    point_id="return@8:9",
+                ),
+            )),
+        )
+
+        plan = lower_shared_ownership_trace(trace)
+        segment = next(
+            item for item in plan.cleanup_segments
+            if item.point_id == "return@8:9"
+        )
+        self.assertEqual(
+            tuple(type(item) for item in segment.instructions),
+            (DeferUseInst, ReleaseInst, ReleaseInst, DestroyInst),
+        )
+
+        fn = SIRFunction("main", [], "void")
+        block = fn.add_block("entry")
+        block.add(ReturnInst(point_id="return@8:9"))
+        inserted = place_shared_return_cleanup(fn, plan)
+        self.assertEqual(inserted, 4)
+        self.assertEqual(
+            tuple(type(item) for item in block.instructions),
+            (DeferUseInst, ReleaseInst, ReleaseInst, DestroyInst, ReturnInst),
+        )
+
+    def test_shared_early_return_lowers_direct_defer_call_once_before_arc(self):
+        token_type = SimpleNamespace(name="Token")
+        trace = SimpleNamespace(
+            final_env=SimpleNamespace(bindings=(
+                SimpleNamespace(name="token", type=token_type),
+                SimpleNamespace(name="peer", type=token_type),
+            )),
+            events=(SimpleNamespace(
+                kind="domain_transition", name="token", via="share:peer",
+                type=token_type,
+            ),),
+            shared_cleanup=SimpleNamespace(steps=()),
+            shared_path_cleanup=SimpleNamespace(steps=(
+                SimpleNamespace(owner="peer", account="token", destroy_after=False,
+                                 via="early_return", point_id="return@8:9"),
+                SimpleNamespace(owner="token", account="token", destroy_after=True,
+                                 via="early_return", point_id="return@8:9"),
+            )),
+            shared_loop_cleanup=SimpleNamespace(steps=()),
+            shared_loop_control_exit=SimpleNamespace(actions=()),
+            shared_return_exit=SimpleNamespace(actions=(
+                SimpleNamespace(kind="defer", owner="peer", via="return:call",
+                                 point_id="return@8:9", defer_point_id="defer@7:9",
+                                 defer_call=("observe", ("peer",))),
+                SimpleNamespace(kind="defer", owner="peer", via="return:call",
+                                 point_id="return@8:9", defer_point_id="defer@7:9",
+                                 defer_call=("observe", ("peer",))),
+                SimpleNamespace(kind="release", owner="peer", via="return:early_return",
+                                 point_id="return@8:9"),
+                SimpleNamespace(kind="release", owner="token", via="return:early_return",
+                                 point_id="return@8:9"),
+                SimpleNamespace(kind="destroy", owner="token", via="return:early_return",
+                                 point_id="return@8:9"),
+            )),
+        )
+
+        plan = lower_shared_ownership_trace(trace)
+        segment = next(item for item in plan.cleanup_segments if item.point_id == "return@8:9")
+        self.assertEqual(tuple(type(item) for item in segment.instructions),
+                         (CallInst, ReleaseInst, ReleaseInst, DestroyInst))
+        self.assertEqual(segment.instructions[0].callee, "observe")
+        self.assertEqual(segment.instructions[0].defer_point_id, "defer@7:9")
 
     def test_shared_return_cleanup_leaves_non_return_segments_unplaced(self):
         fn = SIRFunction("main", [], "void")
@@ -1728,8 +2095,11 @@ class SotlasSIRTests(unittest.TestCase):
         source = """
         module test::sir_arc_if_integration;
 
-        pub fn maybe_stop(flag: bool) -> void {
-            if flag {
+        pub fn maybe_stop(first: bool, second: bool) -> void {
+            if first && second {
+                return;
+            }
+            if second {
                 return;
             }
             return;
@@ -1739,11 +2109,13 @@ class SotlasSIRTests(unittest.TestCase):
         ast = Parser(tokens, "<sir-arc-if-integration>").parse()
         fn = SIRGenerator().generate_from_ast(ast).functions[0]
 
-        if_node = ast.decls[0].body[0]
-        first_return = if_node.then_body[0]
-        second_return = ast.decls[0].body[1]
-        first_point = f"return@{first_return.span.line}:{first_return.span.col}"
-        second_point = f"return@{second_return.span.line}:{second_return.span.col}"
+        first_return = ast.decls[0].body[0].then_body[0]
+        second_return = ast.decls[0].body[1].then_body[0]
+        final_return = ast.decls[0].body[2]
+        return_points = tuple(
+            f"return@{item.span.line}:{item.span.col}"
+            for item in (first_return, second_return, final_return)
+        )
 
         token_type = SimpleNamespace(name="Token")
         trace = SimpleNamespace(
@@ -1762,27 +2134,21 @@ class SotlasSIRTests(unittest.TestCase):
                 ),
             ),
             shared_cleanup=SimpleNamespace(steps=()),
-            shared_path_cleanup=SimpleNamespace(steps=(
-                SimpleNamespace(
-                    owner="peer", account="token",
-                    destroy_after=False, via="early_return",
-                    point_id=first_point,
-                ),
-                SimpleNamespace(
-                    owner="token", account="token",
-                    destroy_after=True, via="early_return",
-                    point_id=first_point,
-                ),
-                SimpleNamespace(
-                    owner="peer", account="token",
-                    destroy_after=False, via="early_return",
-                    point_id=second_point,
-                ),
-                SimpleNamespace(
-                    owner="token", account="token",
-                    destroy_after=True, via="early_return",
-                    point_id=second_point,
-                ),
+            shared_path_cleanup=SimpleNamespace(steps=tuple(
+                action
+                for point_id in return_points
+                for action in (
+                    SimpleNamespace(
+                        owner="peer", account="token",
+                        destroy_after=False, via="early_return",
+                        point_id=point_id,
+                    ),
+                    SimpleNamespace(
+                        owner="token", account="token",
+                        destroy_after=True, via="early_return",
+                        point_id=point_id,
+                    ),
+                )
             )),
             shared_loop_cleanup=SimpleNamespace(steps=()),
             shared_loop_control_exit=SimpleNamespace(actions=()),
@@ -1790,12 +2156,14 @@ class SotlasSIRTests(unittest.TestCase):
 
         placement = apply_shared_ownership_trace(fn, trace)
 
-        self.assertEqual(placement.inserted_return_instructions, 6)
+        self.assertEqual(placement.inserted_return_instructions, 9)
         self.assertEqual(
             tuple(type(inst) for inst in placement.plan.semantic),
             (ShareInst, RetainInst),
         )
-        for block in fn.blocks[1:]:
+        for block in fn.blocks:
+            if not isinstance(block.instructions[-1], ReturnInst):
+                continue
             self.assertEqual(
                 tuple(type(inst) for inst in block.instructions),
                 (ReleaseInst, ReleaseInst, DestroyInst, ReturnInst),
@@ -2149,7 +2517,7 @@ class SotlasSIRTests(unittest.TestCase):
         module test::sir_nested_return_probe;
 
         pub fn maybe_stop(flag: bool) -> void {
-            if flag {
+            if !flag {
                 return;
             }
             return;
@@ -2162,7 +2530,10 @@ class SotlasSIRTests(unittest.TestCase):
         fn = sir_mod.functions[0]
 
         self.assertEqual(len(fn.blocks), 3)
-        self.assertIsInstance(fn.blocks[0].instructions[-1], CondBranchInst)
+        branch = fn.blocks[0].instructions[-1]
+        self.assertIsInstance(branch, CondBranchInst)
+        self.assertIn("_cont", branch.true_block)
+        self.assertIn("_then", branch.false_block)
 
         if_node = ast.decls[0].body[0]
         nested_return = if_node.then_body[0]
@@ -2207,12 +2578,201 @@ class SotlasSIRTests(unittest.TestCase):
         self.assertEqual(len(returns), 2)
         self.assertTrue(all(inst.point_id.startswith("return@") for inst in returns))
 
+    def test_sir_generator_lowers_boolean_literal_if_conditions_without_fake_ssa(self):
+        source = """
+        module test::sir_boolean_literal_cfg;
+
+        pub fn constant_true() -> void {
+            if true { return; }
+            return;
+        }
+
+        pub fn constant_false() -> void {
+            if false { return; }
+            return;
+        }
+        """
+        tokens = Lexer(source, "<sir-boolean-literal-cfg>").tokenize()
+        ast = Parser(tokens, "<sir-boolean-literal-cfg>").parse()
+
+        true_fn, false_fn = SIRGenerator().generate_from_ast(ast).functions
+        for fn in (true_fn, false_fn):
+            self.assertEqual(len(fn.blocks), 3)
+            self.assertTrue(all(
+                not isinstance(inst, CondBranchInst)
+                for block in fn.blocks
+                for inst in block.instructions
+            ))
+
+        true_branch = true_fn.blocks[0].instructions[-1]
+        self.assertIsInstance(true_branch, BranchInst)
+        self.assertIn("_then", true_branch.target_block)
+        false_branch = false_fn.blocks[0].instructions[-1]
+        self.assertIsInstance(false_branch, BranchInst)
+        self.assertIn("_cont", false_branch.target_block)
+
+    def test_sir_generator_lowers_boolean_literal_while_conditions(self):
+        source = """
+        module test::sir_boolean_while;
+        pub fn skip_loop() -> void {
+            while false { break; }
+            return;
+        }
+        """
+        tokens = Lexer(source, "<sir-boolean-while>").tokenize()
+        ast = Parser(tokens, "<sir-boolean-while>").parse()
+        fn = SIRGenerator().generate_from_ast(ast).functions[0]
+
+        self.assertIsInstance(fn.blocks[0].instructions[-1], BranchInst)
+        condition_branch = fn.blocks[1].instructions[-1]
+        self.assertIsInstance(condition_branch, BranchInst)
+        self.assertIn("_exit", condition_branch.target_block)
+
+    def test_sir_generator_builds_sequential_early_return_cfg(self):
+        source = """
+        module test::sir_sequential_early_returns;
+        pub fn stop_if_any(first: bool, second: bool) -> void {
+            if first && !second { return; }
+            if !second { return; }
+            return;
+        }
+        """
+        tokens = Lexer(source, "<sir-sequential-early-returns>").tokenize()
+        ast = Parser(tokens, "<sir-sequential-early-returns>").parse()
+        fn = SIRGenerator().generate_from_ast(ast).functions[0]
+
+        self.assertEqual(len(fn.blocks), 6)
+        self.assertIsInstance(fn.blocks[0].instructions[-1], CondBranchInst)
+        self.assertIn("_logic_", fn.blocks[0].instructions[-1].true_block)
+        self.assertIsInstance(fn.blocks[1].instructions[-1], CondBranchInst)
+        self.assertIsInstance(fn.blocks[3].instructions[-1], CondBranchInst)
+        and_right = fn.blocks[1].instructions[-1]
+        self.assertEqual(and_right.false_block, fn.blocks[2].label)
+        negated_branch = fn.blocks[3].instructions[-1]
+        self.assertIn("_next", negated_branch.true_block)
+        self.assertIn("_then", negated_branch.false_block)
+        returns = [
+            inst
+            for block in fn.blocks
+            for inst in block.instructions
+            if isinstance(inst, ReturnInst)
+        ]
+        expected = {
+            f"return@{stmt.span.line}:{stmt.span.col}"
+            for node in ast.decls[0].body
+            for stmt in (
+                [node.then_body[0]]
+                if type(node).__name__ in ("If", "IfNode")
+                else [node]
+            )
+        }
+        self.assertEqual({item.point_id for item in returns}, expected)
+        self.assertEqual(len(expected), 3)
+
+    def test_sir_generator_lowers_integer_comparison_if_condition(self):
+        source = """
+        module test::sir_integer_compare_condition;
+        pub fn choose(left: u32, right: u32) -> void {
+            if left < right { return; }
+            return;
+        }
+        """
+        tokens = Lexer(source, "<sir-integer-compare-condition>").tokenize()
+        ast = Parser(tokens, "<sir-integer-compare-condition>").parse()
+        fn = SIRGenerator().generate_from_ast(ast).functions[0]
+        comparison, branch = fn.blocks[0].instructions[-2:]
+        self.assertIsInstance(comparison, CompareInst)
+        self.assertEqual(comparison.operation, "LT")
+        self.assertEqual(comparison.result.type_name, "bool")
+        self.assertEqual(comparison.left.name, "left")
+        self.assertEqual(comparison.right.name, "right")
+        self.assertIsInstance(branch, CondBranchInst)
+        self.assertEqual(branch.condition, comparison.result)
+
+        bootstrap_module = bootstrap.parse(
+            "module test::bootstrap_compare; "
+            "fn choose(left: u32, right: u32) -> void { "
+            "if left < right { return; } return; }"
+        )
+        bootstrap_fn = SIRGenerator().generate_from_ast(
+            bootstrap_module
+        ).functions[0]
+        self.assertTrue(
+            any(
+                isinstance(inst, CompareInst)
+                for inst in bootstrap_fn.blocks[0].instructions
+            ),
+            (
+                [type(inst).__name__ for inst in bootstrap_fn.blocks[0].instructions],
+                type(bootstrap_module.functions[0].body[0].condition).__name__,
+                repr(bootstrap_module.functions[0].body[0].condition.op),
+                getattr(
+                    bootstrap_module.functions[0].body[0].condition.op,
+                    "name", None,
+                ),
+            ),
+        )
+
+    def test_sir_generator_lowers_nested_if_else_return_tree(self):
+        source = """module test::sir_nested_if_return;
+pub fn choose(flag: bool, left: u32, right: u32) -> void {
+    if flag {
+        if left < right { return; } else { return; }
+    } else {
+        return;
+    }
+}
+"""
+        parsed = bootstrap.parse(source, filename="<sir-nested-if-return>")
+        fn = SIRGenerator().generate_from_ast(parsed).functions[0]
+        self.assertEqual(len(fn.blocks), 5)
+        self.assertTrue(
+            any(isinstance(inst, CompareInst)
+                for block in fn.blocks for inst in block.instructions)
+        )
+        self.assertTrue(
+            any(isinstance(inst, CondBranchInst)
+                for block in fn.blocks for inst in block.instructions)
+        )
+        returns = [
+            inst for block in fn.blocks for inst in block.instructions
+            if isinstance(inst, ReturnInst)
+        ]
+        self.assertEqual(len(returns), 3)
+        self.assertTrue(all(item.point_id.startswith("return@") for item in returns))
+
+    def test_sir_generator_lowers_if_expression_return_with_phi(self):
+        source = """module test::sir_if_expression_return;
+pub fn choose(flag: bool, yes: u32, no: u32) -> u32 {
+    return if flag { yes } else { no };
+}
+"""
+        parsed = bootstrap.parse(source, filename="<sir-if-expression-return>")
+        fn = SIRGenerator().generate_from_ast(parsed).functions[0]
+        phis = [
+            instruction for block in fn.blocks for instruction in block.instructions
+            if isinstance(instruction, PhiInst)
+        ]
+        self.assertEqual(len(phis), 1)
+        self.assertEqual(phis[0].result.type_name, "u32")
+        self.assertEqual(
+            [value.name for value, _ in phis[0].incoming], ["yes", "no"]
+        )
+        self.assertEqual(len(phis[0].incoming), 2)
+        self.assertEqual(
+            sum(
+                isinstance(instruction, ReturnInst)
+                for block in fn.blocks for instruction in block.instructions
+            ),
+            1,
+        )
+
     def test_sir_generator_builds_continue_loop_cfg_with_identity(self):
         source = """
         module test::sir_continue_loop;
 
         pub fn spin(flag: bool) -> void {
-            while flag {
+            while !flag {
                 continue;
             }
             return;
@@ -2226,6 +2786,9 @@ class SotlasSIRTests(unittest.TestCase):
         self.assertEqual(len(fn.blocks), 4)
         self.assertIsInstance(fn.blocks[0].instructions[-1], BranchInst)
         self.assertIsInstance(fn.blocks[1].instructions[-1], CondBranchInst)
+        condition_branch = fn.blocks[1].instructions[-1]
+        self.assertIn("_exit", condition_branch.true_block)
+        self.assertIn("_body", condition_branch.false_block)
         control = fn.blocks[2].instructions[-1]
         self.assertIsInstance(control, BranchInst)
         self.assertEqual(control.control_kind, "continue")
@@ -2302,24 +2865,36 @@ class SotlasSIRTests(unittest.TestCase):
             (ReleaseInst, DestroyInst, BranchInst),
         )
 
-    def test_unrepresentable_loop_control_keeps_fallback_prototype(self):
-        source = """
-        module test::sir_complex_loop;
+    def test_loop_condition_short_circuit_cfg_preserves_and_or_paths(self):
+        for operator in ("&&", "||"):
+            with self.subTest(operator=operator):
+                source = f"""
+                module test::sir_short_circuit_loop;
+                pub fn spin(left: bool, right: bool) -> void {{
+                    while left {operator} right {{ continue; }}
+                }}
+                """
+                tokens = Lexer(source, "<sir-short-circuit-loop>").tokenize()
+                ast = Parser(tokens, "<sir-short-circuit-loop>").parse()
+                fn = SIRGenerator().generate_from_ast(ast).functions[0]
 
-        pub fn spin(flag: bool) -> void {
-            while flag && flag {
-                continue;
-            }
-        }
-        """
-        tokens = Lexer(source, "<sir-complex-loop>").tokenize()
-        ast = Parser(tokens, "<sir-complex-loop>").parse()
-
-        fn = SIRGenerator().generate_from_ast(ast).functions[0]
-
-        self.assertEqual(len(fn.blocks), 1)
-        self.assertIsInstance(fn.blocks[0].instructions[-1], ReturnInst)
-        self.assertIsNone(fn.blocks[0].instructions[-1].point_id)
+                self.assertEqual(len(fn.blocks), 5)
+                first_check = fn.blocks[1].instructions[-1]
+                second_check = fn.blocks[2].instructions[-1]
+                self.assertIsInstance(first_check, CondBranchInst)
+                self.assertIsInstance(second_check, CondBranchInst)
+                body_label = fn.blocks[3].label
+                exit_label = fn.blocks[4].label
+                if operator == "&&":
+                    self.assertIn("_logic_", first_check.true_block)
+                    self.assertEqual(first_check.false_block, exit_label)
+                    self.assertEqual(second_check.true_block, body_label)
+                    self.assertEqual(second_check.false_block, exit_label)
+                else:
+                    self.assertEqual(first_check.true_block, body_label)
+                    self.assertIn("_logic_", first_check.false_block)
+                    self.assertEqual(second_check.true_block, body_label)
+                    self.assertEqual(second_check.false_block, exit_label)
 
     def test_sir_generator_builds_empty_loop_backedge_identity(self):
         source = """
