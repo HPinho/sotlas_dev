@@ -12,7 +12,12 @@ from dataclasses import dataclass
 
 from .canonical_sir import build_canonical_checked_ownership_sir
 from .region_call import RegionCallTransfer, plan_checked_region_calls
-from .region_call_cfg import RegionCallCFGCertificate, certify_region_call_cfg
+from .region_call_cfg import (
+    RegionCallCFGCertificate,
+    RegionCallCFGPoint,
+    RegionCallCFGRelation,
+    certify_region_call_cfg,
+)
 from .region_call_sir import validate_region_call_sir
 from .region_frontend import plan_checked_region_lifetime
 from .region_lifetime import RegionLifetimePlan
@@ -42,6 +47,57 @@ class RegionInterproceduralLifetimePlan:
         if len(matches) != 1:
             raise RegionInterproceduralLifetimeError(
                 f"REGION interprocedural plan requires exactly one function {name!r}"
+            )
+        return matches[0]
+
+    def call_points(self, function: str) -> tuple[RegionCallCFGPoint, ...]:
+        """Return the certified REGION call sites for one known function."""
+        self.function(function)
+        return tuple(item for item in self.call_cfg.points if item.function == function)
+
+    def call_point(self, function: str, point_id: str) -> RegionCallCFGPoint:
+        """Resolve exactly one certified REGION call site by source identity."""
+        self.function(function)
+        matches = tuple(
+            item
+            for item in self.call_cfg.points
+            if item.function == function and item.point_id == point_id
+        )
+        if len(matches) != 1:
+            raise RegionInterproceduralLifetimeError(
+                f"REGION interprocedural plan requires exactly one call point "
+                f"{function}::{point_id}"
+            )
+        return matches[0]
+
+    def call_relations(self, function: str) -> tuple[RegionCallCFGRelation, ...]:
+        """Return all certified pairwise REGION call-path relations for a function."""
+        self.function(function)
+        return tuple(
+            item for item in self.call_cfg.relations if item.function == function
+        )
+
+    def call_relation(
+        self,
+        function: str,
+        first_point_id: str,
+        second_point_id: str,
+    ) -> RegionCallCFGRelation:
+        """Resolve one directional certified relation between two call sites."""
+        self.function(function)
+        matches = tuple(
+            item
+            for item in self.call_cfg.relations
+            if (
+                item.function == function
+                and item.first_point_id == first_point_id
+                and item.second_point_id == second_point_id
+            )
+        )
+        if len(matches) != 1:
+            raise RegionInterproceduralLifetimeError(
+                "REGION interprocedural plan requires exactly one call relation "
+                f"{function}::{first_point_id}->{second_point_id}"
             )
         return matches[0]
 

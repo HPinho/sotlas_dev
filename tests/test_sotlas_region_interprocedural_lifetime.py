@@ -78,6 +78,23 @@ class SotlasRegionInterproceduralLifetimeTests(unittest.TestCase):
             tuple(item.point_id for item in run.calls),
         )
 
+        call_points = plan.call_points("run")
+        self.assertEqual(
+            tuple(item.point_id for item in call_points),
+            tuple(item.point_id for item in run.calls),
+        )
+        first_point = plan.call_point("run", run.calls[0].point_id)
+        self.assertEqual((first_point.callee, first_point.argument_indices), ("consume", (0,)))
+
+        call_relations = plan.call_relations("run")
+        self.assertEqual(call_relations, (relation,))
+        resolved_relation = plan.call_relation(
+            "run",
+            run.calls[0].point_id,
+            run.calls[1].point_id,
+        )
+        self.assertEqual(resolved_relation.relation, "ordered_path")
+
         passed = plan.function("pass")
         self.assertEqual(
             tuple((item.source, item.via) for item in passed.local.transfers),
@@ -97,6 +114,31 @@ class SotlasRegionInterproceduralLifetimeTests(unittest.TestCase):
         self.assertEqual(consume.local.bindings, ("token",))
         self.assertEqual(consume.local.transfers, ())
         self.assertEqual(consume.calls, ())
+        self.assertEqual(plan.call_points("consume"), ())
+        self.assertEqual(plan.call_relations("consume"), ())
+
+    def test_missing_call_point_and_relation_fail_closed(self):
+        checked = package.analyze_source_phase1(
+            SOURCE, filename="<region-interprocedural-query-errors>"
+        )
+        plan = interprocedural.plan_checked_region_interprocedural(checked)
+        run = plan.function("run")
+
+        with self.assertRaisesRegex(
+            interprocedural.RegionInterproceduralLifetimeError,
+            "exactly one call point",
+        ):
+            plan.call_point("run", "call@missing")
+
+        with self.assertRaisesRegex(
+            interprocedural.RegionInterproceduralLifetimeError,
+            "exactly one call relation",
+        ):
+            plan.call_relation(
+                "run",
+                run.calls[1].point_id,
+                run.calls[0].point_id,
+            )
 
     def test_non_checked_module_is_rejected(self):
         with self.assertRaisesRegex(
