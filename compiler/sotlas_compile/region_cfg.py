@@ -7,8 +7,10 @@ that a borrow of an owner is never reachable after that owner has been handed
 over. Explicit branch terminators are the only control-flow edges; block list
 order is never treated as fallthrough.
 
-Lifetime points inside CFG cycles remain fail-closed until iteration identity is
-part of the canonical lifetime model.
+Call-scoped direct/whisper points may execute inside CFG cycles because they do
+not transfer ownership and end at the call boundary. REGION handovers inside a
+cycle remain fail-closed until iteration identity is part of the canonical
+lifetime model.
 """
 from __future__ import annotations
 
@@ -40,6 +42,7 @@ class RegionLifetimeCFGCertificate:
     function: str
     locations: tuple[RegionLifetimeCFGLocation, ...]
     acyclic_points: bool = True
+    cyclic_borrow_point_ids: tuple[str, ...] = ()
 
     @property
     def point_ids(self) -> tuple[str, ...]:
@@ -266,11 +269,16 @@ def certify_region_lifetime_cfg(
         locations.append(entries[0])
 
     successors = _successors(function)
+    cyclic_borrows: list[str] = []
     for location in locations:
-        if _block_is_cyclic(successors, location.block):
+        if not _block_is_cyclic(successors, location.block):
+            continue
+        if location.kind == "handover":
             raise RegionLifetimeCFGError(
-                "REGION lifetime points inside CFG cycles require iteration identity"
+                "REGION handover inside a CFG cycle requires iteration identity"
             )
+        if location.kind in ("direct", "whisper"):
+            cyclic_borrows.append(location.point_id)
 
     handovers = tuple(item for item in locations if item.kind == "handover")
     borrows = tuple(
@@ -293,7 +301,8 @@ def certify_region_lifetime_cfg(
     return RegionLifetimeCFGCertificate(
         function=function_name,
         locations=tuple(locations),
-        acyclic_points=True,
+        acyclic_points=not cyclic_borrows,
+        cyclic_borrow_point_ids=tuple(cyclic_borrows),
     )
 
 
