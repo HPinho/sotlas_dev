@@ -1,10 +1,10 @@
-"""Certify source-stable REGION call contracts against existing SIR CallInsts.
+"""Certify source-stable REGION call contracts against canonical SIR facts.
 
-The current prototype SIR does not embed ownership call-site identities in
-``CallInst``.  This bridge therefore does not claim that it does.  It proves that
-each certified REGION call transfer maps to exactly one existing SIR call and
-argument position, while carrying the source-stable ``call@line:column`` identity
-from the semantic contract alongside that SIR location.
+Each REGION ownership-taking argument must now have an explicit
+RegionCallTransferInst immediately before its canonical CallInst. The SIR fact
+embeds the source ``call@line:column`` identity plus callee/parameter/argument
+position, so downstream analyses no longer need to carry that identity only in
+a side certificate.
 """
 from __future__ import annotations
 
@@ -29,12 +29,24 @@ class RegionCallSIRSite:
     point_id: str
     block: str
     instruction_index: int
-    source_identity_embedded: bool = False
+    call_instruction_index: int
+    source_identity_embedded: bool = True
 
 
 @dataclass(frozen=True)
 class RegionCallSIRBridge:
     sites: tuple[RegionCallSIRSite, ...]
+
+
+def _unwrap_sir_module(value: object) -> object:
+    module = getattr(value, "module", None)
+    if module is not None and hasattr(module, "functions"):
+        return module
+    if hasattr(value, "functions"):
+        return value
+    raise RegionCallSIRError(
+        "REGION call/SIR bridge requires SIRModule or CheckedOwnershipSIR"
+    )
 
 
 def validate_region_call_sir(
@@ -46,12 +58,8 @@ def validate_region_call_sir(
             "REGION call/SIR bridge requires a RegionCallLifetimePlan"
         )
     sir = load_canonical_sir()
-    module = getattr(sir_module, "module", sir_module)
-    if not isinstance(module, sir.SIRModule):
-        raise RegionCallSIRError(
-            "REGION call/SIR bridge requires canonical SIRModule or CheckedOwnershipSIR"
-        )
-    functions = tuple(module.functions)
+    module = _unwrap_sir_module(sir_module)
+    functions = tuple(getattr(module, "functions", ()) or ())
     sites: list[RegionCallSIRSite] = []
 
     for transfer in call_plan.transfers:
@@ -63,28 +71,59 @@ def validate_region_call_sir(
                 f"REGION call/SIR bridge requires exactly one function {transfer.function!r}"
             )
         function = function_matches[0]
-        matches: list[tuple[str, int]] = []
+        matches: list[tuple[str, int, int]] = []
         for block in tuple(getattr(function, "blocks", ()) or ()):
-            for index, instruction in enumerate(tuple(getattr(block, "instructions", ()) or ())):
-                if not isinstance(instruction, sir.CallInst):
+            instructions = tuple(getattr(block, "instructions", ()) or ())
+            for index, instruction in enumerate(instructions):
+                if not isinstance(instruction, sir.RegionCallTransferInst):
                     continue
-                if instruction.callee != transfer.callee:
+                if (
+                    instruction.source.name != transfer.binding
+                    or instruction.source_name != transfer.binding
+                    or instruction.callee != transfer.callee
+                    or instruction.parameter != transfer.parameter
+                    or instruction.argument_index != transfer.argument_index
+                    or instruction.point_id != transfer.point_id
+                    or instruction.source.type_name != transfer.type.name
+                    or instruction.source_domain != "region"
+                    or instruction.target_domain != "region"
+                ):
                     continue
-                arguments = tuple(instruction.arguments)
+                call_index = index + 1
+                while (
+                    call_index < len(instructions)
+                    and isinstance(instructions[call_index], sir.RegionCallTransferInst)
+                ):
+                    call_index += 1
+                if call_index >= len(instructions):
+                    raise RegionCallSIRError(
+                        "REGION call-transfer fact is not followed by a canonical CallInst"
+                    )
+                call = instructions[call_index]
+                if not isinstance(call, sir.CallInst) or call.callee != transfer.callee:
+                    raise RegionCallSIRError(
+                        "REGION call-transfer fact diverged from its canonical CallInst"
+                    )
+                arguments = tuple(call.arguments)
                 if transfer.argument_index >= len(arguments):
-                    continue
+                    raise RegionCallSIRError(
+                        "REGION call-transfer argument index exceeds canonical CallInst"
+                    )
                 argument = arguments[transfer.argument_index]
                 if (
-                    argument.name == transfer.binding
-                    and argument.type_name == transfer.type.name
+                    argument.name != transfer.binding
+                    or argument.type_name != transfer.type.name
                 ):
-                    matches.append((block.label, index))
+                    raise RegionCallSIRError(
+                        "REGION call-transfer source diverged from canonical CallInst argument"
+                    )
+                matches.append((block.label, index, call_index))
         if len(matches) != 1:
             raise RegionCallSIRError(
                 f"REGION call {transfer.function}::{transfer.binding} at {transfer.point_id} "
-                f"requires exactly one SIR CallInst argument match, got {len(matches)}"
+                f"requires exactly one RegionCallTransferInst, got {len(matches)}"
             )
-        block, instruction_index = matches[0]
+        block, instruction_index, call_instruction_index = matches[0]
         if not transfer.point_id.startswith("call@"):
             raise RegionCallSIRError(
                 "REGION call contract lost source-stable call identity"
@@ -99,6 +138,7 @@ def validate_region_call_sir(
                 point_id=transfer.point_id,
                 block=block,
                 instruction_index=instruction_index,
+                call_instruction_index=call_instruction_index,
             )
         )
 

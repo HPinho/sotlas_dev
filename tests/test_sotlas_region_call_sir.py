@@ -1,4 +1,4 @@
-"""REGION source-stable call contracts must map to real canonical SIR calls."""
+"""REGION source-stable call contracts must map to explicit canonical SIR facts."""
 from dataclasses import replace
 import importlib
 import importlib.util
@@ -42,17 +42,26 @@ fn run(source: region Token, destination: region Token) -> void {
 }
 """
 
+MULTI_SOURCE = """module app::region_call_sir_multi;
+sole struct Token { value: u32; }
+fn consume(left: region Token, right: region Token) -> void { return; }
+fn run(left: region Token, right: region Token) -> void {
+    consume(move left, move right);
+    return;
+}
+"""
+
 
 class SotlasRegionCallSIRTests(unittest.TestCase):
-    def _plans(self):
+    def _plans(self, source=SOURCE):
         checked = package.analyze_source_phase1(
-            SOURCE, filename="<region-call-sir>"
+            source, filename="<region-call-sir>"
         )
         calls = region_call.plan_checked_region_calls(checked)
         sir_module, _ = canonical_sir.build_canonical_checked_ownership_sir(checked)
         return calls, sir_module
 
-    def test_real_region_call_maps_to_existing_sir_call_argument(self):
+    def test_real_region_call_embeds_source_identity_in_sir(self):
         calls, sir_module = self._plans()
         bridge = region_call_sir.validate_region_call_sir(calls, sir_module)
         self.assertEqual(len(bridge.sites), 1)
@@ -61,10 +70,29 @@ class SotlasRegionCallSIRTests(unittest.TestCase):
         self.assertEqual((site.callee, site.parameter), ("consume", "token"))
         self.assertEqual(site.argument_index, 0)
         self.assertTrue(site.point_id.startswith("call@"))
-        self.assertFalse(site.source_identity_embedded)
+        self.assertTrue(site.source_identity_embedded)
         self.assertEqual(site.block, "0")
+        self.assertLess(site.instruction_index, site.call_instruction_index)
 
-    def test_tampered_binding_is_rejected_against_sir(self):
+    def test_multiple_region_arguments_share_call_point_but_keep_parameter_identity(self):
+        calls, sir_module = self._plans(MULTI_SOURCE)
+        bridge = region_call_sir.validate_region_call_sir(calls, sir_module)
+        self.assertEqual(len(bridge.sites), 2)
+        self.assertEqual(
+            tuple((site.parameter, site.argument_index) for site in bridge.sites),
+            (("left", 0), ("right", 1)),
+        )
+        self.assertEqual(bridge.sites[0].point_id, bridge.sites[1].point_id)
+        self.assertEqual(
+            bridge.sites[0].call_instruction_index,
+            bridge.sites[1].call_instruction_index,
+        )
+        self.assertNotEqual(
+            bridge.sites[0].instruction_index,
+            bridge.sites[1].instruction_index,
+        )
+
+    def test_tampered_binding_is_rejected_against_sir_fact(self):
         calls, sir_module = self._plans()
         tampered = replace(
             calls,
@@ -72,7 +100,19 @@ class SotlasRegionCallSIRTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(
             region_call_sir.RegionCallSIRError,
-            "exactly one SIR CallInst argument match",
+            "exactly one RegionCallTransferInst",
+        ):
+            region_call_sir.validate_region_call_sir(tampered, sir_module)
+
+    def test_tampered_source_point_is_rejected_against_embedded_sir_identity(self):
+        calls, sir_module = self._plans()
+        tampered = replace(
+            calls,
+            transfers=(replace(calls.transfers[0], point_id="call@999:1"),),
+        )
+        with self.assertRaisesRegex(
+            region_call_sir.RegionCallSIRError,
+            "exactly one RegionCallTransferInst",
         ):
             region_call_sir.validate_region_call_sir(tampered, sir_module)
 

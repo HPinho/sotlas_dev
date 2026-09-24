@@ -1,11 +1,9 @@
-"""REGION SIR-generator extension for pure interprocedural move calls.
+"""REGION SIR-generator extension for interprocedural ownership-taking calls.
 
-The REGION-aware CFG generator already lowers mixed borrow/transfer shapes.  A
-function containing only ``callee(move region_owner); ...; return;`` previously
-fell back because the gating boolean counted REGION borrows/handovers but not a
-REGION->REGION move through a call.  This wrapper recognizes exactly that already
-validated ownership-taking call shape; all instruction construction still comes
-from the existing REGION generator.
+The REGION-aware CFG generator lowers the actual CallInst. This wrapper also
+preserves every validated REGION->REGION move argument as a source-stable
+RegionCallTransferInst immediately before that call. The fact is backend-neutral
+and carries no runtime behavior.
 """
 from __future__ import annotations
 
@@ -35,7 +33,7 @@ def make_region_interprocedural_cfg_generator(sir):
             if result is None:
                 return None
             instructions, saw_region_fact = result
-            if saw_region_fact or not allow_move:
+            if not allow_move:
                 return result
 
             callee = getattr(self, "_parsed_functions", {}).get(
@@ -48,27 +46,50 @@ def make_region_interprocedural_cfg_generator(sir):
             if len(parameters) != len(arguments):
                 return result
 
-            for argument, parameter in zip(arguments, parameters, strict=True):
+            markers: list[Any] = []
+            for argument_index, (argument, parameter) in enumerate(
+                zip(arguments, parameters, strict=True)
+            ):
                 if type(argument).__name__ != "MoveExpr":
                     continue
-                moved = getattr(argument, "value", None)
-                source_name = self._source_name(moved)
+                source_name = self._source_name(getattr(argument, "value", None))
                 if source_name is None:
                     continue
                 source_type = caller_params.get(source_name)
-                _, target_type = self._parameter_name_type(parameter)
-                if source_type is None or target_type is None:
+                parameter_name, target_type = self._parameter_name_type(parameter)
+                if source_type is None or target_type is None or not parameter_name:
                     continue
                 if (
-                    getattr(source_type, "ownership_domain", None) == "region"
-                    and getattr(target_type, "ownership_domain", None) == "region"
-                    and getattr(source_type, "name", None)
-                    == getattr(target_type, "name", None)
+                    getattr(source_type, "ownership_domain", None) != "region"
+                    or getattr(target_type, "ownership_domain", None) != "region"
+                    or getattr(source_type, "name", None)
+                    != getattr(target_type, "name", None)
                 ):
-                    saw_region_fact = True
-                    break
+                    continue
+                markers.append(
+                    sir.RegionCallTransferInst(
+                        operation="call_transfer",
+                        source_name=source_name,
+                        destination_name=f"{call.callee}.{parameter_name}",
+                        point_id=self._statement_point_id(call, "call"),
+                        source=sir.SIRValue(source_name, source_type.name),
+                        callee=call.callee,
+                        parameter=parameter_name,
+                        argument_index=argument_index,
+                        source_domain="region",
+                        target_domain="region",
+                    )
+                )
 
-            return instructions, saw_region_fact
+            if not markers:
+                return instructions, saw_region_fact
+            if not instructions or not isinstance(instructions[-1], sir.CallInst):
+                raise ValueError(
+                    "REGION interprocedural lowering lost the canonical CallInst"
+                )
+            if any(isinstance(item, sir.RegionCallTransferInst) for item in instructions):
+                raise ValueError("duplicate REGION call-transfer SIR fact")
+            return [*instructions[:-1], *markers, instructions[-1]], True
 
     RegionInterproceduralCFGSIRGenerator.__name__ = (
         "RegionInterproceduralCFGSIRGenerator"

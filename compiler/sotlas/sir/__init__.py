@@ -33,6 +33,7 @@ from .instructions import (
     SIRFunction,
     SIRModule,
 )
+from .region_call import RegionCallTransferInst
 from .generator import SIRGenerator
 from .ownership import (
     OwnershipDomainSIRPlan,
@@ -81,6 +82,7 @@ __all__ = [
     "OwnershipDomainTransferInst",
     "WhisperBorrowInst",
     "DirectAccessInst",
+    "RegionCallTransferInst",
     "SharedOwnershipPointInst",
     "ShareInst",
     "RetainInst",
