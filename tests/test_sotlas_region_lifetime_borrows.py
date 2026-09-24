@@ -54,16 +54,19 @@ class SotlasRegionLifetimeBorrowTests(unittest.TestCase):
 
         self.assertEqual(plan.bindings, ("token",))
         self.assertEqual(plan.transfers, ())
+        # OwnershipDomainGraph stores non-owning edges by semantic category:
+        # whisper_borrows first, direct_accesses second.  The lifetime plan
+        # preserves that canonical graph order rather than reconstructing source order.
         self.assertEqual(
             tuple((item.source, item.mode, item.callee, item.parameter, item.scope)
                   for item in plan.borrows),
             (
-                ("token", "direct", "inspect", "token", "call"),
                 ("token", "whisper", "observe", "token", "call"),
+                ("token", "direct", "inspect", "token", "call"),
             ),
         )
-        self.assertTrue(plan.borrows[0].point_id.startswith("direct@"))
-        self.assertTrue(plan.borrows[1].point_id.startswith("whisper@"))
+        self.assertTrue(plan.borrows[0].point_id.startswith("whisper@"))
+        self.assertTrue(plan.borrows[1].point_id.startswith("direct@"))
         self.assertEqual(len(set(plan.point_ids)), len(plan.point_ids))
 
 
