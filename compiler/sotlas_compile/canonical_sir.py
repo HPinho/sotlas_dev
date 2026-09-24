@@ -5,7 +5,7 @@ package under the public name ``sotlas``. Importing ``sotlas.sir`` after that
 would silently bind production semantic facts to legacy SIR classes.
 
 This module always loads ``compiler/sotlas/sir`` under a private namespace and
-uses the narrow REGION-aware generator extension only for source shapes that the
+uses narrow REGION-aware generator extensions only for source shapes that the
 prototype base generator does not yet represent. Ownership placement remains the
 canonical validator: no marker bypasses graph/type/source-point verification.
 """
@@ -15,7 +15,9 @@ import importlib.util
 from pathlib import Path
 import sys
 
-from .region_cfg_generator import make_region_cfg_generator
+from .region_interprocedural_cfg_generator import (
+    make_region_interprocedural_cfg_generator,
+)
 
 _CANONICAL_SIR_PACKAGE = "_sotlas_compiler_canonical_sir"
 
@@ -64,7 +66,7 @@ def build_canonical_checked_ownership_sir(checked_module: object):
     sir = load_canonical_sir()
     plan = sir.lower_ownership_module_semantics(ownership, domains)
 
-    generator_type = make_region_cfg_generator(sir)
+    generator_type = make_region_interprocedural_cfg_generator(sir)
     generator = generator_type(
         module_name=getattr(parsed_module, "name", "main")
     )
