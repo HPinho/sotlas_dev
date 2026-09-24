@@ -1,0 +1,51 @@
+name: One-time ARC loop cleanup patch
+
+on:
+  push:
+    branches:
+      - fix/arc-loop-double-release
+
+permissions:
+  contents: write
+
+jobs:
+  patch-bootstrap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/arc-loop-double-release
+      - name: Apply exact duplicate-release fix
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("compiler/sotlas_compile/bootstrap.py")
+          text = path.read_text(encoding="utf-8")
+          needle = '''                    for d in loop_defers:
+                        if d.body is not None:
+'''
+          replacement = '''                    for d in loop_defers:
+                        if (
+                            loop_shared_cleanup_entry_count is not None
+                            and isinstance(d.value, Call)
+                            and d.value.callee.startswith("__sotlas_shared_release_")
+                        ):
+                            continue
+                        if d.body is not None:
+'''
+          count = text.count(needle)
+          if count != 2:
+              raise SystemExit(f"expected exactly 2 loop defer sites, found {count}")
+          path.write_text(text.replace(needle, replacement), encoding="utf-8")
+          PY
+      - name: Commit source fix and remove one-time workflow
+        shell: bash
+        run: |
+          git rm .github/workflows/_one_time_arc_loop_patch.yml
+          git add compiler/sotlas_compile/bootstrap.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "fix(arc): avoid duplicate shared cleanup on loop exits"
+          git push origin HEAD:fix/arc-loop-double-release
