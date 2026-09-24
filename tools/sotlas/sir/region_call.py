@@ -8,18 +8,23 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .instructions import OwnershipDomainPointInst, SIRValue
+from .instructions import SIRInstruction, SIRValue
 
 
 @dataclass
-class RegionCallTransferInst(OwnershipDomainPointInst):
+class RegionCallTransferInst(SIRInstruction):
     """One REGION->REGION ownership-taking call argument.
 
-    ``point_id`` identifies the source call site (``call@line:column``), while
-    ``parameter`` and ``argument_index`` disambiguate multiple REGION owners
-    transferred by the same call.
+    This is intentionally *not* an OwnershipDomainPointInst: the ownership
+    placement pass reserves that class for source markers that it replaces with
+    canonical domain-transfer instructions. REGION call transfers are already
+    checked semantic facts and must remain independently visible in SIR.
     """
 
+    operation: str
+    source_name: str
+    destination_name: str
+    point_id: str
     source: SIRValue
     callee: str
     parameter: str
@@ -30,7 +35,7 @@ class RegionCallTransferInst(OwnershipDomainPointInst):
     def __post_init__(self) -> None:
         if self.operation != "call_transfer":
             raise ValueError("REGION call transfer requires operation='call_transfer'")
-        if not self.point_id.startswith("call@"):
+        if not isinstance(self.point_id, str) or not self.point_id.startswith("call@"):
             raise ValueError("REGION call transfer requires source-stable call@ point")
         if self.source_name != self.source.name:
             raise ValueError("REGION call transfer source identity diverged")
