@@ -581,30 +581,109 @@ class SIRGenerator:
         entry_block: SIRBasicBlock,
         return_type: str,
     ) -> bool:
-        """Lower the honest linear ownership-transfer subset to source markers."""
+        """Lower linear consuming calls and ownership points in source order.
+
+        The accepted call subset is deliberately narrow: a call must return
+        ``void`` and every argument must be ``move <Name>`` into a parameter
+        whose type and ownership domain are explicit and match the moved source.
+        Calls are accepted only before the first ownership/share point, so this
+        pass never guesses about uses after a transfer.
+        """
         if return_type != "void":
             return False
         body = getattr(fn, "body", None) or []
         if not body or type(body[-1]).__name__ not in ("Return", "ReturnNode"):
             return False
 
-        transfers = body[:-1]
-        if not transfers:
+        statements = body[:-1]
+        if not statements:
             return False
-        supported = {"Quarantine", "Handover", "Let"}
-        for statement in transfers:
-            kind = type(statement).__name__
-            if kind not in supported:
-                return False
-            if kind == "Let":
-                value = getattr(statement, "value", None)
-                if type(value).__name__ != "ShareExpr":
-                    return False
 
-        for statement in transfers:
+        caller_params: dict[str, Any] = {}
+        for parameter in getattr(fn, "params", ()):
+            if isinstance(parameter, tuple) and len(parameter) == 2:
+                caller_params[parameter[0]] = parameter[1]
+            else:
+                caller_params[getattr(parameter, "name", "")] = (
+                    getattr(parameter, "type_ann", None)
+                    or getattr(parameter, "type", None)
+                )
+        parsed_functions = getattr(self, "_parsed_functions", {})
+        lowered: list[Any] = []
+        ownership_started = False
+        has_ownership_point = False
+
+        for statement in statements:
             kind = type(statement).__name__
             value = getattr(statement, "value", None)
+
+            if kind == "Expression":
+                if ownership_started or type(value).__name__ != "Call":
+                    return False
+                call = value
+                callee = parsed_functions.get(getattr(call, "callee", ""))
+                parameters = tuple(getattr(callee, "params", ()) or ())
+                result_type = getattr(callee, "result", None)
+                if (
+                    callee is None
+                    or getattr(result_type, "name", result_type) != "void"
+                    or not parameters
+                    or len(parameters) != len(getattr(call, "args", ()))
+                ):
+                    return False
+
+                arguments: list[SIRValue] = []
+                for argument, target_parameter in zip(
+                    call.args, parameters, strict=True
+                ):
+                    if isinstance(target_parameter, tuple) and len(target_parameter) == 2:
+                        _, target_type = target_parameter
+                    else:
+                        target_type = (
+                            getattr(target_parameter, "type_ann", None)
+                            or getattr(target_parameter, "type", None)
+                        )
+                    moved = getattr(argument, "value", None)
+                    if (
+                        type(argument).__name__ != "MoveExpr"
+                        or type(moved).__name__ != "Name"
+                    ):
+                        return False
+                    source_name = getattr(moved, "value", None)
+                    source_type = caller_params.get(source_name)
+                    source_domain = getattr(
+                        source_type, "ownership_domain", None
+                    ) if source_type is not None else None
+                    target_domain = getattr(
+                        target_type, "ownership_domain", None
+                    ) if target_type is not None else None
+                    if (
+                        not isinstance(source_name, str)
+                        or not source_name
+                        or source_type is None
+                        or target_type is None
+                        or source_domain is None
+                        or target_domain is None
+                        or getattr(source_type, "name", None)
+                        != getattr(target_type, "name", None)
+                    ):
+                        return False
+                    arguments.append(
+                        SIRValue(source_name, getattr(source_type, "name"))
+                    )
+                lowered.append(
+                    CallInst(callee=call.callee, arguments=arguments)
+                )
+                continue
+
+            if kind not in {"Quarantine", "Handover", "Let"}:
+                return False
+            ownership_started = True
+            has_ownership_point = True
+
             if kind == "Let":
+                if type(value).__name__ != "ShareExpr":
+                    return False
                 shared_source = getattr(value, "value", None)
                 source_name = (
                     getattr(shared_source, "value", None)
@@ -618,7 +697,7 @@ class SIRGenerator:
                     raise ValueError(
                         "share SIR point requires direct source and alias bindings"
                     )
-                entry_block.add(
+                lowered.append(
                     SharedOwnershipPointInst(
                         source_name=source_name,
                         alias_name=alias_name,
@@ -648,7 +727,7 @@ class SIRGenerator:
                     "handover SIR point requires direct destination binding"
                 )
             operation = kind.lower()
-            entry_block.add(
+            lowered.append(
                 OwnershipDomainPointInst(
                     operation=operation,
                     source_name=source_name,
@@ -657,6 +736,10 @@ class SIRGenerator:
                 )
             )
 
+        if not has_ownership_point:
+            return False
+        for instruction in lowered:
+            entry_block.add(instruction)
         entry_block.add(
             ReturnInst(
                 point_id=self._statement_point_id(body[-1], "return")
@@ -1247,7 +1330,6 @@ class SIRGenerator:
             for item in body[:-1]
         ):
             return False
-
         parsed_functions = getattr(self, "_parsed_functions", {})
         sole_names = getattr(self, "_sole_names", frozenset())
         caller_params = {}
