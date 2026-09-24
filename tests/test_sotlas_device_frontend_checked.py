@@ -26,7 +26,6 @@ def _load_canonical_package():
 
 
 sotlas_compile = _load_canonical_package()
-# Force the same canonical SIR availability expected by analyze_source_phase1.
 try:
     importlib.import_module("sotlas.sir")
 except ImportError:
@@ -39,7 +38,6 @@ frontend = importlib.import_module(f"{sotlas_compile.__name__}.device_frontend")
 runtime_abi = importlib.import_module(f"{sotlas_compile.__name__}.device_runtime_abi")
 
 DeviceLifecycleSourcePoints = lifecycle.DeviceLifecycleSourcePoints
-DeviceLifecycleError = lifecycle.DeviceLifecycleError
 DeviceRuntimeOperation = runtime_abi.DeviceRuntimeOperation
 plan_checked_device_runtime = frontend.plan_checked_device_runtime
 
@@ -50,6 +48,19 @@ fn accept_device(buffer: device Buffer) -> void { return; }
 fn submit(cpu: Buffer, slot: device Buffer) -> void {
     accept_device(move slot);
     handover cpu to slot;
+    return;
+}
+"""
+
+SEQUENTIAL_SOURCE = """module test::device_checked_frontend_sequential;
+sole struct Buffer { value: u32; }
+fn accept_device(buffer: device Buffer) -> void { return; }
+fn submit(cpu_a: Buffer, cpu_b: Buffer,
+          device_a: device Buffer, device_b: device Buffer) -> void {
+    accept_device(move device_a);
+    accept_device(move device_b);
+    handover cpu_a to device_a;
+    handover cpu_b to device_b;
     return;
 }
 """
@@ -88,8 +99,8 @@ class SotlasDeviceCheckedFrontendTests(unittest.TestCase):
                 reacquisition_point_ids=("reacquire@test:1",),
             ),
         )
-
         self.assertIs(plan.graph, checked.semantic.ownership_domains)
+        self.assertIsNone(plan.coexecution_certificate)
         self.assertEqual(plan.bindings, ("cpu",))
         self.assertEqual(plan.function, "submit")
         self.assertEqual(plan.queue, "queue0")
@@ -108,14 +119,48 @@ class SotlasDeviceCheckedFrontendTests(unittest.TestCase):
             ),
         )
 
-    def test_real_branch_source_fails_closed_without_path_certificate(self):
+    def test_real_sequential_multi_owner_source_is_auto_certified(self):
+        checked = sotlas_compile.analyze_source_phase1(
+            SEQUENTIAL_SOURCE,
+            filename="<device-checked-frontend-sequential>",
+        )
+        plan = plan_checked_device_runtime(
+            checked,
+            function="submit",
+            queue="queue0",
+            points=DeviceLifecycleSourcePoints(
+                completion_point_ids=("completion@test:1", "completion@test:2"),
+                synchronization_point_id="sync@test:1",
+                reacquisition_point_ids=("reacquire@test:1", "reacquire@test:2"),
+            ),
+        )
+        self.assertIsNotNone(plan.coexecution_certificate)
+        self.assertEqual(plan.bindings, ("cpu_a", "cpu_b"))
+        self.assertEqual(
+            tuple(item.operation for item in plan.runtime.runtime.requirements),
+            (
+                DeviceRuntimeOperation.SUBMIT,
+                DeviceRuntimeOperation.SUBMIT,
+                DeviceRuntimeOperation.COMPLETE,
+                DeviceRuntimeOperation.COMPLETE,
+                DeviceRuntimeOperation.SYNCHRONIZE,
+                DeviceRuntimeOperation.REACQUIRE,
+                DeviceRuntimeOperation.REACQUIRE,
+            ),
+        )
+        self.assertEqual(
+            tuple(item.binding for item in plan.runtime.runtime.requirements[:2]),
+            ("cpu_a", "cpu_b"),
+        )
+
+    def test_real_branch_source_remains_fail_closed_when_coexecution_cannot_be_proved(self):
         checked = sotlas_compile.analyze_source_phase1(
             BRANCH_SOURCE,
             filename="<device-checked-frontend-branch>",
         )
         with self.assertRaisesRegex(
-            DeviceLifecycleError,
-            "path-sensitive co-execution",
+            frontend.DeviceFrontendPlanError,
+            "cannot prove submission co-execution",
         ):
             plan_checked_device_runtime(
                 checked,
