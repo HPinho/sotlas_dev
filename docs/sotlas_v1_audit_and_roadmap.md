@@ -1,5 +1,12 @@
 # Sotlas v1.0 — Architecture Audit, Universal Systems Strategy & Roadmap
 
+> **Historical design note.** This document records earlier proposals and
+> implementation claims. It is not a current support or maturity statement.
+> Use [Implementation Status](sotlas_implementation_status.md),
+> [Phase 1 Semantic Core Status](phase1-semantic-core-status.md), and
+> [SIR Status](sir-status.md) for verified status. In particular, the
+> prototype SIR is not the production lowering path.
+
 > **Design Axiom:**  
 > Sotlas is a single, coherent systems language spanning the entire computing spectrum — from zero-runtime baremetal kernels and hard real-time game engines to high-level desktop/mobile applications and AI tensor pipelines — without compromising safety, ergonomics, or determinism.
 

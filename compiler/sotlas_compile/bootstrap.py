@@ -7,8 +7,11 @@ arrays fixos [T; N], ponteiros unsafe, casts ('as'), expressões, fluxo e mangli
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+import importlib
+import importlib.util
 from pathlib import Path
 import re
+import sys
 
 
 class SotlasBootstrapError(Exception):
@@ -46,7 +49,7 @@ SINGLE = set(";,:{}()[]=+-*/%!<>&|^~.?")
 PRIMITIVES = {"void", "bool", "u8", "u16", "u32", "u64", "usize",
               "i8", "i16", "i32", "i64", "isize", "f32", "f64", "str"}
 UNSUPPORTED_OWNERSHIP_DOMAINS = {
-    "exclusive", "shared", "region", "device", "external", "island",
+    "exclusive", "shared",
     "whisper", "direct", "quarantine",
 }
 C_TYPES = {"void": "void", "bool": "_Bool", "u8": "uint8_t", "u16": "uint16_t",
@@ -196,6 +199,7 @@ class Type:
     fn_params: tuple = ()  # tuple[Type, ...]
     fn_ret: Type | None = None
     is_reference: bool = False
+    ownership_domain: str | None = None
 
     def base_c(self) -> str:
         if self.is_fn_ptr:
@@ -323,6 +327,12 @@ class Return(Stmt): value: Expr | None
 class Break(Stmt): pass
 @dataclass
 class Continue(Stmt): pass
+@dataclass
+class Handover(Stmt):
+    value: Expr
+    destination: Expr | None = None
+@dataclass
+class Quarantine(Stmt): value: Expr
 @dataclass
 class Loop(Stmt): body: list[Stmt]
 @dataclass
@@ -486,6 +496,49 @@ class Parser:
         return self.type()
 
     def type(self) -> Type:
+        if (
+            self.current.kind == "IDENT"
+            and self.current.text in (
+                "island", "whisper", "direct", "region", "device", "external"
+            )
+        ):
+            token = self.current
+            domain = self.current.text
+            self.at += 1
+            inner = self.type()
+            if getattr(inner, "ownership_domain", None) is not None:
+                raise SotlasBootstrapError(
+                    "ownership modifier duplicado",
+                    token.line, token.column, self.filename, self.source,
+                )
+            if domain in ("whisper", "direct"):
+                if (
+                    inner.is_array
+                    or inner.is_fn_ptr
+                    or inner.pointer
+                    or inner.is_reference
+                    or inner.mutable
+                ):
+                    raise SotlasBootstrapError(
+                        f"{domain} currently requires an unqualified, direct "
+                        "non-array value type",
+                        token.line, token.column, self.filename, self.source,
+                    )
+                return replace(
+                    inner,
+                    pointer=True,
+                    mutable=False,
+                    is_reference=True,
+                    ownership_domain=domain,
+                )
+            if domain in ("region", "device", "external") and (
+                inner.is_array or inner.is_fn_ptr or inner.pointer or inner.is_reference
+            ):
+                raise SotlasBootstrapError(
+                    f"{domain} ownership requires a direct by-value type",
+                    token.line, token.column, self.filename, self.source,
+                )
+            return replace(inner, ownership_domain=domain)
         if self.accept("!"):
             return Type("void")
         if self.accept("fn"):
@@ -783,7 +836,16 @@ class Parser:
                 self.expect(",")
         result = Type("void")
         if self.accept("->"): result = self.type()
-        return Function(name, params, result, self.block(), public, attributes or [])
+        attributes = attributes or []
+        if self.accept(";"):
+            if "@extern(C)" not in attributes:
+                raise SotlasBootstrapError(
+                    "function declarations without a body require @extern(C)",
+                    self.current.line, self.current.column,
+                    self.filename, self.source,
+                )
+            return Function(name, params, result, [], public, attributes)
+        return Function(name, params, result, self.block(), public, attributes)
 
     def block(self) -> list[Stmt]:
         self.expect("{"); body = []
@@ -827,6 +889,19 @@ class Parser:
         if self.accept("continue"):
             self.expect(";")
             return Continue(token)
+        if self.accept("handover"):
+            value = self.expression()
+            destination = None
+            if self.current.kind == "IDENT" and self.current.text == "to":
+                self.at += 1
+                destination = self.expression()
+            self.expect(";")
+            return Handover(token, value, destination)
+        if self.current.kind == "IDENT" and self.current.text == "quarantine":
+            self.at += 1
+            value = self.expression()
+            self.expect(";")
+            return Quarantine(token, value)
         if self.accept("if"):
             condition = self.expression()
             then_body = self.block()
@@ -2244,6 +2319,93 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
                         "atribuição incompatível", item.token.line,
                         item.token.column, filename, source,
                     )
+            elif isinstance(item, Handover):
+                if not isinstance(item.value, Name):
+                    raise SotlasBootstrapError(
+                        "handover exige binding direto de ownership",
+                        item.token.line, item.token.column, filename, source,
+                    )
+                target_type = scope.get(item.value.value)
+                target_struct = (
+                    struct_map.get(target_type.name)
+                    if target_type is not None else None
+                )
+                if (
+                    target_type is None
+                    or target_struct is None
+                    or not target_struct.is_sole
+                    or target_type.pointer
+                    or target_type.is_reference
+                ):
+                    raise SotlasBootstrapError(
+                        f"handover exige valor sole exclusivo: {item.value.value}",
+                        item.token.line, item.token.column, filename, source,
+                    )
+                expr_type(item.value, scope, in_unsafe, is_system_fn)
+                if item.destination is not None:
+                    if not isinstance(item.destination, Name):
+                        raise SotlasBootstrapError(
+                            "handover destino exige binding direto de ownership",
+                            item.token.line, item.token.column, filename, source,
+                        )
+                    if item.destination.value == item.value.value:
+                        raise SotlasBootstrapError(
+                            "handover origem e destino devem ser bindings distintos",
+                            item.token.line, item.token.column, filename, source,
+                        )
+                    destination_type = scope.get(item.destination.value)
+                    destination_struct = (
+                        struct_map.get(destination_type.name)
+                        if destination_type is not None else None
+                    )
+                    if (
+                        destination_type is None
+                        or destination_struct is None
+                        or not destination_struct.is_sole
+                        or destination_type.pointer
+                        or destination_type.is_reference
+                    ):
+                        raise SotlasBootstrapError(
+                            f"handover destino exige valor sole exclusivo: {item.destination.value}",
+                            item.token.line, item.token.column, filename, source,
+                        )
+                    comparable_destination = replace(
+                        destination_type, ownership_domain=None
+                    )
+                    comparable_source = replace(
+                        target_type, ownership_domain=None
+                    )
+                    if comparable_destination != comparable_source:
+                        raise SotlasBootstrapError(
+                            "handover origem e destino devem ter o mesmo tipo exclusivo",
+                            item.token.line, item.token.column, filename, source,
+                        )
+                    expr_type(
+                        item.destination, scope, in_unsafe, is_system_fn
+                    )
+            elif isinstance(item, Quarantine):
+                if not isinstance(item.value, Name):
+                    raise SotlasBootstrapError(
+                        "quarantine exige binding direto de ownership",
+                        item.token.line, item.token.column, filename, source,
+                    )
+                target_type = scope.get(item.value.value)
+                target_struct = (
+                    struct_map.get(target_type.name)
+                    if target_type is not None else None
+                )
+                if (
+                    target_type is None
+                    or target_struct is None
+                    or not target_struct.is_sole
+                    or target_type.pointer
+                    or target_type.is_reference
+                ):
+                    raise SotlasBootstrapError(
+                        f"quarantine exige valor sole exclusivo: {item.value.value}",
+                        item.token.line, item.token.column, filename, source,
+                    )
+                expr_type(item.value, scope, in_unsafe, is_system_fn)
             elif isinstance(item, Return):
                 if item.value is not None:
                     actual = expr_type(
@@ -2342,62 +2504,70 @@ def _c_ident(name: str) -> str:
     return name.replace("::", "__").replace("-", "_")
 
 
-def _emit_expr(expr: Expr, mod_prefix: str = "") -> str:
+def _emit_expr(
+    expr: Expr,
+    mod_prefix: str = "",
+    shared_boxes: dict[str, str] | None = None,
+) -> str:
+    shared_boxes = shared_boxes or {}
     if isinstance(expr, UnsafeExpr):
-        return _emit_expr(expr.value, mod_prefix)
+        return _emit_expr(expr.value, mod_prefix, shared_boxes)
     if isinstance(expr, MoveExpr):
-        return _emit_expr(expr.value, mod_prefix)
+        return _emit_expr(expr.value, mod_prefix, shared_boxes)
     if isinstance(expr, ShareExpr):
-        raise SotlasBootstrapError(
-            "C11 backend does not lower shared ownership yet",
-            expr.token.line, expr.token.column,
-        )
+        raise SotlasBootstrapError("share is only valid in a supported local binding", expr.token.line, expr.token.column)
     if isinstance(expr, Number):
         base, suffix = numeric_literal_parts(expr.value)
+        if suffix == "u64":
+            base += "ULL"
+        elif suffix == "i64":
+            base += "LL"
         return f"(({C_TYPES[suffix]})({base}))" if suffix else base
     if isinstance(expr, Boolean): return "1" if expr.value else "0"
     if isinstance(expr, StringLit): return f"((const uint8_t *){expr.value})"
     if isinstance(expr, CharLit): return expr.value
     if isinstance(expr, NullLit): return "NULL"
-    if isinstance(expr, Name): return expr.value
+    if isinstance(expr, Name):
+        box = shared_boxes.get(expr.value)
+        return f"({box}->value)" if box else expr.value
     if isinstance(expr, EnumAccess): return f"{expr.enum_name}_{expr.variant}"
     if isinstance(expr, Unary):
         if expr.op == "&":
-            return f"(&{_emit_expr(expr.value, mod_prefix)})"
-        return f"({expr.op}{_emit_expr(expr.value, mod_prefix)})"
-    if isinstance(expr, Binary): return f"({_emit_expr(expr.left, mod_prefix)} {expr.op} {_emit_expr(expr.right, mod_prefix)})"
+            return f"(&{_emit_expr(expr.value, mod_prefix, shared_boxes)})"
+        return f"({expr.op}{_emit_expr(expr.value, mod_prefix, shared_boxes)})"
+    if isinstance(expr, Binary): return f"({_emit_expr(expr.left, mod_prefix, shared_boxes)} {expr.op} {_emit_expr(expr.right, mod_prefix, shared_boxes)})"
     if isinstance(expr, Call):
         callee = expr.callee
-        return f"{callee}(" + ", ".join(_emit_expr(item, mod_prefix) for item in expr.args) + ")"
+        return f"{callee}(" + ", ".join(_emit_expr(item, mod_prefix, shared_boxes) for item in expr.args) + ")"
     if isinstance(expr, MethodCall):
         if getattr(expr, "is_vtable_call", False):
-            target_str = _emit_expr(expr.target, mod_prefix)
+            target_str = _emit_expr(expr.target, mod_prefix, shared_boxes)
             arrow = "->" if getattr(expr, "is_arrow", False) else "."
             callee = f"{target_str}{arrow}{expr.method}"
-            args_s = ", ".join(_emit_expr(item, mod_prefix) for item in expr.args)
+            args_s = ", ".join(_emit_expr(item, mod_prefix, shared_boxes) for item in expr.args)
             return f"({callee})({args_s})"
         if expr.method == "as_ptr":
-            return _emit_expr(expr.target, mod_prefix)
+            return _emit_expr(expr.target, mod_prefix, shared_boxes)
         if expr.method == "abs":
-            target_str = _emit_expr(expr.target, mod_prefix)
+            target_str = _emit_expr(expr.target, mod_prefix, shared_boxes)
             return f"((int32_t)({target_str}) < 0 ? -(int32_t)({target_str}) : (int32_t)({target_str}))"
         if expr.method == "add":
-            target_str = _emit_expr(expr.target, mod_prefix)
-            arg_str = _emit_expr(expr.args[0], mod_prefix) if expr.args else "0"
+            target_str = _emit_expr(expr.target, mod_prefix, shared_boxes)
+            arg_str = _emit_expr(expr.args[0], mod_prefix, shared_boxes) if expr.args else "0"
             return f"(({target_str}) + ({arg_str}))"
-        target_str = _emit_expr(expr.target, mod_prefix)
+        target_str = _emit_expr(expr.target, mod_prefix, shared_boxes)
         if getattr(expr, "pass_by_ref", False):
             target_str = f"&({target_str})"
         fn_name = f"{expr.target_type.name}_{expr.method}" if expr.target_type else expr.method
-        all_args = [target_str] + [_emit_expr(item, mod_prefix) for item in expr.args]
+        all_args = [target_str] + [_emit_expr(item, mod_prefix, shared_boxes) for item in expr.args]
         return f"{fn_name}(" + ", ".join(all_args) + ")"
     if isinstance(expr, Index):
-        return f"{_emit_expr(expr.target, mod_prefix)}[{_emit_expr(expr.index, mod_prefix)}]"
+        return f"{_emit_expr(expr.target, mod_prefix, shared_boxes)}[{_emit_expr(expr.index, mod_prefix, shared_boxes)}]"
     if isinstance(expr, Member):
         arrow = "->" if getattr(expr, "is_pointer_target", False) else "."
-        return f"{_emit_expr(expr.target, mod_prefix)}{arrow}{expr.field}"
+        return f"{_emit_expr(expr.target, mod_prefix, shared_boxes)}{arrow}{expr.field}"
     if isinstance(expr, Cast):
-        return f"(({expr.target_type.c()})({_emit_expr(expr.expr, mod_prefix)}))"
+        return f"(({expr.target_type.c()})({_emit_expr(expr.expr, mod_prefix, shared_boxes)}))"
     if isinstance(expr, ArrayLit):
         if expr.is_repeat:
             if isinstance(expr.elements[0], Number) and expr.elements[0].value == "0":
@@ -2531,6 +2701,25 @@ static inline void __hlt(void) {
 """
 
 
+_ARC_ATOMIC_INTRINSICS = """/* SOTLAS_ATOMIC_INTRINSICS */
+static inline uint64_t __atomic_cmpxchg_u64(uint64_t address, uint64_t expected, uint64_t desired) {
+    uint64_t old = expected;
+    __atomic_compare_exchange_n((volatile uint64_t *)(uintptr_t)address,
+                                &old, desired, false,
+                                __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+    return old;
+}
+static inline void __atomic_store_u64(uint64_t address, uint64_t value) {
+    __atomic_store_n((volatile uint64_t *)(uintptr_t)address, value,
+                     __ATOMIC_SEQ_CST);
+}
+static inline uint64_t __atomic_load_u64(uint64_t address) {
+    return __atomic_load_n((volatile uint64_t *)(uintptr_t)address,
+                           __ATOMIC_SEQ_CST);
+}
+"""
+
+
 def _c_func_attributes(attributes: list[str]) -> str:
     attrs = []
     for a in attributes:
@@ -2622,6 +2811,1139 @@ def _emit_c_enum(enum_obj: Enum) -> list[str]:
 
 def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
            include_import_headers: bool = False) -> str:
+    functions_for_defer = {function.name: function for function in module.functions}
+
+    def _deferred_expression(statement: Defer) -> Expr | None:
+        if statement.value is not None:
+            return statement.value
+        if statement.body is not None and len(statement.body) == 1:
+            body_statement = statement.body[0]
+            if isinstance(body_statement, Expression):
+                return body_statement.value
+        return None
+
+    def _safe_shared_defer_method(
+        statement: Defer, shared_names: set[str]
+    ) -> bool:
+        expression = _deferred_expression(statement)
+        if (
+            not isinstance(expression, MethodCall)
+            or not isinstance(expression.target, Name)
+            or expression.target.value not in shared_names
+        ):
+            return False
+        owner_name = getattr(
+            getattr(expression, "target_type", None), "name", None
+        )
+        method = (
+            functions_for_defer.get(f"{owner_name}_{expression.method}")
+            if owner_name
+            else None
+        )
+        if (
+            method is None
+            or not method.params
+            or "@extern(C)" in method.attributes
+            or len(method.params) != len(expression.args) + 1
+        ):
+            return False
+        receiver_type = method.params[0][1]
+        immutable_receiver = (
+            receiver_type.is_reference
+            and not receiver_type.mutable
+            and receiver_type.ownership_domain is None
+        )
+        arguments_do_not_capture_alias = all(
+            not any(
+                isinstance(node, Name) and node.value in shared_names
+                for node in _walk_expr(argument)
+            )
+            for argument in expression.args
+        )
+        return immutable_receiver and arguments_do_not_capture_alias
+
+    def _safe_shared_direct_call(
+        expression: Expr | None, shared_names: set[str]
+    ) -> bool:
+        is_method = isinstance(expression, MethodCall)
+        if isinstance(expression, Call):
+            callee_name = expression.callee
+            arguments = tuple(expression.args)
+        elif is_method:
+            owner_name = getattr(
+                getattr(expression, "target_type", None), "name", None
+            )
+            if not owner_name or not isinstance(expression.target, Name):
+                return False
+            callee_name = f"{owner_name}_{expression.method}"
+            arguments = (expression.target, *tuple(expression.args))
+        else:
+            return False
+        callee = functions_for_defer.get(callee_name)
+        if (
+            callee is None
+            or "@extern(C)" in callee.attributes
+            or len(callee.params) != len(arguments)
+        ):
+            return False
+        found_shared_borrow = False
+        for argument, (_, parameter_type) in zip(
+            arguments, callee.params
+        ):
+            if parameter_type.ownership_domain == "direct":
+                if is_method and argument is expression.target:
+                    if argument.value not in shared_names:
+                        return False
+                    found_shared_borrow = True
+                    continue
+                if (
+                    not isinstance(argument, Unary)
+                    or argument.op != "&"
+                    or not isinstance(argument.value, Name)
+                ):
+                    return False
+                if argument.value.value in shared_names:
+                    found_shared_borrow = True
+                continue
+            if parameter_type.ownership_domain == "whisper":
+                if (
+                    not isinstance(argument, Unary)
+                    or argument.op != "&"
+                    or not isinstance(argument.value, Name)
+                    or argument.value.value not in shared_names
+                ):
+                    return False
+                found_shared_borrow = True
+                continue
+            if any(
+                isinstance(node, Name) and node.value in shared_names
+                for node in _walk_expr(argument)
+            ):
+                return False
+        return found_shared_borrow
+
+    def _safe_shared_defer_call(
+        statement: Defer, shared_names: set[str]
+    ) -> bool:
+        expression = _deferred_expression(statement)
+        return bool(
+            isinstance(expression, Call)
+            and _safe_shared_direct_call(expression, shared_names)
+        )
+
+    def _walk_expr(expr: Expr | None):
+        if expr is None:
+            return
+        yield expr
+        for name in ("value", "left", "right", "target", "index", "expr", "condition", "then_expr", "else_expr"):
+            child = getattr(expr, name, None)
+            if isinstance(child, Expr):
+                yield from _walk_expr(child)
+        for child in getattr(expr, "args", ()):
+            yield from _walk_expr(child)
+        for _, child in getattr(expr, "fields", ()):
+            if isinstance(child, Expr):
+                yield from _walk_expr(child)
+        for child in getattr(expr, "elements", ()):
+            if isinstance(child, Expr):
+                yield from _walk_expr(child)
+
+    def _walk_statements_recursive(statements):
+        for statement in statements or ():
+            yield statement
+            for attribute in ("body", "then_body", "else_body"):
+                nested = getattr(statement, attribute, None)
+                if nested:
+                    yield from _walk_statements_recursive(nested)
+
+    shared_functions = {
+        function.name: function
+        for function in module.functions
+        if any(
+            isinstance(item, Let) and isinstance(item.value, ShareExpr)
+            for item in _walk_statements_recursive(function.body)
+        )
+    }
+    shared_type_names: set[str] = set()
+    for function in shared_functions.values():
+        function_items = tuple(_walk_statements_recursive(function.body))
+        declared_types = dict(function.params)
+        for item in function_items:
+            if not isinstance(item, Let):
+                continue
+            if item.type is not None:
+                declared_types[item.name] = item.type
+            elif isinstance(item.value, StructLit):
+                declared_types[item.name] = Type(item.value.struct_name)
+            elif (
+                isinstance(item.value, ShareExpr)
+                and isinstance(item.value.value, Name)
+                and item.value.value.value in declared_types
+            ):
+                declared_types[item.name] = declared_types[
+                    item.value.value.value
+                ]
+        function_owner_names = {
+            item.value.value.value
+            for item in function_items
+            if isinstance(item, Let) and isinstance(item.value, ShareExpr)
+            and isinstance(item.value.value, Name)
+        }
+        for item in function_items:
+            if (
+                isinstance(item, Let)
+                and isinstance(item.value, ShareExpr)
+                and isinstance(item.value.value, Name)
+            ):
+                function_owner_names.add(item.name)
+        shared_type_names.update(
+            typ.name for name, typ in declared_types.items()
+            if name in function_owner_names
+        )
+        for item in function_items:
+            if not isinstance(item, Let) or item.name not in function_owner_names:
+                continue
+            if isinstance(item.value, StructLit):
+                shared_type_names.add(item.value.struct_name)
+            if item.type is not None:
+                shared_type_names.add(item.type.name)
+    shared_structs = {item.name: item for item in module.structs if item.name in shared_type_names}
+    if shared_functions:
+        if "core::arc" not in module.imports:
+            raise SotlasBootstrapError(
+                "C11 share lowering requires import core::arc::*",
+                1, 1, module.filename, module.source,
+            )
+        try:
+            typed_ast = (
+                importlib.import_module(f"{__package__}.typed_ast")
+                if __package__ else None
+            )
+        except ModuleNotFoundError:
+            typed_ast = None
+        if typed_ast is None:
+            typed_ast_path = Path(__file__).with_name("typed_ast.py")
+            if not typed_ast_path.is_file():
+                raise SotlasBootstrapError(
+                    "C11 share lowering requires the canonical ownership analyzer",
+                    1, 1, module.filename, module.source,
+                )
+            spec = importlib.util.spec_from_file_location(
+                "_sotlas_canonical_typed_ast", typed_ast_path
+            )
+            if spec is None or spec.loader is None:
+                raise SotlasBootstrapError(
+                    "C11 share lowering requires the canonical ownership analyzer",
+                    1, 1, module.filename, module.source,
+                )
+            typed_ast = importlib.util.module_from_spec(spec)
+            sys.modules[spec.name] = typed_ast
+            spec.loader.exec_module(typed_ast)
+        try:
+            typed_module = typed_ast.build_declaration_typed_ast(module)
+            canonical_points: dict[str, set[tuple[str, str]]] = {}
+            for function in shared_functions.values():
+                trace = typed_ast.analyze_function_ownership(
+                    module, typed_module, function.name
+                )
+                canonical_points[function.name] = {
+                    (event.source_binding or event.via.split(":", 1)[1], event.name)
+                    for event in trace.events
+                    if event.kind == "retain"
+                    and event.domain is typed_ast.OwnershipDomain.SHARED
+                    and event.via.startswith("share:")
+                }
+        except (typed_ast.Phase1SemanticError, ValueError) as error:
+            raise SotlasBootstrapError(
+                f"C11 share failed canonical ownership validation: {error}",
+                1, 1, module.filename, module.source,
+            ) from error
+        for function in shared_functions.values():
+            if any(
+                not isinstance(item, (
+                    Let, Assign, Return, Expression, Defer, If, While, Loop,
+                    For, Unsafe, Break, Continue,
+                ))
+                for item in function.body
+            ):
+                raise SotlasBootstrapError(
+                    "C11 share contains an unsupported statement",
+                    1, 1, module.filename, module.source,
+                )
+            aliases: dict[str, str] = {}
+
+            def shared_value_read(expr, shared_names: set[str]) -> bool:
+                if expr is None:
+                    return True
+                if isinstance(expr, Name):
+                    return expr.value not in shared_names
+                if isinstance(expr, (Member, Index)):
+                    root = expr
+                    indexes = []
+                    while isinstance(root, (Member, Index)):
+                        if isinstance(root, Index):
+                            indexes.append(root.index)
+                        root = root.target
+                    if isinstance(root, Name) and root.value in shared_names:
+                        return all(
+                            not any(
+                                isinstance(node, Name)
+                                and node.value in shared_names
+                                for node in _walk_expr(index)
+                            )
+                            for index in indexes
+                        )
+                    if isinstance(expr, Member):
+                        return shared_value_read(expr.target, shared_names)
+                    return (
+                        shared_value_read(expr.target, shared_names)
+                        and shared_value_read(expr.index, shared_names)
+                    )
+                if isinstance(expr, Binary):
+                    return (
+                        shared_value_read(expr.left, shared_names)
+                        and shared_value_read(expr.right, shared_names)
+                    )
+                return not any(
+                    isinstance(node, Name) and node.value in shared_names
+                    for node in _walk_expr(expr)
+                )
+
+            def nested_statements(statements):
+                yield from _walk_statements_recursive(statements)
+
+            for statement in nested_statements(function.body):
+                if (
+                    isinstance(statement, Let)
+                    and isinstance(statement.value, ShareExpr)
+                ):
+                    if not isinstance(statement.value.value, Name):
+                        raise SotlasBootstrapError(
+                            "share requires a direct sole binding",
+                            statement.token.line, statement.token.column,
+                            module.filename, module.source,
+                        )
+                    aliases[statement.name] = statement.value.value.value
+
+            for item in function.body:
+                if isinstance(item, Let) and isinstance(item.value, ShareExpr):
+                    if not isinstance(item.value.value, Name):
+                        raise SotlasBootstrapError("share requires a direct sole binding")
+                    aliases[item.name] = item.value.value.value
+                elif isinstance(item, Let) and isinstance(item.value, Name) and item.value.value in aliases:
+                    raise SotlasBootstrapError(
+                        "C11 share does not lower implicit shared alias copies",
+                        item.token.line, item.token.column, module.filename, module.source,
+                    )
+                elif isinstance(item, Assign) and any(
+                    isinstance(node, Name) and node.value in (set(aliases) | set(aliases.values()))
+                    for node in _walk_expr(item.target)
+                ):
+                    raise SotlasBootstrapError("C11 shared bindings are immutable")
+                elif isinstance(item, Return) and isinstance(item.value, Name) and item.value.value in aliases:
+                    raise SotlasBootstrapError("C11 shared values cannot escape their function")
+                elif isinstance(item, (Return, Expression, Defer)):
+                    value = (
+                        _deferred_expression(item)
+                        if isinstance(item, Defer)
+                        else getattr(item, "value", None)
+                    )
+                    is_member_read = isinstance(item, Return) and shared_value_read(
+                        value, set(aliases) | set(aliases.values())
+                    )
+                    safe_defer_read = (
+                        isinstance(item, Defer)
+                        and (
+                            _safe_shared_defer_method(
+                                item, set(aliases) | set(aliases.values())
+                            )
+                            or _safe_shared_defer_call(
+                                item, set(aliases) | set(aliases.values())
+                            )
+                        )
+                    )
+                    safe_direct_read = (
+                        not isinstance(item, Defer)
+                        and _safe_shared_direct_call(
+                            value, set(aliases) | set(aliases.values())
+                        )
+                    )
+                    if any(
+                        isinstance(node, Name)
+                        and node.value in (set(aliases) | set(aliases.values()))
+                        for node in _walk_expr(value)
+                    ) and not (
+                        is_member_read or safe_defer_read or safe_direct_read
+                    ):
+                        raise SotlasBootstrapError(
+                            "C11 shared aliases cannot escape or be captured outside their scope",
+                            item.token.line, item.token.column,
+                            module.filename, module.source,
+                        )
+                elif isinstance(item, (If, While, Loop, For, Unsafe)):
+                    shared_names = set(aliases) | set(aliases.values())
+                    for statement in nested_statements((item,)):
+                        if isinstance(statement, (Break, Continue)):
+                            continue
+                        if isinstance(statement, Defer):
+                            expression = _deferred_expression(statement)
+                            safe_defer_read = _safe_shared_defer_method(
+                                statement, shared_names
+                            ) or _safe_shared_defer_call(
+                                statement, shared_names
+                            )
+                            if any(
+                                isinstance(node, Name)
+                                and node.value in shared_names
+                                for node in _walk_expr(expression)
+                            ) and not safe_defer_read:
+                                raise SotlasBootstrapError(
+                                    "C11 shared aliases cannot be captured "
+                                    "outside their scope",
+                                    statement.token.line, statement.token.column,
+                                    module.filename, module.source,
+                                )
+                        if isinstance(statement, Assign) and any(
+                            isinstance(node, Name)
+                            and node.value in shared_names
+                            for node in _walk_expr(statement.target)
+                        ):
+                            raise SotlasBootstrapError(
+                                "C11 shared bindings are immutable",
+                                statement.token.line, statement.token.column,
+                                module.filename, module.source,
+                            )
+                        if (
+                            isinstance(statement, Let)
+                            and isinstance(statement.value, ShareExpr)
+                        ):
+                            continue
+                        expressions = (
+                            getattr(statement, "condition", None),
+                            getattr(statement, "value", None),
+                            getattr(statement, "start", None),
+                            getattr(statement, "end", None),
+                        )
+                        for expression in expressions:
+                            if expression is None:
+                                continue
+                            has_shared_name = any(
+                                isinstance(node, Name)
+                                and node.value in shared_names
+                                for node in _walk_expr(expression)
+                            )
+                            if has_shared_name and not shared_value_read(
+                                expression, shared_names
+                            ) and not (
+                                isinstance(statement, Defer)
+                                and (
+                                    _safe_shared_defer_method(
+                                        statement, shared_names
+                                    )
+                                    or _safe_shared_defer_call(
+                                        statement, shared_names
+                                    )
+                                )
+                            ) and not (
+                                not isinstance(statement, Defer)
+                                and _safe_shared_direct_call(
+                                    expression, shared_names
+                                )
+                            ):
+                                raise SotlasBootstrapError(
+                                    "C11 shared aliases cannot escape or be "
+                                    "captured outside their scope",
+                                    statement.token.line, statement.token.column,
+                                    module.filename, module.source,
+                                )
+            expected_points = {
+                (source, alias) for alias, source in aliases.items()
+            }
+            if canonical_points.get(function.name) != expected_points:
+                raise SotlasBootstrapError(
+                    "C11 share lowering does not match canonical ownership transitions",
+                    1, 1, module.filename, module.source,
+                )
+        for struct_name, struct in shared_structs.items():
+            if not struct.is_sole or struct.is_register or not struct.fields:
+                raise SotlasBootstrapError(
+                    "C11 shared allocation requires a non-empty sole struct",
+                    1, 1, module.filename, module.source,
+                )
+
+        shared_struct_by_name = {item.name: item for item in module.structs}
+        struct_order = {item.name: index for index, item in enumerate(module.structs)}
+        deinit_names = {
+            function.name for function in module.functions
+            if function.name.endswith("_deinit") and function.params
+        }
+
+        def deinit_references_self(node) -> bool:
+            if node is None:
+                return False
+            if type(node).__name__ == "Name":
+                return getattr(node, "value", None) == "self"
+            if isinstance(node, (tuple, list)):
+                return any(deinit_references_self(item) for item in node)
+            fields = getattr(node, "__dataclass_fields__", None)
+            if not fields:
+                return False
+            return any(
+                deinit_references_self(getattr(node, field_name, None))
+                for field_name in fields
+                if field_name != "token"
+            )
+
+        def nested_deinit_is_detached(struct_name: str) -> bool:
+            deinit = next(
+                (
+                    function for function in module.functions
+                    if function.name == f"{struct_name}_deinit"
+                    and function.params
+                ),
+                None,
+            )
+            if deinit is None:
+                return True
+            return not any(
+                deinit_references_self(statement)
+                for statement in deinit.body
+            )
+
+        def contains_owned_descendant(
+            type_obj: Type,
+            active: frozenset[str] = frozenset(),
+        ) -> bool:
+            while type_obj.is_array and type_obj.elem_type is not None:
+                type_obj = type_obj.elem_type
+            if (
+                type_obj.pointer or type_obj.is_reference
+                or type_obj.is_fn_ptr or type_obj.name in active
+            ):
+                return False
+            child = shared_struct_by_name.get(type_obj.name)
+            if child is None:
+                return False
+            if child.is_sole:
+                return True
+            return any(
+                contains_owned_descendant(
+                    field.type, active | {child.name}
+                )
+                for field in child.fields
+            )
+
+        def plain_shared_payload(
+            type_obj: Type,
+            parent_name: str,
+            active: frozenset[str] = frozenset(),
+        ) -> bool:
+            if type_obj.is_array:
+                if (
+                    type_obj.elem_type is None
+                    or type_obj.elem_type.pointer
+                    or type_obj.elem_type.is_fn_ptr
+                    or type_obj.elem_type.is_reference
+                ):
+                    return False
+                return plain_shared_payload(
+                    type_obj.elem_type, parent_name, active
+                )
+            if (
+                type_obj.pointer or type_obj.is_fn_ptr
+                or type_obj.is_reference
+                or getattr(type_obj, "ownership_domain", None) is not None
+            ):
+                return False
+            if type_obj.name in PRIMITIVES:
+                return type_obj.name != "void"
+            nested = shared_struct_by_name.get(type_obj.name)
+            if nested is None or nested.is_register or not nested.fields:
+                return False
+            if nested.name in active or struct_order[nested.name] >= struct_order[parent_name]:
+                return False
+            if nested.is_sole:
+                return all(
+                    plain_shared_payload(
+                        field.type, nested.name, active | {nested.name}
+                    )
+                    for field in nested.fields
+                )
+            if (
+                f"{nested.name}_deinit" in deinit_names
+                and not nested_deinit_is_detached(nested.name)
+            ):
+                return False
+            return all(
+                plain_shared_payload(
+                    field.type, nested.name, active | {nested.name}
+                )
+                for field in nested.fields
+            )
+
+        for struct_name, struct in shared_structs.items():
+            if any(
+                not plain_shared_payload(field.type, struct_name)
+                for field in struct.fields
+            ):
+                raise SotlasBootstrapError(
+                    f"C11 shared allocation has an unsupported payload field in {struct_name}",
+                    1, 1, module.filename, module.source,
+                )
+            if (
+                f"{struct_name}_deinit" in deinit_names
+                and any(
+                    contains_owned_descendant(field.type)
+                    for field in struct.fields
+                )
+                and not nested_deinit_is_detached(struct_name)
+            ):
+                raise SotlasBootstrapError(
+                    f"C11 shared allocation has an unsupported payload field in {struct_name}",
+                    1, 1, module.filename, module.source,
+                )
+
+    def _contains_domain(type_obj: Type | None, domain: str) -> bool:
+        if type_obj is None:
+            return False
+        if getattr(type_obj, "ownership_domain", None) == domain:
+            return True
+        if (
+            getattr(type_obj, "elem_type", None) is not None
+            and _contains_domain(type_obj.elem_type, domain)
+        ):
+            return True
+        if any(
+            _contains_domain(param, domain)
+            for param in getattr(type_obj, "fn_params", ())
+        ):
+            return True
+        return _contains_domain(getattr(type_obj, "fn_ret", None), domain)
+
+    def _module_contains_domain(domain: str) -> bool:
+        return (
+            any(
+                _contains_domain(field.type, domain)
+                for struct in module.structs for field in struct.fields
+            )
+            or any(_contains_domain(item.type, domain) for item in module.globals)
+            or any(
+                _contains_domain(getattr(variant, "payload_type", None), domain)
+                for enum in module.enums
+                for variant in enum.variants
+            )
+            or any(
+                _contains_domain(type_obj, domain)
+                for fn in module.functions for _, type_obj in fn.params
+            )
+            or any(_contains_domain(fn.result, domain) for fn in module.functions)
+        )
+
+    region_structs: dict[str, Struct] = {}
+    region_struct_order: dict[str, int] = {}
+    region_drop_types: set[str] = set()
+    region_composite_drop_types: set[str] = set()
+    if _module_contains_domain("region"):
+        try:
+            typed_ast_module = importlib.import_module(
+                f"{__package__}.typed_ast"
+                if __package__ else "sotlas_compile.typed_ast"
+            )
+            typed_region_module = (
+                typed_ast_module.build_declaration_typed_ast(module)
+            )
+            typed_region_analysis = (
+                typed_ast_module.analyze_module_ownership(
+                    module, typed_region_module
+                )
+            )
+            region_graph = typed_ast_module.build_ownership_domain_graph(
+                typed_region_analysis
+            )
+        except (ImportError, ValueError) as error:
+            raise SotlasBootstrapError(
+                f"C11 region failed canonical ownership validation: {error}",
+                1, 1, module.filename, module.source,
+            ) from error
+        region_root_names = {
+            node.type.name
+            for node in region_graph.nodes
+            if node.domain is typed_ast_module.OwnershipDomain.REGION
+        }
+        all_region_structs = {item.name: item for item in module.structs}
+        region_struct_order = {
+            item.name: index for index, item in enumerate(module.structs)
+        }
+        region_drop_visiting: set[str] = set()
+
+        def collect_region_drop_types(
+            struct_name: str, region_owned: bool = False
+        ) -> bool:
+            if struct_name in region_drop_visiting:
+                return True
+            struct = all_region_structs.get(struct_name)
+            if struct is None:
+                return False
+            region_drop_visiting.add(struct_name)
+            has_region_child = False
+            for field in struct.fields:
+                field_type = field.type
+                while field_type.is_array and field_type.elem_type is not None:
+                    field_type = field_type.elem_type
+                child = all_region_structs.get(field_type.name)
+                if (
+                    child is None or field_type.pointer
+                    or field_type.is_reference or field_type.is_fn_ptr
+                ):
+                    continue
+                child_has_region = collect_region_drop_types(
+                    child.name, field_type.ownership_domain == "region"
+                )
+                if child_has_region:
+                    region_structs[child.name] = child
+                    has_region_child = True
+            region_drop_visiting.remove(struct_name)
+            if has_region_child:
+                region_composite_drop_types.add(struct_name)
+            if region_owned or has_region_child:
+                region_structs[struct_name] = struct
+                region_drop_types.add(struct_name)
+                return True
+            return False
+
+        for region_name in region_root_names:
+            collect_region_drop_types(region_name, region_owned=True)
+
+        def region_deinit_references_self(node) -> bool:
+            if node is None:
+                return False
+            if type(node).__name__ == "Name":
+                return getattr(node, "value", None) == "self"
+            if isinstance(node, (tuple, list)):
+                return any(region_deinit_references_self(item) for item in node)
+            fields = getattr(node, "__dataclass_fields__", None)
+            if not fields:
+                return False
+            return any(
+                region_deinit_references_self(getattr(node, field_name, None))
+                for field_name in fields
+                if field_name != "token"
+            )
+
+        for struct_name, struct in region_structs.items():
+            has_region_children = False
+            for field in struct.fields:
+                child_type = field.type
+                while child_type.is_array and child_type.elem_type is not None:
+                    child_type = child_type.elem_type
+                if child_type.name in region_drop_types:
+                    has_region_children = True
+                    break
+            if not has_region_children:
+                continue
+            deinit = next(
+                (
+                    fn for fn in module.functions
+                    if fn.name == f"{struct_name}_deinit" and fn.params
+                ),
+                None,
+            )
+            if deinit is not None and any(
+                region_deinit_references_self(statement)
+                for statement in deinit.body
+            ):
+                raise SotlasBootstrapError(
+                    "C11 region recursive cleanup requires a detached owner "
+                    "deinit when region-owned fields are present",
+                    1, 1, module.filename, module.source,
+                )
+
+    if _module_contains_domain("device"):
+        raise SotlasBootstrapError(
+            "C11 backend does not lower device ownership domain yet",
+            1, 1, module.filename, module.source,
+        )
+
+    if _module_contains_domain("external"):
+        external_error = (
+            "C11 external lowering supports only repr(C) sole owners "
+            "consumed by an explicit external function boundary"
+        )
+        external_structs = {
+            item.name: item
+            for item in module.structs
+            if item.is_sole and "@repr(C)" in item.attributes
+        }
+        all_external_structs = {item.name: item for item in module.structs}
+        external_types = {
+            (param_type.name, param_type.ownership_domain)
+            for function in module.functions
+            for _, param_type in function.params
+            if _contains_domain(param_type, "external")
+        }
+        external_pod_fields = {
+            "bool", "u8", "i8", "u16", "i16", "u32", "i32",
+            "u64", "i64", "usize", "isize", "f32", "f64",
+        }
+
+        def type_contains_external(
+            type_info: Type | None, visiting: frozenset[str] = frozenset()
+        ) -> bool:
+            if type_info is None:
+                return False
+            if _contains_domain(type_info, "external"):
+                return True
+            nested = all_external_structs.get(type_info.name)
+            if nested is None or nested.name in visiting:
+                return False
+            next_visiting = visiting | {nested.name}
+            return any(
+                type_contains_external(field.type, next_visiting)
+                for field in nested.fields
+            )
+
+        def external_wrapper_is_representable(
+            struct: Struct, visiting: frozenset[str] = frozenset()
+        ) -> bool:
+            if struct.name not in external_structs:
+                return False
+            if struct.name in visiting:
+                return False
+            next_visiting = visiting | {struct.name}
+
+            def field_is_representable(field_type: Type) -> bool:
+                if (
+                    field_type.pointer or field_type.is_reference
+                    or field_type.is_fn_ptr
+                ):
+                    return False
+                if field_type.is_array:
+                    return (
+                        isinstance(field_type.array_size, int)
+                        and field_type.array_size > 0
+                        and field_type.elem_type is not None
+                        and field_is_representable(field_type.elem_type)
+                    )
+                if type_contains_external(field_type):
+                    return (
+                        field_type.ownership_domain == "external"
+                        and field_type.name in external_structs
+                        and external_wrapper_is_representable(
+                            external_structs[field_type.name], next_visiting
+                        )
+                    )
+                return field_type.name in external_pod_fields
+
+            return all(field_is_representable(field.type) for field in struct.fields)
+
+        has_external_storage = (
+            any(
+                type_contains_external(field.type)
+                and not external_wrapper_is_representable(struct)
+                for struct in module.structs for field in struct.fields
+            )
+            or any(type_contains_external(item.type) for item in module.globals)
+            or any(
+                type_contains_external(getattr(variant, "payload_type", None))
+                for enum in module.enums for variant in enum.variants
+            )
+            or any(
+                type_contains_external(field.type)
+                for cls in module.classes for field in cls.fields
+            )
+            or any(
+                type_contains_external(function.result)
+                for function in module.functions
+            )
+            or any(
+                type_contains_external(param_type)
+                and param_type.ownership_domain != "external"
+                for function in module.functions
+                for _, param_type in function.params
+            )
+        )
+        if (
+            has_external_storage
+            or any(
+                domain != "external"
+                or type_name not in external_structs
+                for type_name, domain in external_types
+            )
+        ):
+            raise SotlasBootstrapError(
+                external_error, 1, 1, module.filename, module.source,
+            )
+
+        external_declarations = {
+            function.name
+            for function in module.functions
+            if "@extern(C)" in function.attributes and not function.body
+        }
+
+        def external_sink_count(statement, parameter_name: str) -> int:
+            if type(statement).__name__ != "Expression":
+                return 0
+            call = getattr(statement, "value", None)
+            if (
+                type(call).__name__ != "Call"
+                or getattr(call, "callee", None) not in external_declarations
+            ):
+                return 0
+            count = 0
+            for argument in getattr(call, "args", ()):
+                moved = (
+                    argument.value
+                    if type(argument).__name__ == "MoveExpr"
+                    else argument
+                )
+                if (
+                    type(moved).__name__ == "Name"
+                    and getattr(moved, "value", None) == parameter_name
+                ):
+                    count += 1
+            return count
+
+        def external_sink_paths(statements, incoming, parameter_name):
+            alive = set(incoming)
+            completed: set[int] = set()
+            for statement in statements or ():
+                if not alive:
+                    break
+                kind = type(statement).__name__
+                if kind == "If":
+                    then_alive, then_completed = external_sink_paths(
+                        statement.then_body, alive, parameter_name
+                    )
+                    if statement.else_body:
+                        else_alive, else_completed = external_sink_paths(
+                            statement.else_body, alive, parameter_name
+                        )
+                    else:
+                        else_alive, else_completed = set(alive), set()
+                    alive = then_alive | else_alive
+                    completed.update(then_completed)
+                    completed.update(else_completed)
+                elif kind == "Unsafe":
+                    alive, nested_completed = external_sink_paths(
+                        statement.body, alive, parameter_name
+                    )
+                    completed.update(nested_completed)
+                elif kind == "Return":
+                    completed.update(alive)
+                    alive.clear()
+                else:
+                    count = external_sink_count(statement, parameter_name)
+                    alive = {path_count + count for path_count in alive}
+            return alive, completed
+
+        for function in module.functions:
+            if "@extern(C)" in function.attributes and function.body and any(
+                _contains_domain(param_type, "external")
+                for _, param_type in function.params
+            ):
+                raise SotlasBootstrapError(
+                    "C11 external owner boundary must be a bodyless @extern(C) declaration",
+                    1, 1, module.filename, module.source,
+                )
+            if any(
+                isinstance(item, Let)
+                and item.type is not None
+                and item.type.ownership_domain == "external"
+                for item in _walk_statements_recursive(function.body)
+            ):
+                raise SotlasBootstrapError(
+                    external_error, 1, 1, module.filename, module.source,
+                )
+
+        try:
+            typed_ast_module = importlib.import_module(
+                f"{__package__}.typed_ast"
+                if __package__ else "sotlas_compile.typed_ast"
+            )
+            typed_external_module = (
+                typed_ast_module.build_declaration_typed_ast(module)
+            )
+            for function in module.functions:
+                external_params = [
+                    name for name, param_type in function.params
+                    if param_type.ownership_domain == "external"
+                ]
+                if not external_params or not function.body:
+                    continue
+                trace = typed_ast_module.analyze_function_ownership(
+                    module, typed_external_module, function.name
+                )
+                for name in external_params:
+                    sinks = [
+                        event for event in trace.events
+                        if event.kind == "move"
+                        and event.name == name
+                        and event.source_domain
+                        is typed_ast_module.OwnershipDomain.EXTERNAL
+                    ]
+                    final_paths, completed_paths = external_sink_paths(
+                        function.body, {0}, name
+                    )
+                    completed_paths.update(final_paths)
+                    path_event_count = sum(
+                        external_sink_count(statement, name)
+                        for statement in _walk_statements_recursive(
+                            function.body
+                        )
+                    )
+                    if (
+                        not sinks
+                        or len(sinks) != path_event_count
+                        or completed_paths != {1}
+                        or any(
+                            not event.via.startswith("call:")
+                            or event.via.removeprefix("call:")
+                            not in external_declarations
+                            for event in sinks
+                        )
+                    ):
+                        raise SotlasBootstrapError(
+                            external_error, 1, 1,
+                            module.filename, module.source,
+                        )
+        except SotlasBootstrapError:
+            raise
+        except (ImportError, ValueError) as error:
+            raise SotlasBootstrapError(
+                f"C11 external failed canonical ownership validation: {error}",
+                1, 1, module.filename, module.source,
+            ) from error
+
+    if _module_contains_domain("island"):
+        sole_type_names = {
+            struct.name for struct in module.structs if struct.is_sole
+        }
+        structs_by_name = {struct.name: struct for struct in module.structs}
+        deinit_names = {
+            function.name for function in module.functions
+            if function.name.endswith("_deinit") and function.params
+        }
+
+        def _direct_island_value(type_obj: Type | None) -> bool:
+            return bool(
+                type_obj is not None
+                and getattr(type_obj, "ownership_domain", None) == "island"
+                and not type_obj.pointer
+                and not type_obj.is_reference
+                and not type_obj.is_array
+                and not type_obj.is_fn_ptr
+                and type_obj.name in sole_type_names
+            )
+
+        def _plain_island_payload(
+            type_obj: Type,
+            active: frozenset[str] = frozenset(),
+        ) -> bool:
+            if (
+                type_obj.pointer or type_obj.is_reference or type_obj.is_array
+                or type_obj.is_fn_ptr
+                or getattr(type_obj, "ownership_domain", None) is not None
+            ):
+                return False
+            if type_obj.name in PRIMITIVES:
+                return type_obj.name != "void"
+            nested = structs_by_name.get(type_obj.name)
+            if (
+                nested is None or nested.is_sole or nested.is_register
+                or not nested.fields or nested.name in active
+                or f"{nested.name}_deinit" in deinit_names
+            ):
+                return False
+            return all(
+                _plain_island_payload(
+                    field.type, active | {nested.name}
+                )
+                for field in nested.fields
+            )
+
+        def _safe_island_field(container: Struct, field: FieldDef) -> bool:
+            payload = structs_by_name.get(field.type.name)
+            return bool(
+                container.is_sole
+                and _direct_island_value(field.type)
+                and payload is not None
+                and f"{payload.name}_deinit" not in deinit_names
+                and all(_plain_island_payload(child.type) for child in payload.fields)
+            )
+
+        island_field_storage = any(
+            not _safe_island_field(container, field)
+            for container in module.structs
+            for field in container.fields
+            if _contains_domain(field.type, "island")
+        )
+
+        island_storage = (
+            island_field_storage
+            or any(
+                _contains_domain(item.type, "island") for item in module.globals
+            )
+            or any(
+                _contains_domain(variant.payload_type, "island")
+                for enum in module.enums for variant in enum.variants
+            )
+            or any(
+                _contains_domain(field.type, "island")
+                for class_decl in module.classes for field in class_decl.fields
+            )
+        )
+        island_signature_gap = any(
+            (
+                _contains_domain(param_type, "island")
+                and not _direct_island_value(param_type)
+            )
+            for function in module.functions
+            for _, param_type in function.params
+        ) or any(
+            _contains_domain(function.result, "island")
+            and not _direct_island_value(function.result)
+            for function in module.functions
+        )
+        if island_storage or island_signature_gap:
+            raise SotlasBootstrapError(
+                "C11 island lowering currently supports only direct by-value "
+                "sole function parameters/returns and POD island fields in "
+                "sole containers",
+                1, 1, module.filename, module.source,
+            )
+    if _module_contains_domain("whisper"):
+        whisper_storage = (
+            any(
+                _contains_domain(field.type, "whisper")
+                for struct in module.structs for field in struct.fields
+            )
+            or any(
+                _contains_domain(item.type, "whisper") for item in module.globals
+            )
+            or any(
+                _contains_domain(getattr(variant, "payload_type", None), "whisper")
+                for enum in module.enums for variant in enum.variants
+            )
+            or any(
+                _contains_domain(field.type, "whisper")
+                for cls in module.classes for field in cls.fields
+            )
+            or any(
+                _contains_domain(function.result, "whisper")
+                for function in module.functions
+            )
+        )
+        external_whisper_param = any(
+            "@extern(C)" in function.attributes
+            and any(_contains_domain(param_type, "whisper") for _, param_type in function.params)
+            for function in module.functions
+        )
+        if whisper_storage or external_whisper_param:
+            raise SotlasBootstrapError(
+                "C11 whisper lowering supports only internal function parameters",
+                1, 1, module.filename, module.source,
+            )
+
     prefix = f"{_c_ident(module.name)}__" if mangle else ""
     guards: list[str] = []
     fn_names = {f.name for f in module.functions}
@@ -2640,6 +3962,8 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
         if hook in fn_names:
             guards.append(f"#define SOTLAS_OVERRIDE_{hook.upper()} 1")
     lines = guards + ([PREAMBLE] if include_preamble else [])
+    if shared_functions:
+        lines.append("#include <stdlib.h>")
     if include_import_headers:
         lines.extend(f'#include "{_c_ident(name)}.h"' for name in module.imports)
         if module.imports:
@@ -2690,12 +4014,209 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
     # Forward declarations das funções (antes dos globais para suportar ponteiros de função)
     for function in module.functions:
         is_export = "@export" in function.attributes or function.public
-        fname = function.name if (is_export or not mangle) else f"{prefix}{function.name}"
+        is_extern_c = "@extern(C)" in function.attributes
+        fname = (
+            function.name
+            if (is_export or is_extern_c or not mangle)
+            else f"{prefix}{function.name}"
+        )
         parameters = ", ".join(f"{typ.c_decl(name)}" for name, typ in function.params) or "void"
         inline_attr = "static inline " if "@inline" in function.attributes and not is_export else ""
         extra_attrs = _c_func_attributes(function.attributes)
         lines.append(f"{inline_attr}{extra_attrs}{function.result.c()} {fname}({parameters});")
     if module.functions:
+        lines.append("")
+
+    if shared_functions:
+        shared_drop_type_names: set[str] = set()
+        shared_drop_type_visiting: set[str] = set()
+
+        def collect_shared_drop_types(struct_name: str) -> bool:
+            if struct_name in shared_drop_type_names:
+                return True
+            if struct_name in shared_drop_type_visiting:
+                return False
+            struct = shared_struct_by_name.get(struct_name)
+            if struct is None:
+                return False
+            shared_drop_type_visiting.add(struct_name)
+            contains_owned_fields = False
+            for field in struct.fields:
+                field_type = field.type
+                while field_type.is_array and field_type.elem_type is not None:
+                    field_type = field_type.elem_type
+                child = (
+                    shared_struct_by_name.get(field_type.name)
+                    if field_type is not None else None
+                )
+                if (
+                    child is not None
+                    and not field_type.pointer
+                    and not field_type.is_fn_ptr
+                    and not field_type.is_reference
+                ):
+                    contains_owned_fields = (
+                        collect_shared_drop_types(child.name)
+                        or contains_owned_fields
+                    )
+            shared_drop_type_visiting.remove(struct_name)
+            if struct.is_sole or contains_owned_fields:
+                shared_drop_type_names.add(struct_name)
+                return True
+            return False
+
+        for shared_type_name in shared_structs:
+            collect_shared_drop_types(shared_type_name)
+
+        lines.append("/* Shared boxes and recursive sole payload cleanup. */")
+        for struct_name in sorted(shared_drop_type_names):
+            lines.append(
+                f"static inline void __sotlas_shared_drop_{struct_name}"
+                f"({struct_name} *value);"
+            )
+        for struct_name in sorted(
+            shared_drop_type_names,
+            key=lambda name: struct_order[name],
+        ):
+            struct = shared_struct_by_name[struct_name]
+            deinit = next(
+                (
+                    fn for fn in module.functions
+                    if fn.name == f"{struct_name}_deinit" and fn.params
+                ),
+                None,
+            )
+            lines.append(
+                f"static inline void __sotlas_shared_drop_{struct_name}"
+                f"({struct_name} *value) {{"
+            )
+            if deinit is not None:
+                deinit_arg = "value" if deinit.params[0][1].pointer else "*value"
+                lines.append(f"    {struct_name}_deinit({deinit_arg});")
+            for field in reversed(struct.fields):
+                field_type = field.type
+                array_dims = []
+                while field_type.is_array and field_type.elem_type is not None:
+                    array_dims.append(field_type)
+                    field_type = field_type.elem_type
+                child = (
+                    shared_struct_by_name.get(field_type.name)
+                    if field_type is not None else None
+                )
+                if (
+                    child is not None
+                    and child.name in shared_drop_type_names
+                    and not field_type.pointer
+                    and not field_type.is_fn_ptr
+                    and not field_type.is_reference
+                ):
+                    if not array_dims:
+                        lines.append(
+                            f"    __sotlas_shared_drop_{child.name}"
+                            f"(&value->{field.name});"
+                        )
+                    else:
+                        indent = "    "
+                        access = f"value->{field.name}"
+                        for dimension, _ in enumerate(array_dims):
+                            index_name = _c_ident(
+                                f"__sotlas_drop_index_{struct_name}_"
+                                f"{field.name}_{dimension}"
+                            )
+                            lines.append(
+                                f"{indent}for (size_t {index_name} = "
+                                f"sizeof({access}) / sizeof({access}[0]); "
+                                f"{index_name} > 0; --{index_name}) {{"
+                            )
+                            indent += "    "
+                            access += f"[{index_name} - 1]"
+                        lines.append(
+                            f"{indent}__sotlas_shared_drop_{child.name}"
+                            f"(&{access});"
+                        )
+                        for _ in array_dims:
+                            indent = indent[:-4]
+                            lines.append(f"{indent}}}")
+            lines.append("}")
+        for struct_name in sorted(shared_structs):
+            box_name = f"__sotlas_shared_box_{struct_name}"
+            lines.extend([
+                f"typedef struct {box_name} {{ ArcHeader header; {struct_name} value; }} {box_name};",
+                f"static inline {box_name} *__sotlas_shared_new_{struct_name}({struct_name} value) {{",
+                f"    {box_name} *box = ({box_name} *)malloc(sizeof(*box));",
+                "    if (box == NULL) abort();",
+                f"    box->value = value; arc_init(&box->header, sizeof({struct_name}));",
+                "    return box;",
+                "}",
+                f"static inline void __sotlas_shared_release_{struct_name}({box_name} *box) {{",
+                "    if (box == NULL) return;",
+                "    if (arc_release(&box->header)) {",
+                f"        __sotlas_shared_drop_{struct_name}(&box->value);",
+                "        free(box);",
+                "    }",
+                "}",
+            ])
+        lines.append("")
+
+    if region_drop_types:
+        lines.append("/* Region ownership recursive cleanup. */")
+        for struct_name in sorted(region_drop_types):
+            lines.append(
+                f"static inline void __sotlas_region_drop_{struct_name}"
+                f"({struct_name} *value);"
+            )
+        for struct_name in sorted(
+            region_drop_types,
+            key=lambda name: region_struct_order[name],
+        ):
+            struct = region_structs[struct_name]
+            deinit = next(
+                (
+                    fn for fn in module.functions
+                    if fn.name == f"{struct_name}_deinit" and fn.params
+                ),
+                None,
+            )
+            lines.append(
+                f"static inline void __sotlas_region_drop_{struct_name}"
+                f"({struct_name} *value) {{"
+            )
+            if deinit is not None:
+                arg = "value" if deinit.params[0][1].pointer else "*value"
+                lines.append(f"    {struct_name}_deinit({arg});")
+            for field in reversed(struct.fields):
+                field_type = field.type
+                array_dims = []
+                while field_type.is_array and field_type.elem_type is not None:
+                    array_dims.append(field_type)
+                    field_type = field_type.elem_type
+                child = region_structs.get(field_type.name)
+                if (
+                    child is None or child.name not in region_drop_types
+                    or field_type.pointer or field_type.is_reference
+                    or field_type.is_fn_ptr
+                ):
+                    continue
+                indent = "    "
+                access = f"value->{field.name}"
+                for dimension, _ in enumerate(array_dims):
+                    index_name = _c_ident(
+                        f"__sotlas_region_drop_{struct_name}_"
+                        f"{field.name}_{dimension}"
+                    )
+                    lines.append(
+                        f"{indent}for (size_t {index_name} = sizeof({access}) / "
+                        f"sizeof({access}[0]); {index_name} > 0; --{index_name}) {{"
+                    )
+                    indent += "    "
+                    access += f"[{index_name} - 1]"
+                lines.append(
+                    f"{indent}__sotlas_region_drop_{child.name}(&{access});"
+                )
+                for _ in array_dims:
+                    indent = indent[:-4]
+                    lines.append(f"{indent}}}")
+            lines.append("}")
         lines.append("")
 
     # Globals / Consts
@@ -2711,11 +4232,18 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
             lines.append(f"{specifier} {g.type.c_decl(g.name)} = {_emit_expr(g.value, prefix)};")
     if module.globals: lines.append("")
 
-    def _emit_defer_action(d: Defer, pad: str) -> str:
+    def _emit_defer_action(
+        d: Defer, pad: str, shared_boxes: dict[str, str] | None = None
+    ) -> str:
         if isinstance(d.value, Assign):
-            target_str = _emit_expr(d.value.target, prefix) if isinstance(d.value.target, Expr) else str(d.value.target)
-            return f"{pad}{target_str} = {_emit_expr(d.value.value, prefix)};"
-        return f"{pad}{_emit_expr(d.value, prefix)};"
+            target_str = _emit_expr(
+                d.value.target, prefix, shared_boxes
+            ) if isinstance(d.value.target, Expr) else str(d.value.target)
+            return (
+                f"{pad}{target_str} = "
+                f"{_emit_expr(d.value.value, prefix, shared_boxes)};"
+            )
+        return f"{pad}{_emit_expr(d.value, prefix, shared_boxes)};"
 
     sole_types = {
         item.name for item in module.structs if item.is_sole
@@ -2816,6 +4344,8 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                     if (
                         parameter_type.name in sole_types
                         and not parameter_type.pointer
+                        and getattr(parameter_type, "ownership_domain", None)
+                            != "whisper"
                     ):
                         moved_argument = (
                             argument.value
@@ -2836,6 +4366,19 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                 if owner_name
                 else None
             )
+            if callee is not None and callee.params:
+                self_type = callee.params[0][1]
+                if (
+                    self_type.name in sole_types
+                    and not self_type.pointer
+                ):
+                    moved_receiver = (
+                        expr.target.value
+                        if isinstance(expr.target, MoveExpr)
+                        else expr.target
+                    )
+                    if isinstance(moved_receiver, Name):
+                        names.add(moved_receiver.value)
             user_params = callee.params[1:] if callee is not None else ()
             for argument, (_, parameter_type) in zip(expr.args, user_params):
                 if (
@@ -2935,6 +4478,23 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                     return cleanup
         return None
 
+    def _block_definitely_returns(statements) -> bool:
+        for statement in statements or ():
+            if isinstance(statement, Return):
+                return True
+            if isinstance(statement, Unsafe) and _block_definitely_returns(
+                statement.body
+            ):
+                return True
+            if (
+                isinstance(statement, If)
+                and statement.else_body
+                and _block_definitely_returns(statement.then_body)
+                and _block_definitely_returns(statement.else_body)
+            ):
+                return True
+        return False
+
     def emit_statements(
         items: list[Stmt],
         depth: int,
@@ -2942,8 +4502,54 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
         loop_scope_depth: int | None = None,
         ret_type: Type | None = None,
         owned_params: list[tuple[str, Type]] | None = None,
+        shared_boxes: dict[str, str] | None = None,
+        shared_cleanups: list[tuple[str, str]] | None = None,
+        shared_owner_names: set[str] | None = None,
+        shared_local_types: dict[str, Type] | None = None,
+        loop_shared_cleanup_entry_count: int | None = None,
+        is_function_scope: bool = False,
     ) -> list[str]:
         pad = "    " * depth; out: list[str] = []
+        shared_boxes = shared_boxes if shared_boxes is not None else {}
+        local_shared_cleanups = (
+            shared_cleanups if shared_cleanups is not None else []
+        )
+        shared_cleanup_entry_count = len(local_shared_cleanups)
+        shared_local_types = dict(shared_local_types or {})
+        shared_local_types.update(dict(owned_params or []))
+        shared_owner_cleanup_names = (
+            shared_owner_names if shared_owner_names is not None else set()
+        )
+        shared_names_at_entry = set(shared_owner_cleanup_names)
+        scope_local_owner_names: set[str] = set()
+        for statement in items:
+            if not isinstance(statement, Let):
+                continue
+            local_type = statement.type
+            if local_type is None and isinstance(statement.value, StructLit):
+                local_type = Type(statement.value.struct_name)
+            if (
+                local_type is not None
+                and local_type.name in sole_types
+                and not local_type.pointer
+            ):
+                scope_local_owner_names.add(statement.name)
+        available_shared_boxes = set(shared_boxes)
+        share_sources_are_scope_local_or_shared = True
+        for statement in items:
+            if not (
+                isinstance(statement, Let)
+                and isinstance(statement.value, ShareExpr)
+                and isinstance(statement.value.value, Name)
+            ):
+                continue
+            source_name = statement.value.value.value
+            if (
+                source_name not in available_shared_boxes
+                and source_name not in scope_local_owner_names
+            ):
+                share_sources_are_scope_local_or_shared = False
+            available_shared_boxes.add(statement.name)
         defer_scopes.append([])
         deinit_methods: dict[str, bool] = {}
         for fn in module.functions:
@@ -2951,11 +4557,42 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                 sname = fn.name.rsplit("_deinit", 1)[0]
                 deinit_methods[sname] = fn.params[0][1].pointer
 
+        def region_cleanup_for(
+            typ: Type, name: str, token: Token
+        ) -> Defer | None:
+            if (
+                typ.name not in region_drop_types
+                or not (
+                    typ.ownership_domain == "region"
+                    or typ.name in region_composite_drop_types
+                )
+                or typ.pointer or typ.is_array or typ.is_reference
+            ):
+                return None
+            return Defer(
+                token,
+                value=Call(
+                    token,
+                    f"__sotlas_region_drop_{typ.name}",
+                    [Unary(token, "&", Name(token, name))],
+                ),
+                auto_cleanup_name=name,
+            )
+
         if owned_params is not None:
             for param_name, param_type in owned_params:
+                region_cleanup = region_cleanup_for(
+                    param_type, param_name,
+                    Token("IDENT", param_name, 0, 0),
+                )
+                if region_cleanup is not None:
+                    defer_scopes[-1].append(region_cleanup)
                 if (
                     param_type.name in sole_types
                     and not param_type.pointer
+                    and param_type.ownership_domain != "region"
+                    and getattr(param_type, "ownership_domain", None)
+                        != "whisper"
                     and param_type.name in deinit_methods
                 ):
                     token = Token("IDENT", param_name, 0, 0)
@@ -2980,12 +4617,46 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
 
         for item in items:
             if isinstance(item, Let):
+                if isinstance(item.value, ShareExpr):
+                    source_name = item.value.value.value
+                    source_type = shared_local_types.get(source_name)
+                    if source_type is None or source_type.name not in shared_structs:
+                        raise SotlasBootstrapError("C11 share source type is not a supported sole struct", item.token.line, item.token.column)
+                    struct_name = source_type.name
+                    box = f"_st_shared_box_{item.name}"
+                    source_box = shared_boxes.get(source_name)
+                    if source_box is None:
+                        out.append(f"{pad}{_c_ident('__sotlas_shared_box_' + struct_name)} *{box} = __sotlas_shared_new_{struct_name}({source_name});")
+                        out.append(f"{pad}if (arc_retain(&{box}->header) == NULL) abort();")
+                        _suppress_auto_cleanups(defer_scopes, {source_name})
+                    else:
+                        out.append(f"{pad}{_c_ident('__sotlas_shared_box_' + struct_name)} *{box} = {source_box};")
+                        out.append(f"{pad}if (arc_retain(&{box}->header) == NULL) abort();")
+                    shared_boxes[source_name] = source_box or box
+                    shared_boxes[item.name] = box
+                    shared_local_types[item.name] = source_type
+                    release = Call(
+                        item.token,
+                        f"__sotlas_shared_release_{struct_name}",
+                        [Name(item.token, box)],
+                    )
+                    cleanup = Defer(item.token, value=release)
+                    cleanup.auto_cleanup_name = item.name
+                    defer_scopes[-1].append(cleanup)
+                    if source_box is None:
+                        local_shared_cleanups.extend(((box, struct_name), (box, struct_name)))
+                    else:
+                        local_shared_cleanups.append((box, struct_name))
+                    for shared_owner in (source_name, item.name):
+                        shared_owner_cleanup_names.add(shared_owner)
+                    continue
                 _suppress_auto_cleanups(
                     defer_scopes,
                     _sole_transfer_names(item.value),
                 )
                 if item.type is not None:
                     typ = item.type
+                    shared_local_types[item.name] = typ
                     if typ.name in sole_types and not typ.pointer:
                         moved_value = (
                             item.value.value
@@ -3006,8 +4677,16 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                         prefix_spec = "static " if decl.startswith("const ") else "static const "
                         out.append(f"{pad}{prefix_spec}{decl} = {_emit_expr(item.value, prefix)};")
                     else:
-                        out.append(f"{pad}{typ.c_decl(item.name)} = {_emit_expr(item.value, prefix)};")
-                    if typ.name in deinit_methods and not typ.pointer:
+                        out.append(f"{pad}{typ.c_decl(item.name)} = {_emit_expr(item.value, prefix, shared_boxes)};")
+                    region_cleanup = region_cleanup_for(
+                        typ, item.name, item.token
+                    )
+                    if region_cleanup is not None:
+                        defer_scopes[-1].append(region_cleanup)
+                    if (
+                        typ.name in deinit_methods and not typ.pointer
+                        and region_cleanup is None
+                    ):
                         takes_ptr = deinit_methods[typ.name]
                         arg_node = Unary(item.token, "&", Name(item.token, item.name)) if takes_ptr else Name(item.token, item.name)
                         call_expr = Call(item.token, f"{typ.name}_deinit", [arg_node])
@@ -3018,6 +4697,35 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                                 auto_cleanup_name=item.name,
                             )
                         )
+                elif isinstance(item.value, StructLit):
+                    typ = Type(item.value.struct_name)
+                    shared_local_types[item.name] = typ
+                    out.append(
+                        f"{pad}{typ.c_decl(item.name)} = "
+                        f"{_emit_expr(item.value, prefix, shared_boxes)};"
+                    )
+                    region_cleanup = region_cleanup_for(
+                        typ, item.name, item.token
+                    )
+                    if region_cleanup is not None:
+                        defer_scopes[-1].append(region_cleanup)
+                    if (
+                        typ.name in deinit_methods
+                        and region_cleanup is None
+                    ):
+                        takes_ptr = deinit_methods[typ.name]
+                        arg_node = (
+                            Unary(item.token, "&", Name(item.token, item.name))
+                            if takes_ptr
+                            else Name(item.token, item.name)
+                        )
+                        defer_scopes[-1].append(Defer(
+                            item.token,
+                            value=Call(
+                                item.token, f"{typ.name}_deinit", [arg_node]
+                            ),
+                            auto_cleanup_name=item.name,
+                        ))
                 else:
                     if isinstance(item.value, ArrayLit) and not item.value.is_repeat:
                         first_e = item.value.elements[0] if item.value.elements else None
@@ -3026,7 +4734,7 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                         else:
                             out.append(f"{pad}const uint8_t *{item.name}[] = {_emit_expr(item.value, prefix)};")
                     else:
-                        out.append(f"{pad}__auto_type {item.name} = {_emit_expr(item.value, prefix)};")
+                        out.append(f"{pad}__auto_type {item.name} = {_emit_expr(item.value, prefix, shared_boxes)};")
                         inferred_type_name = (
                             item.value.struct_name
                             if isinstance(item.value, StructLit)
@@ -3060,7 +4768,7 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                     defer_scopes,
                     _sole_transfer_names(item.value),
                 )
-                target_str = _emit_expr(item.target, prefix) if isinstance(item.target, Expr) else str(item.target)
+                target_str = _emit_expr(item.target, prefix, shared_boxes) if isinstance(item.target, Expr) else str(item.target)
 
                 target_name = (
                     item.target.value
@@ -3090,7 +4798,9 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                         target_cleanup is not None
                         and _auto_cleanup_type(target_cleanup) in sole_types
                     ):
-                        out.append(_emit_defer_action(target_cleanup, pad))
+                        out.append(_emit_defer_action(
+                            target_cleanup, pad, shared_boxes
+                        ))
                         for cleanup_scope in defer_scopes:
                             cleanup_scope[:] = [
                                 cleanup for cleanup in cleanup_scope
@@ -3101,8 +4811,94 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                         isinstance(item.value.elements[0], Number) and item.value.elements[0].value == "0"):
                     out.append(f"{pad}__builtin_memset(&({target_str}), 0, sizeof({target_str}));")
                 else:
-                    out.append(f"{pad}{target_str} = {_emit_expr(item.value, prefix)};")
+                    out.append(f"{pad}{target_str} = {_emit_expr(item.value, prefix, shared_boxes)};")
+            elif isinstance(item, Handover):
+                source_name = (
+                    item.value.value
+                    if isinstance(item.value, Name)
+                    else None
+                )
+                destination_name = (
+                    item.destination.value
+                    if isinstance(item.destination, Name)
+                    else None
+                )
+                if source_name is None or destination_name is None:
+                    raise SotlasBootstrapError(
+                        "C11 handover requires a validated binding destination",
+                        item.token.line, item.token.column,
+                    )
+                _suppress_auto_cleanups(defer_scopes, {source_name})
+                out.append(
+                    f"{pad}{destination_name} = {source_name};"
+                )
+                destination_type = shared_local_types.get(destination_name)
+                if destination_type is not None:
+                    destination_cleanup = region_cleanup_for(
+                        destination_type, destination_name, item.token
+                    )
+                    if destination_cleanup is None and (
+                        destination_type.name in deinit_methods
+                        and destination_type.name in sole_types
+                        and not destination_type.pointer
+                    ):
+                        takes_ptr = deinit_methods[destination_type.name]
+                        arg_node = (
+                            Unary(
+                                item.token, "&",
+                                Name(item.token, destination_name),
+                            )
+                            if takes_ptr
+                            else Name(item.token, destination_name)
+                        )
+                        destination_cleanup = Defer(
+                            item.token,
+                            value=Call(
+                                item.token,
+                                f"{destination_type.name}_deinit",
+                                [arg_node],
+                            ),
+                            auto_cleanup_name=destination_name,
+                        )
+                    if destination_cleanup is not None:
+                        defer_scopes[-1].append(destination_cleanup)
+            elif isinstance(item, Quarantine):
+                source_name = (
+                    item.value.value
+                    if isinstance(item.value, Name)
+                    else None
+                )
+                if source_name is None:
+                    raise SotlasBootstrapError(
+                        "C11 quarantine requires a validated ownership binding",
+                        item.token.line, item.token.column,
+                    )
+                # The ownership transition is statically checked. In the
+                # supported C11 subset, quarantine changes no representation;
+                # island aliases and other runtime effects remain gated.
+                out.append(
+                    f"{pad}/* quarantine {source_name}: compile-time ownership transition */"
+                )
             elif isinstance(item, Defer):
+                deferred_expression = _deferred_expression(item)
+                safe_defer_read = _safe_shared_defer_method(
+                    item, shared_owner_cleanup_names
+                ) or _safe_shared_defer_call(
+                    item, shared_owner_cleanup_names
+                )
+                if shared_owner_cleanup_names and any(
+                    isinstance(node, Name)
+                    and node.value in shared_owner_cleanup_names
+                    for node in _walk_expr(deferred_expression)
+                ) and not safe_defer_read:
+                    raise SotlasBootstrapError(
+                        "C11 shared aliases cannot be captured by defer",
+                        item.token.line, item.token.column,
+                        module.filename, module.source,
+                    )
+                _suppress_auto_cleanups(
+                    defer_scopes, _sole_transfer_names(deferred_expression)
+                )
                 defer_scopes[-1].append(item)
             elif isinstance(item, Return):
                 _suppress_auto_cleanups(
@@ -3135,49 +4931,106 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                     ]
 
                 if item.value:
-                    val_str = _emit_expr(item.value, prefix)
-                    if all_defers:
+                    val_str = _emit_expr(item.value, prefix, shared_boxes)
+                    if all_defers or shared_owner_cleanup_names:
                         c_ret_type = ret_type.c() if ret_type else "int64_t"
                         out.append(f"{pad}{c_ret_type} _st_ret = {val_str};")
                         for d in all_defers:
+                            if (
+                                local_shared_cleanups
+                                and isinstance(d.value, Call)
+                                and d.value.callee.startswith("__sotlas_shared_release_")
+                            ):
+                                continue
                             if d.body is not None:
-                                out.extend(emit_statements(d.body, depth, defer_scopes, loop_scope_depth, ret_type))
+                                out.extend(emit_statements(
+                                    d.body, depth, defer_scopes,
+                                    loop_scope_depth, ret_type,
+                                    shared_boxes=shared_boxes,
+                                ))
                             else:
-                                out.append(_emit_defer_action(d, pad))
+                                out.append(_emit_defer_action(d, pad, shared_boxes))
+                        for box_name, shared_struct_name in reversed(local_shared_cleanups):
+                            out.append(
+                                f"{pad}__sotlas_shared_release_{shared_struct_name}({box_name});"
+                            )
                         out.append(f"{pad}return _st_ret;")
+                        return out
                     else:
                         out.append(f"{pad}return {val_str};")
+                        return out
                 else:
                     for d in all_defers:
+                        if (
+                            local_shared_cleanups
+                            and isinstance(d.value, Call)
+                            and d.value.callee.startswith(
+                                "__sotlas_shared_release_"
+                            )
+                        ):
+                            continue
                         if d.body is not None:
-                            out.extend(emit_statements(d.body, depth, defer_scopes, loop_scope_depth, ret_type))
+                            out.extend(emit_statements(
+                                d.body, depth, defer_scopes,
+                                loop_scope_depth, ret_type,
+                                shared_boxes=shared_boxes,
+                            ))
                         else:
-                            out.append(_emit_defer_action(d, pad))
+                            out.append(_emit_defer_action(d, pad, shared_boxes))
+                    for box_name, shared_struct_name in reversed(local_shared_cleanups):
+                        out.append(
+                            f"{pad}__sotlas_shared_release_{shared_struct_name}({box_name});"
+                        )
                     out.append(f"{pad}return;")
+                    return out
             elif isinstance(item, Break):
                 if loop_scope_depth is not None:
                     loop_defers = [d for scope in reversed(defer_scopes[loop_scope_depth:]) for d in reversed(scope)]
                     for d in loop_defers:
                         if d.body is not None:
-                            out.extend(emit_statements(d.body, depth, defer_scopes, loop_scope_depth, ret_type))
+                            out.extend(emit_statements(
+                                d.body, depth, defer_scopes,
+                                loop_scope_depth, ret_type,
+                                shared_boxes=shared_boxes,
+                            ))
                         else:
-                            out.append(_emit_defer_action(d, pad))
+                            out.append(_emit_defer_action(d, pad, shared_boxes))
+                if loop_shared_cleanup_entry_count is not None:
+                    for box_name, shared_struct_name in reversed(
+                        local_shared_cleanups[loop_shared_cleanup_entry_count:]
+                    ):
+                        out.append(
+                            f"{pad}__sotlas_shared_release_{shared_struct_name}"
+                            f"({box_name});"
+                        )
                 out.append(f"{pad}break;")
             elif isinstance(item, Continue):
                 if loop_scope_depth is not None:
                     loop_defers = [d for scope in reversed(defer_scopes[loop_scope_depth:]) for d in reversed(scope)]
                     for d in loop_defers:
                         if d.body is not None:
-                            out.extend(emit_statements(d.body, depth, defer_scopes, loop_scope_depth, ret_type))
+                            out.extend(emit_statements(
+                                d.body, depth, defer_scopes,
+                                loop_scope_depth, ret_type,
+                                shared_boxes=shared_boxes,
+                            ))
                         else:
-                            out.append(_emit_defer_action(d, pad))
+                            out.append(_emit_defer_action(d, pad, shared_boxes))
+                if loop_shared_cleanup_entry_count is not None:
+                    for box_name, shared_struct_name in reversed(
+                        local_shared_cleanups[loop_shared_cleanup_entry_count:]
+                    ):
+                        out.append(
+                            f"{pad}__sotlas_shared_release_{shared_struct_name}"
+                            f"({box_name});"
+                        )
                 out.append(f"{pad}continue;")
             elif isinstance(item, Expression):
                 _suppress_auto_cleanups(
                     defer_scopes,
                     _sole_transfer_names(item.value),
                 )
-                out.append(f"{pad}{_emit_expr(item.value, prefix)};")
+                out.append(f"{pad}{_emit_expr(item.value, prefix, shared_boxes)};")
             elif isinstance(item, Asm):
                 parts = [item.code]
                 if item.outputs or item.inputs or item.clobbers:
@@ -3187,20 +5040,53 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                     parts.append(f": {out_s} : {in_s} : {clob_s}")
                 out.append(f"{pad}__asm__ volatile({ ' '.join(parts) });")
             elif isinstance(item, Unsafe):
-                out.extend(emit_statements(item.body, depth, defer_scopes, loop_scope_depth, ret_type))
+                out.extend(emit_statements(
+                    item.body, depth, defer_scopes, loop_scope_depth, ret_type,
+                    shared_boxes=dict(shared_boxes),
+                    shared_cleanups=list(local_shared_cleanups),
+                    shared_owner_names=set(shared_owner_cleanup_names),
+                    shared_local_types=dict(shared_local_types),
+                    loop_shared_cleanup_entry_count=loop_shared_cleanup_entry_count,
+                ))
             elif isinstance(item, While):
-                out.append(f"{pad}while ({_emit_expr(item.condition, prefix)}) {{")
-                out.extend(emit_statements(item.body, depth + 1, defer_scopes, loop_scope_depth=len(defer_scopes), ret_type=ret_type))
+                out.append(
+                    f"{pad}while ({_emit_expr(item.condition, prefix, shared_boxes)}) {{"
+                )
+                out.extend(emit_statements(
+                    item.body, depth + 1, defer_scopes,
+                    loop_scope_depth=len(defer_scopes), ret_type=ret_type,
+                    shared_boxes=dict(shared_boxes),
+                    shared_cleanups=list(local_shared_cleanups),
+                    shared_owner_names=set(shared_owner_cleanup_names),
+                    shared_local_types=dict(shared_local_types),
+                    loop_shared_cleanup_entry_count=len(local_shared_cleanups),
+                ))
                 out.append(f"{pad}}}")
             elif isinstance(item, Loop):
                 out.append(f"{pad}for (;;) {{")
-                out.extend(emit_statements(item.body, depth + 1, defer_scopes, loop_scope_depth=len(defer_scopes), ret_type=ret_type))
+                out.extend(emit_statements(
+                    item.body, depth + 1, defer_scopes,
+                    loop_scope_depth=len(defer_scopes), ret_type=ret_type,
+                    shared_boxes=dict(shared_boxes),
+                    shared_cleanups=list(local_shared_cleanups),
+                    shared_owner_names=set(shared_owner_cleanup_names),
+                    shared_local_types=dict(shared_local_types),
+                    loop_shared_cleanup_entry_count=len(local_shared_cleanups),
+                ))
                 out.append(f"{pad}}}")
             elif isinstance(item, For):
-                start_str = _emit_expr(item.start, prefix)
-                end_str = _emit_expr(item.end, prefix)
+                start_str = _emit_expr(item.start, prefix, shared_boxes)
+                end_str = _emit_expr(item.end, prefix, shared_boxes)
                 out.append(f"{pad}for (size_t {item.var_name} = {start_str}; {item.var_name} < {end_str}; ++{item.var_name}) {{")
-                out.extend(emit_statements(item.body, depth + 1, defer_scopes, loop_scope_depth=len(defer_scopes), ret_type=ret_type))
+                out.extend(emit_statements(
+                    item.body, depth + 1, defer_scopes,
+                    loop_scope_depth=len(defer_scopes), ret_type=ret_type,
+                    shared_boxes=dict(shared_boxes),
+                    shared_cleanups=list(local_shared_cleanups),
+                    shared_owner_names=set(shared_owner_cleanup_names),
+                    shared_local_types=dict(shared_local_types),
+                    loop_shared_cleanup_entry_count=len(local_shared_cleanups),
+                ))
                 out.append(f"{pad}}}")
             elif isinstance(item, If):
                 live_cleanups = {
@@ -3208,9 +5094,18 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                     for scope in defer_scopes for d in scope
                     if d.auto_cleanup_name is not None
                 }
-                out.append(f"{pad}if ({_emit_expr(item.condition, prefix)}) {{")
+                out.append(
+                    f"{pad}if ({_emit_expr(item.condition, prefix, shared_boxes)}) {{"
+                )
                 then_scopes = [scope.copy() for scope in defer_scopes]
-                out.extend(emit_statements(item.then_body, depth + 1, then_scopes, loop_scope_depth, ret_type))
+                out.extend(emit_statements(
+                    item.then_body, depth + 1, then_scopes, loop_scope_depth,
+                    ret_type, shared_boxes=dict(shared_boxes),
+                    shared_cleanups=list(local_shared_cleanups),
+                    shared_owner_names=set(shared_owner_cleanup_names),
+                    shared_local_types=dict(shared_local_types),
+                    loop_shared_cleanup_entry_count=loop_shared_cleanup_entry_count,
+                ))
                 remaining = {
                     d.auto_cleanup_name
                     for scope in then_scopes for d in scope
@@ -3227,7 +5122,14 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                 if item.else_body:
                     out.append(f"{pad}else {{")
                     else_scopes = [scope.copy() for scope in defer_scopes]
-                    out.extend(emit_statements(item.else_body, depth + 1, else_scopes, loop_scope_depth, ret_type))
+                    out.extend(emit_statements(
+                        item.else_body, depth + 1, else_scopes, loop_scope_depth,
+                        ret_type, shared_boxes=dict(shared_boxes),
+                        shared_cleanups=list(local_shared_cleanups),
+                        shared_owner_names=set(shared_owner_cleanup_names),
+                        shared_local_types=dict(shared_local_types),
+                        loop_shared_cleanup_entry_count=loop_shared_cleanup_entry_count,
+                    ))
                     remaining = {
                         d.auto_cleanup_name
                         for scope in else_scopes for d in scope
@@ -3240,21 +5142,70 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                         )
                     out.append(f"{pad}}}")
         current_defers = defer_scopes.pop()
+        if (
+            shared_owner_cleanup_names - shared_names_at_entry
+            and not _block_definitely_returns(items)
+            and not share_sources_are_scope_local_or_shared
+            and not (
+                is_function_scope
+                and ret_type is not None
+                and ret_type.name in ("void", "Void")
+            )
+        ):
+            raise SotlasBootstrapError(
+                "C11 shared aliases require every path to return or explicitly "
+                "transfer the owner; outer-scope shared owners cannot escape "
+                "their lexical cleanup block",
+                1, 1, module.filename, module.source,
+            )
+        if local_shared_cleanups and any(
+            isinstance(item, Return) for item in items
+        ):
+            current_defers = [
+                cleanup for cleanup in current_defers
+                if not (
+                    cleanup.auto_cleanup_name in shared_owner_cleanup_names
+                    and isinstance(cleanup.value, Call)
+                    and cleanup.value.callee.startswith("__sotlas_shared_release_")
+                )
+            ]
         for d in reversed(current_defers):
+            if d.auto_cleanup_name in shared_owner_cleanup_names:
+                continue
             if d.body is not None:
-                out.extend(emit_statements(d.body, depth, defer_scopes, loop_scope_depth, ret_type))
+                out.extend(emit_statements(
+                    d.body, depth, defer_scopes,
+                    loop_scope_depth, ret_type,
+                    shared_boxes=shared_boxes,
+                ))
             else:
-                out.append(_emit_defer_action(d, pad))
+                out.append(_emit_defer_action(d, pad, shared_boxes))
+        if not _block_definitely_returns(items):
+            for box_name, shared_struct_name in reversed(
+                local_shared_cleanups[shared_cleanup_entry_count:]
+            ):
+                out.append(
+                    f"{pad}__sotlas_shared_release_{shared_struct_name}"
+                    f"({box_name});"
+                )
         return out
 
 
     for function in module.functions:
+        if not function.body and "@extern(C)" in function.attributes:
+            continue
         is_export = "@export" in function.attributes or function.public
-        fname = function.name if (is_export or not mangle) else f"{prefix}{function.name}"
+        is_extern_c = "@extern(C)" in function.attributes
+        fname = (
+            function.name
+            if (is_export or is_extern_c or not mangle)
+            else f"{prefix}{function.name}"
+        )
         parameters = ", ".join(f"{typ.c_decl(name)}" for name, typ in function.params) or "void"
         inline_attr = "static inline " if "@inline" in function.attributes and not is_export else ""
         extra_attrs = _c_func_attributes(function.attributes)
         lines.append(f"{inline_attr}{extra_attrs}{function.result.c()} {fname}({parameters}) {{")
+        lines.extend(f"    (void){name};" for name, _ in function.params)
         lines.extend(
             emit_statements(
                 function.body,
@@ -3263,6 +5214,8 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                 loop_scope_depth=None,
                 ret_type=function.result,
                 owned_params=function.params,
+                shared_boxes={},
+                is_function_scope=True,
             )
         )
         lines.append("}\n")
@@ -3436,7 +5389,11 @@ def compile_project(entry: Path) -> list[Module]:
 
 def emit_c_project(entry: Path, output: Path) -> None:
     modules = compile_project(entry)
-    fragments = [PREAMBLE]
+    preamble = PREAMBLE
+    if any(module.name == "core::arc" for module in modules):
+        if "SOTLAS_ATOMIC_INTRINSICS" not in preamble:
+            preamble = preamble.rstrip() + "\n" + _ARC_ATOMIC_INTRINSICS + "\n"
+    fragments = [preamble]
     for module in modules:
         fragments.append(emit_c(module, mangle=False, include_preamble=False))
     output.parent.mkdir(parents=True, exist_ok=True)

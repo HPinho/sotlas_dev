@@ -61,8 +61,8 @@ Sotlas provides static, zero-runtime ownership semantics:
 
 - `sole`: Exclusive ownership. Moves ownership on assignment; the source variable is invalidated.
 - `island`: Thread-confined allocation. Cannot cross execution core boundaries without explicit handover.
-- `whisper`: Read-only borrowed reference with lifetime guarantees.
-- `direct`: Stack-allocated, direct-value transmission.
+- `whisper`: Read-only borrowed reference; direct calls are checked with local escape analysis and verified no-escape summaries, while external/indirect forwarding and backend lowering remain unsupported.
+- `direct`: Low-bookkeeping SRG access for low-level contexts; the current canonical subset permits immutable call-scoped function parameters borrowed from a live `exclusive` or `shared` binding. C11 lowers this subset to a const pointer; LLVM lowering remains unsupported.
 - `co-owned`: Reference-counted shared resource (ARC).
 
 ---

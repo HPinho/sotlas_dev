@@ -6,6 +6,8 @@ para código objeto nativo (.o / .obj) e linkedita executáveis nativos standalo
 eliminando a necessidade de qualquer compilador C externo clássico (GCC).
 """
 from __future__ import annotations
+import importlib
+import importlib.util
 import os
 import re
 import shutil
@@ -14,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 from typing import List, Optional, Tuple, Union
 
 
@@ -31,6 +34,264 @@ DEFAULT_LLVM_PATHS = [
 class LLVMToolchainError(Exception):
     """Erro emitido durante a execução de ferramentas da toolchain LLVM."""
     pass
+
+
+def canonical_llvm_frontend():
+    """Load the compiler-owned frontend even when tools mirrors are imported."""
+    package_name = "_sotlas_compile_canonical_llvm"
+    if package_name not in sys.modules:
+        package_dir = (
+            Path(__file__).resolve().parents[2]
+            / "compiler"
+            / "sotlas_compile"
+        )
+        spec = importlib.util.spec_from_file_location(
+            package_name,
+            package_dir / "__init__.py",
+            submodule_search_locations=[str(package_dir)],
+        )
+        if spec is None or spec.loader is None:
+            raise LLVMToolchainError(
+                "canonical Sotlas compiler frontend could not be loaded"
+            )
+        package = importlib.util.module_from_spec(spec)
+        sys.modules[package_name] = package
+        spec.loader.exec_module(package)
+    return importlib.import_module(f"{package_name}.bootstrap")
+
+
+def require_llvm_ownership_supported(module, frontend):
+    """Return a canonical plan for the verified, trivial direct-only subset.
+
+    Other ownership-bearing source remains closed until its graph, cleanup,
+    and runtime operations have complete LLVM lowering.
+    """
+    frontend.check(module)
+    sole_names = {
+        item.name for item in getattr(module, "structs", ())
+        if getattr(item, "is_sole", False)
+    }
+
+    def carries_domain(type_obj) -> bool:
+        if type_obj is None:
+            return False
+        if getattr(type_obj, "ownership_domain", None) is not None:
+            return True
+        if getattr(type_obj, "is_array", False):
+            return carries_domain(getattr(type_obj, "elem_type", None))
+        if getattr(type_obj, "is_fn_ptr", False):
+            return any(carries_domain(item) for item in getattr(type_obj, "fn_params", ())) or carries_domain(getattr(type_obj, "fn_ret", None))
+        return (
+            not getattr(type_obj, "pointer", False)
+            and not getattr(type_obj, "is_reference", False)
+            and getattr(type_obj, "name", None) in sole_names
+        )
+
+    functions = list(getattr(module, "functions", ()))
+    for class_decl in getattr(module, "classes", ()):
+        functions.extend(getattr(class_decl, "methods", ()))
+    has_domain = bool(sole_names)
+    has_domain = has_domain or any(
+        carries_domain(type_obj)
+        for function in functions
+        for type_obj in (
+            *(type_obj for _, type_obj in getattr(function, "params", ())),
+            getattr(function, "result", None),
+        )
+    )
+    has_domain = has_domain or any(
+        carries_domain(getattr(field, "type", None))
+        for struct in getattr(module, "structs", ())
+        for field in getattr(struct, "fields", ())
+    )
+    has_domain = has_domain or any(
+        carries_domain(getattr(item, "type", None))
+        for item in getattr(module, "globals", ())
+    )
+    has_domain = has_domain or any(
+        carries_domain(getattr(variant, "payload_type", None))
+        for enum in getattr(module, "enums", ())
+        for variant in getattr(enum, "variants", ())
+    )
+    if not has_domain:
+        return None
+
+    from sotlas_compile import typed_ast
+    from sotlas.sir import lower_ownership_module_semantics
+    try:
+        semantic = typed_ast.build_phase1_semantic_snapshot(module)
+        checked = SimpleNamespace(
+            parsed_module=module,
+            semantic=semantic,
+            ownership_sir=lower_ownership_module_semantics(
+                semantic.ownership, semantic.ownership_domains
+            ),
+        )
+    except Exception as error:
+        raise LLVMToolchainError(
+            "LLVM backend does not lower canonical Ownership Domains yet"
+        ) from error
+    graph = checked.semantic.ownership_domains
+    nonowning_only = (
+        bool(graph.direct_accesses or graph.whisper_borrows)
+        and not graph.transfers
+        and not graph.planned_transitions
+        and not graph.shared_accounts
+        and not graph.shared_alias_points
+    )
+    if nonowning_only:
+        primitive_names = {
+            "void", "bool", "u8", "i8", "u16", "i16", "u32", "i32",
+            "u64", "i64", "usize", "isize", "f32", "f64",
+        }
+        for struct in getattr(module, "structs", ()):
+            if not getattr(struct, "is_sole", False):
+                continue
+            for field in getattr(struct, "fields", ()):
+                type_obj = getattr(field, "type", None)
+                if (
+                    type_obj is None
+                    or getattr(type_obj, "name", None) not in primitive_names
+                    or getattr(type_obj, "pointer", False)
+                    or getattr(type_obj, "is_array", False)
+                    or getattr(type_obj, "is_reference", False)
+                    or getattr(type_obj, "is_fn_ptr", False)
+                ):
+                    nonowning_only = False
+                    break
+        sole_names = {
+            item.name for item in getattr(module, "structs", ())
+            if getattr(item, "is_sole", False)
+        }
+        if any(
+            function.name == f"{name}_deinit"
+            for function in getattr(module, "functions", ())
+            for name in sole_names
+        ):
+            nonowning_only = False
+        functions = tuple(getattr(module, "functions", ()))
+        function_by_name = {function.name: function for function in functions}
+        if (
+            getattr(module, "classes", ())
+            or getattr(module, "enums", ())
+            or getattr(module, "globals", ())
+        ):
+            nonowning_only = False
+        for function in functions:
+            result_type = getattr(function, "result", None)
+            if (
+                getattr(result_type, "name", None) != "void"
+                or getattr(result_type, "ownership_domain", None) is not None
+            ):
+                nonowning_only = False
+                break
+            body = tuple(getattr(function, "body", ()) or ())
+            if not body or type(body[-1]).__name__ != "Return":
+                nonowning_only = False
+                break
+            params = tuple(getattr(function, "params", ()))
+            if any(
+                getattr(type_obj, "ownership_domain", None)
+                not in (None, "direct", "whisper", "island")
+                for _, type_obj in params
+            ):
+                nonowning_only = False
+                break
+            direct_params = {
+                name for name, type_obj in params
+                if getattr(type_obj, "ownership_domain", None) in ("direct", "whisper")
+            }
+            if len(direct_params) != sum(
+                getattr(type_obj, "ownership_domain", None) in ("direct", "whisper")
+                for _, type_obj in params
+            ):
+                nonowning_only = False
+                break
+            if direct_params and len(body) not in (1, 2):
+                nonowning_only = False
+                break
+            for statement in body[:-1]:
+                statement_kind = type(statement).__name__
+                value = getattr(statement, "value", None)
+                if (
+                    statement_kind not in ("Expression", "Defer")
+                    or type(value).__name__ != "Call"
+                ):
+                    nonowning_only = False
+                    break
+                callee = function_by_name.get(value.callee)
+                target_params = tuple(
+                    getattr(callee, "params", ()) if callee is not None else ()
+                )
+                if (
+                    not target_params
+                    or len(target_params) != len(value.args)
+                    or any(
+                        getattr(param_type, "ownership_domain", None)
+                        not in ("direct", "whisper")
+                        for _, param_type in target_params
+                    )
+                ):
+                    nonowning_only = False
+                    break
+                caller_params = dict(params)
+                for argument, (_, target_type) in zip(
+                    value.args, target_params
+                ):
+                    if type(argument).__name__ == "Name":
+                        source_name = getattr(argument, "value", None)
+                        source_type = caller_params.get(source_name)
+                        forwarded = (
+                            source_type is not None
+                            and (
+                                getattr(source_type, "ownership_domain", None)
+                                == getattr(target_type, "ownership_domain", None)
+                                or (
+                                    getattr(source_type, "ownership_domain", None)
+                                    == "direct"
+                                    and getattr(target_type, "ownership_domain", None)
+                                    == "whisper"
+                                )
+                            )
+                            and getattr(source_type, "name", None)
+                            == getattr(target_type, "name", None)
+                        )
+                    else:
+                        source = getattr(argument, "value", None)
+                        source_name = getattr(source, "value", None)
+                        source_type = caller_params.get(source_name)
+                        forwarded = False
+                    borrowed_owner = (
+                        type(argument).__name__ == "Unary"
+                        and getattr(argument, "op", None) == "&"
+                        and type(source).__name__ == "Name"
+                        and source_type is not None
+                        and getattr(source_type, "name", None) in sole_names
+                        and getattr(source_type, "name", None)
+                        == getattr(target_type, "name", None)
+                    ) if type(argument).__name__ != "Name" else False
+                    if not (forwarded or borrowed_owner):
+                        nonowning_only = False
+                        break
+            if not nonowning_only:
+                break
+    if not nonowning_only:
+        raise LLVMToolchainError(
+            "LLVM backend does not lower canonical Ownership Domains yet"
+        )
+    return checked
+
+
+def generate_llvm_sir(module, frontend):
+    """Generate SIR for the verified linear direct/whisper access subset."""
+    from sotlas.sir import SIRGenerator, generate_checked_ownership_sir
+
+    ownership_plan = require_llvm_ownership_supported(module, frontend)
+    if ownership_plan is not None:
+        return generate_checked_ownership_sir(ownership_plan).module
+    return SIRGenerator(
+        module_name=getattr(module, "name", "main")
+    ).generate_from_ast(module)
 
 
 class LLVMToolchain:
@@ -249,15 +510,13 @@ class LLVMToolchain:
         out = Path(output_path).resolve()
         out.parent.mkdir(parents=True, exist_ok=True)
 
-        from sotlas.sir import SIRGenerator
         from sotlas.codegen_llvm import CodegenLLVM
-        from sotlas_compile import bootstrap as production_frontend
+        production_frontend = canonical_llvm_frontend()
         from sotlas import compile_source
 
         if emit_type == "llvm":
             ast = production_frontend.parse(source_text, filename=source_name)
-            sir_gen = SIRGenerator(module_name=source_name)
-            sir_mod = sir_gen.generate_from_ast(ast)
+            sir_mod = generate_llvm_sir(ast, production_frontend)
             llvm_gen = CodegenLLVM(sir_mod, is_baremetal=is_freestanding, emit_debug=emit_debug)
             ir_code = llvm_gen.emit()
             out.write_text(ir_code, encoding="utf-8")
@@ -267,8 +526,7 @@ class LLVMToolchain:
 
         if backend == "llvm":
             ast = production_frontend.parse(source_text, filename=source_name)
-            sir_gen = SIRGenerator(module_name=source_name)
-            sir_mod = sir_gen.generate_from_ast(ast)
+            sir_mod = generate_llvm_sir(ast, production_frontend)
             llvm_gen = CodegenLLVM(sir_mod, is_baremetal=is_freestanding, emit_debug=emit_debug)
             ir_code = llvm_gen.emit()
 

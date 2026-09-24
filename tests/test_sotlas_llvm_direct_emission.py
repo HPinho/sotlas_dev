@@ -5,11 +5,18 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
+sys.path.insert(0, str(ROOT / "compiler"))
 
-from sotlas.llvm_toolchain import LLVMToolchain, default_toolchain
+from sotlas.llvm_toolchain import (
+    LLVMToolchain,
+    LLVMToolchainError,
+    default_toolchain,
+    require_llvm_ownership_supported,
+)
 
 
 class TestSotlasLLVMDirectEmission(unittest.TestCase):
@@ -119,6 +126,298 @@ pub fn answer() -> i32 {
         content = res.read_text(encoding="utf-8")
         self.assertIn("ModuleID", content)
         self.assertIn("@answer", content)
+
+    def test_llvm_source_backend_emits_nested_if_return_cfg(self):
+        source = """module test::llvm_nested_if_return;
+pub fn choose(flag: bool, left: u32, right: u32) -> void {
+    if flag {
+        if left < right { return; } else { return; }
+    } else {
+        return;
+    }
+}
+"""
+        ll_file = self.tmp_path / "nested_if_return.ll"
+        result = self.toolchain.compile_source_to_native(
+            source,
+            "test::llvm_nested_if_return",
+            ll_file,
+            emit_type="llvm",
+            backend="llvm",
+        )
+        self.assertTrue(result.is_file())
+        content = result.read_text(encoding="utf-8")
+        self.assertIn("icmp ult i32 %left, %right", content)
+        self.assertEqual(content.count("ret void"), 3)
+        object_file = self.tmp_path / "nested_if_return.obj"
+        object_result = self.toolchain.compile_source_to_native(
+            source,
+            "test::llvm_nested_if_return",
+            object_file,
+            emit_type="obj",
+            backend="llvm",
+        )
+        self.assertTrue(object_result.is_file())
+        self.assertGreater(object_result.stat().st_size, 100)
+
+    def test_llvm_source_backend_lowers_if_expression_return_phi(self):
+        source = """module test::llvm_if_expression_return;
+pub fn choose(flag: bool, yes: u32, no: u32) -> u32 {
+    return if flag { yes } else { no };
+}
+"""
+        ll_file = self.tmp_path / "if_expression_return.ll"
+        result = self.toolchain.compile_source_to_native(
+            source,
+            "test::llvm_if_expression_return",
+            ll_file,
+            emit_type="llvm",
+            backend="llvm",
+        )
+        content = result.read_text(encoding="utf-8")
+        self.assertIn(" = phi i32 ", content)
+        self.assertIn("ret i32 %if_value", content)
+        object_file = self.tmp_path / "if_expression_return.obj"
+        object_result = self.toolchain.compile_source_to_native(
+            source,
+            "test::llvm_if_expression_return",
+            object_file,
+            emit_type="obj",
+            backend="llvm",
+        )
+        self.assertTrue(object_result.is_file())
+        self.assertGreater(object_result.stat().st_size, 100)
+
+    def test_llvm_source_backend_lowers_trivial_call_scoped_direct_domain(self):
+        source = """module test::llvm_direct;
+sole struct Token { value: u32; }
+fn inspect(left: direct Token, right: direct Token) -> void { return; }
+fn main(left: Token, right: Token) -> void {
+    inspect(&left, &right);
+    return;
+}
+"""
+        ll_file = self.tmp_path / "direct.ll"
+        obj_file = self.tmp_path / "direct.obj"
+
+        self.toolchain.compile_source_to_native(
+            source,
+            "test::llvm_direct",
+            ll_file,
+            emit_type="llvm",
+            backend="llvm",
+        )
+
+        ir = ll_file.read_text(encoding="utf-8")
+        self.assertEqual(ir.count("direct access"), 2)
+        self.assertIn("call void @inspect(ptr %slot_left2, ptr %slot_right3)", ir)
+        self.toolchain.compile_llvm_ir_to_obj(ir, obj_file)
+        self.assertGreater(obj_file.stat().st_size, 0)
+
+    def test_llvm_source_backend_lowers_verified_call_scoped_whisper_domain(self):
+        source = """module test::llvm_whisper;
+sole struct Token { value: u32; }
+fn inspect(primary: direct Token, observer: whisper Token) -> void { return; }
+fn caller(token: Token) -> void { inspect(&token, &token); return; }
+"""
+        ll_file = self.tmp_path / "whisper.ll"
+        obj_file = self.tmp_path / "whisper.obj"
+        self.toolchain.compile_source_to_native(
+            source,
+            "test::llvm_whisper",
+            ll_file,
+            emit_type="llvm",
+            backend="llvm",
+        )
+        ir = ll_file.read_text(encoding="utf-8")
+        self.assertIn("direct access %token -> @inspect.primary", ir)
+        self.assertIn("whisper borrow %token -> @inspect.observer", ir)
+        self.assertIn("call void @inspect(ptr %slot_token", ir)
+        self.toolchain.compile_llvm_ir_to_obj(ir, obj_file)
+        self.assertGreater(obj_file.stat().st_size, 0)
+
+    def test_llvm_source_backend_forwards_direct_borrow_to_whisper(self):
+        source = """module test::llvm_direct_to_whisper;
+sole struct Token { value: u32; }
+fn inspect(token: whisper Token) -> void { return; }
+fn forward(token: direct Token) -> void { inspect(token); return; }
+fn caller(token: Token) -> void { forward(&token); return; }
+"""
+        ll_file = self.tmp_path / "direct_to_whisper.ll"
+        obj_file = self.tmp_path / "direct_to_whisper.obj"
+        self.toolchain.compile_source_to_native(
+            source,
+            "test::llvm_direct_to_whisper",
+            ll_file,
+            emit_type="llvm",
+            backend="llvm",
+        )
+        ir = ll_file.read_text(encoding="utf-8")
+        self.assertIn("whisper borrow %token -> @inspect.token [whisper@", ir)
+        self.assertIn("call void @inspect(ptr %direct_token", ir)
+        self.toolchain.compile_llvm_ir_to_obj(ir, obj_file)
+        self.assertGreater(obj_file.stat().st_size, 0)
+
+    def test_llvm_source_backend_accepts_direct_borrow_from_island(self):
+        source = """module test::llvm_direct_island;
+sole struct Token { value: u32; }
+fn inspect(token: direct Token) -> void { return; }
+fn read_island(token: island Token) -> void {
+    inspect(&token);
+    return;
+}
+"""
+        ll_file = self.tmp_path / "direct_island.ll"
+        obj_file = self.tmp_path / "direct_island.obj"
+        self.toolchain.compile_source_to_native(
+            source,
+            "test::llvm_direct_island",
+            ll_file,
+            emit_type="llvm",
+            backend="llvm",
+        )
+        ir = ll_file.read_text(encoding="utf-8")
+        self.assertIn("direct access %token -> @inspect.token", ir)
+        self.assertIn("call void @inspect(ptr %slot_token", ir)
+        self.toolchain.compile_llvm_ir_to_obj(ir, obj_file)
+        self.assertGreater(obj_file.stat().st_size, 0)
+
+    def test_llvm_source_backend_lowers_integer_comparison_condition(self):
+        source = """module test::llvm_integer_compare_condition;
+fn choose(left: u32, right: u32) -> void {
+    if left < right { return; }
+    return;
+}
+"""
+        ll_file = self.tmp_path / "integer_compare_condition.ll"
+        obj_file = self.tmp_path / "integer_compare_condition.obj"
+        self.toolchain.compile_source_to_native(
+            source,
+            "test::llvm_integer_compare_condition",
+            ll_file,
+            emit_type="llvm",
+            backend="llvm",
+        )
+        ir = ll_file.read_text(encoding="utf-8")
+        self.assertRegex(ir, r"icmp ult i32 %left, %right")
+        self.assertRegex(ir, r"br i1 %cmp\d+, label %bb")
+        self.toolchain.compile_llvm_ir_to_obj(ir, obj_file)
+        self.assertGreater(obj_file.stat().st_size, 0)
+
+
+    def test_llvm_source_backend_preserves_forwarded_direct_access(self):
+        source = """module test::llvm_direct_forward;
+sole struct Token { value: u32; }
+fn inspect(token: direct Token) -> void { return; }
+fn forward(token: direct Token) -> void { inspect(token); return; }
+fn caller(token: Token) -> void { forward(&token); return; }
+"""
+        ll_file = self.tmp_path / "direct_forward.ll"
+        obj_file = self.tmp_path / "direct_forward.obj"
+        self.toolchain.compile_source_to_native(
+            source,
+            "test::llvm_direct_forward",
+            ll_file,
+            emit_type="llvm",
+            backend="llvm",
+        )
+        ir = ll_file.read_text(encoding="utf-8")
+        self.assertIn("direct access %token -> @inspect.token", ir)
+        self.assertRegex(ir, r"call void @inspect\(ptr %direct_token\d+\)")
+        self.assertIn("call void @forward(ptr %slot_token", ir)
+        self.toolchain.compile_llvm_ir_to_obj(ir, obj_file)
+        self.assertGreater(obj_file.stat().st_size, 0)
+
+    def test_llvm_source_backend_places_deferred_direct_call_before_return(self):
+        source = """module test::llvm_direct_defer;
+sole struct Token { value: u32; }
+fn inspect(token: direct Token) -> void { return; }
+fn deferred(token: direct Token) -> void {
+    defer inspect(token);
+    return;
+}
+fn caller(token: Token) -> void { deferred(&token); return; }
+"""
+        ll_file = self.tmp_path / "direct_defer.ll"
+        obj_file = self.tmp_path / "direct_defer.obj"
+        self.toolchain.compile_source_to_native(
+            source,
+            "test::llvm_direct_defer",
+            ll_file,
+            emit_type="llvm",
+            backend="llvm",
+        )
+        ir = ll_file.read_text(encoding="utf-8")
+        deferred_body = ir.split("define void @deferred(", 1)[1].split(
+            "define void @caller(", 1
+        )[0]
+        self.assertLess(deferred_body.index("direct access"), deferred_body.index("call void @inspect"))
+        self.assertLess(deferred_body.index("call void @inspect"), deferred_body.index("ret void"))
+        self.toolchain.compile_llvm_ir_to_obj(ir, obj_file)
+        self.assertGreater(obj_file.stat().st_size, 0)
+
+    def test_llvm_source_backend_fails_closed_for_unverified_direct_domain(self):
+        module = SimpleNamespace(
+            structs=(),
+            functions=(SimpleNamespace(
+                params=(("token", SimpleNamespace(
+                    name="Token", ownership_domain="direct",
+                    pointer=True, is_reference=True,
+                )),),
+                result=SimpleNamespace(name="u32"),
+            ),),
+            classes=(),
+            globals=(),
+            enums=(),
+        )
+        frontend = SimpleNamespace(check=lambda parsed: None)
+        with self.assertRaisesRegex(
+            LLVMToolchainError,
+            "LLVM backend does not lower canonical Ownership Domains yet",
+        ):
+            require_llvm_ownership_supported(module, frontend)
+
+    def test_llvm_direct_backend_rejects_unlowered_control_flow(self):
+        source = """module test::llvm_direct_cfg;
+sole struct Token { value: u32; }
+fn inspect(token: direct Token) -> void { return; }
+fn main(token: Token) -> void {
+    if true { inspect(&token); }
+    return;
+}
+"""
+
+        with self.assertRaisesRegex(
+            LLVMToolchainError,
+            "LLVM backend does not lower canonical Ownership Domains yet",
+        ):
+            self.toolchain.compile_source_to_native(
+                source,
+                "test::llvm_direct_cfg",
+                self.tmp_path / "direct_cfg.ll",
+                emit_type="llvm",
+                backend="llvm",
+            )
+
+    def test_llvm_backend_fails_closed_for_unlowered_region_device_external(self):
+        for domain in ("region", "device", "external"):
+            with self.subTest(domain=domain):
+                source = (
+                    "module test::llvm_domain_gate; "
+                    "sole struct Resource { value: u32; } "
+                    f"fn use(resource: {domain} Resource) -> void {{ return; }}"
+                )
+                with self.assertRaisesRegex(
+                    LLVMToolchainError,
+                    "LLVM backend does not lower canonical Ownership Domains yet",
+                ):
+                    self.toolchain.compile_source_to_native(
+                        source,
+                        f"test::llvm_{domain}_gate",
+                        self.tmp_path / f"{domain}.ll",
+                        emit_type="llvm",
+                        backend="llvm",
+                    )
 
 
 if __name__ == "__main__":

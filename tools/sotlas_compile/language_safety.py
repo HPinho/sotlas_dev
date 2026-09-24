@@ -8,6 +8,7 @@ operations are restricted by this pass.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import importlib
 
 _EXTERN_ATTR = "@extern(C)"
 _UNSAFE_ATTR = "@unsafe"
@@ -209,12 +210,540 @@ class _StrictSafetyChecker:
         for function in self.module.functions:
             if _attr(function, _EXTERN_ATTR):
                 continue
+            self._validate_quarantine_aliases(function)
             self._statements(
                 function.body,
                 {name: typ for name, typ in function.params},
                 0,
                 _attr(function, "@system") or _attr(function, "@naked") or _attr(function, "@interrupt"),
             )
+        self._validate_whisper_lifetimes()
+
+    def _validate_whisper_lifetimes(self) -> None:
+        def contains_whisper(type_obj) -> bool:
+            if type_obj is None:
+                return False
+            if getattr(type_obj, "ownership_domain", None) in (
+                "whisper", "direct"
+            ):
+                return True
+            return (
+                contains_whisper(getattr(type_obj, "elem_type", None))
+                or any(
+                    contains_whisper(item)
+                    for item in getattr(type_obj, "fn_params", ())
+                )
+                or contains_whisper(getattr(type_obj, "fn_ret", None))
+            )
+
+        declared_types = [
+            field.type
+            for struct in self.module.structs
+            for field in struct.fields
+        ] + [item.type for item in self.module.globals]
+        declared_types.extend(
+            type_obj
+            for function in self.module.functions
+            for type_obj in (
+                *(typ for _, typ in function.params), function.result
+            )
+        )
+        declared_types.extend(
+            variant.payload_type
+            for enum in self.module.enums
+            for variant in enum.variants
+            if variant.payload_type is not None
+        )
+        declared_types.extend(
+            type_obj
+            for class_decl in self.module.classes
+            for field in class_decl.fields
+            for type_obj in (field.type,)
+        )
+        declared_types.extend(
+            type_obj
+            for class_decl in self.module.classes
+            for function in class_decl.methods
+            for type_obj in (*(typ for _, typ in function.params), function.result)
+        )
+        if not any(contains_whisper(item) for item in declared_types):
+            return
+
+        package = self.b.__package__ or "sotlas_compile"
+        try:
+            typed_ast = importlib.import_module(f"{package}.typed_ast")
+        except ModuleNotFoundError as error:
+            raise self.b.SotlasBootstrapError(
+                "this frontend cannot validate whisper lifetimes",
+                1, 1, self.filename, self.source,
+            ) from error
+        try:
+            typed_ast.validate_whisper_lifetimes(self.module)
+        except typed_ast.Phase1SemanticError as error:
+            raise self.b.SotlasBootstrapError(
+                str(error), 1, 1, self.filename, self.source
+            ) from error
+
+    def _validate_quarantine_aliases(self, function) -> None:
+        """Prevent use of reference aliases after their owner is isolated.
+
+        This production safety gate tracks direct borrows and aliases through
+        locals in source order. It conservatively joins branch/loop source
+        order until the ownership CFG can express path-specific invalidation.
+        """
+        b = self.b
+        unary_expr_types = tuple(
+            node_type for node_type in (
+                getattr(b, "Unary", None), getattr(b, "MoveExpr", None),
+                getattr(b, "ShareExpr", None), getattr(b, "UnsafeExpr", None),
+            ) if isinstance(node_type, type)
+        )
+        scope = {name: typ for name, typ in function.params}
+        owners = {
+            name for name, typ in function.params
+            if getattr(self.structs.get(getattr(typ, "name", "")), "is_sole", False)
+            and not getattr(typ, "pointer", False)
+            and not getattr(typ, "is_reference", False)
+        }
+        region_owners = {
+            name for name, typ in function.params
+            if name in owners and getattr(typ, "ownership_domain", None) == "region"
+        }
+        aliases: dict[str, set[str]] = {}
+        invalid: dict[str, str] = {}
+        quarantined_owners: set[str] = set()
+        escaped_owners: set[str] = set()
+
+        def children(expr):
+            if expr is None:
+                return ()
+            if isinstance(expr, b.Binary):
+                return (expr.left, expr.right)
+            if unary_expr_types and isinstance(expr, unary_expr_types):
+                return (expr.value,)
+            if isinstance(expr, b.Cast):
+                return (expr.expr,)
+            if isinstance(expr, b.Member):
+                return (expr.target,)
+            if isinstance(expr, b.Index):
+                return (expr.target, expr.index)
+            if isinstance(expr, b.Call):
+                return tuple(expr.args)
+            if isinstance(expr, b.MethodCall):
+                return (expr.target, *tuple(expr.args))
+            if isinstance(expr, b.StructLit):
+                return tuple(value for _, value in expr.fields)
+            if isinstance(expr, b.ArrayLit):
+                return tuple(expr.elements)
+            if isinstance(expr, b.IfExpr):
+                return (expr.condition, expr.then_expr, expr.else_expr)
+            if isinstance(expr, b.TryExpr):
+                return (expr.expr,)
+            return ()
+
+        def expr_names(expr) -> set[str]:
+            if expr is None:
+                return set()
+            result = {expr.value} if isinstance(expr, b.Name) else set()
+            for child in children(expr):
+                result.update(expr_names(child))
+            return result
+
+        def root_name(expr):
+            if isinstance(expr, b.Name):
+                return expr.value
+            if isinstance(expr, (b.Member, b.Index)):
+                return root_name(expr.target)
+            return None
+
+        def expr_has_address(expr) -> bool:
+            if expr is None:
+                return False
+            if isinstance(expr, b.Unary) and expr.op == "&":
+                return True
+            return any(expr_has_address(child) for child in children(expr))
+
+        def expr_has_cast(expr) -> bool:
+            if expr is None:
+                return False
+            return isinstance(expr, b.Cast) or any(
+                expr_has_cast(child) for child in children(expr)
+            )
+
+        def call_arguments(expr):
+            if expr is None:
+                return ()
+            if isinstance(expr, b.Call):
+                return tuple(expr.args)
+            if isinstance(expr, b.MethodCall):
+                return (expr.target, *tuple(expr.args))
+            return tuple(
+                argument
+                for child in children(expr)
+                for argument in call_arguments(child)
+            )
+
+        def direct_calls(expr):
+            if expr is None:
+                return
+            if isinstance(expr, b.Call):
+                yield expr
+            for child in children(expr):
+                yield from direct_calls(child)
+
+        def alias_sources(expr) -> set[str]:
+            if expr is None:
+                return set()
+            names = expr_names(expr)
+            inherited = set().union(
+                *(aliases[name] for name in names if name in aliases)
+            ) if any(name in aliases for name in names) else set()
+            try:
+                info = self._infer(expr, scope, 1, False)
+                typ = info.type_obj
+            except Exception:
+                typ = None
+            carries_reference = bool(
+                typ is not None
+                and (
+                    getattr(typ, "pointer", False)
+                    or getattr(typ, "is_reference", False)
+                )
+            )
+            direct = names.intersection(owners) if (
+                expr_has_address(expr) or carries_reference
+            ) else set()
+            if isinstance(expr, b.Cast):
+                return inherited | direct | alias_sources(expr.expr)
+            if carries_reference or expr_has_address(expr):
+                return inherited | direct
+            if any(name in aliases for name in names):
+                # Aggregate initialization may store an alias in a field; the
+                # source structure is conservatively treated as tainted.
+                if typ is not None and getattr(typ, "name", "") in self.structs:
+                    return inherited
+            return set()
+
+        def type_stores_reference(typ, visiting=frozenset()) -> bool:
+            if typ is None:
+                return False
+            if (
+                getattr(typ, "pointer", False)
+                or getattr(typ, "is_reference", False)
+                or getattr(typ, "is_fn_ptr", False)
+            ):
+                return True
+            if getattr(typ, "is_array", False):
+                return type_stores_reference(
+                    getattr(typ, "elem_type", None), visiting
+                )
+            name = getattr(typ, "name", "")
+            struct = self.structs.get(name)
+            if struct is None or name in visiting:
+                return False
+            return any(
+                type_stores_reference(field.type, visiting | {name})
+                for field in struct.fields
+            )
+
+        def flatten(items):
+            for item in items:
+                yield item
+                nested_attrs = {
+                    b.If: ("then_body", "else_body"),
+                    b.While: ("body",),
+                    b.For: ("body",),
+                    b.Loop: ("body",),
+                    b.Unsafe: ("body",),
+                    b.Defer: ("body",),
+                }.get(type(item), ())
+                for attr in nested_attrs:
+                    yield from flatten(getattr(item, attr, ()) or ())
+
+        loop_quarantines: set[int] = set()
+
+        def collect_loop_quarantines(items, in_loop: bool = False) -> None:
+            for item in items:
+                if in_loop and isinstance(item, b.Quarantine):
+                    loop_quarantines.add(id(item))
+                nested = {
+                    b.If: ("then_body", "else_body"),
+                    b.While: ("body",),
+                    b.For: ("body",),
+                    b.Loop: ("body",),
+                    b.Unsafe: ("body",),
+                    b.Defer: ("body",),
+                }.get(type(item), ())
+                child_in_loop = in_loop or isinstance(item, (b.While, b.For, b.Loop))
+                for attr in nested:
+                    collect_loop_quarantines(
+                        getattr(item, attr, ()) or (), child_in_loop
+                    )
+
+        collect_loop_quarantines(function.body)
+
+        def statement_exprs(item):
+            attrs = {
+                b.Let: ("value",),
+                b.Assign: ("target", "value"),
+                b.Return: ("value",),
+                b.Expression: ("value",),
+                b.If: ("condition",),
+                b.While: ("condition",),
+                b.For: ("start", "end"),
+                b.Handover: ("value", "destination"),
+                b.Quarantine: ("value",),
+                b.Defer: ("value",),
+            }.get(type(item), ())
+            result = [getattr(item, attr, None) for attr in attrs]
+            if isinstance(item, b.Asm):
+                result.extend(item.inputs)
+                result.extend(item.outputs)
+            return tuple(expr for expr in result if expr is not None)
+
+        branch_paths: dict[int, tuple[tuple[int, int], ...]] = {}
+
+        def returns_on_all_paths(items) -> bool:
+            for statement in items or ():
+                if isinstance(statement, b.Return):
+                    return True
+                if isinstance(statement, b.If) and (
+                    returns_on_all_paths(statement.then_body)
+                    and returns_on_all_paths(statement.else_body)
+                ):
+                    return True
+            return False
+
+        def record_paths(items, path=()):
+            continuation = path
+            for statement in items:
+                branch_paths[id(statement)] = continuation
+                if isinstance(statement, b.If):
+                    record_paths(
+                        statement.then_body,
+                        continuation + ((id(statement), 0),),
+                    )
+                    record_paths(
+                        statement.else_body,
+                        continuation + ((id(statement), 1),),
+                    )
+                    then_returns = returns_on_all_paths(statement.then_body)
+                    else_returns = returns_on_all_paths(statement.else_body)
+                    if then_returns != else_returns:
+                        continuation += ((
+                            id(statement), 1 if then_returns else 0
+                        ),)
+                else:
+                    nested = {
+                        b.While: ("body",), b.For: ("body",), b.Loop: ("body",),
+                        b.Unsafe: ("body",), b.Defer: ("body",),
+                    }.get(type(statement), ())
+                    for attr in nested:
+                        record_paths(
+                            getattr(statement, attr, ()) or (), continuation
+                        )
+
+        record_paths(function.body)
+        statements = sorted(
+            flatten(function.body),
+            key=lambda item: (item.token.line, item.token.column),
+        )
+        invalidated_at: dict[str, tuple[tuple[int, int], ...]] = {}
+        quarantine_paths: dict[str, tuple[tuple[int, int], ...]] = {}
+
+        def paths_are_disjoint(left, right) -> bool:
+            left_map = dict(left)
+            return any(
+                branch_id in left_map and left_map[branch_id] != branch
+                for branch_id, branch in right
+            )
+
+        def quarantined_on_path(owner: str, statement) -> bool:
+            return owner in quarantined_owners and not paths_are_disjoint(
+                quarantine_paths.get(owner, ()),
+                branch_paths.get(id(statement), ()),
+            )
+
+        for item in statements:
+            exprs = statement_exprs(item)
+            if isinstance(item, b.Return) and item.value is not None:
+                returned = alias_sources(item.value).intersection(region_owners)
+                if returned:
+                    try:
+                        result_type = self._infer(
+                            item.value, scope, 1, False
+                        ).type_obj
+                    except Exception:
+                        result_type = None
+                    if type_stores_reference(result_type):
+                        owner = sorted(returned)[0]
+                        self.error(
+                            f"reference to region owner {owner!r} cannot escape through return",
+                            item.token,
+                        )
+            if isinstance(item, b.Let) and item.name in invalid:
+                if item.name not in expr_names(item.value):
+                    invalid.pop(item.name, None)
+            if isinstance(item, b.Assign):
+                target_name = root_name(item.target)
+                if target_name in invalid and not (
+                    expr_names(item.value) & invalid.keys()
+                ):
+                    invalid.pop(target_name, None)
+
+            referenced = set().union(*(expr_names(expr) for expr in exprs)) if exprs else set()
+            stale = referenced.intersection(invalid)
+            stale = {
+                name for name in stale
+                if not paths_are_disjoint(
+                    invalidated_at.get(name, ()), branch_paths.get(id(item), ())
+                )
+            }
+            if stale:
+                alias = sorted(stale)[0]
+                self.error(
+                    f"reference alias {alias!r} to quarantined owner "
+                    f"{invalid[alias]!r} is used after quarantine",
+                    item.token,
+                )
+
+            if not isinstance(item, (b.Let, b.Assign)):
+                derived = set().union(
+                    *(alias_sources(expr) for expr in exprs)
+                ) if exprs else set()
+                after_quarantine = {
+                    owner for owner in derived if quarantined_on_path(owner, item)
+                }
+                if after_quarantine:
+                    owner = sorted(after_quarantine)[0]
+                    self.error(
+                        f"cannot use a reference alias to quarantined owner {owner!r}",
+                        item.token,
+                    )
+
+            for expr in exprs:
+                for call in direct_calls(expr):
+                    callee = self.functions.get(call.callee)
+                    params = tuple(getattr(callee, "params", ()) or ())
+                    for index, argument in enumerate(call.args):
+                        borrowed_region = alias_sources(argument).intersection(
+                            region_owners
+                        )
+                        if not borrowed_region:
+                            continue
+                        parameter_type = (
+                            params[index][1]
+                            if index < len(params)
+                            and isinstance(params[index], tuple)
+                            and len(params[index]) == 2
+                            else None
+                        )
+                        if getattr(parameter_type, "ownership_domain", None) not in (
+                            "direct", "whisper"
+                        ):
+                            owner = sorted(borrowed_region)[0]
+                            self.error(
+                                f"reference to region owner {owner!r} cannot escape through an opaque call",
+                                call.token,
+                            )
+                for argument in call_arguments(expr):
+                    for name in expr_names(argument):
+                        escaped = aliases.get(name, ())
+                        escaped_owners.update(escaped)
+                        quarantined_escape = {
+                            owner for owner in escaped
+                            if quarantined_on_path(owner, item)
+                        }
+                        if quarantined_escape:
+                            owner = sorted(quarantined_escape)[0]
+                            self.error(
+                                f"reference alias to quarantined owner "
+                                f"{owner!r} cannot escape through an opaque call",
+                                item.token,
+                            )
+
+            if isinstance(item, b.Let):
+                typ = item.type
+                if typ is None:
+                    try:
+                        typ = self._infer(item.value, scope, 1, False).type_obj
+                    except Exception:
+                        typ = None
+                related = alias_sources(item.value)
+                quarantined_related = {
+                    owner for owner in related if quarantined_on_path(owner, item)
+                }
+                if quarantined_related:
+                    owner = sorted(quarantined_related)[0]
+                    self.error(
+                        f"cannot create reference alias to quarantined owner {owner!r}",
+                        item.token,
+                    )
+                if typ is not None:
+                    scope[item.name] = typ
+                    struct = self.structs.get(getattr(typ, "name", ""))
+                    if (
+                        struct is not None and getattr(struct, "is_sole", False)
+                        and not getattr(typ, "pointer", False)
+                        and not getattr(typ, "is_reference", False)
+                    ):
+                        owners.add(item.name)
+                        if getattr(typ, "ownership_domain", None) == "region":
+                            region_owners.add(item.name)
+                if related:
+                    aliases[item.name] = related
+                else:
+                    aliases.pop(item.name, None)
+
+            elif isinstance(item, b.Assign):
+                related = alias_sources(item.value)
+                escaping_region = related.intersection(region_owners)
+                if escaping_region and (
+                    root_name(item.target) in self.globals
+                    or isinstance(item.target, (b.Member, b.Index))
+                ):
+                    owner = sorted(escaping_region)[0]
+                    self.error(
+                        f"reference to region owner {owner!r} cannot escape through storage",
+                        item.token,
+                    )
+                quarantined_related = {
+                    owner for owner in related if quarantined_on_path(owner, item)
+                }
+                if quarantined_related:
+                    owner = sorted(quarantined_related)[0]
+                    self.error(
+                        f"cannot create reference alias to quarantined owner {owner!r}",
+                        item.token,
+                    )
+                target_name = root_name(item.target)
+                if target_name is not None and target_name not in scope:
+                    escaped_owners.update(related)
+                if target_name is not None and related:
+                    aliases[target_name] = aliases.get(target_name, set()) | related
+                elif target_name is not None:
+                    aliases.pop(target_name, None)
+
+            elif isinstance(item, b.Quarantine) and isinstance(item.value, b.Name):
+                owner = item.value.value
+                if id(item) in loop_quarantines and any(
+                    owner in targets for targets in aliases.values()
+                ):
+                    self.error(
+                        f"quarantine of {owner!r} inside a loop with reference aliases requires path-sensitive lifetime analysis",
+                        item.token,
+                    )
+                if owner in escaped_owners:
+                    self.error(
+                        f"cannot quarantine owner {owner!r} after a reference alias escaped to a call",
+                        item.token,
+                    )
+                quarantined_owners.add(owner)
+                quarantine_paths[owner] = branch_paths.get(id(item), ())
+                for alias, targets in aliases.items():
+                    if owner in targets:
+                        invalid[alias] = owner
+                        invalidated_at[alias] = branch_paths.get(id(item), ())
 
     def _infer(self, expr, scope, depth: int, system_context: bool) -> _ExprInfo:
         b = self.b
@@ -261,7 +790,11 @@ class _StrictSafetyChecker:
                 return _ExprInfo(b.Type(inner.type_obj.name, mutable=inner.type_obj.mutable), inner.foreign)
             if expr.op == "&":
                 if inner.type_obj is None: return _ExprInfo(None)
-                typ = b.Type(inner.type_obj.name, pointer=True, mutable=inner.type_obj.mutable)
+                typ = b.Type(
+                    inner.type_obj.name,
+                    pointer=True,
+                    mutable=bool(getattr(expr, "mutable", False)),
+                )
                 object.__setattr__(typ, "_sotlas_reference", True)
                 return _ExprInfo(typ)
             if expr.op == "!": return _ExprInfo(b.Type("bool"))
@@ -345,6 +878,9 @@ class _StrictSafetyChecker:
                 self._infer(item.target, scope, depth, system_context)
                 self._infer(item.value, scope, depth, system_context)
             elif isinstance(item, b.Return): self._infer(item.value, scope, depth, system_context)
+            elif isinstance(item, b.Handover): self._infer(item.value, scope, depth, system_context)
+            elif isinstance(item, b.Quarantine):
+                self._infer(item.value, scope, depth, system_context)
             elif isinstance(item, b.Expression): self._infer(item.value, scope, depth, system_context)
             elif isinstance(item, b.If):
                 self._infer(item.condition, scope, depth, system_context)

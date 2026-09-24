@@ -258,7 +258,7 @@ AssignmentStmt
     ::= PostfixExpr ( "=" | "+=" | "-=" | "*=" | "/=" | "%=" | "&=" | "|=" | "^=" | "<<=" | ">>=" ) Expression ";" ;
 
 HandoverStmt
-    ::= "handover" Expression ";" ;
+    ::= "handover" Expression [ "to" Expression ] ";" ;
 
 QuarantineStmt
     ::= "quarantine" Expression ";" ;

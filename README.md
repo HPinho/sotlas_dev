@@ -7,7 +7,7 @@
 **Safe by default, unapologetically systems-capable.**  
 *Engineered to eliminate the historical gaps in safety, modularity, and control left by C, C++, and Objective-C.*
 
-[![CI](https://github.com/Sotlas/sotlas/actions/workflows/ci.yml/badge.svg)](https://github.com/Sotlas/sotlas/actions)
+[![CI](https://github.com/HPinho/sotlas_dev/actions/workflows/ci.yml/badge.svg)](https://github.com/HPinho/sotlas_dev/actions)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Target](https://img.shields.io/badge/target-x86__64--freestanding-orange.svg)](#)
 [![Architecture](https://img.shields.io/badge/architecture-SIR%20%2F%20C11%20Stage--0-green.svg)](#)
@@ -174,14 +174,14 @@ The Sotlas standard library is implemented entirely in the language itself (**So
 Clone the repository and install in editable mode:
 
 ```bash
-git clone https://github.com/Sotlas/sotlas.git
-cd sotlas
+git clone https://github.com/HPinho/sotlas_dev.git
+cd sotlas_dev
 pip install -e .
 ```
 
 ### 2. CLI Driver Commands (`sotlas`)
 
-The unified driver provides complete control over the code lifecycle:
+The Stage-0 driver exposes the following commands for the supported subset:
 
 ```bash
 # Display language version
@@ -193,7 +193,7 @@ sotlas check examples/01_hello_systems/main.sotlas
 # Inspect parsed AST
 sotlas dump-ast examples/01_hello_systems/main.sotlas
 
-# Inspect SSA SIR (Sotlas Intermediate Representation)
+# Inspect the prototype SIR (not the production lowering path)
 sotlas dump-sir examples/01_hello_systems/main.sotlas
 
 # Emit auditable intermediate C11 code

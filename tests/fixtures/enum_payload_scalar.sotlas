@@ -1,0 +1,14 @@
+module test::enum_payload_scalar;
+
+enum Message {
+    Empty = 8,
+    Number(u32),
+}
+
+fn make_number() -> Message {
+    return Message::Number(42u32);
+}
+
+fn make_empty() -> Message {
+    return Message::Empty;
+}
