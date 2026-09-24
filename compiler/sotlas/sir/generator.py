@@ -682,11 +682,41 @@ class SIRGenerator:
         if return_type != "void":
             return False
         body = getattr(fn, "body", None) or []
-        if len(body) != 1 or type(body[0]).__name__ not in ("If", "IfNode"):
+        if not body or type(body[-1]).__name__ not in ("If", "IfNode"):
             return False
+        prefix = body[:-1]
+        caller_params = dict(
+            item for item in getattr(fn, "params", ())
+            if isinstance(item, tuple) and len(item) == 2
+        )
+        shared_markers: list[SharedOwnershipPointInst] = []
+        for statement in prefix:
+            value = getattr(statement, "value", None)
+            if (
+                type(statement).__name__ != "Let"
+                or type(value).__name__ != "ShareExpr"
+            ):
+                return False
+            source = getattr(value, "value", None)
+            source_name = (
+                getattr(source, "value", None)
+                or getattr(source, "name", None)
+            )
+            alias_name = getattr(statement, "name", None)
+            if (
+                not isinstance(source_name, str) or not source_name
+                or not isinstance(alias_name, str) or not alias_name
+                or source_name not in caller_params
+            ):
+                return False
+            shared_markers.append(SharedOwnershipPointInst(
+                source_name=source_name,
+                alias_name=alias_name,
+                point_id=self._statement_point_id(statement, "share"),
+            ))
 
         used_labels = {entry_block.label}
-        pending: list[tuple[Any, str]] = [(body[0], entry_block.label)]
+        pending: list[tuple[Any, str]] = [(body[-1], entry_block.label)]
         plans: list[list[tuple[str, Any]]] = []
         leaves: list[tuple[str, Any]] = []
         reserved_labels: set[str] = set()
@@ -758,6 +788,8 @@ class SIRGenerator:
         for label in sorted(reserved_labels):
             if label not in blocks:
                 blocks[label] = sir_fn.add_block(label)
+        for marker in shared_markers:
+            entry_block.add(marker)
         for plan in plans:
             for label, instruction in plan:
                 blocks[label].add(instruction)

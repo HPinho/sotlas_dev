@@ -100,6 +100,42 @@ fn isolate(flag: bool, cpu_a: Buffer, cpu_b: Buffer) -> void {
         )
         self.assertEqual(len({block for block, _ in transfers}), 2)
 
+    def test_nested_cfg_places_arc_cleanup_on_every_return_path(self):
+        source = """module test::phase1_nested_shared_returns;
+sole struct Token { value: u32; }
+fn route(outer: bool, inner: bool, token: Token) -> void {
+    let peer = share token;
+    if outer {
+        if inner { return; } else { return; }
+    } else {
+        return;
+    }
+}
+"""
+        checked = sotlas_compile.analyze_source_phase1(
+            source, filename="<phase1-nested-shared-returns>"
+        )
+        result = generate_checked_ownership_sir(checked)
+        function = next(
+            item for item in result.module.functions if item.name == "route"
+        )
+        return_blocks = [
+            block for block in function.blocks
+            if any(isinstance(item, ReturnInst) for item in block.instructions)
+        ]
+        self.assertEqual(len(return_blocks), 3)
+        for block in return_blocks:
+            return_index = next(
+                index for index, item in enumerate(block.instructions)
+                if isinstance(item, ReturnInst)
+            )
+            cleanup = [
+                index for index, item in enumerate(block.instructions)
+                if isinstance(item, (ReleaseInst, DestroyInst))
+            ]
+            self.assertTrue(cleanup)
+            self.assertLess(max(cleanup), return_index)
+
     def test_public_phase1_pipeline_is_explicit_and_preserves_bootstrap_check(self):
         source = """module test::phase1_public;
 sole struct Token { value: u32; }
