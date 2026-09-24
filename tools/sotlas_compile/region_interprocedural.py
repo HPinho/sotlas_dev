@@ -1,16 +1,19 @@
 """Composed interprocedural REGION lifetime view.
 
-The local lifetime topology, source-stable call contracts and return contracts
-are independently certified.  This module composes those proofs without
-pretending the prototype SIR already carries interprocedural call ownership
-markers.  It is a semantic certificate only; no runtime or backend behavior is
-introduced here.
+The local lifetime topology, source-stable call contracts, CFG call-path
+certificates and return contracts are independently certified. This module
+composes those proofs without pretending the prototype SIR already carries
+interprocedural call ownership markers. It is a semantic certificate only; no
+runtime or backend behavior is introduced here.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .canonical_sir import build_canonical_checked_ownership_sir
 from .region_call import RegionCallTransfer, plan_checked_region_calls
+from .region_call_cfg import RegionCallCFGCertificate, certify_region_call_cfg
+from .region_call_sir import validate_region_call_sir
 from .region_frontend import plan_checked_region_lifetime
 from .region_lifetime import RegionLifetimePlan
 from .region_return import RegionReturnLifetimePlan, plan_checked_region_returns
@@ -18,7 +21,7 @@ from .typed_ast import OwnershipDomain, Phase1SemanticError
 
 
 class RegionInterproceduralLifetimeError(Phase1SemanticError):
-    """Raised when certified local/call/return REGION facts disagree."""
+    """Raised when certified local/call/CFG/return REGION facts disagree."""
 
 
 @dataclass(frozen=True)
@@ -32,6 +35,7 @@ class RegionInterproceduralFunctionPlan:
 class RegionInterproceduralLifetimePlan:
     functions: tuple[RegionInterproceduralFunctionPlan, ...]
     returns: RegionReturnLifetimePlan
+    call_cfg: RegionCallCFGCertificate
 
     def function(self, name: str) -> RegionInterproceduralFunctionPlan:
         matches = tuple(item for item in self.functions if item.function == name)
@@ -58,6 +62,28 @@ def plan_checked_region_interprocedural(
 
     call_plan = plan_checked_region_calls(checked_module)
     return_plan = plan_checked_region_returns(checked_module)
+
+    checked_sir, _ = build_canonical_checked_ownership_sir(checked_module)
+    call_bridge = validate_region_call_sir(call_plan, checked_sir)
+    call_cfg = certify_region_call_cfg(call_bridge, checked_sir)
+
+    expected_call_points = {
+        (item.function, item.point_id, item.callee)
+        for item in call_plan.transfers
+    }
+    certified_call_points = {
+        (item.function, item.point_id, item.callee)
+        for item in call_cfg.points
+    }
+    if expected_call_points != certified_call_points:
+        raise RegionInterproceduralLifetimeError(
+            "REGION interprocedural call points diverged from CFG certificate"
+        )
+    if len(certified_call_points) != len(call_cfg.points):
+        raise RegionInterproceduralLifetimeError(
+            "REGION interprocedural CFG certificate contains duplicate call points"
+        )
+
     function_names = tuple(dict.fromkeys(
         node.function
         for node in graph.nodes
@@ -118,6 +144,7 @@ def plan_checked_region_interprocedural(
     return RegionInterproceduralLifetimePlan(
         functions=tuple(functions),
         returns=return_plan,
+        call_cfg=call_cfg,
     )
 
 

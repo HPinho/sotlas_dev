@@ -1,4 +1,4 @@
-"""Compose local, call and return REGION lifetime proofs."""
+"""Compose local, call, CFG and return REGION lifetime proofs."""
 import importlib
 import importlib.util
 from pathlib import Path
@@ -46,7 +46,7 @@ fn run(first: region Token, second: region Token) -> void {
 
 
 class SotlasRegionInterproceduralLifetimeTests(unittest.TestCase):
-    def test_checked_module_composes_local_calls_and_returns(self):
+    def test_checked_module_composes_local_calls_cfg_and_returns(self):
         checked = package.analyze_source_phase1(
             SOURCE, filename="<region-interprocedural>"
         )
@@ -63,6 +63,19 @@ class SotlasRegionInterproceduralLifetimeTests(unittest.TestCase):
         self.assertEqual(
             sorted((item.source, item.via) for item in run.local.transfers),
             [("first", "call:consume"), ("second", "call:consume")],
+        )
+
+        self.assertEqual(
+            tuple((item.function, item.point_id, item.callee) for item in plan.call_cfg.points),
+            tuple((item.function, item.point_id, item.callee) for item in run.calls),
+        )
+        self.assertEqual(len(plan.call_cfg.relations), 1)
+        relation = plan.call_cfg.relations[0]
+        self.assertEqual(relation.function, "run")
+        self.assertEqual(relation.relation, "ordered_path")
+        self.assertEqual(
+            (relation.first_point_id, relation.second_point_id),
+            tuple(item.point_id for item in run.calls),
         )
 
         passed = plan.function("pass")
