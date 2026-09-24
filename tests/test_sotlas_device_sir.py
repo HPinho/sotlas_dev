@@ -45,6 +45,7 @@ device_semantics = importlib.import_module(
 typed_ast = importlib.import_module(f"{compile_package.__name__}.typed_ast")
 backend_package = _load_sotlas_backend_package()
 sir = importlib.import_module(f"{backend_package.__name__}.sir")
+device_sir = importlib.import_module(f"{backend_package.__name__}.sir.device")
 codegen_llvm = importlib.import_module(
     f"{backend_package.__name__}.codegen_llvm"
 )
@@ -84,18 +85,18 @@ class SotlasDeviceSIRTests(unittest.TestCase):
         source = sir.SIRValue("device_buffer", "Token")
         destination = sir.SIRValue("host_buffer", "Token")
 
-        lowered = sir.lower_device_lifecycle(
+        lowered = device_sir.lower_device_lifecycle(
             reacquired, plan, source, destination
         )
         self.assertEqual(len(lowered.instructions), 2)
         completion, reacquisition = lowered.instructions
 
-        self.assertIsInstance(completion, sir.DeviceCompletionInst)
+        self.assertIsInstance(completion, device_sir.DeviceCompletionInst)
         self.assertIsInstance(completion, sir.OwnershipDomainPointInst)
         self.assertEqual(completion.submission_point_id, "handover@3:5")
         self.assertEqual(completion.point_id, "completion@8:1")
 
-        self.assertIsInstance(reacquisition, sir.DeviceReacquisitionInst)
+        self.assertIsInstance(reacquisition, device_sir.DeviceReacquisitionInst)
         self.assertIsInstance(reacquisition, sir.OwnershipDomainTransferInst)
         self.assertEqual(reacquisition.submission_point_id, "handover@3:5")
         self.assertEqual(reacquisition.completion_point_id, "completion@8:1")
@@ -114,14 +115,16 @@ class SotlasDeviceSIRTests(unittest.TestCase):
         destination = sir.SIRValue("host_buffer", "Token")
 
         with self.assertRaisesRegex(
-            sir.DeviceSIRLoweringError, "requires REACQUIRED"
+            device_sir.DeviceSIRLoweringError, "requires REACQUIRED"
         ):
-            sir.lower_device_lifecycle(completed, plan, source, destination)
+            device_sir.lower_device_lifecycle(
+                completed, plan, source, destination
+            )
 
         with self.assertRaisesRegex(
-            sir.DeviceSIRLoweringError, "has type 'Wrong'"
+            device_sir.DeviceSIRLoweringError, "has type 'Wrong'"
         ):
-            sir.lower_device_reacquisition(
+            device_sir.lower_device_reacquisition(
                 plan,
                 sir.SIRValue("device_buffer", "Wrong"),
                 destination,
@@ -143,9 +146,9 @@ class SotlasDeviceSIRTests(unittest.TestCase):
             operation=plan.operation,
         )
         with self.assertRaisesRegex(
-            sir.DeviceSIRLoweringError, "different identities"
+            device_sir.DeviceSIRLoweringError, "different identities"
         ):
-            sir.lower_device_lifecycle(
+            device_sir.lower_device_lifecycle(
                 reacquired, mismatched, source, destination
             )
 
@@ -153,7 +156,7 @@ class SotlasDeviceSIRTests(unittest.TestCase):
         _, plan, reacquired = _completed_lifecycle()
         source = sir.SIRValue("device_buffer", "Token")
         destination = sir.SIRValue("host_buffer", "Token")
-        lowered = sir.lower_device_lifecycle(
+        lowered = device_sir.lower_device_lifecycle(
             reacquired, plan, source, destination
         )
 
