@@ -47,6 +47,7 @@ class C11DeviceRuntimeBackendArtifact:
     abi_version: int
     function: str
     queue: str
+    point_ids: tuple[str, ...]
     declaration_source: str
     body_source: str
     host_results: tuple[C11DeviceOwnerResult, ...]
@@ -98,6 +99,10 @@ def lower_device_runtime_plan_to_reference_c11(
         raise DeviceRuntimeC11PipelineError(
             "DEVICE C11 backend artifact changed function/queue identity"
         )
+    if emission.point_ids != logical_plan.point_ids:
+        raise DeviceRuntimeC11PipelineError(
+            "DEVICE C11 backend artifact changed source-stable lifecycle identities"
+        )
     if emission.host_results and len(emission.host_results) != sum(
         1 for call in logical_plan.calls if call.operation == "submit"
     ):
@@ -110,6 +115,7 @@ def lower_device_runtime_plan_to_reference_c11(
         abi_version=emission.abi_version,
         function=emission.function,
         queue=emission.queue,
+        point_ids=emission.point_ids,
         declaration_source=declaration_source,
         body_source=emission.render_body(),
         host_results=emission.host_results,
