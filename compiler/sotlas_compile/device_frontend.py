@@ -16,6 +16,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from .device_coexecution import (
+    DeviceCoexecutionError,
+    certify_device_submission_coexecution,
+)
 from .device_lifecycle import DeviceLifecycleSourcePoints
 from .device_runtime_semantics import (
     DeviceFrontendRuntimePlan,
@@ -88,14 +92,14 @@ def _certify_checked_coexecution(
             "DEVICE checked submissions require source-stable point identities"
         )
     try:
+        # SIR generation may come from the installed compiler package or from
+        # the legacy tooling mirror already present in sys.modules.  The
+        # coexecution proof itself is deliberately package-neutral, so class
+        # identity from either tree cannot change semantic acceptance.
         from sotlas.sir import generate_checked_ownership_sir
-        from sotlas.sir.device_coexecution import (
-            DeviceCoexecutionError,
-            certify_device_submission_coexecution,
-        )
     except ImportError as error:
         raise DeviceFrontendPlanError(
-            "DEVICE multi-owner frontend planning requires canonical SIR coexecution support"
+            "DEVICE multi-owner frontend planning requires canonical SIR generation"
         ) from error
 
     try:
@@ -106,6 +110,12 @@ def _certify_checked_coexecution(
             point_ids=points,  # type: ignore[arg-type]
         )
     except DeviceCoexecutionError as error:
+        raise DeviceFrontendPlanError(
+            f"DEVICE frontend cannot prove submission co-execution: {error}"
+        ) from error
+    except ValueError as error:
+        # SIR generation/placement failure is not evidence of coexecution.
+        # Preserve fail-closed behavior while surfacing the real boundary.
         raise DeviceFrontendPlanError(
             f"DEVICE frontend cannot prove submission co-execution: {error}"
         ) from error
