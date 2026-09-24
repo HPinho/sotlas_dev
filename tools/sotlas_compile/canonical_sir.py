@@ -15,7 +15,9 @@ import importlib.util
 from pathlib import Path
 import sys
 
-from .region_return_cfg_generator import make_region_return_cfg_generator
+from .region_interprocedural_cfg_generator import (
+    make_region_interprocedural_cfg_generator,
+)
 
 _CANONICAL_SIR_PACKAGE = "_sotlas_compiler_canonical_sir"
 
@@ -64,7 +66,7 @@ def build_canonical_checked_ownership_sir(checked_module: object):
     sir = load_canonical_sir()
     plan = sir.lower_ownership_module_semantics(ownership, domains)
 
-    generator_type = make_region_return_cfg_generator(sir)
+    generator_type = make_region_interprocedural_cfg_generator(sir)
     generator = generator_type(
         module_name=getattr(parsed_module, "name", "main")
     )
