@@ -689,30 +689,72 @@ class SIRGenerator:
             item for item in getattr(fn, "params", ())
             if isinstance(item, tuple) and len(item) == 2
         )
-        shared_markers: list[SharedOwnershipPointInst] = []
+        prefix_instructions: list[Any] = []
         for statement in prefix:
             value = getattr(statement, "value", None)
             if (
-                type(statement).__name__ != "Let"
-                or type(value).__name__ != "ShareExpr"
+                type(statement).__name__ == "Let"
+                and type(value).__name__ == "ShareExpr"
             ):
-                return False
-            source = getattr(value, "value", None)
-            source_name = (
-                getattr(source, "value", None)
-                or getattr(source, "name", None)
-            )
-            alias_name = getattr(statement, "name", None)
+                source = getattr(value, "value", None)
+                source_name = (
+                    getattr(source, "value", None)
+                    or getattr(source, "name", None)
+                )
+                alias_name = getattr(statement, "name", None)
+                if (
+                    not isinstance(source_name, str) or not source_name
+                    or not isinstance(alias_name, str) or not alias_name
+                    or source_name not in caller_params
+                ):
+                    return False
+                prefix_instructions.append(SharedOwnershipPointInst(
+                    source_name=source_name,
+                    alias_name=alias_name,
+                    point_id=self._statement_point_id(statement, "share"),
+                ))
+                continue
             if (
-                not isinstance(source_name, str) or not source_name
-                or not isinstance(alias_name, str) or not alias_name
-                or source_name not in caller_params
+                type(statement).__name__ != "Expression"
+                or type(value).__name__ != "Call"
             ):
                 return False
-            shared_markers.append(SharedOwnershipPointInst(
-                source_name=source_name,
-                alias_name=alias_name,
-                point_id=self._statement_point_id(statement, "share"),
+            callee = getattr(self, "_parsed_functions", {}).get(
+                getattr(value, "callee", "")
+            )
+            callee_params = tuple(getattr(callee, "params", ()) or ())
+            callee_result = getattr(callee, "result", None)
+            if (
+                callee is None
+                or getattr(callee_result, "name", callee_result) != "void"
+                or len(callee_params) != len(getattr(value, "args", ()))
+            ):
+                return False
+            arguments: list[SIRValue] = []
+            for argument, parameter in zip(value.args, callee_params):
+                if (
+                    not isinstance(parameter, tuple)
+                    or len(parameter) != 2
+                    or type(argument).__name__ != "MoveExpr"
+                    or type(getattr(argument, "value", None)).__name__ != "Name"
+                ):
+                    return False
+                source_name = argument.value.value
+                source_type = caller_params.get(source_name)
+                target_type = parameter[1]
+                if (
+                    source_type is None
+                    or getattr(source_type, "ownership_domain", None) is None
+                    or getattr(source_type, "name", None)
+                    != getattr(target_type, "name", None)
+                ):
+                    return False
+                arguments.append(SIRValue(
+                    source_name, getattr(source_type, "name")
+                ))
+            prefix_instructions.append(CallInst(
+                callee=value.callee,
+                arguments=arguments,
             ))
 
         used_labels = {entry_block.label}
@@ -788,8 +830,8 @@ class SIRGenerator:
         for label in sorted(reserved_labels):
             if label not in blocks:
                 blocks[label] = sir_fn.add_block(label)
-        for marker in shared_markers:
-            entry_block.add(marker)
+        for instruction in prefix_instructions:
+            entry_block.add(instruction)
         for plan in plans:
             for label, instruction in plan:
                 blocks[label].add(instruction)

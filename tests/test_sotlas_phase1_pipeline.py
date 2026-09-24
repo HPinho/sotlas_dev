@@ -100,6 +100,54 @@ fn isolate(flag: bool, cpu_a: Buffer, cpu_b: Buffer) -> void {
         )
         self.assertEqual(len({block for block, _ in transfers}), 2)
 
+    def test_nested_cfg_places_exclusive_to_device_handover_per_branch(self):
+        source = """module test::phase1_device_branch_handover;
+sole struct Buffer { value: u32; }
+fn accept_device(buffer: device Buffer) -> void { return; }
+fn submit(flag: bool, cpu_a: Buffer, cpu_b: Buffer,
+          device_a: device Buffer, device_b: device Buffer) -> void {
+    accept_device(move device_a);
+    accept_device(move device_b);
+    if flag {
+        handover cpu_a to device_a;
+        return;
+    } else {
+        handover cpu_b to device_b;
+        return;
+    }
+}
+"""
+        checked = sotlas_compile.analyze_source_phase1(
+            source, filename="<phase1-device-branch-handover>"
+        )
+        result = generate_checked_ownership_sir(checked)
+        function = next(
+            item for item in result.module.functions
+            if item.name == "submit"
+        )
+        calls = [
+            item for block in function.blocks for item in block.instructions
+            if isinstance(item, CallInst)
+            and item.callee == "accept_device"
+        ]
+        transfers = [
+            (block.label, instruction)
+            for block in function.blocks
+            for instruction in block.instructions
+            if isinstance(instruction, OwnershipDomainTransferInst)
+        ]
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(
+            {(item.source.name, item.destination.name,
+              item.source_domain, item.target_domain)
+             for _, item in transfers},
+            {
+                ("cpu_a", "device_a", "exclusive", "device"),
+                ("cpu_b", "device_b", "exclusive", "device"),
+            },
+        )
+        self.assertEqual(len({block for block, _ in transfers}), 2)
+
     def test_nested_cfg_places_arc_cleanup_on_every_return_path(self):
         source = """module test::phase1_nested_shared_returns;
 sole struct Token { value: u32; }
