@@ -2,17 +2,16 @@
 
 This module closes the semantic gap between the ownership-domain graph produced
 by the frontend and the existing DEVICE completion/synchronization machinery.
-It derives an EXCLUSIVE -> DEVICE submission directly from
+It derives EXCLUSIVE -> DEVICE submissions directly from
 ``OwnershipDomainGraph``; callers no longer reconstruct submission transitions
 or completion tokens manually.
 
-Important path-safety rule: the current canonical graph records source-stable
-transitions but does not yet carry enough CFG path identity to prove that two
-DEVICE submissions in the same function co-execute.  Therefore this graph-
-derived frontend entrypoint accepts exactly one canonical submission per
-function and fails closed when several exist.  Multi-owner synchronization
-remains supported by the lower semantic APIs, and this restriction can be
-lifted only when a path-sensitive co-execution certificate is available.
+Important path-safety rule: the canonical graph itself does not prove that two
+DEVICE submissions in one function co-execute.  A single submission therefore
+needs no extra proof, while multiple submissions require a source-stable SIR
+co-execution certificate whose function, points and bindings match the graph
+exactly.  The certificate is consumed structurally here so the semantic package
+remains independent from SIR imports.
 
 The caller still supplies source-stable point identities for completion,
 synchronization and reacquisition because those are distinct semantic events.
@@ -22,7 +21,7 @@ performed here.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Any, Iterable
 
 from .device_ownership import (
     DeviceCompletionToken,
@@ -117,10 +116,79 @@ def _materialize_points(values: Iterable[str], *, label: str) -> tuple[str, ...]
     return tuple(_required_text(point, label=label) for point in points)
 
 
+def _validate_coexecution_certificate(
+    certificate: Any,
+    *,
+    function: str,
+    submissions: tuple[OwnershipDomainTransition, ...],
+) -> None:
+    if certificate is None:
+        raise DeviceLifecycleError(
+            "DEVICE graph-derived lifecycle requires path-sensitive co-execution "
+            "proof when a function contains multiple canonical submissions"
+        )
+    expected_points = tuple(
+        _required_text(item.point_id, label="DEVICE submission point")
+        for item in submissions
+    )
+    expected_bindings = tuple(item.binding for item in submissions)
+    if getattr(certificate, "function", None) != function:
+        raise DeviceLifecycleError(
+            "DEVICE co-execution certificate crosses function identity"
+        )
+    if tuple(getattr(certificate, "point_ids", ()) or ()) != expected_points:
+        raise DeviceLifecycleError(
+            "DEVICE co-execution certificate point set/order diverges from graph"
+        )
+    if tuple(getattr(certificate, "bindings", ()) or ()) != expected_bindings:
+        raise DeviceLifecycleError(
+            "DEVICE co-execution certificate binding order diverges from graph"
+        )
+    if getattr(certificate, "acyclic", None) is not True:
+        raise DeviceLifecycleError(
+            "DEVICE multi-submission lifecycle requires an acyclic co-execution certificate"
+        )
+    locations = tuple(getattr(certificate, "locations", ()) or ())
+    if len(locations) != len(submissions):
+        raise DeviceLifecycleError(
+            "DEVICE co-execution certificate lost submission locations"
+        )
+    for index, location in enumerate(locations):
+        if getattr(location, "point_id", None) != expected_points[index]:
+            raise DeviceLifecycleError(
+                "DEVICE co-execution certificate location point diverges from graph"
+            )
+        if getattr(location, "binding", None) != expected_bindings[index]:
+            raise DeviceLifecycleError(
+                "DEVICE co-execution certificate location binding diverges from graph"
+            )
+        _required_text(
+            getattr(location, "block", None),
+            label="DEVICE co-execution block",
+        )
+        instruction_index = getattr(location, "instruction_index", None)
+        if (
+            not isinstance(instruction_index, int)
+            or isinstance(instruction_index, bool)
+            or instruction_index < 0
+        ):
+            raise DeviceLifecycleError(
+                "DEVICE co-execution certificate has invalid instruction location"
+            )
+    block_path = tuple(getattr(certificate, "block_path", ()) or ())
+    if not block_path:
+        raise DeviceLifecycleError(
+            "DEVICE co-execution certificate requires a non-empty block path"
+        )
+    for block in block_path:
+        _required_text(block, label="DEVICE co-execution path block")
+
+
 def _canonical_submissions(
     graph: OwnershipDomainGraph,
     *,
     function: str,
+    coexecution_certificate: Any = None,
 ) -> tuple[OwnershipDomainTransition, ...]:
     submissions = tuple(
         transition
@@ -162,10 +230,18 @@ def _canonical_submissions(
             )
         point_ids.add(point_id)
 
-    if len(submissions) != 1:
-        raise DeviceLifecycleError(
-            "DEVICE graph-derived lifecycle requires path-sensitive co-execution "
-            "proof when a function contains multiple canonical submissions"
+    if len(submissions) > 1:
+        _validate_coexecution_certificate(
+            coexecution_certificate,
+            function=function,
+            submissions=submissions,
+        )
+    elif coexecution_certificate is not None:
+        # A certificate for one owner is allowed only if it refers exactly to it.
+        _validate_coexecution_certificate(
+            coexecution_certificate,
+            function=function,
+            submissions=submissions,
         )
     return submissions
 
@@ -176,8 +252,9 @@ def plan_device_lifecycle_from_graph(
     function: str,
     queue: str,
     points: DeviceLifecycleSourcePoints,
+    coexecution_certificate: Any = None,
 ) -> DeviceLifecycleSemanticPlan:
-    """Derive and close one path-unambiguous DEVICE lifecycle from graph facts."""
+    """Derive and close one path-proven DEVICE lifecycle from canonical graph facts."""
     if not isinstance(graph, OwnershipDomainGraph):
         raise DeviceLifecycleError(
             "DEVICE lifecycle requires a canonical OwnershipDomainGraph"
@@ -189,7 +266,11 @@ def plan_device_lifecycle_from_graph(
 
     function_id = _required_text(function, label="DEVICE lifecycle function")
     queue_id = _required_text(queue, label="DEVICE lifecycle queue")
-    submissions = _canonical_submissions(graph, function=function_id)
+    submissions = _canonical_submissions(
+        graph,
+        function=function_id,
+        coexecution_certificate=coexecution_certificate,
+    )
     owner_count = len(submissions)
 
     completion_points = _materialize_points(
