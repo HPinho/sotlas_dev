@@ -2,9 +2,17 @@
 
 This module closes the semantic gap between the ownership-domain graph produced
 by the frontend and the existing DEVICE completion/synchronization machinery.
-It derives the exact EXCLUSIVE -> DEVICE submissions for one function directly
-from ``OwnershipDomainGraph`` in graph order; callers no longer reconstruct
-submission transitions or completion tokens manually.
+It derives an EXCLUSIVE -> DEVICE submission directly from
+``OwnershipDomainGraph``; callers no longer reconstruct submission transitions
+or completion tokens manually.
+
+Important path-safety rule: the current canonical graph records source-stable
+transitions but does not yet carry enough CFG path identity to prove that two
+DEVICE submissions in the same function co-execute.  Therefore this graph-
+derived frontend entrypoint accepts exactly one canonical submission per
+function and fails closed when several exist.  Multi-owner synchronization
+remains supported by the lower semantic APIs, and this restriction can be
+lifted only when a path-sensitive co-execution certificate is available.
 
 The caller still supplies source-stable point identities for completion,
 synchronization and reacquisition because those are distinct semantic events.
@@ -154,6 +162,11 @@ def _canonical_submissions(
             )
         point_ids.add(point_id)
 
+    if len(submissions) != 1:
+        raise DeviceLifecycleError(
+            "DEVICE graph-derived lifecycle requires path-sensitive co-execution "
+            "proof when a function contains multiple canonical submissions"
+        )
     return submissions
 
 
@@ -164,7 +177,7 @@ def plan_device_lifecycle_from_graph(
     queue: str,
     points: DeviceLifecycleSourcePoints,
 ) -> DeviceLifecycleSemanticPlan:
-    """Derive and close one synchronized DEVICE lifecycle from canonical graph facts."""
+    """Derive and close one path-unambiguous DEVICE lifecycle from graph facts."""
     if not isinstance(graph, OwnershipDomainGraph):
         raise DeviceLifecycleError(
             "DEVICE lifecycle requires a canonical OwnershipDomainGraph"
