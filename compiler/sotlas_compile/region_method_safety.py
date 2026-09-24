@@ -6,9 +6,13 @@ but must be validated against the resolved method signature rather than treated
 as an untyped opaque call.
 
 This pass is intentionally narrow: it does not create new borrowing semantics.
-It only permits an existing REGION-derived reference to cross a method-call
-boundary when the corresponding method parameter is explicitly ``direct`` or
-``whisper``. Missing method/type facts fail closed.
+A REGION-derived reference may cross an explicit method argument only through
+``direct`` or ``whisper``.  A REGION owner or alias used as the method receiver
+is likewise accepted only when the resolved self parameter is explicitly
+``direct`` or ``whisper``.  Plain ``&T`` receivers do not acquire a hidden
+REGION lifetime contract; a future reusable no-escape certificate may relax
+that boundary without changing this rule implicitly. Missing method/type facts
+fail closed.
 """
 from __future__ import annotations
 
@@ -109,6 +113,15 @@ class _RegionMethodEscapeChecker:
             )
         return result
 
+    def _receiver_sources(self, expr, aliases, region_owners) -> set[str]:
+        """Resolve direct REGION owners/aliases used as a method receiver."""
+        root = self._root_name(expr)
+        if root in region_owners:
+            return {root}
+        if root in aliases:
+            return set(aliases[root]).intersection(region_owners)
+        return self._reference_sources(expr, aliases, region_owners)
+
     def _method_calls(self, expr):
         b = self.b
         if expr is None:
@@ -170,27 +183,56 @@ class _RegionMethodEscapeChecker:
 
     def _check_expr(self, expr, scope, aliases, region_owners) -> None:
         for call in self._method_calls(expr):
+            receiver_owners = self._receiver_sources(
+                call.target, aliases, region_owners
+            )
             region_args = [
                 self._reference_sources(argument, aliases, region_owners)
                 for argument in call.args
             ]
-            if not any(region_args):
+            if not receiver_owners and not any(region_args):
                 continue
 
             type_name, method = self._lookup_method(call, scope)
+            all_owners = set(receiver_owners)
+            for owners in region_args:
+                all_owners.update(owners)
             if method is None:
-                owner = sorted(set().union(*region_args))[0]
+                owner = sorted(all_owners)[0]
                 self.error(
                     f"reference to region owner {owner!r} cannot escape through "
                     f"unresolved method {call.method!r}",
                     call.token,
                 )
 
-            params = self._explicit_method_params(method, len(call.args))
+            params = tuple(getattr(method, "params", ()) or ())
+            if receiver_owners:
+                self_parameter = params[0] if params else None
+                self_name, self_type = _param_name_type(self_parameter)
+                self_domain = getattr(self_type, "ownership_domain", None)
+                if self_domain not in ("direct", "whisper"):
+                    owner = sorted(receiver_owners)[0]
+                    method_label = (
+                        f"{type_name}.{call.method}"
+                        if type_name else call.method
+                    )
+                    self.error(
+                        f"region owner {owner!r} cannot cross method receiver "
+                        f"boundary {method_label!r} through parameter "
+                        f"{self_name or 'self'!r}; REGION receivers require an "
+                        "explicit direct or whisper self parameter",
+                        call.token,
+                    )
+
+            explicit_params = self._explicit_method_params(method, len(call.args))
             for index, owners in enumerate(region_args):
                 if not owners:
                     continue
-                parameter = params[index] if index < len(params) else None
+                parameter = (
+                    explicit_params[index]
+                    if index < len(explicit_params)
+                    else None
+                )
                 parameter_name, parameter_type = _param_name_type(parameter)
                 domain = getattr(parameter_type, "ownership_domain", None)
                 if domain not in ("direct", "whisper"):
