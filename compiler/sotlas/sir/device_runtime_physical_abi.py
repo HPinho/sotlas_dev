@@ -5,6 +5,10 @@ multiple results are transported.  This module lets one concrete backend
 declare those choices and validates that the declaration is a faithful physical
 representation of the already-proven logical ABI.
 
+One logical role may expand into several adjacent physical components.  This is
+important for representations such as ``COMPLETION_SET -> (data, count)`` and
+prevents the logical SIR contract from prematurely choosing one machine ABI.
+
 Validation still does not emit a call.  A physical contract may choose a return
 value or out-parameter for logical results, but it may not add, remove, reorder
 or reinterpret logical DEVICE roles.
@@ -38,6 +42,7 @@ class DeviceRuntimeResultTransport(str, Enum):
 class DeviceRuntimePhysicalParameter:
     role: DeviceRuntimeABIValueRole
     type_name: str
+    component: str | None = None
 
 
 @dataclass(frozen=True)
@@ -45,6 +50,7 @@ class DeviceRuntimePhysicalResult:
     role: DeviceRuntimeABIValueRole
     type_name: str
     transport: DeviceRuntimeResultTransport
+    component: str | None = None
 
 
 @dataclass(frozen=True)
@@ -95,6 +101,43 @@ def _materialize(values: Iterable[Any], *, label: str) -> tuple[Any, ...]:
     if not result:
         raise DeviceRuntimePhysicalABIError(f"{label} requires at least one item")
     return result
+
+
+def _collapsed_roles(entries: tuple[Any, ...]) -> tuple[DeviceRuntimeABIValueRole, ...]:
+    collapsed: list[DeviceRuntimeABIValueRole] = []
+    for entry in entries:
+        role = entry.role
+        if not collapsed or collapsed[-1] is not role:
+            collapsed.append(role)
+    return tuple(collapsed)
+
+
+def _validate_component_groups(entries: tuple[Any, ...], *, label: str) -> None:
+    index = 0
+    while index < len(entries):
+        role = entries[index].role
+        end = index + 1
+        while end < len(entries) and entries[end].role is role:
+            end += 1
+        group = entries[index:end]
+        if len(group) > 1:
+            components = tuple(
+                _required_text(
+                    entry.component,
+                    label=f"{label} {role.value} component",
+                )
+                for entry in group
+            )
+            if len(set(components)) != len(components):
+                raise DeviceRuntimePhysicalABIError(
+                    f"{label} {role.value} components must be unique"
+                )
+        elif group[0].component is not None:
+            _required_text(
+                group[0].component,
+                label=f"{label} {role.value} component",
+            )
+        index = end
 
 
 def bind_device_runtime_physical_abi(
@@ -218,8 +261,10 @@ def bind_device_runtime_physical_abi(
                 parameter.type_name,
                 label=f"DEVICE physical {operation} parameter type",
             )
-        parameter_roles = tuple(parameter.role for parameter in parameters)
-        if parameter_roles != signature.parameters:
+        _validate_component_groups(
+            parameters, label=f"DEVICE physical {operation} parameter"
+        )
+        if _collapsed_roles(parameters) != signature.parameters:
             raise DeviceRuntimePhysicalABIError(
                 f"DEVICE physical {operation} parameter roles diverge from logical ABI"
             )
@@ -245,8 +290,10 @@ def bind_device_runtime_physical_abi(
                 )
             if result.transport is DeviceRuntimeResultTransport.RETURN_VALUE:
                 return_value_count += 1
-        result_roles = tuple(result.role for result in results)
-        if result_roles != signature.results:
+        _validate_component_groups(
+            results, label=f"DEVICE physical {operation} result"
+        )
+        if _collapsed_roles(results) != signature.results:
             raise DeviceRuntimePhysicalABIError(
                 f"DEVICE physical {operation} result roles diverge from logical ABI"
             )
