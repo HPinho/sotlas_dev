@@ -239,6 +239,49 @@ fn main() -> i32 {
         )
         self.assertEqual(executed.returncode, 0, executed.stderr)
 
+    def test_external_owner_is_consumed_once_in_nested_branches(self):
+        source = ROOT / "bootstrap" / "sotlas" / "test_external_nested_temp.sotlas"
+        executable = ROOT / "build" / "test_external_nested.exe"
+        self.addCleanup(source.unlink, missing_ok=True)
+        self.addCleanup(executable.unlink, missing_ok=True)
+        source.write_text("""module app::external_nested;
+@repr(C) sole struct Token { value: u32; }
+@extern(C) fn release(token: external Token) -> void;
+@system @export fn dispose(token: external Token, outer: bool, inner: bool) -> void {
+    if outer {
+        if inner { release(move token); return; }
+        else { release(move token); return; }
+    } else {
+        if inner { release(move token); return; }
+        else { release(move token); return; }
+    }
+}
+""", encoding="utf-8")
+        bootstrap.emit_c_project(source, self.output_c)
+        self.output_c.write_text(
+            self.output_c.read_text(encoding="utf-8")
+            + "\nstatic uint32_t release_count;\n"
+            + "void release(Token token) { release_count += token.value; }\n"
+            + "int main(void) { Token a = {1}, b = {2}, c = {3}, d = {4}; "
+            + "dispose(a, true, true); dispose(b, true, false); "
+            + "dispose(c, false, true); dispose(d, false, false); "
+            + "return release_count == 10 ? 0 : 1; }\n",
+            encoding="utf-8",
+        )
+        compiler = _host_c_compiler()
+        env = dict(os.environ)
+        env["PATH"] = str(compiler.parent) + os.pathsep + env.get("PATH", "")
+        compiled = subprocess.run(
+            [str(compiler), "-std=c11", "-Wall", "-Wextra", "-Werror",
+             str(self.output_c), "-o", str(executable)],
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(compiled.returncode, 0, compiled.stderr)
+        executed = subprocess.run(
+            [str(executable)], capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(executed.returncode, 0, executed.stderr)
+
     def test_external_repr_c_wrapper_transfers_nested_handle_by_value(self):
         source = ROOT / "bootstrap" / "sotlas" / "test_external_wrapper_temp.sotlas"
         executable = ROOT / "build" / "test_external_wrapper.exe"
