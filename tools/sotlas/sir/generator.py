@@ -795,6 +795,43 @@ class SIRGenerator:
                     ):
                         return False
                     continue
+                if kinds in (("Expression", "Return"), ("Expression", "ReturnNode")):
+                    call = getattr(branch[0], "value", None)
+                    if type(call).__name__ != "Call":
+                        return False
+                    callee = getattr(self, "_parsed_functions", {}).get(
+                        getattr(call, "callee", "")
+                    )
+                    parameters = tuple(getattr(callee, "params", ()) or ())
+                    result_type = getattr(callee, "result", None)
+                    if (
+                        callee is None
+                        or getattr(result_type, "name", result_type) != "void"
+                        or len(parameters) != len(getattr(call, "args", ()))
+                        or not parameters
+                    ):
+                        return False
+                    for argument, parameter in zip(call.args, parameters):
+                        if isinstance(parameter, tuple) and len(parameter) == 2:
+                            parameter_name, target_type = parameter
+                        else:
+                            parameter_name = getattr(parameter, "name", "")
+                            target_type = (
+                                getattr(parameter, "type_ann", None)
+                                or getattr(parameter, "type", None)
+                            )
+                        if not parameter_name or target_type is None:
+                            return False
+                        target_domain = getattr(target_type, "ownership_domain", None)
+                        if target_domain not in ("direct", "whisper"):
+                            return False
+                        if type(argument).__name__ == "Unary":
+                            source = getattr(argument, "value", None)
+                            if getattr(argument, "op", None) != "&" or type(source).__name__ != "Name":
+                                return False
+                        elif type(argument).__name__ != "Name":
+                            return False
+                    continue
                 return False
 
             point = self._statement_point_id(node, "if").removeprefix("if@")
@@ -837,7 +874,58 @@ class SIRGenerator:
                 blocks[label].add(instruction)
         for label, statements in leaves:
             block = blocks[label]
-            if len(statements) == 2:
+            if type(statements[0]).__name__ == "Expression":
+                call = statements[0].value
+                callee = self._parsed_functions[call.callee]
+                parameters = tuple(getattr(callee, "params", ()) or ())
+                arguments: list[SIRValue] = []
+                access_markers: list[Any] = []
+                for argument, parameter in zip(call.args, parameters):
+                    if isinstance(parameter, tuple) and len(parameter) == 2:
+                        parameter_name, target_type = parameter
+                    else:
+                        parameter_name = getattr(parameter, "name", "")
+                        target_type = (
+                            getattr(parameter, "type_ann", None)
+                            or getattr(parameter, "type", None)
+                        )
+                    target_domain = getattr(target_type, "ownership_domain")
+                    if type(argument).__name__ == "Unary":
+                        source_name = argument.value.value
+                        source_type = caller_params.get(source_name)
+                        source_domain = getattr(source_type, "ownership_domain", None) or "exclusive"
+                        slot = next((item.result for item in entry_block.instructions
+                                     if isinstance(item, AllocStackInst) and item.var_name == source_name), None)
+                        if source_type is None or slot is None or getattr(source_type, "name", None) != getattr(target_type, "name", None):
+                            return False
+                        arguments.append(SIRValue(slot.name, f"{source_type.name}*"))
+                    else:
+                        source_name = argument.value
+                        source_type = caller_params.get(source_name)
+                        source_domain = getattr(source_type, "ownership_domain", None)
+                        target_domain = getattr(target_type, "ownership_domain", None)
+                        if source_type is None or source_domain not in ("direct", "whisper") or source_domain not in (target_domain, "direct") or getattr(source_type, "name", None) != getattr(target_type, "name", None):
+                            return False
+                        slot = next((item.result for item in entry_block.instructions
+                                     if isinstance(item, AllocStackInst) and item.var_name == source_name), None)
+                        if slot is None:
+                            return False
+                        loaded = self._next_val(f"direct_{source_name}", self._type_name(source_type))
+                        block.add(LoadInst(source=slot, result=loaded))
+                        arguments.append(loaded)
+                    point_id = self._statement_point_id(call, target_domain)
+                    marker_type = DirectAccessInst if target_domain == "direct" else WhisperBorrowInst
+                    access_markers.append(marker_type(
+                        source=SIRValue(source_name, getattr(source_type, "name")),
+                        callee=call.callee,
+                        parameter=parameter_name,
+                        source_domain=source_domain,
+                        point_id=point_id,
+                    ))
+                for marker in access_markers:
+                    block.add(marker)
+                block.add(CallInst(callee=call.callee, arguments=arguments))
+            if len(statements) == 2 and type(statements[0]).__name__ not in ("Expression", "Return", "ReturnNode"):
                 operation, _ = statements
                 operation_kind = type(operation).__name__.lower()
                 source = getattr(operation, "value", None)

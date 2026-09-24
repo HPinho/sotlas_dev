@@ -61,6 +61,49 @@ CallInst, DestroyInst, ReleaseInst, ReturnInst, ShareInst = (
 
 
 class SotlasPhase1PipelineTests(unittest.TestCase):
+    def test_nested_cfg_places_direct_and_whisper_borrows_per_branch(self):
+        source = """module test::phase1_direct_branch_borrow;
+sole struct Token { value: u32; }
+fn inspect_direct(token: direct Token) -> void { return; }
+fn inspect_whisper(token: whisper Token) -> void { return; }
+fn route(flag: bool, token: Token) -> void {
+    if flag {
+        inspect_direct(&token);
+        return;
+    } else {
+        inspect_whisper(&token);
+        return;
+    }
+}
+"""
+        checked = sotlas_compile.analyze_source_phase1(
+            source, filename="<phase1-direct-branch-borrow>"
+        )
+        result = generate_checked_ownership_sir(checked)
+        function = next(
+            item for item in result.module.functions if item.name == "route"
+        )
+        branches = [
+            block for block in function.blocks
+            if any(isinstance(item, ReturnInst) for item in block.instructions)
+        ]
+        self.assertEqual(len(branches), 2)
+        marker_kinds = {
+            type(item).__name__
+            for block in branches for item in block.instructions
+        }
+        self.assertEqual(marker_kinds, {"DirectAccessInst", "WhisperBorrowInst", "ReturnInst", "CallInst"})
+        for block in branches:
+            names = [type(item).__name__ for item in block.instructions]
+            call_index = names.index("CallInst")
+            return_index = names.index("ReturnInst")
+            marker_index = next(
+                index for index, item in enumerate(block.instructions)
+                if type(item).__name__ in ("DirectAccessInst", "WhisperBorrowInst")
+            )
+            self.assertLess(marker_index, call_index)
+            self.assertLess(call_index, return_index)
+
     def test_nested_cfg_places_quarantine_on_each_branch(self):
         source = """module test::phase1_island_branch_quarantine;
 sole struct Buffer { value: u32; }
