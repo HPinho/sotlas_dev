@@ -33,7 +33,7 @@ _CRITICAL_MIRRORS = {
         (
             "class SIRGenerator",
             "OwnershipDomainPointInst",
-            "def generate(",
+            "def generate_from_ast(",
         ),
     ),
     Path("sotlas/sir/ownership.py"): (
