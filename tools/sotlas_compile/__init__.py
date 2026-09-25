@@ -7,6 +7,7 @@ from . import bootstrap as bootstrap
 from .frontend_extensions import install as _install_frontend_extensions
 from .language_safety import install as _install_language_safety
 from .authority_frontend_safety import install as _install_authority_frontend_safety
+from .authority_typed_ast import install as _install_authority_typed_ast
 from .region_ast_compat import install as _install_region_ast_compat
 from .region_indirect_safety import install as _install_region_indirect_safety
 from .region_method_safety import install as _install_region_method_safety
@@ -17,6 +18,7 @@ _install_region_ast_compat()
 _install_region_indirect_safety(bootstrap)
 _install_region_method_safety(bootstrap)
 _install_authority_frontend_safety(bootstrap)
+_install_authority_typed_ast(bootstrap)
 
 from .errors import SotlasError
 
