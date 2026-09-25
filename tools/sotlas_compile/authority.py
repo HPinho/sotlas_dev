@@ -29,6 +29,7 @@ _CAPABILITY_RE = re.compile(
     r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$"
 )
 _SYSTEM_ATTR_RE = re.compile(r"^@system(?:\((.*)\))?$")
+_LEGACY_PRIVILEGED_CONTEXT_ATTRS = frozenset({"@naked", "@interrupt"})
 
 
 @dataclass(frozen=True)
@@ -85,7 +86,15 @@ def _parse_capability_attribute(function: object) -> AuthorityContract:
         and (item == "@system" or item.startswith("@system("))
     )
     if not system_attrs:
-        return AuthorityContract(function=name)
+        legacy_context = any(
+            item in _LEGACY_PRIVILEGED_CONTEXT_ATTRS
+            for item in attributes
+            if isinstance(item, str)
+        )
+        return AuthorityContract(
+            function=name,
+            legacy_unrestricted=legacy_context,
+        )
     if len(system_attrs) != 1:
         raise AuthorityDomainError(
             f"function {name!r} requires exactly one @system authority contract"
