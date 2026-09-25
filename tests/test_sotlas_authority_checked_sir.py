@@ -65,7 +65,7 @@ fn boot() -> void {
 """
 
 
-class SotlasAuthorityCheckedSITTests(unittest.TestCase):
+class SotlasAuthorityCheckedSIRTests(unittest.TestCase):
     def test_strict_builder_lowers_named_authority_call_and_certifies_it(self):
         checked = package.analyze_source_phase1(
             MATCHING,
@@ -73,7 +73,9 @@ class SotlasAuthorityCheckedSITTests(unittest.TestCase):
         )
         result = canonical_sir.build_canonical_checked_authority_sir(checked)
         sir = canonical_sir.load_canonical_sir()
-        boot = next(item for item in result.module.functions if item.name == "boot")
+        boot = next(
+            item for item in result.module.functions if item.name == "boot"
+        )
         calls = [
             item
             for block in boot.blocks
@@ -88,22 +90,81 @@ class SotlasAuthorityCheckedSITTests(unittest.TestCase):
             result.authority_certificate.function("boot").capabilities,
             ("pci.config",),
         )
-        self.assertEqual(
-            resu[˜]]Üš]WØÙ\YšXØ]K˜Ø[×Ùœ›ÛJ˜›ÛİŠVÌKœÚ\—ØØ[ØÛİ[ˆKˆ
-BˆÙ[‹˜\ÜÙ\YJ™\İ[˜]]Üš]WÜØY™]KœİXØÙ\ÜÊB‚ˆYˆ\İÜ™\X]YØ]]Üš]WØØ[×Üİ\š]™WÚ[×ÜÚ\—ØWØÛİ[
-Ù[ŠN‚ˆÚXÚÙYHXÚØYÙK˜[˜[^™WÜÛİ\˜ÙWÜ\ÙLJˆ‘TPUQˆš[[˜[YOH]]Üš]KXÚXÚÙY\Ú\‹\™\X]Yˆ‹ˆ
-Bˆ™\İ[HØ[›ÛšXØ[ÜÚ\‹˜Z[ØØ[›ÛšXØ[ØÚXÚÙYØ]]Üš]WÜÚ\ŠÚXÚÙY
-BˆÜ›İ\H™\İ[˜]]Üš]WØÙ\YšXØ]K˜Ø[×Ùœ›ÛJ˜›ÛİŠVÌBˆÙ[‹˜\ÜÙ\\]X[
-Ü›İ\œÚ\—ØØ[ØÛİ[ŠBˆÙ[‹˜\ÜÙ\\]X[
-[ŠÜ›İ\œÛİ\˜ÙWÜÚ[ÚYÊKŠBˆÙ[‹˜\ÜÙ\YJ™\İ[˜]]Üš]WÜØY™]KœİXØÙ\ÜÊB‚ˆYˆ\İÛYØXŞWØ]]Üš]WØØ[Ü™\Ù\™\×ÛÛÜŞ\İ[WÛX\šÙ\ŠÙ[ŠN‚ˆÚXÚÙYHXÚØYÙK˜[˜[^™WÜÛİ\˜ÙWÜ\ÙLJˆQĞPÖKˆš[[˜[YOH]]Üš]KXÚXÚÙY\Ú\‹[YØXŞOˆ‹ˆ
-Bˆ™\İ[HØ[›ÛšXØ[ÜÚ\‹˜Z[ØØ[›ÛšXØ[ØÚXÚÙYØ]]Üš]WÜÚ\ŠÚXÚÙY
-BˆÚ\ˆHØ[›ÛšXØ[ÜÚ\‹›ØYØØ[›ÛšXØ[ÜÚ\Š
-Bˆ›ÛİH™^
-][H›Üˆ][H[ˆ™\İ[›[Ù[K™[˜İ[ÛœÈYˆ][K›˜[YHOH˜›ÛİŠBˆØ[H™^
-ˆ][Bˆ›Üˆ›ØÚÈ[ˆ›Ûİ˜›ØÚÜÂˆ›Üˆ][H[ˆ›ØÚËš[œİXİ[ÛœÂˆYˆ\Ú[œİ[˜ÙJ][KÚ\‹Ø[[œİ
-Bˆ
-B‚ˆÙ[‹˜\ÜÙ\YJ›Ûİš\×ÜŞ\İ[JBˆÙ[‹˜\ÜÙ\YJØ[š\×ÜŞ\İ[JBˆÙ[‹˜\ÜÙ\YJˆ™\İ[˜]]Üš]WØÙ\YšXØ]K™[˜İ[ÛŠ˜›ÛİŠK›YØXŞWİ[œ™\İšXİYˆ
-BˆÙ[‹˜\ÜÙ\YJ™\İ[˜]]Üš]WÜØY™]KœİXØÙ\ÜÊB‚ˆYˆ\İÛİÛ™\œÚ\ÛÛ›WØZ[\—ÚÙY\×Ú]×ØÛÛ\]Xš[]WÜÚ\JÙ[ŠN‚ˆÚXÚÙYHXÚØYÙK˜[˜[^™WÜÛİ\˜ÙWÜ\ÙLJˆPUÒS‘Ëˆš[[˜[YOH]]Üš]K[İÛ™\œÚ\XÛÛ\]ˆ‹ˆ
-BˆİÛ™\œÚ\[ˆHØ[›ÛšXØ[ÜÚ\‹˜Z[ØØ[›ÛšXØ[ØÚXÚÙYÛİÛ™\œÚ\ÜÚ\ŠˆÚXÚÙYˆ
-BˆÙ[‹˜\ÜÙ\\Ó›İ›Û™JİÛ™\œÚ\›[Ù[JBˆÙ[‹˜\ÜÙ\\Ó›İ›Û™J[ŠB‚‚šYˆ×Û˜[YW×ÈOH—×ÛXZ[—×È‚ˆ[š]\İ›XZ[Š
-B
+        groups = result.authority_certificate.calls_from("boot")
+        self.assertEqual(len(groups), 1)
+        self.assertEqual(groups[0].callee, "configure_pci")
+        self.assertEqual(groups[0].sir_call_count, 1)
+        self.assertEqual(len(groups[0].source_point_ids), 1)
+        self.assertTrue(result.authority_safety.success)
+
+    def test_repeated_named_authority_calls_survive_into_sir_by_count(self):
+        checked = package.analyze_source_phase1(
+            REPEATED,
+            filename="<authority-checked-sir-repeated>",
+        )
+        result = canonical_sir.build_canonical_checked_authority_sir(checked)
+        sir = canonical_sir.load_canonical_sir()
+        boot = next(
+            item for item in result.module.functions if item.name == "boot"
+        )
+        calls = [
+            item
+            for block in boot.blocks
+            for item in block.instructions
+            if isinstance(item, sir.CallInst)
+        ]
+        group = result.authority_certificate.calls_from("boot")[0]
+
+        self.assertEqual(len(calls), 2)
+        self.assertEqual([item.callee for item in calls], [
+            "configure_pci",
+            "configure_pci",
+        ])
+        self.assertEqual(group.sir_call_count, 2)
+        self.assertEqual(len(group.source_point_ids), 2)
+        self.assertEqual(len(set(group.source_point_ids)), 2)
+        self.assertTrue(result.authority_safety.success)
+
+    def test_legacy_authority_call_preserves_old_system_marker(self):
+        checked = package.analyze_source_phase1(
+            LEGACY,
+            filename="<authority-checked-sir-legacy>",
+        )
+        result = canonical_sir.build_canonical_checked_authority_sir(checked)
+        sir = canonical_sir.load_canonical_sir()
+        boot = next(
+            item for item in result.module.functions if item.name == "boot"
+        )
+        call = next(
+            item
+            for block in boot.blocks
+            for item in block.instructions
+            if isinstance(item, sir.CallInst)
+        )
+
+        self.assertTrue(boot.is_system)
+        self.assertTrue(call.is_system)
+        self.assertTrue(
+            result.authority_certificate.function("boot").legacy_unrestricted
+        )
+        self.assertTrue(
+            result.authority_certificate.calls_from("boot")[0]
+            .requires_legacy_unrestricted
+        )
+        self.assertTrue(result.authority_safety.success)
+
+    def test_ownership_only_builder_keeps_compatibility_shape(self):
+        checked = package.analyze_source_phase1(
+            MATCHING,
+            filename="<authority-ownership-compat>",
+        )
+        ownership, plan = canonical_sir.build_canonical_checked_ownership_sir(
+            checked
+        )
+
+        self.assertIsNotNone(ownership.module)
+        self.assertIsNotNone(plan)
+
+
+if __name__ == "__main__":
+    unittest.main()
