@@ -10,6 +10,10 @@ from .authority_frontend_safety import install as _install_authority_frontend_sa
 from .authority_typed_ast import install as _install_authority_typed_ast
 from .region_indirect_safety import install as _install_region_indirect_safety
 from .region_method_safety import install as _install_region_method_safety
+from .state_frontend import (
+    StateSpaceFrontendPlan,
+    install as _install_state_space_frontend,
+)
 
 _install_frontend_extensions(bootstrap)
 _install_language_safety(bootstrap)
@@ -17,6 +21,10 @@ _install_region_indirect_safety(bootstrap)
 _install_region_method_safety(bootstrap)
 _install_authority_frontend_safety(bootstrap)
 _install_authority_typed_ast(bootstrap)
+# Phase 4 installs last so it wraps the final canonical parser/check/backend
+# boundary rather than introducing a parallel language route.
+_install_state_space_frontend(bootstrap)
+plan_state_space_frontend = bootstrap.plan_state_space_frontend
 
 from .errors import SotlasError
 from .phase1_pipeline import (
@@ -38,5 +46,6 @@ __all__ = [
     "bootstrap", "SotlasError", "SotlasBootstrapError", "compile_source",
     "compile_project", "emit_c_project", "Phase1CheckedModule",
     "analyze_module_phase1", "analyze_source_phase1", "CheckedAuthoritySIR",
-    "build_canonical_checked_authority_sir",
+    "build_canonical_checked_authority_sir", "StateSpaceFrontendPlan",
+    "plan_state_space_frontend",
 ]

@@ -11,6 +11,10 @@ from .authority_typed_ast import install as _install_authority_typed_ast
 from .region_ast_compat import install as _install_region_ast_compat
 from .region_indirect_safety import install as _install_region_indirect_safety
 from .region_method_safety import install as _install_region_method_safety
+from .state_frontend import (
+    StateSpaceFrontendPlan,
+    install as _install_state_space_frontend,
+)
 
 _install_frontend_extensions(bootstrap)
 _install_language_safety(bootstrap)
@@ -19,6 +23,10 @@ _install_region_indirect_safety(bootstrap)
 _install_region_method_safety(bootstrap)
 _install_authority_frontend_safety(bootstrap)
 _install_authority_typed_ast(bootstrap)
+# Phase 4 installs last so it wraps the final canonical parser/check/backend
+# boundary rather than introducing a parallel language route.
+_install_state_space_frontend(bootstrap)
+plan_state_space_frontend = bootstrap.plan_state_space_frontend
 
 from .errors import SotlasError
 
@@ -29,5 +37,6 @@ emit_c_project = bootstrap.emit_c_project
 
 __all__ = [
     "bootstrap", "SotlasError", "SotlasBootstrapError", "compile_source",
-    "compile_project", "emit_c_project",
+    "compile_project", "emit_c_project", "StateSpaceFrontendPlan",
+    "plan_state_space_frontend",
 ]

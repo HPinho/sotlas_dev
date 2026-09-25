@@ -1,11 +1,11 @@
 # Sotlas — Implementation Status
 
 **Atualizado em:** 2026-09-25  
-**Último baseline verde certificado:** `2fee4aa5342df1822389c7f1dd51979fe42abeeb`  
-**CI de referência:** Sotlas CI & Toolchain Build Farm #560 — `success`  
+**Último baseline verde certificado:** `c34e568787a8afc8ce22150933555067c84468a8`  
+**CI de referência:** Sotlas CI & Toolchain Build Farm #561 — `success`  
 **Fonte arquitetural:** `SOTLAS — ESPECIFICAÇÃO MESTRA`
 
-> Este documento passa a ser o índice operacional atual. O snapshot detalhado anterior, com o histórico extenso das microentregas da Fase 2, foi preservado em `docs/archive/sotlas_implementation_status_2026-09-23.md`.
+> Este é o índice operacional atual. O snapshot detalhado anterior, com o histórico extenso das microentregas da Fase 2, permanece preservado em `docs/archive/sotlas_implementation_status_2026-09-23.md`.
 
 ## Regra de status
 
@@ -15,7 +15,7 @@ Legenda:
 
 - ✅ `COMPLETE`: gate do Sotlas 1.0 fechado;
 - 🟡 `IN PROGRESS`: blockers 1.0 ainda abertos;
-- `PREVIEW`: existe implementação útil, mas não faz parte do contrato estável 1.0;
+- `PREVIEW`: existe implementação útil, mas ela ainda não integra o contrato estável 1.0;
 - `DEFER`: evolução planejada para 1.0.x/1.1.
 
 ## Progresso por fase
@@ -26,7 +26,7 @@ Legenda:
 | 1 | Typed Semantic Core | 100% | ✅ COMPLETE |
 | 2 | Ownership Domains | 100% | ✅ COMPLETE |
 | 3 | Authority Domains | 100% | ✅ COMPLETE |
-| 4 | State Spaces | ~20% | 🟡 IN PROGRESS |
+| 4 | State Spaces | ~35% | 🟡 IN PROGRESS |
 | 5 | Effects | ~10% | 🟡 |
 | 6 | Flow | ~0% | 🟡 |
 | 7 | Execution Domains | ~10% | 🟡 |
@@ -41,7 +41,7 @@ Legenda:
 | 16 | Native Machine Backend | ~5% | 🟡 |
 | 17 | Tooling avançado | ~15% | 🟡 |
 
-Os percentuais acima medem o escopo necessário para o Sotlas 1.0. Eles não significam que toda generalização teórica prevista para 1.0.x/1.1 já foi implementada.
+Os percentuais medem o escopo necessário para o Sotlas 1.0. Generalizações pós-release não mantêm uma fase aberta quando o subset atual pode rejeitá-las de forma correta e fail-closed.
 
 ## Fase 1 — Typed Semantic Core
 
@@ -55,8 +55,6 @@ Os percentuais acima medem o escopo necessário para o Sotlas 1.0. Eles não sig
 - [x] recursive by-value rejection;
 - [x] ownership `sole`, moves, branch merge e loop guard;
 - [x] reality/maturity gates.
-
-Extensões de enum payload que excedem o subset necessário ao 1.0 permanecem como maturação separada.
 
 ## Fase 2 — Ownership Domains
 
@@ -72,8 +70,6 @@ O subset estável de `sole/exclusive`, `shared`, `region`, `island`, `quarantine
 - [x] borrows call-scoped/no-escape de `direct`/`whisper`;
 - [x] caminhos C11/e2e representativos;
 - [x] unsupported shapes permanecem fail-closed.
-
-Refinamentos amplos de CFG/runtime/ABI continuam em 1.0.x/1.1 sem reabrir automaticamente a fase.
 
 Escopo: `docs/sotlas_1_0_release_scope.md`.
 
@@ -94,35 +90,47 @@ Escopo: `docs/sotlas_1_0_phase3_authority_scope.md`.
 
 ## Fase 4 — State Spaces
 
-**Status 1.0: ~20% 🟡 — IN PROGRESS**
+**Status 1.0: ~35% 🟡 — IN PROGRESS**
 
-### Núcleo semântico já entregue
+### Núcleo semântico
 
 - [x] `StateSpacePlan` canônico;
 - [x] estados com payload contracts ordenados;
 - [x] grafo explícito de transições;
 - [x] validação fail-closed de estados/transições;
 - [x] `StateQualifiedType` para `Type<State>`;
-- [x] boundary check exato de typestate;
-- [x] transições de typestate validadas pelo grafo;
+- [x] boundary check e transições validadas pelo grafo;
 - [x] identidade de State Space preservada;
-- [x] coverage backend-neutral;
-- [x] exhaustiveness gate com missing-state diagnostics.
+- [x] coverage backend-neutral e exhaustiveness gate.
+
+### Frontend de produção
+
+- [x] `space` é reconhecido na rota canônica `sotlas_compile.bootstrap`;
+- [x] AST fonte preserva nome, visibilidade, estados, payloads e transições;
+- [x] `Space<State>` é reconhecido como typestate no subset 1.0 quando existe `space Space`;
+- [x] generics não associados a um State Space continuam compatíveis;
+- [x] `StateSpaceFrontendPlan` reconcilia fonte → grafo canônico → typestate;
+- [x] estado inexistente, espaço duplicado, edge inválido e typestate indireto fora do subset falham fechado;
+- [x] `check`/C/header rejeitam State Spaces como `PREVIEW` até haver lowering certificado, preservando `check => backend suportado`.
 
 ### Blockers 1.0 ainda abertos
 
-- [ ] parser/AST público de `space`;
-- [ ] `Type<State>` no frontend/Typed AST de produção;
-- [ ] integração com `check` e pipeline público;
+- [ ] State Spaces/typestate dentro do Typed AST canônico de `Phase1CheckedModule`;
+- [ ] operação pública de transição a partir de código Sotlas real;
+- [ ] contratos de calls/returns que mudam estado;
 - [ ] fatos source-stable de transição no SIR;
+- [ ] revalidação semântica source ↔ SIR;
 - [ ] lowering/backend mínimo;
 - [ ] e2e positivo/negativo a partir de fonte Sotlas;
-- [ ] gate formal de release da Fase 4.
+- [ ] gate formal de release da Fase 4;
+- [ ] consumer público mínimo para coverage/exhaustividade.
 
 ### Pós-1.0
 
-- coverage com wildcard/guards complexos;
+- wildcard/guards complexos de coverage;
 - patterns avançados de payload;
+- mapping arbitrário tipo ↔ State Space;
+- typestate indireto amplo;
 - merges de estado altamente path-dependent;
 - state machines dinâmicas/generalizadas;
 - integração ampla com UI, persistência e networking;

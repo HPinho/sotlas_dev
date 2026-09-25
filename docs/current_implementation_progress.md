@@ -1,8 +1,8 @@
 # Sotlas — Current Implementation Progress
 
 **Atualizado em:** 2026-09-25  
-**Último baseline verde certificado:** `2fee4aa5342df1822389c7f1dd51979fe42abeeb`  
-**CI de referência:** Sotlas CI & Toolchain Build Farm #560 — `success`
+**Último baseline verde certificado:** `c34e568787a8afc8ce22150933555067c84468a8`  
+**CI de referência:** Sotlas CI & Toolchain Build Farm #561 — `success`
 
 > Este arquivo é o snapshot canônico de progresso de engenharia. Os percentuais medem o escopo necessário para o Sotlas 1.0, não a implementação de toda generalização teórica prevista para versões futuras.
 
@@ -13,7 +13,7 @@ Fase 0 — Reality Reset              ~80%
 Fase 1 — Typed Semantic Core       100% ✅
 Fase 2 — Ownership Domains         100% ✅  (escopo Sotlas 1.0)
 Fase 3 — Authority Domains         100% ✅  (escopo Sotlas 1.0)
-Fase 4 — State Spaces               ~20% 🟡
+Fase 4 — State Spaces               ~35% 🟡
 Fase 5 — Effects                    ~10%
 Fase 6 — Flow                        ~0%
 Fase 7 — Execution Domains          ~10%
@@ -43,7 +43,7 @@ Um caso rejeitado de forma clara e fail-closed não mantém uma fase aberta apen
 
 **Status do roadmap 1.0: 100% ✅ — COMPLETE**
 
-O núcleo tipado, contratos de chamadas/retornos, ownership `sole`, safety básica, branches/loops estruturados e reality gates permanecem certificados. Extensões como ABI geral de enum payload continuam como maturação separada quando não forem necessárias ao subset 1.0.
+O núcleo tipado, contratos de chamadas/retornos, ownership `sole`, safety básica, branches/loops estruturados e reality gates permanecem certificados. Extensões que excedem o subset necessário ao 1.0 continuam como maturação separada.
 
 ## Fase 2 — Ownership Domains
 
@@ -65,9 +65,9 @@ Detalhes: `docs/sotlas_1_0_phase3_authority_scope.md`.
 
 ## Fase 4 — State Spaces
 
-**Status do roadmap 1.0: ~20% 🟡 — EM CONSTRUÇÃO**
+**Status do roadmap 1.0: ~35% 🟡 — EM CONSTRUÇÃO**
 
-A Fase 4 começou sobre uma base backend-neutral e fail-closed. O objetivo do 1.0 é tornar `space`, typestate e transitions parte do pipeline real sem exigir antes do release todas as generalizações possíveis de state machines.
+A Fase 4 já possui núcleo semântico backend-neutral e agora começa a entrar no frontend de produção sem violar a regra `check => backend suportado`.
 
 ### Já implementado
 
@@ -80,23 +80,47 @@ A Fase 4 começou sobre uma base backend-neutral e fail-closed. O objetivo do 1.
 - [x] transição de typestate somente por edge declarado no `space`;
 - [x] isolamento de identidade entre State Spaces distintos;
 - [x] análise backend-neutral de cobertura de estados;
-- [x] gate de exaustividade que rejeita arms duplicados, desconhecidos ou estados ausentes.
+- [x] gate de exaustividade para consumers;
+- [x] parser oficial de produção reconhece declaração pública `space`;
+- [x] AST fonte de `space`, estados, payload contracts e edges é preservada no `bootstrap.Module`;
+- [x] sintaxe pública `Space<State>` é reconhecida no subset 1.0 quando existe `space Space`;
+- [x] generics existentes continuam com a semântica anterior quando não existe State Space homônimo;
+- [x] `StateSpaceFrontendPlan` reconcilia a AST fonte com `StateSpacePlan` e `StateQualifiedType`;
+- [x] typestate direto por valor é revalidado contra o espaço correto; formas indiretas ainda não contratadas falham fechado;
+- [x] `check` e emissão C/header possuem gate PREVIEW explícito: State Spaces são validados semanticamente, mas não são aceitos como compiláveis antes do SIR/backend certificado.
+
+### Por que o gate PREVIEW é intencional
+
+Neste ponto o frontend consegue **entender** `space` e `Space<State>`, mas ainda não existe um lowering 1.0 certificado para preservar essas informações até o backend. Portanto:
+
+```text
+parse        ✅
+source AST   ✅
+semantic plan✅
+production check as SUPPORTED  ❌ (fail-closed)
+backend      ❌
+```
+
+Isso impede o compilador de retornar sucesso para um programa que o backend oficial ainda não consegue materializar corretamente.
 
 ### BLOCKERS restantes para fechar a Fase 4 no Sotlas 1.0
 
-- [ ] sintaxe pública/AST de declaração `space`;
-- [ ] sintaxe e Typed AST para tipos `Type<State>` no caminho de produção;
-- [ ] integração do grafo e do typestate ao `check`/pipeline público;
-- [ ] representação source-stable de transições no SIR;
-- [ ] lowering/backend mínimo do subset declarado `SUPPORTED`;
+- [ ] integrar State Space/typestate ao Typed AST canônico carregado por `Phase1CheckedModule`;
+- [ ] definir a operação pública de transição em código Sotlas real;
+- [ ] validar chamadas/retornos que efetivamente mudam typestate;
+- [ ] preservar identidade source-stable das transições no SIR;
+- [ ] revalidar source facts ↔ SIR fail-closed;
+- [ ] lowering/backend mínimo do subset `SUPPORTED`;
 - [ ] e2e positivo e negativo a partir de código Sotlas real;
-- [ ] release gate da Fase 4 garantindo `check => backend suportado`;
-- [ ] integração de coverage ao consumidor público que fizer parte do 1.0 (sem obrigar a UI DSL completa).
+- [ ] release gate garantindo `check => backend suportado`;
+- [ ] integrar coverage ao consumidor público escolhido para o 1.0, sem exigir a UI DSL completa.
 
 ### DEFER 1.0.x / 1.1
 
 - wildcard/guards sofisticados de coverage;
 - pattern matching avançado de payloads;
+- aliases/mapeamentos arbitrários entre tipo nominal e State Space;
+- typestate indireto/reference forms além do subset inicial;
 - merges de typestate altamente path-dependent;
 - state machines dinâmicas/generalizadas;
 - integração ampla com UI/persistência/networking;
@@ -123,4 +147,4 @@ Não contornar testes, não relaxar invariantes para obter CI verde e não empil
 
 ## Próximo foco principal
 
-O caminho crítico permanece na **Fase 4 — State Spaces**. Depois do núcleo de grafo, typestate e coverage, o próximo marco de maior valor é levar `space` e `Type<State>` ao frontend/Typed AST de produção, preservando as mesmas provas semânticas já certificadas nos módulos backend-neutral.
+O caminho crítico permanece na **Fase 4 — State Spaces**. Depois do bridge de sintaxe pública, o próximo marco é colocar `StateSpacePlan`/typestate dentro do `Phase1CheckedModule`/Typed AST canônico e definir a primeira transição source-stable real, mantendo o gate de produção fechado até o backend estar pronto.

@@ -2,7 +2,7 @@
 
 **Atualizado em:** 2026-09-25  
 **Status:** 🟡 IN PROGRESS  
-**Último baseline verde antes deste pacote:** `2fee4aa5342df1822389c7f1dd51979fe42abeeb` — CI #560 `success`
+**Último baseline verde antes deste pacote:** `c34e568787a8afc8ce22150933555067c84468a8` — CI #561 `success`
 
 ## Objetivo do 1.0
 
@@ -46,24 +46,41 @@ A mesma regra das fases anteriores continua válida:
 - [x] missing states são preservados em ordem de declaração;
 - [x] gate de exhaustividade pode rejeitar consumidor incompleto.
 
+## Bridge do frontend de produção
+
+- [x] a rota canônica `sotlas_compile.bootstrap` reconhece declaração `space`;
+- [x] a AST fonte preserva `pub`, nome, estados, payload contracts e edges;
+- [x] `Space<State>` possui sintaxe pública no subset inicial;
+- [x] resolução 1.0 é deliberadamente simples: `Space<State>` só é typestate quando existe `space Space` no mesmo módulo;
+- [x] generics comuns mantêm o comportamento anterior quando não existe State Space homônimo;
+- [x] `StateSpaceFrontendPlan` reconcilia AST fonte com `StateSpacePlan` e `StateQualifiedType`;
+- [x] estado inexistente, espaço duplicado, edge inválido e forma indireta fora do subset falham fechado;
+- [x] `check`, C11 e header mantêm um gate `PREVIEW` explícito até existir SIR/backend certificado.
+
+### Por que `check` ainda rejeita esses módulos
+
+O parser e o planner semântico agora compreendem State Spaces, mas o contrato de produção da Sotlas exige:
+
+> se `sotlas check` retorna sucesso, o pipeline oficialmente suportado deve conseguir compilar corretamente o programa.
+
+Como State Spaces ainda não possuem lowering SIR/backend 1.0, retornar sucesso agora seria uma promoção falsa. O gate PREVIEW é, portanto, parte da segurança do release e não uma regressão.
+
 ## BLOCKERS 1.0
 
-Os itens abaixo mantêm a Fase 4 aberta:
-
-- [ ] parser e AST público para declaração `space`;
-- [ ] representação Typed AST canônica de `space`;
-- [ ] sintaxe pública para tipos `Type<State>`;
-- [ ] resolução de `Type<State>` contra o State Space correto;
-- [ ] integração das regras de typestate ao checker de produção;
+- [x] parser e AST público para declaração `space`;
+- [ ] representação Typed AST canônica de `space` dentro de `Phase1CheckedModule`;
+- [x] sintaxe pública para tipos `Type<State>` no subset `Space<State>`;
+- [x] resolução de `Type<State>` contra o State Space homônimo correto;
+- [ ] integração do typestate ao Typed AST/checker de produção de forma que o módulo possa ser aceito quando houver backend;
 - [ ] construção de transições a partir de código Sotlas real;
+- [ ] contratos de chamadas/retornos que mudam typestate;
 - [ ] identidade source-stable das transições no SIR;
 - [ ] revalidação fail-closed entre semântica fonte e SIR;
 - [ ] lowering/backend mínimo para o subset declarado estável;
 - [ ] teste positivo e2e: fonte → check → backend → execução;
 - [ ] teste negativo e2e para transição inexistente;
-- [ ] gate que garanta que `sotlas check` não aceite um caso que o backend 1.0 não consegue compilar corretamente.
-
-Coverage entra no 1.0 apenas no consumidor público que fizer parte do contrato inicial. A UI DSL completa não é necessária para fechar esta fase.
+- [ ] gate que garanta que `sotlas check` não aceite um caso que o backend 1.0 não consegue compilar corretamente;
+- [ ] integrar coverage ao consumer público mínimo escolhido para o 1.0.
 
 ## DEFER 1.0.x
 
@@ -72,6 +89,8 @@ Podem ser adicionados depois do 1.0 sem reabrir a fase, desde que os casos ainda
 - wildcard de coverage;
 - guards sofisticados;
 - patterns avançados de payload;
+- mapeamento arbitrário entre nome do tipo e State Space;
+- typestate sobre referências/ponteiros/ownership domains além do subset inicial;
 - diagnósticos com sugestões de caminhos alternativos;
 - merges de typestate mais gerais em CFG;
 - payload lowering adicional;
@@ -91,9 +110,9 @@ Podem ser adicionados depois do 1.0 sem reabrir a fase, desde que os casos ainda
 
 A Fase 4 poderá ser marcada `100% ✅` para o Sotlas 1.0 quando:
 
-1. `space` e `Type<State>` passarem pelo frontend de produção;
+1. `space` e `Type<State>` estiverem representados no frontend e Typed AST canônicos;
 2. o checker rejeitar transições inválidas antes do backend;
-3. o pipeline preservar a identidade semântica das transições;
+3. o pipeline preservar identidade source-stable das transições no SIR;
 4. houver pelo menos um backend/e2e real para o subset estável;
 5. os casos fora do subset forem rejeitados de forma explícita/fail-closed;
 6. o CI possuir um release gate específico da Fase 4.
