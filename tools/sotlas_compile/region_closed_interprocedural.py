@@ -1,14 +1,19 @@
 """Closed backend-neutral REGION interprocedural ownership graph.
 
 This layer composes already-certified local/interprocedural lifetime facts,
-caller-to-callee boundary links and callee-return-to-caller-owner links.  It
-adds no runtime ABI or backend lowering; it only revalidates that the three
-certificates describe one coherent ownership topology.
+caller-to-callee boundary links, callee-return-to-caller-owner links and the
+symbolic arena/lifetime epoch graph. It adds no runtime ABI or backend lowering;
+it only revalidates that the certificates describe one coherent ownership
+topology.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .region_arena import (
+    RegionArenaLifetimeGraph,
+    build_region_arena_lifetime_graph,
+)
 from .region_boundary_link import (
     RegionBoundaryLinkPlan,
     plan_checked_region_boundary_links,
@@ -35,6 +40,7 @@ class RegionClosedInterproceduralPlan:
     lifetime: RegionInterproceduralLifetimePlan
     boundaries: RegionBoundaryLinkPlan
     return_links: RegionReturnLinkPlan
+    arena_lifetime: RegionArenaLifetimeGraph
 
     def function(self, name: str) -> RegionInterproceduralFunctionPlan:
         return self.lifetime.function(name)
@@ -130,10 +136,27 @@ def build_region_closed_interprocedural_plan(
                 f"closed REGION return bindings for {link.callee!r} diverged from function boundary"
             )
 
+    arena_lifetime = build_region_arena_lifetime_graph(
+        lifetime,
+        boundaries,
+        return_links,
+    )
+    arena_slots = {item.identity for item in arena_lifetime.slots}
+    lifetime_slots = {
+        (function_plan.function, owner.binding)
+        for function_plan in lifetime.functions
+        for owner in function_plan.local.owners
+    }
+    if arena_slots != lifetime_slots:
+        raise RegionClosedInterproceduralError(
+            "closed REGION arena slots diverged from lifetime owners"
+        )
+
     return RegionClosedInterproceduralPlan(
         lifetime=lifetime,
         boundaries=boundaries,
         return_links=return_links,
+        arena_lifetime=arena_lifetime,
     )
 
 
