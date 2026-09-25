@@ -1,14 +1,16 @@
 """Opt-in canonical Phase-1 semantic pipeline.
 
 This module composes the production bootstrap parser/checker with the isolated
-Phase-1 Typed AST and ownership passes. It is explicit by design: importing the
-package does not change bootstrap.check and callers must opt in to this API.
+Phase-1 Typed AST, ownership passes and Authority Domains. It is explicit by
+design: importing the package does not change bootstrap.check and callers must
+opt in to this API.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
 from . import bootstrap
+from .authority import AuthorityDomainPlan, plan_authority_domains
 from .typed_ast import (
     OwnershipDomainTransition,
     Phase1ModuleSnapshot,
@@ -23,6 +25,7 @@ class Phase1CheckedModule:
     parsed_module: object
     semantic: Phase1ModuleSnapshot
     ownership_sir: object
+    authority: AuthorityDomainPlan
 
 
 def _restore_checked_handover_transitions(
@@ -31,9 +34,9 @@ def _restore_checked_handover_transitions(
     """Preserve every validated explicit handover as a planned transition.
 
     ``build_ownership_domain_graph`` already validates explicit handover edges
-    and stores them in ``graph.transfers``.  A regression left those same facts
+    and stores them in ``graph.transfers``. A regression left those same facts
     out of ``planned_transitions`` even though downstream DEVICE lifecycle
-    planning consumes that canonical transition collection.  Reconcile the two
+    planning consumes that canonical transition collection. Reconcile the two
     representations at the public checked-module boundary without inventing
     source facts or weakening the graph validators.
 
@@ -133,7 +136,7 @@ def _restore_checked_handover_transitions(
 
 
 def analyze_module_phase1(parsed_module) -> Phase1CheckedModule:
-    """Run the canonical checker, semantic snapshot, and ownership SIR bridge."""
+    """Run checker, authority, semantic snapshot, and ownership SIR bridge."""
     try:
         bootstrap.check(parsed_module)
     except bootstrap.SotlasBootstrapError as error:
@@ -143,6 +146,12 @@ def analyze_module_phase1(parsed_module) -> Phase1CheckedModule:
         if "whisper" in error.message:
             raise Phase1SemanticError(error.message) from error
         raise
+
+    # Authority is certified at the checked-module boundary. This keeps the
+    # legacy production checker compatible while preventing Phase-1 consumers
+    # from observing a module whose named @system calls violate least authority.
+    authority = plan_authority_domains(parsed_module)
+
     semantic = _restore_checked_handover_transitions(
         build_phase1_semantic_snapshot(parsed_module)
     )
@@ -160,6 +169,7 @@ def analyze_module_phase1(parsed_module) -> Phase1CheckedModule:
         parsed_module=parsed_module,
         semantic=semantic,
         ownership_sir=ownership_sir,
+        authority=authority,
     )
 
 
