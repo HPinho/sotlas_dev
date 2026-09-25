@@ -1,17 +1,17 @@
 # Sotlas — Current Implementation Progress
 
 **Atualizado em:** 2026-09-24  
-**Baseline verde de referência:** `bd77265c95f7959165307a7f001388202f5477e5`  
-**CI de referência:** Sotlas CI & Toolchain Build Farm #506 — `success`
+**Baseline verde de referência:** `5075c6454c0e1f5830b3f0537d267f6fe289d122`  
+**CI de referência:** Sotlas CI & Toolchain Build Farm #536 — `success`
 
-> Este arquivo é o snapshot canônico de progresso de engenharia enquanto os documentos históricos maiores são consolidados. Percentuais são estimativas por macroentregas e não substituem os gates formais `CERTIFIED`/`SUPPORTED`.
+> Este arquivo é o snapshot canônico de progresso de engenharia. Percentuais medem o escopo necessário para o roadmap Sotlas 1.0; generalizações pós-release permanecem registradas separadamente em `sotlas_1_0_release_scope.md` e nos documentos técnicos.
 
 ## Estado atual
 
 ```text
 Fase 0 — Reality Reset              ~80%
 Fase 1 — Typed Semantic Core       100% ✅
-Fase 2 — Ownership Domains          ~89% 🟡
+Fase 2 — Ownership Domains         100% ✅  (escopo Sotlas 1.0)
 Fase 3 — Authority Domains          ~10%
 Fase 4 — State Spaces                ~0%
 Fase 5 — Effects                    ~10%
@@ -31,47 +31,70 @@ Fase 17 — Tooling avançado          ~15%
 
 ## Fase 2 — Ownership Domains
 
-**Progresso conservador atual: ~89% 🟡**
+**Status do roadmap 1.0: 100% ✅ — COMPLETE**
 
-A estimativa anterior de ~84% ficou defasada depois da expansão do modelo `region`, do avanço backend-neutral de `device`, do fortalecimento do graph/SIR e das provas CFG/interprocedurais adicionadas sobre baseline verde.
+A Fase 2 não significa que toda combinação teórica de ownership foi implementada. O critério de saída do Sotlas 1.0 é definido em `docs/sotlas_1_0_release_scope.md`: o subset declarado `SUPPORTED` precisa estar semanticamente correto, possuir caminho backend executável representativo e rejeitar formas fora do contrato de maneira fail-closed.
 
-A Fase 2 ainda não é `SUPPORTED` nem `CERTIFIED` como um todo. Permanecem blocos importantes de runtime/backend e end-to-end por domínio.
+Esse gate está fechado no baseline de referência.
 
-### Leitura atual por macroentrega
+### Contrato 1.0 por macroentrega
 
-| Macroentrega | Estado aproximado | Observação |
-|---|---:|---|
-| `sole` / `exclusive` | ~100% semântico | ownership linear, moves, merges e contratos explícitos estabilizados; backend geral continua separado |
-| `shared` / ARC semântico | ~91% | accounting, cleanup, graph→SIR e subset C11 avançados; runtime/backend geral e CFG arbitrário ainda faltam |
-| CFG + cleanup + defer ownership | ~74% | retornos, branches e loops estruturados avançaram; corpos arbitrários/efeitos e cobertura geral ainda faltam |
-| `region` | ~78% | lifetime topology, escape gates, CFG path-sensitive, calls/returns interprocedurais e fronteiras de call graph agora certificados; arena/runtime/backend amplo ainda faltam |
-| `device` | em reauditoria | completion/reacquisition/sync backend-neutral já avançaram além do percentual histórico; não atualizar numericamente sem reauditoria completa |
-| `external` | ~39% | subset C11 `repr(C)` e consumo validado existem; ABI/lifetime/runtime gerais ainda faltam |
-| `island` | ~99% | semanticamente quase fechado no subset atual; runtime/aliases e formas fora do subset ainda faltam |
-| `whisper` | ~75% | no-escape, forwarding e subset C11 avançados; weak invalidation/lifetime amplo/FFI ainda faltam |
-| `direct` | ~62% | borrow call-scoped, graph/SIR e subset C11/LLVM existem; lifetime CFG geral e ABI ARC LLVM ainda faltam |
-| `handover` | ~73% | múltiplas transições e cleanup nativo existem; domínios/caminhos restantes e e2e amplo ainda faltam |
-| `quarantine` | ~69% | graph, alias checks e subset C11 existem; weak/runtime e CFG amplo ainda faltam |
-| runtime/backend + e2e por domínio | ~5% | principal freio restante da Fase 2 |
+| Macroentrega | Status 1.0 | Observação |
+|---|---|---|
+| `sole` / `exclusive` | **SUPPORTED ✅** | ownership linear, moves, invalidation, joins e cleanup no subset aceito |
+| `shared` / ARC | **SUPPORTED ✅** | modelo ARC backend-neutral + alias chain/runtime nativo; CFG/payloads arbitrários foram movidos para 1.0.x |
+| `region` | **SUPPORTED ✅** | lifetime/CFG/interprocedural, arena epochs/flow, loop recurrence e activation flow + gate C11 mínimo |
+| `island` | **SUPPORTED ✅** | quarantine e handover possuem caminhos C11 representativos, incluindo same-domain cleanup |
+| `quarantine` | **SUPPORTED ✅** | subset de isolamento congelado; invalidation/runtime amplo fica para 1.0.x |
+| `handover` | **SUPPORTED ✅** | pares certificados fazem parte do 1.0; combinações ainda não suportadas permanecem fail-closed |
+| `direct` | **SUPPORTED ✅** | borrow call-scoped/zero-bookkeeping certificado pelo gate 1.0 |
+| `whisper` | **SUPPORTED ✅** | const/non-owning call-scoped e forwarding certificado; weak refs gerais ficam para 1.0.x |
+| `device` | **PREVIEW** | não bloqueia 1.0; runtime/sincronização geral fica para evolução posterior |
+| `external` | **PREVIEW** | caminhos `repr(C)`/FFI existem, mas ABI/lifetime geral não é contrato estável do 1.0 |
+
+### Evidência de fechamento
+
+- `tests/test_sotlas_phase2_v1_region_release_gate.py` certifica `region` semanticamente e executa o subset nativo mínimo com cleanup determinístico.
+- `tests/test_sotlas_phase2_v1_borrow_release_gate.py` certifica `direct` e `whisper` em C11 nativo.
+- `test_shared_alias_chain_runs_with_native_arc_runtime` mantém o subset `shared` sobre ARC real.
+- `test_island_quarantine_handover_runs_through_c11` e `test_island_to_island_handover_runs_through_c11` mantêm o subset de isolamento/handover executável.
+- CI #536 passou C11, Python 3.10/3.11/3.12 em Ubuntu, Windows e macOS e o snapshot de toolchain.
+
+## Backlog pós-Fase 2
+
+O seguinte trabalho **não reabre automaticamente a Fase 2**. Ele pertence à maturação 1.0.x/1.1 enquanto os casos fora do subset estável continuam fail-closed:
+
+- CFG arbitrário de `shared`/ARC;
+- payloads/layouts adicionais;
+- combinações profundas de defer/aliases;
+- arena `region` completamente geral;
+- merges path-dependent avançados;
+- activation + ciclos/recursão geral;
+- weak invalidation geral de `whisper`;
+- todas as formas ABI de `direct`;
+- todos os pares possíveis de `handover`;
+- runtime amplo de `quarantine`;
+- runtime/sync geral de `device`;
+- ABI/lifetime geral de `external`.
+
+Se um desses itens revelar corrupção, double-free, use-after-free ou lowering incorreto em um caso que já faz parte do subset `SUPPORTED`, ele volta a ser tratado como regressão/blocker.
 
 ## Regra de baseline
-
-A partir da recuperação das regressões recentes, o desenvolvimento da Fase 2 segue esta regra obrigatória:
 
 ```text
 baseline verde confirmado
         ↓
-um único slice pequeno
+um blocker real ou pacote coerente
         ↓
 CI verde
         ↓
 novo baseline
         ↓
-próximo slice
+próxima entrega do roadmap
 ```
 
 Se o slice falhar, nenhuma feature adicional deve ser empilhada. A correção ou restauração parte do último baseline verde.
 
-## Percentuais superseded
+## Próximo foco principal
 
-Os percentuais antigos de `~84%` para a Fase 2 e `~58%` para `region`, ainda presentes em snapshots históricos de documentação, ficam superseded por este arquivo até a consolidação textual desses documentos maiores.
+Com Ownership Domains encerrado para o Sotlas 1.0, o caminho principal pode avançar para **Fase 3 — Authority Domains**. Refinamentos da Fase 2 continuam em pacotes 1.0.x/1.1 sem monopolizar o roadmap principal.

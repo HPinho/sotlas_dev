@@ -1,13 +1,12 @@
 # Sotlas 1.0 — Release Scope
 
 **Atualizado em:** 2026-09-24  
-**Objetivo:** impedir que o roadmap técnico infinito impeça um release estável da linguagem.
+**Fase 2 / Ownership Domains:** **COMPLETE para o escopo Sotlas 1.0 ✅**  
+**Baseline certificado:** `5075c6454c0e1f5830b3f0537d267f6fe289d122` — CI #536 `success`
 
 ## Princípio de produto
 
 Sotlas 1.0 não precisa implementar toda combinação teórica prevista pela arquitetura. O 1.0 precisa entregar um núcleo útil, coerente, seguro e executável para o conjunto explicitamente declarado como suportado.
-
-A regra de release é:
 
 > Um caso ainda não suportado pode falhar fechado. Um caso aceito pelo compilador não pode produzir semântica incorreta, ownership incorreto, lifetime incorreto, double-free, leak estrutural conhecido ou lowering inventado.
 
@@ -49,25 +48,62 @@ Recebe expansões maiores:
 - novos backends/ABIs amplos;
 - combinações avançadas que não sejam necessárias para o núcleo 1.0.
 
-## Fase 2 — critério de saída para o 1.0
+## Fase 2 — gate de saída do Sotlas 1.0
 
-A Fase 2 pode ser considerada encerrada para fins do roadmap 1.0 quando os blockers abaixo estiverem fechados. Não é necessário esgotar todos os refinamentos listados em `sotlas_implementation_status.md`.
+Todos os blockers definidos para o subset 1.0 estão fechados. O roadmap técnico amplo continua existindo, mas seus refinamentos não mantêm a Fase 2 aberta quando o compilador consegue rejeitar formas ainda não suportadas de maneira fail-closed.
 
 ### BLOCKER 1.0
 
 - [x] `exclusive` / `sole`: ownership linear, move, use-after-move, joins e contratos básicos estáveis.
-- [x] ownership/domain graph canônico e source-stable para as transições já aceitas.
+- [x] ownership/domain graph canônico e source-stable para as transições aceitas.
 - [x] unsupported domain/lowering shapes falham fechado em vez de inventar semântica.
-- [x] `shared`: modelo backend-neutral de ARC, retain/release/destroy e cleanup path-sensitive no subset estruturado já suportado.
-- [ ] congelar e certificar explicitamente o **subset `shared` suportado no 1.0**, sem exigir CFG/payloads arbitrários.
-- [x] `region`: lifetime topology, CFG path-sensitive, call/return interprocedural, identidade de iteração, N operações ownership-taking, arena slots/epochs/origins, reaching-flow acíclico, fluxo intra-iteração, recorrência loop-carried e alternativas activation-scoped.
-- [ ] `region`: definir e executar um **runtime/e2e mínimo do subset 1.0**, sem exigir allocator/CFG geral para todos os casos.
-- [ ] `island` + `quarantine` + `handover`: congelar o subset 1.0 já implementado e garantir pelo menos um caminho e2e representativo de isolamento → transferência → cleanup único.
-- [ ] `direct` + `whisper`: congelar o subset 1.0 de borrow call-scoped/no-escape e garantir que storage/escape/FFI não suportados continuem fail-closed.
-- [ ] matriz e2e mínima da Fase 2: programas representativos do subset `SUPPORTED` devem atravessar frontend → Typed AST → graph/SIR → backend de referência e executar corretamente.
-- [ ] documentação pública deve indicar claramente quais formas de `device` e `external` são `PREVIEW`/`UNSUPPORTED` no 1.0 em vez de bloquear o release inteiro.
+- [x] `shared`: modelo backend-neutral de ARC, retain/release/destroy e cleanup path-sensitive no subset estruturado suportado.
+- [x] subset `shared` 1.0 congelado: aliases/ARC estruturados e cleanup nativo já cobertos; CFG/payloads arbitrários ficam fora do contrato 1.0.
+- [x] `region`: lifetime topology, CFG path-sensitive, call/return interprocedural, identidade de iteração, N operações ownership-taking, arena slots/epochs/origins, reaching-flow, recorrência loop-carried e alternativas activation-scoped.
+- [x] `region`: runtime/e2e mínimo 1.0 certificado por prova backend-neutral completa + C11 com cleanup determinístico.
+- [x] `island` + `quarantine` + `handover`: isolamento e transferência têm caminhos C11 representativos; handover same-domain possui validação de cleanup/destruição.
+- [x] `direct` + `whisper`: subset 1.0 de borrow call-scoped/no-escape certificado em C11; formas armazenáveis/FFI/weak gerais permanecem fora do contrato.
+- [x] matriz e2e mínima da Fase 2: os subsets `SUPPORTED` possuem probes nativos executáveis na suíte principal.
+- [x] `device` e `external` classificados abaixo como `PREVIEW`; sua generalização não bloqueia Sotlas 1.0.
 
-### DEFER 1.0.x
+## Matriz oficial de suporte — Ownership Domains no Sotlas 1.0
+
+| Capacidade | Nível no 1.0 | Contrato congelado |
+|---|---|---|
+| `sole` / `exclusive` | **SUPPORTED** | ownership linear, move, invalidation/use-after-move, joins e cleanup no subset aceito |
+| `shared` | **SUPPORTED** | ARC backend-neutral, retain/release/destroy, aliases e controle estruturado já certificado |
+| `region` | **SUPPORTED** | by-value owners, handover, call/return interprocedural, arena/lifetime certificado no subset e C11 mínimo |
+| `island` | **SUPPORTED** | quarantine, owner isolado e handover nos caminhos já certificados |
+| `quarantine` | **SUPPORTED** | transição para isolamento nos shapes aceitos; extensões de invalidation ficam para 1.0.x |
+| `handover` | **SUPPORTED** | transferências explicitamente certificadas; pares de domínio ainda não suportados falham fechado |
+| `direct` | **SUPPORTED** | borrow call-scoped, zero bookkeeping, sem storage/escape |
+| `whisper` | **SUPPORTED** | borrow const/non-owning call-scoped e forwarding aceito; weak refs gerais ficam para depois |
+| `device` | **PREVIEW** | semântica/reference runtime existente pode evoluir; runtime/sync geral não faz parte do contrato estável 1.0 |
+| `external` | **PREVIEW** | caminhos `repr(C)`/FFI existentes funcionam, mas ABI/layout/lifetime geral não faz parte do contrato estável 1.0 |
+
+## Evidência de release no CI
+
+A matriz principal executa os gates específicos e também os testes nativos históricos. Entre as evidências canônicas:
+
+- `tests/test_sotlas_phase2_v1_region_release_gate.py`
+  - arena flow completo no subset 1.0;
+  - geração C11;
+  - compilação com warnings-as-errors;
+  - execução nativa e cleanup determinístico.
+- `tests/test_sotlas_phase2_v1_borrow_release_gate.py`
+  - `direct` call-scoped;
+  - `whisper` const/non-owning;
+  - C11 e execução nativa.
+- `tests/sotlas_classes_arc_impl.py::test_shared_alias_chain_runs_with_native_arc_runtime`
+  - alias chain e ARC nativo de `shared`.
+- `tests/sotlas_classes_arc_impl.py::test_island_quarantine_handover_runs_through_c11`
+  - quarantine → island → handover → valor restaurado.
+- `tests/sotlas_classes_arc_impl.py::test_island_to_island_handover_runs_through_c11`
+  - handover same-domain de `island` e contagem de destruições.
+
+CI #536 passou C11, Python 3.10/3.11/3.12 em Ubuntu, Windows e macOS, além do snapshot de toolchain.
+
+## DEFER 1.0.x
 
 Os itens abaixo são melhorias importantes, mas não impedem o 1.0 quando o compilador rejeita corretamente as formas ainda não suportadas:
 
@@ -85,7 +121,7 @@ Os itens abaixo são melhorias importantes, mas não impedem o 1.0 quando o comp
 - invalidation/runtime amplo de `quarantine`;
 - mensagens de diagnóstico e ergonomia adicionais.
 
-### DEFER 1.1+
+## DEFER 1.1+
 
 - runtime/sincronização geral de `device` e transfer CPU↔device para todos os casos;
 - ABI/lifetime geral de `external` para layouts arbitrários;
@@ -93,27 +129,25 @@ Os itens abaixo são melhorias importantes, mas não impedem o 1.0 quando o comp
 - backends adicionais que não sejam necessários para o release inicial;
 - features novas que não sejam parte do núcleo estável 1.0.
 
-## Regra de classificação
+## Regra de classificação daqui em diante
 
-Antes de implementar uma lacuna da Fase 2, responder nesta ordem:
+Antes de trazer uma lacuna antiga da Fase 2 de volta para o caminho crítico:
 
-1. O caso pode produzir código incorreto ou ownership/lifetime incorreto no subset que já aceitamos?
-   - **sim:** BLOCKER 1.0.
-2. O caso é necessário para um exemplo básico/documentado da feature funcionar no backend de referência?
-   - **sim:** BLOCKER 1.0.
-3. O compilador pode rejeitar esse caso de forma clara e fail-closed sem quebrar o subset suportado?
-   - **sim:** DEFER 1.0.x ou 1.1.
+1. O caso produz código incorreto ou ownership/lifetime incorreto no subset `SUPPORTED`?
+   - **sim:** regressão/blocker do 1.0.
+2. O caso é necessário para um exemplo básico documentado do subset `SUPPORTED`?
+   - **sim:** blocker.
+3. O compilador consegue rejeitá-lo de forma clara e fail-closed?
+   - **sim:** backlog 1.0.x ou 1.1.
 4. A mudança apenas amplia generalidade, otimização, ergonomia ou cobertura?
-   - **sim:** não bloquear o 1.0.
+   - **sim:** não reabrir a Fase 2.
 
 ## Regra de desenvolvimento
-
-A disciplina de baseline continua obrigatória:
 
 ```text
 baseline verde
     ↓
-1 blocker 1.0 ou 1 pacote coerente
+1 blocker real ou 1 pacote coerente
     ↓
 testes reais
     ↓
@@ -124,20 +158,8 @@ novo baseline
 
 Não contornar testes, não relaxar invariantes para obter CI verde e não transformar unsupported behavior em lowering silencioso.
 
-## Estado atual de `region`
+## Decisão de roadmap
 
-O modelo semântico já ultrapassou a descrição antiga de "arena/lifetime pendente". No baseline atual existem:
+**A Fase 2 — Ownership Domains está encerrada para o escopo Sotlas 1.0.**
 
-- owner origins canônicos;
-- arena slots e epochs simbólicos;
-- constraints de identidade;
-- reaching-flow acíclico;
-- N operações ownership-taking por iteração;
-- corte canônico de backedge;
-- fluxo intra-iteração em ciclos;
-- recorrência de identidade loop-carried;
-- activation IDs por call site;
-- alternativas de entrada activation-scoped;
-- integração checked no closed interprocedural plan.
-
-Assim, o próximo objetivo do 1.0 não é continuar generalizando a prova indefinidamente. É transformar o subset já certificado em um caminho runtime/e2e mínimo e documentado.
+Os refinamentos acima permanecem ativos como evolução pós-1.0. O desenvolvimento principal pode avançar para a Fase 3 sem apagar nem fingir que o backlog técnico deixou de existir.
