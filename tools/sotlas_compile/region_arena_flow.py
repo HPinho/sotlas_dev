@@ -8,9 +8,10 @@ canonical SIR CFG order.
 Acyclic points use ordinary reachability. Cyclic points reuse the canonical
 iteration identity already certified for REGION ownership operations: exactly
 the naming backedge is cut before within-iteration reachability is computed.
-Only a previous ``post`` proven to occur earlier in that same iteration may then
-feed a cyclic ``pre``. Cases whose value must arrive from a previous iteration
-remain explicitly ``loop_carried`` rather than being guessed.
+Only a previous ``post`` proven to occur earlier in that same iteration may feed
+a cyclic ``pre`` directly. When a parameter-origin feeds the first iteration and
+exactly one later ``post`` feeds subsequent iterations, the pass records an
+explicit loop-carried recurrence rather than leaving the relation unresolved.
 
 The pass is deliberately backend-neutral: it does not allocate an arena and it
 does not assign physical addresses.
@@ -40,6 +41,18 @@ class RegionArenaFlowResolution:
 
 
 @dataclass(frozen=True)
+class RegionArenaFlowRecurrence:
+    """Certified loop-carried arena identity for one cyclic ``pre`` epoch."""
+
+    function: str
+    binding: str
+    pre_epoch_id: str
+    initial_epoch_id: str
+    carried_epoch_id: str
+    iteration_id: str
+
+
+@dataclass(frozen=True)
 class RegionArenaFlowUnresolved:
     function: str
     binding: str
@@ -51,9 +64,11 @@ class RegionArenaFlowUnresolved:
 class RegionArenaFlowCertificate:
     resolutions: tuple[RegionArenaFlowResolution, ...]
     unresolved: tuple[RegionArenaFlowUnresolved, ...]
+    recurrences: tuple[RegionArenaFlowRecurrence, ...] = ()
 
     @property
     def complete(self) -> bool:
+        # Recurrences are certified flow, not unresolved holes.
         return not self.unresolved
 
     def resolution_for(self, pre_epoch_id: str) -> RegionArenaFlowResolution:
@@ -63,6 +78,16 @@ class RegionArenaFlowCertificate:
         if len(matches) != 1:
             raise RegionArenaFlowError(
                 f"REGION arena flow requires exactly one resolution for {pre_epoch_id!r}"
+            )
+        return matches[0]
+
+    def recurrence_for(self, pre_epoch_id: str) -> RegionArenaFlowRecurrence:
+        matches = tuple(
+            item for item in self.recurrences if item.pre_epoch_id == pre_epoch_id
+        )
+        if len(matches) != 1:
+            raise RegionArenaFlowError(
+                f"REGION arena flow requires exactly one recurrence for {pre_epoch_id!r}"
             )
         return matches[0]
 
@@ -152,9 +177,6 @@ def _strictly_before(
     second_location: _PointLocation,
     successors: dict[str, tuple[str, ...]],
 ) -> bool | None:
-    # Declaration origins dominate the function-local acyclic flow. Cyclic flow
-    # filters origins separately because a previous loop iteration may supersede
-    # the declaration identity.
     if first.location is None:
         return True
     return _location_before(first.location, second_location, successors)
@@ -238,6 +260,16 @@ def _append_unresolved(
     )
 
 
+def _parameter_origin(producers: list[_Producer]) -> tuple[_Producer, ...]:
+    return tuple(
+        item
+        for item in producers
+        if item.location is None
+        and item.epoch.phase == "origin"
+        and item.epoch.point_id.startswith("param_origin@")
+    )
+
+
 def _certify_cyclic_pre(
     *,
     function: object,
@@ -246,6 +278,7 @@ def _certify_cyclic_pre(
     pre: RegionArenaEpoch,
     pre_location: _PointLocation,
     resolutions: list[RegionArenaFlowResolution],
+    recurrences: list[RegionArenaFlowRecurrence],
     unresolved: list[RegionArenaFlowUnresolved],
 ) -> None:
     iteration_id = pre_location.iteration_id
@@ -270,10 +303,6 @@ def _certify_cyclic_pre(
         _append_unresolved(unresolved, pre, "cyclic_reachability")
         return
 
-    # If this iteration produces the slot only after the current pre, the value
-    # at the pre is necessarily activation/entry identity on the first trip and
-    # the previous iteration's post thereafter. That is a genuine loop-carried
-    # relation and must not be collapsed to the declaration origin.
     later_posts = tuple(
         item
         for item in iteration_posts
@@ -281,7 +310,31 @@ def _certify_cyclic_pre(
         and _location_before(pre_location, item.location, cut) is True
     )
     if later_posts:
-        _append_unresolved(unresolved, pre, "loop_carried")
+        origins = _parameter_origin(producers)
+        if len(later_posts) == 1 and len(origins) == 1:
+            initial = origins[0].epoch
+            carried = later_posts[0].epoch
+            if initial.type != pre.type or carried.type != pre.type:
+                raise RegionArenaFlowError(
+                    f"REGION arena recurrence type mismatch at {pre.epoch_id!r}"
+                )
+            recurrences.append(
+                RegionArenaFlowRecurrence(
+                    function=pre.function,
+                    binding=pre.binding,
+                    pre_epoch_id=pre.epoch_id,
+                    initial_epoch_id=initial.epoch_id,
+                    carried_epoch_id=carried.epoch_id,
+                    iteration_id=iteration_id,
+                )
+            )
+            return
+        reason = (
+            "ambiguous_loop_carry"
+            if len(later_posts) != 1
+            else "loop_carry_without_parameter_origin"
+        )
+        _append_unresolved(unresolved, pre, reason)
         return
 
     _append_unresolved(unresolved, pre, "cyclic_no_local_producer")
@@ -292,7 +345,7 @@ def certify_region_arena_flow(
     arena: RegionArenaLifetimeGraph,
     sir_module: object,
 ) -> RegionArenaFlowCertificate:
-    """Resolve unambiguous function-local producers for symbolic REGION ``pre`` epochs."""
+    """Resolve/certify function-local producers for symbolic REGION ``pre`` epochs."""
     if not isinstance(lifetime, RegionInterproceduralLifetimePlan):
         raise RegionArenaFlowError(
             "REGION arena flow requires certified interprocedural lifetime facts"
@@ -311,6 +364,7 @@ def certify_region_arena_flow(
         raise RegionArenaFlowError("REGION arena flow contains duplicate SIR functions")
 
     resolutions: list[RegionArenaFlowResolution] = []
+    recurrences: list[RegionArenaFlowRecurrence] = []
     unresolved: list[RegionArenaFlowUnresolved] = []
 
     for slot in arena.slots:
@@ -359,6 +413,7 @@ def certify_region_arena_flow(
                     pre=pre,
                     pre_location=pre_location,
                     resolutions=resolutions,
+                    recurrences=recurrences,
                     unresolved=unresolved,
                 )
                 continue
@@ -380,13 +435,14 @@ def certify_region_arena_flow(
             _append_unresolved(unresolved, pre, "no_reaching_producer")
 
     resolved_ids = {item.pre_epoch_id for item in resolutions}
+    recurrence_ids = {item.pre_epoch_id for item in recurrences}
     unresolved_ids = {item.pre_epoch_id for item in unresolved}
-    if resolved_ids & unresolved_ids:
+    if resolved_ids & recurrence_ids or resolved_ids & unresolved_ids or recurrence_ids & unresolved_ids:
         raise RegionArenaFlowError(
-            "REGION arena flow resolved and unresolved the same pre epoch"
+            "REGION arena flow classified the same pre epoch more than once"
         )
     all_pre_ids = {epoch.epoch_id for epoch in arena.epochs if epoch.phase == "pre"}
-    if resolved_ids | unresolved_ids != all_pre_ids:
+    if resolved_ids | recurrence_ids | unresolved_ids != all_pre_ids:
         raise RegionArenaFlowError(
             "REGION arena flow failed to classify every pre epoch"
         )
@@ -394,12 +450,14 @@ def certify_region_arena_flow(
     return RegionArenaFlowCertificate(
         resolutions=tuple(resolutions),
         unresolved=tuple(unresolved),
+        recurrences=tuple(recurrences),
     )
 
 
 __all__ = [
     "RegionArenaFlowError",
     "RegionArenaFlowResolution",
+    "RegionArenaFlowRecurrence",
     "RegionArenaFlowUnresolved",
     "RegionArenaFlowCertificate",
     "certify_region_arena_flow",

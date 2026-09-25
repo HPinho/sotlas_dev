@@ -1,4 +1,4 @@
-"""REGION arena flow uses canonical iteration cuts without guessing loop carry."""
+"""REGION arena flow certifies intra-iteration producers and loop recurrence."""
 import importlib
 import importlib.util
 from pathlib import Path
@@ -167,19 +167,39 @@ class SotlasRegionArenaFlowCycleTests(unittest.TestCase):
         post = next(item for item in graph.epochs if item.phase == "post")
         resolution = certificate.resolution_for(pre.epoch_id)
         self.assertEqual(resolution.producer_epoch_id, post.epoch_id)
+        self.assertEqual(certificate.recurrences, ())
         self.assertTrue(certificate.complete)
 
-    def test_post_after_pre_is_explicitly_loop_carried(self):
+    def test_post_after_pre_becomes_certified_loop_recurrence(self):
         module, lifetime, graph = _fixture(post_before_pre=False)
         certificate = arena_flow.certify_region_arena_flow(
             lifetime,
             graph,
             module,
         )
-        self.assertFalse(certificate.complete)
-        self.assertEqual(len(certificate.resolutions), 0)
-        self.assertEqual(len(certificate.unresolved), 1)
-        self.assertEqual(certificate.unresolved[0].reason, "loop_carried")
+        pre = next(item for item in graph.epochs if item.phase == "pre")
+        post = next(item for item in graph.epochs if item.phase == "post")
+        origin = next(item for item in graph.epochs if item.phase == "origin")
+        recurrence = certificate.recurrence_for(pre.epoch_id)
+        self.assertEqual(recurrence.initial_epoch_id, origin.epoch_id)
+        self.assertEqual(recurrence.carried_epoch_id, post.epoch_id)
+        self.assertEqual(recurrence.iteration_id, "while_backedge@7:5")
+        self.assertEqual(certificate.resolutions, ())
+        self.assertEqual(certificate.unresolved, ())
+        self.assertTrue(certificate.complete)
+
+    def test_unknown_recurrence_query_fails_closed(self):
+        module, lifetime, graph = _fixture(post_before_pre=True)
+        certificate = arena_flow.certify_region_arena_flow(
+            lifetime,
+            graph,
+            module,
+        )
+        with self.assertRaisesRegex(
+            arena_flow.RegionArenaFlowError,
+            "exactly one recurrence",
+        ):
+            certificate.recurrence_for("pre@missing")
 
 
 if __name__ == "__main__":
