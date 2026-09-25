@@ -194,6 +194,60 @@ def _iteration_identity(
     return unique[0]
 
 
+def _cut_iteration_backedge(
+    function: object,
+    successors: dict[str, tuple[str, ...]],
+    iteration_id: str,
+    *,
+    error_type: type[Exception] = RegionLifetimeCFGError,
+    subject: str = "REGION iteration",
+) -> dict[str, tuple[str, ...]]:
+    """Return one-iteration CFG by removing exactly the canonical backedge."""
+    matches: list[tuple[str, str]] = []
+    for block in tuple(getattr(function, "blocks", ()) or ()):
+        block_label = _required_text(
+            getattr(block, "label", None), label="REGION CFG block"
+        )
+        for instruction in tuple(getattr(block, "instructions", ()) or ()):
+            if _kind(instruction) != "BranchInst":
+                continue
+            if getattr(instruction, "control_kind", None) != "backedge":
+                continue
+            if getattr(instruction, "point_id", None) != iteration_id:
+                continue
+            target = _required_text(
+                getattr(instruction, "target_block", None),
+                label="REGION CFG backedge target",
+            )
+            matches.append((block_label, target))
+
+    if len(matches) != 1:
+        raise error_type(
+            f"{subject} {iteration_id!r} requires exactly one canonical backedge"
+        )
+
+    source, target = matches[0]
+    if target not in successors.get(source, ()):
+        raise error_type(
+            f"{subject} {iteration_id!r} backedge diverged from canonical CFG"
+        )
+
+    cut = dict(successors)
+    removed = False
+    remaining: list[str] = []
+    for candidate in successors[source]:
+        if not removed and candidate == target:
+            removed = True
+            continue
+        remaining.append(candidate)
+    if not removed:
+        raise error_type(
+            f"{subject} {iteration_id!r} backedge is not a CFG successor"
+        )
+    cut[source] = tuple(remaining)
+    return cut
+
+
 def _expected_points(lifetime: RegionLifetimePlan) -> dict[str, tuple[str, ...]]:
     expected: dict[str, tuple[str, ...]] = {}
 
@@ -346,7 +400,6 @@ def certify_region_lifetime_cfg(
 
     cyclic_borrows: list[str] = []
     cyclic_handovers: list[str] = []
-    handovers_by_iteration: dict[str, list[RegionLifetimeCFGLocation]] = {}
     for location in locations:
         if not _block_is_cyclic(successors, location.block):
             continue
@@ -356,16 +409,8 @@ def certify_region_lifetime_cfg(
                     "REGION handover inside a CFG cycle requires iteration identity"
                 )
             cyclic_handovers.append(location.point_id)
-            handovers_by_iteration.setdefault(location.iteration_id, []).append(location)
         if location.kind in ("direct", "whisper"):
             cyclic_borrows.append(location.point_id)
-
-    for iteration_id, loop_handovers in handovers_by_iteration.items():
-        if len(loop_handovers) > 1:
-            raise RegionLifetimeCFGError(
-                f"REGION iteration {iteration_id!r} contains multiple handovers and "
-                "requires explicit intra-iteration ordering"
-            )
 
     handovers = tuple(item for item in locations if item.kind == "handover")
     borrows = tuple(
@@ -377,6 +422,20 @@ def certify_region_lifetime_cfg(
                 continue
             if handover.block == borrow.block:
                 unsafe = handover.instruction_index < borrow.instruction_index
+            elif (
+                handover.iteration_id is not None
+                and _same_cycle(successors, handover.block, borrow.block)
+            ):
+                iteration_successors = _cut_iteration_backedge(
+                    function,
+                    successors,
+                    handover.iteration_id,
+                )
+                unsafe = _reachable(
+                    iteration_successors,
+                    handover.block,
+                    borrow.block,
+                )
             else:
                 unsafe = _reachable(successors, handover.block, borrow.block)
             if unsafe:

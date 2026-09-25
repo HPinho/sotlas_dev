@@ -15,7 +15,13 @@ from dataclasses import dataclass
 
 from .canonical_sir import load_canonical_sir
 from .region_call_sir import RegionCallSIRBridge
-from .region_cfg import _iteration_identity, _reachable, _successors
+from .region_cfg import (
+    _cut_iteration_backedge,
+    _iteration_identity,
+    _reachable,
+    _same_cycle,
+    _successors,
+)
 from .typed_ast import Phase1SemanticError
 
 
@@ -163,17 +169,6 @@ def certify_region_call_cfg(
     relations: list[RegionCallCFGRelation] = []
     for function_name, function_points in by_function.items():
         successors = successors_by_function[function_name]
-        iteration_groups: dict[str, list[RegionCallCFGPoint]] = {}
-        for point in function_points:
-            if point.iteration_id is not None:
-                iteration_groups.setdefault(point.iteration_id, []).append(point)
-        for iteration_id, loop_points in iteration_groups.items():
-            if len(loop_points) > 1:
-                raise RegionCallCFGError(
-                    f"REGION iteration {iteration_id!r} contains multiple ownership-taking "
-                    "calls and requires explicit intra-iteration ordering"
-                )
-
         for first_index, first in enumerate(function_points):
             for second in function_points[first_index + 1 :]:
                 if first.block == second.block:
@@ -183,8 +178,33 @@ def certify_region_call_cfg(
                         )
                     relation = "ordered_path"
                 else:
-                    forward = _reachable(successors, first.block, second.block)
-                    reverse = _reachable(successors, second.block, first.block)
+                    relation_successors = successors
+                    if (
+                        first.iteration_id is not None
+                        and first.iteration_id == second.iteration_id
+                        and _same_cycle(successors, first.block, second.block)
+                    ):
+                        relation_successors = _cut_iteration_backedge(
+                            functions[function_name],
+                            successors,
+                            first.iteration_id,
+                            error_type=RegionCallCFGError,
+                            subject="REGION call iteration",
+                        )
+                    forward = _reachable(
+                        relation_successors,
+                        first.block,
+                        second.block,
+                    )
+                    reverse = _reachable(
+                        relation_successors,
+                        second.block,
+                        first.block,
+                    )
+                    if forward and reverse:
+                        raise RegionCallCFGError(
+                            "REGION call iteration remains cyclic after canonical backedge cut"
+                        )
                     if reverse:
                         raise RegionCallCFGError(
                             "REGION call source order diverges from SIR CFG reachability"

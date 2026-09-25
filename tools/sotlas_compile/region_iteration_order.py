@@ -19,6 +19,7 @@ from .canonical_sir import load_canonical_sir
 from .region_call_cfg import RegionCallCFGCertificate
 from .region_cfg import (
     RegionLifetimeCFGCertificate,
+    _cut_iteration_backedge,
     _reachable,
     _same_cycle,
     _successors,
@@ -90,56 +91,6 @@ def _find_function(module: object, function_name: str):
     return matches[0]
 
 
-def _cut_iteration_backedge(
-    function: object,
-    successors: dict[str, tuple[str, ...]],
-    iteration_id: str,
-) -> dict[str, tuple[str, ...]]:
-    matches: list[tuple[str, str]] = []
-    for block in tuple(getattr(function, "blocks", ()) or ()):
-        block_label = _required_text(
-            getattr(block, "label", None), label="REGION iteration block"
-        )
-        for instruction in tuple(getattr(block, "instructions", ()) or ()):
-            if type(instruction).__name__ != "BranchInst":
-                continue
-            if getattr(instruction, "control_kind", None) != "backedge":
-                continue
-            if getattr(instruction, "point_id", None) != iteration_id:
-                continue
-            target = _required_text(
-                getattr(instruction, "target_block", None),
-                label="REGION iteration backedge target",
-            )
-            matches.append((block_label, target))
-
-    if len(matches) != 1:
-        raise RegionIterationOrderError(
-            f"REGION iteration {iteration_id!r} requires exactly one canonical backedge"
-        )
-
-    source, target = matches[0]
-    if target not in successors.get(source, ()):
-        raise RegionIterationOrderError(
-            f"REGION iteration {iteration_id!r} backedge diverged from canonical CFG"
-        )
-
-    cut = dict(successors)
-    removed = False
-    remaining: list[str] = []
-    for candidate in successors[source]:
-        if not removed and candidate == target:
-            removed = True
-            continue
-        remaining.append(candidate)
-    if not removed:
-        raise RegionIterationOrderError(
-            f"REGION iteration {iteration_id!r} backedge is not a CFG successor"
-        )
-    cut[source] = tuple(remaining)
-    return cut
-
-
 def _validate_point_location(
     sir,
     function: object,
@@ -201,7 +152,13 @@ def _relation(
             f"REGION iteration {iteration_id!r} points do not belong to one CFG cycle"
         )
 
-    cut = _cut_iteration_backedge(function, successors, iteration_id)
+    cut = _cut_iteration_backedge(
+        function,
+        successors,
+        iteration_id,
+        error_type=RegionIterationOrderError,
+        subject="REGION iteration",
+    )
     if first.block == second.block:
         if first.instruction_index == second.instruction_index:
             raise RegionIterationOrderError(
@@ -324,18 +281,12 @@ def certify_region_iteration_order(
         grouped.setdefault(point.iteration_id, []).append(point)
 
     relations: list[RegionIterationOwnershipRelation] = []
-    for iteration_id, iteration_points in grouped.items():
-        calls = tuple(item for item in iteration_points if item.kind == "call")
-        handovers = tuple(item for item in iteration_points if item.kind == "handover")
-        if len(calls) > 1 or len(handovers) > 1:
-            raise RegionIterationOrderError(
-                f"REGION iteration {iteration_id!r} still requires dedicated ordering "
-                "for multiple same-kind ownership transfers"
-            )
-        if len(calls) == 1 and len(handovers) == 1:
-            relations.append(
-                _relation(function, successors, calls[0], handovers[0])
-            )
+    for iteration_points in grouped.values():
+        for first_index, first in enumerate(iteration_points):
+            for second in iteration_points[first_index + 1 :]:
+                relations.append(
+                    _relation(function, successors, first, second)
+                )
 
     return RegionIterationOwnershipCertificate(
         function=function_name,
