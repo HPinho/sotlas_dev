@@ -76,6 +76,18 @@ class SotlasRegionArenaLifetimeTests(unittest.TestCase):
             {"call", "return"},
         )
         self.assertEqual(len(graph.constraints), 2)
+        self.assertEqual(
+            {(item.function, item.binding) for item in graph.origin_epochs()},
+            {("pass", "token"), ("run", "token")},
+        )
+        self.assertFalse(
+            any(
+                item.function == "run"
+                and item.binding == "out"
+                and item.phase == "origin"
+                for item in graph.epochs
+            )
+        )
 
         link = plan.return_links.links[0]
         constraints = graph.constraints_at(link.point_id)
@@ -109,7 +121,7 @@ class SotlasRegionArenaLifetimeTests(unittest.TestCase):
         self.assertIsNotNone(return_source.activation_id)
         self.assertTrue(returned.preserves_identity)
 
-    def test_reused_handover_destination_gets_distinct_pre_and_post_epochs(self):
+    def test_reused_handover_destination_gets_origin_pre_and_post_epochs(self):
         checked = package.analyze_source_phase1(
             HANDOVER_SOURCE,
             filename="<region-arena-handover>",
@@ -138,10 +150,15 @@ class SotlasRegionArenaLifetimeTests(unittest.TestCase):
         destination_epochs = graph.epochs_for("run", "destination")
         self.assertEqual(
             {item.phase for item in destination_epochs},
-            {"pre", "post"},
+            {"origin", "pre", "post"},
+        )
+        origin_epoch = next(
+            item for item in destination_epochs if item.phase == "origin"
         )
         pre_epoch = next(item for item in destination_epochs if item.phase == "pre")
         post_epoch = next(item for item in destination_epochs if item.phase == "post")
+        self.assertEqual(origin_epoch.point_id, "param_origin@run::destination")
+        self.assertNotEqual(origin_epoch.epoch_id, pre_epoch.epoch_id)
         self.assertNotEqual(pre_epoch.epoch_id, post_epoch.epoch_id)
         self.assertEqual(pre_epoch.point_id, plan.boundaries.links[0].point_id)
         self.assertEqual(post_epoch.point_id, handover.point_id)

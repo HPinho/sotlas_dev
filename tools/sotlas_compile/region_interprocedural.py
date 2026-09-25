@@ -1,7 +1,7 @@
 """Composed interprocedural REGION lifetime view.
 
-The local lifetime topology, source-stable call contracts, CFG call-path
-certificates, intra-iteration ownership order and return contracts are
+The local lifetime topology, source-stable owner origins/call contracts, CFG
+call-path certificates, intra-iteration ownership order and return contracts are
 independently certified. This module composes those proofs without pretending
 the prototype SIR already carries interprocedural call ownership markers. It is
 a semantic certificate only; no runtime or backend behavior is introduced here.
@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .canonical_sir import build_canonical_checked_ownership_sir
+from .ownership_origin import OwnershipOriginPlan, plan_checked_ownership_origins
 from .region_call import RegionCallTransfer, plan_checked_region_calls
 from .region_call_cfg import (
     RegionCallCFGCertificate,
@@ -41,6 +42,7 @@ class RegionInterproceduralFunctionPlan:
     calls: tuple[RegionCallTransfer, ...]
     lifetime_cfg: RegionLifetimeCFGCertificate
     iteration_order: RegionIterationOwnershipCertificate
+    origins: OwnershipOriginPlan
 
 
 @dataclass(frozen=True)
@@ -99,6 +101,10 @@ class RegionInterproceduralLifetimePlan:
     ) -> RegionIterationOwnershipCertificate:
         """Return the mandatory intra-iteration ownership certificate."""
         return self.function(function).iteration_order
+
+    def ownership_origins(self, function: str) -> OwnershipOriginPlan:
+        """Return the mandatory source-stable owner-origin certificate."""
+        return self.function(function).origins
 
     def call_points(self, function: str) -> tuple[RegionCallCFGPoint, ...]:
         """Return the certified REGION call sites for one known function."""
@@ -250,6 +256,11 @@ def plan_checked_region_interprocedural(
             checked_module,
             function=function_name,
         )
+        origins = plan_checked_ownership_origins(
+            checked_module,
+            function=function_name,
+            domain=OwnershipDomain.REGION,
+        )
         lifetime_cfg = certify_region_lifetime_cfg(local, checked_sir.module)
         iteration_order = certify_region_iteration_order(
             call_cfg,
@@ -259,10 +270,23 @@ def plan_checked_region_interprocedural(
         if (
             lifetime_cfg.function != function_name
             or iteration_order.function != function_name
+            or origins.function != function_name
         ):
             raise RegionInterproceduralLifetimeError(
-                f"REGION iteration certificates diverged for {function_name!r}"
+                f"REGION function certificates diverged for {function_name!r}"
             )
+
+        owner_by_binding = {item.binding: item for item in local.owners}
+        if set(origins.bindings) != set(owner_by_binding):
+            raise RegionInterproceduralLifetimeError(
+                f"REGION owner origins diverged from lifetime owners for {function_name!r}"
+            )
+        for origin in origins.origins:
+            owner = owner_by_binding[origin.binding]
+            if origin.type != owner.type or origin.domain is not OwnershipDomain.REGION:
+                raise RegionInterproceduralLifetimeError(
+                    f"REGION owner origin {function_name}::{origin.binding} diverged from lifetime owner"
+                )
 
         calls = tuple(
             item for item in call_plan.transfers if item.function == function_name
@@ -307,6 +331,7 @@ def plan_checked_region_interprocedural(
                 calls=calls,
                 lifetime_cfg=lifetime_cfg,
                 iteration_order=iteration_order,
+                origins=origins,
             )
         )
 

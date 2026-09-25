@@ -1,17 +1,19 @@
 """Backend-neutral symbolic arena/lifetime identity graph for REGION owners.
 
 REGION bindings are reusable ownership slots, not permanent arena identities: a
-binding can be consumed and later re-armed by ``handover``.  Therefore this
-layer never assigns one arena identity to ``function::binding`` for its whole
-lifetime.  It freezes two distinct concepts instead:
+binding can be consumed and later re-armed by ``handover``. Therefore this layer
+never assigns one arena identity to ``function::binding`` for its whole lifetime.
+It freezes three distinct concepts instead:
 
 * static owner slots, derived from the certified REGION lifetime plan;
-* source-stable ownership epochs at transfer/call/return boundaries.
+* canonical declaration origins and source-stable ownership epochs;
+* identity-preserving constraints at transfer/call/return boundaries.
 
-Constraints connect epochs whose dynamic lifetime identity must be preserved.
-They intentionally do not choose a physical allocator, allocate storage, or
-collapse path-dependent alternatives into one arena.  Later lifetime dataflow
-can resolve/merge these symbolic constraints without changing backend ABI.
+Only declaration origins whose producer truly introduces identity (parameters
+and fresh values in the current frontend) become ``origin`` epochs. A local
+created from a call/move does not receive a fake root; its identity must arrive
+through another ownership constraint. The graph chooses no physical allocator,
+allocates no storage and does not collapse path-dependent alternatives.
 """
 from __future__ import annotations
 
@@ -105,6 +107,9 @@ class RegionArenaLifetimeGraph:
             for item in self.epochs
             if item.function == function and item.binding == binding
         )
+
+    def origin_epochs(self) -> tuple[RegionArenaEpoch, ...]:
+        return tuple(item for item in self.epochs if item.phase == "origin")
 
     def constraints_at(self, point_id: str) -> tuple[RegionArenaConstraint, ...]:
         return tuple(item for item in self.constraints if item.point_id == point_id)
@@ -245,8 +250,30 @@ def build_region_arena_lifetime_graph(
         seen_constraints.add(item.identity)
         constraints.append(item)
 
+    # Canonical owner origins are mandatory in the interprocedural plan. Only
+    # producers that introduce a new identity become graph roots. Call/move
+    # declarations wait for their actual incoming ownership constraint.
+    for function_plan in lifetime.functions:
+        if set(function_plan.origins.bindings) != set(function_plan.local.bindings):
+            raise RegionArenaLifetimeError(
+                f"REGION arena origins diverged for function {function_plan.function!r}"
+            )
+        for origin in function_plan.origins.origins:
+            slot = require_slot(origin.function, origin.binding)
+            if slot.type != origin.type:
+                raise RegionArenaLifetimeError(
+                    f"REGION arena origin type mismatch for {origin.function}::{origin.binding}"
+                )
+            if origin.produces_identity:
+                add_epoch(
+                    function=origin.function,
+                    binding=origin.binding,
+                    phase="origin",
+                    point_id=origin.point_id,
+                )
+
     # Local same-domain destinations create a new ownership epoch for the reused
-    # destination slot.  The source side is a pre-event epoch, so a later
+    # destination slot. The source side is a pre-event epoch, so a later
     # dataflow pass can resolve which previous epoch reaches this point.
     for function_plan in lifetime.functions:
         function = function_plan.function
@@ -276,7 +303,7 @@ def build_region_arena_lifetime_graph(
                 point_id=point_id,
             )
 
-    # A callee parameter activation is call-site scoped.  This is essential for
+    # A callee parameter activation is call-site scoped. This is essential for
     # recursion and for one callee reached from multiple callers.
     for link in boundaries.links:
         source = add_epoch(
@@ -295,7 +322,7 @@ def build_region_arena_lifetime_graph(
         )
         add_constraint(source, target, via="call", point_id=link.point_id)
 
-    # Return sources are also activation scoped.  Multiple path-dependent return
+    # Return sources are also activation scoped. Multiple path-dependent return
     # bindings remain separate constraints instead of being collapsed into a
     # single static arena equality.
     for link in return_links.links:
