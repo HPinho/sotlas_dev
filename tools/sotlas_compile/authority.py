@@ -1,0 +1,233 @@
+"""Backend-neutral Authority Domains for named ``@system`` capabilities.
+
+Phase 3 starts by replacing the old all-or-nothing authority model with an
+explicit least-authority contract without breaking existing source. Bare
+``@system`` remains a legacy unrestricted system context. Named forms such as
+``@system(pci.config)`` grant only the listed capabilities.
+
+This first slice is intentionally frontend/backend neutral: it derives
+source-stable function contracts and certifies direct function calls. SIR
+lowering and capability values are composed in later slices rather than being
+invented here.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, fields, is_dataclass
+import re
+from typing import Any, Iterator
+
+from . import bootstrap
+from .typed_ast import Phase1SemanticError
+
+
+class AuthorityDomainError(Phase1SemanticError):
+    """Raised when an authority contract or authority call is invalid."""
+
+
+_CAPABILITY_RE = re.compile(
+    r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$"
+)
+_SYSTEM_ATTR_RE = re.compile(r"^@system(?:\((.*)\))?$")
+
+
+@dataclass(frozen=True)
+class AuthorityContract:
+    function: str
+    capabilities: tuple[str, ...] = ()
+    legacy_unrestricted: bool = False
+
+    @property
+    def is_system(self) -> bool:
+        return self.legacy_unrestricted or bool(self.capabilities)
+
+    def grants(self, capability: str) -> bool:
+        return self.legacy_unrestricted or capability in self.capabilities
+
+
+@dataclass(frozen=True)
+class AuthorityCallEdge:
+    caller: str
+    callee: str
+    point_id: str
+    required_capabilities: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class AuthorityDomainPlan:
+    contracts: tuple[AuthorityContract, ...]
+    calls: tuple[AuthorityCallEdge, ...]
+
+    def contract(self, function: str) -> AuthorityContract:
+        matches = tuple(item for item in self.contracts if item.function == function)
+        if len(matches) != 1:
+            raise AuthorityDomainError(
+                f"authority plan requires exactly one function {function!r}"
+            )
+        return matches[0]
+
+    def calls_from(self, function: str) -> tuple[AuthorityCallEdge, ...]:
+        self.contract(function)
+        return tuple(item for item in self.calls if item.caller == function)
+
+
+def _parse_capability_attribute(function: object) -> AuthorityContract:
+    name = getattr(function, "name", None)
+    if not isinstance(name, str) or not name:
+        raise AuthorityDomainError("authority contract requires a function name")
+
+    attributes = tuple(getattr(function, "attributes", ()) or ())
+    system_attrs = tuple(
+        item
+        for item in attributes
+        if isinstance(item, str)
+        and (item == "@system" or item.startswith("@system("))
+    )
+    if not system_attrs:
+        return AuthorityContract(function=name)
+    if len(system_attrs) != 1:
+        raise AuthorityDomainError(
+            f"function {name!r} requires exactly one @system authority contract"
+        )
+
+    attribute = system_attrs[0]
+    match = _SYSTEM_ATTR_RE.fullmatch(attribute)
+    if match is None:
+        raise AuthorityDomainError(
+            f"function {name!r} has malformed authority attribute {attribute!r}"
+        )
+    payload = match.group(1)
+    if payload is None:
+        # Compatibility contract for the pre-Phase-3 all-or-nothing @system.
+        return AuthorityContract(function=name, legacy_unrestricted=True)
+
+    raw_items = tuple(part.strip() for part in payload.split(","))
+    if not raw_items or any(not item for item in raw_items):
+        raise AuthorityDomainError(
+            f"function {name!r} requires at least one named @system capability"
+        )
+    for capability in raw_items:
+        if _CAPABILITY_RE.fullmatch(capability) is None:
+            raise AuthorityDomainError(
+                f"function {name!r} has invalid authority capability {capability!r}"
+            )
+    if len(set(raw_items)) != len(raw_items):
+        raise AuthorityDomainError(
+            f"function {name!r} repeats an authority capability"
+        )
+    return AuthorityContract(function=name, capabilities=raw_items)
+
+
+def _walk_direct_calls(value: Any) -> Iterator[object]:
+    """Yield direct Call nodes recursively without reconstructing source order."""
+    if isinstance(value, bootstrap.Call):
+        yield value
+    if value is None or isinstance(value, (str, bytes, int, float, bool)):
+        return
+    if isinstance(value, dict):
+        for item in value.values():
+            yield from _walk_direct_calls(item)
+        return
+    if isinstance(value, (list, tuple)):
+        for item in value:
+            yield from _walk_direct_calls(item)
+        return
+    if is_dataclass(value):
+        for item in fields(value):
+            yield from _walk_direct_calls(getattr(value, item.name))
+
+
+def _call_point_id(call: object) -> str:
+    token = getattr(call, "token", None)
+    line = getattr(token, "line", None)
+    column = getattr(token, "column", None)
+    if not isinstance(line, int) or not isinstance(column, int):
+        raise AuthorityDomainError("authority call requires source-stable location")
+    return f"call@{line}:{column}"
+
+
+def _validate_call(
+    caller: AuthorityContract,
+    callee: AuthorityContract,
+    *,
+    point_id: str,
+) -> AuthorityCallEdge | None:
+    if not callee.is_system:
+        return None
+
+    if callee.legacy_unrestricted:
+        if not caller.legacy_unrestricted:
+            raise AuthorityDomainError(
+                f"authority call {caller.function} -> {callee.function} at {point_id} "
+                "requires legacy unrestricted @system authority"
+            )
+        required: tuple[str, ...] = ()
+    else:
+        missing = tuple(
+            capability
+            for capability in callee.capabilities
+            if not caller.grants(capability)
+        )
+        if missing:
+            raise AuthorityDomainError(
+                f"authority call {caller.function} -> {callee.function} at {point_id} "
+                f"is missing capabilities: {', '.join(missing)}"
+            )
+        required = callee.capabilities
+
+    return AuthorityCallEdge(
+        caller=caller.function,
+        callee=callee.function,
+        point_id=point_id,
+        required_capabilities=required,
+    )
+
+
+def plan_authority_domains(module: object) -> AuthorityDomainPlan:
+    """Build and certify named Authority Domains for direct function calls."""
+    if not isinstance(module, bootstrap.Module):
+        raise AuthorityDomainError("authority planning requires parsed Sotlas Module")
+
+    functions = tuple(module.functions)
+    contracts = tuple(_parse_capability_attribute(function) for function in functions)
+    by_name: dict[str, AuthorityContract] = {}
+    for contract in contracts:
+        if contract.function in by_name:
+            raise AuthorityDomainError(
+                f"duplicate authority function {contract.function!r}"
+            )
+        by_name[contract.function] = contract
+
+    calls: list[AuthorityCallEdge] = []
+    seen_points: set[tuple[str, str]] = set()
+    for function in functions:
+        caller = by_name[function.name]
+        for call in _walk_direct_calls(function.body):
+            callee_name = getattr(call, "callee", None)
+            if not isinstance(callee_name, str):
+                continue
+            callee = by_name.get(callee_name)
+            if callee is None:
+                # External/intrinsic calls are outside this first direct-call
+                # authority slice; no capability claim is invented for them.
+                continue
+            point_id = _call_point_id(call)
+            point_key = (caller.function, point_id)
+            if point_key in seen_points:
+                raise AuthorityDomainError(
+                    f"duplicate authority call point {caller.function}::{point_id}"
+                )
+            seen_points.add(point_key)
+            edge = _validate_call(caller, callee, point_id=point_id)
+            if edge is not None:
+                calls.append(edge)
+
+    return AuthorityDomainPlan(contracts=contracts, calls=tuple(calls))
+
+
+__all__ = [
+    "AuthorityDomainError",
+    "AuthorityContract",
+    "AuthorityCallEdge",
+    "AuthorityDomainPlan",
+    "plan_authority_domains",
+]
