@@ -2,9 +2,14 @@
 
 The current prototype SIR does not embed ownership call-site identities in
 ``CallInst``. This bridge therefore does not claim that it does. It proves that
-each certified REGION call transfer maps to exactly one existing SIR call and
-argument position, while carrying the source-stable ``call@line:column`` identity
-from the semantic contract alongside that SIR location.
+each certified REGION call transfer maps to one existing SIR call and argument
+position, while carrying the source-stable ``call@line:column`` identity from
+the semantic contract alongside that SIR location.
+
+When the same re-armed binding is consumed by repeated calls in one SIR block,
+the bridge pairs source call points with still-unclaimed matching ``CallInst``s
+in canonical instruction order. Cross-block ambiguity remains fail-closed until
+``CallInst`` itself carries source identity.
 """
 from __future__ import annotations
 
@@ -81,6 +86,21 @@ def _validate_call_site_structure(sites: tuple[RegionCallSIRSite, ...]) -> None:
         last_by_block[block_key] = instruction_index
 
 
+def _instruction_matches_transfer(sir, instruction, transfer) -> bool:
+    if not isinstance(instruction, sir.CallInst):
+        return False
+    if instruction.callee != transfer.callee:
+        return False
+    arguments = tuple(instruction.arguments)
+    if transfer.argument_index < 0 or transfer.argument_index >= len(arguments):
+        return False
+    argument = arguments[transfer.argument_index]
+    return (
+        argument.name == transfer.binding
+        and argument.type_name == transfer.type.name
+    )
+
+
 def validate_region_call_sir(
     call_plan: RegionCallLifetimePlan,
     sir_module: object,
@@ -99,6 +119,8 @@ def validate_region_call_sir(
 
     functions = tuple(module.functions)
     sites: list[RegionCallSIRSite] = []
+    point_locations: dict[tuple[str, str], tuple[str, int]] = {}
+    claimed_locations: dict[tuple[str, str, int], str] = {}
 
     for transfer in call_plan.transfers:
         if not transfer.point_id.startswith("call@"):
@@ -114,30 +136,60 @@ def validate_region_call_sir(
             )
 
         function = function_matches[0]
-        matches: list[tuple[str, int]] = []
-        for block in tuple(getattr(function, "blocks", ()) or ()):
-            for index, instruction in enumerate(
-                tuple(getattr(block, "instructions", ()) or ())
-            ):
-                if not isinstance(instruction, sir.CallInst):
-                    continue
-                if instruction.callee != transfer.callee:
-                    continue
-                arguments = tuple(instruction.arguments)
-                if transfer.argument_index >= len(arguments):
-                    continue
-                argument = arguments[transfer.argument_index]
-                if (
-                    argument.name == transfer.binding
-                    and argument.type_name == transfer.type.name
-                ):
-                    matches.append((block.label, index))
-
-        if len(matches) != 1:
-            raise RegionCallSIRError(
-                f"REGION call {transfer.function}::{transfer.binding} at {transfer.point_id} "
-                f"requires exactly one SIR CallInst argument match, got {len(matches)}"
+        point_key = (transfer.function, transfer.point_id)
+        selected = point_locations.get(point_key)
+        if selected is not None:
+            block_label, instruction_index = selected
+            block = next(
+                (item for item in function.blocks if item.label == block_label),
+                None,
             )
+            if block is None or instruction_index >= len(block.instructions):
+                raise RegionCallSIRError(
+                    f"REGION call point {transfer.point_id!r} lost its SIR location"
+                )
+            if not _instruction_matches_transfer(
+                sir, block.instructions[instruction_index], transfer
+            ):
+                raise RegionCallSIRError(
+                    f"REGION call point {transfer.function}::{transfer.point_id} "
+                    "parameters diverge from one SIR CallInst"
+                )
+            matches = [selected]
+        else:
+            matches: list[tuple[str, int]] = []
+            for block in tuple(getattr(function, "blocks", ()) or ()):
+                for index, instruction in enumerate(
+                    tuple(getattr(block, "instructions", ()) or ())
+                ):
+                    location_key = (transfer.function, block.label, index)
+                    claimed_by = claimed_locations.get(location_key)
+                    if claimed_by is not None and claimed_by != transfer.point_id:
+                        continue
+                    if _instruction_matches_transfer(sir, instruction, transfer):
+                        matches.append((block.label, index))
+
+            if len(matches) > 1:
+                blocks = {block for block, _ in matches}
+                if len(blocks) == 1:
+                    # Repeated same-binding calls in one block have canonical SIR
+                    # instruction order. Claim the earliest remaining call for
+                    # the current source-stable semantic point.
+                    matches = [min(matches, key=lambda item: item[1])]
+                else:
+                    raise RegionCallSIRError(
+                        f"REGION call {transfer.function}::{transfer.binding} at {transfer.point_id} "
+                        f"requires exactly one SIR CallInst argument match, got {len(matches)}"
+                    )
+
+            if len(matches) != 1:
+                raise RegionCallSIRError(
+                    f"REGION call {transfer.function}::{transfer.binding} at {transfer.point_id} "
+                    f"requires exactly one SIR CallInst argument match, got {len(matches)}"
+                )
+            selected = matches[0]
+            point_locations[point_key] = selected
+            claimed_locations[(transfer.function, selected[0], selected[1])] = transfer.point_id
 
         block, instruction_index = matches[0]
         sites.append(

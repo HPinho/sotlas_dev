@@ -98,7 +98,7 @@ def _select_graph_call_transfer(
 ) -> int:
     """Pair one source call with exactly one canonical graph transfer.
 
-    Explicit graph point identities are authoritative.  The source-order
+    Explicit graph point identities are authoritative. The source-order
     fallback exists only for legacy call transfers whose point identities are
     all absent; graph tuple order and parsed ``_walk_calls`` order are both
     canonical source order, and every selected graph index is consumed once.
@@ -114,7 +114,7 @@ def _select_graph_call_transfer(
     if not candidates:
         raise RegionCallLifetimeError(
             f"REGION call {function}::{binding} -> {callee}.{parameter} "
-            "has no canonical graph transfer"
+            "requires exactly one canonical graph transfer, got 0"
         )
 
     exact = [
@@ -125,8 +125,8 @@ def _select_graph_call_transfer(
         return exact[0]
     if len(exact) > 1:
         raise RegionCallLifetimeError(
-            f"REGION call {function}::{binding} at {point_id} has duplicate "
-            "point-identified graph transfers"
+            f"REGION call {function}::{binding} at {point_id} requires exactly one "
+            f"canonical graph transfer, got {len(exact)}"
         )
 
     identities = tuple(
@@ -139,7 +139,7 @@ def _select_graph_call_transfer(
         )
 
     # Legacy graph transfers without point ids are emitted in canonical source
-    # order.  Consume the earliest remaining occurrence; later repeated calls
+    # order. Consume the earliest remaining occurrence; later repeated calls
     # necessarily receive the next occurrence because indices cannot be reused.
     return candidates[0]
 
@@ -273,6 +273,7 @@ def build_region_call_lifetime_plan(
         transfer = graph.transfers[unmatched[0]]
         raise RegionCallLifetimeError(
             f"REGION graph transfer {transfer.function}::{transfer.binding} via {transfer.via} "
+            "violates exactly one canonical graph transfer per source call; "
             "has no source-stable call-site/parameter identity"
         )
 
