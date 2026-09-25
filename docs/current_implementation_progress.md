@@ -1,10 +1,10 @@
 # Sotlas — Current Implementation Progress
 
 **Atualizado em:** 2026-09-25  
-**Baseline verde de referência:** `3b5114fb99f25f2ac92f2346b2c7d5a31db277e4`  
-**CI de referência:** Sotlas CI & Toolchain Build Farm #557 — `success`
+**Último baseline verde certificado:** `2fee4aa5342df1822389c7f1dd51979fe42abeeb`  
+**CI de referência:** Sotlas CI & Toolchain Build Farm #560 — `success`
 
-> Este arquivo é o snapshot canônico de progresso de engenharia. Percentuais medem o escopo necessário para o roadmap Sotlas 1.0; generalizações pós-release permanecem registradas separadamente nos documentos de release-scope e nos documentos técnicos.
+> Este arquivo é o snapshot canônico de progresso de engenharia. Os percentuais medem o escopo necessário para o Sotlas 1.0, não a implementação de toda generalização teórica prevista para versões futuras.
 
 ## Estado atual
 
@@ -13,7 +13,7 @@ Fase 0 — Reality Reset              ~80%
 Fase 1 — Typed Semantic Core       100% ✅
 Fase 2 — Ownership Domains         100% ✅  (escopo Sotlas 1.0)
 Fase 3 — Authority Domains         100% ✅  (escopo Sotlas 1.0)
-Fase 4 — State Spaces                ~0%
+Fase 4 — State Spaces               ~20% 🟡
 Fase 5 — Effects                    ~10%
 Fase 6 — Flow                        ~0%
 Fase 7 — Execution Domains          ~10%
@@ -29,139 +29,98 @@ Fase 16 — Native Machine Backend      ~5%
 Fase 17 — Tooling avançado          ~15%
 ```
 
+## Regra de versão
+
+O roadmap usa a fronteira de release definida para o 1.0:
+
+- **BLOCKER 1.0:** correção, safety, invariantes semânticas, integração necessária ao caminho suportado e pelo menos um e2e executável representativo;
+- **DEFER 1.0.x:** generalizações de CFG, payloads, combinações raras, diagnósticos, ergonomia, cobertura e otimizações quando a forma ainda não suportada pode falhar fechado;
+- **DEFER 1.1+:** capacidades novas ou generalizações que alteram o contrato público.
+
+Um caso rejeitado de forma clara e fail-closed não mantém uma fase aberta apenas porque poderá ser suportado futuramente. Um caso aceito com semântica incorreta continua sendo regressão/blocker.
+
+## Fase 1 — Typed Semantic Core
+
+**Status do roadmap 1.0: 100% ✅ — COMPLETE**
+
+O núcleo tipado, contratos de chamadas/retornos, ownership `sole`, safety básica, branches/loops estruturados e reality gates permanecem certificados. Extensões como ABI geral de enum payload continuam como maturação separada quando não forem necessárias ao subset 1.0.
+
 ## Fase 2 — Ownership Domains
 
 **Status do roadmap 1.0: 100% ✅ — COMPLETE**
 
-A Fase 2 não significa que toda combinação teórica de ownership foi implementada. O critério de saída do Sotlas 1.0 é definido em `docs/sotlas_1_0_release_scope.md`: o subset declarado `SUPPORTED` precisa estar semanticamente correto, possuir caminho backend executável representativo e rejeitar formas fora do contrato de maneira fail-closed.
+O subset `SUPPORTED` de `sole/exclusive`, `shared`, `region`, `island`, `quarantine`, `handover`, `direct` e `whisper` possui semântica certificada e caminhos backend representativos. `device` e `external` permanecem `PREVIEW`.
 
-Esse gate está fechado no baseline de referência.
+Refinamentos como CFG ARC arbitrário, arena `region` completamente geral, weak invalidation ampla, todos os pares de `handover`, runtime/sync geral de `device` e ABI/lifetime geral de `external` ficam em 1.0.x/1.1 enquanto permanecerem fail-closed.
 
-### Contrato 1.0 por macroentrega
-
-| Macroentrega | Status 1.0 | Observação |
-|---|---|---|
-| `sole` / `exclusive` | **SUPPORTED ✅** | ownership linear, moves, invalidation, joins e cleanup no subset aceito |
-| `shared` / ARC | **SUPPORTED ✅** | modelo ARC backend-neutral + alias chain/runtime nativo; CFG/payloads arbitrários foram movidos para 1.0.x |
-| `region` | **SUPPORTED ✅** | lifetime/CFG/interprocedural, arena epochs/flow, loop recurrence e activation flow + gate C11 mínimo |
-| `island` | **SUPPORTED ✅** | quarantine e handover possuem caminhos C11 representativos, incluindo same-domain cleanup |
-| `quarantine` | **SUPPORTED ✅** | subset de isolamento congelado; invalidation/runtime amplo fica para 1.0.x |
-| `handover` | **SUPPORTED ✅** | pares certificados fazem parte do 1.0; combinações ainda não suportadas permanecem fail-closed |
-| `direct` | **SUPPORTED ✅** | borrow call-scoped/zero-bookkeeping certificado pelo gate 1.0 |
-| `whisper` | **SUPPORTED ✅** | const/non-owning call-scoped e forwarding certificado; weak refs gerais ficam para 1.0.x |
-| `device` | **PREVIEW** | não bloqueia 1.0; runtime/sincronização geral fica para evolução posterior |
-| `external` | **PREVIEW** | caminhos `repr(C)`/FFI existem, mas ABI/lifetime geral não é contrato estável do 1.0 |
-
-### Evidência de fechamento
-
-- `tests/test_sotlas_phase2_v1_region_release_gate.py` certifica `region` semanticamente e executa o subset nativo mínimo com cleanup determinístico.
-- `tests/test_sotlas_phase2_v1_borrow_release_gate.py` certifica `direct` e `whisper` em C11 nativo.
-- `test_shared_alias_chain_runs_with_native_arc_runtime` mantém o subset `shared` sobre ARC real.
-- `test_island_quarantine_handover_runs_through_c11` e `test_island_to_island_handover_runs_through_c11` mantêm o subset de isolamento/handover executável.
-- O gate de release da Fase 2 permanece definido em `docs/sotlas_1_0_release_scope.md`.
-
-## Backlog pós-Fase 2
-
-O seguinte trabalho **não reabre automaticamente a Fase 2**. Ele pertence à maturação 1.0.x/1.1 enquanto os casos fora do subset estável continuam fail-closed:
-
-- CFG arbitrário de `shared`/ARC;
-- payloads/layouts adicionais;
-- combinações profundas de defer/aliases;
-- arena `region` completamente geral;
-- merges path-dependent avançados;
-- activation + ciclos/recursão geral;
-- weak invalidation geral de `whisper`;
-- todas as formas ABI de `direct`;
-- todos os pares possíveis de `handover`;
-- runtime amplo de `quarantine`;
-- runtime/sync geral de `device`;
-- ABI/lifetime geral de `external`.
-
-Se um desses itens revelar corrupção, double-free, use-after-free ou lowering incorreto em um caso que já faz parte do subset `SUPPORTED`, ele volta a ser tratado como regressão/blocker.
+Detalhes: `docs/sotlas_1_0_release_scope.md`.
 
 ## Fase 3 — Authority Domains
 
 **Status do roadmap 1.0: 100% ✅ — COMPLETE**
 
-A Fase 3 está encerrada no escopo de release definido em `docs/sotlas_1_0_phase3_authority_scope.md`. O objetivo do 1.0 é possuir um modelo real de least-authority, não catalogar toda instrução privilegiada de toda arquitetura antes do primeiro release.
+Named `@system(capability)`, fronteiras source-stable, integração Phase 1, strict SIR, safety contra widening/tamper e o subset ABI contratado (`io.port`, `cpu.interrupts`, `cpu.msr`) fecham o 1.0. Catálogos privilegiados adicionais ficam para 1.0.x/1.1.
 
-### Caminho certificado
+Detalhes: `docs/sotlas_1_0_phase3_authority_scope.md`.
 
-```text
-@system(capability)
-        ↓
-production frontend safety
-        ↓
-Phase1CheckedModule / AuthorityDomainPlan
-        ↓
-strict checked SIR
-        ↓
-source boundaries + AuthorityABIInst
-        ↓
-AuthoritySIRCertificate
-        ↓
-AuthoritySIRSafety
-```
+## Fase 4 — State Spaces
 
-### Contrato 1.0 por macroentrega
+**Status do roadmap 1.0: ~20% 🟡 — EM CONSTRUÇÃO**
 
-| Macroentrega | Status 1.0 | Observação |
-|---|---|---|
-| named `@system(capability)` | **SUPPORTED ✅** | least-authority explícito; uma capability não implica outra |
-| bare `@system` | **SUPPORTED/LEGACY ✅** | mantém compatibilidade irrestrita sem ser confundido com named authority |
-| source `@system` boundary | **SUPPORTED ✅** | abstração encapsulada; caller não herda nem precisa da authority interna do callee |
-| production frontend gate | **SUPPORTED ✅** | `check`/`compile_source` compartilham o planner canônico de Authority |
-| Phase-1 integration | **SUPPORTED ✅** | `Phase1CheckedModule` carrega Authority e o Typed AST reconhece ABI named contratado |
-| strict Authority SIR | **SUPPORTED ✅** | fatos source-stable preservados e certificados backend-neutral |
-| SIR tamper/widening safety | **SUPPORTED ✅** | remoção, inserção ou ampliação indevida de authority é rejeitada |
-| `io.port` | **SUPPORTED ✅** | `in/out` de 8/16/32 bits contratados |
-| `cpu.interrupts` | **SUPPORTED ✅** | save/restore/status + `cli`/`sti` contratados |
-| `cpu.msr` | **SUPPORTED ✅** | `rdmsr`/`wrmsr` contratados |
-| CRx / TLB / GS / halt / catálogos adicionais | **DEFER 1.0.x** | permanecem legado/fail-closed onde named authority não possui contrato |
+A Fase 4 começou sobre uma base backend-neutral e fail-closed. O objetivo do 1.0 é tornar `space`, typestate e transitions parte do pipeline real sem exigir antes do release todas as generalizações possíveis de state machines.
 
-### Evidência de fechamento
+### Já implementado
 
-- `authority.py` mantém os contratos e edges canônicos de Authority Domains.
-- `authority_abi.py` registra apenas fronteiras ABI cujo significado de authority já está explícito.
-- `authority_frontend_safety.py` protege o caminho de produção.
-- `authority_typed_ast.py` integra os ABI contracts nomeados ao Phase 1 sem duplicar assinaturas de builtins.
-- `authority_sir.py` preserva source boundaries e ABI facts no SIR.
-- `AuthorityABIInst` é um fato backend-neutral e source-stable, sem inventar lowering físico.
-- `authority_safety.py` revalida o certificado contra o SIR e detecta divergências pós-certificação.
-- CI #557 passou C11, Python 3.10/3.11/3.12 em Ubuntu, Windows e macOS e o snapshot de toolchain.
+- [x] `StateSpacePlan` canônico com conjunto finito de estados;
+- [x] payload contract ordenado por estado;
+- [x] grafo explícito de transições, sem inventar reverse/transitive/self edges;
+- [x] rejeição de estados, payloads e transições malformados;
+- [x] `StateQualifiedType` backend-neutral para fatos `Type<State>`;
+- [x] boundary check exato de typestate;
+- [x] transição de typestate somente por edge declarado no `space`;
+- [x] isolamento de identidade entre State Spaces distintos;
+- [x] análise backend-neutral de cobertura de estados;
+- [x] gate de exaustividade que rejeita arms duplicados, desconhecidos ou estados ausentes.
 
-## Backlog pós-Fase 3
+### BLOCKERS restantes para fechar a Fase 4 no Sotlas 1.0
 
-O seguinte trabalho pertence à maturação 1.0.x/1.1 e **não reabre automaticamente a Fase 3**:
+- [ ] sintaxe pública/AST de declaração `space`;
+- [ ] sintaxe e Typed AST para tipos `Type<State>` no caminho de produção;
+- [ ] integração do grafo e do typestate ao `check`/pipeline público;
+- [ ] representação source-stable de transições no SIR;
+- [ ] lowering/backend mínimo do subset declarado `SUPPORTED`;
+- [ ] e2e positivo e negativo a partir de código Sotlas real;
+- [ ] release gate da Fase 4 garantindo `check => backend suportado`;
+- [ ] integração de coverage ao consumidor público que fizer parte do 1.0 (sem obrigar a UI DSL completa).
 
-- capabilities específicas para CR0/CR2/CR3/CR4;
-- TLB / `invlpg`;
-- GS / `swapgs` / per-CPU;
-- CPU halt e demais intrinsics privilegiados ainda legados;
-- catálogo de Authority para MMIO, DMA e outros subsistemas;
-- contracts Authority gerais de FFI;
-- assinaturas ABI não escalares no bridge de Typed AST;
-- expansão target-specific para outras arquiteturas;
-- refinamentos de diagnóstico e ergonomia.
+### DEFER 1.0.x / 1.1
 
-Se um desses itens permitir privilege escalation, authority implícita ou lowering incorreto dentro do subset `SUPPORTED`, ele volta a ser blocker.
+- wildcard/guards sofisticados de coverage;
+- pattern matching avançado de payloads;
+- merges de typestate altamente path-dependent;
+- state machines dinâmicas/generalizadas;
+- integração ampla com UI/persistência/networking;
+- otimizações de representação de estado;
+- diagnósticos e ergonomia adicionais.
 
-## Regra de baseline
+Escopo formal: `docs/sotlas_1_0_phase4_state_space_scope.md`.
+
+## Baseline e disciplina de CI
 
 ```text
 baseline verde confirmado
         ↓
-um blocker real ou pacote coerente
+1 blocker real ou 1 pacote coerente
+        ↓
+testes reais
         ↓
 CI verde
         ↓
 novo baseline
-        ↓
-próxima entrega do roadmap
 ```
 
-Se o slice falhar, nenhuma feature adicional deve ser empilhada. A correção ou restauração parte do último baseline verde.
+Não contornar testes, não relaxar invariantes para obter CI verde e não empilhar feature sobre regressão.
 
 ## Próximo foco principal
 
-Com **Ownership Domains** e **Authority Domains** encerrados para o Sotlas 1.0, o caminho principal avança para **Fase 4 — State Spaces** (`space`, typestate e transitions). Refinamentos das Fases 2 e 3 continuam em pacotes 1.0.x/1.1 sem monopolizar o roadmap principal.
+O caminho crítico permanece na **Fase 4 — State Spaces**. Depois do núcleo de grafo, typestate e coverage, o próximo marco de maior valor é levar `space` e `Type<State>` ao frontend/Typed AST de produção, preservando as mesmas provas semânticas já certificadas nos módulos backend-neutral.
