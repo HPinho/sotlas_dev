@@ -15,19 +15,12 @@ from dataclasses import dataclass
 
 from .canonical_sir import load_canonical_sir
 from .region_call_sir import RegionCallSIRBridge
-from .region_cfg import _block_is_cyclic, _reachable, _successors
+from .region_cfg import _iteration_identity, _reachable, _successors
 from .typed_ast import Phase1SemanticError
 
 
 class RegionCallCFGError(Phase1SemanticError):
     """Raised when REGION call transfers cannot be certified on the SIR CFG."""
-
-
-_BACKEDGE_PREFIXES = (
-    "while_backedge@",
-    "for_backedge@",
-    "loop_backedge@",
-)
 
 
 @dataclass(frozen=True)
@@ -63,48 +56,6 @@ def _unwrap_module(value: object):
             "REGION call CFG certification requires canonical SIRModule or CheckedOwnershipSIR"
         )
     return sir, module
-
-
-def _same_cycle(successors: dict[str, tuple[str, ...]], first: str, second: str) -> bool:
-    if first == second:
-        return _block_is_cyclic(successors, first)
-    return _reachable(successors, first, second) and _reachable(
-        successors, second, first
-    )
-
-
-def _iteration_identity(sir, function, successors, call_block: str, point_id: str) -> str | None:
-    if not _block_is_cyclic(successors, call_block):
-        return None
-
-    candidates: list[str] = []
-    for block in function.blocks:
-        if not _same_cycle(successors, call_block, block.label):
-            continue
-        for instruction in block.instructions:
-            if not isinstance(instruction, sir.BranchInst):
-                continue
-            if getattr(instruction, "control_kind", None) != "backedge":
-                continue
-            backedge_id = getattr(instruction, "point_id", None)
-            if (
-                isinstance(backedge_id, str)
-                and backedge_id.startswith(_BACKEDGE_PREFIXES)
-            ):
-                candidates.append(backedge_id)
-
-    unique = tuple(dict.fromkeys(candidates))
-    if len(unique) == 0:
-        raise RegionCallCFGError(
-            f"REGION ownership-taking call {point_id!r} inside a CFG cycle "
-            "requires iteration identity"
-        )
-    if len(unique) != 1:
-        raise RegionCallCFGError(
-            f"REGION ownership-taking call {point_id!r} inside a CFG cycle "
-            "has ambiguous iteration identity"
-        )
-    return unique[0]
 
 
 def certify_region_call_cfg(
@@ -190,11 +141,12 @@ def certify_region_call_cfg(
             argument_indices.append(site.argument_index)
 
         iteration_id = _iteration_identity(
-            sir,
             function,
             successors_by_function[function_name],
             first.block,
             point_id,
+            error_type=RegionCallCFGError,
+            subject="REGION ownership-taking call",
         )
         point = RegionCallCFGPoint(
             function=function_name,

@@ -9,8 +9,9 @@ order is never treated as fallthrough.
 
 Call-scoped direct/whisper points may execute inside CFG cycles because they do
 not transfer ownership and end at the call boundary. REGION handovers inside a
-cycle remain fail-closed until iteration identity is part of the canonical
-lifetime model.
+cycle are accepted only when that cycle exposes exactly one source-stable
+canonical backedge identity. The identity freezes loop topology; it does not by
+itself make repeated ownership transfer legal.
 """
 from __future__ import annotations
 
@@ -29,6 +30,13 @@ class RegionLifetimeCFGError(Phase1SemanticError):
     """Raised when REGION lifetime facts cannot be certified on the SIR CFG."""
 
 
+_BACKEDGE_PREFIXES = (
+    "while_backedge@",
+    "for_backedge@",
+    "loop_backedge@",
+)
+
+
 @dataclass(frozen=True)
 class RegionLifetimeCFGLocation:
     point_id: str
@@ -36,6 +44,7 @@ class RegionLifetimeCFGLocation:
     source: str
     block: str
     instruction_index: int
+    iteration_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -44,6 +53,7 @@ class RegionLifetimeCFGCertificate:
     locations: tuple[RegionLifetimeCFGLocation, ...]
     acyclic_points: bool = True
     cyclic_borrow_point_ids: tuple[str, ...] = ()
+    cyclic_handover_point_ids: tuple[str, ...] = ()
 
     @property
     def point_ids(self) -> tuple[str, ...]:
@@ -130,6 +140,60 @@ def _block_is_cyclic(
     )
 
 
+def _same_cycle(
+    successors: dict[str, tuple[str, ...]], first: str, second: str
+) -> bool:
+    if first == second:
+        return _block_is_cyclic(successors, first)
+    return _reachable(successors, first, second) and _reachable(
+        successors, second, first
+    )
+
+
+def _iteration_identity(
+    function: object,
+    successors: dict[str, tuple[str, ...]],
+    point_block: str,
+    point_id: str,
+    *,
+    error_type: type[Exception] = RegionLifetimeCFGError,
+    subject: str = "REGION lifetime point",
+) -> str | None:
+    """Resolve one canonical source-stable backedge identity for a CFG cycle."""
+    if not _block_is_cyclic(successors, point_block):
+        return None
+
+    candidates: list[str] = []
+    for block in tuple(getattr(function, "blocks", ()) or ()):
+        block_label = _required_text(
+            getattr(block, "label", None), label="REGION CFG block"
+        )
+        if not _same_cycle(successors, point_block, block_label):
+            continue
+        for instruction in tuple(getattr(block, "instructions", ()) or ()):
+            if _kind(instruction) != "BranchInst":
+                continue
+            if getattr(instruction, "control_kind", None) != "backedge":
+                continue
+            backedge_id = getattr(instruction, "point_id", None)
+            if (
+                isinstance(backedge_id, str)
+                and backedge_id.startswith(_BACKEDGE_PREFIXES)
+            ):
+                candidates.append(backedge_id)
+
+    unique = tuple(dict.fromkeys(candidates))
+    if len(unique) == 0:
+        raise error_type(
+            f"{subject} {point_id!r} inside a CFG cycle requires iteration identity"
+        )
+    if len(unique) != 1:
+        raise error_type(
+            f"{subject} {point_id!r} inside a CFG cycle has ambiguous iteration identity"
+        )
+    return unique[0]
+
+
 def _expected_points(lifetime: RegionLifetimePlan) -> dict[str, tuple[str, ...]]:
     expected: dict[str, tuple[str, ...]] = {}
 
@@ -179,6 +243,7 @@ def certify_region_lifetime_cfg(
         )
     function = matches[0]
     expected = _expected_points(lifetime)
+    successors = _successors(function)
     by_point: dict[str, list[RegionLifetimeCFGLocation]] = {
         point: [] for point in expected
     }
@@ -246,6 +311,15 @@ def certify_region_lifetime_cfg(
                 raise RegionLifetimeCFGError(
                     f"REGION CFG point {point!r} diverged from lifetime topology"
                 )
+            iteration_id = None
+            if actual[0] == "handover":
+                iteration_id = _iteration_identity(
+                    function,
+                    successors,
+                    block_label,
+                    point,
+                    subject="REGION handover",
+                )
             by_point[point].append(
                 RegionLifetimeCFGLocation(
                     point_id=point,
@@ -253,6 +327,7 @@ def certify_region_lifetime_cfg(
                     source=source_name,
                     block=block_label,
                     instruction_index=index,
+                    iteration_id=iteration_id,
                 )
             )
 
@@ -269,17 +344,28 @@ def certify_region_lifetime_cfg(
             )
         locations.append(entries[0])
 
-    successors = _successors(function)
     cyclic_borrows: list[str] = []
+    cyclic_handovers: list[str] = []
+    handovers_by_iteration: dict[str, list[RegionLifetimeCFGLocation]] = {}
     for location in locations:
         if not _block_is_cyclic(successors, location.block):
             continue
         if location.kind == "handover":
-            raise RegionLifetimeCFGError(
-                "REGION handover inside a CFG cycle requires iteration identity"
-            )
+            if location.iteration_id is None:
+                raise RegionLifetimeCFGError(
+                    "REGION handover inside a CFG cycle requires iteration identity"
+                )
+            cyclic_handovers.append(location.point_id)
+            handovers_by_iteration.setdefault(location.iteration_id, []).append(location)
         if location.kind in ("direct", "whisper"):
             cyclic_borrows.append(location.point_id)
+
+    for iteration_id, loop_handovers in handovers_by_iteration.items():
+        if len(loop_handovers) > 1:
+            raise RegionLifetimeCFGError(
+                f"REGION iteration {iteration_id!r} contains multiple handovers and "
+                "requires explicit intra-iteration ordering"
+            )
 
     handovers = tuple(item for item in locations if item.kind == "handover")
     borrows = tuple(
@@ -302,8 +388,9 @@ def certify_region_lifetime_cfg(
     return RegionLifetimeCFGCertificate(
         function=function_name,
         locations=tuple(locations),
-        acyclic_points=not cyclic_borrows,
+        acyclic_points=not (cyclic_borrows or cyclic_handovers),
         cyclic_borrow_point_ids=tuple(cyclic_borrows),
+        cyclic_handover_point_ids=tuple(cyclic_handovers),
     )
 
 

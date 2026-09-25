@@ -29,6 +29,7 @@ def _load_package():
 package = _load_package()
 frontend = importlib.import_module(f"{package.__name__}.region_frontend")
 region_cfg = importlib.import_module(f"{package.__name__}.region_cfg")
+region_lifetime = importlib.import_module(f"{package.__name__}.region_lifetime")
 canonical_sir = importlib.import_module(f"{package.__name__}.canonical_sir")
 
 
@@ -72,6 +73,52 @@ fn run(flag: bool, token: region Token) -> void {
 """
 
 
+def _synthetic_loop_handover(*, canonical_backedge: bool):
+    sir = canonical_sir.load_canonical_sir()
+    module = sir.SIRModule("synthetic_region_handover_loop")
+    function = sir.SIRFunction("run", [], "void")
+    module.add_function(function)
+    entry = function.add_block("entry")
+    loop = function.add_block("loop")
+    entry.add(sir.BranchInst("loop"))
+    loop.add(
+        sir.OwnershipDomainTransferInst(
+            operation="handover",
+            source=sir.SIRValue("source", "Token"),
+            source_domain="region",
+            target_domain="region",
+            destination=sir.SIRValue("destination", "Token"),
+            point_id="handover@8:9",
+        )
+    )
+    if canonical_backedge:
+        loop.add(
+            sir.BranchInst(
+                "loop",
+                point_id="while_backedge@7:5",
+                control_kind="backedge",
+            )
+        )
+    else:
+        loop.add(sir.BranchInst("loop"))
+
+    lifetime = region_lifetime.RegionLifetimePlan(
+        function="run",
+        owners=(),
+        transfers=(
+            region_lifetime.RegionLifetimeTransfer(
+                source="source",
+                destination="destination",
+                via="handover",
+                point_id="handover@8:9",
+                terminal=False,
+            ),
+        ),
+        borrows=(),
+    )
+    return lifetime, module
+
+
 class SotlasRegionLifetimeCFGTests(unittest.TestCase):
     def test_real_sequential_borrow_before_handover_is_certified(self):
         checked = package.analyze_source_phase1(
@@ -93,6 +140,7 @@ class SotlasRegionLifetimeCFGTests(unittest.TestCase):
         )
         self.assertEqual(direct.source, "source")
         self.assertEqual(handover.source, "source")
+        self.assertIsNone(handover.iteration_id)
         if direct.block == handover.block:
             self.assertLess(direct.instruction_index, handover.instruction_index)
 
@@ -126,6 +174,28 @@ class SotlasRegionLifetimeCFGTests(unittest.TestCase):
         self.assertEqual(
             certificate.cyclic_borrow_point_ids,
             (direct.point_id,),
+        )
+        self.assertEqual(certificate.cyclic_handover_point_ids, ())
+
+    def test_region_handover_inside_cycle_requires_iteration_identity(self):
+        lifetime, module = _synthetic_loop_handover(canonical_backedge=False)
+        with self.assertRaisesRegex(
+            region_cfg.RegionLifetimeCFGError,
+            "requires iteration identity",
+        ):
+            region_cfg.certify_region_lifetime_cfg(lifetime, module)
+
+    def test_region_handover_uses_canonical_backedge_iteration_identity(self):
+        lifetime, module = _synthetic_loop_handover(canonical_backedge=True)
+        certificate = region_cfg.certify_region_lifetime_cfg(lifetime, module)
+        handover = next(
+            item for item in certificate.locations if item.kind == "handover"
+        )
+        self.assertEqual(handover.iteration_id, "while_backedge@7:5")
+        self.assertFalse(certificate.acyclic_points)
+        self.assertEqual(
+            certificate.cyclic_handover_point_ids,
+            (handover.point_id,),
         )
 
     def test_tampered_cfg_borrow_after_handover_is_rejected(self):
