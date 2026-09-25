@@ -1,4 +1,4 @@
-"""Phase 3 foundation: named Authority Domains and least-authority calls."""
+"""Phase 3 foundation: Authority Domains and encapsulated system boundaries."""
 from __future__ import annotations
 
 import importlib
@@ -43,7 +43,7 @@ fn boot() -> void {
 """
 
 
-MISSING_CAPABILITY = """module app::authority_missing;
+SAFE_WRAPPER = """module app::authority_safe_wrapper;
 @system(pci.config)
 fn configure_pci() -> void { return; }
 fn application() -> void {
@@ -53,7 +53,7 @@ fn application() -> void {
 """
 
 
-CROSS_CAPABILITY = """module app::authority_cross;
+CROSS_SOURCE_BOUNDARY = """module app::authority_cross_source;
 @system(io.port)
 fn keyboard_write() -> void { return; }
 @system(pci.config)
@@ -75,7 +75,7 @@ fn legacy_boot() -> void {
 """
 
 
-RESTRICTED_TO_LEGACY = """module app::authority_restricted_legacy;
+NAMED_TO_LEGACY_SOURCE = """module app::authority_named_to_legacy;
 @system
 fn raw_hardware() -> void { return; }
 @system(pci.config)
@@ -103,30 +103,31 @@ class SotlasAuthorityDomainsTests(unittest.TestCase):
         parsed = bootstrap.parse(source, filename="<authority-domains>")
         return authority.plan_authority_domains(parsed)
 
-    def test_matching_named_capability_certifies_direct_call(self):
+    def test_matching_named_boundary_is_recorded_without_capability_leakage(self):
         plan = self._plan(MATCHING_CAPABILITY)
         boot = plan.contract("boot")
         self.assertEqual(boot.capabilities, ("pci.config",))
         self.assertFalse(boot.legacy_unrestricted)
-        self.assertEqual(len(plan.calls_from("boot")), 1)
         edge = plan.calls_from("boot")[0]
         self.assertEqual(edge.callee, "configure_pci")
         self.assertEqual(edge.required_capabilities, ("pci.config",))
+        self.assertEqual(edge.target_kind, "source")
         self.assertTrue(edge.point_id.startswith("call@"))
 
-    def test_normal_function_cannot_call_named_system_capability(self):
-        with self.assertRaisesRegex(
-            authority.AuthorityDomainError,
-            "missing capabilities: pci.config",
-        ):
-            self._plan(MISSING_CAPABILITY)
+    def test_safe_function_may_call_named_system_abstraction(self):
+        plan = self._plan(SAFE_WRAPPER)
+        self.assertFalse(plan.contract("application").is_system)
+        edge = plan.calls_from("application")[0]
+        self.assertEqual(edge.callee, "configure_pci")
+        self.assertEqual(edge.required_capabilities, ("pci.config",))
+        self.assertEqual(edge.target_kind, "source")
 
-    def test_one_named_capability_does_not_grant_another(self):
-        with self.assertRaisesRegex(
-            authority.AuthorityDomainError,
-            "missing capabilities: io.port",
-        ):
-            self._plan(CROSS_CAPABILITY)
+    def test_one_system_abstraction_may_call_another_named_boundary(self):
+        plan = self._plan(CROSS_SOURCE_BOUNDARY)
+        edge = plan.calls_from("configure_pci")[0]
+        self.assertEqual(edge.callee, "keyboard_write")
+        self.assertEqual(edge.required_capabilities, ("io.port",))
+        self.assertEqual(edge.target_kind, "source")
 
     def test_bare_system_remains_legacy_unrestricted_for_compatibility(self):
         plan = self._plan(LEGACY_UNRESTRICTED)
@@ -136,12 +137,12 @@ class SotlasAuthorityDomainsTests(unittest.TestCase):
         self.assertTrue(contract.grants("pci.config"))
         self.assertEqual(len(plan.calls_from("legacy_boot")), 1)
 
-    def test_restricted_capability_cannot_escalate_into_legacy_unrestricted(self):
-        with self.assertRaisesRegex(
-            authority.AuthorityDomainError,
-            "requires legacy unrestricted @system authority",
-        ):
-            self._plan(RESTRICTED_TO_LEGACY)
+    def test_named_system_may_call_legacy_system_abstraction(self):
+        plan = self._plan(NAMED_TO_LEGACY_SOURCE)
+        edge = plan.calls_from("configure_pci")[0]
+        self.assertEqual(edge.callee, "raw_hardware")
+        self.assertEqual(edge.required_capabilities, ())
+        self.assertEqual(edge.target_kind, "source")
 
     def test_multiple_capabilities_are_preserved_in_source_order(self):
         plan = self._plan(MULTI_CAPABILITY)

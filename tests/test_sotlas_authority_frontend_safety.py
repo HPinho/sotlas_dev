@@ -1,6 +1,7 @@
 """Production frontend enforcement for named Authority ABI contracts."""
 from __future__ import annotations
 
+import importlib
 import importlib.util
 from pathlib import Path
 import sys
@@ -28,6 +29,7 @@ def _load_package():
 
 package = _load_package()
 bootstrap = package.bootstrap
+authority = importlib.import_module(f"{package.__name__}.authority")
 
 
 MATCHING = """module app::authority_frontend_port;
@@ -74,6 +76,16 @@ fn disable_interrupts() -> void {
 """
 
 
+SAFE_WRAPPER = """module app::authority_frontend_wrapper;
+@system(io.port)
+fn low_level() -> void { return; }
+fn safe_wrapper() -> void {
+    low_level();
+    return;
+}
+"""
+
+
 INTERRUPT_LEGACY = """module app::authority_frontend_interrupt;
 @interrupt
 fn irq() -> void {
@@ -95,12 +107,10 @@ class SotlasAuthorityFrontendSafetyTests(unittest.TestCase):
         c_text = package.compile_source(MATCHING, filename="<authority-frontend>")
         self.assertIn("__inb(", c_text)
 
-    def test_phase1_attaches_canonical_abi_edge(self):
-        checked = package.analyze_source_phase1(
-            MATCHING,
-            filename="<authority-frontend>",
-        )
-        calls = checked.authority.calls_from("read_status")
+    def test_production_check_and_planner_share_canonical_abi_edge(self):
+        parsed = self._check(MATCHING)
+        plan = authority.plan_authority_domains(parsed)
+        calls = plan.calls_from("read_status")
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0].callee, "__inb")
         self.assertEqual(calls[0].required_capabilities, ("io.port",))
@@ -126,6 +136,14 @@ class SotlasAuthorityFrontendSafetyTests(unittest.TestCase):
             "intrínseco privilegiado exige função @system",
         ):
             self._check(NAMED_UNCONTRACTED)
+
+    def test_safe_wrapper_may_call_named_system_abstraction(self):
+        parsed = self._check(SAFE_WRAPPER)
+        plan = authority.plan_authority_domains(parsed)
+        edge = plan.calls_from("safe_wrapper")[0]
+        self.assertEqual(edge.callee, "low_level")
+        self.assertEqual(edge.required_capabilities, ("io.port",))
+        self.assertEqual(edge.target_kind, "source")
 
     def test_bare_system_keeps_legacy_intrinsic_access(self):
         self._check(LEGACY)

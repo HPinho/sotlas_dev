@@ -1,4 +1,4 @@
-"""Checked Phase-1 integration for Authority Domains."""
+"""Checked Phase-1 integration for encapsulated Authority Domains."""
 from __future__ import annotations
 
 import importlib
@@ -42,7 +42,7 @@ fn boot() -> void {
 """
 
 
-MISSING = """module app::authority_phase1_missing;
+SAFE_WRAPPER = """module app::authority_phase1_safe_wrapper;
 @system(pci.config)
 fn configure_pci() -> void { return; }
 fn application() -> void {
@@ -87,25 +87,26 @@ class SotlasAuthorityPhase1Tests(unittest.TestCase):
         )
         self.assertEqual(len(checked.authority.calls_from("boot")), 1)
 
-    def test_checked_pipeline_rejects_missing_named_authority(self):
-        with self.assertRaisesRegex(
-            authority.AuthorityDomainError,
-            "missing capabilities: pci.config",
-        ):
-            package.analyze_source_phase1(
-                MISSING,
-                filename="<authority-phase1-missing>",
-            )
+    def test_checked_pipeline_preserves_safe_wrapper_boundary(self):
+        checked = package.analyze_source_phase1(
+            SAFE_WRAPPER,
+            filename="<authority-phase1-safe-wrapper>",
+        )
+        self.assertFalse(checked.authority.contract("application").is_system)
+        edge = checked.authority.calls_from("application")[0]
+        self.assertEqual(edge.callee, "configure_pci")
+        self.assertEqual(edge.required_capabilities, ("pci.config",))
+        self.assertEqual(edge.target_kind, "source")
 
-    def test_checked_pipeline_rejects_cross_capability_escalation(self):
-        with self.assertRaisesRegex(
-            authority.AuthorityDomainError,
-            "missing capabilities: io.port",
-        ):
-            package.analyze_source_phase1(
-                CROSS,
-                filename="<authority-phase1-cross>",
-            )
+    def test_checked_pipeline_allows_cross_capability_source_abstraction(self):
+        checked = package.analyze_source_phase1(
+            CROSS,
+            filename="<authority-phase1-cross>",
+        )
+        edge = checked.authority.calls_from("configure_pci")[0]
+        self.assertEqual(edge.callee, "keyboard_write")
+        self.assertEqual(edge.required_capabilities, ("io.port",))
+        self.assertEqual(edge.target_kind, "source")
 
     def test_checked_pipeline_preserves_bare_system_compatibility(self):
         checked = package.analyze_source_phase1(

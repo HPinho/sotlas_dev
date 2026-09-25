@@ -1,14 +1,16 @@
 """Backend-neutral Authority Domains for named ``@system`` capabilities.
 
-Phase 3 starts by replacing the old all-or-nothing authority model with an
-explicit least-authority contract without breaking existing source. Bare
-``@system`` remains a legacy unrestricted system context. Named forms such as
-``@system(pci.config)`` grant only the listed capabilities.
+Phase 3 replaces the old all-or-nothing hardware authority model with explicit
+least-authority contracts without breaking the normative Sotlas systems-layer
+boundary. Bare ``@system`` remains a legacy unrestricted implementation context;
+named forms such as ``@system(pci.config)`` restrict which privileged ABI
+boundaries the function body may cross.
 
-Source functions and privileged ABI intrinsics share one source-stable call
-edge model. Named ABI contracts are admitted only from ``authority_abi``;
-uncontracted privileged intrinsics remain legacy-unrestricted and therefore
-fail closed for named-only callers.
+A call to a source ``@system`` function is an encapsulated abstraction boundary:
+the caller does not inherit or need the callee's internal hardware authority.
+Direct privileged ABI/intrinsic calls are different: they are checked against
+the caller's named Authority Domain. This keeps safe wrappers usable while
+least authority is enforced exactly where code reaches hardware/ABI.
 """
 from __future__ import annotations
 
@@ -162,29 +164,15 @@ def _validate_call(
     *,
     point_id: str,
 ) -> AuthorityCallEdge | None:
+    """Record a source-system abstraction boundary without capability leakage.
+
+    The callee's authority describes what its own body may do. Calling that
+    source abstraction does not grant the caller that authority and does not
+    require the caller to already possess it.
+    """
     if not callee.is_system:
         return None
-
-    if callee.legacy_unrestricted:
-        if not caller.legacy_unrestricted:
-            raise AuthorityDomainError(
-                f"authority call {caller.function} -> {callee.function} at {point_id} "
-                "requires legacy unrestricted @system authority"
-            )
-        required: tuple[str, ...] = ()
-    else:
-        missing = tuple(
-            capability
-            for capability in callee.capabilities
-            if not caller.grants(capability)
-        )
-        if missing:
-            raise AuthorityDomainError(
-                f"authority call {caller.function} -> {callee.function} at {point_id} "
-                f"is missing capabilities: {', '.join(missing)}"
-            )
-        required = callee.capabilities
-
+    required = () if callee.legacy_unrestricted else callee.capabilities
     return AuthorityCallEdge(
         caller=caller.function,
         callee=callee.function,
@@ -248,7 +236,7 @@ def _validate_legacy_intrinsic_call(
 
 
 def plan_authority_domains(module: object) -> AuthorityDomainPlan:
-    """Build and certify named Authority Domains for direct function calls."""
+    """Build and certify source boundaries and direct privileged ABI authority."""
     if not isinstance(module, bootstrap.Module):
         raise AuthorityDomainError("authority planning requires parsed Sotlas Module")
 

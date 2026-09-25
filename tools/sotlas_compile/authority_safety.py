@@ -1,15 +1,14 @@
-"""Least-authority safety enforcement over the current canonical SIR.
+"""Safety enforcement for certified source Authority boundaries at SIR level.
 
 Authority Domains are carried as a sidecar certificate because the prototype
-SIR still exposes only the historical boolean ``is_system``.  Keeping this
-pass in ``sotlas_compile`` avoids an import cycle from the generic SIR package
-back into the compiler semantic layer.
+SIR still exposes only the historical boolean ``is_system``. Source ``@system``
+functions are encapsulated abstractions: their internal hardware authority is
+not a privilege the caller must possess. This pass therefore certifies boundary
+identity, target contract, and represented call cardinality without propagating
+the callee's capabilities into its caller.
 
-Calls to source functions covered by ``AuthoritySIRCertificate`` are checked
-with named least-authority semantics.  System calls outside that certificate
-(intrinsics/external ABI) deliberately retain the legacy boolean rule and are
-therefore fail-closed for named-only callers until explicit ABI authority
-contracts exist.
+Direct privileged ABI/intrinsic authority is not guessed here. It remains
+fail-closed until ``authority_sir`` can represent and certify those operations.
 """
 from __future__ import annotations
 
@@ -35,7 +34,7 @@ class AuthoritySIRSafetyResult:
 
 
 class AuthoritySIRSafetyPass:
-    """Validate named Authority Domains against a certified SIR sidecar."""
+    """Validate source Authority boundaries against a certified SIR sidecar."""
 
     def __init__(self, certificate: AuthoritySIRCertificate):
         if not isinstance(certificate, AuthoritySIRCertificate):
@@ -106,34 +105,20 @@ class AuthoritySIRSafetyPass:
                 )
                 continue
 
+            # Source-system functions are encapsulated abstractions. The group
+            # must faithfully carry the target contract, but the caller need
+            # not hold that authority itself.
             if target.legacy_unrestricted:
                 if group.required_capabilities:
                     errors.append(
-                        f"legacy authority call {group.caller} -> {group.callee} must not claim named capabilities"
+                        f"legacy authority boundary {group.caller} -> {group.callee} must not claim named capabilities"
                     )
                     continue
-                if not caller.legacy_unrestricted:
-                    errors.append(
-                        f"authority call {group.caller} -> {group.callee} requires legacy unrestricted @system authority"
-                    )
-                    continue
-            else:
-                if group.required_capabilities != target.capabilities:
-                    errors.append(
-                        f"authority call {group.caller} -> {group.callee} required capabilities diverge from target contract"
-                    )
-                    continue
-                if not caller.legacy_unrestricted:
-                    missing = tuple(
-                        capability
-                        for capability in target.capabilities
-                        if capability not in caller.capabilities
-                    )
-                    if missing:
-                        errors.append(
-                            f"authority call {group.caller} -> {group.callee} is missing capabilities: {', '.join(missing)}"
-                        )
-                        continue
+            elif group.required_capabilities != target.capabilities:
+                errors.append(
+                    f"authority boundary {group.caller} -> {group.callee} contract diverges from target capabilities"
+                )
+                continue
             groups[key] = group
         return groups, errors
 
@@ -189,12 +174,13 @@ class AuthoritySIRSafetyPass:
                         actual[key] = actual.get(key, 0) + 1
                         if caller_fact is None:
                             errors.append(
-                                f"authority caller {function.name!r} has no certified fact for system call {callee!r}"
+                                f"authority caller {function.name!r} has no certified fact for system boundary {callee!r}"
                             )
                         continue
 
                     # External/intrinsic authority is deliberately not guessed.
-                    # Preserve the old rule until a named ABI contract exists.
+                    # Preserve the old SIR rule until a named ABI representation
+                    # exists in the strict checked-SIR path.
                     if bool(getattr(instruction, "is_system", False)) and not bool(
                         getattr(function, "is_system", False)
                     ):
@@ -228,7 +214,7 @@ def enforce_authority_sir_safety(
     certificate: AuthoritySIRCertificate,
     sir_module: object,
 ) -> AuthoritySIRSafetyResult:
-    """Run the canonical Authority-Domain safety pass over SIR."""
+    """Run the canonical source-boundary safety pass over SIR."""
     return AuthoritySIRSafetyPass(certificate).run(sir_module)
 
 

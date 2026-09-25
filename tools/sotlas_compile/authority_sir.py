@@ -1,20 +1,21 @@
-"""Bridge canonical Authority Domains into the current SIR without inventing call IDs.
+"""Bridge canonical source Authority boundaries into the current SIR.
 
 The prototype SIR still carries only the legacy boolean ``is_system`` marker and
 ``CallInst`` does not yet store source-stable ``call@line:column`` identities.
-This bridge therefore keeps authority as a checked sidecar certificate.  It
-proves that every source-level system call represented by ``AuthorityDomainPlan``
-has the same caller/callee multiplicity in SIR while preserving named
-capabilities and legacy unrestricted authority.
+This bridge therefore keeps source-system boundaries as a checked sidecar
+certificate. It proves caller/callee multiplicity without treating the callee's
+hardware authority as authority that the caller must possess.
 
-Repeated calls are certified as groups rather than being paired by list order.
-That avoids claiming per-call identity the SIR does not yet possess.
+Direct ABI/intrinsic authority edges are intentionally rejected here until SIR
+has a canonical representation/lowering for those operations. This keeps the
+strict checked-SIR path fail-closed instead of silently dropping hardware
+authority facts.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .authority import AuthorityDomainPlan, AuthorityDomainError
+from .authority import AuthorityDomainPlan
 from .canonical_sir import load_canonical_sir
 from .typed_ast import Phase1SemanticError
 
@@ -92,10 +93,23 @@ def certify_authority_sir(
     authority: AuthorityDomainPlan,
     sir_module: object,
 ) -> AuthoritySIRCertificate:
-    """Certify least-authority facts against the SIR representation currently available."""
+    """Certify source Authority boundaries against currently representable SIR."""
     if not isinstance(authority, AuthorityDomainPlan):
         raise AuthoritySIRError(
             "authority SIR certification requires canonical AuthorityDomainPlan"
+        )
+
+    unsupported = tuple(
+        edge for edge in authority.calls if edge.target_kind != "source"
+    )
+    if unsupported:
+        summary = ", ".join(
+            f"{edge.caller}->{edge.callee} ({edge.target_kind})"
+            for edge in unsupported
+        )
+        raise AuthoritySIRError(
+            "authority SIR cannot yet certify direct ABI/intrinsic authority "
+            f"edges: {summary}"
         )
 
     sir, module = _unwrap_module(sir_module)
@@ -137,6 +151,8 @@ def certify_authority_sir(
 
     source_groups: dict[tuple[str, str], list[object]] = {}
     for edge in authority.calls:
+        if edge.target_kind != "source":
+            continue
         source_groups.setdefault((edge.caller, edge.callee), []).append(edge)
 
     call_groups: list[AuthoritySIRCallGroup] = []
@@ -144,9 +160,6 @@ def certify_authority_sir(
         caller_sir = sir_functions[caller_contract.function]
         sir_counts = _sir_call_counts(sir, caller_sir)
 
-        # Only calls to source functions with authority requirements participate
-        # in this certificate. External/intrinsic authority gets its own ABI
-        # contract later rather than being guessed here.
         relevant_callees = {
             name
             for name, contract in contract_by_name.items()
@@ -169,8 +182,6 @@ def certify_authority_sir(
                     f"requires {len(edges)} represented calls, got {count}"
                 )
             if not edges:
-                # A SIR call to a source @system function that has no certified
-                # source authority edge is an untrusted lowering artifact.
                 raise AuthoritySIRError(
                     f"authority SIR call {caller_contract.function} -> {callee} "
                     "has no certified source authority edge"
