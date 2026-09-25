@@ -1,0 +1,126 @@
+"""Sotlas 1.0 release gate for the minimum executable REGION contract.
+
+This is intentionally narrower than the complete REGION roadmap.  The 1.0 gate
+requires the supported subset to keep its backend-neutral arena proof *and* to
+execute through the C11 reference backend with deterministic ownership cleanup.
+Broader arena/CFG/runtime generalizations remain eligible for 1.0.x.
+"""
+from __future__ import annotations
+
+import importlib
+import importlib.util
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+
+ROOT = Path(__file__).resolve().parents[1]
+PACKAGE_DIR = ROOT / "compiler" / "sotlas_compile"
+
+
+def _load_package():
+    name = "sotlas_phase2_v1_region_gate_package"
+    if name in sys.modules:
+        return sys.modules[name]
+    spec = importlib.util.spec_from_file_location(
+        name,
+        PACKAGE_DIR / "__init__.py",
+        submodule_search_locations=[str(PACKAGE_DIR)],
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+package = _load_package()
+bootstrap = importlib.import_module(f"{package.__name__}.bootstrap")
+closed = importlib.import_module(
+    f"{package.__name__}.region_closed_interprocedural"
+)
+
+
+REGION_V1_SOURCE = """module app::region_v1_release_gate;
+sole struct Token { value: u32; }
+static mut destroy_count: u32 = 0;
+
+fn Token_deinit(self: *mut Token) {
+    unsafe { destroy_count = destroy_count + 1; }
+}
+
+fn consume(token: region Token) -> void { return; }
+
+fn main() -> i32 {
+    let source: region Token = Token { value: 41u32 };
+    let destination: region Token = Token { value: 9u32 };
+    consume(move destination);
+    handover source to destination;
+    if destination.value == 41u32 && destroy_count == 1u32 { return 0; }
+    return 1;
+}
+"""
+
+
+def _host_c_compiler() -> Path:
+    resolved = shutil.which("gcc") or shutil.which("clang")
+    if resolved is None:
+        raise unittest.SkipTest("host GCC/Clang not available")
+    return Path(resolved)
+
+
+class SotlasPhase2V1RegionReleaseGateTests(unittest.TestCase):
+    def test_region_supported_subset_has_complete_arena_proof_and_runs_natively(self):
+        checked = package.analyze_source_phase1(
+            REGION_V1_SOURCE,
+            filename="<phase2-v1-region-gate>",
+        )
+        plan = closed.plan_checked_region_closed_interprocedural(checked)
+        flow = plan.require_complete_arena_flow()
+        self.assertTrue(flow.complete)
+        self.assertEqual(flow.unresolved, ())
+
+        with tempfile.TemporaryDirectory(prefix="sotlas-v1-region-") as tmp:
+            tmp_path = Path(tmp)
+            source_file = tmp_path / "region_gate.sotlas"
+            output_c = tmp_path / "region_gate.c"
+            executable = tmp_path / ("region_gate.exe" if os.name == "nt" else "region_gate")
+            source_file.write_text(REGION_V1_SOURCE, encoding="utf-8")
+
+            bootstrap.emit_c_project(source_file, output_c)
+            self.assertTrue(output_c.exists())
+
+            compiler = _host_c_compiler()
+            env = dict(os.environ)
+            env["PATH"] = str(compiler.parent) + os.pathsep + env.get("PATH", "")
+            compiled = subprocess.run(
+                [
+                    str(compiler),
+                    "-std=c11",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    str(output_c),
+                    "-o",
+                    str(executable),
+                ],
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+
+            executed = subprocess.run(
+                [str(executable)],
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+            self.assertEqual(executed.returncode, 0, executed.stderr)
+
+
+if __name__ == "__main__":
+    unittest.main()
