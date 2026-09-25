@@ -52,10 +52,11 @@ sole struct Token { value: u32; }
 
 fn consume(token: region Token) -> void { return; }
 
-fn run(source: region Token, destination: region Token) -> void {
+fn run(source: region Token, destination: region Token, final: region Token) -> void {
     consume(move destination);
     handover source to destination;
-    consume(move destination);
+    consume(move final);
+    handover destination to final;
     return;
 }
 """
