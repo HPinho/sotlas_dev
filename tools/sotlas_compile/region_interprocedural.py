@@ -1,10 +1,10 @@
 """Composed interprocedural REGION lifetime view.
 
 The local lifetime topology, source-stable call contracts, CFG call-path
-certificates and return contracts are independently certified. This module
-composes those proofs without pretending the prototype SIR already carries
-interprocedural call ownership markers. It is a semantic certificate only; no
-runtime or backend behavior is introduced here.
+certificates, intra-iteration ownership order and return contracts are
+independently certified. This module composes those proofs without pretending
+the prototype SIR already carries interprocedural call ownership markers. It is
+a semantic certificate only; no runtime or backend behavior is introduced here.
 """
 from __future__ import annotations
 
@@ -19,7 +19,12 @@ from .region_call_cfg import (
     certify_region_call_cfg,
 )
 from .region_call_sir import validate_region_call_sir
+from .region_cfg import RegionLifetimeCFGCertificate, certify_region_lifetime_cfg
 from .region_frontend import plan_checked_region_lifetime
+from .region_iteration_order import (
+    RegionIterationOwnershipCertificate,
+    certify_region_iteration_order,
+)
 from .region_lifetime import RegionLifetimePlan
 from .region_return import RegionReturnLifetimePlan, plan_checked_region_returns
 from .typed_ast import OwnershipDomain, Phase1SemanticError
@@ -34,6 +39,8 @@ class RegionInterproceduralFunctionPlan:
     function: str
     local: RegionLifetimePlan
     calls: tuple[RegionCallTransfer, ...]
+    lifetime_cfg: RegionLifetimeCFGCertificate
+    iteration_order: RegionIterationOwnershipCertificate
 
 
 @dataclass(frozen=True)
@@ -86,6 +93,12 @@ class RegionInterproceduralLifetimePlan:
                 f"REGION interprocedural plan requires exactly one function {name!r}"
             )
         return matches[0]
+
+    def iteration_order(
+        self, function: str
+    ) -> RegionIterationOwnershipCertificate:
+        """Return the mandatory intra-iteration ownership certificate."""
+        return self.function(function).iteration_order
 
     def call_points(self, function: str) -> tuple[RegionCallCFGPoint, ...]:
         """Return the certified REGION call sites for one known function."""
@@ -237,6 +250,20 @@ def plan_checked_region_interprocedural(
             checked_module,
             function=function_name,
         )
+        lifetime_cfg = certify_region_lifetime_cfg(local, checked_sir.module)
+        iteration_order = certify_region_iteration_order(
+            call_cfg,
+            lifetime_cfg,
+            checked_sir,
+        )
+        if (
+            lifetime_cfg.function != function_name
+            or iteration_order.function != function_name
+        ):
+            raise RegionInterproceduralLifetimeError(
+                f"REGION iteration certificates diverged for {function_name!r}"
+            )
+
         calls = tuple(
             item for item in call_plan.transfers if item.function == function_name
         )
@@ -278,6 +305,8 @@ def plan_checked_region_interprocedural(
                 function=function_name,
                 local=local,
                 calls=calls,
+                lifetime_cfg=lifetime_cfg,
+                iteration_order=iteration_order,
             )
         )
 
