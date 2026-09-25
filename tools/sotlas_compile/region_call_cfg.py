@@ -4,8 +4,10 @@ This layer consumes an already validated ``RegionCallSIRBridge`` plus canonical
 SIR and proves only control-flow facts. It does not create ownership facts, does
 not mutate SIR and does not lower anything to a backend.
 
-Ownership-taking REGION calls inside CFG cycles remain fail-closed until the
-canonical model carries iteration identity for call transfers.
+Ownership-taking REGION calls inside CFG cycles are accepted only when the SIR
+contains exactly one source-stable canonical backedge identity for the call's
+cycle. This freezes loop identity; it does not make repeated ownership transfer
+legal by itself.
 """
 from __future__ import annotations
 
@@ -21,6 +23,13 @@ class RegionCallCFGError(Phase1SemanticError):
     """Raised when REGION call transfers cannot be certified on the SIR CFG."""
 
 
+_BACKEDGE_PREFIXES = (
+    "while_backedge@",
+    "for_backedge@",
+    "loop_backedge@",
+)
+
+
 @dataclass(frozen=True)
 class RegionCallCFGPoint:
     function: str
@@ -29,6 +38,7 @@ class RegionCallCFGPoint:
     block: str
     instruction_index: int
     argument_indices: tuple[int, ...]
+    iteration_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -55,6 +65,48 @@ def _unwrap_module(value: object):
     return sir, module
 
 
+def _same_cycle(successors: dict[str, tuple[str, ...]], first: str, second: str) -> bool:
+    if first == second:
+        return _block_is_cyclic(successors, first)
+    return _reachable(successors, first, second) and _reachable(
+        successors, second, first
+    )
+
+
+def _iteration_identity(sir, function, successors, call_block: str, point_id: str) -> str | None:
+    if not _block_is_cyclic(successors, call_block):
+        return None
+
+    candidates: list[str] = []
+    for block in function.blocks:
+        if not _same_cycle(successors, call_block, block.label):
+            continue
+        for instruction in block.instructions:
+            if not isinstance(instruction, sir.BranchInst):
+                continue
+            if getattr(instruction, "control_kind", None) != "backedge":
+                continue
+            backedge_id = getattr(instruction, "point_id", None)
+            if (
+                isinstance(backedge_id, str)
+                and backedge_id.startswith(_BACKEDGE_PREFIXES)
+            ):
+                candidates.append(backedge_id)
+
+    unique = tuple(dict.fromkeys(candidates))
+    if len(unique) == 0:
+        raise RegionCallCFGError(
+            f"REGION ownership-taking call {point_id!r} inside a CFG cycle "
+            "requires iteration identity"
+        )
+    if len(unique) != 1:
+        raise RegionCallCFGError(
+            f"REGION ownership-taking call {point_id!r} inside a CFG cycle "
+            "has ambiguous iteration identity"
+        )
+    return unique[0]
+
+
 def certify_region_call_cfg(
     bridge: RegionCallSIRBridge,
     sir_module: object,
@@ -67,6 +119,9 @@ def certify_region_call_cfg(
     functions = {item.name: item for item in module.functions}
     if len(functions) != len(module.functions):
         raise RegionCallCFGError("REGION call CFG contains duplicate function names")
+    successors_by_function = {
+        name: _successors(function) for name, function in functions.items()
+    }
 
     grouped: dict[tuple[str, str], list[object]] = {}
     order: list[tuple[str, str]] = []
@@ -134,6 +189,13 @@ def certify_region_call_cfg(
                 )
             argument_indices.append(site.argument_index)
 
+        iteration_id = _iteration_identity(
+            sir,
+            function,
+            successors_by_function[function_name],
+            first.block,
+            point_id,
+        )
         point = RegionCallCFGPoint(
             function=function_name,
             point_id=point_id,
@@ -141,19 +203,23 @@ def certify_region_call_cfg(
             block=first.block,
             instruction_index=first.instruction_index,
             argument_indices=tuple(argument_indices),
+            iteration_id=iteration_id,
         )
         points.append(point)
         by_function.setdefault(function_name, []).append(point)
 
     relations: list[RegionCallCFGRelation] = []
     for function_name, function_points in by_function.items():
-        function = functions[function_name]
-        successors = _successors(function)
+        successors = successors_by_function[function_name]
+        iteration_groups: dict[str, list[RegionCallCFGPoint]] = {}
         for point in function_points:
-            if _block_is_cyclic(successors, point.block):
+            if point.iteration_id is not None:
+                iteration_groups.setdefault(point.iteration_id, []).append(point)
+        for iteration_id, loop_points in iteration_groups.items():
+            if len(loop_points) > 1:
                 raise RegionCallCFGError(
-                    f"REGION ownership-taking call {point.point_id!r} inside a CFG cycle "
-                    "requires iteration identity"
+                    f"REGION iteration {iteration_id!r} contains multiple ownership-taking "
+                    "calls and requires explicit intra-iteration ordering"
                 )
 
         for first_index, first in enumerate(function_points):

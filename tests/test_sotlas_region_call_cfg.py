@@ -54,6 +54,7 @@ class SotlasRegionCallCFGTests(unittest.TestCase):
         certificate = region_call_cfg.certify_region_call_cfg(bridge, checked_sir)
 
         self.assertEqual(len(certificate.points), 2)
+        self.assertTrue(all(item.iteration_id is None for item in certificate.points))
         self.assertEqual(len(certificate.relations), 1)
         relation = certificate.relations[0]
         self.assertEqual(relation.relation, "ordered_path")
@@ -122,6 +123,39 @@ class SotlasRegionCallCFGTests(unittest.TestCase):
             "requires iteration identity",
         ):
             region_call_cfg.certify_region_call_cfg(bridge, module)
+
+    def test_ownership_taking_call_uses_canonical_backedge_iteration_identity(self):
+        sir = canonical_sir.load_canonical_sir()
+        module = sir.SIRModule("synthetic_loop_identity")
+        function = sir.SIRFunction("run", [], "void")
+        module.add_function(function)
+        entry = function.add_block("entry")
+        loop = function.add_block("loop")
+        entry.add(sir.BranchInst("loop"))
+        loop.add(sir.CallInst("consume", [sir.SIRValue("token", "Token")]))
+        loop.add(
+            sir.BranchInst(
+                "loop",
+                point_id="while_backedge@7:5",
+                control_kind="backedge",
+            )
+        )
+
+        bridge = region_call_sir.RegionCallSIRBridge(
+            (
+                region_call_sir.RegionCallSIRSite(
+                    "run", "token", "consume", "token", 0,
+                    "call@8:9", "loop", 0,
+                ),
+            )
+        )
+        certificate = region_call_cfg.certify_region_call_cfg(bridge, module)
+        self.assertEqual(len(certificate.points), 1)
+        self.assertEqual(
+            certificate.points[0].iteration_id,
+            "while_backedge@7:5",
+        )
+        self.assertEqual(certificate.relations, ())
 
 
 if __name__ == "__main__":
