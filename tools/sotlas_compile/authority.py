@@ -5,10 +5,10 @@ explicit least-authority contract without breaking existing source. Bare
 ``@system`` remains a legacy unrestricted system context. Named forms such as
 ``@system(pci.config)`` grant only the listed capabilities.
 
-This first slice is intentionally frontend/backend neutral: it derives
-source-stable function contracts and certifies direct function calls. SIR
-lowering and capability values are composed in later slices rather than being
-invented here.
+Source functions and privileged ABI intrinsics share one source-stable call
+edge model. Named ABI contracts are admitted only from ``authority_abi``;
+uncontracted privileged intrinsics remain legacy-unrestricted and therefore
+fail closed for named-only callers.
 """
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ import re
 from typing import Any, Iterator
 
 from . import bootstrap
+from .authority_abi import AuthorityABIContract, authority_abi_contract
 from .typed_ast import Phase1SemanticError
 
 
@@ -50,6 +51,7 @@ class AuthorityCallEdge:
     callee: str
     point_id: str
     required_capabilities: tuple[str, ...]
+    target_kind: str = "source"
 
 
 @dataclass(frozen=True)
@@ -179,6 +181,60 @@ def _validate_call(
         callee=callee.function,
         point_id=point_id,
         required_capabilities=required,
+        target_kind="source",
+    )
+
+
+def _privileged_builtin(name: str):
+    function = getattr(bootstrap, "BUILTIN_FUNCTIONS", {}).get(name)
+    if function is None:
+        return None
+    attributes = tuple(getattr(function, "attributes", ()) or ())
+    return function if "@system" in attributes else None
+
+
+def _validate_abi_call(
+    caller: AuthorityContract,
+    abi: AuthorityABIContract,
+    *,
+    point_id: str,
+) -> AuthorityCallEdge:
+    missing = tuple(
+        capability for capability in abi.capabilities
+        if not caller.grants(capability)
+    )
+    if missing:
+        raise AuthorityDomainError(
+            f"authority intrinsic call {caller.function} -> {abi.symbol} at {point_id} "
+            f"is missing capabilities: {', '.join(missing)}"
+        )
+    return AuthorityCallEdge(
+        caller=caller.function,
+        callee=abi.symbol,
+        point_id=point_id,
+        required_capabilities=abi.capabilities,
+        target_kind=abi.kind,
+    )
+
+
+def _validate_legacy_intrinsic_call(
+    caller: AuthorityContract,
+    symbol: str,
+    *,
+    point_id: str,
+) -> AuthorityCallEdge:
+    if not caller.legacy_unrestricted:
+        raise AuthorityDomainError(
+            f"authority intrinsic call {caller.function} -> {symbol} at {point_id} "
+            "requires legacy unrestricted @system authority because no named "
+            "ABI contract exists"
+        )
+    return AuthorityCallEdge(
+        caller=caller.function,
+        callee=symbol,
+        point_id=point_id,
+        required_capabilities=(),
+        target_kind="legacy_intrinsic",
     )
 
 
@@ -205,11 +261,6 @@ def plan_authority_domains(module: object) -> AuthorityDomainPlan:
             callee_name = getattr(call, "callee", None)
             if not isinstance(callee_name, str):
                 continue
-            callee = by_name.get(callee_name)
-            if callee is None:
-                # External/intrinsic calls are outside this first direct-call
-                # authority slice; no capability claim is invented for them.
-                continue
             point_id = _call_point_id(call)
             point_key = (caller.function, point_id)
             if point_key in seen_points:
@@ -217,9 +268,31 @@ def plan_authority_domains(module: object) -> AuthorityDomainPlan:
                     f"duplicate authority call point {caller.function}::{point_id}"
                 )
             seen_points.add(point_key)
-            edge = _validate_call(caller, callee, point_id=point_id)
-            if edge is not None:
-                calls.append(edge)
+
+            # Source declarations take precedence over builtin names so a
+            # source function can never silently acquire an ABI authority
+            # contract merely by sharing a symbol spelling.
+            callee = by_name.get(callee_name)
+            if callee is not None:
+                edge = _validate_call(caller, callee, point_id=point_id)
+                if edge is not None:
+                    calls.append(edge)
+                continue
+
+            builtin = _privileged_builtin(callee_name)
+            if builtin is None:
+                # Ordinary unknown/external calls remain outside this intrinsic
+                # slice. FFI gets a separate authority contract.
+                continue
+            abi = authority_abi_contract(callee_name)
+            if abi is not None:
+                calls.append(_validate_abi_call(caller, abi, point_id=point_id))
+            else:
+                calls.append(
+                    _validate_legacy_intrinsic_call(
+                        caller, callee_name, point_id=point_id
+                    )
+                )
 
     return AuthorityDomainPlan(contracts=contracts, calls=tuple(calls))
 
