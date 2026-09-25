@@ -4,11 +4,11 @@ The generic prototype SIR generator intentionally does not lower arbitrary
 straight-line calls yet. Phase 3 needs source ``@system(capability)`` calls to
 survive into SIR so their sidecar authority certificate can be verified.
 
-This extension lowers only direct, zero-argument, ``void`` authority calls that
-already exist in ``AuthorityDomainPlan``. It does not infer capabilities, does
-not lower external/intrinsic calls, and does not broaden general call lowering.
-Unsupported authority-call shapes remain absent and are therefore rejected by
-``certify_authority_sir`` in the strict checked-Authority path.
+This extension lowers only direct, zero-argument, ``void`` source-authority calls
+that already exist in ``AuthorityDomainPlan``. Privileged ABI edges are not
+executed here; their source-stable semantic facts are placed separately as
+``AuthorityABIInst`` by the strict checked-Authority path. Unsupported source
+call shapes remain absent and are therefore rejected by ``certify_authority_sir``.
 """
 from __future__ import annotations
 
@@ -93,6 +93,10 @@ def make_authority_call_generator(sir, authority: AuthorityDomainPlan):
                         f"authority SIR lowering point {caller}::{point_id} "
                         "does not match its certified callee"
                     )
+                if edge.target_kind != "source":
+                    # Named ABI authority is represented by AuthorityABIInst,
+                    # not a fake CallInst with invented SSA operands/results.
+                    return False
                 target = contracts.get(edge.callee)
                 if target is None or not target.is_system:
                     raise AuthorityDomainError(

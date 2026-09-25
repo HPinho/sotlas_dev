@@ -96,10 +96,12 @@ class CheckedAuthoritySIR:
 def build_canonical_checked_authority_sir(
     checked_module: object,
 ) -> CheckedAuthoritySIR:
-    """Generate canonical SIR and require both ownership and Authority safety.
+    """Generate canonical SIR and require ownership plus Authority safety.
 
-    This is the strict Phase-3 entry point. The historical ownership-only API
-    remains unchanged for compatibility while callers migrate deliberately.
+    Named ABI calls are represented as source-stable ``AuthorityABIInst`` facts.
+    Those facts carry privilege semantics only; the C11 reference backend still
+    owns the physical intrinsic lowering. Legacy-uncontracted intrinsics remain
+    fail-closed in this strict Phase-3 entry point.
     """
     parsed_module = getattr(checked_module, "parsed_module", None)
     semantic = getattr(checked_module, "semantic", None)
@@ -121,12 +123,14 @@ def build_canonical_checked_authority_sir(
         module_name=getattr(parsed_module, "name", "main")
     )
     module = generator.generate_from_ast(parsed_module)
-    placement = sir.apply_ownership_module_plan(module, ownership_plan)
-    checked_ownership = sir.CheckedOwnershipSIR(module, placement)
 
     # Import locally to keep authority_sir -> canonical_sir loading acyclic.
-    from .authority_sir import certify_authority_sir
+    from .authority_sir import certify_authority_sir, place_authority_abi_facts
     from .authority_safety import enforce_authority_sir_safety
+
+    place_authority_abi_facts(authority, module)
+    placement = sir.apply_ownership_module_plan(module, ownership_plan)
+    checked_ownership = sir.CheckedOwnershipSIR(module, placement)
 
     authority_certificate = certify_authority_sir(authority, checked_ownership)
     authority_safety = enforce_authority_sir_safety(

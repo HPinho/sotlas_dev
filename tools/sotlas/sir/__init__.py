@@ -33,6 +33,7 @@ from .instructions import (
     SIRFunction,
     SIRModule,
 )
+from .authority import AuthorityABIInst
 from .generator import SIRGenerator
 from .ownership import (
     OwnershipDomainSIRPlan,
@@ -77,6 +78,7 @@ __all__ = [
     "StoreInst",
     "LoadInst",
     "CallInst",
+    "AuthorityABIInst",
     "OwnershipDomainPointInst",
     "OwnershipDomainTransferInst",
     "WhisperBorrowInst",

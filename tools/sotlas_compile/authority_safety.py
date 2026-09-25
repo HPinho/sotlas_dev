@@ -1,14 +1,10 @@
-"""Safety enforcement for certified source Authority boundaries at SIR level.
+"""Safety enforcement for certified Authority facts at SIR level.
 
-Authority Domains are carried as a sidecar certificate because the prototype
-SIR still exposes only the historical boolean ``is_system``. Source ``@system``
-functions are encapsulated abstractions: their internal hardware authority is
-not a privilege the caller must possess. This pass therefore certifies boundary
-identity, target contract, and represented call cardinality without propagating
-the callee's capabilities into its caller.
-
-Direct privileged ABI/intrinsic authority is not guessed here. It remains
-fail-closed until ``authority_sir`` can represent and certify those operations.
+Source ``@system`` functions are encapsulated abstractions: callers do not need
+the callee's internal hardware authority. Direct named ABI authority is carried
+separately as source-stable ``AuthorityABIInst`` facts. This pass revalidates
+both forms against the certificate so SIR mutation cannot silently add, remove,
+or widen privileged access after certification.
 """
 from __future__ import annotations
 
@@ -34,7 +30,7 @@ class AuthoritySIRSafetyResult:
 
 
 class AuthoritySIRSafetyPass:
-    """Validate source Authority boundaries against a certified SIR sidecar."""
+    """Validate source-system boundaries and named ABI facts against SIR."""
 
     def __init__(self, certificate: AuthoritySIRCertificate):
         if not isinstance(certificate, AuthoritySIRCertificate):
@@ -105,9 +101,6 @@ class AuthoritySIRSafetyPass:
                 )
                 continue
 
-            # Source-system functions are encapsulated abstractions. The group
-            # must faithfully carry the target contract, but the caller need
-            # not hold that authority itself.
             if target.legacy_unrestricted:
                 if group.required_capabilities:
                     errors.append(
@@ -122,6 +115,57 @@ class AuthoritySIRSafetyPass:
             groups[key] = group
         return groups, errors
 
+    @staticmethod
+    def _abi_maps(certificate: AuthoritySIRCertificate, facts):
+        abi = {}
+        errors: list[str] = []
+        for fact in certificate.abi_facts:
+            key = (fact.caller, fact.point_id)
+            if key in abi:
+                errors.append(
+                    f"authority SIR safety repeats ABI source identity {fact.caller}::{fact.point_id}"
+                )
+                continue
+            caller = facts.get(fact.caller)
+            if caller is None:
+                errors.append(
+                    f"authority ABI fact {fact.caller}::{fact.point_id} references a missing caller fact"
+                )
+                continue
+            if not isinstance(fact.symbol, str) or not fact.symbol:
+                errors.append(
+                    f"authority ABI fact {fact.caller}::{fact.point_id} lacks a symbol"
+                )
+                continue
+            if not fact.point_id.startswith("call@"):
+                errors.append(
+                    f"authority ABI fact {fact.caller} lacks source-stable call identity"
+                )
+                continue
+            if not fact.required_capabilities:
+                errors.append(
+                    f"authority ABI fact {fact.caller}::{fact.point_id} lacks named capabilities"
+                )
+                continue
+            if len(set(fact.required_capabilities)) != len(fact.required_capabilities):
+                errors.append(
+                    f"authority ABI fact {fact.caller}::{fact.point_id} repeats a capability"
+                )
+                continue
+            if not caller.legacy_unrestricted:
+                missing = tuple(
+                    capability
+                    for capability in fact.required_capabilities
+                    if capability not in caller.capabilities
+                )
+                if missing:
+                    errors.append(
+                        f"authority ABI fact {fact.caller}::{fact.point_id} exceeds caller authority: {', '.join(missing)}"
+                    )
+                    continue
+            abi[key] = fact
+        return abi, errors
+
     def run(self, sir_module: object) -> AuthoritySIRSafetyResult:
         sir = load_canonical_sir()
         module = getattr(sir_module, "module", sir_module)
@@ -134,6 +178,8 @@ class AuthoritySIRSafetyPass:
         facts, errors = self._function_maps(self.certificate)
         groups, group_errors = self._group_maps(self.certificate, facts)
         errors.extend(group_errors)
+        abi_facts, abi_errors = self._abi_maps(self.certificate, facts)
+        errors.extend(abi_errors)
 
         functions = {}
         for function in tuple(getattr(module, "functions", ()) or ()):
@@ -160,27 +206,40 @@ class AuthoritySIRSafetyPass:
                     f"authority function {name!r} changed its legacy SIR system marker after certification"
                 )
 
-        actual: dict[tuple[str, str], int] = {}
+        actual_calls: dict[tuple[str, str], int] = {}
+        actual_abi: dict[tuple[str, str], tuple[str, tuple[str, ...]]] = {}
         for function in functions.values():
             caller_fact = facts.get(function.name)
             for block in tuple(getattr(function, "blocks", ()) or ()):
                 for instruction in tuple(getattr(block, "instructions", ()) or ()):
+                    if isinstance(instruction, sir.AuthorityABIInst):
+                        key = (function.name, getattr(instruction, "point_id", ""))
+                        if key in actual_abi:
+                            errors.append(
+                                f"authority SIR safety found duplicate ABI fact {key[0]}::{key[1]}"
+                            )
+                            continue
+                        actual_abi[key] = (
+                            getattr(instruction, "symbol", ""),
+                            tuple(
+                                getattr(instruction, "required_capabilities", ()) or ()
+                            ),
+                        )
+                        continue
+
                     if not isinstance(instruction, sir.CallInst):
                         continue
                     callee = getattr(instruction, "callee", None)
                     target_fact = facts.get(callee)
                     if target_fact is not None and target_fact.is_system:
                         key = (function.name, callee)
-                        actual[key] = actual.get(key, 0) + 1
+                        actual_calls[key] = actual_calls.get(key, 0) + 1
                         if caller_fact is None:
                             errors.append(
                                 f"authority caller {function.name!r} has no certified fact for system boundary {callee!r}"
                             )
                         continue
 
-                    # External/intrinsic authority is deliberately not guessed.
-                    # Preserve the old SIR rule until a named ABI representation
-                    # exists in the strict checked-SIR path.
                     if bool(getattr(instruction, "is_system", False)) and not bool(
                         getattr(function, "is_system", False)
                     ):
@@ -190,18 +249,36 @@ class AuthoritySIRSafetyPass:
                         )
 
         for key, group in groups.items():
-            represented = actual.get(key, 0)
+            represented = actual_calls.get(key, 0)
             if represented != group.sir_call_count:
                 errors.append(
                     f"authority certified call group {key[0]} -> {key[1]} expects "
                     f"{group.sir_call_count} calls, got {represented}"
                 )
 
-        for key, represented in actual.items():
+        for key, represented in actual_calls.items():
             if key not in groups:
                 errors.append(
                     f"authority system call group {key[0]} -> {key[1]} has "
                     f"{represented} SIR call(s) but no certified source authority edge"
+                )
+
+        for key, fact in abi_facts.items():
+            represented = actual_abi.get(key)
+            if represented is None:
+                errors.append(
+                    f"authority certified ABI fact {key[0]}::{key[1]} -> {fact.symbol} is missing from SIR"
+                )
+                continue
+            if represented != (fact.symbol, fact.required_capabilities):
+                errors.append(
+                    f"authority certified ABI fact {key[0]}::{key[1]} diverged after certification"
+                )
+
+        for key, represented in actual_abi.items():
+            if key not in abi_facts:
+                errors.append(
+                    f"authority SIR ABI fact {key[0]}::{key[1]} -> {represented[0]} has no certificate"
                 )
 
         return AuthoritySIRSafetyResult(
@@ -214,7 +291,7 @@ def enforce_authority_sir_safety(
     certificate: AuthoritySIRCertificate,
     sir_module: object,
 ) -> AuthoritySIRSafetyResult:
-    """Run the canonical source-boundary safety pass over SIR."""
+    """Run canonical source-boundary and ABI authority safety over SIR."""
     return AuthoritySIRSafetyPass(certificate).run(sir_module)
 
 

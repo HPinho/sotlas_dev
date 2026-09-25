@@ -1,4 +1,4 @@
-"""Strict SIR must not silently drop direct privileged ABI authority."""
+"""Strict SIR fails closed when privileged Authority ABI facts are absent."""
 from __future__ import annotations
 
 import importlib
@@ -30,10 +30,11 @@ def _load_package():
 package = _load_package()
 authority = importlib.import_module(f"{package.__name__}.authority")
 authority_sir = importlib.import_module(f"{package.__name__}.authority_sir")
+canonical_sir = importlib.import_module(f"{package.__name__}.canonical_sir")
 
 
 class SotlasAuthoritySIRABIFailClosedTests(unittest.TestCase):
-    def test_named_abi_edge_is_rejected_until_sir_has_abi_representation(self):
+    def test_named_abi_edge_requires_matching_sir_authority_fact(self):
         plan = authority.AuthorityDomainPlan(
             contracts=(
                 authority.AuthorityContract(
@@ -51,23 +52,29 @@ class SotlasAuthoritySIRABIFailClosedTests(unittest.TestCase):
                 ),
             ),
         )
+        sir = canonical_sir.load_canonical_sir()
+        module = sir.SIRModule("abi_missing")
+        function = sir.SIRFunction("read_status", [], "void")
+        function.add_block("0").add(sir.ReturnInst(point_id="return@5:5"))
+        module.add_function(function)
+
         with self.assertRaisesRegex(
             authority_sir.AuthoritySIRError,
-            "cannot yet certify direct ABI/intrinsic authority edges",
+            "missing ABI authority fact",
         ):
-            authority_sir.certify_authority_sir(plan, object())
+            authority_sir.certify_authority_sir(plan, module)
 
-    def test_legacy_intrinsic_edge_is_also_rejected_until_representable(self):
+    def test_legacy_intrinsic_edge_remains_fail_closed_in_strict_sir(self):
         plan = authority.AuthorityDomainPlan(
             contracts=(
                 authority.AuthorityContract(
-                    function="halt_cpu",
+                    function="halt",
                     legacy_unrestricted=True,
                 ),
             ),
             calls=(
                 authority.AuthorityCallEdge(
-                    caller="halt_cpu",
+                    caller="halt",
                     callee="__hlt",
                     point_id="call@4:5",
                     required_capabilities=(),
@@ -77,7 +84,7 @@ class SotlasAuthoritySIRABIFailClosedTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(
             authority_sir.AuthoritySIRError,
-            "cannot yet certify direct ABI/intrinsic authority edges",
+            "cannot certify unsupported ABI/intrinsic authority edges",
         ):
             authority_sir.certify_authority_sir(plan, object())
 
