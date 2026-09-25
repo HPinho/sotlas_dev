@@ -34,6 +34,11 @@ _INTERRUPT_CONTROL_SYMBOLS = (
     "__sti",
 )
 
+_MSR_SYMBOLS = (
+    "__rdmsr",
+    "__wrmsr",
+)
+
 AUTHORITY_ABI_CONTRACTS = (
     tuple(
         AuthorityABIContract(symbol=symbol, capabilities=("io.port",))
@@ -42,6 +47,10 @@ AUTHORITY_ABI_CONTRACTS = (
     + tuple(
         AuthorityABIContract(symbol=symbol, capabilities=("cpu.interrupts",))
         for symbol in _INTERRUPT_CONTROL_SYMBOLS
+    )
+    + tuple(
+        AuthorityABIContract(symbol=symbol, capabilities=("cpu.msr",))
+        for symbol in _MSR_SYMBOLS
     )
 )
 

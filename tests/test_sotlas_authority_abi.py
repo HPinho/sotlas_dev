@@ -132,7 +132,7 @@ class SotlasAuthorityABITests(unittest.TestCase):
         expected = {
             "__inb", "__outb", "__inw", "__outw", "__inl", "__outl",
             "__irq_save_disable", "__irq_restore", "__interrupts_enabled",
-            "__cli", "__sti",
+            "__cli", "__sti", "__rdmsr", "__wrmsr",
         }
         contracts = authority_abi.AUTHORITY_ABI_CONTRACTS
         self.assertEqual({item.symbol for item in contracts}, expected)
@@ -144,6 +144,8 @@ class SotlasAuthorityABITests(unittest.TestCase):
             "__cli", "__sti",
         }:
             self.assertEqual(by_symbol[symbol].capabilities, ("cpu.interrupts",))
+        for symbol in {"__rdmsr", "__wrmsr"}:
+            self.assertEqual(by_symbol[symbol].capabilities, ("cpu.msr",))
         self.assertTrue(all(item.kind == "abi_intrinsic" for item in contracts))
 
     def test_named_io_port_capability_certifies_builtin_call(self):
