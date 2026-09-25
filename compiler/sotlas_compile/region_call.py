@@ -1,11 +1,13 @@
 """Source-stable interprocedural REGION call-transfer contracts.
 
-Canonical ownership facts currently encode calls as ``via='call:<callee>'``.
-That proves a transfer happened, but it is insufficient to distinguish repeated
-calls to the same callee or multiple REGION parameters at one call site.  This
-module derives a stricter backend-neutral contract by reconciling the parsed AST,
-Typed AST function signatures, ownership summaries and the canonical domain
-graph.  It does not change ownership semantics or backend behavior.
+Canonical ownership facts encode calls as ``via='call:<callee>'``.  Newer facts
+may also carry the exact source ``point_id``; older graph snapshots preserve
+only canonical transfer order.  This module derives a stricter backend-neutral
+contract by reconciling the parsed AST, Typed AST function signatures, ownership
+summaries and the canonical domain graph.  Repeated calls of a re-armed binding
+are paired by exact point identity when available, otherwise by the canonical
+source order of otherwise-unidentified graph transfers.  It does not change
+ownership semantics or backend behavior.
 """
 from __future__ import annotations
 
@@ -81,6 +83,65 @@ def _walk_calls(value: object) -> Iterable[object]:
             if child is not None:
                 children.append(child)
         stack.extend(reversed(children))
+
+
+def _select_graph_call_transfer(
+    graph: OwnershipDomainGraph,
+    graph_call_indices: list[int],
+    used_graph_indices: set[int],
+    *,
+    function: str,
+    binding: str,
+    callee: str,
+    parameter: str,
+    point_id: str,
+) -> int:
+    """Pair one source call with exactly one canonical graph transfer.
+
+    Explicit graph point identities are authoritative.  The source-order
+    fallback exists only for legacy call transfers whose point identities are
+    all absent; graph tuple order and parsed ``_walk_calls`` order are both
+    canonical source order, and every selected graph index is consumed once.
+    Mixed identified/unidentified candidates are rejected rather than guessed.
+    """
+    candidates = [
+        index for index in graph_call_indices
+        if index not in used_graph_indices
+        and graph.transfers[index].function == function
+        and graph.transfers[index].binding == binding
+        and graph.transfers[index].via == f"call:{callee}"
+    ]
+    if not candidates:
+        raise RegionCallLifetimeError(
+            f"REGION call {function}::{binding} -> {callee}.{parameter} "
+            "has no canonical graph transfer"
+        )
+
+    exact = [
+        index for index in candidates
+        if getattr(graph.transfers[index], "point_id", None) == point_id
+    ]
+    if len(exact) == 1:
+        return exact[0]
+    if len(exact) > 1:
+        raise RegionCallLifetimeError(
+            f"REGION call {function}::{binding} at {point_id} has duplicate "
+            "point-identified graph transfers"
+        )
+
+    identities = tuple(
+        getattr(graph.transfers[index], "point_id", None) for index in candidates
+    )
+    if any(identity is not None for identity in identities):
+        raise RegionCallLifetimeError(
+            f"REGION call {function}::{binding} at {point_id} diverges from "
+            "source-stable graph transfer identity"
+        )
+
+    # Legacy graph transfers without point ids are emitted in canonical source
+    # order.  Consume the earliest remaining occurrence; later repeated calls
+    # necessarily receive the next occurrence because indices cannot be reused.
+    return candidates[0]
 
 
 def build_region_call_lifetime_plan(
@@ -171,19 +232,16 @@ def build_region_call_lifetime_plan(
                         f"REGION call type mismatch for {function_name}::{binding} -> {callee_name}.{parameter.name}"
                     )
 
-                candidates = [
-                    index for index in graph_call_indices
-                    if index not in used_graph_indices
-                    and graph.transfers[index].function == function_name
-                    and graph.transfers[index].binding == binding
-                    and graph.transfers[index].via == f"call:{callee_name}"
-                ]
-                if len(candidates) != 1:
-                    raise RegionCallLifetimeError(
-                        f"REGION call {function_name}::{binding} -> {callee_name}.{parameter.name} "
-                        f"requires exactly one canonical graph transfer, got {len(candidates)}"
-                    )
-                graph_index = candidates[0]
+                graph_index = _select_graph_call_transfer(
+                    graph,
+                    graph_call_indices,
+                    used_graph_indices,
+                    function=function_name,
+                    binding=binding,
+                    callee=callee_name,
+                    parameter=parameter.name,
+                    point_id=point_id,
+                )
                 graph_transfer = graph.transfers[graph_index]
                 if (
                     graph_transfer.source_domain is not OwnershipDomain.REGION
