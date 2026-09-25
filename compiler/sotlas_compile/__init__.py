@@ -20,6 +20,10 @@ from .phase1_pipeline import (
     analyze_module_phase1,
     analyze_source_phase1,
 )
+from .canonical_sir import (
+    CheckedAuthoritySIR,
+    build_canonical_checked_authority_sir,
+)
 
 SotlasBootstrapError = bootstrap.SotlasBootstrapError
 compile_source = bootstrap.compile_source
@@ -29,5 +33,6 @@ emit_c_project = bootstrap.emit_c_project
 __all__ = [
     "bootstrap", "SotlasError", "SotlasBootstrapError", "compile_source",
     "compile_project", "emit_c_project", "Phase1CheckedModule",
-    "analyze_module_phase1", "analyze_source_phase1",
+    "analyze_module_phase1", "analyze_source_phase1", "CheckedAuthoritySIR",
+    "build_canonical_checked_authority_sir",
 ]
