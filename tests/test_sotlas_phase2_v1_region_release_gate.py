@@ -16,7 +16,6 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
-import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -101,43 +100,51 @@ class SotlasPhase2V1RegionReleaseGateTests(unittest.TestCase):
         self.assertEqual(flow.unresolved, ())
 
     def test_region_supported_subset_runs_natively_with_deterministic_cleanup(self):
-        with tempfile.TemporaryDirectory(prefix="sotlas-v1-region-") as tmp:
-            tmp_path = Path(tmp)
-            source_file = tmp_path / "region_gate.sotlas"
-            output_c = tmp_path / "region_gate.c"
-            executable = tmp_path / ("region_gate.exe" if os.name == "nt" else "region_gate")
-            source_file.write_text(REGION_NATIVE_SOURCE, encoding="utf-8")
+        # emit_c_project resolves the bootstrap project root by walking from the
+        # source path until it finds core/. Keep the probe inside bootstrap/sotlas
+        # exactly like the established native backend tests do.
+        source_file = ROOT / "bootstrap" / "sotlas" / "test_phase2_v1_region_gate_temp.sotlas"
+        output_c = ROOT / "build" / "test_phase2_v1_region_gate.c"
+        executable = ROOT / "build" / (
+            "test_phase2_v1_region_gate.exe"
+            if os.name == "nt"
+            else "test_phase2_v1_region_gate"
+        )
+        self.addCleanup(source_file.unlink, missing_ok=True)
+        self.addCleanup(output_c.unlink, missing_ok=True)
+        self.addCleanup(executable.unlink, missing_ok=True)
+        source_file.write_text(REGION_NATIVE_SOURCE, encoding="utf-8")
 
-            bootstrap.emit_c_project(source_file, output_c)
-            self.assertTrue(output_c.exists())
+        bootstrap.emit_c_project(source_file, output_c)
+        self.assertTrue(output_c.exists())
 
-            compiler = _host_c_compiler()
-            env = dict(os.environ)
-            env["PATH"] = str(compiler.parent) + os.pathsep + env.get("PATH", "")
-            compiled = subprocess.run(
-                [
-                    str(compiler),
-                    "-std=c11",
-                    "-Wall",
-                    "-Wextra",
-                    "-Werror",
-                    str(output_c),
-                    "-o",
-                    str(executable),
-                ],
-                capture_output=True,
-                text=True,
-                env=env,
-            )
-            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+        compiler = _host_c_compiler()
+        env = dict(os.environ)
+        env["PATH"] = str(compiler.parent) + os.pathsep + env.get("PATH", "")
+        compiled = subprocess.run(
+            [
+                str(compiler),
+                "-std=c11",
+                "-Wall",
+                "-Wextra",
+                "-Werror",
+                str(output_c),
+                "-o",
+                str(executable),
+            ],
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        self.assertEqual(compiled.returncode, 0, compiled.stderr)
 
-            executed = subprocess.run(
-                [str(executable)],
-                capture_output=True,
-                text=True,
-                env=env,
-            )
-            self.assertEqual(executed.returncode, 0, executed.stderr)
+        executed = subprocess.run(
+            [str(executable)],
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        self.assertEqual(executed.returncode, 0, executed.stderr)
 
 
 if __name__ == "__main__":
