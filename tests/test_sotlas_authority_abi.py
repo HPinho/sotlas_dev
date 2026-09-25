@@ -59,7 +59,16 @@ fn read_status() -> void {
 """
 
 
-UNCONTRACTED_INTRINSIC = """module app::authority_cli_named;
+INTERRUPT_CONTROL = """module app::authority_interrupt_control;
+@system(cpu.interrupts)
+fn disable_interrupts() -> void {
+    __cli();
+    return;
+}
+"""
+
+
+INTERRUPT_WRONG_CAPABILITY = """module app::authority_interrupt_wrong;
 @system(io.port)
 fn disable_interrupts() -> void {
     __cli();
@@ -68,10 +77,27 @@ fn disable_interrupts() -> void {
 """
 
 
-LEGACY_INTRINSIC = """module app::authority_cli_legacy;
-@system
+INTERRUPT_NO_CAPABILITY = """module app::authority_interrupt_none;
 fn disable_interrupts() -> void {
     __cli();
+    return;
+}
+"""
+
+
+UNCONTRACTED_INTRINSIC = """module app::authority_hlt_named;
+@system(io.port)
+fn halt_cpu() -> void {
+    __hlt();
+    return;
+}
+"""
+
+
+LEGACY_INTRINSIC = """module app::authority_hlt_legacy;
+@system
+fn halt_cpu() -> void {
+    __hlt();
     return;
 }
 """
@@ -86,23 +112,39 @@ fn read_status() -> void {
 """
 
 
+INTERRUPT_CONTEXT = """module app::authority_interrupt_context;
+@interrupt
+fn irq() -> void {
+    unsafe {
+        __sti();
+    }
+    return;
+}
+"""
+
+
 class SotlasAuthorityABITests(unittest.TestCase):
     def _plan(self, source: str):
         parsed = bootstrap.parse(source, filename="<authority-abi>")
         return authority.plan_authority_domains(parsed)
 
-    def test_port_io_registry_is_narrow_and_named(self):
+    def test_registry_is_narrow_and_named(self):
         expected = {
-            "__inb", "__outb", "__inw", "__outw", "__inl", "__outl"
+            "__inb", "__outb", "__inw", "__outw", "__inl", "__outl",
+            "__irq_save_disable", "__irq_restore", "__interrupts_enabled",
+            "__cli", "__sti",
         }
         contracts = authority_abi.AUTHORITY_ABI_CONTRACTS
         self.assertEqual({item.symbol for item in contracts}, expected)
-        self.assertTrue(
-            all(item.capabilities == ("io.port",) for item in contracts)
-        )
-        self.assertTrue(
-            all(item.kind == "abi_intrinsic" for item in contracts)
-        )
+        by_symbol = {item.symbol: item for item in contracts}
+        for symbol in {"__inb", "__outb", "__inw", "__outw", "__inl", "__outl"}:
+            self.assertEqual(by_symbol[symbol].capabilities, ("io.port",))
+        for symbol in {
+            "__irq_save_disable", "__irq_restore", "__interrupts_enabled",
+            "__cli", "__sti",
+        }:
+            self.assertEqual(by_symbol[symbol].capabilities, ("cpu.interrupts",))
+        self.assertTrue(all(item.kind == "abi_intrinsic" for item in contracts))
 
     def test_named_io_port_capability_certifies_builtin_call(self):
         plan = self._plan(PORT_IO)
@@ -128,6 +170,29 @@ class SotlasAuthorityABITests(unittest.TestCase):
         ):
             self._plan(NO_CAPABILITY)
 
+    def test_named_interrupt_capability_certifies_interrupt_control(self):
+        plan = self._plan(INTERRUPT_CONTROL)
+        calls = plan.calls_from("disable_interrupts")
+        self.assertEqual(len(calls), 1)
+        edge = calls[0]
+        self.assertEqual(edge.callee, "__cli")
+        self.assertEqual(edge.required_capabilities, ("cpu.interrupts",))
+        self.assertEqual(edge.target_kind, "abi_intrinsic")
+
+    def test_port_io_capability_cannot_control_interrupts(self):
+        with self.assertRaisesRegex(
+            authority.AuthorityDomainError,
+            "missing capabilities: cpu.interrupts",
+        ):
+            self._plan(INTERRUPT_WRONG_CAPABILITY)
+
+    def test_unprivileged_function_cannot_control_interrupts(self):
+        with self.assertRaisesRegex(
+            authority.AuthorityDomainError,
+            "missing capabilities: cpu.interrupts",
+        ):
+            self._plan(INTERRUPT_NO_CAPABILITY)
+
     def test_named_capability_cannot_use_uncontracted_privileged_intrinsic(self):
         with self.assertRaisesRegex(
             authority.AuthorityDomainError,
@@ -137,9 +202,9 @@ class SotlasAuthorityABITests(unittest.TestCase):
 
     def test_bare_system_retains_legacy_access_to_uncontracted_intrinsic(self):
         plan = self._plan(LEGACY_INTRINSIC)
-        calls = plan.calls_from("disable_interrupts")
+        calls = plan.calls_from("halt_cpu")
         self.assertEqual(len(calls), 1)
-        self.assertEqual(calls[0].callee, "__cli")
+        self.assertEqual(calls[0].callee, "__hlt")
         self.assertEqual(calls[0].required_capabilities, ())
         self.assertEqual(calls[0].target_kind, "legacy_intrinsic")
 
@@ -148,6 +213,14 @@ class SotlasAuthorityABITests(unittest.TestCase):
         calls = plan.calls_from("read_status")
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0].required_capabilities, ("io.port",))
+        self.assertEqual(calls[0].target_kind, "abi_intrinsic")
+
+    def test_interrupt_context_keeps_legacy_access_to_named_interrupt_abi(self):
+        plan = self._plan(INTERRUPT_CONTEXT)
+        calls = plan.calls_from("irq")
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0].callee, "__sti")
+        self.assertEqual(calls[0].required_capabilities, ("cpu.interrupts",))
         self.assertEqual(calls[0].target_kind, "abi_intrinsic")
 
 

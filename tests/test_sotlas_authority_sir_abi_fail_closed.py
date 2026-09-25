@@ -61,14 +61,14 @@ class SotlasAuthoritySIRABIFailClosedTests(unittest.TestCase):
         plan = authority.AuthorityDomainPlan(
             contracts=(
                 authority.AuthorityContract(
-                    function="irq",
+                    function="halt_cpu",
                     legacy_unrestricted=True,
                 ),
             ),
             calls=(
                 authority.AuthorityCallEdge(
-                    caller="irq",
-                    callee="__sti",
+                    caller="halt_cpu",
+                    callee="__hlt",
                     point_id="call@4:5",
                     required_capabilities=(),
                     target_kind="legacy_intrinsic",

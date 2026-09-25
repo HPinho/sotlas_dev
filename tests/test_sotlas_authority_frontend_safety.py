@@ -58,7 +58,16 @@ fn read_status() -> void {
 """
 
 
-NAMED_UNCONTRACTED = """module app::authority_frontend_cli;
+NAMED_INTERRUPTS = """module app::authority_frontend_interrupt_named;
+@system(cpu.interrupts)
+fn disable_interrupts() -> void {
+    __cli();
+    return;
+}
+"""
+
+
+WRONG_INTERRUPTS = """module app::authority_frontend_interrupt_wrong;
 @system(io.port)
 fn disable_interrupts() -> void {
     __cli();
@@ -67,10 +76,19 @@ fn disable_interrupts() -> void {
 """
 
 
+NAMED_UNCONTRACTED = """module app::authority_frontend_hlt;
+@system(io.port)
+fn halt_cpu() -> void {
+    __hlt();
+    return;
+}
+"""
+
+
 LEGACY = """module app::authority_frontend_legacy;
 @system
-fn disable_interrupts() -> void {
-    __cli();
+fn halt_cpu() -> void {
+    __hlt();
     return;
 }
 """
@@ -130,7 +148,21 @@ class SotlasAuthorityFrontendSafetyTests(unittest.TestCase):
         ):
             self._check(NONE)
 
-    def test_named_port_capability_does_not_unlock_other_intrinsics(self):
+    def test_compile_source_accepts_exact_interrupt_capability(self):
+        c_text = package.compile_source(
+            NAMED_INTERRUPTS,
+            filename="<authority-frontend>",
+        )
+        self.assertIn("__cli(", c_text)
+
+    def test_named_port_capability_does_not_unlock_interrupt_control(self):
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            "missing capabilities: cpu.interrupts",
+        ):
+            self._check(WRONG_INTERRUPTS)
+
+    def test_named_capability_does_not_unlock_uncontracted_intrinsics(self):
         with self.assertRaisesRegex(
             bootstrap.SotlasBootstrapError,
             "intrínseco privilegiado exige função @system",
@@ -149,7 +181,12 @@ class SotlasAuthorityFrontendSafetyTests(unittest.TestCase):
         self._check(LEGACY)
 
     def test_interrupt_context_keeps_legacy_intrinsic_access(self):
-        self._check(INTERRUPT_LEGACY)
+        parsed = self._check(INTERRUPT_LEGACY)
+        plan = authority.plan_authority_domains(parsed)
+        edge = plan.calls_from("irq")[0]
+        self.assertEqual(edge.callee, "__sti")
+        self.assertEqual(edge.required_capabilities, ("cpu.interrupts",))
+        self.assertEqual(edge.target_kind, "abi_intrinsic")
 
 
 if __name__ == "__main__":

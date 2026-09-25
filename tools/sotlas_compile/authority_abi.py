@@ -26,9 +26,23 @@ _PORT_IO_SYMBOLS = (
     "__outl",
 )
 
-AUTHORITY_ABI_CONTRACTS = tuple(
-    AuthorityABIContract(symbol=symbol, capabilities=("io.port",))
-    for symbol in _PORT_IO_SYMBOLS
+_INTERRUPT_CONTROL_SYMBOLS = (
+    "__irq_save_disable",
+    "__irq_restore",
+    "__interrupts_enabled",
+    "__cli",
+    "__sti",
+)
+
+AUTHORITY_ABI_CONTRACTS = (
+    tuple(
+        AuthorityABIContract(symbol=symbol, capabilities=("io.port",))
+        for symbol in _PORT_IO_SYMBOLS
+    )
+    + tuple(
+        AuthorityABIContract(symbol=symbol, capabilities=("cpu.interrupts",))
+        for symbol in _INTERRUPT_CONTROL_SYMBOLS
+    )
 )
 
 _BY_SYMBOL = {item.symbol: item for item in AUTHORITY_ABI_CONTRACTS}
