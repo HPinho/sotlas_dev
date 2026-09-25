@@ -1,18 +1,23 @@
 """Closed backend-neutral REGION interprocedural ownership graph.
 
 This layer composes already-certified local/interprocedural lifetime facts,
-caller-to-callee boundary links, callee-return-to-caller-owner links and the
-symbolic arena/lifetime epoch graph. It adds no runtime ABI or backend lowering;
-it only revalidates that the certificates describe one coherent ownership
-topology.
+caller-to-callee boundary links, callee-return-to-caller-owner links, the
+symbolic arena/lifetime epoch graph and its path-sensitive local reaching-epoch
+certificate. It adds no runtime ABI or backend lowering; it only revalidates
+that the certificates describe one coherent ownership topology.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
+from .canonical_sir import build_canonical_checked_ownership_sir
 from .region_arena import (
     RegionArenaLifetimeGraph,
     build_region_arena_lifetime_graph,
+)
+from .region_arena_flow import (
+    RegionArenaFlowCertificate,
+    certify_region_arena_flow,
 )
 from .region_boundary_link import (
     RegionBoundaryLinkPlan,
@@ -41,6 +46,7 @@ class RegionClosedInterproceduralPlan:
     boundaries: RegionBoundaryLinkPlan
     return_links: RegionReturnLinkPlan
     arena_lifetime: RegionArenaLifetimeGraph
+    arena_flow: RegionArenaFlowCertificate | None = None
 
     def function(self, name: str) -> RegionInterproceduralFunctionPlan:
         return self.lifetime.function(name)
@@ -61,6 +67,19 @@ class RegionClosedInterproceduralPlan:
                 f"closed REGION graph requires exactly one return link {caller}::{point_id}"
             )
         return matches[0]
+
+    def require_complete_arena_flow(self) -> RegionArenaFlowCertificate:
+        """Return the checked arena-flow certificate or fail closed if incomplete."""
+        if self.arena_flow is None:
+            raise RegionClosedInterproceduralError(
+                "closed REGION graph lacks checked arena-flow certification"
+            )
+        if not self.arena_flow.complete:
+            reasons = tuple(dict.fromkeys(item.reason for item in self.arena_flow.unresolved))
+            raise RegionClosedInterproceduralError(
+                "closed REGION arena flow is incomplete: " + ", ".join(reasons)
+            )
+        return self.arena_flow
 
 
 def build_region_closed_interprocedural_plan(
@@ -166,11 +185,18 @@ def plan_checked_region_closed_interprocedural(
     lifetime = plan_checked_region_interprocedural(checked_module)
     boundaries = plan_checked_region_boundary_links(checked_module)
     return_links = plan_checked_region_return_links(checked_module)
-    return build_region_closed_interprocedural_plan(
+    plan = build_region_closed_interprocedural_plan(
         lifetime,
         boundaries,
         return_links,
     )
+    checked_sir, _ = build_canonical_checked_ownership_sir(checked_module)
+    arena_flow = certify_region_arena_flow(
+        plan.lifetime,
+        plan.arena_lifetime,
+        checked_sir,
+    )
+    return replace(plan, arena_flow=arena_flow)
 
 
 __all__ = [
