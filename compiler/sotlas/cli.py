@@ -145,6 +145,12 @@ def main() -> int:
     )
     crep.add_argument("source", help=f"Arquivo fonte {SOTLAS_EXT}")
 
+    flow_report = sub.add_parser(
+        "flow-report",
+        help="Emite JSON determinístico dos planos Flow reconciliados com o SIR",
+    )
+    flow_report.add_argument("source", help=f"Arquivo fonte {SOTLAS_EXT}")
+
     target_report = sub.add_parser(
         "target-report",
         help="Emite JSON determinístico do contrato do target selecionado",
@@ -242,6 +248,8 @@ def main() -> int:
         return _run_dump_sir(args.source)
     if args.cmd == "contract-report":
         return _run_contract_report(args.source)
+    if args.cmd == "flow-report":
+        return _run_flow_report(args.source)
     if args.cmd == "target-report":
         return _run_target_report(args.target, args.cpu_feature)
     if args.cmd == "dump-llvm":
@@ -389,6 +397,59 @@ def _run_contract_report(source_path: str) -> int:
         sys.stdout.write("\n")
     except Exception as error:
         print(f"sotlas: erro ao gerar contract report: {error}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def _run_flow_report(source_path: str) -> int:
+    loaded = _read_source(source_path)
+    if loaded is None:
+        return 1
+    _, text = loaded
+    try:
+        from sotlas_compile import (
+            analyze_source_phase1,
+            build_canonical_checked_ownership_sir,
+            validate_sir_flow_plans,
+        )
+
+        checked = analyze_source_phase1(text, filename=source_path)
+        checked_sir, _ = build_canonical_checked_ownership_sir(checked)
+        module = checked_sir.module
+        plans = validate_sir_flow_plans(module)
+        report = {
+            "schema": "sotlas.flow-report.v1",
+            "module": module.name,
+            "flows": [
+                {
+                    "name": plan.name,
+                    "schedule": [list(batch) for batch in plan.parallel_stages],
+                    "stages": [
+                        {
+                            "name": stage.name,
+                            "function": stage.function,
+                            "result_type": stage.result_type,
+                            "effects": list(stage.effects),
+                            "arguments": [
+                                {
+                                    "parameter_index": argument.parameter_index,
+                                    "parameter": argument.parameter_name,
+                                    "type": argument.type_name,
+                                    "producer_stage": argument.value.producer_stage,
+                                    "producer_function": argument.value.producer_function,
+                                }
+                                for argument in stage.arguments
+                            ],
+                        }
+                        for stage in plan.stages
+                    ],
+                }
+                for plan in plans
+            ],
+        }
+        print(json.dumps(report, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+    except Exception as error:
+        print(f"sotlas: erro ao gerar flow report: {error}", file=sys.stderr)
         return 1
     return 0
 
