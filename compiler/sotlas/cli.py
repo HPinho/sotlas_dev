@@ -38,6 +38,14 @@ compile_source = production_frontend.compile_source
 SotlasBootstrapError = production_frontend.SotlasBootstrapError
 
 SOTLAS_EXT = ".sotlas"
+_TARGET_CHOICES = (
+    "host", "x86_64-freestanding", "x86_64-unknown-none-elf",
+    "x86_64-pc-none", "x86_64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc", "x86_64-apple-darwin",
+    "aarch64-freestanding", "aarch64-unknown-none-elf",
+    "aarch64-unknown-linux-gnu", "aarch64-pc-windows-msvc",
+    "aarch64-apple-darwin",
+)
 
 
 def main() -> int:
@@ -53,7 +61,7 @@ def main() -> int:
     cp.add_argument("-o", "--output", default=None, help="Arquivo de saída")
     cp.add_argument(
         "--target",
-        choices=["host", "x86_64-freestanding", "x86_64-unknown-none-elf", "x86_64-pc-none", "x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc", "x86_64-apple-darwin", "aarch64-freestanding", "aarch64-unknown-none-elf", "aarch64-unknown-linux-gnu", "aarch64-pc-windows-msvc", "aarch64-apple-darwin"],
+        choices=_TARGET_CHOICES,
         default="host",
         help="Alvo de compilação",
     )
@@ -137,6 +145,21 @@ def main() -> int:
     )
     crep.add_argument("source", help=f"Arquivo fonte {SOTLAS_EXT}")
 
+    target_report = sub.add_parser(
+        "target-report",
+        help="Emite JSON determinístico do contrato do target selecionado",
+    )
+    target_report.add_argument(
+        "--target",
+        choices=_TARGET_CHOICES,
+        default="host",
+        help="Target a inspecionar",
+    )
+    target_report.add_argument(
+        "--cpu-feature", action="append", default=[], metavar="FEATURE",
+        help="Habilita feature; pode ser repetida",
+    )
+
     # Subcomando: dump-llvm
     dllvm = sub.add_parser("dump-llvm", help="Emite LLVM IR experimental a partir do protótipo SIR")
     dllvm.add_argument("source", help=f"Arquivo fonte {SOTLAS_EXT}")
@@ -219,6 +242,8 @@ def main() -> int:
         return _run_dump_sir(args.source)
     if args.cmd == "contract-report":
         return _run_contract_report(args.source)
+    if args.cmd == "target-report":
+        return _run_target_report(args.target, args.cpu_feature)
     if args.cmd == "dump-llvm":
         return _run_dump_llvm(args.source, emit_debug=args.debug)
     if args.cmd == "fmt":
@@ -365,6 +390,31 @@ def _run_contract_report(source_path: str) -> int:
     except Exception as error:
         print(f"sotlas: erro ao gerar contract report: {error}", file=sys.stderr)
         return 1
+    return 0
+
+
+def _run_target_report(target_name: str, cpu_features: list[str]) -> int:
+    try:
+        target = resolve_execution_target(target_name, cpu_features=cpu_features)
+    except ExecutionTargetError as error:
+        print(f"sotlas: erro: {error}", file=sys.stderr)
+        return 2
+    report = {
+        "schema": "sotlas.target-report.v1",
+        "target": {
+            "triple": target.triple,
+            "architecture": target.architecture,
+            "abi": target.abi,
+            "pointer_width": target.pointer_width,
+            "endianness": target.endianness,
+            "cpu": target.cpu,
+            "cpu_features": list(target.cpu_features),
+            "llvm_target_features": target.llvm_target_features,
+            "data_layout": target.data_layout,
+            "freestanding": target.is_freestanding,
+        },
+    }
+    print(json.dumps(report, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
     return 0
 
 

@@ -2,7 +2,7 @@
 
 **Atualizado em:** 2026-09-26
 **Status:** IN PROGRESS  
-**Último baseline verde certificado:** `ff5f433` — CI #598 `success`
+**Último baseline verde certificado:** `c3bbbdd` — CI #636 `success` (o relatório `target-report` é candidato local)
 
 ## Subset de targets x86-64 e AArch64
 
@@ -44,6 +44,7 @@ O backend C11 rejeita a anotação até oferecer suporte equivalente.
 - emissão direta de LLVM IR a partir de fonte aceita configuração de target.
 - presets e target features AArch64 aparecem em LLVM IR e são encaminhados a Clang sem flags específicas de x86.
 - data layouts AArch64 ELF, COFF e Mach-O são conferidos por triple e emitidos no LLVM IR.
+- `sotlas target-report` expõe em JSON as propriedades do preset e as features já normalizadas; isso inspeciona configuração, não o lowering nem a ABI física gerada.
 
 Este pacote fecha apenas uma fatia executável da Fase 7 e não declara a fase
 completa.

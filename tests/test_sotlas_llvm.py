@@ -1,6 +1,7 @@
 """Testes para o gerador de LLVM IR a partir do SIR."""
 import sys
 import importlib.util
+import json
 import tempfile
 import unittest
 from io import StringIO
@@ -50,6 +51,50 @@ source_bootstrap = _FRONTEND_PACKAGE.bootstrap
 
 
 class TestCodegenLLVM(unittest.TestCase):
+    def test_target_report_is_deterministic_and_exposes_normalized_contract(self):
+        output = StringIO()
+        with patch.object(
+            cli.sys,
+            "argv",
+            ["sotlas", "target-report", "--target", "aarch64-unknown-linux-gnu",
+             "--cpu-feature", "sve2", "--cpu-feature", "crc"],
+        ), patch.object(cli.sys, "stdout", output):
+            self.assertEqual(cli.main(), 0)
+        serialized = output.getvalue().strip()
+        report = json.loads(serialized)
+        self.assertEqual(report["schema"], "sotlas.target-report.v1")
+        self.assertEqual(
+            report["target"]["cpu_features"], ["crc", "sve", "sve2"]
+        )
+        self.assertEqual(report["target"]["abi"], "aapcs64")
+        self.assertEqual(report["target"]["pointer_width"], 64)
+        self.assertIn("data_layout", report["target"])
+
+        repeated = StringIO()
+        with patch.object(
+            cli.sys,
+            "argv",
+            ["sotlas", "target-report", "--target", "aarch64-unknown-linux-gnu",
+             "--cpu-feature", "sve2", "--cpu-feature", "crc"],
+        ), patch.object(cli.sys, "stdout", repeated):
+            self.assertEqual(cli.main(), 0)
+        self.assertEqual(repeated.getvalue().strip(), serialized)
+
+    def test_target_report_rejects_features_from_another_architecture(self):
+        output = StringIO()
+        errors = StringIO()
+        with patch.object(
+            cli.sys,
+            "argv",
+            ["sotlas", "target-report", "--target", "aarch64-unknown-linux-gnu",
+             "--cpu-feature", "avx2"],
+        ), patch.object(cli.sys, "stdout", output), patch.object(
+            cli.sys, "stderr", errors
+        ):
+            self.assertEqual(cli.main(), 2)
+        self.assertEqual(output.getvalue(), "")
+        self.assertIn("unsupported aarch64 CPU features", errors.getvalue())
+
     def test_unsigned_scalar_arithmetic_return_reaches_sir_and_llvm(self):
         for operator, operation in (("+", "add"), ("-", "sub"), ("*", "mul")):
             with self.subTest(operator=operator):

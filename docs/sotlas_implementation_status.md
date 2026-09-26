@@ -1,8 +1,8 @@
 # Sotlas — Implementation Status
 
 **Atualizado em:** 2026-09-26
-**Último baseline verde certificado:** `0d09d86`
-**CI de referência:** Sotlas CI & Toolchain Build Farm #633 — workflow `success`
+**Último baseline verde certificado:** `c3bbbdd`
+**CI de referência:** Sotlas CI & Toolchain Build Farm #636 — workflow `success`
 **Fonte arquitetural:** `SOTLAS — ESPECIFICAÇÃO MESTRA`
 
 > Este é o índice operacional atual. O snapshot detalhado anterior, com o histórico extenso das microentregas da Fase 2, permanece preservado em `docs/archive/sotlas_implementation_status_2026-09-23.md`.
@@ -39,7 +39,7 @@ Legenda:
 | 14 | Intent | ~20% candidato | 🟡 |
 | 15 | SIR completo | ~42% candidato | 🟡 |
 | 16 | Native Machine Backend | ~8% | 🟡 |
-| 17 | Tooling avançado | ~18% | 🟡 |
+| 17 | Tooling avançado | ~20% candidato | 🟡 |
 
 Os percentuais medem o escopo necessário para o Sotlas 1.0. Generalizações pós-release não mantêm uma fase aberta quando o subset atual pode rejeitá-las de forma correta e fail-closed.
 
@@ -347,6 +347,7 @@ Escopo: `docs/sotlas_1_0_phase10_guarantees_scope.md`.
 - [x] CLI emite `contract-report` como JSON determinístico derivado do SIR canônico;
 - [x] o relatório separa provas estáticas de precondições e pós-condições que ainda exigem guarda em runtime;
 - [x] `--emit-asm` encaminha diretamente o subset validado ao backend LLVM e falha fechado para construções ainda não representadas;
+- [x] `target-report` emite JSON estável com triple, ABI, largura de ponteiro, endianness, CPU, features normalizadas e data layout;
 - [ ] inspeção de Target IR/lowering, register allocation, ABI/stack e source-to-instruction mapping.
 
 ### SIR e backend nativo — slice de constantes inteiras
