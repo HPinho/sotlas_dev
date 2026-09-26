@@ -1,5 +1,6 @@
 """Testes para o gerador de LLVM IR a partir do SIR."""
 import sys
+import importlib.util
 import unittest
 from io import StringIO
 from types import SimpleNamespace
@@ -18,6 +19,9 @@ from sotlas.sir.instructions import (
     DirectAccessInst,
     SharedOwnershipPointInst, DeferUseInst,
 )
+from sotlas.sir.generator import SIRGenerator
+from sotlas.lexer import Lexer
+from sotlas.parser import Parser
 from sotlas.codegen_llvm import CodegenLLVM, to_llvm_type
 from sotlas.execution_target import (
     ExecutionTargetError,
@@ -25,6 +29,18 @@ from sotlas.execution_target import (
 )
 from sotlas.llvm_toolchain import LLVMToolchain
 from sotlas import cli
+
+_FRONTEND_PATH = ROOT / "compiler" / "sotlas_compile"
+_FRONTEND_SPEC = importlib.util.spec_from_file_location(
+    "sotlas_llvm_target_feature_frontend",
+    _FRONTEND_PATH / "__init__.py",
+    submodule_search_locations=[str(_FRONTEND_PATH)],
+)
+assert _FRONTEND_SPEC is not None and _FRONTEND_SPEC.loader is not None
+_FRONTEND_PACKAGE = importlib.util.module_from_spec(_FRONTEND_SPEC)
+sys.modules[_FRONTEND_SPEC.name] = _FRONTEND_PACKAGE
+_FRONTEND_SPEC.loader.exec_module(_FRONTEND_PACKAGE)
+source_bootstrap = _FRONTEND_PACKAGE.bootstrap
 
 
 class TestCodegenLLVM(unittest.TestCase):
@@ -83,6 +99,52 @@ class TestCodegenLLVM(unittest.TestCase):
         self.assertIn(f'target datalayout = "{arm.data_layout}"', ir)
         self.assertIn('"target-cpu"="generic"', ir)
         self.assertIn('"target-features"="+crc,+sve,+sve2"', ir)
+
+    def test_function_target_features_are_preserved_gated_and_fail_closed(self):
+        source = """
+module test::target_feature;
+@target_feature(avx2)
+fn vector_path() -> void { return; }
+"""
+        parsed = source_bootstrap.parse(source)
+        source_bootstrap.check(parsed)
+        self.assertIn("@target_feature(avx2)", parsed.functions[0].attributes)
+        sir = SIRGenerator().generate_from_ast(parsed)
+        function = sir.functions[0]
+        self.assertEqual(function.required_cpu_features, ("avx2",))
+        parsed_ast = Parser(Lexer(source, "target-feature.sotlas").tokenize()).parse()
+        legacy_sir = SIRGenerator().generate_from_ast(parsed_ast)
+        self.assertEqual(legacy_sir.functions[0].required_cpu_features, ("avx2",))
+        with self.assertRaisesRegex(ValueError, "lacks features required"):
+            CodegenLLVM(sir).emit()
+        ir = CodegenLLVM(
+            sir,
+            target="x86_64-unknown-linux-gnu",
+            cpu_features=("avx2",),
+        ).emit()
+        self.assertIn("define void @vector_path() #1", ir)
+        self.assertIn('"sotlas-required-cpu-features"="avx2"', ir)
+        with self.assertRaisesRegex(
+            source_bootstrap.SotlasBootstrapError,
+            "C11 backend does not lower function-specific CPU feature requirements",
+        ):
+            source_bootstrap.emit_c(parsed)
+
+    def test_function_target_feature_rejects_architecture_mismatch(self):
+        source = """
+module test::target_feature_arch;
+@target_feature(sve2)
+fn vector_path() -> void { return; }
+"""
+        parsed = source_bootstrap.parse(source)
+        source_bootstrap.check(parsed)
+        sir = SIRGenerator().generate_from_ast(parsed)
+        with self.assertRaisesRegex(ValueError, "unsupported x86-64 CPU features"):
+            CodegenLLVM(
+                sir,
+                target="x86_64-unknown-linux-gnu",
+                cpu_features=("avx2",),
+            ).emit()
 
     def test_aarch64_abi_presets_use_object_format_specific_data_layouts(self):
         cases = (

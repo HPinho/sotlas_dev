@@ -97,6 +97,42 @@ class CodegenLLVM:
         return mid
 
     def emit(self) -> str:
+        feature_attribute_groups = {}
+        function_attribute_groups = {}
+        for function in self._sir.functions:
+            required = getattr(function, "required_cpu_features", ())
+            if not isinstance(required, tuple) or any(
+                not isinstance(feature, str) or not feature
+                for feature in required
+            ) or len(set(required)) != len(required):
+                raise ValueError(
+                    f"function {function.name!r} has invalid required CPU features"
+                )
+            if not required:
+                continue
+            # Validate that every requested feature belongs to this target's
+            # architecture before checking the selected build configuration.
+            resolve_execution_target(self._target.triple, cpu_features=required)
+            missing = tuple(
+                feature for feature in required
+                if feature not in self._target.cpu_features
+            )
+            if missing:
+                raise ValueError(
+                    f"LLVM target {self._target.triple!r} lacks features required by "
+                    f"{function.name!r}: {', '.join(missing)}"
+                )
+            ordered_required = tuple(
+                feature for feature in self._target.cpu_features
+                if feature in required
+            )
+            if ordered_required not in feature_attribute_groups:
+                feature_attribute_groups[ordered_required] = (
+                    len(feature_attribute_groups) + 1
+                )
+            function_attribute_groups[function.name] = feature_attribute_groups[
+                ordered_required
+            ]
         if self._effect_contract is not None:
             from .sir.passes import EffectInferencePass, validate_backend_effects
             if not isinstance(self._effect_contract, BackendEffectContract):
@@ -160,9 +196,10 @@ class CodegenLLVM:
 
         for fn in self._sir.functions:
             sub_id = fn_subprograms.get(fn.name)
-            self._emit_function(fn, sub_id)
+            attr_group = function_attribute_groups.get(fn.name, 0)
+            self._emit_function(fn, sub_id, attr_group)
 
-        self._emit_target_attributes()
+        self._emit_target_attributes(feature_attribute_groups)
         if self._emit_debug:
             self._emit_debug_metadata()
 
@@ -177,18 +214,35 @@ class CodegenLLVM:
             )
         self._out.write(f'target triple = "{self._target.triple}"\n\n')
 
-    def _emit_target_attributes(self) -> None:
+    def _emit_target_attributes(self, feature_groups=None) -> None:
         features = self._target.llvm_target_features
-        self._out.write(
-            f'attributes #0 = {{ "target-cpu"="{self._target.cpu}" '
-            f'"target-features"="{features}" }}\n'
+        base_attribute = (
+            f'{{ "target-cpu"="{self._target.cpu}" '
+            f'"target-features"="{features}" }}'
         )
+        self._out.write(f"attributes #0 = {base_attribute}\n")
+        for required, group_id in (feature_groups or {}).items():
+            required_text = ",".join(required)
+            attribute = (
+                f'{{ "target-cpu"="{self._target.cpu}" '
+                f'"target-features"="{features}" '
+                f'"sotlas-required-cpu-features"="{required_text}" }}'
+            )
+            self._out.write(f"attributes #{group_id} = {attribute}\n")
 
-    def _emit_function(self, fn: SIRFunction, subprogram_id: Optional[int] = None) -> None:
+    def _emit_function(
+        self,
+        fn: SIRFunction,
+        subprogram_id: Optional[int] = None,
+        attribute_group: int = 0,
+    ) -> None:
         ret_type = to_llvm_type(fn.return_type)
         params_str = ", ".join(f"{to_llvm_type(p.type_name)} %{p.name}" for p in fn.parameters)
         dbg_attr = f" !dbg !{subprogram_id}" if subprogram_id is not None else ""
-        self._out.write(f"define {ret_type} @{fn.name}({params_str}) #0{dbg_attr} {{\n")
+        self._out.write(
+            f"define {ret_type} @{fn.name}({params_str}) "
+            f"#{attribute_group}{dbg_attr} {{\n"
+        )
 
         loc_id = None
         if subprogram_id is not None:

@@ -3,6 +3,7 @@
 Mapeia declarações e corpos de função para blocos básicos SSA do SIR.
 """
 from __future__ import annotations
+import re
 from typing import Any, Optional
 from .instructions import (
     SIRModule, SIRFunction, SIRBasicBlock, SIRValue,
@@ -1543,6 +1544,71 @@ class SIRGenerator:
         dir_names = [getattr(d, "name", "") for d in directives]
         attrs = getattr(fn, "attributes", []) or []
         is_system = "@system" in attrs or "system" in dir_names or getattr(fn, "is_system", False)
+        feature_attrs = [
+            attribute for attribute in attrs
+            if isinstance(attribute, str)
+            and (
+                attribute == "@target_feature"
+                or attribute.startswith("@target_feature(")
+            )
+        ]
+        if len(feature_attrs) > 1:
+            raise ValueError(
+                f"function {fn_name!r} repeats @target_feature"
+            )
+        feature_directives = [
+            directive for directive in directives
+            if getattr(directive, "name", None) == "target_feature"
+        ]
+        if feature_attrs and feature_directives:
+            raise ValueError(
+                f"function {fn_name!r} has conflicting @target_feature representations"
+            )
+        if len(feature_directives) > 1:
+            raise ValueError(
+                f"function {fn_name!r} repeats @target_feature"
+            )
+        required_features = ()
+        if feature_attrs:
+            match = re.fullmatch(
+                r"@target_feature\(([^()]*)\)", feature_attrs[0]
+            )
+            if match is None:
+                raise ValueError(
+                    f"function {fn_name!r} has malformed @target_feature"
+                )
+            required_features = tuple(
+                item.strip() for item in match.group(1).split(",")
+            )
+            if (
+                not required_features
+                or any(
+                    not re.fullmatch(r"[A-Za-z][A-Za-z0-9_.]*", item)
+                    for item in required_features
+                )
+                or len(set(required_features)) != len(required_features)
+            ):
+                raise ValueError(
+                    f"function {fn_name!r} has invalid @target_feature list"
+                )
+        elif feature_directives:
+            directive = feature_directives[0]
+            args = tuple(getattr(directive, "args", ()) or ())
+            required_features = tuple(
+                str(value if value is not None else key).strip()
+                for key, value in args
+            )
+            if (
+                not required_features
+                or any(
+                    not re.fullmatch(r"[A-Za-z][A-Za-z0-9_.]*", item)
+                    for item in required_features
+                )
+                or len(set(required_features)) != len(required_features)
+            ):
+                raise ValueError(
+                    f"function {fn_name!r} has invalid @target_feature list"
+                )
 
         sir_params = []
         for p in params:
@@ -1558,7 +1624,8 @@ class SIRGenerator:
             name=fn_name,
             parameters=sir_params,
             return_type=ret_str,
-            is_system=is_system
+            is_system=is_system,
+            required_cpu_features=required_features,
         )
         self.sir_mod.add_function(sir_fn)
 

@@ -1,8 +1,8 @@
 # Sotlas — Implementation Status
 
 **Atualizado em:** 2026-09-26
-**Último baseline verde certificado:** `d3bf69d`
-**CI de referência:** Sotlas CI & Toolchain Build Farm #611 — workflow `success`
+**Último baseline verde certificado:** `9fdeca9`
+**CI de referência:** Sotlas CI & Toolchain Build Farm #615 — workflow `success`
 **Fonte arquitetural:** `SOTLAS — ESPECIFICAÇÃO MESTRA`
 
 > Este é o índice operacional atual. O snapshot detalhado anterior, com o histórico extenso das microentregas da Fase 2, permanece preservado em `docs/archive/sotlas_implementation_status_2026-09-23.md`.
@@ -29,7 +29,7 @@ Legenda:
 | 4 | State Spaces | 100% | ✅ COMPLETE |
 | 5 | Effects | ~60% candidato | 🟡 |
 | 6 | Flow | ~40% candidato | 🟡 |
-| 7 | Execution Domains | ~40% | 🟡 |
+| 7 | Execution Domains | ~45% | 🟡 |
 | 8 | Heterogeneous Compute | ~0% | 🟡 |
 | 9 | Trust Domains | ~15% candidato | 🟡 |
 | 10 | Guarantees | ~15% candidato | 🟡 |
@@ -266,12 +266,13 @@ Escopo: `docs/sotlas_1_0_phase6_flow_scope.md`.
 
 ## Fase 7 — Execution Domains
 
-**Status 1.0: ~40% 🟡 — IN PROGRESS**
+**Status 1.0: ~45% 🟡 — IN PROGRESS**
 
 - [x] modelo tipado de target x86-64, ABI básica, largura de ponteiro e endianness;
 - [x] triples Linux, Windows, Darwin e freestanding reconhecidos com aliases legados;
 - [x] validação fail-closed e normalização de dependências de CPU features;
 - [x] LLVM IR e Clang recebem target/features configurados;
+- [x] `@target_feature(...)` é preservado no SIR e o LLVM rejeita targets sem as features requeridas; backend C11 falha fechado para essa anotação;
 - [x] CLI expõe seleção de target e features x86-64;
 - [x] presets LLVM/ABI AArch64 Linux, Windows, Darwin e freestanding;
 - [x] data layouts LLVM por formato de objeto ELF, COFF e Mach-O para os presets AArch64;

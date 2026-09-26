@@ -226,6 +226,18 @@ def install_c11_backend_effect_contract(bootstrap) -> None:
             summaries = getattr(module, "source_effect_summaries", None)
         summaries = summaries or {}
         for function in module.functions:
+            if any(
+                isinstance(attribute, str)
+                and (
+                    attribute == "@target_feature"
+                    or attribute.startswith("@target_feature(")
+                )
+                for attribute in getattr(function, "attributes", ())
+            ):
+                raise bootstrap.SotlasBootstrapError(
+                    "C11 backend does not lower function-specific CPU feature requirements yet",
+                    1, 1, module.filename, module.source,
+                )
             summary = summaries.get(function.name)
             if summary is None:
                 raise bootstrap.SotlasBootstrapError(
