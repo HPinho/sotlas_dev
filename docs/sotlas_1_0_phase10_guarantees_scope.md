@@ -35,14 +35,23 @@ Cada chamada aprovada produz um `ContractCallProof` com função alvo, localiza�
 na fonte, predicado e valores usados. O comprovante é anexado ao `SIRModule` e
 aparece no dump como `sir_proof`.
 
+## Subset inicial de pós-condições
+
+Funções com retorno numérico escalar podem declarar `ensures result ...`. O
+checker valida o predicado como booleano e reserva `result` para o valor
+retornado; o subset atual rejeita referências a parâmetros, funções `void`,
+retornos não escalares e corpos externos. O C11 captura o retorno uma vez,
+executa os defers ativos e verifica a pós-condição em cada caminho de retorno.
+O `SIRModule` preserva o contrato como `sir_ensures`.
+
 ## Limites
 
 - argumentos dinâmicos recebem guarda no callee; ainda não são provados por
   refinamento de fluxo quando o fluxo não contém fatos de branch exatos;
 - declarações `extern` são rejeitadas, pois não há corpo local onde instalar a
   guarda;
-- `ensures`, `guarantee` como declaração, refinamento simbólico e relatórios
-  agregados de safety ainda não estão implementados;
+- pós-condições sobre estado/heap, `guarantee` como declaração, refinamento
+  simbólico e relatórios agregados de safety ainda não estão implementados;
 - o avaliador de contratos aceita expressões escalares limitadas, sem chamadas,
   acesso a campos, indexing ou prova geral de teoremas.
 
@@ -54,6 +63,7 @@ aparece no dump como `sir_proof`.
 - condição com tipo não booleano e contrato `extern` são rejeitados;
 - função pública inclui guarda de entrada no C11;
 - comprovante verificado sobrevive ao lowering do SIR canônico;
+- `ensures result` escalar gera guarda em cada retorno e sobrevive ao lowering do SIR;
 - CI roda `tests/test_sotlas_contract_frontend.py` como gate da Fase 10.
 
 ## Blockers de 1.0
@@ -63,5 +73,6 @@ aparece no dump como `sir_proof`.
 - [x] comprovante source-stable preservado no SIR;
 - [x] prova por fatos exatos de branch para argumentos dinâmicos, com invalidação conservadora;
 - [ ] refinamento de fluxo para provar argumentos dinâmicos;
-- [ ] `ensures`, declaração `guarantee` e relatórios agregados de safety;
+- [x] subset `ensures result` numérico escalar com verificação C11 e evidência no SIR;
+- [ ] `ensures` sobre estado/heap, declaração `guarantee` e relatórios agregados de safety;
 - [ ] matriz e2e de provas por backend/target.

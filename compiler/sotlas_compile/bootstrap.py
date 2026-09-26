@@ -4192,6 +4192,7 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
     lines = guards + ([PREAMBLE] if include_preamble else [])
     if shared_functions or any(
         getattr(function, "requires", None) is not None
+        or getattr(function, "ensures", None) is not None
         for function in module.functions
     ):
         lines.append("#include <stdlib.h>")
@@ -4741,6 +4742,8 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                 return True
         return False
 
+    active_ensures = None
+
     def emit_statements(
         items: list[Stmt],
         depth: int,
@@ -5178,7 +5181,7 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
 
                 if item.value:
                     val_str = _emit_expr(item.value, prefix, shared_boxes)
-                    if all_defers or shared_owner_cleanup_names:
+                    if all_defers or shared_owner_cleanup_names or active_ensures is not None:
                         c_ret_type = ret_type.c() if ret_type else "int64_t"
                         out.append(f"{pad}{c_ret_type} _st_ret = {val_str};")
                         for d in all_defers:
@@ -5200,6 +5203,10 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                             out.append(
                                 f"{pad}__sotlas_shared_release_{shared_struct_name}({box_name});"
                             )
+                        if active_ensures is not None:
+                            ensure_expr = _emit_expr(active_ensures, prefix, shared_boxes)
+                            ensure_expr = re.sub(r"\bresult\b", "_st_ret", ensure_expr)
+                            out.append(f"{pad}if (!({ensure_expr})) abort();")
                         out.append(f"{pad}return _st_ret;")
                         return out
                     else:
@@ -5476,6 +5483,7 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
     for function in module.functions:
         if not function.body and "@extern(C)" in function.attributes:
             continue
+        active_ensures = getattr(function, "ensures", None)
         is_export = "@export" in function.attributes or function.public
         is_extern_c = "@extern(C)" in function.attributes
         fname = (

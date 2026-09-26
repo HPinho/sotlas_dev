@@ -4002,8 +4002,14 @@ O frontend inicial aceita `requires` booleano em funções com corpo e prova
 chamadas quando todos os argumentos são constantes avaliáveis. Condições falsas
 são rejeitadas estaticamente; condições sem prova estática são guardadas no
 entry da função C11 com `abort()` se falharem. O comprovante source-stable e a
-precondição seguem para o SIR; refinamento simbólico, `ensures` e declarações
-`guarantee` seguem abertos.
+precondição seguem para o SIR; refinamento simbólico e declarações `guarantee`
+seguem abertos.
+
+O subset inicial de `ensures` aceita predicados booleanos que referenciam somente
+`result` em funções com retorno numérico escalar. O C11 captura o valor uma vez,
+executa os defers e verifica a pós-condição em cada caminho de retorno; o SIR
+preserva o contrato. Pós-condições sobre estado/heap e provas simbólicas seguem
+abertas.
 
 ### 11. Causality
 

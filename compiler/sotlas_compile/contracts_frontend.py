@@ -26,6 +26,12 @@ class ContractPrecondition:
     predicate: str
 
 
+@dataclass(frozen=True)
+class ContractPostcondition:
+    function: str
+    predicate: str
+
+
 def _render(expr, bootstrap) -> str:
     if isinstance(expr, bootstrap.Name):
         return expr.value
@@ -41,7 +47,7 @@ def _render(expr, bootstrap) -> str:
             f"{_render(expr.right, bootstrap)})"
         )
     raise ContractFrontendError(
-        f"unsupported expression in requires contract: {type(expr).__name__}"
+        f"unsupported expression in contract: {type(expr).__name__}"
     )
 
 
@@ -454,28 +460,40 @@ def install(bootstrap) -> None:
         return
     original_function = parser.function
 
-    def function_with_requires(self, public, attributes=None):
+    def function_with_contracts(self, public, attributes=None):
         original_block = self.block
         parsed = []
 
-        def block_with_requires():
+        def block_with_contracts():
             self.block = original_block
-            if self.current.kind == "IDENT" and self.current.text == "requires":
+            while (
+                self.current.kind == "IDENT"
+                and self.current.text in {"requires", "ensures"}
+            ):
                 token = self.current
                 self.at += 1
-                parsed.append((token, self.expression()))
+                parsed.append((token.text, token, self.expression()))
             return original_block()
 
-        self.block = block_with_requires
+        self.block = block_with_contracts
         try:
             function = original_function(self, public, attributes)
         finally:
             self.block = original_block
-        if parsed:
-            function.requires_token, function.requires = parsed[0]
+        seen = set()
+        for kind, token, expression in parsed:
+            if kind in seen:
+                raise bootstrap.SotlasBootstrapError(
+                    f"function repeats {kind} contract",
+                    token.line, token.column,
+                    self.filename, self.source,
+                )
+            seen.add(kind)
+            setattr(function, f"{kind}_token", token)
+            setattr(function, kind, expression)
         return function
 
-    parser.function = function_with_requires
+    parser.function = function_with_contracts
     parser._sotlas_contracts_installed = True
 
     original_check = bootstrap.check
@@ -487,6 +505,11 @@ def install(bootstrap) -> None:
             name: getattr(function, "requires", None)
             for name, function in functions.items()
             if getattr(function, "requires", None) is not None
+        }
+        postconditions = {
+            name: getattr(function, "ensures", None)
+            for name, function in functions.items()
+            if getattr(function, "ensures", None) is not None
         }
         proofs = []
         for name, expression in contracts.items():
@@ -507,6 +530,50 @@ def install(bootstrap) -> None:
                 _error(bootstrap, str(error), token, module)
             if result_type.name != "bool":
                 _error(bootstrap, "requires expression must have type bool", token, module)
+
+        for name, expression in postconditions.items():
+            function = functions[name]
+            token = getattr(function, "ensures_token", None)
+            numeric_results = {
+                "u8", "u16", "u32", "u64", "usize", "i8", "i16",
+                "i32", "i64", "isize", "f32", "f64",
+            }
+            if (
+                not function.body
+                or "@extern(C)" in function.attributes
+                or function.result.name not in numeric_results
+            ):
+                _error(
+                    bootstrap,
+                    "ensures currently requires a checked function with a scalar numeric return",
+                    token,
+                    module,
+                )
+            if any(param_name == "result" for param_name, _ in function.params):
+                _error(
+                    bootstrap,
+                    "ensures reserves the name 'result' for the returned value",
+                    token,
+                    module,
+                )
+            try:
+                result_type = _contract_type(
+                    expression,
+                    {**dict(function.params), "result": function.result},
+                    bootstrap,
+                )
+            except ContractFrontendError as error:
+                _error(bootstrap, str(error), token, module)
+            if result_type.name != "bool":
+                _error(bootstrap, "ensures expression must have type bool", token, module)
+            referenced = _referenced_parameters(expression, bootstrap)
+            if referenced - {"result"}:
+                _error(
+                    bootstrap,
+                    "ensures currently may reference only the returned value 'result'",
+                    token,
+                    module,
+                )
 
         checked_roots = [function.body for function in module.functions]
         checked_roots.extend(global_value.value for global_value in module.globals)
@@ -584,6 +651,10 @@ def install(bootstrap) -> None:
             ContractPrecondition(name, _render(expression, bootstrap))
             for name, expression in contracts.items()
         )
+        module.contract_postconditions = tuple(
+            ContractPostcondition(name, _render(expression, bootstrap))
+            for name, expression in postconditions.items()
+        )
         return result
 
     bootstrap.check = check_with_contracts
@@ -591,5 +662,6 @@ def install(bootstrap) -> None:
 
 __all__ = [
     "ContractFrontendError", "ContractCallProof", "ContractPrecondition",
+    "ContractPostcondition",
     "install",
 ]

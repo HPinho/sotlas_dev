@@ -421,6 +421,7 @@ class SIRModule:
     trust_boundaries: Tuple[Any, ...] = ()
     contract_proofs: Tuple[Any, ...] = ()
     contract_preconditions: Tuple[Any, ...] = ()
+    contract_postconditions: Tuple[Any, ...] = ()
 
     def add_function(self, fn: SIRFunction) -> None:
         self.functions.append(fn)
@@ -487,5 +488,10 @@ class SIRModule:
             lines.append(
                 f"sir_requires @{precondition.function} "
                 f"{precondition.predicate} enforcement=runtime"
+            )
+        for postcondition in self.contract_postconditions:
+            lines.append(
+                f"sir_ensures @{postcondition.function} "
+                f"{postcondition.predicate} enforcement=runtime"
             )
         return "\n\n".join(lines)

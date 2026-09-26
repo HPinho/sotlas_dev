@@ -318,6 +318,86 @@ pub fn divide_by(b: i32) -> i32
         )
         self.assertIn("sir_requires @divide_by", checked_sir.module.dump())
 
+    def test_ensures_checks_scalar_return_and_is_preserved_in_sir(self):
+        source = """
+module test::contract_ensures;
+fn nonnegative(value: i32) -> i32
+    ensures result >= 0
+{
+    if value >= 0 { return value; }
+    return 0;
+}
+"""
+        for package in (compiler, tools):
+            module = package.bootstrap.parse(source)
+            package.bootstrap.check(module)
+            self.assertEqual(
+                module.contract_postconditions[0].predicate,
+                "(result >= 0)",
+            )
+            generated = package.bootstrap.emit_c(module)
+            self.assertIn("if (!((_st_ret >= 0))) abort();", generated)
+            self.assertEqual(generated.count("if (!((_st_ret >= 0))) abort();"), 2)
+        checked = compiler.analyze_source_phase1(source)
+        checked_sir, _ = compiler.build_canonical_checked_ownership_sir(checked)
+        self.assertEqual(
+            checked_sir.module.contract_postconditions[0].predicate,
+            "(result >= 0)",
+        )
+        self.assertIn("sir_ensures @nonnegative (result >= 0)", checked_sir.module.dump())
+
+    def test_ensures_runtime_guard_rejects_false_return(self):
+        cc = shutil.which("cc") or shutil.which("clang") or shutil.which("gcc")
+        if cc is None:
+            self.skipTest("C11 compiler is unavailable")
+        source = """
+module test::contract_ensures_runtime;
+pub fn negative() -> i32
+    ensures result >= 0
+{
+    return -1;
+}
+"""
+        generated = compiler.bootstrap.compile_source(source)
+        with tempfile.TemporaryDirectory(prefix="sotlas_ensures_") as temp:
+            c_path = Path(temp) / "ensures.c"
+            exe_path = Path(temp) / "ensures"
+            c_path.write_text(
+                generated + "\nint main(void) { return negative(); }\n",
+                encoding="utf-8",
+            )
+            compiled = subprocess.run(
+                [cc, "-std=c11", str(c_path), "-o", str(exe_path)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            executed = subprocess.run(
+                [str(exe_path)], capture_output=True, text=True, check=False
+            )
+            self.assertNotEqual(executed.returncode, 0)
+
+    def test_ensures_fails_closed_outside_scalar_result_subset(self):
+        cases = (
+            ("fn check(value: i32) -> i32 ensures value > 0 { return value; }",
+             "may reference only the returned value"),
+            ("fn check() -> void ensures result == 0 { return; }",
+             "scalar numeric return"),
+            ("fn check() -> i32 ensures result { return 1; }",
+             "ensures expression must have type bool"),
+        )
+        for package in (compiler, tools):
+            for declaration, message in cases:
+                with self.subTest(package=package.__name__, declaration=declaration):
+                    module = package.bootstrap.parse(
+                        "module test::bad_ensures;\n" + declaration
+                    )
+                    with self.assertRaisesRegex(
+                        package.SotlasBootstrapError, message
+                    ):
+                        package.bootstrap.check(module)
+
 
 if __name__ == "__main__":
     unittest.main()

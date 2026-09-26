@@ -1938,6 +1938,7 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
     lines = guards + ([PREAMBLE] if include_preamble else [])
     if any(
         getattr(function, "requires", None) is not None
+        or getattr(function, "ensures", None) is not None
         for function in module.functions
     ):
         lines.append("#include <stdlib.h>")
@@ -2245,6 +2246,8 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                     return cleanup
         return None
 
+    active_ensures = None
+
     def emit_statements(
         items: list[Stmt],
         depth: int,
@@ -2458,7 +2461,7 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
 
                 if item.value:
                     val_str = _emit_expr(item.value, prefix)
-                    if all_defers:
+                    if all_defers or active_ensures is not None:
                         c_ret_type = ret_type.c() if ret_type else "int64_t"
                         out.append(f"{pad}{c_ret_type} _st_ret = {val_str};")
                         for d in all_defers:
@@ -2466,6 +2469,10 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                                 out.extend(emit_statements(d.body, depth, defer_scopes, loop_scope_depth, ret_type))
                             else:
                                 out.append(_emit_defer_action(d, pad))
+                        if active_ensures is not None:
+                            ensure_expr = _emit_expr(active_ensures, prefix)
+                            ensure_expr = re.sub(r"\bresult\b", "_st_ret", ensure_expr)
+                            out.append(f"{pad}if (!({ensure_expr})) abort();")
                         out.append(f"{pad}return _st_ret;")
                     else:
                         out.append(f"{pad}return {val_str};")
@@ -2542,6 +2549,7 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
 
 
     for function in module.functions:
+        active_ensures = getattr(function, "ensures", None)
         is_export = "@export" in function.attributes or function.public
         fname = function.name if (is_export or not mangle) else f"{prefix}{function.name}"
         parameters = ", ".join(f"{typ.c_decl(name)}" for name, typ in function.params) or "void"

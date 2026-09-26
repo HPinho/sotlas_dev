@@ -94,6 +94,7 @@ from .contracts_frontend import (
     ContractFrontendError,
     ContractCallProof,
     ContractPrecondition,
+    ContractPostcondition,
     install as _install_contracts_frontend,
 )
 _install_contracts_frontend(bootstrap)
@@ -118,7 +119,8 @@ __all__ = [
     "FlowSIRArgument", "FlowSIRStage", "FlowSIRPlan",
     "lower_typed_flows_to_sir", "validate_sir_flow_plans",
     "ContractFrontendError", "ContractCallProof",
-    "ContractPrecondition", "CausalityError", "CausalStep",
+    "ContractPrecondition", "ContractPostcondition",
+    "CausalityError", "CausalStep",
     "CausalExplanation", "SourceCallArgument", "SourceCallStep",
     "SourceCallExplanation",
     "explain_source_call_causality", "explain_flow_causality",

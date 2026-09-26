@@ -32,7 +32,7 @@ Legenda:
 | 7 | Execution Domains | ~45% | 🟡 |
 | 8 | Heterogeneous Compute | ~0% | 🟡 |
 | 9 | Trust Domains | ~16% candidato | 🟡 |
-| 10 | Guarantees | ~15% candidato | 🟡 |
+| 10 | Guarantees | ~25% candidato | 🟡 |
 | 11 | Causality | ~12% candidato | 🟡 |
 | 12 | Counterfactuals | ~12% candidato | 🟡 |
 | 13 | Transactions | ~25% candidato | 🟡 |
@@ -311,7 +311,7 @@ Escopo: `docs/sotlas_1_0_phase7_execution_scope.md`.
 
 ## Fase 10 — Guarantees
 
-**Status 1.0: ~15% candidato 🟡 — IN PROGRESS**
+**Status 1.0: ~25% candidato 🟡 — IN PROGRESS**
 
 - [x] `requires` tipado em funções com corpo;
 - [x] chamadas com argumentos constantes são provadas ou rejeitadas;
@@ -321,8 +321,10 @@ Escopo: `docs/sotlas_1_0_phase7_execution_scope.md`.
 - [x] fatos booleanos de branches `if`/`else` provam precondições dinâmicas simples e são preservados no SIR;
 - [x] comparações inteiras simples em branches provam implicações por limites, como `value > 0` ⇒ `value != 0`;
 - [x] refinamentos são invalidados depois de atribuições locais e chamadas potencialmente mutáveis;
+- [x] `ensures result` tipado para retorno numérico escalar, com guarda em cada retorno C11 e evidência preservada no SIR;
+- [x] a primeira versão falha fechado para funções `void`, retornos não escalares e pós-condições que referenciam parâmetros;
 - [ ] prova simbólica por refinamento de condições e argumentos dinâmicos;
-- [ ] `ensures`, declaração `guarantee`, safety reports e gate e2e por propriedade.
+- [ ] pós-condições sobre estado/heap, declaração `guarantee`, safety reports e gate e2e por propriedade.
 
 Escopo: `docs/sotlas_1_0_phase10_guarantees_scope.md`.
 

@@ -81,7 +81,10 @@ def _attach_checked_contract_proofs(checked_module: object, sir_module) -> None:
     preconditions = tuple(
         getattr(parsed_module, "contract_preconditions", ()) or ()
     )
-    if not proofs and not preconditions:
+    postconditions = tuple(
+        getattr(parsed_module, "contract_postconditions", ()) or ()
+    )
+    if not proofs and not preconditions and not postconditions:
         return
     if any(
         not isinstance(getattr(proof, "function", None), str)
@@ -96,6 +99,12 @@ def _attach_checked_contract_proofs(checked_module: object, sir_module) -> None:
         for precondition in preconditions
     ):
         raise RuntimeError("checked contract preconditions are malformed")
+    if any(
+        not isinstance(getattr(postcondition, "function", None), str)
+        or not isinstance(getattr(postcondition, "predicate", None), str)
+        for postcondition in postconditions
+    ):
+        raise RuntimeError("checked contract postconditions are malformed")
     existing = tuple(getattr(sir_module, "contract_proofs", ()) or ())
     if existing and existing != proofs:
         raise RuntimeError("generated SIR already contains conflicting proof reports")
@@ -106,8 +115,16 @@ def _attach_checked_contract_proofs(checked_module: object, sir_module) -> None:
         raise RuntimeError(
             "generated SIR already contains conflicting contract preconditions"
         )
+    existing_postconditions = tuple(
+        getattr(sir_module, "contract_postconditions", ()) or ()
+    )
+    if existing_postconditions and existing_postconditions != postconditions:
+        raise RuntimeError(
+            "generated SIR already contains conflicting contract postconditions"
+        )
     sir_module.contract_proofs = proofs
     sir_module.contract_preconditions = preconditions
+    sir_module.contract_postconditions = postconditions
 
 
 def load_canonical_sir():
