@@ -2,7 +2,7 @@
 
 **Atualizado em:** 2026-09-26
 **Status:** 🟡 IN PROGRESS  
-**Último baseline verde certificado:** `0d09d86` — CI #633 `success` (o interpretador SIR descrito abaixo ainda é candidato local)
+**Último baseline verde certificado:** `b3ce263` — CI #638 `success`
 
 ## Subset de runtime disponível
 

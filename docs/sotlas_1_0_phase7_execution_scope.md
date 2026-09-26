@@ -2,7 +2,7 @@
 
 **Atualizado em:** 2026-09-26
 **Status:** IN PROGRESS  
-**Último baseline verde certificado:** `c3bbbdd` — CI #636 `success` (o relatório `target-report` é candidato local)
+**Último baseline verde certificado:** `b3ce263` — CI #638 `success`
 
 ## Subset de targets x86-64 e AArch64
 
