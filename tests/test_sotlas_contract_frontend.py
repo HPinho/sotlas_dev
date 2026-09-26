@@ -118,6 +118,64 @@ fn entry(value: i32, enabled: bool) -> i32 {
         self.assertEqual(dump.count("sir_proof call @divide_by"), 2)
         self.assertEqual(dump.count("refinements=[(value != 0)]"), 2)
 
+    def test_integer_interval_refinement_proves_implied_preconditions(self):
+        source = """
+module test::contract_interval_refinement;
+fn nonzero(b: i32) -> i32
+    requires b != 0
+{
+    return b;
+}
+fn positive(b: i32) -> i32
+    requires b > 0
+{
+    return b;
+}
+fn entry(value: i32) -> i32 {
+    if value > 0 {
+        return nonzero(value) + positive(value);
+    }
+    if value >= 1 {
+        return positive(value);
+    }
+    return 0;
+}
+"""
+        for package in (compiler, tools):
+            module = package.bootstrap.parse(source)
+            package.bootstrap.check(module)
+            self.assertEqual(len(module.contract_proofs), 3)
+            self.assertEqual(
+                module.contract_proofs[0].refinements, ("(value > 0)",)
+            )
+            self.assertEqual(
+                module.contract_proofs[1].refinements, ("(value > 0)",)
+            )
+            self.assertEqual(
+                module.contract_proofs[2].refinements, ("(value >= 1)",)
+            )
+
+    def test_interval_refinement_keeps_unproved_precondition_guarded(self):
+        source = """
+module test::contract_interval_guard;
+fn nonzero(b: i32) -> i32
+    requires b != 0
+{
+    return b;
+}
+fn entry(value: i32) -> i32 {
+    if value >= 0 {
+        return nonzero(value);
+    }
+    return 0;
+}
+"""
+        for package in (compiler, tools):
+            module = package.bootstrap.parse(source)
+            package.bootstrap.check(module)
+            self.assertEqual(module.contract_proofs, ())
+            self.assertIn("if (!((b != 0))) abort();", package.bootstrap.emit_c(module))
+
     def test_assignment_invalidates_a_branch_refinement(self):
         source = """
 module test::contract_refinement_invalidation;

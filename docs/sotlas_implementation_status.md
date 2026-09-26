@@ -32,7 +32,7 @@ Legenda:
 | 7 | Execution Domains | ~40% | 🟡 |
 | 8 | Heterogeneous Compute | ~0% | 🟡 |
 | 9 | Trust Domains | ~15% candidato | 🟡 |
-| 10 | Guarantees | ~10% candidato | 🟡 |
+| 10 | Guarantees | ~15% candidato | 🟡 |
 | 11 | Causality | ~5% candidato | 🟡 |
 | 12 | Counterfactuals | ~5% candidato | 🟡 |
 | 13 | Transactions | ~5% candidato | 🟡 |
@@ -274,7 +274,7 @@ Escopo: `docs/sotlas_1_0_phase7_execution_scope.md`.
 
 ## Fase 10 — Guarantees
 
-**Status 1.0: ~10% candidato 🟡 — IN PROGRESS**
+**Status 1.0: ~15% candidato 🟡 — IN PROGRESS**
 
 - [x] `requires` tipado em funções com corpo;
 - [x] chamadas com argumentos constantes são provadas ou rejeitadas;
@@ -282,6 +282,7 @@ Escopo: `docs/sotlas_1_0_phase7_execution_scope.md`.
 - [x] funções públicas mantêm a precondição no ABI C11 com guarda de entrada;
 - [x] relatório de prova da chamada é preservado no SIR canônico;
 - [x] fatos booleanos de branches `if`/`else` provam precondições dinâmicas simples e são preservados no SIR;
+- [x] comparações inteiras simples em branches provam implicações por limites, como `value > 0` ⇒ `value != 0`;
 - [x] refinamentos são invalidados depois de atribuições locais e chamadas potencialmente mutáveis;
 - [ ] prova simbólica por refinamento de condições e argumentos dinâmicos;
 - [ ] `ensures`, declaração `guarantee`, safety reports e gate e2e por propriedade.

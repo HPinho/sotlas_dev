@@ -90,6 +90,92 @@ _INVERT_COMPARISON = {
     ">": "<=", ">=": "<",
 }
 
+_COMPARISON_FACT = re.compile(
+    r"^\(?\s*([A-Za-z_][A-Za-z0-9_]*)\s*(==|!=|<=|>=|<|>)\s*"
+    r"(-?\d+)(?:[ui](?:8|16|32|64)|isize|usize)?\s*\)?$"
+)
+_REVERSED_COMPARISON = {
+    "==": "==", "!=": "!=", "<": ">", "<=": ">=",
+    ">": "<", ">=": "<=",
+}
+
+
+def _comparison_fact(fact):
+    match = _COMPARISON_FACT.match(fact.strip())
+    if match:
+        name, op, value = match.groups()
+        return name, op, int(value)
+    # A constant on the left is equivalent after reversing the operator.
+    match = re.match(
+        r"^\(?\s*(-?\d+)(?:[ui](?:8|16|32|64)|isize|usize)?\s*"
+        r"(==|!=|<=|>=|<|>)\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)?$",
+        fact.strip(),
+    )
+    if match:
+        value, op, name = match.groups()
+        return name, _REVERSED_COMPARISON[op], int(value)
+    return None
+
+
+def _facts_imply(required, facts):
+    """Prove a simple integer comparison from branch comparison facts."""
+    target = _comparison_fact(required)
+    if target is None:
+        return False
+    name, op, value = target
+    lower = None
+    upper = None
+    equal = None
+    excluded = set()
+    for fact in facts:
+        constraint = _comparison_fact(fact)
+        if constraint is None or constraint[0] != name:
+            continue
+        _, fact_op, boundary = constraint
+        if fact_op == "==":
+            if equal is not None and equal != boundary:
+                return False
+            equal = boundary
+        elif fact_op == "!=":
+            excluded.add(boundary)
+        elif fact_op == ">":
+            lower = boundary + 1 if lower is None else max(lower, boundary + 1)
+        elif fact_op == ">=":
+            lower = boundary if lower is None else max(lower, boundary)
+        elif fact_op == "<":
+            upper = boundary - 1 if upper is None else min(upper, boundary - 1)
+        elif fact_op == "<=":
+            upper = boundary if upper is None else min(upper, boundary)
+    if equal is not None:
+        if (lower is not None and equal < lower) or (
+            upper is not None and equal > upper
+        ):
+            return False
+        if equal in excluded:
+            return False
+        return {
+            "==": equal == value, "!=": equal != value,
+            "<": equal < value, "<=": equal <= value,
+            ">": equal > value, ">=": equal >= value,
+        }[op]
+    if lower is not None and upper is not None and lower > upper:
+        return False
+    if op == "!=":
+        return (
+            value in excluded
+            or (upper is not None and upper < value)
+            or (lower is not None and lower > value)
+        )
+    if op == "==":
+        return lower == upper == value
+    if op == ">":
+        return lower is not None and lower > value
+    if op == ">=":
+        return lower is not None and lower >= value
+    if op == "<":
+        return upper is not None and upper < value
+    return upper is not None and upper <= value
+
 
 def _condition_facts(expr, truth, bootstrap) -> frozenset[str]:
     """Return only facts that logically hold on the selected branch."""
@@ -452,11 +538,21 @@ def install(bootstrap) -> None:
                     },
                     bootstrap,
                 )
+                matched_refinements = []
+                for term in refinement_terms:
+                    if term in active_facts:
+                        matched_refinements.append((term,))
+                        continue
+                    supporting_facts = tuple(
+                        fact for fact in active_facts
+                        if _facts_imply(term, (fact,))
+                    )
+                    if not supporting_facts and _facts_imply(term, active_facts):
+                        supporting_facts = tuple(sorted(active_facts))
+                    matched_refinements.append(supporting_facts)
+                flow_proved = bool(refinement_terms) and all(matched_refinements)
                 refinements = tuple(
-                    term for term in refinement_terms if term in active_facts
-                )
-                flow_proved = bool(refinement_terms) and len(refinements) == len(
-                    refinement_terms
+                    fact for group in matched_refinements for fact in group
                 )
                 if proved is False:
                     _error(
