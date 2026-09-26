@@ -17,6 +17,7 @@ from .sir.instructions import (
     BranchInst, CondBranchInst, CompareInst, ReturnInst, SystemOpInst,
     AsmInst, AwaitInst, PhiInst
 )
+from .sir.passes import BackendEffectContract
 from .execution_target import (
     ExecutionTarget,
     resolve_execution_target,
@@ -73,12 +74,14 @@ class CodegenLLVM:
         emit_debug: bool = False,
         target: str | ExecutionTarget | None = None,
         cpu_features: tuple[str, ...] = (),
+        effect_contract=None,
     ) -> None:
         self._sir = sir_module
         self._target = resolve_execution_target(
             target, is_baremetal=is_baremetal, cpu_features=cpu_features
         )
         self._emit_debug = emit_debug
+        self._effect_contract = effect_contract
         self._out = StringIO()
         self._meta_id = 0
         self._metadata_lines: List[str] = []
@@ -89,6 +92,26 @@ class CodegenLLVM:
         return mid
 
     def emit(self) -> str:
+        if self._effect_contract is not None:
+            from .sir.passes import EffectInferencePass, validate_backend_effects
+            if not isinstance(self._effect_contract, BackendEffectContract):
+                raise TypeError("LLVM effect contract must be BackendEffectContract")
+            result = EffectInferencePass().run(self._sir)
+            if not result.success:
+                raise ValueError(
+                    "LLVM effect inference failed: " + "; ".join(result.errors)
+                )
+            outcomes = validate_backend_effects(self._sir, self._effect_contract)
+            rejected = [item for item in outcomes if not item.accepted]
+            if rejected:
+                details = "; ".join(
+                    f"{item.function}: {', '.join(item.rejected_effects)}"
+                    for item in rejected
+                )
+                raise ValueError(
+                    f"LLVM backend effect contract {self._effect_contract.name!r} "
+                    f"rejected lowering: {details}"
+                )
         self._emit_header()
         fn_subprograms: Dict[str, int] = {}
 

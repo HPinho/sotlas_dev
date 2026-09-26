@@ -420,6 +420,20 @@ class SIRModule:
         ]
         for fn in self.functions:
             lines.append(str(fn))
+        if self.effect_summaries:
+            lines.append("// inferred effect summaries:")
+            for name in sorted(self.effect_summaries):
+                summary = self.effect_summaries[name]
+                effects = ",".join(summary.transitive_effects) or "pure"
+                unresolved = ",".join(summary.unresolved_calls) or "none"
+                declared = (
+                    ",".join(summary.declared_effects)
+                    if summary.declared_effects is not None else "unspecified"
+                )
+                lines.append(
+                    f"// effects @{name}: inferred=[{effects}] "
+                    f"declared=[{declared}] unresolved=[{unresolved}]"
+                )
         for plan in self.flow_plans:
             lines.append(f"sir_flow @{plan.name} {{")
             for index, stage_names in enumerate(plan.parallel_stages):

@@ -2,7 +2,7 @@
 
 **Atualizado em:** 2026-09-26
 **Status:** 🟡 IN PROGRESS
-**Último baseline verde certificado:** `a956c04` — CI #587 `success`
+**Último baseline verde certificado antes desta fatia:** `5b4d02f` — CI #599 `success`
 
 ## SIR effect summaries
 
@@ -37,8 +37,12 @@ lowering. Phase 1 copies each source summary into its corresponding typed
 function, and canonical SIR construction carries the facts into its functions
 for inference and contract revalidation. A backend-neutral effect capability
 contract reports which functions fit a target's declared effects. C11/LLVM
-lowering does not yet enforce a concrete target contract. This starter does
-not yet model all runtime/FFI names.
+lowering does not yet select target contracts automatically. The LLVM IR
+emitter can receive an explicit `BackendEffectContract`, rerun inference, and
+reject functions whose effects exceed that contract before emitting IR. The
+SIR dump prints inferred and declared effects and unresolved calls per
+function. C11 still does not consume a concrete target contract. This starter
+does not yet model all runtime/FFI names.
 
 ## Verifications
 
@@ -59,7 +63,9 @@ not yet model all runtime/FFI names.
 - [x] per-function source summary propagation into the Typed AST;
 - [x] propagation into canonical SIR and revalidation of declared contracts;
 - [x] backend-neutral per-function effect capability contract;
-- [ ] concrete C11/LLVM contracts enforced during lowering;
+- [x] explicit backend contract enforced by LLVM IR emission;
+- [ ] automatic target contract selection and C11 contract enforcement;
+- [x] per-function inferred/declared effect evidence in SIR dump;
 - [x] distinct `ffi` effect for foreign declarations and contract validation;
 - [ ] effects for `@realtime`, async suspension, locks, and all runtime calls;
 - [x] source tests and a phase-specific release gate for the subset;
