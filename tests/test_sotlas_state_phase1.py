@@ -104,11 +104,8 @@ class SotlasStatePhase1Tests(unittest.TestCase):
         self.assertIs(module.state_spaces, original_spaces)
         self.assertEqual(module.state_spaces, original_spaces)
 
-        with self.assertRaisesRegex(
-            sotlas_compile.SotlasBootstrapError,
-            "State Spaces estão em PREVIEW",
-        ):
-            sotlas_compile.bootstrap.check(module)
+        sotlas_compile.bootstrap.check(module)
+        self.assertIsNotNone(module.state_space_typed_snapshot)
 
     def test_source_transition_compiles_to_the_same_c_representation(self):
         source = """
@@ -133,11 +130,7 @@ class SotlasStatePhase1Tests(unittest.TestCase):
         module = sotlas_compile.bootstrap.parse(
             source, filename="<state-transition-release>"
         )
-        with self.assertRaisesRegex(
-            sotlas_compile.SotlasBootstrapError,
-            "State Spaces estão em PREVIEW",
-        ):
-            sotlas_compile.bootstrap.check(module)
+        sotlas_compile.bootstrap.check(module)
         checked_module = sotlas_compile.analyze_module_phase1(module)
         self.assertEqual(len(module.state_transition_facts), 1)
         function_name, point_id, binding, fact = module.state_transition_facts[0]
@@ -148,11 +141,8 @@ class SotlasStatePhase1Tests(unittest.TestCase):
         self.assertEqual(fact.target.display(), "Device<Configured>")
 
         self.assertIsNotNone(checked_module.state_spaces)
-        with self.assertRaisesRegex(
-            sotlas_compile.SotlasBootstrapError,
-            "State Spaces estão em PREVIEW",
-        ):
-            sotlas_compile.bootstrap.emit_c(module)
+        generated = sotlas_compile.bootstrap.emit_c(module)
+        self.assertIn("Device configure", generated)
 
     def test_checked_source_transition_lowers_into_verified_canonical_sir(self):
         source = """

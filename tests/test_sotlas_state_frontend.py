@@ -241,23 +241,27 @@ class SotlasStateFrontendTests(unittest.TestCase):
 
     def test_production_check_accepts_supported_state_subset(self):
         module = bootstrap.parse(self._source(), filename="<state-check>")
-        with self.assertRaisesRegex(
-            bootstrap.SotlasBootstrapError,
-            "State Spaces estão em PREVIEW",
-        ):
-            bootstrap.check(module)
+        bootstrap.check(module)
         self.assertTrue(bootstrap.plan_state_space_frontend(module).spaces)
+        self.assertIsNotNone(module.state_space_typed_snapshot)
 
     def test_c_emission_lowers_state_qualified_types_to_nominal_c_type(self):
         module = bootstrap.parse(self._source(
             "pub fn configure(dev: Device<Discovered>) -> Device<Configured> "
             "{ unsafe { return transition(move(dev), Configured); } }"
         ), filename="<state-c>")
+        generated = bootstrap.emit_c(module)
+        self.assertIn("Device configure", generated)
+
+    def test_payload_state_spaces_remain_fail_closed_in_production(self):
+        source = self._source().replace(
+            "state Configured", "state Configured(Error)"
+        )
         with self.assertRaisesRegex(
             bootstrap.SotlasBootstrapError,
-            "State Spaces estão em PREVIEW",
+            "payload lowering remains PREVIEW",
         ):
-            bootstrap.emit_c(module)
+            bootstrap.compile_source(source, filename="<state-payload>")
 
     def test_state_transition_runs_through_native_c_backend(self):
         compiler = shutil.which("gcc") or shutil.which("clang")
@@ -270,12 +274,9 @@ class SotlasStateFrontendTests(unittest.TestCase):
         + "\nfn main() -> i32 { let dev: Device<Discovered> = Device { id: 37u32 }; " \
             "let configured = configure(move(dev)); " \
             "return configured.id as i32; }\n"
-        # This test exercises the opt-in Phase-1 subset. The public
-        # compile_source entrypoint intentionally remains PREVIEW-gated.
-        module = bootstrap.parse(source, filename="<state-native>")
-        module._state_phase1_internal = True
-        bootstrap.check(module)
-        generated = bootstrap.emit_c(module)
+        generated = bootstrap.compile_source(
+            source, filename="<state-native>"
+        )
         with tempfile.TemporaryDirectory(prefix="sotlas-state-") as temp_dir:
             c_file = Path(temp_dir) / "state_transition.c"
             executable = Path(temp_dir) / "state_transition"

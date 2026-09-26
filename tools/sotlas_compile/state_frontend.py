@@ -515,19 +515,6 @@ def plan_state_space_frontend(module, bootstrap=None) -> StateSpaceFrontendPlan:
     )
 
 
-def _preview_error(bootstrap, module, plan: StateSpaceFrontendPlan):
-    decl = plan.declarations[0]
-    raise bootstrap.SotlasBootstrapError(
-        "State Spaces estão em PREVIEW no frontend: a semântica source/typestate "
-        "foi certificada, mas o lowering SIR/backend do Sotlas 1.0 ainda não; "
-        "o pipeline de produção rejeita este módulo fail-closed",
-        decl.line,
-        decl.column,
-        getattr(module, "filename", None),
-        getattr(module, "source", None),
-    )
-
-
 def _frontend_error_as_bootstrap(bootstrap, module, error):
     decls = tuple(getattr(module, "state_spaces", ()))
     line = decls[0].line if decls else 1
@@ -634,6 +621,105 @@ def _validate_state_local_initializers(module, plan, bootstrap):
         visit(function.body, dict(function.params))
 
 
+def _state_release_subset_error(module, plan, bootstrap):
+    """Return why this module is outside the checked C11 State Space subset."""
+    if any(state.payload for space in plan.spaces for state in space.states):
+        return "State Space payload lowering remains PREVIEW"
+
+    structs = {item.name: item for item in getattr(module, "structs", ())}
+    state_types = {
+        item.type_name for item in plan.qualified_types
+    }
+    for type_name in state_types:
+        structure = structs.get(type_name)
+        if structure is None or not getattr(structure, "is_sole", False):
+            return (
+                f"typestate {type_name} requires a matching sole struct "
+                "for the Sotlas 1.0 C11 subset"
+            )
+
+    def is_state_type(type_obj):
+        return (
+            getattr(type_obj, "state_space", None) is not None
+            or getattr(type_obj, "state_name", None) is not None
+        )
+
+    for structure in getattr(module, "structs", ()):
+        if any(is_state_type(field.type) for field in structure.fields):
+            return "typestate in struct storage remains PREVIEW"
+        for method in getattr(structure, "methods", ()):
+            if any(is_state_type(typ) for _, typ in method.params) or is_state_type(
+                method.result
+            ):
+                return "typestate in methods remains PREVIEW"
+    for class_decl in getattr(module, "classes", ()):
+        if any(is_state_type(field.type) for field in class_decl.fields):
+            return "typestate in class storage remains PREVIEW"
+        for method in getattr(class_decl, "methods", ()):
+            if any(is_state_type(typ) for _, typ in method.params) or is_state_type(
+                method.result
+            ):
+                return "typestate in methods remains PREVIEW"
+    for enum in getattr(module, "enums", ()):
+        if any(
+            is_state_type(variant.payload_type)
+            for variant in enum.variants
+            if variant.payload_type is not None
+        ):
+            return "typestate in enum payloads remains PREVIEW"
+    if any(is_state_type(item.type) for item in getattr(module, "globals", ())):
+        return "typestate in global storage remains PREVIEW"
+
+    def walk_ast(value):
+        if isinstance(value, (bootstrap.Expr, bootstrap.Stmt)):
+            yield value
+            for name, child in vars(value).items():
+                if name == "token":
+                    continue
+                if isinstance(child, (bootstrap.Expr, bootstrap.Stmt)):
+                    yield from walk_ast(child)
+                elif isinstance(child, (list, tuple)):
+                    for item in child:
+                        if isinstance(item, (bootstrap.Expr, bootstrap.Stmt)):
+                            yield from walk_ast(item)
+
+    for function in getattr(module, "functions", ()):
+        transitions = tuple(
+            item for statement in function.body for item in walk_ast(statement)
+            if isinstance(item, bootstrap.Call)
+            and item.callee == "transition"
+        )
+        if len(transitions) > 1:
+            return "multiple typestate transitions per function remain PREVIEW"
+        if transitions:
+            body = tuple(function.body)
+            while len(body) == 1 and isinstance(body[0], bootstrap.Unsafe):
+                body = tuple(body[0].body)
+            if not (
+                len(body) == 1
+                and isinstance(body[0], bootstrap.Return)
+                and body[0].value is transitions[0]
+            ):
+                return (
+                    "only a direct unsafe return transition is supported by "
+                    "the Sotlas 1.0 C11 subset"
+                )
+    return None
+
+
+def _preview_error(bootstrap, module, plan, reason=None):
+    decl = plan.declarations[0]
+    detail = reason or "State Spaces are outside the supported release subset"
+    raise bootstrap.SotlasBootstrapError(
+        f"State Spaces estÃ£o em PREVIEW: {detail}; "
+        "o pipeline de produÃ§Ã£o rejeita esta forma fail-closed",
+        decl.line,
+        decl.column,
+        getattr(module, "filename", None),
+        getattr(module, "source", None),
+    )
+
+
 def install(bootstrap) -> None:
     """Install State Space syntax on the final canonical production frontend."""
     if getattr(bootstrap, "_STATE_SPACE_FRONTEND_INSTALLED", False):
@@ -700,10 +786,12 @@ def install(bootstrap) -> None:
             _frontend_error_as_bootstrap(bootstrap, module, error)
         module.state_space_frontend_plan = plan
         phase1_internal = getattr(module, "_state_phase1_internal", False)
-        if plan.declarations and not phase1_internal:
-            _preview_error(bootstrap, module, plan)
         if plan.declarations:
             _validate_state_local_initializers(module, plan, bootstrap)
+            if not phase1_internal:
+                reason = _state_release_subset_error(module, plan, bootstrap)
+                if reason is not None:
+                    _preview_error(bootstrap, module, plan, reason)
         module.state_transition_facts = ()
         result = original_check(
             module,
@@ -716,6 +804,17 @@ def install(bootstrap) -> None:
             module.state_transition_facts = tuple(
                 getattr(module, "state_transition_facts", ())
             )
+        if plan.declarations:
+            try:
+                from .state_typed_ast import build_state_space_typed_snapshot
+
+                module.state_space_typed_snapshot = (
+                    build_state_space_typed_snapshot(module, plan)
+                )
+            except Phase1SemanticError as error:
+                _frontend_error_as_bootstrap(
+                    bootstrap, module, error
+                )
         return result
 
     bootstrap.check = state_space_check
@@ -728,10 +827,14 @@ def install(bootstrap) -> None:
         except StateSpaceFrontendError as error:
             _frontend_error_as_bootstrap(bootstrap, module, error)
         module.state_space_frontend_plan = plan
-        if plan.declarations and not getattr(
-            module, "_state_phase1_internal", False
-        ):
-            _preview_error(bootstrap, module, plan)
+        if plan.declarations:
+            internal = getattr(module, "_state_phase1_internal", False)
+            _validate_state_local_initializers(module, plan, bootstrap)
+            if not internal:
+                reason = _state_release_subset_error(module, plan, bootstrap)
+                if reason is not None:
+                    _preview_error(bootstrap, module, plan, reason)
+                state_space_check(module)
         return original_emit_c(module, *args, **kwargs)
 
     bootstrap.emit_c = state_space_emit_c
@@ -744,10 +847,14 @@ def install(bootstrap) -> None:
         except StateSpaceFrontendError as error:
             _frontend_error_as_bootstrap(bootstrap, module, error)
         module.state_space_frontend_plan = plan
-        if plan.declarations and not getattr(
-            module, "_state_phase1_internal", False
-        ):
-            _preview_error(bootstrap, module, plan)
+        if plan.declarations:
+            internal = getattr(module, "_state_phase1_internal", False)
+            _validate_state_local_initializers(module, plan, bootstrap)
+            if not internal:
+                reason = _state_release_subset_error(module, plan, bootstrap)
+                if reason is not None:
+                    _preview_error(bootstrap, module, plan, reason)
+                state_space_check(module)
         return original_emit_header(module, *args, **kwargs)
 
     bootstrap.emit_header = state_space_emit_header
