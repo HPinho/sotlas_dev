@@ -1,9 +1,12 @@
 """Reality gates for prototype SIR and the canonical production path."""
 import ast
 import json
+import os
 from pathlib import Path
 import re
+import subprocess
 import sys
+import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -64,7 +67,42 @@ class SotlasRealityGateTests(unittest.TestCase):
                 self.assertTrue(snippet["verification"])
                 if snippet["status"] == "RUNNABLE":
                     self.assertTrue(snippet["source"])
-                    self.assertTrue((ROOT / snippet["source"]).is_file())
+                    source = ROOT / snippet["source"]
+                    self.assertTrue(source.is_file())
+                    env = os.environ.copy()
+                    env["PYTHONPATH"] = str(ROOT / "compiler")
+                    check = subprocess.run(
+                        [sys.executable, "-m", "sotlas.cli", "check", str(source)],
+                        cwd=ROOT,
+                        env=env,
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                    self.assertEqual(
+                        check.returncode,
+                        0,
+                        check.stdout + check.stderr,
+                    )
+                    with tempfile.TemporaryDirectory(prefix="sotlas-runnable-") as output_dir:
+                        c_output = Path(output_dir) / "snippet.c"
+                        emission = subprocess.run(
+                            [
+                                sys.executable, "-m", "sotlas.cli", "compile",
+                                str(source), "--emit-c", "-o", str(c_output),
+                            ],
+                            cwd=ROOT,
+                            env=env,
+                            capture_output=True,
+                            text=True,
+                            check=False,
+                        )
+                        self.assertEqual(
+                            emission.returncode,
+                            0,
+                            emission.stdout + emission.stderr,
+                        )
+                        self.assertTrue(c_output.is_file())
         inventoried_documents = {
             item["document"] for item in inventory["snippets"]
         }

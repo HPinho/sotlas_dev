@@ -27,9 +27,11 @@
 
 1. `docs/public_snippets.json` inventories every Markdown document under
    `docs/` that contains a fenced `sotlas` block. The reality gate checks that
-   every such document is classified and every runnable source exists. The
-   canonical Quickstart source is runnable; other snippets remain experimental
-   or design-only until checked individually against the production frontend.
+   every such document is classified. Every `RUNNABLE` source is now checked
+   through the canonical CLI and emitted as C11 in an isolated temporary
+   directory by the test suite. The canonical Quickstart source is runnable;
+   other snippets remain experimental or design-only until checked individually
+   against the production frontend.
 2. Resolve the duplicated `compiler/` and `tools/` Python trees. The current
    inventory has 77 paired modules: 73 byte-identical and four different
    (`sotlas/__init__.py`, `sotlas_compile/__init__.py`,
