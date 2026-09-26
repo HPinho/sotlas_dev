@@ -2,7 +2,7 @@
 
 **Atualizado em:** 2026-09-26
 **Status:** 🟡 IN PROGRESS
-**Último baseline verde certificado:** `2c602ad` — CI #579 `success`
+**Último baseline verde certificado:** `0e98e1b` — CI #581 `success`
 
 ## SIR effect summaries
 

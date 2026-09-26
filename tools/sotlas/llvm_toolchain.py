@@ -414,13 +414,16 @@ class LLVMToolchain:
         if target:
             cmd += ["-target", target]
         if is_freestanding:
-            cmd += [
-                "-ffreestanding", "-nostdlib", "-nostdinc",
-                "-mno-red-zone", "-mno-mmx",
-            ]
-            if not cpu_features:
-                cmd += ["-mno-sse", "-mno-sse2"]
-        cmd += [f"-m{feature}" for feature in cpu_features]
+            cmd += ["-ffreestanding", "-nostdlib", "-nostdinc"]
+            if not target or target.startswith("x86_64"):
+                cmd += ["-mno-red-zone", "-mno-mmx"]
+                if not cpu_features:
+                    cmd += ["-mno-sse", "-mno-sse2"]
+        if target and target.startswith("aarch64"):
+            for feature in cpu_features:
+                cmd += ["-Xclang", "-target-feature", "-Xclang", f"+{feature}"]
+        else:
+            cmd += [f"-m{feature}" for feature in cpu_features]
         if extra_flags:
             cmd += extra_flags
 
@@ -580,7 +583,11 @@ class LLVMToolchain:
                     out,
                     is_freestanding=is_freestanding,
                     target=compiler_target,
-                    cpu_features=cpu_features,
+                    cpu_features=(
+                        target_spec.cpu_features
+                        if target_spec.architecture == "aarch64"
+                        else cpu_features
+                    ),
                 )
             else:
                 with tempfile.TemporaryDirectory() as tmpdir:
@@ -590,7 +597,11 @@ class LLVMToolchain:
                         tmp_obj,
                         is_freestanding=is_freestanding,
                         target=compiler_target,
-                        cpu_features=cpu_features,
+                        cpu_features=(
+                            target_spec.cpu_features
+                            if target_spec.architecture == "aarch64"
+                            else cpu_features
+                        ),
                     )
                     return self.link_native_binary([tmp_obj], out)
 

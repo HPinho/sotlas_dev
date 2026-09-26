@@ -3946,13 +3946,15 @@ CPU/SIMD inicialmente.
 
 Esta fase também prepara o caminho para o backend nativo próprio:
 
-- [ ] modelo canônico de targets e features de CPU;
+- [x] modelo canônico tipado de targets x86-64/AArch64, ABI identificada, largura de ponteiro e endianness;
+- [x] registro limitado de features x86-64/AArch64 validado por arquitetura, dependências normalizadas e encaminhamento para LLVM/Clang;
 - [ ] contratos de calling convention independentes do C;
 - [ ] representação explícita de registradores especiais, stack e ABI quando exigidos por `@system`;
 - [ ] lowering de SIMD/intrinsics para operações alvo-específicas sem depender semanticamente de builtins C;
 - [ ] regras de clobber, volatilidade, alinhamento e preservação de registradores;
 - [ ] capacidade de declarar que uma operação só existe em determinados targets/features;
-- [ ] testes diferenciais entre backend C11 de referência e lowering nativo para semânticas equivalentes.
+- [ ] testes diferenciais entre backend C11 de referência e lowering nativo para semânticas equivalentes;
+- [ ] layout/ABI AArch64 certificado, intrinsics SIMD Sotlas e dispatch multi-versionado.
 
 ### 8. Heterogeneous Compute
 

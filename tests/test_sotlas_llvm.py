@@ -1,7 +1,10 @@
 """Testes para o gerador de LLVM IR a partir do SIR."""
 import sys
 import unittest
+from io import StringIO
+from types import SimpleNamespace
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
@@ -20,6 +23,8 @@ from sotlas.execution_target import (
     ExecutionTargetError,
     resolve_execution_target,
 )
+from sotlas.llvm_toolchain import LLVMToolchain
+from sotlas import cli
 
 
 class TestCodegenLLVM(unittest.TestCase):
@@ -33,7 +38,7 @@ class TestCodegenLLVM(unittest.TestCase):
         self.assertEqual(avx2.cpu_features, ("sse2", "avx", "avx2"))
         self.assertEqual(avx2.abi, "sysv")
         with self.assertRaisesRegex(ExecutionTargetError, "unsupported execution target"):
-            resolve_execution_target("aarch64-unknown-linux-gnu")
+            resolve_execution_target("riscv64-unknown-linux-gnu")
         with self.assertRaisesRegex(ExecutionTargetError, "unsupported x86-64 CPU features"):
             resolve_execution_target(cpu_features=("madeup",))
         with self.assertRaisesRegex(ExecutionTargetError, "must be strings"):
@@ -53,6 +58,70 @@ class TestCodegenLLVM(unittest.TestCase):
         self.assertIn('target triple = "x86_64-pc-windows-msvc"', ir)
         self.assertIn('"target-features"="+sse2,+avx,+avx2"', ir)
         self.assertIn('"target-cpu"="x86-64"', ir)
+
+    def test_aarch64_target_abi_features_and_llvm_ir(self):
+        arm = resolve_execution_target(
+            "aarch64-unknown-linux-gnu", cpu_features=("sve2", "crc")
+        )
+        self.assertEqual(arm.architecture, "aarch64")
+        self.assertEqual(arm.abi, "aapcs64")
+        self.assertEqual(arm.pointer_width, 64)
+        self.assertEqual(arm.endianness, "little")
+        self.assertEqual(arm.cpu_features, ("crc", "sve", "sve2"))
+        self.assertIsNone(arm.data_layout)
+
+        module = SIRModule(name="aarch64_target_contract")
+        function = SIRFunction(name="main", parameters=[], return_type="Void")
+        function.add_block("entry").add(ReturnInst())
+        module.add_function(function)
+        ir = CodegenLLVM(module, target=arm).emit()
+        self.assertIn('target triple = "aarch64-unknown-linux-gnu"', ir)
+        self.assertIn('"target-cpu"="generic"', ir)
+        self.assertIn('"target-features"="+crc,+sve,+sve2"', ir)
+
+    def test_aarch64_rejects_x86_features_and_accepts_freestanding_alias(self):
+        with self.assertRaisesRegex(ExecutionTargetError, "unsupported aarch64 CPU features"):
+            resolve_execution_target("aarch64-unknown-linux-gnu", cpu_features=("avx2",))
+        baremetal = resolve_execution_target("aarch64-freestanding")
+        self.assertEqual(baremetal.triple, "aarch64-unknown-none-elf")
+        self.assertTrue(baremetal.is_freestanding)
+
+    def test_aarch64_freestanding_c11_uses_architecture_specific_flags(self):
+        toolchain = LLVMToolchain()
+        with patch.object(toolchain, "find_tool", return_value=Path("clang")), \
+             patch("sotlas.llvm_toolchain.subprocess.run", return_value=SimpleNamespace(
+                 returncode=0, stderr=""
+             )) as run:
+            toolchain.compile_c_to_obj(
+                "int main(void) { return 0; }",
+                Path("target-test.o"),
+                is_freestanding=True,
+                target="aarch64-unknown-none-elf",
+                cpu_features=("crc", "sve", "sve2"),
+            )
+        command = run.call_args.args[0]
+        self.assertIn("-target", command)
+        self.assertIn("-ffreestanding", command)
+        self.assertIn("+sve2", command)
+        self.assertNotIn("-mno-red-zone", command)
+        self.assertNotIn("-mno-sse", command)
+        self.assertNotIn("-msve2", command)
+
+    def test_cli_fails_closed_for_aarch64_internal_linker(self):
+        args = SimpleNamespace(
+            source="target.sotlas",
+            target="aarch64-unknown-none-elf",
+            cpu_feature=[],
+            linker="internal",
+        )
+        error_output = StringIO()
+        with patch.object(
+            cli, "_read_source", return_value=(Path("target.sotlas"), "")
+        ), patch.object(cli.sys, "stderr", error_output):
+            result = cli._run_compile(args)
+
+        self.assertEqual(result, 2)
+        self.assertIn("linker interno suporta apenas", error_output.getvalue())
 
     def test_llvm_type_mapping(self):
         self.assertEqual(to_llvm_type("UInt32"), "i32")

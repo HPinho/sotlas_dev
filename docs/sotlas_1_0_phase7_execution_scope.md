@@ -1,10 +1,10 @@
 # Sotlas 1.0 — Phase 7 Execution Domains Scope
 
-**Atualizado em:** 2026-09-25  
+**Atualizado em:** 2026-09-26
 **Status:** IN PROGRESS  
-**Último baseline verde certificado:** `c91b23a` — CI #577 `success`
+**Último baseline verde certificado:** `0e98e1b` — CI #581 `success`
 
-## Subset de target x86-64
+## Subset de targets x86-64 e AArch64
 
 O modelo de target tipado reconhece triples x86-64 freestanding ELF, Linux
 SysV, Windows MSVC, Darwin e o target interno `x86_64-pc-none`. Os aliases
@@ -20,7 +20,9 @@ features ao Clang nos caminhos de objeto C11, e o CLI expõe `--target` e
 
 ## Limites atuais
 
-- o registro contém somente targets x86-64 e uma lista limitada de features;
+- os targets AArch64 Linux, Windows, Darwin e freestanding agora possuem presets tipados de ABI, largura de ponteiro e endianness; o data layout permanece omitido até ser certificado por ABI;
+- features AArch64 `aes`, `crc`, `lse`, `sha2`, `sve` e `sve2` são validadas, com `sve2` implicando `sve`;
+- o registro de features continua limitado e ainda não implementa intrinsics SIMD Sotlas;
 - `host` mantém o triple interno legado, sem detecção dinâmica do host;
 - ABI além de identificação do target e data layout não é validada integralmente;
 - não há ainda suporte a intrinsics SIMD Sotlas, dispatch multi-versionado,
@@ -33,6 +35,7 @@ features ao Clang nos caminhos de objeto C11, e o CLI expõe `--target` e
 - rejeição de triple e feature desconhecidos;
 - IR textual preserva target e atributos selecionados;
 - emissão direta de LLVM IR a partir de fonte aceita configuração de target.
+- presets e target features AArch64 aparecem em LLVM IR e são encaminhados a Clang sem flags específicas de x86.
 
 Este pacote fecha apenas uma fatia executável da Fase 7 e não declara a fase
 completa.

@@ -29,6 +29,7 @@ sys.path.insert(0, str(_ROOT))
 
 from sotlas import SOTLAS_VERSION
 from sotlas.llvm_toolchain import canonical_llvm_frontend
+from sotlas.execution_target import ExecutionTargetError, resolve_execution_target
 from sotlas.sir import SIRGenerator
 
 production_frontend = canonical_llvm_frontend()
@@ -51,11 +52,11 @@ def main() -> int:
     cp.add_argument("-o", "--output", default=None, help="Arquivo de saída")
     cp.add_argument(
         "--target",
-        choices=["host", "x86_64-freestanding", "x86_64-unknown-none-elf", "x86_64-pc-none", "x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc", "x86_64-apple-darwin"],
+        choices=["host", "x86_64-freestanding", "x86_64-unknown-none-elf", "x86_64-pc-none", "x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc", "x86_64-apple-darwin", "aarch64-freestanding", "aarch64-unknown-none-elf", "aarch64-unknown-linux-gnu", "aarch64-pc-windows-msvc", "aarch64-apple-darwin"],
         default="host",
         help="Alvo de compilação",
     )
-    cp.add_argument("--cpu-feature", action="append", default=[], metavar="FEATURE", help="Habilita feature x86-64; pode ser repetida")
+    cp.add_argument("--cpu-feature", action="append", default=[], metavar="FEATURE", help="Habilita feature de CPU do target; pode ser repetida")
     cp.add_argument(
         "--emit-c",
         action="store_true",
@@ -413,9 +414,29 @@ def _run_compile(args) -> int:
         return 1
     src, text = loaded
 
+    try:
+        target_spec = resolve_execution_target(
+            args.target, cpu_features=tuple(args.cpu_feature)
+        )
+    except ExecutionTargetError as error:
+        print(f"sotlas: erro de target: {error}", file=sys.stderr)
+        return 2
+
     # ── Modo linker interno: pipeline completamente autônomo ──────────────
     linker_mode = getattr(args, "linker", "auto")
     if linker_mode == "internal":
+        if (
+            target_spec.architecture != "x86_64"
+            or args.target not in {
+                "host", "x86_64-freestanding", "x86_64-unknown-none-elf",
+                "x86_64-unknown-linux-gnu",
+            }
+        ):
+            print(
+                "sotlas: linker interno suporta apenas host Linux e x86-64 freestanding/Linux",
+                file=sys.stderr,
+            )
+            return 2
         return _run_compile_internal_linker(args, src, text)
 
     try:
@@ -460,7 +481,10 @@ def _run_compile(args) -> int:
         return 0
 
     if is_llvm:
-        is_freestanding = args.target in ("x86_64-freestanding", "x86_64-unknown-none-elf")
+        is_freestanding = args.target in (
+            "x86_64-freestanding", "x86_64-unknown-none-elf",
+            "aarch64-freestanding", "aarch64-unknown-none-elf",
+        )
         try:
             res_path = default_toolchain.compile_source_to_native(
                 text,
@@ -483,16 +507,34 @@ def _run_compile(args) -> int:
     c_file.write_text(c_code, encoding="utf-8")
 
     cc_flags = ["-std=c11", "-Wall", "-Wextra"]
-    if args.target in ("x86_64-freestanding", "x86_64-unknown-none-elf"):
-        cc_flags += [
-            "-ffreestanding", "-nostdlib", "-nostdinc",
-            "-mno-red-zone", "-mno-mmx", "-mno-sse", "-mno-sse2",
-        ]
+    if args.target in (
+        "x86_64-freestanding", "x86_64-unknown-none-elf",
+        "aarch64-freestanding", "aarch64-unknown-none-elf",
+    ):
+        cc_flags += ["-ffreestanding", "-nostdlib", "-nostdinc"]
+        if args.target.startswith("x86_64"):
+            cc_flags += [
+                "-mno-red-zone", "-mno-mmx", "-mno-sse", "-mno-sse2",
+            ]
 
     cmd = [args.cc, str(c_file)]
-    if args.target not in ("host", "x86_64-freestanding"):
-        cmd += ["-target", args.target]
-    cmd += [f"-m{feature}" for feature in args.cpu_feature]
+    if args.target != "host":
+        target_triple = {
+            "x86_64-freestanding": "x86_64-unknown-none-elf",
+            "aarch64-freestanding": "aarch64-unknown-none-elf",
+        }.get(args.target, args.target)
+        cmd += ["-target", target_triple]
+    if args.target.startswith("aarch64") and args.cpu_feature:
+        if "clang" not in Path(args.cc).name.lower():
+            print(
+                "sotlas: features AArch64 explícitas exigem Clang/LLVM neste backend",
+                file=sys.stderr,
+            )
+            return 2
+        for feature in args.cpu_feature:
+            cmd += ["-Xclang", "-target-feature", "-Xclang", f"+{feature}"]
+    else:
+        cmd += [f"-m{feature}" for feature in args.cpu_feature]
     cmd += ["-o", str(out_path)] + cc_flags
     try:
         result = subprocess.run(cmd, capture_output=True, text=True)

@@ -2,7 +2,7 @@
 
 **Atualizado em:** 2026-09-25  
 **Status:** 🟡 IN PROGRESS  
-**Último baseline verde certificado:** `645590f` — CI #576 `success`
+**Último baseline verde certificado:** `0e98e1b` — CI #581 `success`
 
 ## Subset de runtime disponível
 

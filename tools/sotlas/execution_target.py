@@ -30,6 +30,9 @@ _FEATURE_DEPENDENCIES = {
     "avx512f": ("avx",),
     "fma": ("avx",),
 }
+_AARCH64_FEATURE_ORDER = ("aes", "crc", "lse", "sha2", "sve", "sve2")
+_AARCH64_FEATURES = frozenset(_AARCH64_FEATURE_ORDER)
+_AARCH64_FEATURE_DEPENDENCIES = {"sve2": ("sve",)}
 
 
 @dataclass(frozen=True)
@@ -73,10 +76,23 @@ _TARGETS = {
     "x86_64-apple-darwin": _TargetPreset(
         "x86_64", "darwin", _DATA_LAYOUT_X86_64_ELF, False
     ),
+    "aarch64-unknown-none-elf": _TargetPreset(
+        "aarch64", "aapcs64", None, True
+    ),
+    "aarch64-unknown-linux-gnu": _TargetPreset(
+        "aarch64", "aapcs64", None, False
+    ),
+    "aarch64-apple-darwin": _TargetPreset(
+        "aarch64", "darwin-aarch64", None, False
+    ),
+    "aarch64-pc-windows-msvc": _TargetPreset(
+        "aarch64", "winarm64", None, False
+    ),
 }
 _ALIASES = {
     "host": "x86_64-pc-none",
     "x86_64-freestanding": "x86_64-unknown-none-elf",
+    "aarch64-freestanding": "aarch64-unknown-none-elf",
 }
 
 
@@ -86,11 +102,10 @@ def resolve_execution_target(
     is_baremetal: bool = False,
     cpu_features: Iterable[str] = (),
 ) -> ExecutionTarget:
-    """Resolve a supported x86-64 target and normalize requested features.
+    """Resolve a supported target and normalize architecture-specific features.
 
-    x86-64's architectural `sse2` baseline is always present. Higher features
-    imply the lower feature dependencies LLVM expects, and unknown features are
-    rejected rather than silently ignored.
+    x86-64's architectural `sse2` baseline is always present. AArch64 starts
+    with the architectural ARMv8-A baseline. Unknown features are rejected.
     """
     if isinstance(triple, ExecutionTarget):
         canonical = triple.triple
@@ -117,18 +132,34 @@ def resolve_execution_target(
             f"unsupported execution target {canonical!r}; supported targets: "
             + ", ".join(sorted(_TARGETS))
         )
-    unsupported = requested - _FEATURES
+    feature_order = (
+        _AARCH64_FEATURE_ORDER
+        if preset.architecture == "aarch64"
+        else _FEATURE_ORDER
+    )
+    features = _AARCH64_FEATURES if preset.architecture == "aarch64" else _FEATURES
+    dependencies = (
+        _AARCH64_FEATURE_DEPENDENCIES
+        if preset.architecture == "aarch64"
+        else _FEATURE_DEPENDENCIES
+    )
+    unsupported = requested - features
     if unsupported:
+        architecture_name = (
+            "x86-64" if preset.architecture == "x86_64" else "aarch64"
+        )
         raise ExecutionTargetError(
-            "unsupported x86-64 CPU features: " + ", ".join(sorted(unsupported))
+            f"unsupported {architecture_name} CPU features: "
+            + ", ".join(sorted(unsupported))
         )
 
     enabled = set(requested)
-    enabled.add("sse2")
+    if preset.architecture == "x86_64":
+        enabled.add("sse2")
     pending = list(enabled)
     while pending:
         feature = pending.pop()
-        for dependency in _FEATURE_DEPENDENCIES.get(feature, ()):
+        for dependency in dependencies.get(feature, ()):
             if dependency not in enabled:
                 enabled.add(dependency)
                 pending.append(dependency)
@@ -138,9 +169,9 @@ def resolve_execution_target(
         abi=preset.abi,
         pointer_width=64,
         endianness="little",
-        cpu="x86-64",
+        cpu="generic" if preset.architecture == "aarch64" else "x86-64",
         cpu_features=tuple(
-            feature for feature in _FEATURE_ORDER if feature in enabled
+            feature for feature in feature_order if feature in enabled
         ),
         data_layout=preset.data_layout,
         is_freestanding=preset.is_freestanding,

@@ -1,8 +1,8 @@
 # Sotlas — Implementation Status
 
-**Atualizado em:** 2026-09-25  
-**Último baseline verde certificado:** `2c602ad`
-**CI de referência:** Sotlas CI & Toolchain Build Farm #579 — `success`
+**Atualizado em:** 2026-09-26
+**Último baseline verde certificado:** `0e98e1b`
+**CI de referência:** Sotlas CI & Toolchain Build Farm #581 — `success`
 **Fonte arquitetural:** `SOTLAS — ESPECIFICAÇÃO MESTRA`
 
 > Este é o índice operacional atual. O snapshot detalhado anterior, com o histórico extenso das microentregas da Fase 2, permanece preservado em `docs/archive/sotlas_implementation_status_2026-09-23.md`.
@@ -184,17 +184,22 @@ Escopo: `docs/sotlas_1_0_phase6_flow_scope.md`.
 
 ## Fase 7 — Execution Domains
 
-**Status 1.0: ~20% 🟡 — IN PROGRESS**
+**Status 1.0: ~35% 🟡 — IN PROGRESS**
 
 - [x] modelo tipado de target x86-64, ABI básica, largura de ponteiro e endianness;
 - [x] triples Linux, Windows, Darwin e freestanding reconhecidos com aliases legados;
 - [x] validação fail-closed e normalização de dependências de CPU features;
 - [x] LLVM IR e Clang recebem target/features configurados;
 - [x] CLI expõe seleção de target e features x86-64;
+- [x] presets LLVM/ABI AArch64 Linux, Windows, Darwin e freestanding;
+- [x] features AArch64 `crc`, `aes`, `sha2`, `lse`, `sve`, `sve2` são validadas por arquitetura e normalizadas;
+- [x] flags freestanding e seleção de features AArch64 não recebem flags x86;
+- [x] testes de target, ABI declarado, dependências de features e atributos LLVM AArch64;
 - [ ] matrizes completas de ABI/layout e suporte x86-64/AArch64;
 - [ ] intrinsics SIMD Sotlas e dispatch multi-versionado;
 - [ ] domains de execução e lowering heterogêneo tipado;
-- [ ] testes nativos positivos/negativos e gate de release por target.
+- [x] gate dedicado da configuração de execution targets na CI;
+- [ ] testes nativos positivos/negativos e matriz de release por target.
 
 Escopo: `docs/sotlas_1_0_phase7_execution_scope.md`.
 
