@@ -58,6 +58,7 @@ from .phase1_pipeline import (
 )
 from .canonical_sir import (
     CheckedAuthoritySIR,
+    build_canonical_checked_ownership_sir,
     build_canonical_checked_authority_sir,
 )
 
@@ -71,6 +72,7 @@ __all__ = [
     "compile_project", "emit_c_project", "Phase1CheckedModule",
     "analyze_module_phase1", "analyze_source_phase1", "CheckedAuthoritySIR",
     "build_canonical_checked_authority_sir", "StateSpaceFrontendPlan",
+    "build_canonical_checked_ownership_sir",
     "analyze_state_space_coverage", "require_exhaustive_state_space_coverage",
     "SourceEffectError", "SourceEffectSummary", "analyze_source_effects",
     "StateSpaceTypedSnapshot", "plan_state_space_frontend",

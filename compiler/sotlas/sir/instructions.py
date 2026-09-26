@@ -371,6 +371,7 @@ class SIREffectSummary:
     direct_effects: Tuple[str, ...] = ()
     transitive_effects: Tuple[str, ...] = ()
     unresolved_calls: Tuple[str, ...] = ()
+    declared_effects: Tuple[str, ...] | None = None
 
 
 @dataclass
@@ -382,6 +383,7 @@ class SIRFunction:
     blocks: List[SIRBasicBlock] = field(default_factory=list)
     declared_effects: Tuple[str, ...] | None = None
     inferred_effects: Tuple[str, ...] = field(default=(), init=False)
+    source_effect_summary: Any = field(default=None, repr=False, compare=False)
 
     def add_block(self, label: str) -> SIRBasicBlock:
         b = SIRBasicBlock(label=label)

@@ -31,6 +31,22 @@ def _repository_root() -> Path:
     raise RuntimeError("cannot locate repository root for canonical compiler SIR")
 
 
+def _attach_source_effect_summaries(checked_module: object, sir_module) -> None:
+    """Carry checked source effect facts onto matching canonical SIR functions."""
+    parsed_module = getattr(checked_module, "parsed_module", None)
+    summaries = getattr(checked_module, "source_effects", None)
+    if summaries is None and parsed_module is not None:
+        summaries = getattr(parsed_module, "source_effect_summaries", None)
+    if not summaries:
+        return
+    for function in sir_module.functions:
+        summary = summaries.get(function.name)
+        if summary is None:
+            continue
+        function.source_effect_summary = summary
+        function.declared_effects = summary.declared_effects
+
+
 def load_canonical_sir():
     existing = sys.modules.get(_CANONICAL_SIR_PACKAGE)
     if existing is not None:
@@ -71,6 +87,7 @@ def build_canonical_checked_ownership_sir(checked_module: object):
         module_name=getattr(parsed_module, "name", "main")
     )
     module = generator.generate_from_ast(parsed_module)
+    _attach_source_effect_summaries(checked_module, module)
     placement = sir.apply_ownership_module_plan(module, plan)
     return sir.CheckedOwnershipSIR(module, placement), plan
 
@@ -123,6 +140,7 @@ def build_canonical_checked_authority_sir(
         module_name=getattr(parsed_module, "name", "main")
     )
     module = generator.generate_from_ast(parsed_module)
+    _attach_source_effect_summaries(checked_module, module)
 
     # Import locally to keep authority_sir -> canonical_sir loading acyclic.
     from .authority_sir import certify_authority_sir, place_authority_abi_facts

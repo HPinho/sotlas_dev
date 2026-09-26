@@ -2,7 +2,7 @@
 
 **Atualizado em:** 2026-09-26
 **Status:** 🟡 IN PROGRESS
-**Último baseline verde certificado:** `bd63182` — CI #582 `success`
+**Último baseline verde certificado:** `33e60d8` — CI #586 `success`
 
 ## SIR effect summaries
 
@@ -11,7 +11,10 @@ function. The current effect vocabulary is `alloc`, `blocking`, `async`, `io`,
 `sync`, `unsafe`, `volatile`, `system`, and `unknown_call`. Calls to known
 functions propagate effects through recursive call graphs to a fixed point.
 Unresolved callees conservatively contribute `unknown_call` and are preserved
-by name in the summary.
+by name in the summary. When SIR is built from a checked source module, source
+direct/transitive facts, unresolved callee names, and the declared contract
+are attached to matching SIR functions. Inference combines these facts with
+effects visible in lowered instructions and rechecks the declared contract.
 
 `SIRFunction.declared_effects` can carry an explicit SIR contract. The pass
 rejects unknown effect names and contracts that omit an inferred effect.
@@ -29,9 +32,10 @@ transitive effects over local recursive calls, and attaches deterministic
 source summaries to the checked module. Classified low-level builtins and
 inline assembly carry conservative effects; unmapped external calls are
 `unknown_call`. Explicit contracts that omit inferred effects fail before C11
-lowering. Phase 1 now copies each source summary into its corresponding typed
-function. SIR revalidation and backend contracts remain open. This starter
-contract does not yet model all runtime/FFI names.
+lowering. Phase 1 copies each source summary into its corresponding typed
+function, and canonical SIR construction carries the facts into its functions
+for inference and contract revalidation. Backend contracts remain open. This
+starter contract does not yet model all runtime/FFI names.
 
 ## Verifications
 
@@ -50,7 +54,8 @@ contract does not yet model all runtime/FFI names.
 - [x] validation of explicit SIR effect contracts;
 - [x] source syntax, effect inference and canonical checker contract validation;
 - [x] per-function source summary propagation into the Typed AST;
-- [ ] SIR propagation/revalidation and backend contract integration;
+- [x] propagation into canonical SIR and revalidation of declared contracts;
+- [ ] backend contract integration;
 - [ ] effects for `@realtime`, async suspension, locks, FFI, and all runtime calls;
 - [x] source tests and a phase-specific release gate for the subset;
 - [ ] broad domain/runtime/backend end-to-end matrix.

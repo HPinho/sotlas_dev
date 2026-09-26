@@ -73,6 +73,10 @@ class EffectInferencePass:
         callees: dict[str, set[str]] = {name: set() for name in functions}
         unresolved: dict[str, set[str]] = {name: set() for name in functions}
         for name, function in functions.items():
+            source_summary = function.source_effect_summary
+            if source_summary is not None:
+                direct[name].update(source_summary.direct_effects)
+                unresolved[name].update(source_summary.unresolved_calls)
             for block in function.blocks:
                 for instruction in block.instructions:
                     if isinstance(instruction, CallInst):
@@ -94,6 +98,10 @@ class EffectInferencePass:
                         direct[name].add("system")
 
         inferred = {name: set(effects) for name, effects in direct.items()}
+        for name, function in functions.items():
+            source_summary = function.source_effect_summary
+            if source_summary is not None:
+                inferred[name].update(source_summary.transitive_effects)
         unresolved_reachable = {
             name: set(calls) for name, calls in unresolved.items()
         }
@@ -116,7 +124,10 @@ class EffectInferencePass:
 
         summaries: dict[str, SIREffectSummary] = {}
         for name, function in functions.items():
+            source_summary = function.source_effect_summary
             declared = function.declared_effects
+            if declared is None and source_summary is not None:
+                declared = source_summary.declared_effects
             if declared is not None:
                 if not isinstance(declared, tuple) or any(
                     not isinstance(effect, str) for effect in declared
@@ -140,6 +151,14 @@ class EffectInferencePass:
                             f"sir effect error: declared effects for {name!r} "
                             f"omit inferred effects: {', '.join(sorted(missing))}"
                         )
+                    if (
+                        unresolved_reachable[name]
+                        and "unknown_call" not in declared_set
+                    ):
+                        errors.append(
+                            f"sir effect error: declared effects for {name!r} "
+                            "omit inferred effects: unknown_call"
+                        )
 
             summaries[name] = SIREffectSummary(
                 direct_effects=tuple(
@@ -149,6 +168,7 @@ class EffectInferencePass:
                     effect for effect in _EFFECT_ORDER if effect in inferred[name]
                 ),
                 unresolved_calls=tuple(sorted(unresolved_reachable[name])),
+                declared_effects=declared,
             )
 
         changed_summary = summaries != module.effect_summaries

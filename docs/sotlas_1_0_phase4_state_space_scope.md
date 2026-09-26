@@ -1,8 +1,8 @@
 # Sotlas 1.0 — Phase 4 State Spaces Release Scope
 
 **Atualizado em:** 2026-09-25  
-**Status:** 🟡 IN PROGRESS  
-**Último baseline verde antes deste pacote:** `bd63182` — Sotlas CI & Toolchain Build Farm #582; jobs individuais `success`
+**Status:** ✅ COMPLETE  
+**Último baseline verde certificado:** `33e60d8` — Sotlas CI & Toolchain Build Farm #586; workflow `success`
 
 ## Objetivo do 1.0
 
@@ -92,7 +92,7 @@ Payloads, armazenamento tipado, métodos, múltiplas transições e transições
 - [x] API Python pública backend-neutral para analisar coverage e exigir exaustividade sobre plano certificado;
 - [x] `discern binding { State => { ... } }` exige cobertura exaustiva de todos os estados declarados no frontend canônico;
 - [x] C11 seleciona o arm correspondente ao typestate certificado, preservado estaticamente;
-- [ ] CI dedicada confirma o e2e nativo do subset de `discern` (candidato atual).
+- [x] CI #586 confirma o e2e nativo do subset de `discern`.
 
 ## DEFER 1.0.x
 

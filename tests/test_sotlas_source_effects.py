@@ -115,6 +115,34 @@ fn run() -> void { raw(); }
             ("unsafe", "volatile"),
         )
 
+    def test_checked_source_effects_are_revalidated_in_canonical_sir(self):
+        source = """
+module test::effects_sir;
+@effects(unsafe,volatile)
+@system fn raw() -> void { unsafe { asm("nop"); } }
+@effects(unsafe,volatile)
+fn run() -> void { raw(); }
+"""
+        checked = analyze_source_phase1(source)
+        ownership_sir, _ = package.build_canonical_checked_ownership_sir(
+            checked
+        )
+        sir = sys.modules["_sotlas_compiler_canonical_sir"]
+        result = sir.EffectInferencePass().run(ownership_sir.module)
+        self.assertTrue(result.success, result.errors)
+        self.assertEqual(
+            ownership_sir.module.effect_summaries["raw"].direct_effects,
+            ("unsafe", "volatile"),
+        )
+        self.assertEqual(
+            ownership_sir.module.effect_summaries["run"].transitive_effects,
+            ("unsafe", "volatile"),
+        )
+        self.assertEqual(
+            ownership_sir.module.effect_summaries["run"].declared_effects,
+            ("unsafe", "volatile"),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
