@@ -36,8 +36,8 @@ Legenda:
 | 11 | Causality | ~5% candidato | 🟡 |
 | 12 | Counterfactuals | ~5% candidato | 🟡 |
 | 13 | Transactions | ~5% candidato | 🟡 |
-| 14 | Intent | ~0% | 🟡 |
-| 15 | SIR completo | ~34% candidato | 🟡 |
+| 14 | Intent | ~5% candidato | 🟡 |
+| 15 | SIR completo | ~38% candidato | 🟡 |
 | 16 | Native Machine Backend | ~5% | 🟡 |
 | 17 | Tooling avançado | ~15% | 🟡 |
 
@@ -69,6 +69,24 @@ API inicial: `analyze_sir_flow_stage_unavailability(module, flow, stage)` em `so
 - [ ] snapshots `before/after`, inversas verificadas, execução atômica, rollback e compensação executada.
 
 API inicial: `analyze_sir_flow_transaction_effects(module, flow, policies, handlers)` em `sotlas_compile.transactions`.
+
+### Integridade canônica do Flow em SIR
+
+- [x] validador reconcilia argumentos, parâmetros, tipos de retorno, arestas, ordem paralela e summaries de efeitos do SIR;
+- [x] lowering e consultas de Causality, Counterfactuals e Transactions exigem o plano reconciliado;
+- [x] testes negativos adulteram argumentos e confirmam rejeição em todos os consumidores;
+- [ ] execução de chamadas no CFG SIR, integração de ownership/cleanup e validação de passes contra perda de obrigações.
+
+API: `validate_sir_flow_plans(module)` em `sotlas_compile.flow_sir`.
+
+### Avanço inicial de Intent
+
+- [x] planejamento determinístico escolhe a primeira estratégia Flow elegível em ordem `prefer` e `fallback`;
+- [x] inspeção registra efeitos observados e razões de rejeição por candidato;
+- [x] constraints iniciais verificam ausência de efeitos proibidos e disponibilidade das stages escolhidas;
+- [ ] sintaxe `intent`, objetivos funcionais, guarantees tipadas além dessas constraints e execução do plano.
+
+API inicial: `plan_sir_intent(module, name, prefer=..., fallback=...)` em `sotlas_compile.intent`.
 
 ## Fase 1 — Typed Semantic Core
 

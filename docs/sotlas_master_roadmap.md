@@ -2059,6 +2059,14 @@ plan inspection
 
 `intent` depende dessas fundações e não deverá ser uma camada de magia.
 
+O primeiro planejador de Intent opera sobre planos Flow já certificados no
+SIR: percorre candidatos em ordem `prefer` e depois `fallback`, inspeciona os
+efeitos e rejeita planos que usem efeitos proibidos ou stages indisponíveis.
+O resultado informa a estratégia selecionada, as razões de rejeição e as
+duas constraints verificadas. Ele não introduz sintaxe `intent`, prova
+objetivos funcionais arbitrários ou executa a estratégia.
+API: `plan_sir_intent(module, name, prefer=..., fallback=...)`.
+
 ---
 
 ### Fase 11 — SIR 2

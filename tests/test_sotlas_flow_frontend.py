@@ -282,12 +282,59 @@ flow Home {
             package.analyze_sir_flow_stage_unavailability(sir.module, "Home", "profile")
         with self.assertRaisesRegex(package.TransactionError, "invalid canonical SIR Flow plan"):
             package.analyze_sir_flow_transaction_effects(sir.module, "Home", {})
-        with self.assertRaisesRegex(package.CausalityError, "invalid canonical SIR Flow plan"):
-            package.explain_sir_flow_causality(sir.module, "Home", "profile", "page")
-        with self.assertRaisesRegex(package.CounterfactualError, "invalid canonical SIR Flow plan"):
-            package.analyze_sir_flow_stage_unavailability(sir.module, "Home", "profile")
-        with self.assertRaisesRegex(package.TransactionError, "invalid canonical SIR Flow plan"):
-            package.analyze_sir_flow_transaction_effects(sir.module, "Home", {})
+
+    def test_intent_selects_preferred_eligible_flow_and_explains_fallbacks(self):
+        source = """
+module test::intent;
+fn cached() -> i32 { return 1; }
+fn local() -> i32 { return 2; }
+flow Cached { stage value = cached; }
+flow Local { stage value = local; }
+"""
+        checked = package.analyze_source_phase1(source)
+        sir, _ = package.build_canonical_checked_ownership_sir(checked)
+        cached_function = next(
+            function for function in sir.module.functions
+            if function.name == "cached"
+        )
+        cached_function.source_effect_summary = replace(
+            cached_function.source_effect_summary,
+            direct_effects=("system",), transitive_effects=("system",),
+        )
+        cached_plan = sir.module.flow_plans[0]
+        cached_stage = cached_plan.stages[0]
+        sir.module.flow_plans = (replace(
+            cached_plan,
+            stages=(replace(cached_stage, effects=("system",)),),
+        ), sir.module.flow_plans[1])
+
+        selected = package.plan_sir_intent(
+            sir.module, "LoadValue", prefer=("Cached",), fallback=("Local",),
+            forbidden_effects=("system",),
+        )
+        self.assertEqual(selected.selected_flow, "Local")
+        self.assertFalse(selected.inspection[0].eligible)
+        self.assertIn("forbidden effects: system", selected.inspection[0].reasons[0])
+        self.assertEqual(
+            selected.guarantees,
+            ("forbidden_effects_absent", "all_selected_flow_stages_available"),
+        )
+
+        preferred = package.plan_sir_intent(
+            sir.module, "LoadValue", prefer=("Cached",), fallback=("Local",)
+        )
+        self.assertEqual(preferred.selected_flow, "Cached")
+        unavailable = package.plan_sir_intent(
+            sir.module, "LoadValue", prefer=("Cached",), fallback=("Local",),
+            unavailable_stages={"Cached": ("value",), "Local": ("value",)},
+        )
+        self.assertIsNone(unavailable.selected_flow)
+        self.assertEqual(unavailable.guarantees, ())
+        with self.assertRaisesRegex(package.IntentError, "unknown stages"):
+            package.plan_sir_intent(
+                sir.module, "LoadValue", prefer=("Cached",),
+                unavailable_stages={"Cached": ("missing",)},
+            )
 
     def test_typed_flow_runtime_rejects_dependency_tampering_before_execution(self):
         checked = package.analyze_source_phase1(self._source("""

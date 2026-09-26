@@ -75,6 +75,9 @@ from .transactions import (
     TransactionError, TransactionEffect, TransactionAudit,
     analyze_sir_flow_transaction_effects,
 )
+from .intent import (
+    IntentError, IntentCandidateReview, IntentPlan, plan_sir_intent,
+)
 from .contracts_frontend import (
     ContractFrontendError,
     ContractCallProof,
@@ -109,4 +112,5 @@ __all__ = [
     "analyze_sir_flow_stage_unavailability",
     "TransactionError", "TransactionEffect", "TransactionAudit",
     "analyze_sir_flow_transaction_effects",
+    "IntentError", "IntentCandidateReview", "IntentPlan", "plan_sir_intent",
 ]
