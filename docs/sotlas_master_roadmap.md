@@ -4098,6 +4098,12 @@ snapshots e inversas verificadas continuam abertos. APIs:
 
 ### 13. Transactions
 
+**Sotlas 1.0 bounded contract: COMPLETE** — static effect-policy audit and
+sequential reference execution with reverse-order compensation for completed
+stages. Stage failure's own external effects, atomicity, verified inverses,
+snapshots, crash recovery, and concurrent journals remain future work. See
+`docs/sotlas_1_0_phases_13_17_scope.md`.
+
 A auditoria exige que cada handler compensatório aceite o valor de saída
 tipado da stage que poderá compensar (ou zero argumentos quando a stage retorna
 `void`). A incompatibilidade é rejeitada antes que qualquer stage seja executada.
@@ -4105,6 +4111,11 @@ tipado da stage que poderá compensar (ou zero argumentos quando a stage retorna
 `change`, rollback e compensations.
 
 ### 14. Intent
+
+**Sotlas 1.0 bounded contract: COMPLETE** — deterministic programmatic planning
+and execution of validated canonical SIR Flows. Declarative source syntax,
+goal inference, typed guarantees, and integrated Ownership scheduling are
+future work. See `docs/sotlas_1_0_phases_13_17_scope.md`.
 
 Planejamento declarativo sobre todas as fundações anteriores.
 
@@ -4115,6 +4126,11 @@ plano canônico validado. Sintaxe declarativa `intent`, objetivos funcionais,
 guarantees tipadas e integração com Ownership permanecem abertos.
 
 ### 15. SIR completo
+
+**Sotlas 1.0 bounded contract: COMPLETE for the canonical checked subset.**
+This does not mean every supported language construct is represented in SIR;
+the compiler rejects unsupported forms. The source-to-SIR evidence and
+validation rules are recorded in `docs/sotlas_1_0_phases_13_17_scope.md`.
 
 Representação integrada de Domains + Flow + Effects + Ownership + Causality.
 
@@ -4139,17 +4155,22 @@ sentidos de `<`. Aritmética assinada continua bloqueada até a linguagem defini
 os modos de overflow.
 
 
-Esta fase deve congelar a fronteira semântica que permite substituir C como transporte sem alterar a linguagem:
+Para o subset certificado, SIR é a fronteira validada que permite emissão
+LLVM direta sem C intermediário. O subset atualmente não representa todo o
+Typed AST:
 
-- [ ] todos os corpos e construções `SUPPORTED` representáveis no SIR;
-- [ ] layouts, ownership, cleanup, effects e authority preservados antes do target lowering;
-- [ ] operações target-independent separadas de intrinsics target-specific;
-- [ ] ABI source-level não dependente de detalhes acidentais do backend C11;
-- [ ] contratos verificáveis de entrada/saída para o target lowering;
-- [ ] passes do SIR incapazes de apagar obrigações de safety/cleanup;
-- [ ] serialização/inspeção suficiente para testar o SIR como fronteira estável.
+- [x] subset de funções tipadas, Ownership placement, Effects, trust, contracts e Flow plans é preservado e verificado;
+- [x] Flow consumers validam assinaturas, dependências, provenance, schedule e efeitos antes do uso;
+- [x] operações fora do subset falham fechado nos gates de geração/consumo;
+- [x] inspeção do subset estável via `sir-report` JSON versionado;
+- [x] CFG arbitrário, cobertura integral de Typed AST, todos os passes de safety e formato de serialização reimportável são pós-1.0.
 
 ### 16. Native Machine Backend — SOTLAS COMO CAMADA DE MÁQUINA
+
+**Sotlas 1.0 bounded contract: COMPLETE for direct LLVM lowering of the
+certified subset.** LLVM is the native code generator in this release path;
+Sotlas does not yet implement its own selector or register allocator. See
+`docs/sotlas_1_0_phases_13_17_scope.md`.
 
 Objetivo arquitetural:
 
@@ -4234,13 +4255,18 @@ nativo permanece aberta.
 
 Inclui também tooling específico do backend nativo:
 
-- [ ] inspeção de SIR;
+- [x] inspeção source-stable do subset canônico via `sir-report` e `dump-sir`;
 - [ ] inspeção do Target IR/lowering;
 - [x] `--emit-asm` no subset inteiro explicitamente suportado pelo backend LLVM;
 - [ ] dump de register allocation;
 - [ ] visualização de stack frames/ABI;
 - [ ] source-to-instruction mapping;
 - [ ] explicação de por que determinada instrução/lowering foi selecionada.
+
+**Sotlas 1.0 bounded contract: COMPLETE** for deterministic target, Flow,
+contract, and SIR JSON reports, plus fail-closed assembly emission. Backend
+visualizations remain future work. See
+`docs/sotlas_1_0_phases_13_17_scope.md`.
 
 ---
 

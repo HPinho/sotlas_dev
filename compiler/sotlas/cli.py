@@ -6,6 +6,7 @@ Uso:
     sotlas run     arquivo.sotlas
     sotlas dump-ast arquivo.sotlas
     sotlas dump-sir arquivo.sotlas
+    sotlas sir-report arquivo.sotlas
     sotlas dump-llvm arquivo.sotlas [--debug]
     sotlas fmt     arquivo.sotlas [--check]
     sotlas lint    arquivo.sotlas
@@ -151,6 +152,12 @@ def main() -> int:
     )
     flow_report.add_argument("source", help=f"Arquivo fonte {SOTLAS_EXT}")
 
+    sir_report = sub.add_parser(
+        "sir-report",
+        help="Emite inventário JSON do subset SIR canônico validado",
+    )
+    sir_report.add_argument("source", help=f"Arquivo fonte {SOTLAS_EXT}")
+
     target_report = sub.add_parser(
         "target-report",
         help="Emite JSON determinístico do contrato do target selecionado",
@@ -250,6 +257,8 @@ def main() -> int:
         return _run_contract_report(args.source)
     if args.cmd == "flow-report":
         return _run_flow_report(args.source)
+    if args.cmd == "sir-report":
+        return _run_sir_report(args.source)
     if args.cmd == "target-report":
         return _run_target_report(args.target, args.cpu_feature)
     if args.cmd == "dump-llvm":
@@ -450,6 +459,67 @@ def _run_flow_report(source_path: str) -> int:
         print(json.dumps(report, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
     except Exception as error:
         print(f"sotlas: erro ao gerar flow report: {error}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def _run_sir_report(source_path: str) -> int:
+    loaded = _read_source(source_path)
+    if loaded is None:
+        return 1
+    _, text = loaded
+    try:
+        from collections import Counter
+        from sotlas_compile import (
+            analyze_source_phase1,
+            build_canonical_checked_ownership_sir,
+            validate_sir_flow_plans,
+        )
+
+        checked = analyze_source_phase1(text, filename=source_path)
+        checked_sir, _ = build_canonical_checked_ownership_sir(checked)
+        module = checked_sir.module
+        plans = validate_sir_flow_plans(module)
+        functions = []
+        instruction_counts = Counter()
+        block_count = 0
+        for function in module.functions:
+            blocks = []
+            for block in function.blocks:
+                block_count += 1
+                opcodes = [
+                    type(instruction).__name__.removesuffix("Inst").lower()
+                    for instruction in block.instructions
+                ]
+                instruction_counts.update(opcodes)
+                blocks.append({"label": block.label, "operations": opcodes})
+            functions.append({
+                "name": function.name,
+                "parameters": [
+                    {"name": parameter.name, "type": parameter.type_name}
+                    for parameter in function.parameters
+                ],
+                "return_type": function.return_type,
+                "system": function.is_system,
+                "required_cpu_features": list(function.required_cpu_features),
+                "blocks": blocks,
+            })
+        report = {
+            "schema": "sotlas.sir-report.v1",
+            "module": module.name,
+            "representation": "canonical_checked_subset",
+            "functions": functions,
+            "flows": [plan.name for plan in plans],
+            "summary": {
+                "function_count": len(functions),
+                "block_count": block_count,
+                "instruction_count": sum(instruction_counts.values()),
+                "operations": dict(sorted(instruction_counts.items())),
+            },
+        }
+        print(json.dumps(report, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+    except Exception as error:
+        print(f"sotlas: erro ao gerar sir report: {error}", file=sys.stderr)
         return 1
     return 0
 

@@ -142,6 +142,7 @@ class SotlasRealityGateTests(unittest.TestCase):
             Path("sotlas_compile/__init__.py"),
             Path("sotlas_compile/bootstrap.py"),
             Path("sotlas_compile/language_safety.py"),
+            Path("sotlas/cli.py"),
         }
         paired = {
             path.relative_to(compiler)

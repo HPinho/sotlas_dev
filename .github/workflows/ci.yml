@@ -48,6 +48,7 @@ jobs:
         sotlas check examples/04_raw_memory_and_unsafe/main.sotlas
         sotlas dump-ast examples/01_hello_systems/main.sotlas
         sotlas dump-sir examples/01_hello_systems/main.sotlas
+        sotlas sir-report examples/01_hello_systems/main.sotlas
         sotlas dump-llvm examples/01_hello_systems/main.sotlas --debug
         sotlas fmt examples/01_hello_systems/main.sotlas --check
         sotlas lint examples/01_hello_systems/main.sotlas
@@ -168,6 +169,22 @@ jobs:
       run: |
         python -m unittest discover -s tests -p "test_sotlas_contract_frontend.py" -v
         python -m unittest discover -s tests -p "test_sotlas_contract_report_cli.py" -v
+
+    - name: Verify Phases 13-15 Transactions, Intent, and canonical SIR
+      run: |
+        python -m unittest discover -s tests -p "test_sotlas_flow_frontend.py" -v
+        python -m unittest discover -s tests -p "test_sotlas_sir.py" -v
+        python -m unittest discover -s tests -p "test_sotlas_sir_report_cli.py" -v
+
+    - name: Verify Phase 16 direct LLVM native backend
+      run: |
+        python -m unittest discover -s tests -p "test_sotlas_llvm_direct_emission.py" -v
+
+    - name: Verify Phase 17 deterministic compiler reports
+      run: |
+        python -m unittest discover -s tests -p "test_sotlas_contract_report_cli.py" -v
+        python -m unittest discover -s tests -p "test_sotlas_flow_report_cli.py" -v
+        python -m unittest discover -s tests -p "test_sotlas_sir_report_cli.py" -v
 
   package-toolchain-snapshot:
     name: Package Nightly Toolchain Snapshot

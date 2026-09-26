@@ -51,6 +51,10 @@ production entrypoints, SIR prototype labeling, and the exact compiler/tools
 mirror inventory. New fenced documents, mirror differences, or unique modules
 must update their reviewed inventories in the same change.
 
+The canonical `compiler/sotlas/cli.py` now contains release reports that are
+not mirrored by the historical `tools/sotlas/cli.py`; the CLI difference is
+reviewed and intentional while the `tools/` compatibility tree is retained.
+
 Phase 0's Sotlas 1.0 contract is complete. Physical consolidation of the
 historical compatibility tree and per-snippet promotion beyond the single
 runnable Quickstart example remain post-1.0 work. CI success alone is not

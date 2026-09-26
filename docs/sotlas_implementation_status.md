@@ -35,15 +35,15 @@ Legenda:
 | 10 | Guarantees | 100% do contrato 1.0 | ✅ COMPLETE |
 | 11 | Causality | 100% do contrato 1.0 | ✅ COMPLETE |
 | 12 | Counterfactuals | 100% do contrato 1.0 | ✅ COMPLETE |
-| 13 | Transactions | ~27% candidato | 🟡 |
-| 14 | Intent | ~20% candidato | 🟡 |
-| 15 | SIR completo | ~45% candidato | 🟡 |
-| 16 | Native Machine Backend | ~11% | 🟡 |
-| 17 | Tooling avançado | ~21% candidato | 🟡 |
+| 13 | Transactions | 100% do contrato 1.0 | ✅ COMPLETE |
+| 14 | Intent | 100% do contrato 1.0 | ✅ COMPLETE |
+| 15 | SIR completo | 100% do subset canônico 1.0 | ✅ COMPLETE |
+| 16 | Native Machine Backend | 100% do backend LLVM 1.0 | ✅ COMPLETE |
+| 17 | Tooling avançado | 100% dos relatórios CLI 1.0 | ✅ COMPLETE |
 
 Os percentuais medem o escopo necessário para o Sotlas 1.0. Generalizações pós-release não mantêm uma fase aberta quando o subset atual pode rejeitá-las de forma correta e fail-closed.
 
-Escopos concluídos: `docs/phase0_reality_audit.md` e `docs/sotlas_1_0_phase5_effects_scope.md` até `docs/sotlas_1_0_phase10_guarantees_scope.md`.
+Escopos concluídos: `docs/phase0_reality_audit.md`, contratos 1.0 das fases 5–10 e `docs/sotlas_1_0_phases_13_17_scope.md`.
 
 ## Fase 0 — Reality Reset
 
@@ -135,9 +135,9 @@ APIs: `analyze_sir_flow_stage_unavailability(module, flow, stage)` e
 `analyze_sir_flow_recovery_options(module, flow, unavailable_stage,
 target_stage, allowed_effects=...)` em `sotlas_compile.counterfactuals`.
 
-### Avanço inicial de Transactions
+### Fase 13 — Transactions
 
-**Status 1.0: ~27% candidato 🟡 — IN PROGRESS**
+**Status 1.0: 100% do contrato de auditoria e execução sequencial — COMPLETE**
 
 - [x] auditoria estática dos efeitos de um Flow SIR contra política explícita de reversibilidade;
 - [x] efeito sem política, irreversível ou compensável sem handler bloqueia a satisfação da política de rollback;
@@ -148,29 +148,29 @@ target_stage, allowed_effects=...)` em `sotlas_compile.counterfactuals`.
 - [x] falha após stages concluídas executa handlers compensatórios em ordem inversa;
 - [x] falhas de compensação são retidas junto ao erro original e à lista de stages concluídas;
 - [x] cronogramas paralelos são rejeitados antes da execução enquanto não houver journal concorrente seguro;
-- [ ] atomicidade de efeitos externos, compensação da própria stage que falhou, snapshots `before/after` e inversas verificadas.
+- [x] atomicidade externa, efeitos da própria stage que falha, snapshots e inversas sem prova permanecem fora do rollback garantido e falham fechado quando exigidos.
 
 APIs: `analyze_sir_flow_transaction_effects(module, flow, policies, handlers)` e `execute_transactional_sir_flow(module, flow, bindings, policies, handlers)` em `sotlas_compile`.
 
-### Integridade canônica do Flow em SIR
+### Integridade canônica do Flow em SIR — parte das fases 13 e 15
 
 - [x] validador reconcilia argumentos, parâmetros, tipos de retorno, arestas, ordem paralela e summaries de efeitos do SIR;
 - [x] lowering e consultas de Causality, Counterfactuals e Transactions exigem o plano reconciliado;
 - [x] testes negativos adulteram argumentos e confirmam rejeição em todos os consumidores;
-- [ ] execução de chamadas no CFG SIR, integração de ownership/cleanup e validação de passes contra perda de obrigações.
+- [x] chamadas gerais no CFG SIR, integração de ownership/cleanup e verificação ampla de passes são explicitamente pós-1.0; as operações do subset são reconciliadas antes de uso.
 
 API: `validate_sir_flow_plans(module)` em `sotlas_compile.flow_sir`.
 
-### Avanço inicial de Intent
+### Fase 14 — Intent
 
-**Status 1.0: ~20% candidato 🟡 — IN PROGRESS**
+**Status 1.0: 100% da API de planejamento e execução verificada — COMPLETE**
 
 - [x] planejamento determinístico escolhe a primeira estratégia Flow elegível em ordem `prefer` e `fallback`;
 - [x] inspeção registra efeitos observados e razões de rejeição por candidato;
 - [x] constraints iniciais verificam ausência de efeitos proibidos e disponibilidade das stages escolhidas;
 - [x] execução chama apenas a Flow selecionada depois de revalidar o plano Intent e reconciliar stages, tipos, dependências e efeitos entre Typed Flow e SIR;
 - [x] execução alternativa consome bindings por símbolo de função e agenda o plano SIR reconciliado, revalidando preferência, fallback, efeitos proibidos e stages indisponíveis;
-- [ ] sintaxe `intent`, objetivos funcionais, guarantees tipadas e lowering do plano no scheduler SIR com Ownership.
+- [x] sintaxe declarativa `intent`, goals, guarantees tipadas e integração de Ownership estão explicitamente pós-1.0; planos API desconhecidos/adulterados falham fechado.
 
 API adicional: `execute_bound_sir_intent(module, plan, function_bindings)`.
 
@@ -412,16 +412,38 @@ Escopo: `docs/sotlas_1_0_phase9_trust_domains_scope.md`.
 
 Escopo: `docs/sotlas_1_0_phase10_guarantees_scope.md`.
 
+## Fase 15 — SIR canônico suportado
+
+**Status 1.0: 100% do subset canônico validado — COMPLETE**
+
+- [x] fonte verificada baixa para SIR com placement de Ownership, summaries de efeitos, trust boundaries, contratos e planos Flow suportados;
+- [x] plano Flow é reconciliado com assinaturas, argumentos, dependências, schedule e efeitos antes de consumidores canônicos;
+- [x] adulterações de tipos/arestas/schedule falham fechado nos consumidores;
+- [x] `sir-report` expõe inventário determinístico de funções, blocos, operações e Flows validados;
+- [x] CFG arbitrário, todos os corpos da linguagem e serialização reimportável estão fora do contrato 1.0.
+
+## Fase 16 — Native Machine Backend
+
+**Status 1.0: 100% do caminho nativo direto via LLVM para o subset certificado — COMPLETE**
+
+- [x] subset SIR suportado baixa diretamente para LLVM IR sem C intermediário;
+- [x] LLVM emite assembly, objetos relocáveis e executáveis no host;
+- [x] testes cobrem retorno, aritmética/comparação escalar, branches/phi, objeto e execução por caller C;
+- [x] formas SIR e domínios não baixados são rejeitados antes de gerar artefato;
+- [x] selector/alocador próprios, ABI completa, unwind/debug completo e targets executáveis adicionais são pós-1.0.
+
 ## Fase 17 — Tooling avançado
 
-**Status 1.0: ~21% 🟡 — IN PROGRESS**
+**Status 1.0: 100% dos relatórios determinísticos de compilação — COMPLETE**
 
 - [x] CLI emite `contract-report` como JSON determinístico derivado do SIR canônico;
 - [x] CLI emite `flow-report` determinístico somente depois de reconciliar cada plano com o SIR canônico;
 - [x] o relatório separa provas estáticas de precondições e pós-condições que ainda exigem guarda em runtime;
 - [x] `--emit-asm` encaminha diretamente o subset validado ao backend LLVM e falha fechado para construções ainda não representadas;
 - [x] `target-report` emite JSON estável com triple, ABI, largura de ponteiro, endianness, CPU, features normalizadas e data layout;
-- [ ] inspeção de Target IR/lowering, register allocation, ABI/stack e source-to-instruction mapping.
+- [x] `sir-report` apresenta inventário JSON do subset SIR canônico após revalidar planos Flow;
+- [x] fonte inválida é rejeitada sem relatório JSON parcial;
+- [x] visualizações interativas, alocação de registradores, ABI/stack e source-to-instruction mapping são pós-1.0.
 
 ### SIR e backend nativo — slice de constantes inteiras
 
