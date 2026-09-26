@@ -1,8 +1,8 @@
 # Sotlas — Implementation Status
 
 **Atualizado em:** 2026-09-26
-**Último baseline verde certificado:** `3d6b10f`
-**CI de referência:** Sotlas CI & Toolchain Build Farm #622 — workflow `success`
+**Último baseline verde certificado:** `620ec78`
+**CI de referência:** Sotlas CI & Toolchain Build Farm #626 — workflow `success`
 **Fonte arquitetural:** `SOTLAS — ESPECIFICAÇÃO MESTRA`
 
 > Este é o índice operacional atual. O snapshot detalhado anterior, com o histórico extenso das microentregas da Fase 2, permanece preservado em `docs/archive/sotlas_implementation_status_2026-09-23.md`.
@@ -39,7 +39,7 @@ Legenda:
 | 14 | Intent | ~20% candidato | 🟡 |
 | 15 | SIR completo | ~40% candidato | 🟡 |
 | 16 | Native Machine Backend | ~5% | 🟡 |
-| 17 | Tooling avançado | ~15% | 🟡 |
+| 17 | Tooling avançado | ~18% | 🟡 |
 
 Os percentuais medem o escopo necessário para o Sotlas 1.0. Generalizações pós-release não mantêm uma fase aberta quando o subset atual pode rejeitá-las de forma correta e fail-closed.
 
@@ -327,6 +327,14 @@ Escopo: `docs/sotlas_1_0_phase7_execution_scope.md`.
 - [ ] pós-condições sobre estado/heap, declaração `guarantee`, safety reports e gate e2e por propriedade.
 
 Escopo: `docs/sotlas_1_0_phase10_guarantees_scope.md`.
+
+## Fase 17 — Tooling avançado
+
+**Status 1.0: ~18% 🟡 — IN PROGRESS**
+
+- [x] CLI emite `contract-report` como JSON determinístico derivado do SIR canônico;
+- [x] o relatório separa provas estáticas de precondições e pós-condições que ainda exigem guarda em runtime;
+- [ ] inspeção de Target IR/lowering, `--emit=asm`, register allocation, ABI/stack e source-to-instruction mapping.
 
 ## Regra de baseline
 

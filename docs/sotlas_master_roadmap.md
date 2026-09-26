@@ -4168,6 +4168,10 @@ sem precisar virar C no caminho.
 
 Flow View, Domain View, State View, Authority View, Causal Debugger e Safety Explorer.
 
+O CLI também fornece `contract-report`, um JSON source-stable derivado do SIR
+canônico que distingue provas estáticas de contratos cuja garantia depende da
+guarda em runtime. A inspeção do backend nativo permanece aberta.
+
 Inclui também tooling específico do backend nativo:
 
 - [ ] inspeção de SIR;

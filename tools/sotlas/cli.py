@@ -20,6 +20,7 @@ Uso:
 """
 from __future__ import annotations
 import argparse
+import json
 import sys
 import subprocess
 from pathlib import Path
@@ -118,6 +119,13 @@ def main() -> int:
     dsir = sub.add_parser("dump-sir", help="Exibe o protótipo SIR (não é lowering de produção)")
     dsir.add_argument("source", help=f"Arquivo fonte {SOTLAS_EXT}")
 
+    # Subcomando: contract-report
+    crep = sub.add_parser(
+        "contract-report",
+        help="Emite relatório JSON de provas e contratos de função verificados",
+    )
+    crep.add_argument("source", help=f"Arquivo fonte {SOTLAS_EXT}")
+
     # Subcomando: dump-llvm
     dllvm = sub.add_parser("dump-llvm", help="Emite LLVM IR experimental a partir do protótipo SIR")
     dllvm.add_argument("source", help=f"Arquivo fonte {SOTLAS_EXT}")
@@ -198,6 +206,8 @@ def main() -> int:
         return _run_dump_ast(args.source)
     if args.cmd == "dump-sir":
         return _run_dump_sir(args.source)
+    if args.cmd == "contract-report":
+        return _run_contract_report(args.source)
     if args.cmd == "dump-llvm":
         return _run_dump_llvm(args.source, emit_debug=args.debug)
     if args.cmd == "fmt":
@@ -293,6 +303,56 @@ def _run_dump_sir(source_path: str) -> int:
         print(sir_mod.dump())
     except SotlasBootstrapError as error:
         print(f"sotlas: erro: {error}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def _run_contract_report(source_path: str) -> int:
+    loaded = _read_source(source_path)
+    if loaded is None:
+        return 1
+    _, text = loaded
+    try:
+        from sotlas_compile import (
+            analyze_source_phase1,
+            build_canonical_checked_ownership_sir,
+        )
+
+        checked = analyze_source_phase1(text, filename=source_path)
+        checked_sir, _ = build_canonical_checked_ownership_sir(checked)
+        module = checked_sir.module
+        report = {
+            "schema": "sotlas.contract-report.v1",
+            "module": module.name,
+            "proofs": [
+                {
+                    "kind": "requires_call",
+                    "function": proof.function,
+                    "line": proof.line,
+                    "column": proof.column,
+                    "predicate": proof.predicate,
+                    "arguments": [
+                        {"name": name, "value": value}
+                        for name, value in proof.arguments
+                    ],
+                    "refinements": list(proof.refinements),
+                    "status": "proven",
+                }
+                for proof in module.contract_proofs
+            ],
+            "runtime_preconditions": [
+                {"function": item.function, "predicate": item.predicate}
+                for item in module.contract_preconditions
+            ],
+            "runtime_postconditions": [
+                {"function": item.function, "predicate": item.predicate}
+                for item in module.contract_postconditions
+            ],
+        }
+        json.dump(report, sys.stdout, ensure_ascii=False, sort_keys=True, indent=2)
+        sys.stdout.write("\n")
+    except Exception as error:
+        print(f"sotlas: erro ao gerar contract report: {error}", file=sys.stderr)
         return 1
     return 0
 

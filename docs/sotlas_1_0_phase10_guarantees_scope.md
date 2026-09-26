@@ -2,7 +2,7 @@
 
 **Atualizado em:** 2026-09-26
 **Status:** 🟡 IN PROGRESS
-**Baseline de código:** `ff5f433` — CI #598 `success`
+**Baseline de código:** `620ec78` — CI #626 `success`
 
 ### Refinamento local de fluxo
 
