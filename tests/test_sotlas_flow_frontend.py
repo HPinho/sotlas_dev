@@ -203,6 +203,39 @@ flow Home {
         with self.assertRaisesRegex(package.CausalityError, "no unique checked Flow plan"):
             package.explain_sir_flow_causality(sir.module, "Missing", "profile", "page")
 
+    def test_counterfactual_reports_structural_recovery_candidates(self):
+        source = """
+module test::counterfactual_recovery;
+fn load_profile() -> i32 { return 1; }
+fn load_backup() -> i32 { return 2; }
+fn render(profile: i32) -> i32 { return profile; }
+fn render_backup(profile: i32) -> i32 { return profile + 1; }
+flow Home {
+    stage profile = load_profile;
+    stage page = render after profile;
+}
+flow Backup {
+    stage backup = load_backup;
+    stage page = render_backup after backup;
+}
+"""
+        checked = package.analyze_source_phase1(source)
+        sir, _ = package.build_canonical_checked_ownership_sir(checked)
+        options = package.analyze_sir_flow_recovery_options(
+            sir.module, "Home", "profile", "page"
+        )
+        self.assertEqual(options.impact.affected_stages, ("profile", "page"))
+        self.assertEqual(len(options.candidates), 1)
+        candidate = options.candidates[0]
+        self.assertEqual(
+            (candidate.flow, candidate.stage, candidate.function, candidate.result_type),
+            ("Backup", "page", "render_backup", "i32"),
+        )
+        self.assertEqual(candidate.effects, ())
+        self.assertEqual(candidate.effects_added, ())
+        self.assertEqual(candidate.effects_removed, ())
+        self.assertFalse(candidate.semantic_equivalence_verified)
+
     def test_counterfactual_rejects_unknown_stage_and_noncanonical_graph(self):
         checked = package.analyze_source_phase1(self._source("""
 flow Home {

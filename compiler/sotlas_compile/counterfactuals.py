@@ -20,6 +20,25 @@ class CounterfactualImpact:
     affected_dependencies: tuple[tuple[str, str], ...]
 
 
+@dataclass(frozen=True)
+class CounterfactualRecoveryCandidate:
+    flow: str
+    stage: str
+    function: str
+    result_type: str
+    effects: tuple[str, ...]
+    effects_added: tuple[str, ...]
+    effects_removed: tuple[str, ...]
+    semantic_equivalence_verified: bool = False
+
+
+@dataclass(frozen=True)
+class CounterfactualRecoveryOptions:
+    impact: CounterfactualImpact
+    target_stage: str
+    candidates: tuple[CounterfactualRecoveryCandidate, ...]
+
+
 def _analyze(flow_name, graph, stage_names, unavailable_stage):
     if not isinstance(unavailable_stage, str) or not unavailable_stage:
         raise CounterfactualError("unavailable Flow stage must be a non-empty name")
@@ -93,8 +112,79 @@ def analyze_sir_flow_stage_unavailability(
     return _analyze(flow_name, graph, tuple(stage.name for stage in plan.stages), unavailable_stage)
 
 
+def analyze_sir_flow_recovery_options(
+    module, flow_name: str, unavailable_stage: str, target_stage: str,
+) -> CounterfactualRecoveryOptions:
+    """Find type-compatible alternate Flow implementations for an impacted stage.
+
+    Candidates are structural only: matching stage names and result types do not
+    prove that two functions compute equivalent values.
+    """
+    if not isinstance(target_stage, str) or not target_stage:
+        raise CounterfactualError("recovery target stage must be a non-empty name")
+    try:
+        plans = validate_sir_flow_plans(module)
+    except FlowSIRError as error:
+        raise CounterfactualError(f"invalid canonical SIR Flow plan: {error}") from error
+    matches = tuple(plan for plan in plans if plan.name == flow_name)
+    if len(matches) != 1:
+        raise CounterfactualError(f"SIR has no unique checked Flow plan {flow_name!r}")
+    failed_plan = matches[0]
+    failed_stages = {stage.name: stage for stage in failed_plan.stages}
+    if target_stage not in failed_stages:
+        raise CounterfactualError(f"unknown recovery target stage {target_stage!r}")
+    impact = analyze_sir_flow_stage_unavailability(
+        module, flow_name, unavailable_stage
+    )
+    if target_stage not in impact.affected_stages:
+        return CounterfactualRecoveryOptions(impact, target_stage, ())
+
+    target = failed_stages[target_stage]
+    failed_effects = tuple(target.effects)
+    candidates = []
+    for plan in plans:
+        if plan.name == flow_name:
+            continue
+        stage_by_name = {stage.name: stage for stage in plan.stages}
+        replacement = stage_by_name.get(target_stage)
+        if replacement is None or replacement.result_type != target.result_type:
+            continue
+        # Follow the replacement's transitive dependency ancestry. A candidate
+        # that still consumes the failed stage cannot recover the requested output.
+        producers = {
+            stage.name: tuple(
+                argument.value.producer_stage for argument in stage.arguments
+            )
+            for stage in plan.stages
+        }
+        ancestry = set()
+        pending = [target_stage]
+        while pending:
+            current = pending.pop()
+            for producer in producers.get(current, ()):
+                if producer not in ancestry:
+                    ancestry.add(producer)
+                    pending.append(producer)
+        if unavailable_stage in ancestry:
+            continue
+        candidate_effects = tuple(replacement.effects)
+        candidates.append(CounterfactualRecoveryCandidate(
+            plan.name,
+            target_stage,
+            replacement.function,
+            replacement.result_type,
+            candidate_effects,
+            tuple(effect for effect in candidate_effects if effect not in failed_effects),
+            tuple(effect for effect in failed_effects if effect not in candidate_effects),
+        ))
+    candidates.sort(key=lambda candidate: (candidate.flow, candidate.function))
+    return CounterfactualRecoveryOptions(impact, target_stage, tuple(candidates))
+
+
 __all__ = [
     "CounterfactualError", "CounterfactualImpact",
+    "CounterfactualRecoveryCandidate", "CounterfactualRecoveryOptions",
     "analyze_flow_stage_unavailability",
     "analyze_sir_flow_stage_unavailability",
+    "analyze_sir_flow_recovery_options",
 ]

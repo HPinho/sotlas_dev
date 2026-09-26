@@ -77,8 +77,10 @@ from .causality import (
 )
 from .counterfactuals import (
     CounterfactualError, CounterfactualImpact,
+    CounterfactualRecoveryCandidate, CounterfactualRecoveryOptions,
     analyze_flow_stage_unavailability,
     analyze_sir_flow_stage_unavailability,
+    analyze_sir_flow_recovery_options,
 )
 from .transactions import (
     TransactionError, TransactionEffect, TransactionAudit,
@@ -139,8 +141,10 @@ __all__ = [
     "explain_source_call_causality", "explain_flow_causality",
     "explain_sir_flow_causality",
     "CounterfactualError", "CounterfactualImpact",
+    "CounterfactualRecoveryCandidate", "CounterfactualRecoveryOptions",
     "analyze_flow_stage_unavailability",
     "analyze_sir_flow_stage_unavailability",
+    "analyze_sir_flow_recovery_options",
     "TransactionError", "TransactionEffect", "TransactionAudit",
     "analyze_sir_flow_transaction_effects",
     "IntentError", "IntentCandidateReview", "IntentPlan", "plan_sir_intent",

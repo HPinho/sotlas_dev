@@ -34,7 +34,7 @@ Legenda:
 | 9 | Trust Domains | ~15% candidato | 🟡 |
 | 10 | Guarantees | ~15% candidato | 🟡 |
 | 11 | Causality | ~10% candidato | 🟡 |
-| 12 | Counterfactuals | ~5% candidato | 🟡 |
+| 12 | Counterfactuals | ~10% candidato | 🟡 |
 | 13 | Transactions | ~5% candidato | 🟡 |
 | 14 | Intent | ~5% candidato | 🟡 |
 | 15 | SIR completo | ~38% candidato | 🟡 |
@@ -69,6 +69,12 @@ API inicial: `explain_sir_flow_causality(module, flow, source_stage, target_stag
 - [x] stages afetadas incluem o ponto indisponível e todos os consumidores transitivos; stages independentes são preservadas;
 - [x] consulta valida grafo, dependências e cronograma SIR canônicos e não executa funções;
 - [ ] alternativas de recuperação, efeitos observáveis, estado/rollback e análise de cenários fora de Flow.
+
+**Status 1.0: ~10% candidato 🟡 — IN PROGRESS**
+
+- [x] opções SIR de stage em outro plano com mesmo nome e tipo de saída, sem dependência do stage indisponível;
+- [x] diferenças de efeitos explícitas; equivalência semântica permanece marcada como não verificada;
+- [ ] alternativas com equivalência semântica provada, estado/rollback e cenários fora de Flow.
 
 API inicial: `analyze_sir_flow_stage_unavailability(module, flow, stage)` em `sotlas_compile.counterfactuals`.
 
