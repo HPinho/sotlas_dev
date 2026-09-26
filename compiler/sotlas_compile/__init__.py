@@ -29,6 +29,19 @@ plan_state_space_frontend = bootstrap.plan_state_space_frontend
 from .errors import SotlasError
 from .state_typed_ast import StateSpaceTypedSnapshot
 from .state_sir import StateTransitionSIRError, lower_typestate_transition
+from .flow_graph import (
+    FlowDependency,
+    FlowGraphError,
+    FlowGraphPlan,
+    FlowNode,
+    certify_flow_graph,
+)
+from .flow_runtime import (
+    FlowCancelledError,
+    FlowExecutionError,
+    FlowExecutionResult,
+    execute_flow,
+)
 from .phase1_pipeline import (
     Phase1CheckedModule,
     analyze_module_phase1,
@@ -51,4 +64,7 @@ __all__ = [
     "build_canonical_checked_authority_sir", "StateSpaceFrontendPlan",
     "StateSpaceTypedSnapshot", "plan_state_space_frontend",
     "StateTransitionSIRError", "lower_typestate_transition",
+    "FlowDependency", "FlowGraphError", "FlowGraphPlan", "FlowNode",
+    "certify_flow_graph", "FlowCancelledError", "FlowExecutionError",
+    "FlowExecutionResult", "execute_flow",
 ]

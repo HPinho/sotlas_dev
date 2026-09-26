@@ -1,8 +1,8 @@
 # Sotlas — Implementation Status
 
 **Atualizado em:** 2026-09-25  
-**Último baseline verde certificado:** `6a9b0bc`
-**CI de referência:** Sotlas CI & Toolchain Build Farm #574 — `success`
+**Último baseline verde certificado:** `67a521a`
+**CI de referência:** Sotlas CI & Toolchain Build Farm #575 — `success`
 **Fonte arquitetural:** `SOTLAS — ESPECIFICAÇÃO MESTRA`
 
 > Este é o índice operacional atual. O snapshot detalhado anterior, com o histórico extenso das microentregas da Fase 2, permanece preservado em `docs/archive/sotlas_implementation_status_2026-09-23.md`.
@@ -28,7 +28,7 @@ Legenda:
 | 3 | Authority Domains | 100% | ✅ COMPLETE |
 | 4 | State Spaces | ~70% | 🟡 IN PROGRESS |
 | 5 | Effects | ~15% | 🟡 |
-| 6 | Flow | ~10% | 🟡 |
+| 6 | Flow | ~20% | 🟡 |
 | 7 | Execution Domains | ~10% | 🟡 |
 | 8 | Heterogeneous Compute | ~0% | 🟡 |
 | 9 | Trust Domains | ~5% | 🟡 |
@@ -157,13 +157,19 @@ Escopo: `docs/sotlas_1_0_phase4_state_space_scope.md`.
 
 ## Fase 6 — Flow
 
-**Status 1.0: ~10% 🟡 — IN PROGRESS**
+**Status 1.0: ~20% 🟡 — IN PROGRESS**
 
 - [x] grafo backend-neutral valida dependências e rejeita ciclos;
 - [x] estágios paralelos são derivados deterministicamente da topologia e da ordem declarada;
-- [ ] sintaxe de `flow` e tipagem de valores dependentes;
+- [x] executor local roda nós independentes por estágio e limita workers;
+- [x] ações recebem somente outputs de dependências diretas por mapa imutável;
+- [x] falha/cancelamento param estágios posteriores, cancelam tarefas pendentes e aguardam peers já iniciados;
+- [ ] sintaxe `flow` e tipagem de valores dependentes;
 - [ ] lowering de Flow para SIR e integração com Effects/Ownership;
-- [ ] runtime de scheduling, cancellation estruturada e testes end-to-end.
+- [ ] cancelamento cooperativo, runtime assíncrono/distribuído e backpressure;
+- [ ] e2e de fonte Sotlas para runtime/backend.
+
+Escopo: `docs/sotlas_1_0_phase6_flow_scope.md`.
 
 ## Regra de baseline
 
