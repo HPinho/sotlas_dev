@@ -15,8 +15,8 @@ export interface ValidationResult {
 }
 
 /**
- * Analisador sintático e semântico nativo em TypeScript para a linguagem Sotlas.
- * Executa 100% dentro do runtime do VS Code/Node.js sem necessidade de Python ou executáveis externos.
+ * Fornece dicas lexicais e estruturais leves enquanto o usuário digita.
+ * A verificação autoritativa de sintaxe, tipos e segurança é feita pelo compilador Sotlas.
  */
 export class SotlasValidator {
     public validateDocument(document: vscode.TextDocument): ValidationResult {

@@ -19,9 +19,10 @@
   snippets are explicitly experimental or design-only.
 - The isolated Phase 1 semantic core is certified at `ISOLATED_PHASE1`. This
   does not promote the entire language, SIR, or backend.
-- Package metadata, project configuration, lockfile, and runtime version agree
-  at `1.0.0`; package maturity is Production/Stable for the bounded release
-  contract. Historical audits and progress snapshots are labeled as such.
+- The language contract and project lockfile identify language version
+  `1.0.0`; the Python distribution is `1.0.0rc1` with Beta maturity while the
+  preview is being prepared. This does not declare a public stable release.
+  Historical audits and progress snapshots are labeled as such.
 - The `compiler/` and `tools/` trees are intentionally retained for compatibility
   with existing developer tools and tests. `compiler/` is the installed source
   of truth. Of 86 paired Python modules, 82 are byte-identical and four reviewed

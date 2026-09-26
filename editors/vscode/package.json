@@ -3,8 +3,9 @@
   "displayName": "Sotlas Language",
   "publisher": "sotlas-lang",
   "author": "Hiago Pinho",
-  "description": "Official support for the Sotlas programming language: from low-level systems (bare-metal, drivers, kernels) to high-level applications, game engines, and tools. Syntax highlighting, native diagnostics, outline, and hover.",
-  "version": "0.5.2",
+  "description": "Sotlas language support with syntax highlighting, structural diagnostics, outline, hover, and compiler commands.",
+  "version": "1.0.0",
+  "preview": true,
   "icon": "./icons/sotlas-icon.png",
   "engines": {
     "vscode": "^1.60.0"
@@ -30,7 +31,8 @@
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "package": "vsce package"
+    "package": "vsce package",
+    "package:preview": "vsce package --out sotlas-preview.vsix"
   },
   "contributes": {
     "languages": [
@@ -72,7 +74,7 @@
       },
       {
         "command": "sotlas.check",
-        "title": "Sotlas: Verificar Tipos e Sintaxe"
+        "title": "Sotlas: Check Active File"
       },
       {
         "command": "sotlas.format",

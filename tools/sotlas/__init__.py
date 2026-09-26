@@ -5,7 +5,7 @@ frontend remains importable only as an explicit migration/testing surface; it is
 not a second production compiler.
 """
 
-SOTLAS_VERSION = "1.0.0"
+SOTLAS_VERSION = "1.0.0rc1"
 SOTLAS_LANG_VERSION = "1.0.0"
 __version__ = SOTLAS_VERSION
 

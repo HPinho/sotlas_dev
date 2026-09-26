@@ -4,8 +4,7 @@
 
 # ⚡ Linguagem de Programação Sotlas
 
-**Segura por padrão, assumidamente capaz de sistemas.**  
-*Criada para sanar as lacunas históricas de segurança, modularidade e controle deixadas pelo C, C++ e Objective-C.*
+**Um preview de linguagem de sistemas com ownership e fronteiras de segurança explícitos.**
 
 [![CI](https://github.com/HPinho/sotlas_dev/actions/workflows/ci.yml/badge.svg)](https://github.com/HPinho/sotlas_dev/actions)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
@@ -13,7 +12,7 @@
 [![Architecture](https://img.shields.io/badge/architecture-C11%20%2B%20LLVM%20subsets-green.svg)](#-arquitetura-do-compilador)
 [![Language Version](https://img.shields.io/badge/version-1.0.0-purple.svg)](#)
 
-[Visão Geral](#-visão-geral) • [Por que Sotlas?](#-por-que-sotlas-superando-c-c-e-objective-c) • [Tour Guiado](docs/guided_tour.md) • [Arquitetura](#-arquitetura-do-compilador) • [Biblioteca Padrão](#-biblioteca-padrão-stdlib) • [Quickstart](#-quickstart) • [Exemplos](examples/)
+[Visão Geral](#-visão-geral) • [Objetivos de Design](#-objetivos-de-design-da-sotlas) • [Tour Guiado](docs/guided_tour.md) • [Arquitetura](#-arquitetura-do-compilador) • [Biblioteca Padrão](#-biblioteca-padrão-stdlib) • [Quickstart](#-quickstart) • [Exemplos](examples/)
 
 </div>
 
@@ -21,7 +20,7 @@
 
 ## 🌟 Visão Geral
 
-**Sotlas 1.0** é a primeira versão estável de uma linguagem de programação de sistemas para software de baixo nível. Ela oferece um contrato delimitado e testado, com fronteiras explícitas de segurança, verificação de ownership e geração de código nativo. Execução em hardware, lowering de CFG geral e outros recursos fora desse contrato continuam em prévia ou planejados.
+O **candidato atual ao preview do Sotlas 1.0** é uma implementação de linguagem de sistemas para software de baixo nível. O contrato verificado cobre fronteiras explícitas de segurança, análise de ownership e geração nativa delimitada. Ainda não é uma versão estável publicada; execução em hardware, lowering de CFG geral e outros recursos fora desse contrato continuam em prévia ou planejados.
 
 ---
 
@@ -38,7 +37,7 @@ Sotlas usa rótulos explícitos de maturidade para que a documentação não fiq
 | **DESIGNED** | Especificado, porém ainda não implementado de ponta a ponta |
 | **PLANNED** | Item de roadmap |
 
-O compilador instalado usa o frontend canônico em `compiler/sotlas_compile`. `sotlas compile --backend c11` emite C11 a partir desse pipeline verificado. `sotlas compile --backend llvm` baixa o subconjunto fonte certificado por SIR verificado diretamente para LLVM; construções não suportadas são rejeitadas. LLVM é o backend padrão quando a toolchain necessária está disponível. `dump-sir` continua sendo uma visualização protótipo, enquanto `sir-report` inventaria o SIR canônico validado. Os subconjuntos estáveis e recursos em prévia estão listados no [escopo de release 1.0](docs/sotlas_1_0_release_scope.md) e no [status de implementação](docs/sotlas_implementation_status.md).
+O compilador instalado usa o frontend canônico em `compiler/sotlas_compile`. `sotlas compile --backend c11` emite C11 a partir desse pipeline verificado. `sotlas compile --backend llvm` baixa o subconjunto fonte certificado por SIR verificado diretamente para LLVM; construções não suportadas são rejeitadas. LLVM é o backend padrão quando a toolchain necessária está disponível. `dump-sir` continua sendo uma visualização do SIR protótipo, enquanto `sir-report` inventaria o SIR canônico validado. Os subconjuntos estáveis e recursos em prévia estão listados no [escopo de release 1.0](docs/sotlas_1_0_release_scope.md) e no [status de implementação](docs/sotlas_implementation_status.md).
 
 ### Suporte a ownership próprio da Sotlas na versão 1.0
 
@@ -46,57 +45,38 @@ O contrato estável de ownership cobre `sole/exclusive`, `shared`, `region`, `is
 
 ---
 
-## 🎯 Por que Sotlas? Superando C, C++ e Objective-C
+## 🎯 Objetivos de design da Sotlas
 
-Durante décadas, a engenharia de sistemas e desenvolvimento de sistemas operacionais esteve presa a linguagens legadas que acumularam lacunas críticas:
+Sotlas explora ownership explícito, fronteiras de segurança e um contrato reduzido e verificado para programação de sistemas. A tabela resume objetivos de design; ela não afirma paridade de recursos nem superioridade medida.
 
-### 1. As Lacunas do C
-* **Falta de Segurança de Memória**: Acesso irrestrito a ponteiros crus gera vulnerabilidades crônicas (*buffer overflows*, *use-after-free*, *dangling pointers*).
-* **Ausência de Módulos**: Dependência frágil do pré-processador (`#include`), sujeita a colisões globais de nomes e poluição de macros.
-* **Erros Frágeis**: Retorno manual de inteiros mágicos (`-1`, `NULL`), frequentemente ignorados pelos programadores.
-* **Sem Distinção de Privilégios**: Acesso a hardware (portas I/O, registradores de CPU) é indistinguível de simples manipulação de memória local.
+## 🔬 Suporte do preview em resumo
 
-### 2. As Lacunas do C++
-* **Complexidade e Sobrecarga Excessiva**: Especificações gigantescas, templates que explodem tempos de compilação e código binário.
-* **Incompatibilidade com Bare-Metal**: Exceções, RTTI e destruidores não-determinísticos impõem um runtime oculto inadequado para o desenvolvimento de kernels de sistemas operacionais.
-* **Pesadelo de ABI**: Falta de uma ABI estável entre compiladores e versões diferentes.
+| Área | Status atual do preview 1.0 |
+| :--- | :--- |
+| Análise de ownership e segurança | Verificada apenas nos subconjuntos listados no [escopo do release](docs/sotlas_1_0_release_scope.md) |
+| Emissão nativa C11 | Subconjunto delimitado; formas não suportadas são rejeitadas |
+| Emissão LLVM | Subconjunto de lowering direto verificado; formas não suportadas são rejeitadas |
+| Domínios de hardware e runtime | Em preview ou planejados; não presuma suporte de execução em hardware |
+| VS Code | Sintaxe, outline, hover, dicas estruturais e comandos que chamam o compilador instalado |
+| Instalação | Pacote Python prerelease; CI testa instalação limpa em Linux, Windows e macOS |
 
-### 3. As Lacunas do Objective-C
-* **Sobrecarga de Despacho Dinâmico**: Mensagens dinâmicas via runtime (`objc_msgSend`) impõem custo proibitivo para laços críticos de renderização e escalonamento de kernel.
-* **Comportamento Ocultador de Bugs**: Enviar mensagens para ponteiros nulos (*nil-messaging*) mascara falhas graves que deveriam ser detectadas em tempo de compilação.
-* **Falta de Abstrações Zero-Cost**: Estruturas de baixo nível puras e semântica de valor são cidadãos de segunda classe frente a objetos dinâmicos.
+Esta tabela descreve os contratos atuais da Sotlas. O escopo do release lista formas suportadas e lacunas conhecidas.
 
 ---
 
-## 🔬 Matriz de Comparação Técnica
+## 🌐 Direção de interoperabilidade
 
-| Recurso / Desafio | **Sotlas** | **C11** | **C++20** | **Objective-C** |
-| :--- | :---: | :---: | :---: | :---: |
-| **Segurança por Padrão** | 🧪 Em evolução / parcial | ❌ Não | ❌ Não | ❌ Não |
-| **Separação Privilégio vs Memória** | **`@system` vs `unsafe`** | ❌ Misturado | ❌ Misturado | ❌ Misturado |
-| **Semântica de Valor (Zero-Cost)** | ✅ `struct` de valor | ✅ `struct` básica | ⚠️ Requer cópias manuais | ❌ Quase tudo objeto |
-| **Contagem de Referência (ARC)** | 🧪 Subconjunto de ownership verificado; consulte o escopo 1.0 | ❌ Manual | ⚠️ `std::shared_ptr` pesado | ⚠️ ARC acoplado a runtime dinâmico |
-| **Sistema Canônico de Módulos** | ✅ `module` & `import` | ❌ `#include` de texto | ⚠️ Módulos complexos | ❌ `#include` / `#import` |
-| **Contratos e Protocolos** | 🧪 `spec` / `adopts` experimental | ❌ Inexistente | ⚠️ Múltipla herança / Concepts | ⚠️ Protocols dinâmicos |
-| **Tratamento de Erros Tipado** | ✅ `Option<T>` / `Result<T, E>` | ❌ Inteiros mágicos | ⚠️ Exceções (proibidas em kernel) | ⚠️ NSError / nil checks |
-| **Target Bare-Metal / Freestanding** | ✅ Cidadão de 1ª classe | ✅ Nativo | ⚠️ Difícil sem runtime | ❌ Incompatível sem runtime GNUstep/Apple |
-| **Intermediário SSA para Análise** | 🧪 Subconjunto verificado alimenta relatórios e LLVM direto; `dump-sir` permanece protótipo | ❌ Nenhum | ❌ Nenhum | ❌ Nenhum |
-| **ABI C Estável e Bidirecional** | 🚧 Objetivo de design; contrato completo de estabilidade ainda não congelado | ✅ Nativa | ⚠️ Instável (`extern "C"` parcial) | ⚠️ Frágil fora da Apple |
-
----
-
-## 🌐 Arquitetura de Interoperabilidade em 3 Camadas (C, C++, Objective-C)
-
-> **Objetivo Formal de Interoperabilidade:**
-> *"Sotlas deve possuir uma ABI C estável e bidirecional, permitindo interoperabilidade incremental com C, assembly, Objective-C e outras linguagens capazes de consumir C ABI, mantendo toda memória externa e ponteiros FFI atrás de fronteiras explícitas unsafe."*
-
-Sotlas foi desenhado para superar as deficiências de linguagens legadas sem virar uma ilha isolada. A linguagem adota uma separação rigorosa em **3 camadas ortogonais**:
+O objetivo de longo prazo é tornar a interoperabilidade com C explícita e
+manter operações inseguras visíveis. Uma ABI C estável e bidirecional é um
+objetivo de design; o preview atual não promete ABI congelada nem cobertura
+geral de FFI. Consulte o escopo do release antes de depender de uma forma de
+interoperabilidade.
 
 ```text
                 ┌──────────────────────────────────────┐
                 │          Sotlas Safe Layer           │
                 │ Objects / Arrays / Optionals / UI    │
-                │ Totalmente segura e sem ponteiros crus│
+                │ Contrato de segurança limitado ao preview│
                 └──────────────────┬───────────────────┘
                                    │
                            explicit @system
@@ -104,7 +84,7 @@ Sotlas foi desenhado para superar as deficiências de linguagens legadas sem vir
                 ┌──────────────────▼───────────────────┐
                 │        Sotlas Systems Layer          │
                 │ Pointers / MMIO / DMA / Interrupts   │
-                │ Isolamento tipado de hardware        │
+                │ Domínios de hardware em preview      │
                 └──────────────────┬───────────────────┘
                                    │
                               extern "C"
@@ -112,18 +92,11 @@ Sotlas foi desenhado para superar as deficiências de linguagens legadas sem vir
             ┌──────────────────────▼──────────────────────┐
             │       C / C++ (extern "C") / Objective-C    │
             │          Assembly & Firmware                │
-            │ Memória externa não confiável (unsafe)      │
+            │ Memória externa e FFI (suporte limitado)    │
             └─────────────────────────────────────────────┘
 ```
 
-### O Pipeline da Fronteira Perigosa:
-```text
-Objective-C / C / C++ ──► [Unsafe Boundary] ──► Sotlas Systems ──► [Safe Abstractions] ──► Sotlas Safe Layer
-```
-
-- **Guardrails no Estilo Rust**: `0xDEADBEEF as *mut u32` e desreferenciamento `*ptr` são rejeitados pelo compilador fora de blocos `unsafe { ... }`.
-- **Fronteira FFI Explícita**: Funções em `extern "C"` que manipulam ponteiros crus carregam risco explícito e são consumidas exclusivamente sob blocos `unsafe` na camada `@system`.
-- **Zero Overhead no Kernel**: Sem runtime de *nil-messaging* ou lookups dinâmicos de seletores do Objective-C dentro do kernel; a interoperação é feita via bridges C ABI diretas e sem custo oculto.
+O compilador rejeita formas de FFI e ponteiros não suportadas em vez de insinuar que estão cobertas pelo preview. O candidato não promete ABI estável nem custo zero para interoperabilidade.
 
 ---
 
@@ -171,7 +144,7 @@ A biblioteca padrão de Sotlas é implementada inteiramente na própria linguage
 
 ---
 
-## 🚀 Quickstart (subconjunto 1.0 verificado)
+## 🚀 Quickstart (subconjunto verificado do preview)
 
 ### 1. Instalação
 Clone o repositório e configure em modo editável:
@@ -182,32 +155,17 @@ cd sotlas_dev
 pip install -e .
 ```
 
-### 2. Comandos do Driver CLI (`sotlas`)
+### 2. Caminho verificado do compilador
 
-O compilador expõe os seguintes comandos para o subconjunto 1.0 suportado:
+Execute o exemplo incluído pelo verificador canônico e pelo emissor C11:
 
 ```bash
-# Exibir versão da linguagem
 sotlas version
-
-# Validar sintaxe, tipos e segurança sem emitir código
 sotlas check examples/01_hello_systems/main.sotlas
-
-# Inspecionar a AST parsed
-sotlas dump-ast examples/01_hello_systems/main.sotlas
-
-# Inspecionar o SIR protótipo (fora do lowering de produção)
-sotlas dump-sir examples/01_hello_systems/main.sotlas
-
-# Emitir código C11 intermediário auditável
-sotlas compile examples/01_hello_systems/main.sotlas --emit-c
-
-# Emitir C11 a partir do exemplo verificado (objeto/link depende das ferramentas do host)
-sotlas compile examples/01_hello_systems/main.sotlas --emit-c -o hello.c
-
-# Executar a suíte completa de testes unitários
-sotlas test
+sotlas compile examples/01_hello_systems/main.sotlas --backend c11 --emit-c -o hello.c
 ```
+
+O CLI também oferece comandos experimentais de inspeção, como dump-sir, e ferramentas específicas de backend ou recurso. A existência desses comandos não significa que sua saída pertença ao contrato do preview.
 
 ---
 
@@ -273,11 +231,11 @@ pub fn flush_screen_buffer() {
 O compilador Sotlas é submetido a uma suíte contínua de testes para prevenir regressões na linguagem e no toolchain:
 
 ```bash
-# Executar todos os 298 testes unitários e de integração
+# Executar os testes unitários e de integração
 python -m unittest discover -s tests -p "test_*.py"
 ```
 
-Cobertura dos 298 testes:
+A suíte atual contém mais de 1.800 testes; o CI informa a contagem exata e os testes ignorados em cada execução. A cobertura inclui:
 - Lexer, Spans e Resiliência
 - Parser, AST e Gramática Formal EBNF
 - Análise Semântica e Checagem de Tipos (3 Camadas de Isolamento)

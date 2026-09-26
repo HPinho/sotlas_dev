@@ -1,8 +1,11 @@
 # Sotlas for Visual Studio Code & Open VSX
 
-Official extension support for the **Sotlas** programming language (`.sotlas`, `.sth`).
+Preview editor support for Sotlas source files (`.sotlas`, `.sth`). The checked-in
+compiler contract is documented in the [development repository](https://github.com/HPinho/sotlas_dev).
 
-**Sotlas** is a modern, safe, and expressive general-purpose and systems programming language — engineered with infinite possibilities, from the lowest level (bare-metal, monolithic kernels/microkernels, drivers, and embedded systems) to high-level applications (game engines, command-line tools, network services, and desktop apps).
+Sotlas is a systems-language preview focused on an explicitly bounded compiler
+contract. Hardware runtime support, general-purpose CFG lowering, and several
+advanced examples remain experimental or planned.
 
 <p align="left">
   <a href="https://sotlas.org"><strong>🌐 Website</strong></a> &bull;
@@ -17,14 +20,13 @@ Official extension support for the **Sotlas** programming language (`.sotlas`, `
 
 ## Key Features
 
-- **Real-Time Native Diagnostics (Zero Dependencies)**:
-  - Red squiggles for syntax errors (unbalanced braces/parentheses/brackets, unclosed strings, missing semicolons, incorrect types).
-  - Yellow squiggles for code warnings and structural best practices.
-  - Works out of the box on 100% of platforms (Windows, Linux, macOS) upon installation, without requiring Python or external binaries.
+- **Local structural hints**:
+  - Checks delimiters and selected declaration patterns while editing.
+  - These hints are not the Sotlas parser or type checker. Use **Sotlas: Check Active File** to run the configured compiler for authoritative diagnostics.
 - **Symbol Navigation and Outline**:
   - Full navigation tree in the editor's *Outline* panel and quick symbol picker (`Ctrl+Shift+O` / `Cmd+Shift+O`).
-- **Rich Hover Documentation (Tooltips)**:
-  - In-depth conceptual explanations for language keywords (`sole`, `co-owned`, `rawphys`, `barecore`, `quarantine`, `discern`, `guard`, `register`, `mould`, etc.).
+- **Hover Documentation**:
+  - Short descriptions for selected Sotlas keywords.
 - **Comprehensive Syntax Highlighting**:
   - Control flow: `discern`, `match`, `if`, `guard`, `defer`, etc.
   - Architecture & Declarations: `register`, `forge`, `enclave`, `fn`, `trapfn`, `struct`, `mesh`, `barecore`, `typealias`.
@@ -32,14 +34,12 @@ Official extension support for the **Sotlas** programming language (`.sotlas`, `
   - Bit & Register Operators: `.slit[lo..hi]`, `.notch[n]`, `.strand[len]`.
   - Native Freestanding SIMD Types: `f32x4`, `f32x8`, `f64x2`, `f64x4`, `u8x16`, `u8x32`, `i32x4`, `i32x8`, `i64x2`, `i64x4`.
   - Hardware Effects & Concurrency: `pulse`, `probe`, `clinch`, `rebound`, `quarantine`.
-- **Integrated Language Server Protocol (LSP)**:
-  - Smart autocomplete for keywords, registers, types, and standard library functions.
-  - Hover tooltips with type signatures and documentation.
-  - Automatic code formatting (*Format Document*).
-  - Go to Definition (*Go to Definition*).
+- **Optional compiler LSP**:
+  - Can be enabled with `sotlas.enableExternalLsp` when the installed compiler provides `sotlas lsp --stdio`.
+  - Completion, compiler diagnostics, and navigation depend on that server; the extension's local structural hints do not provide those guarantees.
 - **Integrated Developer Tools & Commands**:
   - `Sotlas: Build Current Package` (`sotlas.build`)
-  - `Sotlas: Check Types & Syntax` (`sotlas.check`)
+  - `Sotlas: Check Active File` (`sotlas.check`)
   - `Sotlas: Format Current File` (`sotlas.format`)
   - `Sotlas: Open Sotlas Studio (Browser)` (`sotlas.studio`)
   - `Sotlas: Start Interactive REPL` (`sotlas.repl`)
@@ -50,17 +50,10 @@ Official extension support for the **Sotlas** programming language (`.sotlas`, `
 
 ## Requirements
 
-To enable the Language Server (LSP) and compiler commands, install the official Sotlas toolchain and ensure `sotlas` is accessible in your `PATH`:
+Compiler commands require a Sotlas toolchain installation and a working C compiler for native builds. For the current preview, install the toolchain using the instructions in the [main README](https://github.com/HPinho/sotlas_dev#-quickstart-verified-preview-subset), then ensure `sotlas` is accessible in your `PATH`.
 
-```powershell
-# On Windows (PowerShell):
-irm https://raw.githubusercontent.com/Sotlas/sotlas/main/packaging/install.ps1 | iex
-```
-
-```bash
-# On Linux / macOS:
-curl -fsSL https://raw.githubusercontent.com/Sotlas/sotlas/main/packaging/install.sh | bash
-```
+The local structural hints work without the compiler. Compiler checks and the
+optional LSP report an error when the configured compiler cannot be started.
 
 ---
 
@@ -74,14 +67,16 @@ curl -fsSL https://raw.githubusercontent.com/Sotlas/sotlas/main/packaging/instal
 
 ## Installation
 
-Install directly from your editor:
+The preview extension is not published to a marketplace yet. From a terminal, build a local VSIX:
 
-1. Open **VS Code**, **VSCodium**, or **Cursor**.
-2. Press `Ctrl+P` (or `Cmd+P` on macOS) and enter:
-   ```text
-   ext install sotlas-lang.vscode-sotlas
-   ```
-   *Or simply search for **Sotlas** in the Extensions sidebar (`Ctrl+Shift+X`).*
+```sh
+cd editors/vscode
+npm install
+npm run compile
+npx @vscode/vsce package
+```
+
+Install the generated `.vsix` from the VS Code Extensions menu using **Install from VSIX...**. Marketplace installation will be documented when a preview package is published.
 
 ---
 

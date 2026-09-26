@@ -36,14 +36,14 @@ class TestSotlasHardwareSimd050(unittest.TestCase):
         return CodegenC(ast).emit()
 
     def test_version_sync_100(self):
-        self.assertEqual(sotlas.SOTLAS_VERSION, "1.0.0")
+        self.assertEqual(sotlas.SOTLAS_VERSION, "1.0.0rc1")
         self.assertEqual(sotlas.SOTLAS_LANG_VERSION, "1.0.0")
 
         pyproject = (_ROOT / "pyproject.toml").read_text(encoding="utf-8")
-        self.assertIn('version = "1.0.0"', pyproject)
+        self.assertIn('version = "1.0.0rc1"', pyproject)
 
         setup = (_ROOT / "setup.py").read_text(encoding="utf-8")
-        self.assertIn('version="1.0.0"', setup)
+        self.assertIn('version="1.0.0rc1"', setup)
 
         sotlas_toml = (_ROOT / "sotlas.toml").read_text(encoding="utf-8")
         self.assertIn('version = "1.0.0"', sotlas_toml)

@@ -5,15 +5,16 @@ All notable changes to the Sotlas programming language and compiler will be docu
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.0] - 2026-09-26
+## [1.0.0rc1] - 2026-09-26
 
 ### Added
-- First stable release for the bounded contracts documented in `docs/sotlas_1_0_release_scope.md`.
+- First preview candidate for the bounded contracts documented in `docs/sotlas_1_0_release_scope.md`.
 - Certified C11 source lowering and direct LLVM lowering for the documented checked subset.
 - Explicit `SUPPORTED`, `PREVIEW`, and experimental boundaries for ownership domains and compiler tooling.
 
 ### Notes
-- `device` and `external` remain PREVIEW; physical device execution and general FFI ABI/lifetime support are not part of the stable contract.
+- The language contract version is `1.0.0`; the Python distribution is `1.0.0rc1` and remains a preview candidate, not a public stable release.
+- `device` and `external` remain PREVIEW; physical device execution and general FFI ABI/lifetime support are outside the bounded candidate contract.
 - Broader CFG, backend parity, general contracts, and additional domain combinations remain eligible for focused 1.0.x releases.
 
 ## [0.5.1] - 2026-09-16

@@ -214,8 +214,12 @@ jobs:
 
   package-release-smoke:
     name: Build and install Python distribution
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     needs: [test, backend-contract]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-15-intel]
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
@@ -226,18 +230,54 @@ jobs:
         python-version: "3.12"
 
     - name: Build wheel and source archive
-      working-directory: ${{ runner.temp }}
       run: |
         python -m pip install --upgrade pip build
-        python -m build "$GITHUB_WORKSPACE" --outdir "$GITHUB_WORKSPACE/dist"
+        python -m build . --outdir dist
 
     - name: Install wheel and smoke-test published entrypoints
       shell: bash
       run: |
         set -euo pipefail
-        python -m pip install --no-deps --target build/installed dist/*.whl
-        export PYTHONPATH="$PWD/build/installed"
-        python -m sotlas.cli version
-        python -m sotlas.cli check examples/01_hello_systems/main.sotlas
-        python -m sotlas.cli compile examples/01_hello_systems/main.sotlas --backend c11 --emit-c -o build/hello.c
-        cc -std=c11 -Wall -Wextra -fsyntax-only build/hello.c
+        python - <<'PY'
+        import os
+        import subprocess
+        import sys
+        import tempfile
+        from pathlib import Path
+
+        wheel = next(Path("dist").glob("*.whl"))
+        installed = Path(tempfile.mkdtemp(prefix="sotlas-wheel-install-"))
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", "--no-deps", "--target", str(installed), str(wheel)],
+            check=True,
+        )
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(installed)
+        source = "examples/01_hello_systems/main.sotlas"
+        subprocess.run([sys.executable, "-m", "sotlas.cli", "version"], env=env, check=True)
+        subprocess.run([sys.executable, "-m", "sotlas.cli", "check", source], env=env, check=True)
+        output = installed / "hello.c"
+        subprocess.run(
+            [sys.executable, "-m", "sotlas.cli", "compile", source, "--backend", "c11", "--emit-c", "-o", str(output)],
+            env=env,
+            check=True,
+        )
+        assert output.is_file() and output.stat().st_size > 0
+        PY
+
+  vscode-extension-build:
+    name: Compile VS Code extension
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: "22"
+    - name: Install extension dependencies
+      working-directory: editors/vscode
+      run: npm install --no-package-lock --no-audit --no-fund
+    - name: Compile extension
+      working-directory: editors/vscode
+      run: npm run compile
