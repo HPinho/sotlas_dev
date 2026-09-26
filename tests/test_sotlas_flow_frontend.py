@@ -210,6 +210,14 @@ flow Home {
 """))
         sir, _ = package.build_canonical_checked_ownership_sir(checked)
         original = sir.module.flow_plans[0]
+        sir_function = next(
+            function for function in sir.module.functions
+            if function.name == "load_profile"
+        )
+        sir_function.source_effect_summary = replace(
+            sir_function.source_effect_summary,
+            direct_effects=("io",), transitive_effects=("io",),
+        )
         sir.module.flow_plans = (replace(
             original,
             stages=(replace(original.stages[0], effects=("io",)),),
@@ -244,6 +252,42 @@ flow Home {
             package.analyze_sir_flow_transaction_effects(
                 sir.module, "Home", {"network": "reversible"}
             )
+
+    def test_sir_flow_validator_reconciles_signatures_edges_effects_and_schedule(self):
+        checked = package.analyze_source_phase1(self._source("""
+flow Home {
+    stage profile = load_profile;
+    stage page = render after profile;
+}
+""").replace(
+            "fn render(profile: i32, posts: i32) -> i32 { return profile + posts; }",
+            "fn render(profile: i32) -> i32 { return profile; }",
+        ))
+        sir, _ = package.build_canonical_checked_ownership_sir(checked)
+        self.assertEqual(
+            package.validate_sir_flow_plans(sir.module), sir.module.flow_plans
+        )
+        plan = sir.module.flow_plans[0]
+        page = plan.stages[1]
+        bad_argument = replace(page.arguments[0], type_name="u32")
+        bad_page = replace(page, arguments=(bad_argument,))
+        sir.module.flow_plans = (replace(
+            plan, stages=(plan.stages[0], bad_page)
+        ),)
+        with self.assertRaisesRegex(package.FlowSIRError, "argument differs from SIR parameter"):
+            package.validate_sir_flow_plans(sir.module)
+        with self.assertRaisesRegex(package.CausalityError, "invalid canonical SIR Flow plan"):
+            package.explain_sir_flow_causality(sir.module, "Home", "profile", "page")
+        with self.assertRaisesRegex(package.CounterfactualError, "invalid canonical SIR Flow plan"):
+            package.analyze_sir_flow_stage_unavailability(sir.module, "Home", "profile")
+        with self.assertRaisesRegex(package.TransactionError, "invalid canonical SIR Flow plan"):
+            package.analyze_sir_flow_transaction_effects(sir.module, "Home", {})
+        with self.assertRaisesRegex(package.CausalityError, "invalid canonical SIR Flow plan"):
+            package.explain_sir_flow_causality(sir.module, "Home", "profile", "page")
+        with self.assertRaisesRegex(package.CounterfactualError, "invalid canonical SIR Flow plan"):
+            package.analyze_sir_flow_stage_unavailability(sir.module, "Home", "profile")
+        with self.assertRaisesRegex(package.TransactionError, "invalid canonical SIR Flow plan"):
+            package.analyze_sir_flow_transaction_effects(sir.module, "Home", {})
 
     def test_typed_flow_runtime_rejects_dependency_tampering_before_execution(self):
         checked = package.analyze_source_phase1(self._source("""

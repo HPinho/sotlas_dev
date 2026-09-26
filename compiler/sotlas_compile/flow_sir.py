@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .flow_graph import certify_flow_graph
+from .flow_graph import FlowDependency, FlowNode, certify_flow_graph
 
 
 class FlowSIRError(ValueError):
@@ -50,6 +50,99 @@ def _source_type_name(type_info) -> str:
     if getattr(type_info, "pointer", False) or getattr(type_info, "is_reference", False):
         name += "*"
     return name
+
+
+def validate_sir_flow_plans(sir_module):
+    """Validate every attached Flow plan against its SIR functions and edges."""
+    plans = tuple(getattr(sir_module, "flow_plans", ()) or ())
+    if len({getattr(plan, "name", None) for plan in plans}) != len(plans):
+        raise FlowSIRError("SIR contains duplicate Flow plan names")
+    functions = tuple(getattr(sir_module, "functions", ()) or ())
+    functions_by_name = {function.name: function for function in functions}
+    if len(functions_by_name) != len(functions):
+        raise FlowSIRError("SIR contains duplicate function names")
+
+    for plan in plans:
+        if not isinstance(plan.name, str) or not plan.name:
+            raise FlowSIRError("SIR Flow plan has an invalid name")
+        stages = tuple(plan.stages)
+        stage_names = tuple(stage.name for stage in stages)
+        if len(set(stage_names)) != len(stage_names):
+            raise FlowSIRError(f"SIR Flow plan {plan.name!r} repeats a stage")
+        stage_by_name = {stage.name: stage for stage in stages}
+        dependencies = []
+        for stage in stages:
+            function = functions_by_name.get(stage.function)
+            if function is None:
+                raise FlowSIRError(
+                    f"Flow stage {stage.name!r} has no generated SIR function"
+                )
+            if stage.result_type != function.return_type:
+                raise FlowSIRError(
+                    f"Flow stage {stage.name!r} result type differs from SIR"
+                )
+            if len(stage.arguments) != len(function.parameters):
+                raise FlowSIRError(
+                    f"Flow stage {stage.name!r} argument count differs from SIR"
+                )
+            for index, (argument, parameter) in enumerate(
+                zip(stage.arguments, function.parameters)
+            ):
+                if argument.parameter_index != index:
+                    raise FlowSIRError(
+                        f"Flow stage {stage.name!r} arguments are not in parameter order"
+                    )
+                if (
+                    argument.parameter_name != parameter.name
+                    or argument.type_name != parameter.type_name
+                ):
+                    raise FlowSIRError(
+                        f"Flow stage {stage.name!r} argument differs from SIR parameter"
+                    )
+                producer = stage_by_name.get(argument.value.producer_stage)
+                if producer is None:
+                    raise FlowSIRError(
+                        f"Flow stage {stage.name!r} references missing producer "
+                        f"{argument.value.producer_stage!r}"
+                    )
+                if (
+                    argument.value.producer_function != producer.function
+                    or argument.value.type_name != producer.result_type
+                    or producer.result_type != argument.type_name
+                ):
+                    raise FlowSIRError(
+                        f"Flow stage {stage.name!r} dependency provenance is inconsistent"
+                    )
+                dependencies.append(FlowDependency(producer.name, stage.name))
+
+            summary = getattr(function, "source_effect_summary", None)
+            if summary is None:
+                raise FlowSIRError(
+                    f"Flow stage {stage.name!r} has no checked SIR effect summary"
+                )
+            effects = tuple(summary.transitive_effects)
+            if tuple(stage.effects) != effects:
+                raise FlowSIRError(
+                    f"Flow stage {stage.name!r} effects differ from checked SIR summary"
+                )
+            if "unknown_call" in effects or tuple(summary.unresolved_calls):
+                raise FlowSIRError(
+                    f"Flow stage {stage.name!r} has unresolved SIR effects"
+                )
+
+        try:
+            graph = certify_flow_graph(
+                tuple(FlowNode(name) for name in stage_names), tuple(dependencies)
+            )
+        except ValueError as error:
+            raise FlowSIRError(
+                f"SIR Flow plan {plan.name!r} has invalid dependencies: {error}"
+            ) from error
+        if graph.parallel_stages != tuple(plan.parallel_stages):
+            raise FlowSIRError(
+                f"SIR Flow plan {plan.name!r} parallel stages are not canonical"
+            )
+    return plans
 
 
 def lower_typed_flows_to_sir(typed_flows, source_module, sir_module):
@@ -248,6 +341,7 @@ def lower_typed_flows_to_sir(typed_flows, source_module, sir_module):
     if existing and existing != canonical:
         raise FlowSIRError("generated SIR already contains conflicting Flow plans")
     sir_module.flow_plans = canonical
+    validate_sir_flow_plans(sir_module)
     return canonical
 
 
@@ -257,5 +351,6 @@ __all__ = [
     "FlowSIRArgument",
     "FlowSIRStage",
     "FlowSIRPlan",
+    "validate_sir_flow_plans",
     "lower_typed_flows_to_sir",
 ]

@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .flow_sir import FlowSIRError, validate_sir_flow_plans
+
 
 class TransactionError(ValueError):
     """Raised when a transaction audit lacks canonical SIR evidence."""
@@ -55,7 +57,10 @@ def analyze_sir_flow_transaction_effects(
         if not isinstance(effect, str) or not effect or not isinstance(handler, str) or not handler:
             raise TransactionError("transaction compensation mapping is invalid")
 
-    plans = tuple(getattr(module, "flow_plans", ()) or ())
+    try:
+        plans = validate_sir_flow_plans(module)
+    except FlowSIRError as error:
+        raise TransactionError(f"invalid canonical SIR Flow plan: {error}") from error
     matches = tuple(plan for plan in plans if plan.name == flow_name)
     if len(matches) != 1:
         raise TransactionError(f"SIR has no unique checked Flow plan {flow_name!r}")

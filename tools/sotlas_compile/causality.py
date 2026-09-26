@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .flow_sir import FlowSIRError, validate_sir_flow_plans
+
 
 class CausalityError(ValueError):
     """Raised when causal provenance is missing or inconsistent."""
@@ -104,7 +106,10 @@ def explain_flow_causality(plan, source_stage: str, target_stage: str) -> Causal
 
 def explain_sir_flow_causality(module, flow_name: str, source_stage: str, target_stage: str):
     """Query only canonical source Flow plans attached to SIR."""
-    plans = tuple(getattr(module, "flow_plans", ()) or ())
+    try:
+        plans = validate_sir_flow_plans(module)
+    except FlowSIRError as error:
+        raise CausalityError(f"invalid canonical SIR Flow plan: {error}") from error
     matches = tuple(plan for plan in plans if plan.name == flow_name)
     if len(matches) != 1:
         raise CausalityError(f"SIR has no unique checked Flow plan {flow_name!r}")

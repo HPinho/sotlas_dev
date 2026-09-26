@@ -3,7 +3,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .flow_graph import FlowDependency, FlowNode, certify_flow_graph
+from .flow_graph import certify_flow_graph
+from .flow_sir import FlowSIRError, validate_sir_flow_plans
 
 
 class CounterfactualError(ValueError):
@@ -71,25 +72,24 @@ def analyze_sir_flow_stage_unavailability(
     module, flow_name: str, unavailable_stage: str,
 ) -> CounterfactualImpact:
     """Analyze one uniquely attached canonical Flow plan in SIR."""
-    plans = tuple(getattr(module, "flow_plans", ()) or ())
+    try:
+        plans = validate_sir_flow_plans(module)
+    except FlowSIRError as error:
+        raise CounterfactualError(f"invalid canonical SIR Flow plan: {error}") from error
     matches = tuple(plan for plan in plans if plan.name == flow_name)
     if len(matches) != 1:
         raise CounterfactualError(f"SIR has no unique checked Flow plan {flow_name!r}")
     plan = matches[0]
-    try:
-        graph = certify_flow_graph(
-            tuple(FlowNode(stage.name) for stage in plan.stages),
-            tuple(
-                FlowDependency(argument.value.producer_stage, stage.name)
-                for stage in plan.stages for argument in stage.arguments
-            ),
-        )
-    except (AttributeError, TypeError, ValueError) as error:
-        raise CounterfactualError(f"invalid SIR Flow provenance: {error}") from error
-    if graph.parallel_stages != tuple(plan.parallel_stages):
-        raise CounterfactualError("SIR Flow parallel stages are not canonical")
-    # SIR stores source-stable arguments instead of the frontend graph record.
-    # Reconstruct and certify the graph from those preserved dependencies.
+    # SIR stores source-stable arguments instead of the frontend graph record;
+    # validation reconciles those references before reconstructing the graph.
+    from .flow_graph import FlowDependency, FlowNode
+    graph = certify_flow_graph(
+        tuple(FlowNode(stage.name) for stage in plan.stages),
+        tuple(
+            FlowDependency(argument.value.producer_stage, stage.name)
+            for stage in plan.stages for argument in stage.arguments
+        ),
+    )
     return _analyze(flow_name, graph, tuple(stage.name for stage in plan.stages), unavailable_stage)
 
 

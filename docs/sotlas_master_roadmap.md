@@ -4028,6 +4028,12 @@ CFG, integração de Ownership e execução pelo scheduler continuam pendentes.
 O `SIRModule` também preserva comprovantes de chamadas que satisfizeram
 precondições constantes verificadas pelo frontend.
 
+O validador `validate_sir_flow_plans(module)` reconcilia os planos de Flow com
+os parâmetros e retornos das funções SIR, valores de dependência, cronograma
+paralelo e summaries de efeitos. O lowering e as consultas iniciais de
+Causality, Counterfactuals e Transactions rejeitam planos que falham nessa
+reconciliação. As chamadas ainda não estão nos CFGs executáveis.
+
 Esta fase deve congelar a fronteira semântica que permite substituir C como transporte sem alterar a linguagem:
 
 - [ ] todos os corpos e construções `SUPPORTED` representáveis no SIR;

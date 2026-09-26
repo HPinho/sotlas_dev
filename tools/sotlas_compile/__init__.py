@@ -60,6 +60,7 @@ from .flow_sir import (
     FlowSIRStage,
     FlowSIRPlan,
     lower_typed_flows_to_sir,
+    validate_sir_flow_plans,
 )
 from .causality import (
     CausalityError, CausalStep, CausalExplanation,
@@ -98,7 +99,8 @@ __all__ = [
     "FlowFrontendError", "TypedFlowPlan", "TypedFlowStage",
     "plan_source_flows", "FlowSIRError", "FlowSIRValueRef",
     "FlowSIRArgument", "FlowSIRStage", "FlowSIRPlan",
-    "lower_typed_flows_to_sir", "ContractFrontendError", "ContractCallProof",
+    "lower_typed_flows_to_sir", "validate_sir_flow_plans",
+    "ContractFrontendError", "ContractCallProof",
     "ContractPrecondition", "CausalityError", "CausalStep",
     "CausalExplanation", "explain_flow_causality",
     "explain_sir_flow_causality",
