@@ -1,8 +1,8 @@
 # Sotlas — Implementation Status
 
 **Atualizado em:** 2026-09-25  
-**Último baseline verde certificado:** `81e5774`
-**CI de referência:** Sotlas CI & Toolchain Build Farm #569 — `success`
+**Último baseline verde certificado:** `a49f628`
+**CI de referência:** Sotlas CI & Toolchain Build Farm #570 — `success`
 **Fonte arquitetural:** `SOTLAS — ESPECIFICAÇÃO MESTRA`
 
 > Este é o índice operacional atual. O snapshot detalhado anterior, com o histórico extenso das microentregas da Fase 2, permanece preservado em `docs/archive/sotlas_implementation_status_2026-09-23.md`.
@@ -27,7 +27,7 @@ Legenda:
 | 2 | Ownership Domains | 100% | ✅ COMPLETE |
 | 3 | Authority Domains | 100% | ✅ COMPLETE |
 | 4 | State Spaces | ~55% | 🟡 IN PROGRESS |
-| 5 | Effects | ~10% | 🟡 |
+| 5 | Effects | ~15% | 🟡 |
 | 6 | Flow | ~0% | 🟡 |
 | 7 | Execution Domains | ~10% | 🟡 |
 | 8 | Heterogeneous Compute | ~0% | 🟡 |
@@ -144,6 +144,16 @@ Escopo: `docs/sotlas_1_0_phase3_authority_scope.md`.
 - otimizações e ergonomia adicionais.
 
 Escopo: `docs/sotlas_1_0_phase4_state_space_scope.md`.
+
+## Fase 5 — Effects
+
+**Status 1.0: ~15% 🟡 — IN PROGRESS**
+
+- [x] passe SIR detecta `alloc` e efeitos bloqueantes alcançáveis a partir de handlers de interrupção, incluindo chamadas transitivas;
+- [x] diagnóstico de interrupção preserva a cadeia de chamadas até a operação proibida;
+- [ ] declarações/inferência de efeitos na fonte e plano canônico;
+- [ ] integração do efeito inferido ao checker de produção e aos contratos do backend;
+- [ ] restrições completas para `@realtime`, async, locks e efeitos externos.
 
 ## Regra de baseline
 

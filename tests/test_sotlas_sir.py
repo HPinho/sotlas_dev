@@ -35,6 +35,7 @@ from sotlas.sir import (
 from sotlas.lexer import Lexer
 from sotlas.parser import Parser
 from sotlas_compile import bootstrap
+from sotlas.sir.passes import HardwareInterruptEffectPass
 
 
 class SotlasSIRTests(unittest.TestCase):
@@ -3116,6 +3117,36 @@ fn route(flag: bool, count: u32) -> void {
         result = safety_pass.run(mod)
         self.assertFalse(result.success)
         self.assertTrue(any("em função não-privilegiada" in e for e in result.errors))
+
+    def test_interrupt_effect_pass_follows_transitive_helper_calls(self):
+        handler = SIRFunction("isr_timer", [], "void")
+        handler.add_block("0").add(CallInst("prepare_work", []))
+        helper = SIRFunction("prepare_work", [], "void")
+        helper.add_block("0").add(CallInst("dispatch", []))
+        leaf = SIRFunction("dispatch", [], "void")
+        leaf.add_block("0").add(CallInst("heap_allocate", []))
+        module = SIRModule("interrupt_effects")
+        for function in (handler, helper, leaf):
+            module.add_function(function)
+
+        result = HardwareInterruptEffectPass().run(module)
+        self.assertFalse(result.success)
+        self.assertTrue(any(
+            "isr_timer -> prepare_work -> dispatch -> heap_allocate" in error
+            for error in result.errors
+        ))
+
+    def test_interrupt_effect_pass_allows_unreachable_forbidden_calls(self):
+        handler = SIRFunction("isr_timer", [], "void")
+        handler.add_block("0").add(ReturnInst())
+        ordinary = SIRFunction("ordinary", [], "void")
+        ordinary.add_block("0").add(CallInst("sleep", []))
+        module = SIRModule("interrupt_effects")
+        module.add_function(handler)
+        module.add_function(ordinary)
+
+        result = HardwareInterruptEffectPass().run(module)
+        self.assertTrue(result.success)
 
     def test_dead_code_elimination_removes_unreachable_instructions(self):
         fn = SIRFunction("dead_fn", [], "void")

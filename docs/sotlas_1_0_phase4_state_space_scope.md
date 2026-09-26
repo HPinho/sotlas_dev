@@ -2,7 +2,7 @@
 
 **Atualizado em:** 2026-09-25  
 **Status:** 🟡 IN PROGRESS  
-**Último baseline verde antes deste pacote:** `81e5774` — Sotlas CI & Toolchain Build Farm #569 `success`
+**Último baseline verde antes deste pacote:** `a49f628` — Sotlas CI & Toolchain Build Farm #570 `success`
 
 ## Objetivo do 1.0
 

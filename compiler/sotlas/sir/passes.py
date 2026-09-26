@@ -203,17 +203,47 @@ class UnreachableBlockPass:
 
 
 class HardwareInterruptEffectPass:
-    """Valida no nível SIR que tratadores de interrupção não realizam operações proibidas (alloc/blocking)."""
+    """Reject forbidden effects reachable from interrupt handlers."""
+
     def run(self, module: SIRModule) -> SIRPassResult:
         errors = []
-        forbidden = {"malloc", "heap_allocate", "alloc", "sleep", "block_on", "wait_for_event"}
+        forbidden = {
+            "malloc", "heap_allocate", "alloc", "sleep", "block_on",
+            "wait_for_event",
+        }
+        functions = {fn.name: fn for fn in module.functions}
         for fn in module.functions:
-            if getattr(fn, "is_trap", False) or fn.name.startswith("trap_") or fn.name.startswith("isr_"):
-                for block in fn.blocks:
+            if not (
+                getattr(fn, "is_trap", False)
+                or fn.name.startswith("trap_")
+                or fn.name.startswith("isr_")
+            ):
+                continue
+
+            pending = [(fn.name, (fn.name,))]
+            visited = set()
+            while pending:
+                current_name, path = pending.pop(0)
+                if current_name in visited:
+                    continue
+                visited.add(current_name)
+                current = functions.get(current_name)
+                if current is None:
+                    continue
+                for block in current.blocks:
                     for inst in block.instructions:
-                        if isinstance(inst, CallInst) and inst.callee in forbidden:
+                        if not isinstance(inst, CallInst):
+                            continue
+                        if inst.callee in forbidden:
+                            chain = " -> ".join((*path, inst.callee))
                             errors.append(
-                                f"sir effect error: operação proibida '{inst.callee}' em contexto de interrupção '{fn.name}'"
+                                f"sir effect error: operação proibida "
+                                f"'{inst.callee}' em contexto de interrupção "
+                                f"'{fn.name}' (call chain: {chain})"
+                            )
+                        elif inst.callee in functions and inst.callee not in visited:
+                            pending.append(
+                                (inst.callee, (*path, inst.callee))
                             )
         return SIRPassResult(success=len(errors) == 0, errors=errors)
 
