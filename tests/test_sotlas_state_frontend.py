@@ -220,7 +220,7 @@ class SotlasStateFrontendTests(unittest.TestCase):
         source = self._source(
             "pub fn configure(dev: Device<Discovered>) -> Device<Configured> "
             "{ unsafe { return transition(move(dev), Configured); } }"
-        ) + "\nfn main() -> i32 { let dev = Device { id: 37u32 }; " \
+        ) + "\nfn main() -> i32 { let dev: Device<Discovered> = Device { id: 37u32 }; " \
             "let configured = configure(move(dev)); " \
             "return configured.id as i32; }\n"
         # This test exercises the opt-in Phase-1 subset. The public
