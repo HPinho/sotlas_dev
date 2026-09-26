@@ -68,13 +68,13 @@ flow Serial {
         sir_module = self._module()
         cfg = package.lower_serial_flow_to_cfg(sir_module, "Serial")
         load = next(function for function in sir_module.functions if function.name == "load")
-        summary = sir_module.effect_summaries["load"]
+        summary = load.source_effect_summary
+        self.assertIsNotNone(summary)
         effectful = replace(
             summary,
             direct_effects=("io",),
             transitive_effects=("io",),
         )
-        sir_module.effect_summaries["load"] = effectful
         load.source_effect_summary = effectful
         plan = sir_module.flow_plans[0]
         raw = plan.stages[0]
@@ -83,8 +83,9 @@ flow Serial {
             stages=(replace(raw, effects=("io",)), *plan.stages[1:]),
         ),)
 
-        # The declarative plan and summary still agree, so the execution-specific
-        # purity gate—not a malformed-plan shortcut—must reject it.
+        # The declarative plan and source summary still agree. The runtime must
+        # materialize canonical SIR effect summaries itself and reject the stage
+        # because executable CFG interpretation is pure-only.
         package.validate_sir_flow_plans(sir_module)
         with self.assertRaisesRegex(
             package.FlowCFGExecutionError, "requires pure stage function 'load'"
