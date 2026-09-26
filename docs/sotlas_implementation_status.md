@@ -30,7 +30,7 @@ Legenda:
 | 5 | Effects | ~57% candidato | 🟡 |
 | 6 | Flow | ~53% candidato | 🟡 |
 | 7 | Execution Domains | ~45% | 🟡 |
-| 8 | Heterogeneous Compute | ~0% | 🟡 |
+| 8 | Heterogeneous Compute | ~5% candidato | 🟡 |
 | 9 | Trust Domains | ~18% candidato | 🟡 |
 | 10 | Guarantees | ~31% candidato | 🟡 |
 | 11 | Causality | ~13% candidato | 🟡 |
@@ -42,6 +42,14 @@ Legenda:
 | 17 | Tooling avançado | ~21% candidato | 🟡 |
 
 Os percentuais medem o escopo necessário para o Sotlas 1.0. Generalizações pós-release não mantêm uma fase aberta quando o subset atual pode rejeitá-las de forma correta e fail-closed.
+
+### Avanço de Heterogeneous Compute — pipeline de referência DEVICE
+
+- [x] API compõe um `Phase1CheckedModule` verificado com lifecycle canônico, SIR, ABI lógico/físico e artefato C11 do runtime de referência;
+- [x] identidades de handover/completion/sync/reacquisition são preservadas de ponta a ponta;
+- [x] bindings SIR explícitos devem corresponder exatamente aos owners certificados; bindings ausentes ou extras falham fechado;
+- [x] execução nativa Clang valida a transferência e reacquisition para dois owners;
+- [ ] provider de hardware/DMA, completion física, sincronização do target, falha/timeout e matriz por dispositivo continuam pendentes; a implementação atual é somente o runtime de referência single-threaded.
 
 ### Avanço de SIR — aritmética escalar sem sinal
 

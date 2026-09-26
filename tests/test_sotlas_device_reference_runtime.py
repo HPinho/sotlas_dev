@@ -23,6 +23,9 @@ REFERENCE_RUNTIME_C = RUNTIME_DIR / "device_reference.c"
 
 def _host_c_compiler() -> str:
     resolved = shutil.which("gcc") or shutil.which("clang")
+    bundled = Path("C:/Program Files/LLVM/bin/clang.exe")
+    if resolved is None and bundled.is_file():
+        resolved = str(bundled)
     if resolved is None:
         raise unittest.SkipTest("host GCC/Clang not available")
     return resolved
@@ -108,6 +111,7 @@ runtime_lowering = importlib.import_module(f"{backend_package.__name__}.sir.devi
 c11 = importlib.import_module(f"{backend_package.__name__}.device_runtime_c11")
 c11_materialize = importlib.import_module(f"{backend_package.__name__}.device_runtime_c11_materialize")
 c11_pipeline = importlib.import_module(f"{backend_package.__name__}.device_runtime_c11_pipeline")
+DeviceOwnerSource = c11_materialize.C11DeviceOwnerSource
 
 
 SOURCE = """module test::device_reference_runtime;
@@ -182,7 +186,95 @@ def _artifact():
     return checked_runtime, artifact
 
 
+def _source_artifact():
+    checked = compile_package.analyze_source_phase1(
+        SOURCE,
+        filename="<device-reference-runtime-source-pipeline>",
+    )
+    return c11_pipeline.lower_checked_device_source_to_reference_c11(
+        checked,
+        function="submit",
+        queue="queue0",
+        completion_point_ids=("completion@test:1", "completion@test:2"),
+        synchronization_point_id="sync@test:1",
+        reacquisition_point_ids=("reacquire@test:1", "reacquire@test:2"),
+        host_owners=(
+            DeviceOwnerSource("cpu_a", "host_a_address", "host_a_extent"),
+            DeviceOwnerSource("cpu_b", "host_b_address", "host_b_extent"),
+        ),
+        queue_identifier="device_queue",
+    )
+
+
 class SotlasDeviceReferenceRuntimeTests(unittest.TestCase):
+    def test_public_source_pipeline_preserves_checked_identities_and_executes(self):
+        artifact = _source_artifact()
+        self.assertEqual(
+            artifact.point_ids,
+            (
+                "handover@8:5",
+                "handover@9:5",
+                "completion@test:1",
+                "completion@test:2",
+                "sync@test:1",
+                "reacquire@test:1",
+                "reacquire@test:2",
+            ),
+        )
+        result_a, result_b = artifact.host_results
+        source = f'''#include "device_reference.h"
+
+int main(void) {{
+    sotlas_device_queue_t device_queue = (sotlas_device_queue_t)7u;
+    uintptr_t host_a_address = (uintptr_t)0x1000u;
+    size_t host_a_extent = (size_t)64u;
+    uintptr_t host_b_address = (uintptr_t)0x2000u;
+    size_t host_b_extent = (size_t)128u;
+
+    sotlas_device_reference_reset();
+{artifact.body_source}
+    if (sotlas_device_reference_last_status() != SOTLAS_DEVICE_REFERENCE_OK) return 1;
+    if ({result_a.address_identifier} != host_a_address) return 2;
+    if ({result_a.extent_identifier} != host_a_extent) return 3;
+    if ({result_b.address_identifier} != host_b_address) return 4;
+    if ({result_b.extent_identifier} != host_b_extent) return 5;
+    return 0;
+}}
+'''
+        executed = _compile_and_run(source)
+        self.assertEqual(executed.returncode, 0, executed.stderr or executed.stdout)
+
+    def test_public_source_pipeline_rejects_missing_and_extra_owner_mappings(self):
+        checked = compile_package.analyze_source_phase1(SOURCE)
+        arguments = dict(
+            function="submit",
+            queue="queue0",
+            completion_point_ids=("completion@test:1", "completion@test:2"),
+            synchronization_point_id="sync@test:1",
+            reacquisition_point_ids=("reacquire@test:1", "reacquire@test:2"),
+            host_owners=(
+                DeviceOwnerSource("cpu_a", "host_a_address", "host_a_extent"),
+                DeviceOwnerSource("cpu_b", "host_b_address", "host_b_extent"),
+            ),
+        )
+        for mappings in (
+            {"cpu_a": (object(), object())},
+            {
+                "cpu_a": (object(), object()),
+                "cpu_b": (object(), object()),
+                "extra": (object(), object()),
+            },
+        ):
+            with self.subTest(mapping_count=len(mappings)), self.assertRaisesRegex(
+                c11_pipeline.DeviceRuntimeC11PipelineError,
+                "must match checked owner bindings exactly",
+            ):
+                c11_pipeline.lower_checked_device_source_to_reference_c11(
+                    checked,
+                    sir_values=mappings,
+                    **arguments,
+                )
+
     def test_generated_two_owner_artifact_links_and_executes_reference_runtime(self):
         checked_runtime, artifact = _artifact()
         self.assertEqual(artifact.point_ids, checked_runtime.point_ids)
