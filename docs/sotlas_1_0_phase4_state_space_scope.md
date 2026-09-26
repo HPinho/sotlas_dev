@@ -2,7 +2,7 @@
 
 **Atualizado em:** 2026-09-25  
 **Status:** 🟡 IN PROGRESS  
-**Último baseline verde antes deste pacote:** `a49f628` — Sotlas CI & Toolchain Build Farm #570 `success`
+**Último baseline verde antes deste pacote:** `0025ec7` — Sotlas CI & Toolchain Build Farm #573 `success`
 
 ## Objetivo do 1.0
 
@@ -63,15 +63,13 @@ A mesma regra das fases anteriores continua válida:
 - [x] a análise opt-in reaproveita o checker canônico sobre cópia privada do AST, sem remover o gate de produção nem mutar a fonte;
 - [x] o subset opt-in valida `unsafe { return transition(move(binding), Target); }`, registra identidade source-stable e revalida origem, edge, destino e estado de retorno antes de gerar SIR;
 - [x] estado inexistente, espaço duplicado, edge inválido e forma indireta fora do subset falham fechado;
-- [x] `check`, C11 e header públicos mantêm um gate `PREVIEW` explícito até existir SIR/backend certificado.
+- [x] checker, C11 e header públicos aceitam apenas o subset representável: transição direta em retorno, nominal `sole struct`, sem payload/storage; outras formas falham fechado.
 
-### Por que `check` ainda rejeita esses módulos
+### Fronteira do subset público
 
-O parser, o planner e o pipeline Phase 1 agora compreendem State Spaces e preservam seus fatos tipados, mas o contrato de produção da Sotlas exige:
+O frontend e o backend C11 aceitam agora a forma que podem preservar: `Type<State>` em parâmetros/retornos de uma `sole struct`, estado inicial explícito para valores frescos e uma única `unsafe { return transition(move(value), Target); }` validada contra o grafo. O C11 apaga o marcador de estado depois da verificação estática; não há tag de runtime.
 
-> se `sotlas check` retorna sucesso, o pipeline oficialmente suportado deve conseguir compilar corretamente o programa.
-
-Como State Spaces ainda não possuem lowering SIR/backend 1.0, retornar sucesso agora seria uma promoção falsa. O gate PREVIEW é, portanto, parte da segurança do release e não uma regressão.
+Payloads, armazenamento tipado, métodos, múltiplas transições e transições fora do retorno direto continuam fail-closed. A etapa `Verify Phase 4 State Space release subset` na CI roda os testes públicos, o bridge SIR e o e2e nativo.
 
 ## BLOCKERS 1.0
 
@@ -80,15 +78,15 @@ Como State Spaces ainda não possuem lowering SIR/backend 1.0, retornar sucesso 
 - [x] sintaxe pública para tipos `Type<State>` no subset `Space<State>`;
 - [x] resolução de `Type<State>` contra o State Space homônimo correto;
 - [x] pipeline semântico opt-in preserva typestate sem mutar a AST nem contornar o release gate público;
-- [ ] integração do typestate ao checker de produção de forma que o módulo possa ser aceito quando houver backend;
-- [ ] construção de transições a partir de código Sotlas real;
-- [ ] contratos de chamadas/retornos que mudam typestate;
+- [x] integração do typestate ao checker de produção e backend C11 para o subset explícito;
+- [x] construção de transição a partir de código Sotlas no retorno direto validado;
+- [x] contratos `Type<State>` em parâmetros, chamada direta e retorno do subset;
 - [x] identidade source-stable das transições no SIR para o retorno direto opt-in;
 - [x] revalidação fail-closed entre semântica fonte e SIR para esse subset;
-- [ ] lowering/backend mínimo para o subset declarado estável;
-- [ ] teste positivo e2e: fonte → check → backend → execução;
-- [ ] teste negativo e2e para transição inexistente;
-- [ ] gate que garanta que `sotlas check` não aceite um caso que o backend 1.0 não consegue compilar corretamente;
+- [x] lowering C11 mínimo com apagamento do estado após verificação estática;
+- [x] teste positivo e2e: fonte → compile_source → C11 → execução;
+- [x] teste negativo: edges/transições inválidos são rejeitados antes do backend;
+- [x] gate público e etapa CI dedicados impedem aceitar formas que o backend não suporta;
 - [ ] integrar coverage ao consumer público mínimo escolhido para o 1.0.
 
 ## DEFER 1.0.x

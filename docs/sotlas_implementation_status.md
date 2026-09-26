@@ -1,8 +1,8 @@
 # Sotlas — Implementation Status
 
 **Atualizado em:** 2026-09-25  
-**Último baseline verde certificado:** `8985817`
-**CI de referência:** Sotlas CI & Toolchain Build Farm #572 — `success`
+**Último baseline verde certificado:** `6a9b0bc`
+**CI de referência:** Sotlas CI & Toolchain Build Farm #574 — `success`
 **Fonte arquitetural:** `SOTLAS — ESPECIFICAÇÃO MESTRA`
 
 > Este é o índice operacional atual. O snapshot detalhado anterior, com o histórico extenso das microentregas da Fase 2, permanece preservado em `docs/archive/sotlas_implementation_status_2026-09-23.md`.
@@ -26,7 +26,7 @@ Legenda:
 | 1 | Typed Semantic Core | 100% | ✅ COMPLETE |
 | 2 | Ownership Domains | 100% | ✅ COMPLETE |
 | 3 | Authority Domains | 100% | ✅ COMPLETE |
-| 4 | State Spaces | ~55% | 🟡 IN PROGRESS |
+| 4 | State Spaces | ~70% | 🟡 IN PROGRESS |
 | 5 | Effects | ~15% | 🟡 |
 | 6 | Flow | ~10% | 🟡 |
 | 7 | Execution Domains | ~10% | 🟡 |
@@ -118,18 +118,18 @@ Escopo: `docs/sotlas_1_0_phase3_authority_scope.md`.
 - [x] `Phase1CheckedModule` carrega o snapshot tipado no pipeline opt-in;
 - [x] análise Phase 1 usa uma cópia privada para reaproveitar o checker canônico sem mutar o AST original;
 - [x] transição `transition(move(binding), Target)` é certificada no pipeline opt-in e preserva fato source-stable no SIR com revalidação do edge e do estado de retorno;
-- [x] `check`/C/header públicos continuam rejeitando State Spaces como `PREVIEW` até haver lowering certificado, preservando `check => backend suportado`.
+- [x] `check`/C11/header aceitam o subset com `sole struct`, estados sem payload e transição única em retorno `unsafe`; armazenamento, payloads e formas gerais continuam fail-closed;
 
 ### Blockers 1.0 ainda abertos
 
-- [ ] operação pública de transição a partir de código Sotlas real;
-- [ ] contratos de calls/returns que mudam estado;
+- [x] operação pública `transition(move(binding), Target)` no subset de retorno direto;
+- [x] parâmetros, chamadas e retornos preservam `Type<State>` no subset direto;
 - [x] inicialização explícita de valores frescos no estado inicial declarado;
 - [x] fatos source-stable de transição no SIR para o subset opt-in de retorno direto;
 - [x] revalidação semântica source ↔ SIR para esse subset;
-- [ ] lowering/backend mínimo;
-- [ ] e2e positivo/negativo a partir de fonte Sotlas;
-- [ ] gate formal de release da Fase 4;
+- [x] lowering C11 do subset nominal, com transição validada antes da emissão;
+- [x] e2e positivo nativo e rejeição semântica de edges/transições inválidos;
+- [x] gate dedicado da Fase 4 na CI executa frontend, SIR e e2e C11;
 - [ ] consumer público mínimo para coverage/exhaustividade.
 
 ### Pós-1.0

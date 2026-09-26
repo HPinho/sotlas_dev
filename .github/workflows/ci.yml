@@ -133,6 +133,11 @@ jobs:
           echo "::endgroup::"
         done < build/check-contract/backend-contract.txt
 
+    - name: Verify Phase 4 State Space release subset
+      run: |
+        python -m unittest discover -s tests -p "test_sotlas_state_frontend.py" -v
+        python -m unittest discover -s tests -p "test_sotlas_state_phase1.py" -v
+
   package-toolchain-snapshot:
     name: Package Nightly Toolchain Snapshot
     runs-on: ubuntu-latest
