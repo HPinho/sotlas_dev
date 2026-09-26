@@ -2,7 +2,7 @@
 
 **Atualizado em:** 2026-09-26
 **Status:** 🟡 IN PROGRESS
-**Baseline de código:** `620ec78` — CI #626 `success`
+**Baseline verde certificado:** `0d09d86` — CI #633 `success`
 
 ### Refinamento local de fluxo
 
@@ -38,9 +38,10 @@ aparece no dump como `sir_proof`.
 ## Subset inicial de pós-condições
 
 Funções com retorno numérico escalar podem declarar `ensures result ...`. O
-checker valida o predicado como booleano e reserva `result` para o valor
-retornado; o subset atual rejeita referências a parâmetros, funções `void`,
-retornos não escalares e corpos externos. O C11 captura o retorno uma vez,
+checker valida o predicado como booleano, reserva `result` para o valor
+retornado e aceita referências a parâmetros escalares numéricos ou booleanos;
+funções `void`, retornos não escalares, parâmetros agregados e corpos externos
+seguem rejeitados. Os parâmetros do subset são bindings imutáveis. O C11 captura o retorno uma vez,
 executa os defers ativos e verifica a pós-condição em cada caminho de retorno.
 O `SIRModule` preserva o contrato como `sir_ensures`.
 
@@ -74,5 +75,6 @@ O `SIRModule` preserva o contrato como `sir_ensures`.
 - [x] prova por fatos exatos de branch para argumentos dinâmicos, com invalidação conservadora;
 - [ ] refinamento de fluxo para provar argumentos dinâmicos;
 - [x] subset `ensures result` numérico escalar com verificação C11 e evidência no SIR;
+- [x] `ensures` pode comparar o retorno com parâmetros escalares imutáveis;
 - [ ] `ensures` sobre estado/heap, declaração `guarantee` e relatórios agregados de safety;
 - [ ] matriz e2e de provas por backend/target.

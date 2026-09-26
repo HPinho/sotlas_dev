@@ -346,6 +346,35 @@ fn nonnegative(value: i32) -> i32
         )
         self.assertIn("sir_ensures @nonnegative (result >= 0)", checked_sir.module.dump())
 
+    def test_ensures_can_reference_immutable_scalar_parameters(self):
+        source = """
+module test::contract_ensures_parameter;
+fn increment(value: i32) -> i32
+    ensures result > value
+{
+    return value + 1;
+}
+"""
+        for package in (compiler, tools):
+            module = package.bootstrap.parse(source)
+            package.bootstrap.check(module)
+            self.assertEqual(
+                module.contract_postconditions[0].predicate,
+                "(result > value)",
+            )
+            generated = package.bootstrap.emit_c(module)
+            self.assertIn("if (!((_st_ret > value))) abort();", generated)
+        checked = compiler.analyze_source_phase1(source)
+        checked_sir, _ = compiler.build_canonical_checked_ownership_sir(checked)
+        self.assertEqual(
+            checked_sir.module.contract_postconditions[0].predicate,
+            "(result > value)",
+        )
+        self.assertIn(
+            "sir_ensures @increment (result > value)",
+            checked_sir.module.dump(),
+        )
+
     def test_ensures_runtime_guard_rejects_false_return(self):
         cc = shutil.which("cc") or shutil.which("clang") or shutil.which("gcc")
         if cc is None:
@@ -378,14 +407,52 @@ pub fn negative() -> i32
             )
             self.assertNotEqual(executed.returncode, 0)
 
+    def test_ensures_parameter_runtime_guard_uses_parameter_value(self):
+        cc = shutil.which("cc") or shutil.which("clang") or shutil.which("gcc")
+        if cc is None:
+            self.skipTest("C11 compiler is unavailable")
+        source = """
+module test::contract_ensures_parameter_runtime;
+pub fn increment(value: i32) -> i32
+    ensures result > value
+{
+    return value + 1;
+}
+pub fn identity(value: i32) -> i32
+    ensures result > value
+{
+    return value;
+}
+"""
+        generated = compiler.bootstrap.compile_source(source)
+        with tempfile.TemporaryDirectory(prefix="sotlas_ensures_param_") as temp:
+            c_path = Path(temp) / "ensures.c"
+            exe_path = Path(temp) / "ensures"
+            c_path.write_text(
+                generated
+                + "\nint main(void) { (void)increment(41); return identity(12); }\n",
+                encoding="utf-8",
+            )
+            compiled = subprocess.run(
+                [cc, "-std=c11", str(c_path), "-o", str(exe_path)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            executed = subprocess.run(
+                [str(exe_path)], capture_output=True, text=True, check=False
+            )
+            self.assertNotEqual(executed.returncode, 0)
+
     def test_ensures_fails_closed_outside_scalar_result_subset(self):
         cases = (
-            ("fn check(value: i32) -> i32 ensures value > 0 { return value; }",
-             "may reference only the returned value"),
             ("fn check() -> void ensures result == 0 { return; }",
              "scalar numeric return"),
             ("fn check() -> i32 ensures result { return 1; }",
              "ensures expression must have type bool"),
+            ("fn check(value: *i32) -> i32 ensures value == value { return 1; }",
+             "only scalar numeric or bool parameters"),
         )
         for package in (compiler, tools):
             for declaration, message in cases:

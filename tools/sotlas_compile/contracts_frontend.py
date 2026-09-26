@@ -567,10 +567,32 @@ def install(bootstrap) -> None:
             if result_type.name != "bool":
                 _error(bootstrap, "ensures expression must have type bool", token, module)
             referenced = _referenced_parameters(expression, bootstrap)
-            if referenced - {"result"}:
+            referenced_parameters = referenced - {"result"}
+            if referenced_parameters - set(dict(function.params)):
                 _error(
                     bootstrap,
-                    "ensures currently may reference only the returned value 'result'",
+                    "ensures references an unknown parameter",
+                    token,
+                    module,
+                )
+            scalar_contract_types = numeric_results | {"bool"}
+            invalid_parameters = tuple(
+                parameter
+                for parameter, parameter_type in function.params
+                if parameter in referenced_parameters
+                and (
+                    parameter_type.name not in scalar_contract_types
+                    or parameter_type.pointer
+                    or parameter_type.is_reference
+                    or parameter_type.is_array
+                    or parameter_type.is_fn_ptr
+                )
+            )
+            if invalid_parameters:
+                _error(
+                    bootstrap,
+                    "ensures may reference only scalar numeric or bool parameters; "
+                    "unsupported: " + ", ".join(invalid_parameters),
                     token,
                     module,
                 )
