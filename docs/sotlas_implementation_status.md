@@ -35,7 +35,7 @@ Legenda:
 | 10 | Guarantees | ~15% candidato | 🟡 |
 | 11 | Causality | ~10% candidato | 🟡 |
 | 12 | Counterfactuals | ~10% candidato | 🟡 |
-| 13 | Transactions | ~5% candidato | 🟡 |
+| 13 | Transactions | ~10% candidato | 🟡 |
 | 14 | Intent | ~5% candidato | 🟡 |
 | 15 | SIR completo | ~38% candidato | 🟡 |
 | 16 | Native Machine Backend | ~5% | 🟡 |
@@ -80,9 +80,13 @@ API inicial: `analyze_sir_flow_stage_unavailability(module, flow, stage)` em `so
 
 ### Avanço inicial de Transactions
 
+**Status 1.0: ~10% candidato 🟡 — IN PROGRESS**
+
 - [x] auditoria estática dos efeitos de um Flow SIR contra política explícita de reversibilidade;
 - [x] efeito sem política, irreversível ou compensável sem handler bloqueia a satisfação da política de rollback;
 - [x] handler declarado precisa existir no SIR;
+- [x] auditoria satisfeita expõe camadas de stages que precisam de compensação em ordem reversa de dependência;
+- [x] ordem é apenas precedência estática: execução dos handlers e atomicidade continuam pendentes;
 - [ ] snapshots `before/after`, inversas verificadas, execução atômica, rollback e compensação executada.
 
 API inicial: `analyze_sir_flow_transaction_effects(module, flow, policies, handlers)` em `sotlas_compile.transactions`.

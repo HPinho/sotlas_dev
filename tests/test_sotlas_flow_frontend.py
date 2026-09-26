@@ -301,6 +301,7 @@ flow Home {
         )
         self.assertTrue(compensatable.rollback_policy_satisfied)
         self.assertEqual(compensatable.effects[0].compensation, "load_posts")
+        self.assertEqual(compensatable.compensation_stage_order, (("profile",),))
 
         no_handler = package.analyze_sir_flow_transaction_effects(
             sir.module, "Home", {"io": "compensatable"}
@@ -312,6 +313,38 @@ flow Home {
             package.analyze_sir_flow_transaction_effects(
                 sir.module, "Home", {"network": "reversible"}
             )
+
+    def test_transaction_audit_orders_compensation_by_reverse_flow_layers(self):
+        checked = package.analyze_source_phase1(self._source("""
+flow Home {
+    stage profile = load_profile;
+    stage posts = load_posts;
+    stage page = render after profile, posts;
+}
+"""))
+        sir, _ = package.build_canonical_checked_ownership_sir(checked)
+        plan = sir.module.flow_plans[0]
+        for function in sir.module.functions:
+            if function.name in {"load_profile", "load_posts", "render"}:
+                function.source_effect_summary = replace(
+                    function.source_effect_summary,
+                    direct_effects=("io",), transitive_effects=("io",),
+                )
+        sir.module.flow_plans = (replace(
+            plan,
+            stages=tuple(replace(stage, effects=("io",)) for stage in plan.stages),
+        ),)
+        audit = package.analyze_sir_flow_transaction_effects(
+            sir.module,
+            "Home",
+            {"io": "compensatable"},
+            {"io": "load_profile"},
+        )
+        self.assertTrue(audit.rollback_policy_satisfied)
+        self.assertEqual(
+            audit.compensation_stage_order,
+            (("page",), ("profile", "posts")),
+        )
 
     def test_sir_flow_validator_reconciles_signatures_edges_effects_and_schedule(self):
         checked = package.analyze_source_phase1(self._source("""

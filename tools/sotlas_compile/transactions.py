@@ -28,6 +28,7 @@ class TransactionAudit:
     effects: tuple[TransactionEffect, ...]
     rollback_policy_satisfied: bool
     blockers: tuple[str, ...]
+    compensation_stage_order: tuple[tuple[str, ...], ...] = ()
 
 
 def analyze_sir_flow_transaction_effects(
@@ -107,7 +108,22 @@ def analyze_sir_flow_transaction_effects(
             + ", ".join(sorted(unused))
         )
     policy_satisfied = not blockers
-    return TransactionAudit(plan.name, tuple(records), policy_satisfied, tuple(blockers))
+    compensation_stages = {
+        record.stage for record in records
+        if record.classification == "compensatable" and record.compensation is not None
+    }
+    compensation_order = (
+        tuple(
+            tuple(stage for stage in batch if stage in compensation_stages)
+            for batch in reversed(plan.parallel_stages)
+            if any(stage in compensation_stages for stage in batch)
+        )
+        if policy_satisfied else ()
+    )
+    return TransactionAudit(
+        plan.name, tuple(records), policy_satisfied, tuple(blockers),
+        compensation_order,
+    )
 
 
 __all__ = [
