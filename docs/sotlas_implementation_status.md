@@ -342,7 +342,7 @@ Escopo: `docs/sotlas_1_0_phase10_guarantees_scope.md`.
 - [x] retorno de literal inteiro tipado `i/u8`, `i/u16`, `i/u32`, `i/u64`, `isize` e `usize` baixa para `ConstantIntInst` no SIR;
 - [x] bootstrap e AST legado cobertos para literais decimais; bootstrap também aceita literal hexadecimal tipado;
 - [x] LLVM verifica tipo e intervalo antes de emitir o valor;
-- [x] `--emit-asm` aceita retorno direto e aritmética inteira unsigned de parâmetros no subset LLVM; a cobertura nativa depende de Clang/LLVM disponível;
+- [x] `--emit-asm` e `--emit=asm` aceitam retorno direto e aritmética inteira unsigned de parâmetros no subset LLVM; a cobertura nativa depende de Clang/LLVM disponível;
 - [ ] lowering nativo validado com `llc`/Clang, execução por target, CFG completo e semântica definida de overflow.
 
 ## Regra de baseline

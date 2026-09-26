@@ -79,6 +79,12 @@ def main() -> int:
         help="Emite assembly nativo do subset LLVM SIR verificado (.s)",
     )
     cp.add_argument(
+        "--emit",
+        choices=["asm"],
+        default=None,
+        help="Formato adicional de saída (atualmente: asm)",
+    )
+    cp.add_argument(
         "--backend",
         choices=["llvm", "c11"],
         default="llvm",
@@ -489,7 +495,7 @@ def _run_compile(args) -> int:
 
     emit_type = "exe"
     output_arg = getattr(args, "output", None)
-    if getattr(args, "emit_asm", False) or (
+    if getattr(args, "emit_asm", False) or getattr(args, "emit", None) == "asm" or (
         output_arg and str(output_arg).endswith((".s", ".asm"))
     ):
         emit_type = "asm"
