@@ -68,7 +68,11 @@ class TestCodegenLLVM(unittest.TestCase):
         self.assertEqual(arm.pointer_width, 64)
         self.assertEqual(arm.endianness, "little")
         self.assertEqual(arm.cpu_features, ("crc", "sve", "sve2"))
-        self.assertIsNone(arm.data_layout)
+        self.assertEqual(
+            arm.data_layout,
+            "e-m:e-p270:32:32-p271:32:32-p272:64:64-"
+            "i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128-Fn32",
+        )
 
         module = SIRModule(name="aarch64_target_contract")
         function = SIRFunction(name="main", parameters=[], return_type="Void")
@@ -76,8 +80,36 @@ class TestCodegenLLVM(unittest.TestCase):
         module.add_function(function)
         ir = CodegenLLVM(module, target=arm).emit()
         self.assertIn('target triple = "aarch64-unknown-linux-gnu"', ir)
+        self.assertIn(f'target datalayout = "{arm.data_layout}"', ir)
         self.assertIn('"target-cpu"="generic"', ir)
         self.assertIn('"target-features"="+crc,+sve,+sve2"', ir)
+
+    def test_aarch64_abi_presets_use_object_format_specific_data_layouts(self):
+        cases = (
+            (
+                "aarch64-apple-darwin",
+                "darwin-aarch64",
+                "e-m:o-p270:32:32-p271:32:32-p272:64:64-"
+                "i64:64-i128:128-n32:64-S128-Fn32",
+            ),
+            (
+                "aarch64-pc-windows-msvc",
+                "winarm64",
+                "e-m:w-p270:32:32-p271:32:32-p272:64:64-"
+                "p:64:64-i32:32-i64:64-i128:128-n32:64-S128-Fn32",
+            ),
+            (
+                "aarch64-unknown-none-elf",
+                "aapcs64",
+                "e-m:e-p270:32:32-p271:32:32-p272:64:64-"
+                "i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128-Fn32",
+            ),
+        )
+        for triple, abi, data_layout in cases:
+            with self.subTest(triple=triple):
+                target = resolve_execution_target(triple)
+                self.assertEqual(target.abi, abi)
+                self.assertEqual(target.data_layout, data_layout)
 
     def test_aarch64_rejects_x86_features_and_accepts_freestanding_alias(self):
         with self.assertRaisesRegex(ExecutionTargetError, "unsupported aarch64 CPU features"):

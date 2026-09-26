@@ -29,7 +29,7 @@ Legenda:
 | 4 | State Spaces | 100% | ✅ COMPLETE |
 | 5 | Effects | ~55% candidato | 🟡 |
 | 6 | Flow | ~40% candidato | 🟡 |
-| 7 | Execution Domains | ~35% | 🟡 |
+| 7 | Execution Domains | ~40% | 🟡 |
 | 8 | Heterogeneous Compute | ~0% | 🟡 |
 | 9 | Trust Domains | ~10% candidato | 🟡 |
 | 10 | Guarantees | ~5% candidato | 🟡 |
@@ -193,7 +193,7 @@ Escopo: `docs/sotlas_1_0_phase6_flow_scope.md`.
 
 ## Fase 7 — Execution Domains
 
-**Status 1.0: ~35% 🟡 — IN PROGRESS**
+**Status 1.0: ~40% 🟡 — IN PROGRESS**
 
 - [x] modelo tipado de target x86-64, ABI básica, largura de ponteiro e endianness;
 - [x] triples Linux, Windows, Darwin e freestanding reconhecidos com aliases legados;
@@ -201,6 +201,7 @@ Escopo: `docs/sotlas_1_0_phase6_flow_scope.md`.
 - [x] LLVM IR e Clang recebem target/features configurados;
 - [x] CLI expõe seleção de target e features x86-64;
 - [x] presets LLVM/ABI AArch64 Linux, Windows, Darwin e freestanding;
+- [x] data layouts LLVM por formato de objeto ELF, COFF e Mach-O para os presets AArch64;
 - [x] features AArch64 `crc`, `aes`, `sha2`, `lse`, `sve`, `sve2` são validadas por arquitetura e normalizadas;
 - [x] flags freestanding e seleção de features AArch64 não recebem flags x86;
 - [x] testes de target, ABI declarado, dependências de features e atributos LLVM AArch64;

@@ -2,7 +2,7 @@
 
 **Atualizado em:** 2026-09-26
 **Status:** IN PROGRESS  
-**Último baseline verde certificado:** `0e98e1b` — CI #581 `success`
+**Último baseline verde certificado:** `bb3de63` — CI #593 `success`
 
 ## Subset de targets x86-64 e AArch64
 
@@ -20,7 +20,7 @@ features ao Clang nos caminhos de objeto C11, e o CLI expõe `--target` e
 
 ## Limites atuais
 
-- os targets AArch64 Linux, Windows, Darwin e freestanding agora possuem presets tipados de ABI, largura de ponteiro e endianness; o data layout permanece omitido até ser certificado por ABI;
+- os targets AArch64 Linux/freestanding ELF, Windows COFF e Darwin Mach-O possuem ABI, largura de ponteiro, endianness e data layouts específicos do LLVM;
 - features AArch64 `aes`, `crc`, `lse`, `sha2`, `sve` e `sve2` são validadas, com `sve2` implicando `sve`;
 - o registro de features continua limitado e ainda não implementa intrinsics SIMD Sotlas;
 - `host` mantém o triple interno legado, sem detecção dinâmica do host;
@@ -36,6 +36,7 @@ features ao Clang nos caminhos de objeto C11, e o CLI expõe `--target` e
 - IR textual preserva target e atributos selecionados;
 - emissão direta de LLVM IR a partir de fonte aceita configuração de target.
 - presets e target features AArch64 aparecem em LLVM IR e são encaminhados a Clang sem flags específicas de x86.
+- data layouts AArch64 ELF, COFF e Mach-O são conferidos por triple e emitidos no LLVM IR.
 
 Este pacote fecha apenas uma fatia executável da Fase 7 e não declara a fase
 completa.
