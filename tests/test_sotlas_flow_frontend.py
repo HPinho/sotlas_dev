@@ -160,6 +160,33 @@ flow Home {
         self.assertEqual(result.output("page"), 17)
         self.assertEqual(observed, ["profile", "posts", ("page", 10, 7)])
 
+    def test_source_call_causality_explains_calls_outside_flow(self):
+        source = """
+module test::source_call_causality;
+fn parse(value: i32) -> i32 { return value; }
+fn decode(raw: i32) -> i32 { return parse(raw); }
+fn entry(input: i32) -> i32 { return decode(input); }
+        """
+        checked = package.analyze_source_phase1(source)
+        explanation = package.explain_source_call_causality(
+            checked, "entry", "parse"
+        )
+        self.assertEqual(
+            [
+                (step.caller_function, step.callee_function,
+                 step.argument_count, step.callee_parameters)
+                for step in explanation.steps
+            ],
+            [
+                ("entry", "decode", 1, ("raw",)),
+                ("decode", "parse", 1, ("value",)),
+            ],
+        )
+        self.assertTrue(all(step.line > 0 and step.column > 0 for step in explanation.steps))
+        self.assertEqual(explanation.steps[0].caller_effects, ())
+        with self.assertRaisesRegex(package.CausalityError, "no source call path"):
+            package.explain_source_call_causality(checked, "parse", "entry")
+
     def test_causality_rejects_missing_stages_and_disconnected_paths(self):
         checked = package.analyze_source_phase1(self._source("""
 flow Home {
