@@ -23,7 +23,7 @@ export default function Documentation() {
     <div className="min-h-screen bg-background flex flex-col">
       <Seo
         title={`${pageTitle} — Sotlas Documentation`}
-        description={page?.description || "Official guides for the Sotlas programming language: installation, syntax, memory model, concurrency, and low-level hardware control."}
+        description={page?.description || "Preview documentation for the Sotlas compiler, language subset, supported backends, and known limits."}
         path={`/docs/${pageSlug}`}
       />
       <Navbar />

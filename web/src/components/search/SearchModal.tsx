@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Search, FileText, Code, Clock, ArrowRight } from "lucide-react";
+import { Search, FileText, Clock, ArrowRight } from "lucide-react";
 import { useSearch } from "@/contexts/SearchContext";
 import { useDebounce } from "@/hooks/use-debounce";
 import { useSearchResults, type SearchResult } from "@/hooks/use-search-results";
@@ -16,13 +16,11 @@ import {
 
 const categoryLabels = {
   docs: "Documentation",
-  api: "API Reference",
   changelog: "Changelog",
 };
 
 const categoryIcons = {
   docs: FileText,
-  api: Code,
   changelog: Clock,
 };
 

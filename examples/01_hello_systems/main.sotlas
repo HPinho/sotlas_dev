@@ -1,6 +1,6 @@
 module examples::hello_systems;
 
-// Função pura de cálculo safe
+// Pure integer example used by the preview smoke tests.
 pub fn compute_factorial(n: u32) -> u32 {
     let mut result: u32 = 1;
     let mut i: u32 = 1;
@@ -11,7 +11,7 @@ pub fn compute_factorial(n: u32) -> u32 {
     return result;
 }
 
-// Ponto de entrada padrão
+// Return zero when the calculation matches the expected result.
 pub fn main() -> i32 {
     let fact: u32 = compute_factorial(5);
     if fact == 120 {

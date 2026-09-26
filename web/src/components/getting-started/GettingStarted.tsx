@@ -11,18 +11,18 @@ interface CliCommand {
 }
 
 const installSteps = [
-  { step: "1", label: "Clone the repository", command: "git clone https://github.com/Sotlas/sotlas.git" },
-  { step: "2", label: "Enter directory", command: "cd sotlas" },
-  { step: "3", label: "Install in editable mode", command: "pip install -e ." },
+  { step: "1", label: "Clone the development repository", command: "git clone https://github.com/HPinho/sotlas_dev.git" },
+  { step: "2", label: "Enter the checkout", command: "cd sotlas_dev" },
+  { step: "3", label: "Install the preview package", command: "python -m pip install -e ." },
 ];
 
 const cliCommands: CliCommand[] = [
   { label: "sotlas version", description: "Display language version", command: "sotlas version" },
   { label: "sotlas check", description: "Validate syntax, types, and safety", command: "sotlas check examples/01_hello_systems/main.sotlas" },
   { label: "sotlas dump-ast", description: "Inspect parsed AST", command: "sotlas dump-ast examples/01_hello_systems/main.sotlas" },
-  { label: "sotlas dump-sir", description: "Inspect SSA SIR", command: "sotlas dump-sir examples/01_hello_systems/main.sotlas" },
-  { label: "sotlas compile", description: "Emit intermediate C11 code", command: "sotlas compile examples/01_hello_systems/main.sotlas --emit-c" },
-  { label: "sotlas test", description: "Execute test suite", command: "sotlas test" },
+  { label: "sotlas dump-sir", description: "Inspect prototype SIR output", command: "sotlas dump-sir examples/01_hello_systems/main.sotlas" },
+  { label: "sotlas compile", description: "Emit C11 from the checked source path", command: "sotlas compile examples/01_hello_systems/main.sotlas --backend c11 --emit-c" },
+  { label: "sotlas run", description: "Compile and run a native example", command: "sotlas run examples/01_hello_systems/main.sotlas" },
 ];
 
 function CopyButton({ text }: { text: string }) {
@@ -63,7 +63,7 @@ export function GettingStarted() {
             <WaveText text="Get Started in 3 Steps" />
           </h2>
           <p className="text-muted-foreground text-base md:text-lg max-w-2xl mx-auto leading-relaxed">
-            From repository clone to your first verified Sotlas build in under 2 minutes.
+            Install from the development checkout, then run a small verified source example.
           </p>
         </div>
 

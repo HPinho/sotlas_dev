@@ -11,14 +11,17 @@ import {
 } from 'vscode-languageclient/node';
 import { SotlasValidator } from './validator';
 import { SotlasDocumentSymbolProvider, SotlasHoverProvider } from './providers';
+import { parseCompilerDiagnostics } from './compilerDiagnostics';
 
 let client: LanguageClient | undefined;
 let diagnosticCollection: vscode.DiagnosticCollection;
 let validator: SotlasValidator;
 let outputChannel: vscode.OutputChannel;
 let compilerPath = 'sotlas';
+const compilerDiagnosticUris = new Set<string>();
 
 function runCompiler(args: string[], title: string, cwd?: string): void {
+    clearCompilerDiagnostics();
     outputChannel.clear();
     outputChannel.appendLine(`$ ${compilerCommandForDisplay(args)}`);
     outputChannel.show(true);
@@ -27,8 +30,17 @@ function runCompiler(args: string[], title: string, cwd?: string): void {
         cwd: cwd || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
         shell: false
     });
-    process.stdout.on('data', data => outputChannel.append(data.toString()));
-    process.stderr.on('data', data => outputChannel.append(data.toString()));
+    let compilerOutput = '';
+    process.stdout.on('data', data => {
+        const chunk = data.toString();
+        compilerOutput += chunk;
+        outputChannel.append(chunk);
+    });
+    process.stderr.on('data', data => {
+        const chunk = data.toString();
+        compilerOutput += chunk;
+        outputChannel.append(chunk);
+    });
     process.on('error', error => {
         outputChannel.appendLine(`\n${error.message}`);
         vscode.window.showErrorMessage(
@@ -36,6 +48,7 @@ function runCompiler(args: string[], title: string, cwd?: string): void {
         );
     });
     process.on('close', code => {
+        publishCompilerDiagnostics(compilerOutput, cwd || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath);
         outputChannel.appendLine(`\nProcesso encerrado com código ${code ?? 'desconhecido'}.`);
         if (code === 0) {
             vscode.window.showInformationMessage(`${title}: concluído.`);
@@ -43,6 +56,48 @@ function runCompiler(args: string[], title: string, cwd?: string): void {
             vscode.window.showErrorMessage(`${title}: falhou. Consulte o canal de saída Sotlas.`);
         }
     });
+}
+
+function publishCompilerDiagnostics(output: string, cwd?: string): void {
+    const grouped = new Map<string, vscode.Diagnostic[]>();
+    for (const parsed of parseCompilerDiagnostics(output)) {
+        const filePath = path.isAbsolute(parsed.file)
+            ? parsed.file
+            : path.resolve(cwd || process.cwd(), parsed.file);
+        const uri = vscode.Uri.file(filePath);
+        const range = new vscode.Range(
+            parsed.line - 1,
+            parsed.column - 1,
+            parsed.line - 1,
+            parsed.column
+        );
+        const severity = parsed.severity === 'warning'
+            ? vscode.DiagnosticSeverity.Warning
+            : parsed.severity === 'information'
+                ? vscode.DiagnosticSeverity.Information
+                : vscode.DiagnosticSeverity.Error;
+        const diagnostic = new vscode.Diagnostic(range, parsed.message, severity);
+        diagnostic.source = 'Sotlas compiler';
+        grouped.set(uri.toString(), [...(grouped.get(uri.toString()) || []), diagnostic]);
+    }
+
+    for (const [uriText, compilerDiagnostics] of grouped) {
+        const uri = vscode.Uri.parse(uriText);
+        const current = (diagnosticCollection.get(uri) || [])
+            .filter(existing => existing.source !== 'Sotlas compiler');
+        diagnosticCollection.set(uri, [...current, ...compilerDiagnostics]);
+        compilerDiagnosticUris.add(uriText);
+    }
+}
+
+function clearCompilerDiagnostics(): void {
+    for (const uriText of compilerDiagnosticUris) {
+        const uri = vscode.Uri.parse(uriText);
+        const remaining = (diagnosticCollection.get(uri) || [])
+            .filter(existing => existing.source !== 'Sotlas compiler');
+        diagnosticCollection.set(uri, remaining);
+    }
+    compilerDiagnosticUris.clear();
 }
 
 function compilerCommandForDisplay(args: string[]): string {

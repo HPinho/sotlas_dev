@@ -1,30 +1,27 @@
-import { useParams } from "react-router-dom";
+import { Link } from "react-router-dom";
+import { ArrowRight, Github } from "lucide-react";
 import { Navbar } from "@/components/navbar";
-import { ApiSidebar, ApiPageContent } from "@/components/api-reference";
-import { DocTableOfContents } from "@/components/documentation";
 import { Footer } from "@/components/footer";
-import { generateApiTableOfContents, getEndpointBySlug } from "@/data/api-reference";
 import { Seo } from "@/components/Seo";
 
 export default function ApiReference() {
-  const params = useParams();
-  const endpointSlug = params["*"] || "search-packages";
-  const endpoint = getEndpointBySlug(endpointSlug);
-  const tableOfContents = generateApiTableOfContents(endpointSlug);
-
   return (
-    <div className="min-h-screen bg-background flex flex-col">
-      <Seo
-        title={`${endpoint?.title || endpointSlug.replace(/-/g, " ")} — Sotlas API Reference`}
-        description={endpoint?.description || "Public API reference for Sotlas: package registry, toolchain versions, and publication tokens."}
-        path={`/api/${endpointSlug}`}
-      />
+    <div className="flex min-h-screen flex-col bg-background text-foreground">
+      <Seo title="Registry API — Sotlas" description="The Sotlas preview does not currently provide a hosted package registry API." path="/api" />
       <Navbar />
-      <div className="flex pt-16 max-w-[90rem] mx-auto flex-1 w-full min-w-0 overflow-x-hidden">
-        <ApiSidebar />
-        <ApiPageContent />
-        <DocTableOfContents items={tableOfContents} className="pr-6" />
-      </div>
+      <main className="mx-auto w-full max-w-3xl flex-1 px-5 pb-16 pt-32 md:px-8">
+        <p className="font-mono text-xs uppercase tracking-wider text-primary">API status</p>
+        <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">No hosted registry API is available</h1>
+        <p className="mt-5 text-base leading-7 text-muted-foreground">
+          Earlier versions of this page listed package search, publishing, and account endpoints. Those
+          endpoints are not implemented by the current preview, so the examples have been removed.
+          Package tooling in the repository is experimental and does not connect to a public registry.
+        </p>
+        <div className="mt-8 flex flex-wrap gap-3">
+          <Link to="/docs/overview" className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground">Read preview scope <ArrowRight className="h-4 w-4" /></Link>
+          <a href="https://github.com/HPinho/sotlas_dev" target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2.5 text-sm font-semibold"><Github className="h-4 w-4" />Development repository</a>
+        </div>
+      </main>
       <Footer />
     </div>
   );

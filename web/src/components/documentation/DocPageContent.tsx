@@ -9,14 +9,20 @@ import {
   ArrowLeft,
   ArrowRight,
   CheckCircle2,
-  Sparkles,
 } from "lucide-react";
 import { DocBreadcrumb } from "./DocBreadcrumb";
 import { DocSection } from "./DocSection";
-import { documentationPages, DocPageCode } from "@/data/documentation-pages";
+import { getDocPage, DocPageCode } from "@/data/documentation-pages";
 import { navigationGroups } from "@/data/documentation";
 import WaveText from "@/components/ui/wave-text";
-import { CodeShowcase } from "@/components/code-showcase";
+
+function InlineText({ text }: { text: string }) {
+  return <>{text.split(/(`[^`]+`)/g).map((part, index) =>
+    part.startsWith("`") && part.endsWith("`")
+      ? <code key={index} className="rounded bg-muted px-1 py-0.5 text-[0.9em]">{part.slice(1, -1)}</code>
+      : part
+  )}</>;
+}
 
 function CodeBlock({ code }: { code: DocPageCode }) {
   const [copied, setCopied] = useState(false);
@@ -67,7 +73,7 @@ export function DocPageContent() {
   const params = useParams();
   const pageSlug = params["*"] || "overview";
 
-  const page = documentationPages[pageSlug] || documentationPages["overview"];
+  const page = getDocPage(pageSlug);
 
   // Page feedback state
   const [feedbackGiven, setFeedbackGiven] = useState<"yes" | "no" | null>(null);
@@ -139,18 +145,18 @@ export function DocPageContent() {
         <div className="space-y-12">
           {page.sections.map((section) => (
             <DocSection key={section.id} id={section.id} title={section.title} level={section.level}>
-              <p>{section.content}</p>
+              <p><InlineText text={section.content} /></p>
               {section.listItems &&
                 (section.orderedList ? (
                   <ol className="list-decimal list-inside space-y-2 ml-2 mt-4">
                     {section.listItems.map((item, i) => (
-                      <li key={i}>{item}</li>
+                      <li key={i}><InlineText text={item} /></li>
                     ))}
                   </ol>
                 ) : (
                   <ul className="list-disc list-inside space-y-2 ml-2 mt-4">
                     {section.listItems.map((item, i) => (
-                      <li key={i}>{item}</li>
+                      <li key={i}><InlineText text={item} /></li>
                     ))}
                   </ul>
                 ))}
@@ -158,20 +164,6 @@ export function DocPageContent() {
             </DocSection>
           ))}
         </div>
-
-        {pageSlug === "overview" && (
-          <div className="mt-14 pt-8 border-t border-border/80">
-            <div className="mb-4">
-              <h3 className="text-xl font-bold tracking-tight text-foreground">
-                Execution Simulator & Interactive Scenarios
-              </h3>
-              <p className="text-sm text-muted-foreground mt-1">
-                Explore syntax in real-time with continuous execution telemetry and deterministic state tracking.
-              </p>
-            </div>
-            <CodeShowcase embedded={true} />
-          </div>
-        )}
 
         {/* Helpful Feedback Widget */}
         <div className="mt-16 pt-8 border-t border-border flex flex-col sm:flex-row items-center justify-between gap-4 p-5 rounded-2xl bg-card border shadow-xs">

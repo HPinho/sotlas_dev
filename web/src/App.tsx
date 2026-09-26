@@ -6,7 +6,6 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { SearchProvider } from "@/contexts/SearchContext";
 import { SearchModal } from "@/components/search";
 import { ThemeProvider } from "@/components/theme-provider";
-import { CookieConsentBanner } from "@/components/cookie-manager/CookieConsentBanner";
 import Index from "./pages/Index";
 import Changelog from "./pages/Changelog";
 import Documentation from "./pages/Documentation";
@@ -20,14 +19,13 @@ const queryClient = new QueryClient();
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
-    <ThemeProvider attribute="class" defaultTheme="dark" forcedTheme="dark" enableSystem={false}>
+    <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
       <TooltipProvider>
         <Toaster />
         <Sonner />
         <BrowserRouter>
         <SearchProvider>
           <SearchModal />
-          <CookieConsentBanner />
           <Routes>
             <Route path="/" element={<Index />} />
             <Route path="/changelog" element={<Changelog />} />

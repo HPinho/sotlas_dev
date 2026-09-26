@@ -1,37 +1,27 @@
-# 🌐 Sotlas Official Website & Documentation (sotlas.org)
+# Sotlas Preview Website
 
-This repository contains the source code for [sotlas.org](https://sotlas.org) — the official portal, documentation, interactive playground, and community hub for the **Sotlas** programming language.
+This directory contains the development copy of the Sotlas website. Its content is being reviewed
+against the compiler and tests in the parent repository. The live organization site is maintained
+separately and is not updated by changes here.
 
-## 🚀 Tech Stack
+## Run locally
 
-- **Framework**: [React](https://react.dev/) + [Vite](https://vitejs.dev/)
-- **Language**: [TypeScript](https://www.typescriptlang.org/)
-- **Styling**: [Tailwind CSS](https://tailwindcss.com/)
-- **UI Components**: [Radix UI](https://www.radix-ui.com/) / [shadcn/ui](https://ui.shadcn.com/)
-- **Icons**: [Lucide React](https://lucide.dev/)
-- **Animations**: [Framer Motion](https://www.framer.com/motion/)
+From the repository root:
 
-## 🛠️ Local Development
-
-```bash
-# Clone repository
-git clone https://github.com/Sotlas/docs.git
-cd docs
-
-# Install dependencies
-npm install
-
-# Start development server
+```sh
+cd web
+npm ci
 npm run dev
 ```
 
-## 📦 Production Build
+## Validate a change
 
-```bash
+```sh
+npm test
+npm run lint
 npm run build
-npm run preview
 ```
 
-## 🤝 Contributing
-
-Contributions to improve documentation, examples, guide pages, and playground tools are welcome! Please open an issue or pull request.
+The examples page imports source files from `../examples`; the Vite development server is configured
+to serve files from the repository root. Public support statements should match `docs/sotlas_1_0_release_scope.md`
+and the compiler gates before this copy is transferred to the organization website.

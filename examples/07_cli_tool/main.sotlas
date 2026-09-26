@@ -22,14 +22,7 @@ pub fn parse_command(arg: u32) -> Command {
     return Command::None;
 }
 
-pub fn main() -> i32 {
-    let command: Command = parse_command(1);
-    if command != Command::Build {
-        return 2;
-    }
-
-    // The demo selects Build and returns status 0; other commands have their
-    // own dispatch paths without claiming to consume process argv.
+pub fn dispatch(command: Command) -> i32 {
     if command == Command::Build {
         return 0;
     }
@@ -40,4 +33,23 @@ pub fn main() -> i32 {
         return 0;
     }
     return 1;
+}
+
+pub fn main() -> i32 {
+    if dispatch(parse_command(1)) != 0 {
+        return 2;
+    }
+    if parse_command(2) != Command::Test {
+        return 3;
+    }
+    if dispatch(parse_command(2)) != 10 {
+        return 4;
+    }
+    if dispatch(parse_command(3)) != 0 {
+        return 5;
+    }
+    if parse_command(99) != Command::None || dispatch(parse_command(99)) != 1 {
+        return 6;
+    }
+    return 0;
 }

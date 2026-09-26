@@ -41,7 +41,7 @@ The installed compiler uses the canonical frontend in `compiler/sotlas_compile`.
 
 ### Sotlas-specific ownership support in 1.0
 
-The stable ownership contract covers `sole/exclusive`, `shared`, `region`, `island`, `quarantine`, `handover`, `direct`, and `whisper` in their documented subsets. `device` and `external` are **PREVIEW**. Backend coverage is not fully interchangeable: the release scope documents which backend accepts each subset, and unsupported forms are rejected.
+The 1.0 release scope declares bounded `SUPPORTED` subsets for `sole/exclusive`, `shared`, `region`, `island`, `quarantine`, `handover`, `direct`, and `whisper`. `device` and `external` remain **PREVIEW**. These labels apply only to the source forms and backend paths named by the release scope; they do not certify every combination or a public stable release.
 
 ---
 
@@ -65,7 +65,7 @@ performance advantages over established systems languages.
 | Native C11 output | Bounded source subset; unsupported forms are rejected |
 | LLVM output | Checked direct-lowering subset; unsupported forms are rejected |
 | Hardware domains and runtime | Preview or planned; do not assume hardware execution support |
-| VS Code | Syntax, outline, hover, local structural hints, and commands that invoke the installed compiler |
+| VS Code | Syntax, outline, hover, local structural hints, compiler commands, and source-located compiler diagnostics; extension install/use smoke test runs in CI |
 | Installation | Python prerelease package; clean-install smoke tests run on Linux, Windows, and macOS in CI |
 
 These are Sotlas's current contracts, not a feature comparison with other languages. The release scope links the exact supported forms and known gaps.
@@ -138,18 +138,20 @@ graph TD
 
 ## 📦 Standard Library (`stdlib/`)
 
-The Sotlas standard library is implemented entirely in the language itself (**Sotlas in Sotlas**) with freestanding guarantees tailored for kernels and firmware:
+The `stdlib/` tree contains Sotlas modules and a separate C runtime. Its modules have different levels of test coverage; their presence does not imply a stable API, Unicode support, or suitability for a kernel or firmware target. The current native string test exercises the byte-slice and buffer operations that it can run through the C11 path:
 
 - **`stdlib/core/primitives.sotlas`**: Pure integer and floating-point constants and operations.
-- **`stdlib/core/option.sotlas`**: Canonical `OptionU32`, `OptionI32`, and `OptionPtr` types eliminating null dereference bugs.
+- **`stdlib/core/option.sotlas`**: `OptionU32`, `OptionI32`, and `OptionPtr` representations; callers still need to check values before use.
 - **`stdlib/core/result.sotlas`**: Algebraic error types `ResultU32`, `ResultI32` with `ResultCode` status enumeration.
 - **`stdlib/core/mem.sotlas`**: Freestanding low-level routines (`zero_memory`, `copy_memory`, `compare_memory`, `Buffer`).
 - **`stdlib/core/arc.sotlas`**: Automatic Reference Counting primitives (`ArcHeader`, `SharedCounter`).
-- **`stdlib/core/slice.sotlas`**: Safe slices with bounds checking (`ByteSlice`, `MutByteSlice`).
-- **`stdlib/core/string.sotlas`**: UTF-8 string slices (`StringSlice`, `string_equals`).
-- **`stdlib/core/panic.sotlas`**: Deterministic panic handler designed for operating systems.
+- **`stdlib/core/slice.sotlas`**: Byte-slice helpers (`ByteSlice`, `MutByteSlice`); verify each operation's bounds and mutability contract.
+- **`stdlib/core/string.sotlas`**: Byte-oriented `StringSlice` and buffer helpers. UTF-8 validation and Unicode character operations are not promised.
+- **`stdlib/core/panic.sotlas`**: Panic interfaces whose behavior depends on the selected runtime.
 - **`stdlib/system/intrinsics.sotlas`**: Typed hardware CPU instructions with `@system` effect (`inb`, `outb`, `cli`, `sti`, `hlt`).
 - **`stdlib/runtime/`**: Freestanding C11 runtime (`runtime.h`, `runtime.c`) with zero libc dependencies.
+
+The suite parses, type-checks, and emits selected standard-library modules. Native runtime tests execute the string fixture when GCC or Clang is available; other modules need their own end-to-end evidence before their behavior is treated as a preview contract.
 
 ---
 

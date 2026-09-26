@@ -17,7 +17,7 @@ const footerSections = [
     links: [
       { label: "Documentation", href: "/docs/overview" },
       { label: "VS Code Setup & Tutorial", href: "/docs/vscode-tutorial" },
-      { label: "API Reference", href: "/api/search-packages" },
+      { label: "Support status", href: "/docs/guarantees" },
       { label: "Installation", href: "/docs/installation" },
       { label: "Changelog", href: "/changelog" },
       { label: "Playground", href: "/playground" },
@@ -28,18 +28,17 @@ const footerSections = [
     title: "Community",
     links: [
       { label: "Community", href: "/community" },
-      { label: "GitHub Repository", href: "https://github.com/Sotlas/sotlas", external: true },
-      { label: "GitHub Issues", href: "https://github.com/Sotlas/sotlas/issues", external: true },
-      { label: "Discussions", href: "https://github.com/Sotlas/sotlas/discussions", external: true },
+      { label: "Development repository", href: "https://github.com/HPinho/sotlas_dev", external: true },
+      { label: "Issue tracker", href: "https://github.com/HPinho/sotlas_dev/issues", external: true },
       { label: "Contributing", href: "/docs/community" },
     ],
   },
   {
     title: "Legal",
     links: [
-      { label: "Apache 2.0 License", href: "https://github.com/Sotlas/sotlas/blob/main/LICENSE", external: true },
+      { label: "Apache 2.0 License", href: "https://github.com/HPinho/sotlas_dev/blob/main/LICENSE", external: true },
       { label: "Privacy Policy", href: "/privacy" },
-      { label: "Cookies", href: "/privacy#cookies" },
+      { label: "Browser storage", href: "/privacy#browser-storage" },
     ],
   },
 ];
@@ -104,7 +103,7 @@ const Footer = () => {
           {/* Right: Social Links */}
           <div className="flex items-center gap-4">
             <a
-              href="https://github.com/Sotlas/sotlas"
+              href="https://github.com/HPinho/sotlas_dev"
               target="_blank"
               rel="noopener noreferrer"
               className="text-slate-500 hover:text-slate-200 transition-colors"
@@ -115,7 +114,7 @@ const Footer = () => {
               </svg>
             </a>
             <span className="text-[11px] text-slate-600 font-mono">
-              Sotlas v0.5.1
+              Sotlas 1.0 development preview
             </span>
           </div>
         </div>

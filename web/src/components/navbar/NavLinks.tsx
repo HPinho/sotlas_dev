@@ -8,7 +8,7 @@ interface NavLinkItem {
 
 const links: NavLinkItem[] = [
   { label: "Documentation", href: "/docs/overview" },
-  { label: "Reference", href: "/api/search-packages" },
+  { label: "Support status", href: "/docs/guarantees" },
   { label: "Playground", href: "/playground" },
   { label: "Community", href: "/community" },
   { label: "Changelog", href: "/changelog" },
@@ -41,7 +41,7 @@ const NavLinks = () => {
         </Link>
       ))}
       <a
-        href="https://github.com/Sotlas/sotlas"
+        href="https://github.com/HPinho/sotlas_dev"
         target="_blank"
         rel="noopener noreferrer"
         className="ml-1 inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm font-semibold text-foreground hover:border-primary/40 hover:bg-primary/5 transition-colors"

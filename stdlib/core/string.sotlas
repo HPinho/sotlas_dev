@@ -65,6 +65,15 @@ pub fn string_equals(a: StringSlice, b: StringSlice) -> bool {
 }
 
 pub fn string_compare(a: StringSlice, b: StringSlice) -> i32 {
+    // -2 is reserved for a malformed non-empty slice with a null pointer.
+    // Returning an error sentinel keeps callers from dereferencing invalid data.
+    if a.length > 0 && a.data == null {
+        return -2;
+    }
+    if b.length > 0 && b.data == null {
+        return -2;
+    }
+
     let mut min_len: usize = a.length;
     if b.length < min_len {
         min_len = b.length;
@@ -147,7 +156,7 @@ pub fn string_find(s: StringSlice, needle: StringSlice) -> i64 {
 
     let mut start: usize = 0;
     unsafe {
-        while start + needle.length <= s.length {
+        while start <= s.length - needle.length {
             let mut i: usize = 0;
             let mut matches: bool = true;
             while i < needle.length {
@@ -445,7 +454,10 @@ pub fn string_append_slice(s: *mut String, slice: StringSlice) -> bool {
         return false;
     }
     unsafe {
-        if (*s).data == null || (*s).length + slice.length > (*s).capacity {
+        if (*s).length > (*s).capacity || (*s).data == null {
+            return false;
+        }
+        if slice.length > (*s).capacity - (*s).length {
             return false;
         }
         let mut i: usize = 0;
@@ -469,6 +481,11 @@ pub fn string_append_char_owned(
 
     unsafe {
         if (*s).length > (*s).capacity {
+            return false;
+        }
+
+        let max_length: usize = ~0usize;
+        if (*s).length == max_length {
             return false;
         }
 
@@ -501,6 +518,11 @@ pub fn string_append_slice_owned(
 
     unsafe {
         if (*s).length > (*s).capacity {
+            return false;
+        }
+
+        let max_length: usize = ~0usize;
+        if slice.length > max_length - (*s).length {
             return false;
         }
 

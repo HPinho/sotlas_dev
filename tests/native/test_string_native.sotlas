@@ -79,6 +79,19 @@ pub fn main() -> i32 {
     if !string_equals(sub, hello) {
         return 6;
     }
+    if string_compare(hello, hello) != 0 {
+        return 83;
+    }
+    if string_compare(hello, world) >= 0 {
+        return 84;
+    }
+    let malformed: StringSlice = string_from_raw(null, 1);
+    if string_compare(malformed, hello) != -2 {
+        return 85;
+    }
+    if string_compare(hello, malformed) != -2 {
+        return 86;
+    }
 
     let comma_idx: i64 = string_find_char(s, 44); // ','
     if comma_idx != 5 {

@@ -10,7 +10,7 @@ const Changelog = () => {
     <div className="min-h-screen bg-background">
       <Seo
         title="Changelog — Sotlas"
-        description="Release notes and updates for each version of the Sotlas language: syntax, compiler optimizations, and fixes."
+        description="Development notes for the Sotlas preview. These entries are not published release notes."
         path="/changelog"
       />
       <Navbar />
@@ -23,11 +23,12 @@ const Changelog = () => {
               <WaveText text="Changelog" />
             </h1>
             <p className="text-xl text-primary font-medium mb-4">
-              <WaveText text="Language Releases & Updates" staggerDelay={0.02} />
+              <WaveText text="Development updates" staggerDelay={0.02} />
             </p>
             <p className="text-muted-foreground max-w-2xl">
-              <WaveText text="Track everything new across each release of Sotlas: language syntax innovations, compiler optimizations, and stability fixes." staggerDelay={0.01} />
+              <WaveText text="This page summarizes the current development snapshot. It does not list published releases; check the repository history for the full change record." staggerDelay={0.01} />
             </p>
+            <a className="mt-4 inline-block text-sm font-medium text-primary" href="https://github.com/HPinho/sotlas_dev/commits/main" target="_blank" rel="noreferrer">View development history on GitHub</a>
           </div>
 
           {/* Changelog Entries */}

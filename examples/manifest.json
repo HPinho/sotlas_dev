@@ -10,7 +10,8 @@
       "id": "01_hello_systems",
       "entry": "examples/01_hello_systems/main.sotlas",
       "status": "EXPERIMENTAL",
-      "backend_contract": true
+      "backend_contract": true,
+      "native_run": true
     },
     {
       "id": "02_safe_structures",
@@ -46,7 +47,8 @@
       "id": "07_cli_tool",
       "entry": "examples/07_cli_tool/main.sotlas",
       "status": "EXPERIMENTAL",
-      "backend_contract": true
+      "backend_contract": true,
+      "native_run": true
     },
     {
       "id": "08_data_structures",

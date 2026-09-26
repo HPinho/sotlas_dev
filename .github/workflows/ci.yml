@@ -106,6 +106,10 @@ jobs:
                 raise SystemExit(
                     f"missing entry for {item['id']}: {item['entry']}"
                 )
+            if item.get("native_run") is True and item.get("backend_contract") is not True:
+                raise SystemExit(
+                    f"native-run example must also satisfy backend contract: {item['id']}"
+                )
         PY
 
     - name: Verify backend-contract examples satisfy check -> C11 contract
@@ -131,6 +135,18 @@ jobs:
           sotlas check "$source"
           sotlas compile "$source" --backend c11 --emit-c -o "$output"
           cc -std=c11 -Wall -Wextra -fsyntax-only "$output"
+          if python - "$source" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+manifest = json.loads(Path("examples/manifest.json").read_text(encoding="utf-8"))
+entry = sys.argv[1].replace("\\", "/")
+raise SystemExit(0 if any(item["entry"] == entry and item.get("native_run") is True for item in manifest["examples"]) else 1)
+PY
+          then
+            sotlas run "$source"
+          fi
           echo "::endgroup::"
         done < build/check-contract/backend-contract.txt
 
@@ -280,13 +296,41 @@ jobs:
       run: npm install --no-package-lock --no-audit --no-fund
     - name: Compile extension
       working-directory: editors/vscode
-      run: npm run compile
+      run: npm test
     - name: Package preview VSIX
       working-directory: editors/vscode
       run: npx --yes @vscode/vsce package --out sotlas-preview.vsix
+    - name: Install VSIX in a clean VS Code profile
+      working-directory: editors/vscode
+      run: xvfb-run -a npm run test:vsix
     - name: Upload preview VSIX artifact
       uses: actions/upload-artifact@v4
       with:
         name: sotlas-vscode-preview
         path: editors/vscode/sotlas-preview.vsix
         if-no-files-found: error
+
+  website-preview:
+    name: Test and build preview website
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: "22"
+        cache: npm
+        cache-dependency-path: web/package-lock.json
+    - name: Install website dependencies
+      working-directory: web
+      run: npm ci
+    - name: Run website tests
+      working-directory: web
+      run: npm test
+    - name: Lint website
+      working-directory: web
+      run: npm run lint
+    - name: Build website
+      working-directory: web
+      run: npm run build

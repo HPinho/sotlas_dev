@@ -30,6 +30,8 @@
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
+    "test": "npm run compile && node --test test/*.test.cjs",
+    "test:vsix": "node test/installVsix.cjs",
     "watch": "tsc -watch -p ./",
     "package": "vsce package",
     "package:preview": "vsce package --out sotlas-preview.vsix"
@@ -70,7 +72,7 @@
     "commands": [
       {
         "command": "sotlas.build",
-        "title": "Sotlas: Compilar Pacote Atual"
+        "title": "Sotlas: Build Workspace"
       },
       {
         "command": "sotlas.check",
@@ -78,23 +80,23 @@
       },
       {
         "command": "sotlas.format",
-        "title": "Sotlas: Formatar Arquivo Atual"
+        "title": "Sotlas: Format Active File"
       },
       {
         "command": "sotlas.studio",
-        "title": "Sotlas: Abrir Sotlas Studio (Navegador)"
+        "title": "Sotlas: Open Studio"
       },
       {
         "command": "sotlas.repl",
-        "title": "Sotlas: Iniciar Terminal Interativo (REPL)"
+        "title": "Sotlas: Start REPL"
       },
       {
         "command": "sotlas.dumpWasm",
-        "title": "Sotlas: Emitir WebAssembly (.wat)"
+        "title": "Sotlas: Emit WebAssembly (.wat)"
       },
       {
         "command": "sotlas.restartServer",
-        "title": "Sotlas: Reiniciar Servidor de Linguagem (LSP)"
+        "title": "Sotlas: Restart Language Server"
       }
     ],
     "configuration": {
@@ -104,12 +106,12 @@
         "sotlas.compilerPath": {
           "type": "string",
           "default": "sotlas",
-          "description": "Caminho para o binário ou comando executável do compilador Sotlas"
+          "description": "Path to the Sotlas compiler executable or command"
         },
         "sotlas.enableExternalLsp": {
           "type": "boolean",
           "default": false,
-          "description": "Habilitar servidor LSP externo adicional via processo sotlas lsp (opcional quando o compilador nativo estiver instalado)"
+          "description": "Enable the optional external `sotlas lsp --stdio` server"
         }
       }
     }
@@ -118,6 +120,7 @@
     "vscode-languageclient": "^8.1.0"
   },
   "devDependencies": {
+    "@vscode/test-electron": "^2.5.2",
     "@types/node": "^16.11.7",
     "@types/vscode": "^1.60.0",
     "typescript": "^4.5.4"

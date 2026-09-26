@@ -10,7 +10,7 @@ interface NavLinkItem {
 
 const mainLinks: NavLinkItem[] = [
   { label: "Documentation", href: "/docs/overview" },
-  { label: "Reference", href: "/api/search-packages" },
+  { label: "Support status", href: "/docs/guarantees" },
   { label: "Playground", href: "/playground" },
   { label: "Community", href: "/community" },
   { label: "Changelog", href: "/changelog" },
@@ -70,7 +70,7 @@ const MobileMenu = () => {
 
             {/* GitHub Link */}
             <a
-              href="https://github.com/Sotlas/sotlas"
+              href="https://github.com/HPinho/sotlas_dev"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-3 px-4 py-3 text-base font-medium text-muted-foreground hover:text-foreground hover:bg-secondary/50 rounded-xl transition-colors"
