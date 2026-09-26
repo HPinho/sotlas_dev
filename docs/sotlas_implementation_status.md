@@ -1,8 +1,8 @@
 # Sotlas — Implementation Status
 
 **Atualizado em:** 2026-09-26
-**Último baseline verde certificado:** `5cb33bf`
-**CI de referência:** Sotlas CI & Toolchain Build Farm #618 — workflow `success`
+**Último baseline verde certificado:** `c2fd578`
+**CI de referência:** Sotlas CI & Toolchain Build Farm #619 — workflow `success`
 **Fonte arquitetural:** `SOTLAS — ESPECIFICAÇÃO MESTRA`
 
 > Este é o índice operacional atual. O snapshot detalhado anterior, com o histórico extenso das microentregas da Fase 2, permanece preservado em `docs/archive/sotlas_implementation_status_2026-09-23.md`.
@@ -28,7 +28,7 @@ Legenda:
 | 3 | Authority Domains | 100% | ✅ COMPLETE |
 | 4 | State Spaces | 100% | ✅ COMPLETE |
 | 5 | Effects | ~57% candidato | 🟡 |
-| 6 | Flow | ~40% candidato | 🟡 |
+| 6 | Flow | ~47% candidato | 🟡 |
 | 7 | Execution Domains | ~45% | 🟡 |
 | 8 | Heterogeneous Compute | ~0% | 🟡 |
 | 9 | Trust Domains | ~16% candidato | 🟡 |
@@ -254,7 +254,7 @@ Escopo: `docs/sotlas_1_0_phase5_effects_scope.md`.
 
 ## Fase 6 — Flow
 
-**Status 1.0: ~45% candidato 🟡 — IN PROGRESS**
+**Status 1.0: ~47% candidato 🟡 — IN PROGRESS**
 
 - [x] grafo backend-neutral valida dependências e rejeita ciclos;
 - [x] estágios paralelos são derivados deterministicamente da topologia e da ordem declarada;
@@ -266,6 +266,7 @@ Escopo: `docs/sotlas_1_0_phase5_effects_scope.md`.
 - [x] CI #588 confirma a nova sintaxe e tipagem;
 - [x] plano tipado Flow é reconciliado com assinaturas e summaries Effects e anexado ao SIR canônico;
 - [x] runtime local executa o plano tipado por nome de stage, reconcilia dependências e passa resultados na ordem declarada;
+- [x] runner SIR revalida o plano canônico, reconcilia funções/efeitos e encaminha outputs por provenance para bindings explícitos do scheduler local;
 - [x] consulta source-stable explica caminho causal entre stages usando argumentos tipados e summaries Effects do SIR;
 - [ ] lowering das chamadas de stage em CFG executável, integração de Ownership e execução pelo scheduler;
 - [ ] cancelamento cooperativo, runtime assíncrono/distribuído e backpressure;

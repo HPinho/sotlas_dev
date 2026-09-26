@@ -11,7 +11,12 @@ from threading import Event
 from types import MappingProxyType
 from typing import Callable, Mapping
 
-from .flow_graph import FlowGraphPlan, certify_flow_graph
+from .flow_graph import (
+    FlowDependency,
+    FlowGraphPlan,
+    FlowNode,
+    certify_flow_graph,
+)
 
 
 class FlowExecutionError(RuntimeError):
@@ -231,6 +236,69 @@ def execute_typed_flow(
     )
 
 
+def execute_bound_sir_flow(
+    sir_module,
+    flow_name: str,
+    function_bindings: Mapping[str, Callable[..., object]],
+    *,
+    max_workers: int | None = None,
+    cancel_event: Event | None = None,
+) -> FlowExecutionResult:
+    """Schedule a validated SIR Flow plan using explicit host function bindings.
+
+    Bindings supply execution for stage bodies; this runner does not interpret
+    or compile SIR instructions. The canonical SIR plan is authoritative for
+    stage order, function identity, and producer-to-parameter data flow.
+    """
+    from .flow_sir import FlowSIRError, validate_sir_flow_plans
+
+    plans = validate_sir_flow_plans(sir_module)
+    matches = tuple(plan for plan in plans if plan.name == flow_name)
+    if len(matches) != 1:
+        raise FlowSIRError(
+            f"SIR Flow runner requires exactly one plan named {flow_name!r}"
+        )
+    plan = matches[0]
+    if not isinstance(function_bindings, Mapping):
+        raise TypeError("SIR Flow function bindings must be a mapping")
+    required = tuple(dict.fromkeys(stage.function for stage in plan.stages))
+    missing = tuple(name for name in required if name not in function_bindings)
+    extra = tuple(name for name in function_bindings if name not in required)
+    if missing or extra:
+        raise ValueError(
+            "SIR Flow function bindings must match referenced functions "
+            f"(missing={missing}, extra={extra})"
+        )
+    if any(not callable(function_bindings[name]) for name in required):
+        raise TypeError("Every SIR Flow function binding must be callable")
+
+    graph = certify_flow_graph(
+        tuple(FlowNode(stage.name) for stage in plan.stages),
+        tuple(
+            FlowDependency(argument.value.producer_stage, stage.name)
+            for stage in plan.stages
+            for argument in stage.arguments
+        ),
+    )
+    if graph.parallel_stages != plan.parallel_stages:
+        raise FlowSIRError(
+            f"SIR Flow plan {flow_name!r} schedule changed after validation"
+        )
+
+    actions: dict[str, FlowAction] = {}
+    for stage in plan.stages:
+        binding = function_bindings[stage.function]
+        arguments = tuple(stage.arguments)
+
+        def invoke(values, *, binding=binding, arguments=arguments):
+            return binding(*(values[item.value.producer_stage] for item in arguments))
+
+        actions[stage.name] = invoke
+    return execute_flow(
+        graph, actions, max_workers=max_workers, cancel_event=cancel_event
+    )
+
+
 __all__ = [
     "FlowAction",
     "FlowExecutionError",
@@ -238,4 +306,5 @@ __all__ = [
     "FlowExecutionResult",
     "execute_flow",
     "execute_typed_flow",
+    "execute_bound_sir_flow",
 ]

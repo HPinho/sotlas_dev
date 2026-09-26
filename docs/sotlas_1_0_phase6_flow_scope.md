@@ -2,7 +2,7 @@
 
 **Atualizado em:** 2026-09-26
 **Status:** 🟡 IN PROGRESS  
-**Último baseline verde certificado:** `bb3de63` — CI #593 `success`
+**Último baseline verde certificado:** `c2fd578` — CI #619 `success`
 
 ## Subset de runtime disponível
 
@@ -51,6 +51,12 @@ recebe os resultados de suas dependências como argumentos posicionais na ordem
 declarada pela fonte. O runtime ainda não executa código compilado pelo backend
 C11 nem integra ownership de closures.
 
+`execute_bound_sir_flow` valida os `FlowSIRPlan` do módulo antes de iniciar o
+scheduler e recebe bindings explícitos por símbolo de função SIR. Argumentos
+de cada stage são resolvidos somente a partir dos outputs indicados pela
+provenance validada. Esse runner executa os bindings fornecidos pelo host; ele
+não interpreta instruções SIR nem afirma executar código compilado.
+
 ## Verificações
 
 - execução concorrente de nós independentes e leitura de dependências diretas;
@@ -71,6 +77,7 @@ C11 nem integra ownership de closures.
 - [x] CI #588 confirma a sintaxe e tipagem;
 - [x] plano declarativo Flow reconciliado com SIR e summaries Effects;
 - [x] executor local consome o plano tipado de fonte, valida sua estrutura e invoca stages com valores dependentes;
+- [x] runner SIR revalida plano, assinaturas, efeitos e provenance antes de invocar bindings de função pelo scheduler;
 - [ ] lowering para CFG executável, integração de Ownership e execução pelo scheduler;
 - [ ] cancelamento cooperativo de ações, backpressure e políticas de retry;
 - [ ] e2e da fonte Sotlas ao scheduler e ao backend suportado.

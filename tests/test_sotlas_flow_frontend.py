@@ -160,6 +160,48 @@ flow Home {
         self.assertEqual(result.output("page"), 17)
         self.assertEqual(observed, ["profile", "posts", ("page", 10, 7)])
 
+    def test_sir_flow_runner_uses_validated_provenance_and_function_bindings(self):
+        checked = package.analyze_source_phase1(self._source("""
+flow Home {
+    stage profile = load_profile;
+    stage posts = load_posts;
+    stage page = render after profile, posts;
+}
+"""))
+        checked_sir, _ = package.build_canonical_checked_ownership_sir(checked)
+        sir_module = checked_sir.module
+        result = package.execute_bound_sir_flow(
+            sir_module,
+            "Home",
+            {
+                "load_profile": lambda: 10,
+                "load_posts": lambda: 7,
+                "render": lambda profile, posts: profile + posts,
+            },
+        )
+        self.assertEqual(result.output("page"), 17)
+
+        called = []
+        original = sir_module.flow_plans[0]
+        first_stage = replace(original.stages[0], effects=("unsafe",))
+        sir_module.flow_plans = (replace(
+            original, stages=(first_stage, *original.stages[1:])
+        ),)
+        with self.assertRaisesRegex(package.FlowSIRError, "effects differ"):
+            package.execute_bound_sir_flow(
+                sir_module,
+                "Home",
+                {
+                    "load_profile": lambda: called.append("profile"),
+                    "load_posts": lambda: called.append("posts"),
+                    "render": lambda profile, posts: called.append("page"),
+                },
+            )
+        self.assertEqual(called, [])
+
+    def test_legacy_tools_package_exports_sir_flow_runner(self):
+        self.assertTrue(callable(tools_package.execute_bound_sir_flow))
+
     def test_source_call_causality_explains_calls_outside_flow(self):
         source = """
 module test::source_call_causality;
