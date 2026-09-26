@@ -281,3 +281,12 @@ jobs:
     - name: Compile extension
       working-directory: editors/vscode
       run: npm run compile
+    - name: Package preview VSIX
+      working-directory: editors/vscode
+      run: npx --yes @vscode/vsce package --out sotlas-preview.vsix
+    - name: Upload preview VSIX artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: sotlas-vscode-preview
+        path: editors/vscode/sotlas-preview.vsix
+        if-no-files-found: error
