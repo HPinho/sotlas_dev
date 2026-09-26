@@ -62,7 +62,10 @@ def to_llvm_type(sotlas_type: Optional[str]) -> str:
     s = str(sotlas_type)
     if s.startswith("*") or s.endswith("*") or "ptr" in s:
         return "ptr"
-    return LLVM_TYPE_MAP.get(s, "i64")
+    llvm_type = LLVM_TYPE_MAP.get(s)
+    if llvm_type is None:
+        raise ValueError(f"LLVM backend does not lower Sotlas type {s!r}")
+    return llvm_type
 
 
 class CodegenLLVM:
@@ -237,8 +240,19 @@ class CodegenLLVM:
         subprogram_id: Optional[int] = None,
         attribute_group: int = 0,
     ) -> None:
-        ret_type = to_llvm_type(fn.return_type)
-        params_str = ", ".join(f"{to_llvm_type(p.type_name)} %{p.name}" for p in fn.parameters)
+        borrowed_nominals = {
+            item.source.type_name
+            for block in fn.blocks
+            for item in block.instructions
+            if isinstance(item, (DirectAccessInst, WhisperBorrowInst))
+            and item.source.type_name not in LLVM_TYPE_MAP
+            and not item.source.type_name.startswith("*")
+        }
+        ret_type = self._llvm_type(fn.return_type)
+        params_str = ", ".join(
+            f"{self._llvm_type(p.type_name, borrowed_nominals)} %{p.name}"
+            for p in fn.parameters
+        )
         dbg_attr = f" !dbg !{subprogram_id}" if subprogram_id is not None else ""
         self._out.write(
             f"define {ret_type} @{fn.name}({params_str}) "
@@ -259,20 +273,38 @@ class CodegenLLVM:
 
         self._out.write("}\n\n")
 
+    @staticmethod
+    def _llvm_type(type_name: Optional[str], borrowed_nominals=frozenset()) -> str:
+        try:
+            return to_llvm_type(type_name)
+        except ValueError:
+            if type_name in borrowed_nominals:
+                return "ptr"
+            raise
+
     def _emit_instruction(self, inst: SIRInstruction, loc_id: Optional[int] = None) -> None:
         dbg_suffix = f", !dbg !{loc_id}" if loc_id is not None else ""
+        borrowed_nominals = {
+            item.source.type_name
+            for function in self._sir.functions
+            for block in function.blocks
+            for item in block.instructions
+            if isinstance(item, (DirectAccessInst, WhisperBorrowInst))
+            and item.source.type_name not in LLVM_TYPE_MAP
+            and not item.source.type_name.startswith("*")
+        }
         if isinstance(inst, AllocStackInst):
-            llvm_type = to_llvm_type(inst.type_name)
+            llvm_type = self._llvm_type(inst.type_name, borrowed_nominals)
             self._out.write(f"  %{inst.result.name} = alloca {llvm_type}, align 8{dbg_suffix}\n")
         elif isinstance(inst, StoreInst):
-            src_type = to_llvm_type(inst.source.type_name)
+            src_type = self._llvm_type(inst.source.type_name, borrowed_nominals)
             self._out.write(f"  store {src_type} %{inst.source.name}, ptr %{inst.destination.name}, align 8{dbg_suffix}\n")
         elif isinstance(inst, LoadInst):
-            res_type = to_llvm_type(inst.result.type_name)
+            res_type = self._llvm_type(inst.result.type_name, borrowed_nominals)
             self._out.write(f"  %{inst.result.name} = load {res_type}, ptr %{inst.source.name}, align 8{dbg_suffix}\n")
         elif isinstance(inst, CallInst):
-            res_type = to_llvm_type(inst.result.type_name) if inst.result else "void"
-            args_str = ", ".join(f"{to_llvm_type(a.type_name)} %{a.name}" for a in inst.arguments)
+            res_type = self._llvm_type(inst.result.type_name, borrowed_nominals) if inst.result else "void"
+            args_str = ", ".join(f"{self._llvm_type(a.type_name, borrowed_nominals)} %{a.name}" for a in inst.arguments)
             if inst.result:
                 self._out.write(f"  %{inst.result.name} = call {res_type} @{inst.callee}({args_str}){dbg_suffix}\n")
             else:
@@ -423,17 +455,25 @@ class CodegenLLVM:
             )
         elif isinstance(inst, ReturnInst):
             if inst.value:
-                val_type = to_llvm_type(inst.value.type_name)
+                val_type = self._llvm_type(inst.value.type_name)
                 self._out.write(f"  ret {val_type} %{inst.value.name}{dbg_suffix}\n")
             else:
                 self._out.write(f"  ret void{dbg_suffix}\n")
         elif isinstance(inst, SystemOpInst):
-            self._out.write(f"  ; system_op #{inst.operation}\n")
+            raise ValueError(
+                f"LLVM backend does not lower system operation {inst.operation!r}"
+            )
         elif isinstance(inst, AsmInst):
-            sideeffect = "sideeffect" if inst.is_volatile else ""
-            self._out.write(f"  call void asm {sideeffect} \"{inst.template}\", \"\"(){dbg_suffix}\n")
+            raise ValueError(
+                "LLVM backend does not lower inline assembly with validated "
+                "constraints, operands, and clobbers"
+            )
         elif isinstance(inst, AwaitInst):
-            self._out.write(f"  ; await %{inst.operand.name}\n")
+            raise ValueError("LLVM backend does not lower await instructions")
+        else:
+            raise ValueError(
+                f"LLVM backend does not lower SIR instruction {type(inst).__name__}"
+            )
 
     def _emit_debug_metadata(self) -> None:
         self._out.write("; --- Metadados de Depuração DWARF ---\n")

@@ -18,6 +18,7 @@ from sotlas.sir.instructions import (
     LoadInst, CallInst, ReturnInst, ShareInst, RetainInst, ReleaseInst,
     BinaryOpInst, ConstantIntInst,
     DestroyInst, OwnershipDomainPointInst, OwnershipDomainTransferInst,
+    SystemOpInst, AsmInst, AwaitInst, BoundsCheckInst,
     WhisperBorrowInst,
     DirectAccessInst,
     SharedOwnershipPointInst, DeferUseInst,
@@ -486,6 +487,32 @@ fn vector_path() -> void { return; }
         self.assertEqual(to_llvm_type("bool"), "i1")
         self.assertEqual(to_llvm_type("Void"), "void")
         self.assertEqual(to_llvm_type("*rawphys UInt8"), "ptr")
+        with self.assertRaisesRegex(ValueError, "does not lower Sotlas type"):
+            to_llvm_type("UnmappedNominal")
+
+    def test_llvm_backend_rejects_unlowered_or_unknown_instructions(self):
+        unlowered = (
+            SystemOpInst("halt", []),
+            AsmInst("nop", arguments=[SIRValue("input", "u32")]),
+            AwaitInst(SIRValue("future", "Future<u32>"), SIRValue("result", "u32")),
+            BoundsCheckInst(SIRValue("index", "u32"), SIRValue("length", "u32")),
+        )
+        expected = (
+            "system operation",
+            "inline assembly",
+            "rejected lowering: main: async",
+            "SIR instruction BoundsCheckInst",
+        )
+        for instruction, message in zip(unlowered, expected):
+            with self.subTest(instruction=type(instruction).__name__):
+                module = SIRModule(name="unlowered_instruction")
+                function = SIRFunction(name="main", parameters=[], return_type="Void")
+                block = function.add_block("entry")
+                block.add(instruction)
+                block.add(ReturnInst())
+                module.add_function(function)
+                with self.assertRaisesRegex(ValueError, message):
+                    CodegenLLVM(module).emit()
 
     def test_emit_simple_function(self):
         mod = SIRModule(name="test_mod")
