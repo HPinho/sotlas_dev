@@ -81,6 +81,11 @@ class CodegenLLVM:
             target, is_baremetal=is_baremetal, cpu_features=cpu_features
         )
         self._emit_debug = emit_debug
+        if effect_contract is None:
+            effect_contract = BackendEffectContract(
+                f"llvm:{self._target.triple}",
+                frozenset({"unsafe", "volatile", "system"}),
+            )
         self._effect_contract = effect_contract
         self._out = StringIO()
         self._meta_id = 0
@@ -100,6 +105,15 @@ class CodegenLLVM:
             if not result.success:
                 raise ValueError(
                     "LLVM effect inference failed: " + "; ".join(result.errors)
+                )
+            missing = sorted(
+                {function.name for function in self._sir.functions}
+                - set(self._sir.effect_summaries)
+            )
+            if missing:
+                raise ValueError(
+                    "LLVM backend effect validation has missing summaries: "
+                    + ", ".join(missing)
                 )
             outcomes = validate_backend_effects(self._sir, self._effect_contract)
             rejected = [item for item in outcomes if not item.accepted]

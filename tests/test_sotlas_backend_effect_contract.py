@@ -77,6 +77,23 @@ class BackendEffectContractTests(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, "BackendEffectContract"):
             CodegenLLVM(self._module(), effect_contract=object()).emit()
 
+    def test_llvm_emission_applies_default_target_contract(self):
+        module = self._module()
+        with self.assertRaisesRegex(ValueError, "reader: io; opaque: unknown_call"):
+            CodegenLLVM(module).emit()
+
+    def test_llvm_emission_requires_inferred_effect_summaries(self):
+        module = SIRModule("incomplete_effects")
+        function = SIRFunction("work", [], "void")
+        function.add_block("entry")
+        module.add_function(function)
+        self.assertNotIn("work", module.effect_summaries)
+        # An empty SIR function has no effectful instructions, but inference is
+        # still required and must create a pure summary before LLVM lowering.
+        ir = CodegenLLVM(module).emit()
+        self.assertIn("define void @work()", ir)
+        self.assertEqual(module.effect_summaries["work"].transitive_effects, ())
+
     def test_sir_dump_keeps_per_function_effect_evidence(self):
         module = self._module()
         result = EffectInferencePass().run(module)
