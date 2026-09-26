@@ -1,80 +1,41 @@
 # Sotlas 1.0 — Phase 10 Guarantees Scope
 
-**Atualizado em:** 2026-09-26
-**Status:** 🟡 IN PROGRESS
-**Baseline verde certificado:** `0d09d86` — CI #633 `success`
+**Updated:** 2026-09-26
+**Status:** COMPLETE for scalar preconditions, flow proofs, and postconditions
 
-### Refinamento local de fluxo
+## Preconditions
 
-Branches `if`/`else` e condições booleanas compostas agora fornecem fatos
-exatos para provar precondições escalares em chamadas dinâmicas. O comprovante
-SIR registra esses fatos. A análise descarta refinamentos após atribuição local
-ao valor ou chamada potencialmente mutável; implicações aritméticas gerais e
-refinamento entre funções continuam fora deste subset.
+Functions with verified bodies may declare boolean `requires` predicates over
+scalar parameters. Calls with evaluable constant arguments are proven or
+rejected statically. Dynamic calls preserve source-stable proof evidence in
+SIR; exact branch facts and supported integer interval implications can prove
+some dynamic calls. Assignment or potentially mutating calls invalidate local
+refinements conservatively. Calls without a static proof retain a runtime
+entry guard in C11. External declarations without a checked body are rejected
+for this contract.
 
-## Subset inicial de precondições
+## Postconditions
 
-Funções podem declarar uma condição booleana antes do corpo:
+The supported `ensures` subset covers numeric and boolean scalar results and
+immutable scalar parameters. The C11 backend evaluates the result once, runs
+active defers, checks the predicate on each return path, and aborts when the
+postcondition fails. SIR preserves the contract. Native tests cover successful
+and failing return values, parameter-dependent predicates, and boolean results.
 
-```sotlas
-fn divide_by(b: i32) -> i32
-    requires b != 0
-{
-    return 84i32 / b;
-}
-```
+`contract-report` emits deterministic JSON separating static proofs from
+runtime precondition and postcondition guards. CI tests both the compiler
+contracts and report output.
 
-O checker valida os nomes de parâmetros, operadores e tipo booleano. No subset
-atual, `requires` só é aceito em funções com corpo verificado. O checker
-percorre chamadas diretas, substitui parâmetros pelos argumentos constantes e
-avalia comparações booleanas suportadas. Uma condição falsa é rejeitada. Se
-argumentos dinâmicos impedirem a prova estática, o backend C11 guarda a condição
-no início da função e chama `abort()` caso ela falhe.
+## Release boundary
 
-Cada chamada aprovada produz um `ContractCallProof` com função alvo, localização
-na fonte, predicado e valores usados. O comprovante é anexado ao `SIRModule` e
-aparece no dump como `sir_proof`.
+The expression evaluator is intentionally bounded to supported scalar
+expressions. General theorem proving, arbitrary symbolic refinement, contracts
+over mutable state or heap, `guarantee` declarations, and aggregate safety
+reports are not part of this 1.0 contract. Unsupported forms fail closed;
+those extensions remain post-1.0 work.
 
-## Subset inicial de pós-condições
+## CI gate
 
-Funções com retorno numérico escalar podem declarar `ensures result ...`. O
-checker valida o predicado como booleano, reserva `result` para o valor
-retornado e aceita referências a parâmetros escalares numéricos ou booleanos;
-funções `void`, retornos não escalares, parâmetros agregados e corpos externos
-seguem rejeitados. Os parâmetros do subset são bindings imutáveis. O C11 captura o retorno uma vez,
-executa os defers ativos e verifica a pós-condição em cada caminho de retorno.
-O `SIRModule` preserva o contrato como `sir_ensures`.
-
-## Limites
-
-- argumentos dinâmicos recebem guarda no callee; ainda não são provados por
-  refinamento de fluxo quando o fluxo não contém fatos de branch exatos;
-- declarações `extern` são rejeitadas, pois não há corpo local onde instalar a
-  guarda;
-- pós-condições sobre estado/heap, `guarantee` como declaração, refinamento
-  simbólico e relatórios agregados de safety ainda não estão implementados;
-- o avaliador de contratos aceita expressões escalares limitadas, sem chamadas,
-  acesso a campos, indexing ou prova geral de teoremas.
-
-## Gates
-
-- teste positivo de prova constante em ambos os frontends de compile;
-- chamadas com prova falsa falham estaticamente e argumentos dinâmicos recebem
-  guarda C11;
-- condição com tipo não booleano e contrato `extern` são rejeitados;
-- função pública inclui guarda de entrada no C11;
-- comprovante verificado sobrevive ao lowering do SIR canônico;
-- `ensures result` escalar gera guarda em cada retorno e sobrevive ao lowering do SIR;
-- CI roda `tests/test_sotlas_contract_frontend.py` como gate da Fase 10.
-
-## Blockers de 1.0
-
-- [x] sintaxe e validação tipada de `requires` em funções com corpo;
-- [x] prova e rejeição de chamadas com argumentos constantes;
-- [x] comprovante source-stable preservado no SIR;
-- [x] prova por fatos exatos de branch para argumentos dinâmicos, com invalidação conservadora;
-- [ ] refinamento de fluxo para provar argumentos dinâmicos;
-- [x] subset `ensures result` numérico escalar com verificação C11 e evidência no SIR;
-- [x] `ensures` pode comparar o retorno com parâmetros escalares imutáveis;
-- [ ] `ensures` sobre estado/heap, declaração `guarantee` e relatórios agregados de safety;
-- [ ] matriz e2e de provas por backend/target.
+CI runs positive and negative frontend checks, native runtime guard tests, and
+the CLI report test. The gate verifies constant proofs, flow refinements,
+invalidation after mutation, SIR evidence, and runtime enforcement.

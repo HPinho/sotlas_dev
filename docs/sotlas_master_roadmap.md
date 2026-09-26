@@ -3977,27 +3977,35 @@ pós-1.0. O contrato está em `docs/sotlas_1_0_phase6_flow_scope.md`.
 
 CPU/SIMD inicialmente.
 
-Esta fase também prepara o caminho para o backend nativo próprio:
+**Sotlas 1.0 bounded contract: COMPLETE.** Target configuration recognizes the
+supported x86-64/AArch64 triples and validates ABI identifiers, pointer width,
+endianness, object-format layout, CPU features, and feature dependencies.
+LLVM/Clang receive the selected target contract; unsupported targets/features
+and unsupported C11 function-specific feature requirements fail closed. See
+`docs/sotlas_1_0_phase7_execution_scope.md`.
 
-- [x] modelo canônico tipado de targets x86-64/AArch64, ABI identificada, largura de ponteiro e endianness;
-- [x] registro limitado de features x86-64/AArch64 validado por arquitetura, dependências normalizadas e encaminhamento para LLVM/Clang;
-- [ ] contratos de calling convention independentes do C;
-- [ ] representação explícita de registradores especiais, stack e ABI quando exigidos por `@system`;
-- [ ] lowering de SIMD/intrinsics para operações alvo-específicas sem depender semanticamente de builtins C;
-- [ ] regras de clobber, volatilidade, alinhamento e preservação de registradores;
-- [ ] capacidade de declarar que uma operação só existe em determinados targets/features;
-- [ ] testes diferenciais entre backend C11 de referência e lowering nativo para semânticas equivalentes;
-- [ ] layout/ABI AArch64 certificado, intrinsics SIMD Sotlas e dispatch multi-versionado.
+Custom calling conventions, full platform ABI certification, register/stack
+constraints, Sotlas SIMD intrinsics, runtime multiversion dispatch, and
+heterogeneous lowering remain post-1.0 work for the native backend phases.
 
 ### 8. Heterogeneous Compute
 
 GPU depois; NPU somente quando houver backend real.
 
-O backend nativo de CPU é pré-requisito arquitetural para esta fase, mas não implica que GPU/NPU usem o mesmo instruction selector. Cada Execution Domain deverá possuir lowering próprio sob a mesma semântica de Typed AST/SIR.
+**Sotlas 1.0 bounded contract: COMPLETE for the DEVICE reference runtime.**
+Verified source flows through lifecycle, canonical SIR, logical/physical ABI,
+and C11 reference artifact. The generated ABI links and runs against the
+repository provider, including synchronization and reacquisition. This is a
+single-threaded reference provider; physical GPU/NPU, DMA, driver integration,
+and hardware failure/timeout behavior remain deferred. Each future Execution
+Domain needs its own lowering. See
+`docs/sotlas_1_0_phase8_heterogeneous_compute_scope.md`.
 
 ### 9. Trust Domains
 
 `trusted`, `unsafe`, `foreign`, `isolated`.
+
+**Sotlas 1.0 bounded contract: COMPLETE for checked FFI boundaries.**
 
 As declarações `@extern(C)` podem receber `@trust(trusted)`,
 `@trust(unsafe)` ou `@trust(isolated)`. O relatório de fronteira e o SIR
@@ -4013,24 +4021,30 @@ verificação de contexto no call site continua no checker de segurança.
 O efeito `ffi` distingue chamadas que cruzam `extern "C"` das demais chamadas
 desconhecidas no summary de Effects. Isso registra a fronteira estrangeira no
 SIR para contratos de backend; não fornece sandboxing nem prova isolamento.
+Veja `docs/sotlas_1_0_phase9_trust_domains_scope.md`.
 
 ### 10. Guarantees
 
 `requires`, `ensures`, `guarantee`, proof reports.
 
+**Sotlas 1.0 bounded contract: COMPLETE for scalar `requires`/`ensures` and
+their report.**
+
 O frontend inicial aceita `requires` booleano em funções com corpo e prova
 chamadas quando todos os argumentos são constantes avaliáveis. Condições falsas
 são rejeitadas estaticamente; condições sem prova estática são guardadas no
 entry da função C11 com `abort()` se falharem. O comprovante source-stable e a
-precondição seguem para o SIR; refinamento simbólico e declarações `guarantee`
-seguem abertos.
+precondição seguem para o SIR. Fatos de branches e implicações suportadas por
+intervalos inteiros provam um subconjunto de chamadas dinâmicas; a análise
+invalida os refinamentos conservadoramente após mutações.
 
 O subset inicial de `ensures` aceita predicados booleanos que referenciam
 `result` em funções com retorno numérico ou booleano escalar. O C11 captura o
 valor uma vez, executa os defers e verifica a pós-condição em cada caminho de
 retorno; o SIR preserva o contrato. O retorno booleano e sua guarda passaram
 execução nativa C11. Pós-condições sobre estado/heap e provas simbólicas seguem
-abertas.
+abertas. O CLI `contract-report` expõe provas e guardas de forma determinística.
+Veja `docs/sotlas_1_0_phase10_guarantees_scope.md`.
 
 ### 11. Causality
 

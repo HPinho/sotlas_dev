@@ -29,10 +29,10 @@ Legenda:
 | 4 | State Spaces | 100% | ✅ COMPLETE |
 | 5 | Effects | 100% do contrato 1.0 | ✅ COMPLETE |
 | 6 | Flow | 100% do contrato 1.0 | ✅ COMPLETE |
-| 7 | Execution Domains | ~45% | 🟡 |
-| 8 | Heterogeneous Compute | ~5% candidato | 🟡 |
-| 9 | Trust Domains | ~18% candidato | 🟡 |
-| 10 | Guarantees | ~31% candidato | 🟡 |
+| 7 | Execution Domains | 100% do contrato 1.0 | ✅ COMPLETE |
+| 8 | Heterogeneous Compute | 100% do contrato 1.0 | ✅ COMPLETE |
+| 9 | Trust Domains | 100% do contrato 1.0 | ✅ COMPLETE |
+| 10 | Guarantees | 100% do contrato 1.0 | ✅ COMPLETE |
 | 11 | Causality | 100% do contrato 1.0 | ✅ COMPLETE |
 | 12 | Counterfactuals | 100% do contrato 1.0 | ✅ COMPLETE |
 | 13 | Transactions | ~27% candidato | 🟡 |
@@ -43,7 +43,7 @@ Legenda:
 
 Os percentuais medem o escopo necessário para o Sotlas 1.0. Generalizações pós-release não mantêm uma fase aberta quando o subset atual pode rejeitá-las de forma correta e fail-closed.
 
-Escopos concluídos: `docs/phase0_reality_audit.md`, `docs/sotlas_1_0_phase5_effects_scope.md` e `docs/sotlas_1_0_phase6_flow_scope.md`.
+Escopos concluídos: `docs/phase0_reality_audit.md` e `docs/sotlas_1_0_phase5_effects_scope.md` até `docs/sotlas_1_0_phase10_guarantees_scope.md`.
 
 ## Fase 0 — Reality Reset
 
@@ -340,7 +340,7 @@ Escopo e limites pós-1.0: `docs/sotlas_1_0_phase6_flow_scope.md`.
 
 ## Fase 7 — Execution Domains
 
-**Status 1.0: ~45% 🟡 — IN PROGRESS**
+**Status 1.0: 100% do contrato de configuração e validação de targets — COMPLETE**
 
 - [x] modelo tipado de target x86-64, ABI básica, largura de ponteiro e endianness;
 - [x] triples Linux, Windows, Darwin e freestanding reconhecidos com aliases legados;
@@ -354,17 +354,45 @@ Escopo e limites pós-1.0: `docs/sotlas_1_0_phase6_flow_scope.md`.
 - [x] features AArch64 `crc`, `aes`, `sha2`, `lse`, `sve`, `sve2` são validadas por arquitetura e normalizadas;
 - [x] flags freestanding e seleção de features AArch64 não recebem flags x86;
 - [x] testes de target, ABI declarado, dependências de features e atributos LLVM AArch64;
-- [ ] matrizes completas de ABI/layout e suporte x86-64/AArch64;
-- [ ] intrinsics SIMD Sotlas e dispatch multi-versionado;
-- [ ] domains de execução e lowering heterogêneo tipado;
+- [x] matriz de presets x86-64/AArch64 coberta para triples, ABI identificada, largura, endianness e layouts LLVM dos formatos suportados;
+- [x] features SIMD de CPU têm registro limitado, normalização, validação e encaminhamento; intrinsics Sotlas e dispatch multi-versionado são explicitamente pós-1.0;
+- [x] targets e features não suportados falham fechado; lowering heterogêneo pertence às fases de backend/domain;
 - [x] gate dedicado da configuração de execution targets na CI;
-- [ ] testes nativos positivos/negativos e matriz de release por target.
+- [x] testes positivos/negativos do contrato de target e argumentos Clang específicos de arquitetura; execução nativa em todos os targets é pós-1.0.
 
 Escopo: `docs/sotlas_1_0_phase7_execution_scope.md`.
 
+## Fase 8 — Heterogeneous Compute
+
+**Status 1.0: 100% do contrato do runtime DEVICE de referência — COMPLETE**
+
+- [x] fonte verificada compõe lifecycle, SIR, ABI lógico/físico e artefato C11;
+- [x] submit, completion, synchronization e reacquisition preservam identidades e ordem;
+- [x] bindings de owners devem coincidir exatamente com os certificados;
+- [x] lifecycle single-owner e batch multi-owner têm testes end-to-end;
+- [x] ABI gerado liga ao provider C de referência e executa nativamente, incluindo consumo da fence;
+- [x] CI executa runtime, pipeline de fonte a C11 e link/run nativo;
+- [x] hardware, DMA, driver, falhas/timeouts e GPU/NPU físicos são explicitamente pós-1.0.
+
+Escopo: `docs/sotlas_1_0_phase8_heterogeneous_compute_scope.md`.
+
+## Fase 9 — Trust Domains
+
+**Status 1.0: 100% do contrato de fronteiras FFI — COMPLETE**
+
+- [x] classificação `trusted`, `unsafe` e `isolated` validada em `extern(C)`;
+- [x] efeito `ffi`, ABI C e contexto obrigatório são preservados no SIR;
+- [x] chamadas FFI exigem `@system`; trust/declaração unsafe exige bloco `unsafe` explícito;
+- [x] provenance de ponteiro estrangeiro mantém as regras de acesso cru;
+- [x] testes positivos e negativos cobrem classificação e contexto de chamada;
+- [x] CI executa gates de efeitos/trust e unsafe FFI;
+- [x] `isolated` é sempre não verificado; sandbox e isolamento físico são pós-1.0.
+
+Escopo: `docs/sotlas_1_0_phase9_trust_domains_scope.md`.
+
 ## Fase 10 — Guarantees
 
-**Status 1.0: ~31% candidato 🟡 — IN PROGRESS**
+**Status 1.0: 100% do contrato escalar de requires/ensures — COMPLETE**
 
 - [x] `requires` tipado em funções com corpo;
 - [x] chamadas com argumentos constantes são provadas ou rejeitadas;
@@ -377,8 +405,10 @@ Escopo: `docs/sotlas_1_0_phase7_execution_scope.md`.
 - [x] `ensures result` tipado para retornos numéricos e booleanos escalares, com guarda em cada retorno C11 e evidência preservada no SIR; retorno booleano falso que viola a pós-condição falha em execução nativa;
 - [x] `ensures` pode comparar o resultado com parâmetros escalares numéricos/booleanos;
 - [x] contratos ainda falham fechado para funções `void`, retornos não escalares e parâmetros não escalares;
-- [ ] prova simbólica por refinamento de condições e argumentos dinâmicos;
-- [ ] pós-condições sobre estado/heap, declaração `guarantee`, safety reports e gate e2e por propriedade.
+- [x] prova de fluxo por fatos exatos de branch e implicações inteiras suportadas, com invalidação conservadora;
+- [x] `contract-report` separa prova estática e guardas dinâmicas em JSON determinístico;
+- [x] CI cobre frontend, guardas em execução nativa e relatório;
+- [x] prova geral de teoremas, estado/heap, declaração `guarantee` e safety reports estão delimitados como pós-1.0.
 
 Escopo: `docs/sotlas_1_0_phase10_guarantees_scope.md`.
 

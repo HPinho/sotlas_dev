@@ -1,50 +1,38 @@
 # Sotlas 1.0 — Phase 7 Execution Domains Scope
 
-**Atualizado em:** 2026-09-26
-**Status:** IN PROGRESS  
-**Último baseline verde certificado:** `b3ce263` — CI #638 `success`
+**Updated:** 2026-09-26
+**Status:** COMPLETE for the Sotlas 1.0 target-configuration contract
 
-## Subset de targets x86-64 e AArch64
+## Certified contract
 
-O modelo de target tipado reconhece triples x86-64 freestanding ELF, Linux
-SysV, Windows MSVC, Darwin e o target interno `x86_64-pc-none`. Os aliases
-`host` e `x86_64-freestanding` preservam os defaults anteriores. Cada target
-carrega ABI, largura de ponteiro, endianness, CPU e data layout conhecido.
+The compiler accepts a closed set of x86-64 and AArch64 triples for Linux,
+Windows, Darwin, and freestanding ELF. Target resolution returns the selected
+triple, ABI identifier, pointer width, endianness, CPU, normalized CPU features,
+and LLVM data layout. Unknown triples, architecture-incompatible features, and
+unknown feature names fail closed. Feature dependencies are normalized before
+the target is passed to LLVM or Clang.
 
-Features x86-64 habilitadas são validadas contra um registro explícito e
-normalizadas com suas dependências (por exemplo, `avx2` implica `avx`); nomes
-desconhecidos falham fechado. O LLVM IR recebe triple, data layout quando
-conhecido e atributos de CPU/features. A toolchain também encaminha target e
-features ao Clang nos caminhos de objeto C11, e o CLI expõe `--target` e
-`--cpu-feature` repetível.
+The CLI accepts `--target` and repeatable `--cpu-feature`. LLVM IR preserves
+the target triple, layout, CPU, and features. `@target_feature` requirements
+are preserved in SIR and LLVM rejects a target that lacks them. C11 rejects
+function-specific feature requirements until it can honor them equivalently.
+The x86-64/AArch64 presets have tests for ABI/layout identifiers and object
+format distinctions (ELF, COFF, Mach-O).
 
-Funções podem declarar `@target_feature(avx2, ...)`. A declaração chega ao SIR;
-LLVM valida arquitetura e exige que o target escolhido contenha cada feature.
-O backend C11 rejeita a anotação até oferecer suporte equivalente.
+## Release boundary
 
-## Limites atuais
+This completes Sotlas 1.0's execution-target configuration and fail-closed
+contract. It does not claim a complete platform ABI certification, native
+execution on every triple, or a Sotlas SIMD language. SIMD intrinsics,
+multiversion dispatch, CPU feature detection at runtime, custom calling
+conventions, register constraints/clobbers, and heterogeneous domain lowering
+remain post-1.0 work. A target accepted by the configuration model is not by
+itself proof that a host toolchain can emit or run its artifact.
 
-- os targets AArch64 Linux/freestanding ELF, Windows COFF e Darwin Mach-O possuem ABI, largura de ponteiro, endianness e data layouts específicos do LLVM;
-- features AArch64 `aes`, `crc`, `lse`, `sha2`, `sve` e `sve2` são validadas, com `sve2` implicando `sve`;
-- o registro de features continua limitado e ainda não implementa intrinsics SIMD Sotlas;
-- `host` mantém o triple interno legado, sem detecção dinâmica do host;
-- `@target_feature` valida requisitos por função, mas não fornece intrinsics,
-  detecção dinâmica nem dispatch multi-versionado;
-- ABI além de identificação do target e data layout não é validada integralmente;
-- não há ainda suporte a intrinsics SIMD Sotlas, dispatch multi-versionado,
-  constraints/clobbers por domínio, ou lowering heterogêneo;
-- targets não suportados são rejeitados em vez de inferidos.
+## CI gate
 
-## Verificações
-
-- normalização e dependências de CPU features;
-- rejeição de triple e feature desconhecidos;
-- preservação de `@target_feature` no SIR, aceitação/rejeição por target e gate C11;
-- IR textual preserva target e atributos selecionados;
-- emissão direta de LLVM IR a partir de fonte aceita configuração de target.
-- presets e target features AArch64 aparecem em LLVM IR e são encaminhados a Clang sem flags específicas de x86.
-- data layouts AArch64 ELF, COFF e Mach-O são conferidos por triple e emitidos no LLVM IR.
-- `sotlas target-report` expõe em JSON as propriedades do preset e as features já normalizadas; isso inspeciona configuração, não o lowering nem a ABI física gerada.
-
-Este pacote fecha apenas uma fatia executável da Fase 7 e não declara a fase
-completa.
+`test_sotlas_llvm.py` checks target normalization, feature dependencies and
+rejection, LLVM IR attributes, target reports, C11 fail-closed behavior, and
+target-specific Clang arguments. This gate certifies configuration semantics;
+backend-specific executable matrices are owned by their respective backend
+milestones.

@@ -130,7 +130,7 @@
       "document": "docs/sotlas_1_0_phase10_guarantees_scope.md",
       "status": "DESIGN_ONLY",
       "source": null,
-      "verification": "scope-document-examples-are-not-implementation-evidence"
+      "verification": "scope-document-is-not-implementation-evidence"
     },
     {
       "id": "phase4-state-space-scope-snippets",
@@ -172,7 +172,7 @@
       "document": "docs/sotlas_1_0_phase7_execution_scope.md",
       "status": "DESIGN_ONLY",
       "source": null,
-      "verification": "execution-domain-scope-is-not-a-supported-code-example"
+      "verification": "scope-document-is-not-implementation-evidence"
     }
   ]
 }

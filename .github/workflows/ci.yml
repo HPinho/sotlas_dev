@@ -156,10 +156,18 @@ jobs:
     - name: Verify Phase 8 DEVICE reference source-to-C11 lifecycle
       run: |
         python -m unittest discover -s tests -p "test_sotlas_device_reference_runtime.py" -v
+        python -m unittest discover -s tests -p "test_sotlas_device_checked_c11_pipeline.py" -v
+        python -m unittest discover -s tests -p "test_sotlas_device_reference_abi_link.py" -v
+
+    - name: Verify Phase 9 foreign trust boundaries
+      run: |
+        python -m unittest discover -s tests -p "test_sotlas_source_effects.py" -v
+        python -m unittest discover -s tests -p "test_sotlas_unsafe_ffi.py" -v
 
     - name: Verify Phase 10 precondition and flow refinement subset
       run: |
         python -m unittest discover -s tests -p "test_sotlas_contract_frontend.py" -v
+        python -m unittest discover -s tests -p "test_sotlas_contract_report_cli.py" -v
 
   package-toolchain-snapshot:
     name: Package Nightly Toolchain Snapshot
