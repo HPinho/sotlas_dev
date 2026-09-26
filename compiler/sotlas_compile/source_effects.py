@@ -215,7 +215,41 @@ def install(bootstrap) -> None:
     bootstrap.check = check_with_effects
 
 
+def install_c11_backend_effect_contract(bootstrap) -> None:
+    """Reject source effects the current C11 backend cannot lower."""
+    original_emit_c = bootstrap.emit_c
+
+    def emit_c_with_effect_contract(module, *args, **kwargs):
+        summaries = getattr(module, "source_effect_summaries", None)
+        if summaries is None:
+            bootstrap.check(module)
+            summaries = getattr(module, "source_effect_summaries", None)
+        summaries = summaries or {}
+        for function in module.functions:
+            summary = summaries.get(function.name)
+            if summary is None:
+                raise bootstrap.SotlasBootstrapError(
+                    f"C11 backend effect contract has no summary for "
+                    f"function {function.name!r}",
+                    1, 1, module.filename, module.source,
+                )
+            effects = set(summary.transitive_effects)
+            effects.update(summary.declared_effects or ())
+            unsupported = effects - (set(EFFECT_ORDER) - {"async"})
+            if unsupported:
+                raise bootstrap.SotlasBootstrapError(
+                    "C11 backend effect contract rejected lowering for "
+                    f"{function.name!r}: " + ", ".join(
+                        effect for effect in EFFECT_ORDER if effect in unsupported
+                    ),
+                    1, 1, module.filename, module.source,
+                )
+        return original_emit_c(module, *args, **kwargs)
+
+    bootstrap.emit_c = emit_c_with_effect_contract
+
+
 __all__ = [
     "SourceEffectError", "SourceEffectSummary", "analyze_source_effects",
-    "install",
+    "install", "install_c11_backend_effect_contract",
 ]

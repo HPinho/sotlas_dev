@@ -102,6 +102,25 @@ fn caller() -> void { __external_api(); }
                 with self.assertRaises(SotlasBootstrapError):
                     compile_source(source, filename="effects.sotlas")
 
+    def test_c11_backend_contract_rejects_async_before_emitting_c(self):
+        source = """
+module test::c11_effects;
+@effects(async)
+fn suspended() -> void { return; }
+"""
+        with self.assertRaisesRegex(
+            SotlasBootstrapError,
+            "C11 backend effect contract rejected lowering.*async",
+        ):
+            compile_source(source, filename="c11-effects.sotlas")
+
+        supported = """
+module test::c11_effects;
+@effects(io)
+fn host_io() -> void { return; }
+"""
+        self.assertIn("host_io", compile_source(supported))
+
     def test_assembly_is_unsafe_and_volatile(self):
         source = """
 module test::source_effects;

@@ -30,6 +30,7 @@ from .source_effects import (
     SourceEffectError,
     SourceEffectSummary,
     analyze_source_effects,
+    install_c11_backend_effect_contract as _install_c11_backend_effect_contract,
     install as _install_source_effects,
 )
 _install_source_effects(bootstrap)
@@ -92,6 +93,7 @@ from .contracts_frontend import (
     install as _install_contracts_frontend,
 )
 _install_contracts_frontend(bootstrap)
+_install_c11_backend_effect_contract(bootstrap)
 from .phase1_pipeline import (
     Phase1CheckedModule,
     analyze_module_phase1,

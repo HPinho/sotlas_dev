@@ -3947,6 +3947,10 @@ Capabilities e `@system`.
 
 ### 5. Effects
 
+O backend C11 aplica um contrato inicial de lowering e rejeita `async` antes
+da emissão, pois ainda não existe runtime C11 de suspensão/retomada. O conjunto
+completo de capabilities por backend e target continua aberto.
+
 Effect inference e restrições contextuais.
 
 ### 6. Flow
@@ -4041,6 +4045,7 @@ os parâmetros e retornos das funções SIR, valores de dependência, cronograma
 paralelo e summaries de efeitos. O lowering e as consultas iniciais de
 Causality, Counterfactuals e Transactions rejeitam planos que falham nessa
 reconciliação. As chamadas ainda não estão nos CFGs executáveis.
+
 
 Esta fase deve congelar a fronteira semântica que permite substituir C como transporte sem alterar a linguagem:
 
