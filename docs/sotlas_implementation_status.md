@@ -33,7 +33,7 @@ Legenda:
 | 8 | Heterogeneous Compute | ~0% | 🟡 |
 | 9 | Trust Domains | ~18% candidato | 🟡 |
 | 10 | Guarantees | ~25% candidato | 🟡 |
-| 11 | Causality | ~12% candidato | 🟡 |
+| 11 | Causality | ~13% candidato | 🟡 |
 | 12 | Counterfactuals | ~14% candidato | 🟡 |
 | 13 | Transactions | ~27% candidato | 🟡 |
 | 14 | Intent | ~20% candidato | 🟡 |
@@ -79,6 +79,7 @@ API candidata: `execute_interpreted_sir_flow(module, flow, ...)` em `sotlas_comp
 - [x] consulta não infere caminho por mera ordem: stages desconectados e nomes ausentes falham com erro;
 - [x] consulta source-stable de caminhos de chamadas diretas entre funções fora de Flow, incluindo locais, aridade, parâmetros destino e summaries de efeitos;
 - [x] cada argumento da cadeia causal preserva expressão estrutural, parâmetro destino e bindings de origem;
+- [x] bindings seguem aliases locais imutáveis em sequência linear antes de `return`/chamada; mutação e controle de fluxo continuam sem resolução especulativa;
 - [ ] propagação causal de valores/expressões entre chamadas, provenance de diagnósticos e visualização IDE.
 
 API inicial: `explain_sir_flow_causality(module, flow, source_stage, target_stage)` em `sotlas_compile.causality`.

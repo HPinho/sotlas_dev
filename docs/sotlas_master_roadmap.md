@@ -4024,6 +4024,9 @@ O subset atual consulta caminhos de chamadas diretas em uma cadeia fonte
 verificada e registra, por argumento, a expressão estrutural, o parâmetro de
 destino e os bindings de origem. A expansão simbólica entre transformações,
 provenance de diagnósticos e visualização IDE continuam abertas.
+Aliases locais imutáveis em sequência linear são resolvidos até sua origem;
+aliases mutáveis ou sujeitos a controle de fluxo permanecem explícitos como
+bindings locais.
 
 ### 12. Counterfactuals
 

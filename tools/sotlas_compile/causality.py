@@ -120,8 +120,42 @@ def _causal_expression(value) -> str:
     return f"<{type(value).__name__}>"
 
 
-def _source_bindings(value) -> tuple[str, ...]:
+def _immutable_aliases_before_call(function, target_call) -> dict[str, str]:
+    """Resolve simple immutable local aliases that dominate a top-level call."""
+    aliases: dict[str, str] = {}
+    for statement in tuple(getattr(function, "body", ()) or ()):
+        if any(call is target_call for call in _source_calls(statement)):
+            if type(statement).__name__ in {"Return", "Expression"}:
+                return aliases
+            return {}
+        if type(statement).__name__ != "Let":
+            # Calls under branches/loops and aliases crossing arbitrary
+            # statements require CFG-sensitive reaching definitions.
+            aliases.clear()
+            continue
+        name = getattr(statement, "name", None)
+        if not isinstance(name, str) or not name:
+            aliases.clear()
+            continue
+        aliases.pop(name, None)
+        value = getattr(statement, "value", None)
+        if not getattr(statement, "is_mut", False) and isinstance(
+            value, bootstrap.Name
+        ):
+            aliases[name] = aliases.get(value.value, value.value)
+    return {}
+
+
+def _source_bindings(value, aliases: dict[str, str] | None = None) -> tuple[str, ...]:
     names: set[str] = set()
+    aliases = aliases or {}
+
+    def resolve(name: str) -> str:
+        seen = set()
+        while name in aliases and name not in seen:
+            seen.add(name)
+            name = aliases[name]
+        return name
 
     def visit(node):
         if isinstance(node, (tuple, list)):
@@ -129,7 +163,7 @@ def _source_bindings(value) -> tuple[str, ...]:
                 visit(item)
             return
         if isinstance(node, bootstrap.Name):
-            names.add(node.value)
+            names.add(resolve(node.value))
             return
         if not isinstance(node, (bootstrap.Expr, bootstrap.Stmt)):
             return
@@ -226,7 +260,10 @@ def explain_source_call_causality(
                     index,
                     parameter_name,
                     _causal_expression(argument),
-                    _source_bindings(argument),
+                    _source_bindings(
+                        argument,
+                        _immutable_aliases_before_call(by_name[caller], call),
+                    ),
                 )
                 for index, (argument, parameter_name) in enumerate(zip(
                     call.args,

@@ -245,7 +245,10 @@ flow Calc { stage value = load; }
 module test::source_call_causality;
 fn parse(value: i32) -> i32 { return value; }
 fn decode(raw: i32) -> i32 { return parse(raw * 3); }
-fn entry(input: i32) -> i32 { return decode(input + 2); }
+fn entry(input: i32) -> i32 {
+    let local = input;
+    return decode(local + 2);
+}
         """
         checked = package.analyze_source_phase1(source)
         explanation = package.explain_source_call_causality(
@@ -269,7 +272,7 @@ fn entry(input: i32) -> i32 { return decode(input + 2); }
                 (argument.parameter_name, argument.expression, argument.source_bindings)
                 for argument in explanation.steps[0].arguments
             ],
-            [("raw", "(input + 2)", ("input",))],
+            [("raw", "(local + 2)", ("input",))],
         )
         self.assertEqual(
             [
@@ -296,6 +299,24 @@ fn entry(input: i32) -> i32 { return decode(input + 2); }
         )
         with self.assertRaisesRegex(package.CausalityError, "no source call path"):
             package.explain_source_call_causality(checked, "parse", "entry")
+
+    def test_source_call_causality_keeps_mutable_aliases_unresolved(self):
+        checked = package.analyze_source_phase1("""
+module test::source_call_mutable_alias;
+fn sink(value: i32) -> i32 { return value; }
+fn entry(input: i32) -> i32 {
+    let mut local = input;
+    local = 7;
+    return sink(local);
+}
+""")
+        explanation = package.explain_source_call_causality(
+            checked, "entry", "sink"
+        )
+        self.assertEqual(
+            explanation.steps[0].arguments[0].source_bindings,
+            ("local",),
+        )
 
     def test_causality_rejects_missing_stages_and_disconnected_paths(self):
         checked = package.analyze_source_phase1(self._source("""
