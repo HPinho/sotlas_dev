@@ -84,6 +84,63 @@ fn entry() -> i32 {{ return divide_by({call}); }}
         self.assertEqual(checked_sir.module.contract_proofs, ())
         self.assertIn("sir_requires @divide_by", checked_sir.module.dump())
 
+    def test_branch_refinement_proves_dynamic_preconditions(self):
+        source = """
+module test::contract_refinement;
+fn divide_by(b: i32) -> i32
+    requires b != 0
+{
+    return 84i32 / b;
+}
+fn entry(value: i32, enabled: bool) -> i32 {
+    if value != 0 && enabled {
+        return divide_by(value);
+    }
+    if value == 0 {
+        return 0;
+    } else {
+        return divide_by(value);
+    }
+}
+"""
+        for package in (compiler, tools):
+            module = package.bootstrap.parse(source)
+            package.bootstrap.check(module)
+            self.assertEqual(len(module.contract_proofs), 2)
+            self.assertEqual(
+                [proof.refinements for proof in module.contract_proofs],
+                [("(value != 0)",), ("(value != 0)",)],
+            )
+            self.assertEqual(module.contract_preconditions[0].function, "divide_by")
+        checked = compiler.analyze_source_phase1(source)
+        checked_sir, _ = compiler.build_canonical_checked_ownership_sir(checked)
+        dump = checked_sir.module.dump()
+        self.assertEqual(dump.count("sir_proof call @divide_by"), 2)
+        self.assertEqual(dump.count("refinements=[(value != 0)]"), 2)
+
+    def test_assignment_invalidates_a_branch_refinement(self):
+        source = """
+module test::contract_refinement_invalidation;
+fn divide_by(b: i32) -> i32
+    requires b != 0
+{
+    return 84i32 / b;
+}
+fn entry(value: i32) -> i32 {
+    let mut copy: i32 = value;
+    if copy != 0 {
+        copy = 0;
+        return divide_by(copy);
+    }
+    return 0;
+}
+"""
+        for package in (compiler, tools):
+            module = package.bootstrap.parse(source)
+            package.bootstrap.check(module)
+            self.assertEqual(module.contract_proofs, ())
+            self.assertEqual(len(module.contract_preconditions), 1)
+
     def test_requires_must_be_boolean(self):
         source = """
 module test::contracts;

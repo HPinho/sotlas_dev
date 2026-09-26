@@ -2,7 +2,15 @@
 
 **Atualizado em:** 2026-09-26
 **Status:** 🟡 IN PROGRESS
-**Baseline de código:** `bb3de63` — CI #593 `success`
+**Baseline de código:** `968b366` — CI #596 `success`
+
+### Refinamento local de fluxo
+
+Branches `if`/`else` e condições booleanas compostas agora fornecem fatos
+exatos para provar precondições escalares em chamadas dinâmicas. O comprovante
+SIR registra esses fatos. A análise descarta refinamentos após atribuição local
+ao valor ou chamada potencialmente mutável; implicações aritméticas gerais e
+refinamento entre funções continuam fora deste subset.
 
 ## Subset inicial de precondições
 
@@ -30,7 +38,7 @@ aparece no dump como `sir_proof`.
 ## Limites
 
 - argumentos dinâmicos recebem guarda no callee; ainda não são provados por
-  refinamento de fluxo;
+  refinamento de fluxo quando o fluxo não contém fatos de branch exatos;
 - declarações `extern` são rejeitadas, pois não há corpo local onde instalar a
   guarda;
 - `ensures`, `guarantee` como declaração, refinamento simbólico e relatórios
@@ -53,6 +61,7 @@ aparece no dump como `sir_proof`.
 - [x] sintaxe e validação tipada de `requires` em funções com corpo;
 - [x] prova e rejeição de chamadas com argumentos constantes;
 - [x] comprovante source-stable preservado no SIR;
+- [x] prova por fatos exatos de branch para argumentos dinâmicos, com invalidação conservadora;
 - [ ] refinamento de fluxo para provar argumentos dinâmicos;
 - [ ] `ensures`, declaração `guarantee` e relatórios agregados de safety;
 - [ ] matriz e2e de provas por backend/target.

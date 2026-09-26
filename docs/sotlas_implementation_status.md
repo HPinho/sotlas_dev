@@ -1,8 +1,8 @@
 # Sotlas — Implementation Status
 
 **Atualizado em:** 2026-09-26
-**Último baseline verde certificado:** `bb3de63`
-**CI de referência:** Sotlas CI & Toolchain Build Farm #593 — workflow `success`
+**Último baseline verde certificado:** `968b366`
+**CI de referência:** Sotlas CI & Toolchain Build Farm #596 — workflow `success`
 **Fonte arquitetural:** `SOTLAS — ESPECIFICAÇÃO MESTRA`
 
 > Este é o índice operacional atual. O snapshot detalhado anterior, com o histórico extenso das microentregas da Fase 2, permanece preservado em `docs/archive/sotlas_implementation_status_2026-09-23.md`.
@@ -32,7 +32,7 @@ Legenda:
 | 7 | Execution Domains | ~40% | 🟡 |
 | 8 | Heterogeneous Compute | ~0% | 🟡 |
 | 9 | Trust Domains | ~10% candidato | 🟡 |
-| 10 | Guarantees | ~5% candidato | 🟡 |
+| 10 | Guarantees | ~10% candidato | 🟡 |
 | 11 | Causality | ~0% | 🟡 |
 | 12 | Counterfactuals | ~0% | 🟡 |
 | 13 | Transactions | ~0% | 🟡 |
@@ -215,13 +215,15 @@ Escopo: `docs/sotlas_1_0_phase7_execution_scope.md`.
 
 ## Fase 10 — Guarantees
 
-**Status 1.0: ~5% candidato 🟡 — IN PROGRESS**
+**Status 1.0: ~10% candidato 🟡 — IN PROGRESS**
 
 - [x] `requires` tipado em funções com corpo;
 - [x] chamadas com argumentos constantes são provadas ou rejeitadas;
 - [x] chamadas falsas falham estaticamente; demais chamadas são guardadas em runtime;
 - [x] funções públicas mantêm a precondição no ABI C11 com guarda de entrada;
 - [x] relatório de prova da chamada é preservado no SIR canônico;
+- [x] fatos booleanos de branches `if`/`else` provam precondições dinâmicas simples e são preservados no SIR;
+- [x] refinamentos são invalidados depois de atribuições locais e chamadas potencialmente mutáveis;
 - [ ] prova simbólica por refinamento de condições e argumentos dinâmicos;
 - [ ] `ensures`, declaração `guarantee`, safety reports e gate e2e por propriedade.
 

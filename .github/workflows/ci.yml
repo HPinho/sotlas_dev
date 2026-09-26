@@ -150,7 +150,7 @@ jobs:
       run: |
         python -m unittest discover -s tests -p "test_sotlas_llvm.py" -v
 
-    - name: Verify Phase 10 constant precondition subset
+    - name: Verify Phase 10 precondition and flow refinement subset
       run: |
         python -m unittest discover -s tests -p "test_sotlas_contract_frontend.py" -v
 

@@ -445,6 +445,9 @@ class SIRModule:
                 f"{proof.line}:{proof.column} requires {proof.predicate} "
                 f"arguments=[{arguments}]"
             )
+            refinements = tuple(getattr(proof, "refinements", ()) or ())
+            if refinements:
+                lines[-1] += f" refinements=[{', '.join(refinements)}]"
         for precondition in self.contract_preconditions:
             lines.append(
                 f"sir_requires @{precondition.function} "

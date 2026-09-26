@@ -17,6 +17,7 @@ class ContractCallProof:
     column: int
     predicate: str
     arguments: tuple[tuple[str, object], ...]
+    refinements: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -55,6 +56,135 @@ def _referenced_parameters(expr, bootstrap) -> frozenset[str]:
             | _referenced_parameters(expr.right, bootstrap)
         )
     return frozenset()
+
+
+def _render_with_bindings(expr, bindings, bootstrap) -> str:
+    if isinstance(expr, bootstrap.Name) and expr.value in bindings:
+        return _render(bindings[expr.value], bootstrap)
+    if isinstance(expr, bootstrap.Unary):
+        return f"{expr.op}{_render_with_bindings(expr.value, bindings, bootstrap)}"
+    if isinstance(expr, bootstrap.Binary):
+        return (
+            f"({_render_with_bindings(expr.left, bindings, bootstrap)} {expr.op} "
+            f"{_render_with_bindings(expr.right, bindings, bootstrap)})"
+        )
+    return _render(expr, bootstrap)
+
+
+def _refinement_terms(expr, bindings, bootstrap) -> tuple[str, ...]:
+    if isinstance(expr, bootstrap.Binary) and expr.op == "&&":
+        return (
+            _refinement_terms(expr.left, bindings, bootstrap)
+            + _refinement_terms(expr.right, bindings, bootstrap)
+        )
+    return (_render_with_bindings(expr, bindings, bootstrap),)
+
+
+_INVERT_COMPARISON = {
+    "==": "!=", "!=": "==", "<": ">=", "<=": ">",
+    ">": "<=", ">=": "<",
+}
+
+
+def _condition_facts(expr, truth, bootstrap) -> frozenset[str]:
+    """Return only facts that logically hold on the selected branch."""
+    if any(isinstance(node, bootstrap.Call) for node in _walk(expr, bootstrap)):
+        return frozenset()
+    if isinstance(expr, bootstrap.Unary) and expr.op == "!":
+        return _condition_facts(expr.value, not truth, bootstrap)
+    if isinstance(expr, bootstrap.Binary):
+        if expr.op == "&&" and truth:
+            return (
+                _condition_facts(expr.left, True, bootstrap)
+                | _condition_facts(expr.right, True, bootstrap)
+            )
+        if expr.op == "||" and not truth:
+            return (
+                _condition_facts(expr.left, False, bootstrap)
+                | _condition_facts(expr.right, False, bootstrap)
+            )
+        if expr.op in _INVERT_COMPARISON:
+            op = expr.op if truth else _INVERT_COMPARISON[expr.op]
+            try:
+                fact = (
+                    f"({_render(expr.left, bootstrap)} {op} "
+                    f"{_render(expr.right, bootstrap)})"
+                )
+            except ContractFrontendError:
+                return frozenset()
+            return frozenset((fact,))
+    if isinstance(expr, bootstrap.Boolean):
+        return frozenset(("true" if truth else "false",))
+    return frozenset()
+
+
+def _calls_with_refinements(value, bootstrap, facts=frozenset()):
+    if isinstance(value, (tuple, list)):
+        active = facts
+        for item in value:
+            yield from _calls_with_refinements(item, bootstrap, active)
+            if any(
+                isinstance(node, bootstrap.Call)
+                for node in _walk(item, bootstrap)
+            ):
+                active = frozenset()
+            if isinstance(item, bootstrap.Assign) and isinstance(
+                item.target, bootstrap.Name
+            ):
+                assigned = re.compile(
+                    rf"(?<![A-Za-z0-9_]){re.escape(item.target.value)}"
+                    rf"(?![A-Za-z0-9_])"
+                )
+                active = frozenset(
+                    fact for fact in active if not assigned.search(fact)
+                )
+            elif isinstance(item, bootstrap.Let):
+                shadowed = re.compile(
+                    rf"(?<![A-Za-z0-9_]){re.escape(item.name)}"
+                    rf"(?![A-Za-z0-9_])"
+                )
+                active = frozenset(
+                    fact for fact in active if not shadowed.search(fact)
+                )
+        return
+    if not isinstance(value, (bootstrap.Expr, bootstrap.Stmt)):
+        return
+    if isinstance(value, bootstrap.If):
+        yield from _calls_with_refinements(value.condition, bootstrap, facts)
+        yield from _calls_with_refinements(
+            value.then_body, bootstrap,
+            facts | _condition_facts(value.condition, True, bootstrap),
+        )
+        yield from _calls_with_refinements(
+            value.else_body, bootstrap,
+            facts | _condition_facts(value.condition, False, bootstrap),
+        )
+        return
+    if isinstance(value, bootstrap.IfExpr):
+        yield from _calls_with_refinements(value.condition, bootstrap, facts)
+        yield from _calls_with_refinements(
+            value.then_expr, bootstrap,
+            facts | _condition_facts(value.condition, True, bootstrap),
+        )
+        yield from _calls_with_refinements(
+            value.else_expr, bootstrap,
+            facts | _condition_facts(value.condition, False, bootstrap),
+        )
+        return
+    if isinstance(value, bootstrap.While):
+        yield from _calls_with_refinements(value.condition, bootstrap, facts)
+        body_facts = facts | _condition_facts(value.condition, True, bootstrap)
+        yield from _calls_with_refinements(value.body, bootstrap, body_facts)
+        return
+    if isinstance(value, bootstrap.Call):
+        yield value, facts
+    for name, child in vars(value).items():
+        if name in {"token", "type", "target_type"}:
+            continue
+        if isinstance(child, dict):
+            yield from _calls_with_refinements(tuple(child.values()), bootstrap, facts)
+        else:
+            yield from _calls_with_refinements(child, bootstrap, facts)
 
 
 def _contract_type(expr, scope, bootstrap):
@@ -290,9 +420,9 @@ def install(bootstrap) -> None:
         checked_roots = [function.body for function in module.functions]
         checked_roots.extend(global_value.value for global_value in module.globals)
         for root in checked_roots:
-            for expression_node in _walk(root, bootstrap):
-                if not isinstance(expression_node, bootstrap.Call):
-                    continue
+            for expression_node, active_facts in _calls_with_refinements(
+                root, bootstrap
+            ):
                 predicate = contracts.get(expression_node.callee)
                 if predicate is None:
                     continue
@@ -307,6 +437,22 @@ def install(bootstrap) -> None:
                 )
                 bindings = dict(argument_values)
                 proved = _constant(predicate, bindings, bootstrap)
+                refinement_terms = _refinement_terms(
+                    predicate,
+                    {
+                        param_name: argument
+                        for argument, (param_name, _) in zip(
+                            expression_node.args, target.params
+                        )
+                    },
+                    bootstrap,
+                )
+                refinements = tuple(
+                    term for term in refinement_terms if term in active_facts
+                )
+                flow_proved = bool(refinement_terms) and len(refinements) == len(
+                    refinement_terms
+                )
                 if proved is False:
                     _error(
                         bootstrap,
@@ -314,7 +460,7 @@ def install(bootstrap) -> None:
                         expression_node.token,
                         module,
                     )
-                if proved is not True:
+                if proved is not True and not flow_proved:
                     # The callee enforces predicates that cannot be proved from
                     # call-site constants; the report records proofs only.
                     continue
@@ -330,6 +476,7 @@ def install(bootstrap) -> None:
                     expression_node.token.column,
                     _render(predicate, bootstrap),
                     proven_arguments,
+                    refinements if flow_proved and proved is not True else (),
                 ))
         module.contract_proofs = tuple(proofs)
         module.contract_preconditions = tuple(

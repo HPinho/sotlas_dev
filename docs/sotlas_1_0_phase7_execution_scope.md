@@ -2,7 +2,7 @@
 
 **Atualizado em:** 2026-09-26
 **Status:** IN PROGRESS  
-**Último baseline verde certificado:** `bb3de63` — CI #593 `success`
+**Último baseline verde certificado:** `968b366` — CI #596 `success`
 
 ## Subset de targets x86-64 e AArch64
 
