@@ -296,7 +296,8 @@ Escopo: `docs/sotlas_1_0_phase6_flow_scope.md`.
 - [x] `@target_feature(...)` é preservado no SIR e o LLVM rejeita targets sem as features requeridas; backend C11 falha fechado para essa anotação;
 - [x] CLI expõe seleção de target e features x86-64;
 - [x] presets LLVM/ABI AArch64 Linux, Windows, Darwin e freestanding;
-- [x] data layouts LLVM por formato de objeto ELF, COFF e Mach-O para os presets AArch64;
+- [x] data layouts LLVM por formato de objeto ELF, COFF e Mach-O nos presets x86-64 e AArch64;
+- [x] layout x86-64 Darwin usa mangling Mach-O e a ABI i128/f80 correspondente, em vez do layout ELF;
 - [x] features AArch64 `crc`, `aes`, `sha2`, `lse`, `sve`, `sve2` são validadas por arquitetura e normalizadas;
 - [x] flags freestanding e seleção de features AArch64 não recebem flags x86;
 - [x] testes de target, ABI declarado, dependências de features e atributos LLVM AArch64;

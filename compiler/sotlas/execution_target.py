@@ -15,6 +15,10 @@ _DATA_LAYOUT_X86_64_ELF = (
 _DATA_LAYOUT_X86_64_WINDOWS = (
     "e-m:w-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128"
 )
+_DATA_LAYOUT_X86_64_DARWIN = (
+    "e-m:o-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-"
+    "f80:128-n8:16:32:64-S128"
+)
 _DATA_LAYOUT_AARCH64_ELF = (
     "e-m:e-p270:32:32-p271:32:32-p272:64:64-i8:8:32-i16:16:32-"
     "i64:64-i128:128-n32:64-S128-Fn32"
@@ -86,7 +90,7 @@ _TARGETS = {
         "x86_64", "msvc", _DATA_LAYOUT_X86_64_WINDOWS, False
     ),
     "x86_64-apple-darwin": _TargetPreset(
-        "x86_64", "darwin", _DATA_LAYOUT_X86_64_ELF, False
+        "x86_64", "darwin", _DATA_LAYOUT_X86_64_DARWIN, False
     ),
     "aarch64-unknown-none-elf": _TargetPreset(
         "aarch64", "aapcs64", _DATA_LAYOUT_AARCH64_ELF, True
