@@ -36,7 +36,7 @@ Legenda:
 | 11 | Causality | ~10% candidato | 🟡 |
 | 12 | Counterfactuals | ~10% candidato | 🟡 |
 | 13 | Transactions | ~10% candidato | 🟡 |
-| 14 | Intent | ~5% candidato | 🟡 |
+| 14 | Intent | ~12% candidato | 🟡 |
 | 15 | SIR completo | ~38% candidato | 🟡 |
 | 16 | Native Machine Backend | ~5% | 🟡 |
 | 17 | Tooling avançado | ~15% | 🟡 |
@@ -102,10 +102,13 @@ API: `validate_sir_flow_plans(module)` em `sotlas_compile.flow_sir`.
 
 ### Avanço inicial de Intent
 
+**Status 1.0: ~12% candidato 🟡 — IN PROGRESS**
+
 - [x] planejamento determinístico escolhe a primeira estratégia Flow elegível em ordem `prefer` e `fallback`;
 - [x] inspeção registra efeitos observados e razões de rejeição por candidato;
 - [x] constraints iniciais verificam ausência de efeitos proibidos e disponibilidade das stages escolhidas;
-- [ ] sintaxe `intent`, objetivos funcionais, guarantees tipadas além dessas constraints e execução do plano.
+- [x] execução chama apenas a Flow selecionada depois de revalidar o plano Intent e reconciliar stages, tipos, dependências e efeitos entre Typed Flow e SIR;
+- [ ] sintaxe `intent`, objetivos funcionais, guarantees tipadas e lowering do plano no scheduler SIR com Ownership.
 
 API inicial: `plan_sir_intent(module, name, prefer=..., fallback=...)` em `sotlas_compile.intent`.
 

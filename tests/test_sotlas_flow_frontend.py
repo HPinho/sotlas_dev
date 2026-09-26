@@ -412,6 +412,18 @@ flow Local { stage value = local; }
             selected.guarantees,
             ("forbidden_effects_absent", "all_selected_flow_stages_available"),
         )
+        execution = package.execute_sir_intent(
+            checked, sir.module, selected, {"value": lambda: 42}
+        )
+        self.assertEqual(execution.selected_flow, "Local")
+        self.assertEqual(execution.execution.output("value"), 42)
+        with self.assertRaisesRegex(package.IntentError, "differs from the canonical"):
+            package.execute_sir_intent(
+                checked,
+                sir.module,
+                replace(selected, selected_flow="Cached"),
+                {"value": lambda: 42},
+            )
 
         preferred = package.plan_sir_intent(
             sir.module, "LoadValue", prefer=("Cached",), fallback=("Local",)

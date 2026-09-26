@@ -4,7 +4,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Mapping
 
-from .flow_sir import FlowSIRError, validate_sir_flow_plans
+from .flow_sir import FlowSIRError, _source_type_name, validate_sir_flow_plans
+from .flow_runtime import FlowExecutionResult, execute_typed_flow
 
 
 class IntentError(ValueError):
@@ -29,6 +30,13 @@ class IntentPlan:
     unavailable_stages: tuple[tuple[str, tuple[str, ...]], ...]
     guarantees: tuple[str, ...]
     inspection: tuple[IntentCandidateReview, ...]
+
+
+@dataclass(frozen=True)
+class IntentExecutionResult:
+    intent: str
+    selected_flow: str
+    execution: FlowExecutionResult
 
 
 def _names(value, label: str) -> tuple[str, ...]:
@@ -136,6 +144,85 @@ def plan_sir_intent(
     )
 
 
+def execute_sir_intent(
+    checked_module,
+    sir_module,
+    intent: IntentPlan,
+    actions: Mapping[str, object],
+    *,
+    max_workers: int | None = None,
+    cancel_event=None,
+) -> IntentExecutionResult:
+    """Execute only the selected Flow after revalidating intent and SIR evidence."""
+    if not isinstance(intent, IntentPlan):
+        raise IntentError("intent execution requires a checked IntentPlan")
+    reviews = tuple(intent.inspection)
+    if any(
+        not isinstance(item, IntentCandidateReview)
+        or item.role not in {"prefer", "fallback"}
+        or not isinstance(item.priority, int)
+        or isinstance(item.priority, bool)
+        for item in reviews
+    ):
+        raise IntentError("intent inspection contains malformed candidate evidence")
+    ordered_reviews = tuple(sorted(reviews, key=lambda item: item.priority))
+    preferred = tuple(item.flow for item in ordered_reviews if item.role == "prefer")
+    fallbacks = tuple(item.flow for item in ordered_reviews if item.role == "fallback")
+    try:
+        canonical = plan_sir_intent(
+            sir_module,
+            intent.name,
+            prefer=preferred,
+            fallback=fallbacks,
+            forbidden_effects=intent.forbidden_effects,
+            unavailable_stages=dict(intent.unavailable_stages),
+        )
+    except (IntentError, TypeError, ValueError) as error:
+        raise IntentError(f"intent plan no longer validates: {error}") from error
+    if canonical != intent:
+        raise IntentError("intent plan differs from the canonical SIR strategy")
+    if intent.selected_flow is None:
+        raise IntentError("intent has no eligible Flow to execute")
+    try:
+        sir_plans = validate_sir_flow_plans(sir_module)
+    except FlowSIRError as error:
+        raise IntentError(f"invalid canonical SIR Flow plan: {error}") from error
+    sir_matches = tuple(plan for plan in sir_plans if plan.name == intent.selected_flow)
+    typed_flows = tuple(getattr(checked_module, "flows", ()) or ())
+    typed_matches = tuple(
+        flow for flow in typed_flows if flow.name == intent.selected_flow
+    )
+    if len(sir_matches) != 1 or len(typed_matches) != 1:
+        raise IntentError("selected Flow is not uniquely present in checked source and SIR")
+    sir_plan = sir_matches[0]
+    typed_plan = typed_matches[0]
+    typed_stages = {stage.name: stage for stage in typed_plan.stages}
+    sir_stages = {stage.name: stage for stage in sir_plan.stages}
+    if len(typed_stages) != len(typed_plan.stages) or set(typed_stages) != set(sir_stages):
+        raise IntentError("selected typed Flow stages differ from canonical SIR")
+    for name, typed_stage in typed_stages.items():
+        sir_stage = sir_stages[name]
+        dependencies = tuple(
+            argument.value.producer_stage for argument in sir_stage.arguments
+        )
+        input_types = tuple(_source_type_name(value) for value in typed_stage.input_types)
+        if (
+            typed_stage.function != sir_stage.function
+            or _source_type_name(typed_stage.result_type) != sir_stage.result_type
+            or tuple(typed_stage.dependencies) != dependencies
+            or input_types != tuple(argument.type_name for argument in sir_stage.arguments)
+            or tuple(typed_stage.effects) != tuple(sir_stage.effects)
+        ):
+            raise IntentError(
+                f"selected typed Flow stage {name!r} differs from canonical SIR"
+            )
+    execution = execute_typed_flow(
+        typed_plan, actions, max_workers=max_workers, cancel_event=cancel_event
+    )
+    return IntentExecutionResult(intent.name, intent.selected_flow, execution)
+
+
 __all__ = [
-    "IntentError", "IntentCandidateReview", "IntentPlan", "plan_sir_intent",
+    "IntentError", "IntentCandidateReview", "IntentPlan", "IntentExecutionResult",
+    "plan_sir_intent", "execute_sir_intent",
 ]

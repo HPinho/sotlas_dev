@@ -87,7 +87,8 @@ from .transactions import (
     analyze_sir_flow_transaction_effects,
 )
 from .intent import (
-    IntentError, IntentCandidateReview, IntentPlan, plan_sir_intent,
+    IntentError, IntentCandidateReview, IntentPlan, IntentExecutionResult,
+    plan_sir_intent, execute_sir_intent,
 )
 from .trust_domains import (
     TrustBoundaryError, ForeignTrustBoundary,
@@ -147,7 +148,8 @@ __all__ = [
     "analyze_sir_flow_recovery_options",
     "TransactionError", "TransactionEffect", "TransactionAudit",
     "analyze_sir_flow_transaction_effects",
-    "IntentError", "IntentCandidateReview", "IntentPlan", "plan_sir_intent",
+    "IntentError", "IntentCandidateReview", "IntentPlan",
+    "IntentExecutionResult", "plan_sir_intent", "execute_sir_intent",
     "TrustBoundaryError", "ForeignTrustBoundary",
     "analyze_foreign_trust_boundaries",
 ]
