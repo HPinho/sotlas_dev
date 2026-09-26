@@ -105,6 +105,7 @@ class TypestateTests(unittest.TestCase):
         )
         sir = canonical_sir.load_canonical_sir()
         instruction = state_sir.lower_typestate_transition(
+            space,
             fact,
             sir.SIRValue("device", "Device<Discovered>"),
             "configured_device",
@@ -113,6 +114,25 @@ class TypestateTests(unittest.TestCase):
         self.assertEqual(instruction.result.type_name, "Device<Configured>")
         self.assertEqual(instruction.point_id, "state_transition@12:9")
         self.assertIn("Discovered->Configured", str(instruction))
+
+        forged = typestate.TypestateTransitionFact(
+            source=fact.source,
+            target=fact.target,
+            transition=state_space.StateSpaceTransition(
+                "Configured", "Running"
+            ),
+            point_id=fact.point_id,
+        )
+        with self.assertRaisesRegex(
+            state_sir.StateTransitionSIRError,
+            "edge diverges from the certified State Space",
+        ):
+            state_sir.lower_typestate_transition(
+                space,
+                forged,
+                sir.SIRValue("device", "Device<Discovered>"),
+                "configured_device",
+            )
 
     def test_transition_sir_rejects_missing_or_wrong_source_identity(self):
         space = self._device_space()
@@ -126,6 +146,7 @@ class TypestateTests(unittest.TestCase):
             "requires source-stable identity",
         ):
             state_sir.lower_typestate_transition(
+                space,
                 missing_identity,
                 sir.SIRValue("device", "Device<Discovered>"),
                 "configured_device",
@@ -142,6 +163,7 @@ class TypestateTests(unittest.TestCase):
             "source must have type Device<Discovered>",
         ):
             state_sir.lower_typestate_transition(
+                space,
                 sourced,
                 sir.SIRValue("device", "Device<Running>"),
                 "configured_device",

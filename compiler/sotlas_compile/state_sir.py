@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 
 from .canonical_sir import load_canonical_sir
+from .state_space import StateSpaceError, StateSpacePlan
 from .state_typestate import TypestateTransitionFact
 
 
@@ -14,12 +15,21 @@ class StateTransitionSIRError(ValueError):
 _POINT_ID = re.compile(r"^state_transition@[1-9][0-9]*:[1-9][0-9]*$")
 
 
-def lower_typestate_transition(fact: TypestateTransitionFact, source, result_name: str):
+def lower_typestate_transition(
+    space: StateSpacePlan,
+    fact: TypestateTransitionFact,
+    source,
+    result_name: str,
+):
     """Lower one graph-certified transition to a source-stable SIR instruction.
 
     This is a backend-neutral representation only. Backends must reject this
     instruction until they implement the same transition contract.
     """
+    if not isinstance(space, StateSpacePlan):
+        raise StateTransitionSIRError(
+            "State Transition SIR requires a certified StateSpacePlan"
+        )
     if not isinstance(fact, TypestateTransitionFact):
         raise StateTransitionSIRError(
             "State Transition SIR requires a certified typestate transition"
@@ -31,6 +41,26 @@ def lower_typestate_transition(fact: TypestateTransitionFact, source, result_nam
             "State Transition SIR requires source-stable identity "
             "state_transition@line:column"
         )
+    if (
+        fact.source.space_name != space.name
+        or fact.target.space_name != space.name
+        or fact.source.type_name != fact.target.type_name
+    ):
+        raise StateTransitionSIRError(
+            "State Transition SIR facts do not match the certified State Space"
+        )
+    try:
+        certified_edge = space.require_transition(
+            fact.source.state_name, fact.target.state_name
+        )
+    except StateSpaceError as error:
+        raise StateTransitionSIRError(
+            "State Transition SIR edge is not present in the certified State Space"
+        ) from error
+    if certified_edge != fact.transition:
+        raise StateTransitionSIRError(
+            "State Transition SIR edge diverges from the certified State Space"
+        )
 
     sir = load_canonical_sir()
     value_type = f"{fact.source.type_name}<{fact.source.state_name}>"
@@ -39,11 +69,6 @@ def lower_typestate_transition(fact: TypestateTransitionFact, source, result_nam
         raise StateTransitionSIRError(
             f"State Transition SIR source must have type {value_type}"
         )
-    if fact.source.space_name != fact.target.space_name:
-        raise StateTransitionSIRError("State Transition SIR cannot change State Spaces")
-    if fact.source.type_name != fact.target.type_name:
-        raise StateTransitionSIRError("State Transition SIR cannot change nominal types")
-
     result = sir.SIRValue(result_name, result_type)
     return sir.StateTransitionInst(
         source=source,
