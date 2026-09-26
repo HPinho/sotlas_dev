@@ -1,8 +1,8 @@
 # Sotlas — Implementation Status
 
 **Atualizado em:** 2026-09-26
-**Último baseline verde certificado:** `9fdeca9`
-**CI de referência:** Sotlas CI & Toolchain Build Farm #615 — workflow `success`
+**Último baseline verde certificado:** `e1f5b21`
+**CI de referência:** Sotlas CI & Toolchain Build Farm #616 — workflow `success`
 **Fonte arquitetural:** `SOTLAS — ESPECIFICAÇÃO MESTRA`
 
 > Este é o índice operacional atual. O snapshot detalhado anterior, com o histórico extenso das microentregas da Fase 2, permanece preservado em `docs/archive/sotlas_implementation_status_2026-09-23.md`.
@@ -37,11 +37,18 @@ Legenda:
 | 12 | Counterfactuals | ~10% candidato | 🟡 |
 | 13 | Transactions | ~10% candidato | 🟡 |
 | 14 | Intent | ~12% candidato | 🟡 |
-| 15 | SIR completo | ~38% candidato | 🟡 |
+| 15 | SIR completo | ~40% candidato | 🟡 |
 | 16 | Native Machine Backend | ~5% | 🟡 |
 | 17 | Tooling avançado | ~15% | 🟡 |
 
 Os percentuais medem o escopo necessário para o Sotlas 1.0. Generalizações pós-release não mantêm uma fase aberta quando o subset atual pode rejeitá-las de forma correta e fail-closed.
+
+### Avanço de SIR — aritmética escalar sem sinal
+
+- [x] retorno linear de `u8`, `u16`, `u32`, `u64` e `usize` com `+`, `-` ou `*` entre parâmetros do mesmo tipo chega ao SIR como `BinaryOpInst` e ao LLVM como operação modular;
+- [x] as rotas de AST bootstrap e parser legado são cobertas;
+- [x] o SIR só emite essa instrução quando operandos e resultado atendem ao subset; o backend LLVM rejeita tipos assinados e operações desconhecidas;
+- [ ] constantes, demais expressões, signed overflow definido pela linguagem, CFG geral, lowering para máquina e execução nativa seguem pendentes.
 
 ### Avanço inicial de Trust Domains
 

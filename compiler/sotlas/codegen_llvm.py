@@ -14,7 +14,7 @@ from .sir.instructions import (
     WhisperBorrowInst,
     DirectAccessInst,
     SharedOwnershipPointInst, DeferUseInst, ShareInst,
-    BranchInst, CondBranchInst, CompareInst, ReturnInst, SystemOpInst,
+    BranchInst, CondBranchInst, CompareInst, BinaryOpInst, ReturnInst, SystemOpInst,
     AsmInst, AwaitInst, PhiInst
 )
 from .sir.passes import BackendEffectContract
@@ -364,6 +364,20 @@ class CodegenLLVM:
             llvm_type = to_llvm_type(integer_type)
             self._out.write(
                 f"  %{inst.result.name} = icmp {predicate} {llvm_type} "
+                f"%{inst.left.name}, %{inst.right.name}{dbg_suffix}\n"
+            )
+        elif isinstance(inst, BinaryOpInst):
+            if inst.left.type_name != inst.right.type_name or inst.result.type_name != inst.left.type_name:
+                raise ValueError("LLVM arithmetic operands and result have different types")
+            if inst.left.type_name not in {"u8", "u16", "u32", "u64", "usize"}:
+                raise ValueError(
+                    f"LLVM backend does not lower unsigned arithmetic for {inst.left.type_name!r}"
+                )
+            if inst.operation not in {"add", "sub", "mul"}:
+                raise ValueError(f"LLVM backend does not lower arithmetic operation {inst.operation!r}")
+            llvm_type = to_llvm_type(inst.left.type_name)
+            self._out.write(
+                f"  %{inst.result.name} = {inst.operation} {llvm_type} "
                 f"%{inst.left.name}, %{inst.right.name}{dbg_suffix}\n"
             )
         elif isinstance(inst, PhiInst):

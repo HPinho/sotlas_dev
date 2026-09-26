@@ -10,7 +10,7 @@ from .instructions import (
     AllocStackInst, StoreInst, LoadInst, CallInst,
     OwnershipDomainPointInst, SharedOwnershipPointInst, DirectAccessInst,
     WhisperBorrowInst, StateTransitionInst,
-    ReturnInst, BranchInst, CondBranchInst, CompareInst, PhiInst, SystemOpInst
+    ReturnInst, BranchInst, CondBranchInst, CompareInst, BinaryOpInst, PhiInst, SystemOpInst
 )
 
 
@@ -1678,6 +1678,11 @@ class SIRGenerator:
         ):
             return sir_fn
 
+        if self._try_lower_unsigned_arithmetic_return(
+            fn, entry_block, sir_params, ret_str
+        ):
+            return sir_fn
+
         # Emite retorno padrão no fallback protótipo. Este comentário é também
         # uma sentinela do reality gate: o SIRGenerator ainda não faz lowering
         # completo de corpos de função.
@@ -1692,6 +1697,57 @@ class SIRGenerator:
             )
         )
         return sir_fn
+
+    def _try_lower_unsigned_arithmetic_return(
+        self,
+        fn: Any,
+        entry_block: SIRBasicBlock,
+        params: list[SIRValue],
+        return_type: str,
+    ) -> bool:
+        """Lower a single unsigned parameter arithmetic expression returned by a function."""
+        body = list(getattr(fn, "body", ()) or ())
+        if len(body) != 1 or type(body[0]).__name__ not in ("Return", "ReturnNode"):
+            return False
+        expression = getattr(body[0], "value", None)
+        if type(expression).__name__ not in ("Binary", "BinaryExprNode"):
+            return False
+        operator = getattr(expression, "op", None)
+        operator_name = getattr(operator, "name", None)
+        operator_symbol = operator if isinstance(operator, str) else {
+            "PLUS": "+", "MINUS": "-", "STAR": "*",
+        }.get(operator_name)
+        operations = {"+": "add", "-": "sub", "*": "mul"}
+        operation = operations.get(operator_symbol)
+        if operation is None:
+            return False
+
+        def name_of(node: Any) -> str | None:
+            if type(node).__name__ == "Name":
+                return getattr(node, "value", None)
+            if type(node).__name__ == "IdentNode":
+                return getattr(node, "name", None)
+            return None
+
+        left_name = name_of(getattr(expression, "left", None))
+        right_name = name_of(getattr(expression, "right", None))
+        left = next((param for param in params if param.name == left_name), None)
+        right = next((param for param in params if param.name == right_name), None)
+        unsigned_types = {"u8", "u16", "u32", "u64", "usize"}
+        if (
+            left is None or right is None
+            or left.type_name != right.type_name
+            or left.type_name != return_type
+            or return_type not in unsigned_types
+        ):
+            return False
+        result = self._next_val("arith", return_type)
+        entry_block.add(BinaryOpInst(operation, left, right, result))
+        entry_block.add(ReturnInst(
+            value=result,
+            point_id=self._terminal_return_point_id(fn),
+        ))
+        return True
 
     def _try_lower_state_transition(
         self, fn: Any, entry_block: SIRBasicBlock, return_type: Any

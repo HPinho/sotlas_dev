@@ -285,6 +285,17 @@ class CompareInst(SIRInstruction):
 
 
 @dataclass
+class BinaryOpInst(SIRInstruction):
+    operation: str
+    left: SIRValue
+    right: SIRValue
+    result: SIRValue
+
+    def __str__(self) -> str:
+        return f"  {self.result} = {self.operation} {self.left}, {self.right}"
+
+
+@dataclass
 class ReturnInst(SIRInstruction):
     value: Optional[SIRValue] = None
     point_id: str | None = None

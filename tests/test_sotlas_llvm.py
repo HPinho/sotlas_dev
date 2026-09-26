@@ -14,6 +14,7 @@ sys.path.insert(0, str(ROOT / "compiler"))
 from sotlas.sir.instructions import (
     SIRModule, SIRFunction, SIRValue, AllocStackInst, StoreInst,
     LoadInst, CallInst, ReturnInst, ShareInst, RetainInst, ReleaseInst,
+    BinaryOpInst,
     DestroyInst, OwnershipDomainPointInst, OwnershipDomainTransferInst,
     WhisperBorrowInst,
     DirectAccessInst,
@@ -44,6 +45,75 @@ source_bootstrap = _FRONTEND_PACKAGE.bootstrap
 
 
 class TestCodegenLLVM(unittest.TestCase):
+    def test_unsigned_scalar_arithmetic_return_reaches_sir_and_llvm(self):
+        for operator, operation in (("+", "add"), ("-", "sub"), ("*", "mul")):
+            with self.subTest(operator=operator):
+                source = f"""
+module test::sir_arithmetic;
+fn calculate(a: u32, b: u32) -> u32 {{ return a {operator} b; }}
+"""
+                parsed = source_bootstrap.parse(source)
+                source_bootstrap.check(parsed)
+                sir = SIRGenerator().generate_from_ast(parsed)
+                instructions = sir.functions[0].blocks[0].instructions
+                arithmetic = next(
+                    instruction for instruction in instructions
+                    if isinstance(instruction, BinaryOpInst)
+                )
+                self.assertEqual(arithmetic.operation, operation)
+                self.assertIs(instructions[-1].value, arithmetic.result)
+                llvm = CodegenLLVM(sir).emit()
+                self.assertIn(
+                    f"%{arithmetic.result.name} = {operation} i32 "
+                    f"%{arithmetic.left.name}, %{arithmetic.right.name}",
+                    llvm,
+                )
+
+        source = "module test::sir_arithmetic_legacy; fn calculate(a: u32, b: u32) -> u32 { return a + b; }"
+        legacy = Parser(Lexer(source, "arithmetic.sotlas").tokenize()).parse()
+        legacy_sir = SIRGenerator().generate_from_ast(legacy)
+        self.assertTrue(any(
+            isinstance(instruction, BinaryOpInst)
+            for instruction in legacy_sir.functions[0].blocks[0].instructions
+        ))
+
+    def test_signed_scalar_arithmetic_is_rejected_by_sir_subset(self):
+        source = "module test::sir_signed_arithmetic; fn calculate(a: i32, b: i32) -> i32 { return a + b; }"
+        parsed = source_bootstrap.parse(source)
+        source_bootstrap.check(parsed)
+        sir = SIRGenerator().generate_from_ast(parsed)
+        self.assertFalse(any(
+            isinstance(instruction, BinaryOpInst)
+            for instruction in sir.functions[0].blocks[0].instructions
+        ))
+
+        division = source_bootstrap.parse(
+            "module test::sir_division; fn calculate(a: u32, b: u32) -> u32 { return a / b; }"
+        )
+        source_bootstrap.check(division)
+        division_sir = SIRGenerator().generate_from_ast(division)
+        self.assertFalse(any(
+            isinstance(instruction, BinaryOpInst)
+            for instruction in division_sir.functions[0].blocks[0].instructions
+        ))
+
+    def test_llvm_arithmetic_instruction_rejects_signed_types_and_unknown_ops(self):
+        for operation, type_name in (("add", "i32"), ("div", "u32")):
+            module = SIRModule(name="invalid_arithmetic")
+            function = SIRFunction(
+                name="calculate",
+                parameters=[SIRValue("a", type_name), SIRValue("b", type_name)],
+                return_type=type_name,
+            )
+            result = SIRValue("result", type_name)
+            block = function.add_block("entry")
+            block.add(BinaryOpInst(operation, function.parameters[0], function.parameters[1], result))
+            block.add(ReturnInst(result))
+            module.add_function(function)
+            with self.subTest(operation=operation, type_name=type_name):
+                with self.assertRaisesRegex(ValueError, "does not lower"):
+                    CodegenLLVM(module).emit()
+
     def test_execution_target_contract_and_fail_closed_validation(self):
         host = resolve_execution_target("host")
         self.assertEqual(host.triple, "x86_64-pc-none")
