@@ -38,7 +38,7 @@ Legenda:
 | 13 | Transactions | ~27% candidato | 🟡 |
 | 14 | Intent | ~20% candidato | 🟡 |
 | 15 | SIR completo | ~42% candidato | 🟡 |
-| 16 | Native Machine Backend | ~8% | 🟡 |
+| 16 | Native Machine Backend | ~10% | 🟡 |
 | 17 | Tooling avançado | ~20% candidato | 🟡 |
 
 Os percentuais medem o escopo necessário para o Sotlas 1.0. Generalizações pós-release não mantêm uma fase aberta quando o subset atual pode rejeitá-las de forma correta e fail-closed.
@@ -360,6 +360,7 @@ Escopo: `docs/sotlas_1_0_phase10_guarantees_scope.md`.
 - [x] bootstrap e AST legado cobertos para literais decimais; bootstrap também aceita literal hexadecimal tipado;
 - [x] LLVM verifica tipo e intervalo antes de emitir o valor;
 - [x] `--emit-asm` e `--emit=asm` aceitam retorno direto e aritmética inteira unsigned de parâmetros no subset LLVM; a cobertura nativa depende de Clang/LLVM disponível;
+- [x] execução nativa chama um objeto Sotlas com aritmética unsigned por parâmetros e confere o resultado por um caller C compilado;
 - [ ] lowering nativo validado com `llc`/Clang, execução por target, CFG completo e semântica definida de overflow.
 
 ## Regra de baseline

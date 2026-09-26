@@ -122,6 +122,56 @@ pub fn main() -> i32 {
         run_res = subprocess.run([str(res)])
         self.assertEqual(run_res.returncode, 42)
 
+    def test_llvm_integer_literal_executes_in_native_binary(self):
+        source = """module test::llvm_unsigned_native;
+pub fn main() -> i32 {
+    return 42i32;
+}
+"""
+        exe_file = self.tmp_path / "llvm_unsigned_native.exe"
+        result = self.toolchain.compile_source_to_native(
+            source,
+            "test::llvm_unsigned_native",
+            exe_file,
+            emit_type="exe",
+            backend="llvm",
+        )
+        self.assertTrue(result.is_file())
+        run_result = subprocess.run([str(result)])
+        self.assertEqual(run_result.returncode, 42)
+
+    def test_llvm_unsigned_parameter_arithmetic_executes_from_native_caller(self):
+        source = """module test::llvm_unsigned_native_call;
+pub fn add_numbers(left: u32, right: u32) -> u32 {
+    return left + right;
+}
+"""
+        object_file = self.tmp_path / "llvm_unsigned_native_call.obj"
+        self.toolchain.compile_source_to_native(
+            source,
+            "test::llvm_unsigned_native_call",
+            object_file,
+            emit_type="obj",
+            backend="llvm",
+        )
+        caller_file = self.tmp_path / "native_caller.c"
+        caller_file.write_text(
+            "extern unsigned int add_numbers(unsigned int, unsigned int);\n"
+            "int main(void) { return add_numbers(40u, 2u) == 42u ? 0 : 1; }\n",
+            encoding="utf-8",
+        )
+        executable = self.tmp_path / "llvm_unsigned_native_call.exe"
+        clang = self.toolchain.find_tool("clang")
+        self.assertIsNotNone(clang)
+        subprocess.run(
+            [str(clang), str(caller_file), str(object_file), "-o", str(executable)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        run_result = subprocess.run([str(executable)])
+        self.assertEqual(run_result.returncode, 0)
+
     def test_compile_sotlas_source_to_llvm_ir(self):
         source = """module test::ir_demo;
 pub fn answer() -> i32 {
