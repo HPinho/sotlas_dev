@@ -122,6 +122,56 @@ class SotlasFlowRuntimeTests(unittest.TestCase):
         self.assertFalse(canceller.is_alive())
         self.assertTrue(finished.is_set())
 
+    def test_cooperative_action_receives_cancel_signal_and_stops(self):
+        plan = certify_flow_graph((FlowNode("work"),), ())
+        cancelled = Event()
+        started = Event()
+        finished = Event()
+
+        def action(_inputs, token):
+            started.set()
+            self.assertTrue(token.wait(1))
+            finished.set()
+
+        canceller = Thread(target=lambda: (started.wait(1), cancelled.set()))
+        canceller.start()
+        with self.assertRaises(FlowCancelledError):
+            execute_flow(
+                plan,
+                {"work": action},
+                cancel_event=cancelled,
+                cooperative=True,
+            )
+        canceller.join(timeout=1)
+        self.assertFalse(canceller.is_alive())
+        self.assertTrue(finished.is_set())
+
+    def test_cooperative_peer_stops_after_stage_failure(self):
+        plan = certify_flow_graph(
+            (FlowNode("bad"), FlowNode("peer")), ()
+        )
+        rendezvous = Barrier(2)
+        peer_stopped = Event()
+
+        def bad(_inputs, _token):
+            rendezvous.wait(timeout=1)
+            raise ValueError("broken stage")
+
+        def peer(_inputs, token):
+            rendezvous.wait(timeout=1)
+            self.assertTrue(token.wait(1))
+            peer_stopped.set()
+
+        with self.assertRaises(FlowExecutionError) as caught:
+            execute_flow(
+                plan,
+                {"bad": bad, "peer": peer},
+                max_workers=2,
+                cooperative=True,
+            )
+        self.assertEqual(caught.exception.node, "bad")
+        self.assertTrue(peer_stopped.is_set())
+
     def test_multiple_task_failures_report_first_declared_node(self):
         plan = certify_flow_graph(
             (FlowNode("earlier"), FlowNode("later")), ()

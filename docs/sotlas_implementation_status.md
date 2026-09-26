@@ -265,7 +265,7 @@ Escopo: `docs/sotlas_1_0_phase5_effects_scope.md`.
 
 ## Fase 6 — Flow
 
-**Status 1.0: ~47% candidato 🟡 — IN PROGRESS**
+**Status 1.0: ~50% candidato 🟡 — IN PROGRESS**
 
 - [x] grafo backend-neutral valida dependências e rejeita ciclos;
 - [x] estágios paralelos são derivados deterministicamente da topologia e da ordem declarada;
@@ -279,8 +279,9 @@ Escopo: `docs/sotlas_1_0_phase5_effects_scope.md`.
 - [x] runtime local executa o plano tipado por nome de stage, reconcilia dependências e passa resultados na ordem declarada;
 - [x] runner SIR revalida o plano canônico, reconcilia funções/efeitos e encaminha outputs por provenance para bindings explícitos do scheduler local;
 - [x] consulta source-stable explica caminho causal entre stages usando argumentos tipados e summaries Effects do SIR;
+- [x] executor de grafo oferece token cooperativo opt-in, permite que actions parem após cancelamento ou falha de peer e faz join dos workers;
 - [ ] lowering das chamadas de stage em CFG executável, integração de Ownership e execução pelo scheduler;
-- [ ] cancelamento cooperativo, runtime assíncrono/distribuído e backpressure;
+- [ ] cancelamento cooperativo com bindings tipados de SIR, runtime assíncrono/distribuído e backpressure/retry;
 - [ ] e2e de fonte Sotlas para runtime/backend.
 
 Escopo: `docs/sotlas_1_0_phase6_flow_scope.md`.

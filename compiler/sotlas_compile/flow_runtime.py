@@ -8,6 +8,7 @@ from __future__ import annotations
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from threading import Event
+from time import monotonic
 from types import MappingProxyType
 from typing import Callable, Mapping
 
@@ -68,19 +69,61 @@ class FlowExecutionResult:
 FlowAction = Callable[[Mapping[str, object]], object]
 
 
+class FlowCancellationToken:
+    """Read-only cooperative cancellation signal supplied to opt-in actions."""
+
+    def __init__(
+        self,
+        external_event: Event | None = None,
+        stop_event: Event | None = None,
+    ) -> None:
+        self._external_event = external_event
+        self._stop_event = stop_event or Event()
+
+    def is_cancelled(self) -> bool:
+        return self._stop_event.is_set() or (
+            self._external_event is not None and self._external_event.is_set()
+        )
+
+    def raise_if_cancelled(self) -> None:
+        if self.is_cancelled():
+            raise FlowCancelledError("Flow cancellation was requested")
+
+    def wait(self, timeout: float | None = None) -> bool:
+        """Wait for cancellation, returning False when the timeout expires."""
+        if timeout is not None and (
+            not isinstance(timeout, (int, float))
+            or isinstance(timeout, bool)
+            or timeout < 0
+        ):
+            raise ValueError("cancellation timeout must be non-negative")
+        deadline = None if timeout is None else monotonic() + timeout
+        while not self.is_cancelled():
+            remaining = None if deadline is None else deadline - monotonic()
+            if remaining is not None and remaining <= 0:
+                return False
+            self._stop_event.wait(
+                0.02 if remaining is None else min(remaining, 0.02)
+            )
+        return True
+
+
 def execute_flow(
     plan: FlowGraphPlan,
     actions: Mapping[str, FlowAction],
     *,
     max_workers: int | None = None,
     cancel_event: Event | None = None,
+    cooperative: bool = False,
 ) -> FlowExecutionResult:
     """Run each ready stage concurrently and commit outputs stage by stage.
 
     A node receives an immutable mapping containing only its direct
     dependencies. If a task fails or cancellation is requested, pending tasks
     are cancelled, already-running peers are joined, and no downstream stage
-    is launched.
+    is launched. With ``cooperative=True``, each action receives a second
+    read-only ``FlowCancellationToken`` argument. Existing one-argument actions
+    remain the default contract.
     """
     if not isinstance(plan, FlowGraphPlan):
         raise TypeError("Flow execution requires a certified FlowGraphPlan")
@@ -108,15 +151,20 @@ def execute_flow(
         getattr(cancel_event, "is_set", None)
     ):
         raise TypeError("cancel_event must provide is_set()")
+    if not isinstance(cooperative, bool):
+        raise TypeError("cooperative must be a bool")
 
     committed: dict[str, object] = {}
     grouped: dict[str, list[str]] = {name: [] for name in names}
     for edge in plan.dependencies:
         grouped[edge.consumer].append(edge.producer)
     dependencies = {name: tuple(grouped[name]) for name in names}
+    stop_event = Event()
+    cancellation_token = FlowCancellationToken(cancel_event, stop_event)
 
     for stage in plan.parallel_stages:
         if cancel_event is not None and cancel_event.is_set():
+            stop_event.set()
             raise FlowCancelledError("Flow cancelled before the next stage")
         stage_inputs = {
             name: MappingProxyType(
@@ -126,8 +174,13 @@ def execute_flow(
         }
         stage_outputs: dict[str, object] = {}
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            def invoke(name: str):
+                if cooperative:
+                    return actions[name](stage_inputs[name], cancellation_token)
+                return actions[name](stage_inputs[name])
+
             futures: dict[Future[object], str] = {
-                executor.submit(actions[name], stage_inputs[name]): name
+                executor.submit(invoke, name): name
                 for name in stage
             }
             pending = set(futures)
@@ -135,6 +188,7 @@ def execute_flow(
             failure: FlowExecutionError | FlowCancelledError | None = None
             while pending:
                 if cancel_event is not None and cancel_event.is_set():
+                    stop_event.set()
                     failure = FlowCancelledError("Flow cancelled during a stage")
                     break
                 completed, pending = wait(
@@ -146,7 +200,12 @@ def execute_flow(
                     name = futures[future]
                     try:
                         stage_outputs[name] = future.result()
+                    except FlowCancelledError as error:
+                        stop_event.set()
+                        failure = error
+                        break
                     except BaseException as error:
+                        stop_event.set()
                         failure = FlowExecutionError(name, error)
                         break
                 if failure is not None:
@@ -156,6 +215,7 @@ def execute_flow(
                 and cancel_event is not None
                 and cancel_event.is_set()
             ):
+                stop_event.set()
                 failure = FlowCancelledError("Flow cancelled during a stage")
             if failure is not None:
                 for future in pending:
@@ -169,6 +229,9 @@ def execute_flow(
                         continue
                     try:
                         future.result()
+                    except FlowCancelledError:
+                        # Cooperative peers may stop after another action fails.
+                        continue
                     except BaseException as error:
                         task_failures.append(FlowExecutionError(name, error))
                 if task_failures:

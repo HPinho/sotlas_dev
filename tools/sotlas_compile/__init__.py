@@ -39,6 +39,7 @@ from .flow_graph import (
     certify_flow_graph,
 )
 from .flow_runtime import (
+    FlowCancellationToken,
     FlowCancelledError,
     FlowExecutionError,
     FlowExecutionResult,
@@ -110,7 +111,7 @@ __all__ = [
     "StateSpaceTypedSnapshot", "plan_state_space_frontend",
     "StateTransitionSIRError", "lower_typestate_transition",
     "FlowDependency", "FlowGraphError", "FlowGraphPlan", "FlowNode",
-    "certify_flow_graph", "FlowCancelledError", "FlowExecutionError",
+    "certify_flow_graph", "FlowCancellationToken", "FlowCancelledError", "FlowExecutionError",
     "FlowExecutionResult", "execute_flow", "execute_bound_sir_flow",
     "execute_typed_flow", "TransactionExecutionError",
     "execute_transactional_sir_flow",

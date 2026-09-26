@@ -2,7 +2,7 @@
 
 **Atualizado em:** 2026-09-26
 **Status:** 🟡 IN PROGRESS  
-**Último baseline verde certificado:** `c2fd578` — CI #619 `success`
+**Último baseline verde certificado:** `5a9c798` — CI #628 `success`
 
 ## Subset de runtime disponível
 
@@ -78,8 +78,9 @@ não interpreta instruções SIR nem afirma executar código compilado.
 - [x] plano declarativo Flow reconciliado com SIR e summaries Effects;
 - [x] executor local consome o plano tipado de fonte, valida sua estrutura e invoca stages com valores dependentes;
 - [x] runner SIR revalida plano, assinaturas, efeitos e provenance antes de invocar bindings de função pelo scheduler;
+- [x] executor de grafo oferece token cooperativo opt-in; ações podem observar cancelamento externo ou falha de peer e parar antes do join;
 - [ ] lowering para CFG executável, integração de Ownership e execução pelo scheduler;
-- [ ] cancelamento cooperativo de ações, backpressure e políticas de retry;
+- [ ] validação do token cooperativo nos bindings de Flow tipados/SIR, backpressure e políticas de retry;
 - [ ] e2e da fonte Sotlas ao scheduler e ao backend suportado.
 
 ## Fora deste subset
