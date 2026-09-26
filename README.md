@@ -168,7 +168,7 @@ The Sotlas standard library is implemented entirely in the language itself (**So
 
 ---
 
-## 🚀 Quickstart
+## 🚀 Quickstart (verified Stage-0 subset)
 
 ### 1. Installation
 Clone the repository and install in editable mode:
@@ -199,8 +199,8 @@ sotlas dump-sir examples/01_hello_systems/main.sotlas
 # Emit auditable intermediate C11 code
 sotlas compile examples/01_hello_systems/main.sotlas --emit-c
 
-# Compile to freestanding kernel object (x86_64)
-sotlas compile examples/01_hello_systems/main.sotlas --target x86_64-freestanding
+# Emit C11 from the verified example (native object/linking depends on the host toolchain)
+sotlas compile examples/01_hello_systems/main.sotlas --emit-c -o hello.c
 
 # Run test suite
 sotlas test
@@ -208,7 +208,11 @@ sotlas test
 
 ---
 
-## 💻 Idiomatic Code Example
+## 💻 Experimental design example
+
+The following class, raw-pointer, standard-library import, and `@system` syntax is
+design material. It is not part of the verified Stage-0 support contract. For a
+program that passes the canonical frontend, use the checked-in example above.
 
 ```sotlas
 module kernel::window_manager;

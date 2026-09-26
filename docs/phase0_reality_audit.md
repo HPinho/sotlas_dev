@@ -25,8 +25,12 @@
 
 ## Open Phase 0 work
 
-1. Audit every public guide and specification example against the canonical
-   frontend and label runnable, experimental, or design-only snippets.
+1. `docs/public_snippets.json` starts the public snippet audit. It classifies
+   the checked-in canonical Quickstart example as runnable and identifies
+   README, bootstrap, tour, language-reference, and formal-spec examples as
+   experimental/design material. Reality tests require every listed document
+   and runnable source to exist. The wider docs corpus still needs a snippet
+   inventory before this item is complete.
 2. Resolve the duplicated `compiler/` and `tools/` Python trees. The current
    inventory has 77 paired modules: 73 byte-identical and four different
    (`sotlas/__init__.py`, `sotlas_compile/__init__.py`,
@@ -38,5 +42,11 @@
 3. Keep the example manifest, docs, and package metadata under reality gates
    as the implementation changes.
 
-Phase 0 remains open until the guide audit and duplicate-code migration are
-complete. CI success alone is insufficient evidence for 100%.
+The README and Portuguese Quickstart now use the checked-in example, explain
+which commands are host-toolchain dependent, label the former class example as
+experimental, and stop describing all design prose as a verified language
+contract. `docs/QUICKSTART.md` now checks and emits C11 from the same source and
+links to the local specification as design material.
+
+Phase 0 remains open until the full guide audit and duplicate-code migration
+are complete. CI success alone is insufficient evidence for 100%.

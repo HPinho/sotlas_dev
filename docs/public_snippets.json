@@ -1,0 +1,66 @@
+{
+  "schema": 1,
+  "policy": {
+    "RUNNABLE": "Checked by the canonical Stage-0 frontend in CI; the source file is authoritative.",
+    "EXPERIMENTAL": "Design or feature example; not asserted to pass the current production frontend.",
+    "DESIGN_ONLY": "Illustrative architecture, CLI, or syntax; not a supported implementation contract."
+  },
+  "snippets": [
+    {
+      "id": "quickstart-numbered-example",
+      "document": "docs/QUICKSTART.md",
+      "status": "RUNNABLE",
+      "source": "examples/01_hello_systems/main.sotlas",
+      "verification": "canonical-check-and-c11-emission"
+    },
+    {
+      "id": "readme-idiomatic-class-example-en",
+      "document": "README.md",
+      "status": "EXPERIMENTAL",
+      "source": null,
+      "verification": "explicitly-labeled-design-example"
+    },
+    {
+      "id": "readme-idiomatic-class-example-pt",
+      "document": "README.pt-BR.md",
+      "status": "EXPERIMENTAL",
+      "source": null,
+      "verification": "explicitly-labeled-design-example"
+    },
+    {
+      "id": "bootstrap-defer-example",
+      "document": "docs/bootstrap.md",
+      "status": "EXPERIMENTAL",
+      "source": null,
+      "verification": "language-design-snippet"
+    },
+    {
+      "id": "formal-specification-snippets",
+      "document": "docs/SPEC_SOTLAS_1.0.md",
+      "status": "DESIGN_ONLY",
+      "source": null,
+      "verification": "specification-is-not-implementation-evidence"
+    },
+    {
+      "id": "language-specification-snippets",
+      "document": "docs/language_spec.md",
+      "status": "DESIGN_ONLY",
+      "source": null,
+      "verification": "specification-is-not-implementation-evidence"
+    },
+    {
+      "id": "language-reference-snippets",
+      "document": "docs/language_reference_en.md",
+      "status": "EXPERIMENTAL",
+      "source": null,
+      "verification": "reference-examples-require-per-feature-audit"
+    },
+    {
+      "id": "guided-tour-snippets",
+      "document": "docs/guided_tour.md",
+      "status": "EXPERIMENTAL",
+      "source": null,
+      "verification": "tour-examples-require-per-feature-audit"
+    }
+  ]
+}

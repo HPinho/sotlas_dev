@@ -167,7 +167,7 @@ A biblioteca padrão de Sotlas é implementada inteiramente na própria linguage
 
 ---
 
-## 🚀 Quickstart
+## 🚀 Quickstart (subconjunto Stage-0 verificado)
 
 ### 1. Instalação
 Clone o repositório e configure em modo editável:
@@ -198,8 +198,8 @@ sotlas dump-sir examples/01_hello_systems/main.sotlas
 # Emitir código C11 intermediário auditável
 sotlas compile examples/01_hello_systems/main.sotlas --emit-c
 
-# Compilar para objeto de kernel freestanding (x86_64)
-sotlas compile examples/01_hello_systems/main.sotlas --target x86_64-freestanding
+# Emitir C11 a partir do exemplo verificado (objeto/link depende das ferramentas do host)
+sotlas compile examples/01_hello_systems/main.sotlas --emit-c -o hello.c
 
 # Executar a suíte completa de testes unitários
 sotlas test
@@ -207,7 +207,11 @@ sotlas test
 
 ---
 
-## 💻 Exemplo Idiomático de Código
+## 💻 Exemplo de design experimental
+
+A sintaxe de classe, ponteiro cru, imports da biblioteca padrão e `@system` abaixo
+é material de design. Ela não faz parte do contrato Stage-0 verificado. Para um
+programa aceito pelo frontend canônico, use o exemplo validado acima.
 
 ```sotlas
 module kernel::window_manager;

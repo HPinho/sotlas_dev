@@ -48,6 +48,41 @@ class SotlasRealityGateTests(unittest.TestCase):
             self.assertNotIn("github.com/Sotlas/sotlas.git", readme)
             self.assertIn("SIR protótipo" if "pt-BR" in name else "prototype SIR", readme)
 
+    def test_public_snippet_inventory_has_valid_status_and_existing_documents(self):
+        inventory = json.loads(
+            (ROOT / "docs" / "public_snippets.json").read_text(encoding="utf-8")
+        )
+        allowed = set(inventory["policy"])
+        self.assertTrue(inventory["snippets"])
+        ids = set()
+        for snippet in inventory["snippets"]:
+            with self.subTest(snippet=snippet["id"]):
+                self.assertNotIn(snippet["id"], ids)
+                ids.add(snippet["id"])
+                self.assertIn(snippet["status"], allowed)
+                self.assertTrue((ROOT / snippet["document"]).is_file())
+                self.assertTrue(snippet["verification"])
+                if snippet["status"] == "RUNNABLE":
+                    self.assertTrue(snippet["source"])
+                    self.assertTrue((ROOT / snippet["source"]).is_file())
+        quickstart = next(
+            item for item in inventory["snippets"]
+            if item["id"] == "quickstart-numbered-example"
+        )
+        self.assertEqual(quickstart["status"], "RUNNABLE")
+
+    def test_quickstarts_point_to_checked_in_source_and_c11_emission(self):
+        for name in ("README.md", "README.pt-BR.md"):
+            text = (ROOT / name).read_text(encoding="utf-8").lower()
+            self.assertIn("--emit-c", text)
+            self.assertIn("experimental", text)
+            self.assertIn("examples/01_hello_systems/main.sotlas", text)
+            self.assertNotIn("#298", text)
+        quickstart = (ROOT / "docs" / "QUICKSTART.md").read_text(encoding="utf-8")
+        self.assertIn("examples/01_hello_systems/main.sotlas", quickstart)
+        self.assertIn("SPEC_SOTLAS_1.0.md", quickstart)
+        self.assertNotIn("file:///e:/LangSotlas", quickstart)
+
     def test_identical_compiler_tool_mirrors_do_not_drift(self):
         compiler = ROOT / "compiler"
         tools = ROOT / "tools"

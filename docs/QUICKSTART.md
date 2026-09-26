@@ -1,48 +1,30 @@
 # Guia de Introdução ao Sotlas (Quickstart)
 
-Bem-vindo ao **Sotlas**, uma linguagem de programação moderna de sistemas e de uso geral, projetada para combinar a velocidade de C, a segurança pragmática de Rust e a simplicidade de Zig, sem complexidade desnecessária e com zero dependências ocultas.
+Este guia descreve o subconjunto Stage-0 verificado da Sotlas. Recursos de roadmap e exemplos de design são identificados como experimentais; os exemplos numerados em `examples/` são a referência executável.
 
 ---
 
 ## 1. O que é o Sotlas?
 
-Sotlas foi desenhado para quem precisa de controle total sobre a máquina:
-* **Compilação Nativa Direta**: Gera código de máquina de alta performance via C11/Clang ou LLVM.
-* **Modelo de Posse Pragmático**: Tipos `sole` com transferência explícita `handover` eliminam vazamentos e data-races sem necessidade de Garbage Collection.
-* **Zero Runtime Oculto**: Roda tanto como aplicação comum no Windows/Linux/macOS quanto em ambientes bare-metal e embarcados.
-* **Ferramental Embutido**: Compilador, gerenciador de pacotes, formatador de código (`fmt`), analisador estático (`lint`) e executor de testes (`test`) em um único binário nativo.
+O compilador Stage-0 aceita um subconjunto experimental que evolui em direção à linguagem descrita no roadmap. O contrato estável ainda não foi declarado para Sotlas 1.0; consulte `docs/sotlas_implementation_status.md` para os gates e limites atuais.
 
 ---
 
 ## 2. Seu Primeiro Programa: "Olá, Mundo!"
 
-Crie um arquivo chamado `hello.sotlas`:
+O exemplo verificado está em `examples/01_hello_systems/main.sotlas`. Para testar sua instalação, execute:
 
 ```sotlas
-module app::hello;
-
-import core::string::*;
-
-pub fn main() -> i32 {
-    let msg: *const u8 = "Ola, Mundo do Sotlas!" as *const u8;
-    probe msg != null, "Mensagem deve ser valida";
-
-    let mut contador: u32 = 0;
-    while contador < 5 {
-        contador = contador + 1;
-    }
-
-    probe contador == 5, "Loop executou exatamente 5 vezes";
-    return 0;
-}
+python -m sotlas.cli check examples/01_hello_systems/main.sotlas
+python -m sotlas.cli compile examples/01_hello_systems/main.sotlas --emit-c -o hello.c
 ```
 
-### Executando Diretamente:
+### Executando diretamente (requer compilador C no PATH):
 ```bash
 sotlas_native run hello.sotlas
 ```
 
-### Compilando para Executável Nativo:
+### Compilando para executável nativo (requer toolchain LLVM/C configurada):
 ```bash
 sotlas_native hello.sotlas -o hello.exe
 ./hello.exe
@@ -76,7 +58,9 @@ sotlas_native test
 
 ---
 
-## 4. Recursos Fundamentais da Linguagem
+## 4. Recursos em desenvolvimento
+
+As seções abaixo descrevem intenção de design e não são exemplos executáveis do contrato Stage-0. Para o estado implementado, use `docs/sotlas_implementation_status.md` e `examples/manifest.json`.
 
 ### 4.1 Tipos `sole` e Semântica de Movimentação (`handover`)
 Recursos que possuem apenas um dono (como descritores de arquivo, buffers de rede e conexões) usam `sole struct`. Ao passar a posse para outra variável ou função, usamos `handover`:
@@ -177,5 +161,5 @@ pub fn main() -> i32 {
 ---
 
 ## 6. Próximos Passos
-* Consulte a [Especificação Formal Sotlas 1.0](file:///e:/LangSotlas/LangSotlas/docs/SPEC_SOTLAS_1.0.md) para a gramática e semântica completas.
+* Consulte a [Especificação Formal Sotlas 1.0](SPEC_SOTLAS_1.0.md) como documento de design, não como garantia de suporte integral.
 * Explore a pasta `examples/` para aplicações de rede, jogos, CLI e parsers em Sotlas puro.
