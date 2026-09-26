@@ -26,6 +26,13 @@ _install_authority_typed_ast(bootstrap)
 # Phase 4 installs last so it wraps the final canonical parser/check/backend
 # boundary rather than introducing a parallel language route.
 _install_state_space_frontend(bootstrap)
+from .source_effects import (
+    SourceEffectError,
+    SourceEffectSummary,
+    analyze_source_effects,
+    install as _install_source_effects,
+)
+_install_source_effects(bootstrap)
 plan_state_space_frontend = bootstrap.plan_state_space_frontend
 
 from .errors import SotlasError
@@ -65,6 +72,7 @@ __all__ = [
     "analyze_module_phase1", "analyze_source_phase1", "CheckedAuthoritySIR",
     "build_canonical_checked_authority_sir", "StateSpaceFrontendPlan",
     "analyze_state_space_coverage", "require_exhaustive_state_space_coverage",
+    "SourceEffectError", "SourceEffectSummary", "analyze_source_effects",
     "StateSpaceTypedSnapshot", "plan_state_space_frontend",
     "StateTransitionSIRError", "lower_typestate_transition",
     "FlowDependency", "FlowGraphError", "FlowGraphPlan", "FlowNode",

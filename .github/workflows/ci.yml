@@ -138,6 +138,10 @@ jobs:
         python -m unittest discover -s tests -p "test_sotlas_state_frontend.py" -v
         python -m unittest discover -s tests -p "test_sotlas_state_phase1.py" -v
 
+    - name: Verify Phase 5 source Effects release subset
+      run: |
+        python -m unittest discover -s tests -p "test_sotlas_source_effects.py" -v
+
   package-toolchain-snapshot:
     name: Package Nightly Toolchain Snapshot
     runs-on: ubuntu-latest

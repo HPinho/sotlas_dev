@@ -1,8 +1,8 @@
 # Sotlas — Implementation Status
 
 **Atualizado em:** 2026-09-25  
-**Último baseline verde certificado:** `e820ac2`
-**CI de referência:** Sotlas CI & Toolchain Build Farm #578 — `success`
+**Último baseline verde certificado:** `2c602ad`
+**CI de referência:** Sotlas CI & Toolchain Build Farm #579 — `success`
 **Fonte arquitetural:** `SOTLAS — ESPECIFICAÇÃO MESTRA`
 
 > Este é o índice operacional atual. O snapshot detalhado anterior, com o histórico extenso das microentregas da Fase 2, permanece preservado em `docs/archive/sotlas_implementation_status_2026-09-23.md`.
@@ -148,17 +148,21 @@ Escopo: `docs/sotlas_1_0_phase4_state_space_scope.md`.
 
 ## Fase 5 — Effects
 
-**Status 1.0: ~25% 🟡 — IN PROGRESS**
+**Status 1.0: ~40% 🟡 — IN PROGRESS**
 
 - [x] SIR infere efeitos diretos e transitivos com ponto fixo sobre chamadas recursivas;
 - [x] chamadas não resolvidas são classificadas como `unknown_call` e seus nomes permanecem no summary;
 - [x] contratos de efeitos explícitos no SIR rejeitam efeitos desconhecidos ou omitidos;
 - [x] handlers de interrupção rejeitam alocação/bloqueio transitivos, `await` e chamadas desconhecidas;
 - [x] diagnósticos preservam a cadeia de chamadas até a operação proibida;
-- [ ] declarações/inferência de efeitos na fonte e plano canônico;
-- [ ] integração de effects ao checker de produção e contratos do backend;
+- [x] contratos `@effects(...)` reconhecidos e validados pelo checker da rota canônica;
+- [x] inferência direta/transitiva sobre chamadas locais recursivas, builtins classificados, FFI sem contrato e `asm`;
+- [x] summaries determinísticos source-stable anexados ao módulo verificado;
+- [x] contratos malformados ou que omitem efeitos falham antes do lowering C11;
+- [ ] propagação para Typed AST/SIR e validação de contrato de backend;
 - [ ] restrições completas para `@realtime`, async, locks, FFI e efeitos externos;
-- [ ] end-to-end por fonte e gate de release da fase.
+- [x] testes end-to-end de fonte Sotlas e gate dedicado desta fatia;
+- [ ] end-to-end amplo por domínio e matriz de runtime/backend.
 
 Escopo: `docs/sotlas_1_0_phase5_effects_scope.md`.
 
