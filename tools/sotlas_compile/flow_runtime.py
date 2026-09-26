@@ -255,6 +255,7 @@ def execute_typed_flow(
     *,
     max_workers: int | None = None,
     cancel_event: Event | None = None,
+    cooperative: bool = False,
 ) -> FlowExecutionResult:
     """Execute a checked source Flow plan using stage-name callables.
 
@@ -310,12 +311,19 @@ def execute_typed_flow(
         dependencies = stage.dependencies
         action = actions[name]
 
-        def invoke(values, *, dependencies=dependencies, action=action):
-            return action(*(values[dependency] for dependency in dependencies))
+        def invoke(values, token=None, *, dependencies=dependencies, action=action):
+            arguments = tuple(values[dependency] for dependency in dependencies)
+            if cooperative:
+                return action(*arguments, token)
+            return action(*arguments)
 
         wrapped[name] = invoke
     return execute_flow(
-        graph, wrapped, max_workers=max_workers, cancel_event=cancel_event
+        graph,
+        wrapped,
+        max_workers=max_workers,
+        cancel_event=cancel_event,
+        cooperative=cooperative,
     )
 
 
@@ -326,6 +334,7 @@ def execute_bound_sir_flow(
     *,
     max_workers: int | None = None,
     cancel_event: Event | None = None,
+    cooperative: bool = False,
 ) -> FlowExecutionResult:
     """Schedule a validated SIR Flow plan using explicit host function bindings.
 
@@ -373,12 +382,21 @@ def execute_bound_sir_flow(
         binding = function_bindings[stage.function]
         arguments = tuple(stage.arguments)
 
-        def invoke(values, *, binding=binding, arguments=arguments):
-            return binding(*(values[item.value.producer_stage] for item in arguments))
+        def invoke(values, token=None, *, binding=binding, arguments=arguments):
+            inputs = tuple(
+                values[item.value.producer_stage] for item in arguments
+            )
+            if cooperative:
+                return binding(*inputs, token)
+            return binding(*inputs)
 
         actions[stage.name] = invoke
     return execute_flow(
-        graph, actions, max_workers=max_workers, cancel_event=cancel_event
+        graph,
+        actions,
+        max_workers=max_workers,
+        cancel_event=cancel_event,
+        cooperative=cooperative,
     )
 
 

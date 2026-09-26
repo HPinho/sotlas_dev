@@ -51,6 +51,12 @@ recebe os resultados de suas dependências como argumentos posicionais na ordem
 declarada pela fonte. O runtime ainda não executa código compilado pelo backend
 C11 nem integra ownership de closures.
 
+Typed Flow and bound-SIR Flow runners can opt into cooperative cancellation.
+Each host binding then receives a read-only `FlowCancellationToken` after its
+stage arguments. External cancellation is checked between stages, and the
+scheduler joins active peers before returning; bindings must observe the token
+while they run.
+
 `execute_bound_sir_flow` valida os `FlowSIRPlan` do módulo antes de iniciar o
 scheduler e recebe bindings explícitos por símbolo de função SIR. Argumentos
 de cada stage são resolvidos somente a partir dos outputs indicados pela
@@ -87,9 +93,10 @@ integra ownership, cleanup nem backend nativo.
 - [x] executor local consome o plano tipado de fonte, valida sua estrutura e invoca stages com valores dependentes;
 - [x] runner SIR revalida plano, assinaturas, efeitos e provenance antes de invocar bindings de função pelo scheduler;
 - [x] executor de grafo oferece token cooperativo opt-in; ações podem observar cancelamento externo ou falha de peer e parar antes do join;
+- [x] runners de Flow tipado e SIR encaminham o token opt-in aos bindings e propagam cancelamento externo antes de iniciar stages dependentes;
 - [x] interpretador de corpos SIR puros no subset linear unsigned, com rejeição anterior ao scheduler para instruções e formas não suportadas;
 - [ ] lowering para CFG executável, integração de Ownership e execução pelo scheduler;
-- [ ] validação do token cooperativo nos bindings de Flow tipados/SIR, backpressure e políticas de retry;
+- [ ] backpressure e políticas de retry;
 - [ ] e2e da fonte Sotlas ao scheduler e ao backend suportado.
 
 ## Fora deste subset

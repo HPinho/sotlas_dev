@@ -28,7 +28,7 @@ Legenda:
 | 3 | Authority Domains | 100% | ✅ COMPLETE |
 | 4 | State Spaces | 100% | ✅ COMPLETE |
 | 5 | Effects | ~59% candidato | 🟡 |
-| 6 | Flow | ~53% candidato | 🟡 |
+| 6 | Flow | ~55% candidato | 🟡 |
 | 7 | Execution Domains | ~45% | 🟡 |
 | 8 | Heterogeneous Compute | ~5% candidato | 🟡 |
 | 9 | Trust Domains | ~18% candidato | 🟡 |
@@ -292,7 +292,7 @@ Escopo: `docs/sotlas_1_0_phase5_effects_scope.md`.
 
 ## Fase 6 — Flow
 
-**Status 1.0: ~53% candidato 🟡 — IN PROGRESS**
+**Status 1.0: ~55% candidato 🟡 — IN PROGRESS**
 
 - [x] grafo backend-neutral valida dependências e rejeita ciclos;
 - [x] estágios paralelos são derivados deterministicamente da topologia e da ordem declarada;
@@ -305,6 +305,7 @@ Escopo: `docs/sotlas_1_0_phase5_effects_scope.md`.
 - [x] plano tipado Flow é reconciliado com assinaturas e summaries Effects e anexado ao SIR canônico;
 - [x] runtime local executa o plano tipado por nome de stage, reconcilia dependências e passa resultados na ordem declarada;
 - [x] runner SIR revalida o plano canônico, reconcilia funções/efeitos e encaminha outputs por provenance para bindings explícitos do scheduler local;
+- [x] runners Flow tipado e SIR podem injetar token cooperativo nos bindings e validam cancelamento externo antes de iniciar stages dependentes;
 - [x] consulta source-stable explica caminho causal entre stages usando argumentos tipados e summaries Effects do SIR;
 - [x] executor de grafo oferece token cooperativo opt-in, permite que actions parem após cancelamento ou falha de peer e faz join dos workers;
 - [x] `flow-report` serializa em JSON determinístico o cronograma, assinaturas, efeitos e provenance de cada plano validado no SIR;

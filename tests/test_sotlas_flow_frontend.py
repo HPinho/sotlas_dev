@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 import importlib.util
 import sys
+from threading import Event
 import unittest
 from dataclasses import replace
 from pathlib import Path
@@ -201,6 +202,62 @@ flow Home {
                 },
             )
         self.assertEqual(called, [])
+
+    def test_typed_and_sir_flow_runners_forward_cooperative_cancellation(self):
+        source = self._source("""
+flow Home {
+    stage profile = load_profile;
+    stage page = render after profile;
+}
+""").replace(
+            "fn render(profile: i32, posts: i32) -> i32 { return profile + posts; }",
+            "fn render(profile: i32) -> i32 { return profile; }",
+        )
+        checked = package.analyze_source_phase1(source)
+        typed_plan = checked.flows[0]
+        called = []
+        cancel = Event()
+
+        def typed_load(token):
+            self.assertTrue(callable(token.is_cancelled))
+            cancel.set()
+            called.append("typed-load")
+            return 10
+
+        with self.assertRaises(package.FlowCancelledError):
+            package.execute_typed_flow(
+                typed_plan,
+                {
+                    "profile": typed_load,
+                    "page": lambda value, token: called.append("typed-page"),
+                },
+                cancel_event=cancel,
+                cooperative=True,
+            )
+        self.assertEqual(called, ["typed-load"])
+
+        checked_sir, _ = package.build_canonical_checked_ownership_sir(checked)
+        sir_cancel = Event()
+        sir_called = []
+
+        def sir_load(token):
+            self.assertTrue(callable(token.raise_if_cancelled))
+            sir_cancel.set()
+            sir_called.append("sir-load")
+            return 10
+
+        with self.assertRaises(package.FlowCancelledError):
+            package.execute_bound_sir_flow(
+                checked_sir.module,
+                "Home",
+                {
+                    "load_profile": sir_load,
+                    "render": lambda value, token: sir_called.append("sir-page"),
+                },
+                cancel_event=sir_cancel,
+                cooperative=True,
+            )
+        self.assertEqual(sir_called, ["sir-load"])
 
     def test_legacy_tools_package_exports_sir_flow_runner(self):
         self.assertTrue(callable(tools_package.execute_bound_sir_flow))
