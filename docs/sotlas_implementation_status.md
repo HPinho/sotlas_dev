@@ -35,7 +35,7 @@ Legenda:
 | 10 | Guarantees | ~10% candidato | 🟡 |
 | 11 | Causality | ~5% candidato | 🟡 |
 | 12 | Counterfactuals | ~5% candidato | 🟡 |
-| 13 | Transactions | ~0% | 🟡 |
+| 13 | Transactions | ~5% candidato | 🟡 |
 | 14 | Intent | ~0% | 🟡 |
 | 15 | SIR completo | ~34% candidato | 🟡 |
 | 16 | Native Machine Backend | ~5% | 🟡 |
@@ -60,6 +60,15 @@ API inicial: `explain_sir_flow_causality(module, flow, source_stage, target_stag
 - [ ] alternativas de recuperação, efeitos observáveis, estado/rollback e análise de cenários fora de Flow.
 
 API inicial: `analyze_sir_flow_stage_unavailability(module, flow, stage)` em `sotlas_compile.counterfactuals`.
+
+### Avanço inicial de Transactions
+
+- [x] auditoria estática dos efeitos de um Flow SIR contra política explícita de reversibilidade;
+- [x] efeito sem política, irreversível ou compensável sem handler bloqueia a satisfação da política de rollback;
+- [x] handler declarado precisa existir no SIR;
+- [ ] snapshots `before/after`, inversas verificadas, execução atômica, rollback e compensação executada.
+
+API inicial: `analyze_sir_flow_transaction_effects(module, flow, policies, handlers)` em `sotlas_compile.transactions`.
 
 ## Fase 1 — Typed Semantic Core
 

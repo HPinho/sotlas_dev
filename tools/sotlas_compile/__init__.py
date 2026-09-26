@@ -70,6 +70,10 @@ from .counterfactuals import (
     analyze_flow_stage_unavailability,
     analyze_sir_flow_stage_unavailability,
 )
+from .transactions import (
+    TransactionError, TransactionEffect, TransactionAudit,
+    analyze_sir_flow_transaction_effects,
+)
 from .contracts_frontend import (
     ContractFrontendError,
     ContractCallProof,
@@ -101,4 +105,6 @@ __all__ = [
     "CounterfactualError", "CounterfactualImpact",
     "analyze_flow_stage_unavailability",
     "analyze_sir_flow_stage_unavailability",
+    "TransactionError", "TransactionEffect", "TransactionAudit",
+    "analyze_sir_flow_transaction_effects",
 ]

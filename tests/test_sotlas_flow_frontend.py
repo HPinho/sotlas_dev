@@ -202,6 +202,49 @@ flow Home {
         with self.assertRaisesRegex(package.CounterfactualError, "parallel stages are not canonical"):
             package.analyze_sir_flow_stage_unavailability(sir.module, "Home", "profile")
 
+    def test_transaction_effect_audit_requires_explicit_reversibility_policy(self):
+        checked = package.analyze_source_phase1(self._source("""
+flow Home {
+    stage profile = load_profile;
+}
+"""))
+        sir, _ = package.build_canonical_checked_ownership_sir(checked)
+        original = sir.module.flow_plans[0]
+        sir.module.flow_plans = (replace(
+            original,
+            stages=(replace(original.stages[0], effects=("io",)),),
+        ),)
+
+        unclassified = package.analyze_sir_flow_transaction_effects(
+            sir.module, "Home", {}
+        )
+        self.assertFalse(unclassified.rollback_policy_satisfied)
+        self.assertIn("effect io has no transaction policy", unclassified.blockers[0])
+
+        irreversible = package.analyze_sir_flow_transaction_effects(
+            sir.module, "Home", {"io": "irreversible"}
+        )
+        self.assertFalse(irreversible.rollback_policy_satisfied)
+        self.assertEqual(irreversible.effects[0].classification, "irreversible")
+
+        compensatable = package.analyze_sir_flow_transaction_effects(
+            sir.module, "Home", {"io": "compensatable"},
+            {"io": "load_posts"},
+        )
+        self.assertTrue(compensatable.rollback_policy_satisfied)
+        self.assertEqual(compensatable.effects[0].compensation, "load_posts")
+
+        no_handler = package.analyze_sir_flow_transaction_effects(
+            sir.module, "Home", {"io": "compensatable"}
+        )
+        self.assertFalse(no_handler.rollback_policy_satisfied)
+        self.assertIn("requires a compensation handler", no_handler.blockers[0])
+
+        with self.assertRaisesRegex(package.TransactionError, "absent from the Flow"):
+            package.analyze_sir_flow_transaction_effects(
+                sir.module, "Home", {"network": "reversible"}
+            )
+
     def test_typed_flow_runtime_rejects_dependency_tampering_before_execution(self):
         checked = package.analyze_source_phase1(self._source("""
 flow Home {

@@ -4001,6 +4001,15 @@ independentes na ordem fonte e valida dependências e cronograma antes de
 responder. Ela não executa funções nem simula efeitos, estado ou recuperação.
 API: `analyze_sir_flow_stage_unavailability(module, flow, stage)`.
 
+A primeira base de Transactions fornece uma auditoria estática dos efeitos de
+um Flow SIR. Cada efeito precisa de uma política explícita: `reversible`,
+`compensatable` ou `irreversible`; políticas ausentes, efeitos irreversíveis
+e compensações sem função handler no SIR impedem a política declarada de
+rollback de ser considerada satisfeita. Isso não comprova que um handler
+reverte o efeito. A auditoria não executa handlers nem implementa snapshots,
+inversas ou rollback. API: `analyze_sir_flow_transaction_effects(module,
+flow, policies, handlers)`.
+
 ### 13. Transactions
 
 `change`, rollback e compensations.
