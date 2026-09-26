@@ -1,8 +1,8 @@
 # Sotlas — Implementation Status
 
 **Atualizado em:** 2026-09-26
-**Último baseline verde certificado:** `e8730e7`
-**CI de referência:** Sotlas CI & Toolchain Build Farm #617 — workflow `success`
+**Último baseline verde certificado:** `5cb33bf`
+**CI de referência:** Sotlas CI & Toolchain Build Farm #618 — workflow `success`
 **Fonte arquitetural:** `SOTLAS — ESPECIFICAÇÃO MESTRA`
 
 > Este é o índice operacional atual. O snapshot detalhado anterior, com o histórico extenso das microentregas da Fase 2, permanece preservado em `docs/archive/sotlas_implementation_status_2026-09-23.md`.
@@ -31,7 +31,7 @@ Legenda:
 | 6 | Flow | ~40% candidato | 🟡 |
 | 7 | Execution Domains | ~45% | 🟡 |
 | 8 | Heterogeneous Compute | ~0% | 🟡 |
-| 9 | Trust Domains | ~15% candidato | 🟡 |
+| 9 | Trust Domains | ~16% candidato | 🟡 |
 | 10 | Guarantees | ~15% candidato | 🟡 |
 | 11 | Causality | ~10% candidato | 🟡 |
 | 12 | Counterfactuals | ~10% candidato | 🟡 |
@@ -55,6 +55,7 @@ Os percentuais medem o escopo necessário para o Sotlas 1.0. Generalizações p�
 - [x] `@trust(trusted|unsafe|isolated)` classifica explicitamente declarações `@extern(C)`;
 - [x] fronteiras FFI exigem summary com efeito `ffi` e podem exigir classificação explícita;
 - [x] o SIR preserva símbolo, convenção, classificação, efeitos e estado de verificação de isolamento;
+- [x] `@trust(unsafe)` exige bloco `unsafe` explícito no ponto de chamada FFI, assim como declarações `unsafe fn`;
 - [ ] política de chamadas/wrappers, enforcement de `unsafe` e isolamento real por target continuam pendentes;
 - [x] `isolated` permanece marcado como não verificado até existir sandbox implementado.
 

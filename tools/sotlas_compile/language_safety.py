@@ -819,7 +819,10 @@ class _StrictSafetyChecker:
                 self.error('chamada a FFI extern "C" exige função @system', expr.token)
             if is_privileged_builtin and not system_context:
                 self.error("chamada a intrínseco privilegiado exige função @system", expr.token)
-            if is_extern and _attr(function, _UNSAFE_ATTR):
+            if is_extern and (
+                _attr(function, _UNSAFE_ATTR)
+                or _attr(function, "@trust(unsafe)")
+            ):
                 self._require_unsafe(expr.token, depth, "chamada FFI marcada unsafe")
             return _ExprInfo(function.result, is_extern and _is_raw_pointer(function.result))
         if isinstance(expr, b.Index):

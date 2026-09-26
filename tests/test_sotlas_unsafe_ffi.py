@@ -273,6 +273,40 @@ fn map(base: u64) -> *mut u8 {
         self.assertIn("@unsafe", foreign.attributes)
         self.assertTrue(getattr(foreign.result, "_sotlas_foreign_pointer", False))
 
+    def test_unsafe_trust_domain_requires_unsafe_at_call_site(self):
+        source = """
+module contract::ffi_trust_unsafe;
+@trust(unsafe)
+@effects(ffi)
+extern "C" fn foreign_reset() -> void;
+@system
+fn reset() -> void {
+    foreign_reset();
+    return;
+}
+"""
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            "chamada FFI marcada unsafe exige bloco unsafe explícito",
+        ):
+            parse_check(source)
+
+    def test_unsafe_trust_domain_call_is_accepted_inside_unsafe(self):
+        source = """
+module contract::ffi_trust_unsafe_ok;
+@trust(unsafe)
+@effects(ffi)
+extern "C" fn foreign_reset() -> void;
+@system
+fn reset() -> void {
+    unsafe { foreign_reset(); }
+    return;
+}
+"""
+        module = parse_check(source)
+        foreign = next(fn for fn in module.functions if fn.name == "foreign_reset")
+        self.assertIn("@trust(unsafe)", foreign.attributes)
+
     def test_foreign_raw_pointer_stays_unsafe_after_return(self):
         source = """
 module contract::ffi_pointer;
