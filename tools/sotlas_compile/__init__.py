@@ -65,7 +65,8 @@ from .flow_sir import (
 )
 from .causality import (
     CausalityError, CausalStep, CausalExplanation,
-    SourceCallStep, SourceCallExplanation, explain_source_call_causality,
+    SourceCallArgument, SourceCallStep, SourceCallExplanation,
+    explain_source_call_causality,
     explain_flow_causality, explain_sir_flow_causality,
 )
 from .counterfactuals import (
@@ -114,7 +115,8 @@ __all__ = [
     "lower_typed_flows_to_sir", "validate_sir_flow_plans",
     "ContractFrontendError", "ContractCallProof",
     "ContractPrecondition", "CausalityError", "CausalStep",
-    "CausalExplanation", "SourceCallStep", "SourceCallExplanation",
+    "CausalExplanation", "SourceCallArgument", "SourceCallStep",
+    "SourceCallExplanation",
     "explain_source_call_causality", "explain_flow_causality",
     "explain_sir_flow_causality",
     "CounterfactualError", "CounterfactualImpact",

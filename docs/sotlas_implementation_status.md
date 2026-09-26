@@ -1,8 +1,8 @@
 # Sotlas — Implementation Status
 
 **Atualizado em:** 2026-09-26
-**Último baseline verde certificado:** `c2fd578`
-**CI de referência:** Sotlas CI & Toolchain Build Farm #619 — workflow `success`
+**Último baseline verde certificado:** `6b29d13`
+**CI de referência:** Sotlas CI & Toolchain Build Farm #620 — workflow `success`
 **Fonte arquitetural:** `SOTLAS — ESPECIFICAÇÃO MESTRA`
 
 > Este é o índice operacional atual. O snapshot detalhado anterior, com o histórico extenso das microentregas da Fase 2, permanece preservado em `docs/archive/sotlas_implementation_status_2026-09-23.md`.
@@ -33,7 +33,7 @@ Legenda:
 | 8 | Heterogeneous Compute | ~0% | 🟡 |
 | 9 | Trust Domains | ~16% candidato | 🟡 |
 | 10 | Guarantees | ~15% candidato | 🟡 |
-| 11 | Causality | ~10% candidato | 🟡 |
+| 11 | Causality | ~12% candidato | 🟡 |
 | 12 | Counterfactuals | ~10% candidato | 🟡 |
 | 13 | Transactions | ~10% candidato | 🟡 |
 | 14 | Intent | ~12% candidato | 🟡 |
@@ -67,6 +67,7 @@ API inicial: `analyze_foreign_trust_boundaries(module, require_explicit_trust=Tr
 - [x] cada passo informa funções, parâmetro/valor transferido, tipo e summaries de efeitos dos dois stages;
 - [x] consulta não infere caminho por mera ordem: stages desconectados e nomes ausentes falham com erro;
 - [x] consulta source-stable de caminhos de chamadas diretas entre funções fora de Flow, incluindo locais, aridade, parâmetros destino e summaries de efeitos;
+- [x] cada argumento da cadeia causal preserva expressão estrutural, parâmetro destino e bindings de origem;
 - [ ] propagação causal de valores/expressões entre chamadas, provenance de diagnósticos e visualização IDE.
 
 API inicial: `explain_sir_flow_causality(module, flow, source_stage, target_stage)` em `sotlas_compile.causality`.

@@ -4009,6 +4009,11 @@ precondição seguem para o SIR; refinamento simbólico, `ensures` e declaraçõ
 
 `why`, `explain`, provenance.
 
+O subset atual consulta caminhos de chamadas diretas em uma cadeia fonte
+verificada e registra, por argumento, a expressão estrutural, o parâmetro de
+destino e os bindings de origem. A expansão simbólica entre transformações,
+provenance de diagnósticos e visualização IDE continuam abertas.
+
 ### 12. Counterfactuals
 
 `whatif`.

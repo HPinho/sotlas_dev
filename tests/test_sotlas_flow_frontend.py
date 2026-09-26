@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import importlib
 import importlib.util
 import sys
 import unittest
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_DIR = ROOT / "compiler" / "sotlas_compile"
@@ -206,8 +208,8 @@ flow Home {
         source = """
 module test::source_call_causality;
 fn parse(value: i32) -> i32 { return value; }
-fn decode(raw: i32) -> i32 { return parse(raw); }
-fn entry(input: i32) -> i32 { return decode(input); }
+fn decode(raw: i32) -> i32 { return parse(raw * 3); }
+fn entry(input: i32) -> i32 { return decode(input + 2); }
         """
         checked = package.analyze_source_phase1(source)
         explanation = package.explain_source_call_causality(
@@ -226,6 +228,36 @@ fn entry(input: i32) -> i32 { return decode(input); }
         )
         self.assertTrue(all(step.line > 0 and step.column > 0 for step in explanation.steps))
         self.assertEqual(explanation.steps[0].caller_effects, ())
+        self.assertEqual(
+            [
+                (argument.parameter_name, argument.expression, argument.source_bindings)
+                for argument in explanation.steps[0].arguments
+            ],
+            [("raw", "(input + 2)", ("input",))],
+        )
+        self.assertEqual(
+            [
+                (argument.parameter_name, argument.expression, argument.source_bindings)
+                for argument in explanation.steps[1].arguments
+            ],
+            [("value", "(raw * 3)", ("raw",))],
+        )
+        legacy_parsed = tools_package.bootstrap.parse(source)
+        tools_package.bootstrap.check(legacy_parsed)
+        legacy_effects = importlib.import_module(
+            f"{tools_package.__name__}.source_effects"
+        ).analyze_source_effects(legacy_parsed, tools_package.bootstrap)
+        legacy_checked = SimpleNamespace(
+            parsed_module=legacy_parsed,
+            source_effects=legacy_effects,
+        )
+        legacy_explanation = tools_package.explain_source_call_causality(
+            legacy_checked, "entry", "parse"
+        )
+        self.assertEqual(
+            legacy_explanation.steps[0].arguments[0].source_bindings,
+            ("input",),
+        )
         with self.assertRaisesRegex(package.CausalityError, "no source call path"):
             package.explain_source_call_causality(checked, "parse", "entry")
 

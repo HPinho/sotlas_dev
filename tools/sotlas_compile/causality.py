@@ -32,6 +32,14 @@ class CausalExplanation:
 
 
 @dataclass(frozen=True)
+class SourceCallArgument:
+    parameter_index: int
+    parameter_name: str
+    expression: str
+    source_bindings: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class SourceCallStep:
     caller_function: str
     callee_function: str
@@ -41,6 +49,7 @@ class SourceCallStep:
     callee_parameters: tuple[str, ...]
     caller_effects: tuple[str, ...]
     callee_effects: tuple[str, ...]
+    arguments: tuple[SourceCallArgument, ...]
 
 
 @dataclass(frozen=True)
@@ -66,6 +75,70 @@ def _source_calls(value):
             yield from _source_calls(tuple(child.values()))
         else:
             yield from _source_calls(child)
+
+
+def _causal_expression(value) -> str:
+    """Render a stable, bounded description of a checked call argument."""
+    if isinstance(value, bootstrap.Name):
+        return value.value
+    if isinstance(value, bootstrap.Number):
+        return value.value
+    if isinstance(value, bootstrap.Boolean):
+        return "true" if value.value else "false"
+    if isinstance(value, bootstrap.StringLit):
+        return repr(value.value)
+    if isinstance(value, bootstrap.CharLit):
+        return repr(value.value)
+    if isinstance(value, bootstrap.NullLit):
+        return "null"
+    if type(value).__name__ in {"MoveExpr", "ShareExpr"}:
+        operation = "move" if type(value).__name__ == "MoveExpr" else "share"
+        return f"{operation}({_causal_expression(value.value)})"
+    if isinstance(value, bootstrap.Unary):
+        return f"{value.op}{_causal_expression(value.value)}"
+    if isinstance(value, bootstrap.Binary):
+        return (
+            f"({_causal_expression(value.left)} {value.op} "
+            f"{_causal_expression(value.right)})"
+        )
+    if isinstance(value, bootstrap.Member):
+        return f"{_causal_expression(value.target)}.{value.field}"
+    if isinstance(value, bootstrap.Index):
+        return (
+            f"{_causal_expression(value.target)}"
+            f"[{_causal_expression(value.index)}]"
+        )
+    if isinstance(value, bootstrap.Call):
+        args = ", ".join(_causal_expression(item) for item in value.args)
+        return f"{value.callee}({args})"
+    if isinstance(value, bootstrap.MethodCall):
+        args = ", ".join(_causal_expression(item) for item in value.args)
+        return f"{_causal_expression(value.target)}.{value.method}({args})"
+    if isinstance(value, bootstrap.Cast):
+        target_name = getattr(value.target_type, "name", "<type>")
+        return f"{_causal_expression(value.expr)} as {target_name}"
+    return f"<{type(value).__name__}>"
+
+
+def _source_bindings(value) -> tuple[str, ...]:
+    names: set[str] = set()
+
+    def visit(node):
+        if isinstance(node, (tuple, list)):
+            for item in node:
+                visit(item)
+            return
+        if isinstance(node, bootstrap.Name):
+            names.add(node.value)
+            return
+        if not isinstance(node, (bootstrap.Expr, bootstrap.Stmt)):
+            return
+        for field_name, child in vars(node).items():
+            if field_name not in {"token", "type", "target_type"}:
+                visit(child)
+
+    visit(value)
+    return tuple(sorted(names))
 
 
 def explain_source_call_causality(
@@ -128,6 +201,16 @@ def explain_source_call_causality(
         edges.append((caller, cursor, call))
         cursor = caller
     edges.reverse()
+    for caller, callee, call in edges:
+        parameters = by_name[callee].params
+        if len(call.args) != len(parameters):
+            raise CausalityError(
+                f"checked call {caller!r} -> {callee!r} changed arity"
+            )
+        if caller not in summaries or callee not in summaries:
+            raise CausalityError(
+                f"checked call {caller!r} -> {callee!r} lost effect provenance"
+            )
     steps = tuple(
         SourceCallStep(
             caller,
@@ -138,6 +221,18 @@ def explain_source_call_causality(
             tuple(parameter for parameter, _ in by_name[callee].params),
             tuple(summaries[caller].transitive_effects),
             tuple(summaries[callee].transitive_effects),
+            tuple(
+                SourceCallArgument(
+                    index,
+                    parameter_name,
+                    _causal_expression(argument),
+                    _source_bindings(argument),
+                )
+                for index, (argument, parameter_name) in enumerate(zip(
+                    call.args,
+                    (parameter for parameter, _ in by_name[callee].params),
+                ))
+            ),
         )
         for caller, callee, call in edges
     )
@@ -232,6 +327,7 @@ def explain_sir_flow_causality(module, flow_name: str, source_stage: str, target
 
 __all__ = [
     "CausalityError", "CausalStep", "CausalExplanation",
-    "SourceCallStep", "SourceCallExplanation", "explain_source_call_causality",
+    "SourceCallArgument", "SourceCallStep", "SourceCallExplanation",
+    "explain_source_call_causality",
     "explain_flow_causality", "explain_sir_flow_causality",
 ]
