@@ -2,7 +2,7 @@
 
 **Atualizado em:** 2026-09-26
 **Status:** 🟡 IN PROGRESS
-**Último baseline verde certificado:** `0e98e1b` — CI #581 `success`
+**Último baseline verde certificado:** `bd63182` — CI #582 `success`
 
 ## SIR effect summaries
 
@@ -29,8 +29,9 @@ transitive effects over local recursive calls, and attaches deterministic
 source summaries to the checked module. Classified low-level builtins and
 inline assembly carry conservative effects; unmapped external calls are
 `unknown_call`. Explicit contracts that omit inferred effects fail before C11
-lowering. This starter contract does not yet model all runtime/FFI names or
-propagate effects through Typed AST and backend-neutral SIR.
+lowering. Phase 1 now copies each source summary into its corresponding typed
+function. SIR revalidation and backend contracts remain open. This starter
+contract does not yet model all runtime/FFI names.
 
 ## Verifications
 
@@ -48,7 +49,8 @@ propagate effects through Typed AST and backend-neutral SIR.
 - [x] conservative classification of unresolved calls;
 - [x] validation of explicit SIR effect contracts;
 - [x] source syntax, effect inference and canonical checker contract validation;
-- [ ] Typed AST/SIR propagation and backend contract integration;
+- [x] per-function source summary propagation into the Typed AST;
+- [ ] SIR propagation/revalidation and backend contract integration;
 - [ ] effects for `@realtime`, async suspension, locks, FFI, and all runtime calls;
 - [x] source tests and a phase-specific release gate for the subset;
 - [ ] broad domain/runtime/backend end-to-end matrix.

@@ -82,7 +82,7 @@ fn caller() -> void { __external_api(); }
         source = """
 module test::source_effects;
 @effects(unsafe,volatile)
-@system fn raw() -> void { asm("nop"); }
+@system fn raw() -> void { unsafe { asm("nop"); } }
 """
         module = bootstrap.parse(source, filename="effects.sotlas")
         summary = analyze_source_effects(module, bootstrap)["raw"]
@@ -91,12 +91,29 @@ module test::source_effects;
     def test_phase1_checked_module_preserves_effect_summaries(self):
         source = """
 module test::effects_phase1;
-@effects(system)
-fn run() -> void { helper(); }
-fn helper() -> void { return; }
+@effects(unsafe,volatile)
+@system fn raw() -> void { unsafe { asm("nop"); } }
+@effects(unsafe,volatile)
+fn run() -> void { raw(); }
 """
         checked = analyze_source_phase1(source)
-        self.assertEqual(checked.source_effects["run"].transitive_effects, ())
+        self.assertEqual(
+            checked.source_effects["run"].transitive_effects,
+            ("unsafe", "volatile"),
+        )
+        typed = {item.name: item for item in checked.semantic.typed_module.functions}
+        self.assertEqual(
+            typed["raw"].effect_summary.direct_effects,
+            ("unsafe", "volatile"),
+        )
+        self.assertEqual(
+            typed["run"].effect_summary.transitive_effects,
+            ("unsafe", "volatile"),
+        )
+        self.assertEqual(
+            typed["run"].effect_summary.declared_effects,
+            ("unsafe", "volatile"),
+        )
 
 
 if __name__ == "__main__":

@@ -27,7 +27,7 @@ Legenda:
 | 2 | Ownership Domains | 100% | ✅ COMPLETE |
 | 3 | Authority Domains | 100% | ✅ COMPLETE |
 | 4 | State Spaces | ~90% candidato | 🟡 IN PROGRESS |
-| 5 | Effects | ~25% | 🟡 |
+| 5 | Effects | ~45% candidato | 🟡 |
 | 6 | Flow | ~20% | 🟡 |
 | 7 | Execution Domains | ~20% | 🟡 |
 | 8 | Heterogeneous Compute | ~0% | 🟡 |
@@ -149,7 +149,7 @@ Escopo: `docs/sotlas_1_0_phase4_state_space_scope.md`.
 
 ## Fase 5 — Effects
 
-**Status 1.0: ~40% 🟡 — IN PROGRESS**
+**Status 1.0: ~45% candidato 🟡 — IN PROGRESS**
 
 - [x] SIR infere efeitos diretos e transitivos com ponto fixo sobre chamadas recursivas;
 - [x] chamadas não resolvidas são classificadas como `unknown_call` e seus nomes permanecem no summary;
@@ -160,7 +160,8 @@ Escopo: `docs/sotlas_1_0_phase4_state_space_scope.md`.
 - [x] inferência direta/transitiva sobre chamadas locais recursivas, builtins classificados, FFI sem contrato e `asm`;
 - [x] summaries determinísticos source-stable anexados ao módulo verificado;
 - [x] contratos malformados ou que omitem efeitos falham antes do lowering C11;
-- [ ] propagação para Typed AST/SIR e validação de contrato de backend;
+- [x] summaries diretos/transitivos, não resolvidos e declarados preservados por função na Typed AST;
+- [ ] propagação/revalidação no SIR e contrato de backend;
 - [ ] restrições completas para `@realtime`, async, locks, FFI e efeitos externos;
 - [x] testes end-to-end de fonte Sotlas e gate dedicado desta fatia;
 - [ ] end-to-end amplo por domínio e matriz de runtime/backend.

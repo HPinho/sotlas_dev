@@ -6606,6 +6606,16 @@ class TypedParam:
 
 
 @dataclass(frozen=True)
+class TypedEffectSummary:
+    """Source effect facts frozen onto one canonical typed function."""
+
+    direct_effects: tuple[str, ...]
+    transitive_effects: tuple[str, ...]
+    unresolved_calls: tuple[str, ...]
+    declared_effects: tuple[str, ...] | None
+
+
+@dataclass(frozen=True)
 class TypedFunction:
     name: str
     params: tuple[TypedParam, ...]
@@ -6613,6 +6623,7 @@ class TypedFunction:
     public: bool
     attributes: tuple[str, ...]
     return_ownership_domain: OwnershipDomain | None = None
+    effect_summary: TypedEffectSummary | None = None
 
 
 @dataclass(frozen=True)
@@ -6883,6 +6894,22 @@ def build_declaration_typed_ast(module) -> TypedModule:
             )
         return semantic_type(type_obj)
 
+    source_effects = getattr(module, "source_effect_summaries", {}) or {}
+
+    def function_effect_summary(function_name: str):
+        source_summary = source_effects.get(function_name)
+        if source_summary is None:
+            return None
+        return TypedEffectSummary(
+            direct_effects=tuple(source_summary.direct_effects),
+            transitive_effects=tuple(source_summary.transitive_effects),
+            unresolved_calls=tuple(source_summary.unresolved_calls),
+            declared_effects=(
+                None if source_summary.declared_effects is None
+                else tuple(source_summary.declared_effects)
+            ),
+        )
+
     return TypedModule(
         name=module.name,
         structs=tuple(
@@ -6935,6 +6962,7 @@ def build_declaration_typed_ast(module) -> TypedModule:
                 public=bool(item.public),
                 attributes=tuple(item.attributes),
                 return_ownership_domain=explicit_domain(item.result),
+                effect_summary=function_effect_summary(item.name),
             )
             for item in module.functions
         ),
@@ -6983,6 +7011,7 @@ def build_declaration_typed_ast(module) -> TypedModule:
                         public=bool(method.public),
                         attributes=tuple(method.attributes),
                         return_ownership_domain=explicit_domain(method.result),
+                        effect_summary=function_effect_summary(method.name),
                     )
                     for method in item.methods
                 ),
@@ -7026,7 +7055,7 @@ __all__ = [
     "TypedEnumPayloadSlot", "TypedEnumStorageLayout",
     "lower_enum_storage_layout", "lower_module_enum_layouts",
     "lower_module_enum_storage_layouts",
-    "TypedParam", "TypedFunction", "TypedGlobal", "TypedModule",
+    "TypedParam", "TypedEffectSummary", "TypedFunction", "TypedGlobal", "TypedModule",
     "semantic_type", "integer_bounds", "validate_integer_value",
     "validate_no_recursive_value_types",
     "build_declaration_typed_ast",
