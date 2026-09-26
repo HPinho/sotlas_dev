@@ -4137,7 +4137,8 @@ Checklist:
 - [ ] emissão de object code relocável;
 - [ ] primeiro object format oficialmente suportado;
 - [ ] linker integration sem depender de C como linguagem intermediária;
-- [ ] `--emit=asm` como saída de inspeção produzida pelo próprio backend;
+- [x] protótipo `--emit-asm` encaminha um subset inteiro fail-closed ao backend LLVM e retorna assembly;
+- [ ] inspeção completa de assembly do backend próprio, com CFG, alocação, ABI e execução nativa por target;
 - [ ] `--emit=obj`/equivalente produzindo objeto nativo;
 - [ ] testes golden de instruction selection;
 - [ ] testes ABI contra código externo;
@@ -4181,7 +4182,7 @@ Inclui também tooling específico do backend nativo:
 
 - [ ] inspeção de SIR;
 - [ ] inspeção do Target IR/lowering;
-- [ ] `--emit=asm`;
+- [x] `--emit-asm` no subset inteiro explicitamente suportado pelo backend LLVM;
 - [ ] dump de register allocation;
 - [ ] visualização de stack frames/ABI;
 - [ ] source-to-instruction mapping;

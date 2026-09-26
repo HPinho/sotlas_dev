@@ -392,6 +392,49 @@ class LLVMToolchain:
                 except OSError:
                     pass
 
+    def compile_llvm_ir_to_asm(
+        self,
+        ir_path_or_text: Union[str, Path],
+        output_asm_path: Union[str, Path],
+        opt_level: int = 2,
+        target: Optional[str] = None,
+    ) -> Path:
+        """Lower verified LLVM IR directly to target assembly using Clang."""
+        clang = self.find_tool("clang")
+        if not clang:
+            raise LLVMToolchainError("Compilador Clang / LLVM não encontrado no sistema.")
+        out_asm = Path(output_asm_path).resolve()
+        out_asm.parent.mkdir(parents=True, exist_ok=True)
+        cmd = [str(clang), "-S", f"-O{opt_level}"]
+        if target:
+            cmd += ["-target", target]
+        temp_ir = None
+        try:
+            if isinstance(ir_path_or_text, Path) or (
+                isinstance(ir_path_or_text, str) and os.path.exists(ir_path_or_text)
+            ):
+                input_file = str(ir_path_or_text)
+            else:
+                fd, temp_ir = tempfile.mkstemp(
+                    suffix=".ll", prefix="sotlas_ir_"
+                )
+                with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                    stream.write(str(ir_path_or_text))
+                input_file = temp_ir
+            cmd += [input_file, "-o", str(out_asm)]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode != 0:
+                raise LLVMToolchainError(
+                    f"Falha na compilação LLVM IR -> ASM:\n{result.stderr}"
+                )
+            return out_asm
+        finally:
+            if temp_ir and os.path.exists(temp_ir):
+                try:
+                    os.remove(temp_ir)
+                except OSError:
+                    pass
+
     def compile_c_to_obj(
         self,
         c_path_or_text: Union[str, Path],
@@ -529,6 +572,28 @@ class LLVMToolchain:
         if target is not None:
             is_freestanding = target_spec.is_freestanding
         compiler_target = target_spec.triple if target is not None else None
+
+        if emit_type == "asm":
+            if backend != "llvm":
+                raise LLVMToolchainError(
+                    "Assembly emission requires the direct LLVM SIR backend"
+                )
+            from sotlas.assembly_subset import validate_llvm_assembly_subset
+            production_frontend = canonical_llvm_frontend()
+            ast = production_frontend.parse(source_text, filename=source_name)
+            validate_llvm_assembly_subset(ast)
+            sir_mod = generate_llvm_sir(ast, production_frontend)
+            from sotlas.codegen_llvm import CodegenLLVM
+            ir_code = CodegenLLVM(
+                sir_mod,
+                is_baremetal=is_freestanding,
+                emit_debug=emit_debug,
+                target=target_spec,
+                cpu_features=cpu_features,
+            ).emit()
+            return self.compile_llvm_ir_to_asm(
+                ir_code, out, target=compiler_target
+            )
 
         from sotlas.codegen_llvm import CodegenLLVM
         production_frontend = canonical_llvm_frontend()

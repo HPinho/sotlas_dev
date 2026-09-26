@@ -1,8 +1,8 @@
 # Sotlas — Implementation Status
 
 **Atualizado em:** 2026-09-26
-**Último baseline verde certificado:** `620ec78`
-**CI de referência:** Sotlas CI & Toolchain Build Farm #626 — workflow `success`
+**Último baseline verde certificado:** `8b645c0`
+**CI de referência:** Sotlas CI & Toolchain Build Farm #627 — workflow `success`
 **Fonte arquitetural:** `SOTLAS — ESPECIFICAÇÃO MESTRA`
 
 > Este é o índice operacional atual. O snapshot detalhado anterior, com o histórico extenso das microentregas da Fase 2, permanece preservado em `docs/archive/sotlas_implementation_status_2026-09-23.md`.
@@ -330,17 +330,19 @@ Escopo: `docs/sotlas_1_0_phase10_guarantees_scope.md`.
 
 ## Fase 17 — Tooling avançado
 
-**Status 1.0: ~18% 🟡 — IN PROGRESS**
+**Status 1.0: ~20% 🟡 — IN PROGRESS**
 
 - [x] CLI emite `contract-report` como JSON determinístico derivado do SIR canônico;
 - [x] o relatório separa provas estáticas de precondições e pós-condições que ainda exigem guarda em runtime;
-- [ ] inspeção de Target IR/lowering, `--emit=asm`, register allocation, ABI/stack e source-to-instruction mapping.
+- [x] `--emit-asm` encaminha diretamente o subset validado ao backend LLVM e falha fechado para construções ainda não representadas;
+- [ ] inspeção de Target IR/lowering, register allocation, ABI/stack e source-to-instruction mapping.
 
 ### SIR e backend nativo — slice de constantes inteiras
 
 - [x] retorno de literal inteiro tipado `i/u8`, `i/u16`, `i/u32`, `i/u64`, `isize` e `usize` baixa para `ConstantIntInst` no SIR;
 - [x] bootstrap e AST legado cobertos para literais decimais; bootstrap também aceita literal hexadecimal tipado;
 - [x] LLVM verifica tipo e intervalo antes de emitir o valor;
+- [x] `--emit-asm` aceita retorno direto e aritmética inteira unsigned de parâmetros no subset LLVM; a cobertura nativa depende de Clang/LLVM disponível;
 - [ ] lowering nativo validado com `llc`/Clang, execução por target, CFG completo e semântica definida de overflow.
 
 ## Regra de baseline

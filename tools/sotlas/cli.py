@@ -74,6 +74,11 @@ def main() -> int:
         help="Emite código LLVM IR textual (.ll) com DWARF",
     )
     cp.add_argument(
+        "--emit-asm",
+        action="store_true",
+        help="Emite assembly nativo do subset LLVM SIR verificado (.s)",
+    )
+    cp.add_argument(
         "--backend",
         choices=["llvm", "c11"],
         default="llvm",
@@ -482,6 +487,41 @@ def _run_compile(args) -> int:
         print(f"sotlas: erro de target: {error}", file=sys.stderr)
         return 2
 
+    emit_type = "exe"
+    output_arg = getattr(args, "output", None)
+    if getattr(args, "emit_asm", False) or (
+        output_arg and str(output_arg).endswith((".s", ".asm"))
+    ):
+        emit_type = "asm"
+    elif getattr(args, "emit_llvm", False) or (output_arg and str(output_arg).endswith(".ll")):
+        emit_type = "llvm"
+    elif getattr(args, "emit_obj", False) or (output_arg and str(output_arg).endswith((".o", ".obj"))):
+        emit_type = "obj"
+    elif getattr(args, "emit_c", False) or (output_arg and str(output_arg).endswith(".c")):
+        emit_type = "c"
+
+    if emit_type == "asm":
+        if args.backend != "llvm":
+            print("sotlas: --emit-asm exige --backend llvm", file=sys.stderr)
+            return 2
+        from sotlas.llvm_toolchain import default_toolchain
+        out_path = Path(args.output) if args.output else src.with_suffix(".s")
+        try:
+            result_path = default_toolchain.compile_source_to_native(
+                text,
+                args.source,
+                out_path,
+                emit_type="asm",
+                backend="llvm",
+                target=None if args.target == "host" else args.target,
+                cpu_features=tuple(args.cpu_feature),
+            )
+            print(f"sotlas: assembly nativo emitido via LLVM em {result_path}")
+            return 0
+        except Exception as error:
+            print(f"sotlas: erro LLVM: {error}", file=sys.stderr)
+            return 1
+
     # ── Modo linker interno: pipeline completamente autônomo ──────────────
     linker_mode = getattr(args, "linker", "auto")
     if linker_mode == "internal":
@@ -504,14 +544,6 @@ def _run_compile(args) -> int:
     except SotlasBootstrapError as error:
         print(f"sotlas: erro: {error}", file=sys.stderr)
         return 1
-
-    emit_type = "exe"
-    if getattr(args, "emit_llvm", False) or (args.output and str(args.output).endswith(".ll")):
-        emit_type = "llvm"
-    elif getattr(args, "emit_obj", False) or (args.output and str(args.output).endswith((".o", ".obj"))):
-        emit_type = "obj"
-    elif getattr(args, "emit_c", False) or (args.output and str(args.output).endswith(".c")):
-        emit_type = "c"
 
     from sotlas.llvm_toolchain import default_toolchain
 

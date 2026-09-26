@@ -1,6 +1,7 @@
 """Testes para o gerador de LLVM IR a partir do SIR."""
 import sys
 import importlib.util
+import tempfile
 import unittest
 from io import StringIO
 from types import SimpleNamespace
@@ -29,6 +30,10 @@ from sotlas.execution_target import (
     resolve_execution_target,
 )
 from sotlas.llvm_toolchain import LLVMToolchain
+from sotlas.assembly_subset import (
+    LLVMAssemblySubsetError,
+    validate_llvm_assembly_subset,
+)
 from sotlas import cli
 
 _FRONTEND_PATH = ROOT / "compiler" / "sotlas_compile"
@@ -145,6 +150,67 @@ fn calculate(a: u32, b: u32) -> u32 {{ return a {operator} b; }}
         module.add_function(function)
         with self.assertRaisesRegex(ValueError, "out of range"):
             CodegenLLVM(module).emit()
+
+    def test_assembly_source_gate_accepts_supported_and_rejects_unlowered_bodies(self):
+        supported = source_bootstrap.parse(
+            "module test::asm_subset; fn answer() -> u32 { return 42u32; }"
+        )
+        validate_llvm_assembly_subset(supported)
+        unsupported = source_bootstrap.parse(
+            "module test::asm_unsupported; "
+            "fn answer() -> u32 { let value: u32 = 42u32; return value; }"
+        )
+        with self.assertRaisesRegex(
+            LLVMAssemblySubsetError, "one direct return"
+        ):
+            validate_llvm_assembly_subset(unsupported)
+
+    def test_llvm_toolchain_emits_assembly_without_c_compilation(self):
+        toolchain = LLVMToolchain()
+        with tempfile.TemporaryDirectory(prefix="sotlas_asm_") as temp:
+            output = Path(temp) / "answer.s"
+            with (
+                patch.object(toolchain, "find_tool", return_value=Path("clang")),
+                patch(
+                    "sotlas.llvm_toolchain.subprocess.run",
+                    return_value=SimpleNamespace(returncode=0, stderr=""),
+                ) as run,
+            ):
+                result = toolchain.compile_llvm_ir_to_asm(
+                    "define i32 @answer() { ret i32 42 }",
+                    output,
+                    target="x86_64-unknown-linux-gnu",
+                )
+            command = run.call_args.args[0]
+            self.assertEqual(result, output.resolve())
+            self.assertIn("-S", command)
+            self.assertIn("-target", command)
+            self.assertIn("x86_64-unknown-linux-gnu", command)
+
+    def test_llvm_source_to_assembly_lowers_supported_sir_directly(self):
+        source = (
+            "module test::asm_pipeline; "
+            "fn answer() -> u32 { return 42u32; }"
+        )
+        toolchain = LLVMToolchain()
+        with tempfile.TemporaryDirectory(prefix="sotlas_asm_pipeline_") as temp:
+            output = Path(temp) / "answer.s"
+            with patch.object(
+                toolchain,
+                "compile_llvm_ir_to_asm",
+                return_value=output,
+            ) as emit_asm:
+                result = toolchain.compile_source_to_native(
+                    source,
+                    "answer.sotlas",
+                    output,
+                    emit_type="asm",
+                    backend="llvm",
+                )
+            ir = emit_asm.call_args.args[0]
+        self.assertEqual(result, output)
+        self.assertIn("define i32 @answer()", ir)
+        self.assertIn("add i32 0, 42", ir)
 
     def test_llvm_arithmetic_instruction_rejects_signed_types_and_unknown_ops(self):
         for operation, type_name in (("add", "i32"), ("div", "u32")):
