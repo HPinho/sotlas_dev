@@ -196,6 +196,9 @@ sotlas dump-ast examples/01_hello_systems/main.sotlas
 # Inspect the prototype SIR (not the production lowering path)
 sotlas dump-sir examples/01_hello_systems/main.sotlas
 
+# Inspect validated Flow schedules, effects, and dependency provenance as JSON
+sotlas flow-report path/to/module_with_flow.sotlas
+
 # Emit auditable intermediate C11 code
 sotlas compile examples/01_hello_systems/main.sotlas --emit-c
 

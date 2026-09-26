@@ -1,8 +1,8 @@
 # Sotlas — Implementation Status
 
 **Atualizado em:** 2026-09-26
-**Último baseline verde certificado:** `b3ce263`
-**CI de referência:** Sotlas CI & Toolchain Build Farm #638 — workflow `success`
+**Último baseline verde certificado:** `3f01b19`
+**CI de referência:** Sotlas CI & Toolchain Build Farm #644 — workflow `success`
 **Fonte arquitetural:** `SOTLAS — ESPECIFICAÇÃO MESTRA`
 
 > Este é o índice operacional atual. O snapshot detalhado anterior, com o histórico extenso das microentregas da Fase 2, permanece preservado em `docs/archive/sotlas_implementation_status_2026-09-23.md`.
@@ -22,7 +22,7 @@ Legenda:
 
 | Fase | Área | Progresso 1.0 | Estado |
 |---:|---|---:|---|
-| 0 | Reality Reset | ~86% | 🟡 |
+| 0 | Reality Reset | ~87% | 🟡 |
 | 1 | Typed Semantic Core | 100% | ✅ COMPLETE |
 | 2 | Ownership Domains | 100% | ✅ COMPLETE |
 | 3 | Authority Domains | 100% | ✅ COMPLETE |
@@ -32,7 +32,7 @@ Legenda:
 | 7 | Execution Domains | ~45% | 🟡 |
 | 8 | Heterogeneous Compute | ~0% | 🟡 |
 | 9 | Trust Domains | ~18% candidato | 🟡 |
-| 10 | Guarantees | ~25% candidato | 🟡 |
+| 10 | Guarantees | ~30% candidato | 🟡 |
 | 11 | Causality | ~13% candidato | 🟡 |
 | 12 | Counterfactuals | ~15% candidato | 🟡 |
 | 13 | Transactions | ~27% candidato | 🟡 |
@@ -108,7 +108,7 @@ target_stage, allowed_effects=...)` em `sotlas_compile.counterfactuals`.
 
 ### Avanço inicial de Transactions
 
-**Status 1.0: ~25% candidato 🟡 — IN PROGRESS**
+**Status 1.0: ~27% candidato 🟡 — IN PROGRESS**
 
 - [x] auditoria estática dos efeitos de um Flow SIR contra política explícita de reversibilidade;
 - [x] efeito sem política, irreversível ou compensável sem handler bloqueia a satisfação da política de rollback;
