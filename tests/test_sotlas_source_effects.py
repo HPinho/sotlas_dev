@@ -22,6 +22,7 @@ SotlasBootstrapError = package.SotlasBootstrapError
 analyze_source_effects = package.analyze_source_effects
 compile_source = package.compile_source
 bootstrap = package.bootstrap
+analyze_source_phase1 = package.analyze_source_phase1
 
 
 class SourceEffectContractTests(unittest.TestCase):
@@ -86,6 +87,16 @@ module test::source_effects;
         module = bootstrap.parse(source, filename="effects.sotlas")
         summary = analyze_source_effects(module, bootstrap)["raw"]
         self.assertEqual(summary.transitive_effects, ("unsafe", "volatile"))
+
+    def test_phase1_checked_module_preserves_effect_summaries(self):
+        source = """
+module test::effects_phase1;
+@effects(system)
+fn run() -> void { helper(); }
+fn helper() -> void { return; }
+"""
+        checked = analyze_source_phase1(source)
+        self.assertEqual(checked.source_effects["run"].transitive_effects, ())
 
 
 if __name__ == "__main__":

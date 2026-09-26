@@ -33,6 +33,7 @@ class Phase1CheckedModule:
     ownership_sir: object
     authority: AuthorityDomainPlan
     state_spaces: StateSpaceTypedSnapshot | None = None
+    source_effects: object | None = None
 
 
 def _restore_checked_handover_transitions(
@@ -195,12 +196,19 @@ def analyze_module_phase1(parsed_module) -> Phase1CheckedModule:
         semantic.ownership,
         semantic.ownership_domains,
     )
+
+    source_effects = getattr(parsed_module, "source_effect_summaries", None)
+    if source_effects is None:
+        from .source_effects import analyze_source_effects
+
+        source_effects = analyze_source_effects(parsed_module, bootstrap)
     return Phase1CheckedModule(
         parsed_module=parsed_module,
         semantic=semantic,
         ownership_sir=ownership_sir,
         authority=authority,
         state_spaces=state_spaces,
+        source_effects=source_effects,
     )
 
 
