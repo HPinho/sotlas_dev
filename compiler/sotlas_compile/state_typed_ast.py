@@ -43,6 +43,7 @@ class TypedStateSpace:
     name: str
     states: tuple[TypedState, ...]
     transitions: tuple[TypedStateTransition, ...]
+    initial_state: str | None
     public: bool
     line: int
     column: int
@@ -222,6 +223,7 @@ def build_state_space_typed_snapshot(
                     TypedStateTransition(edge.source, edge.target)
                     for edge in canonical.transitions
                 ),
+                initial_state=canonical.initial_state,
                 public=bool(decl.public),
                 line=decl.line,
                 column=decl.column,

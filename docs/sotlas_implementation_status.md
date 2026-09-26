@@ -1,8 +1,8 @@
 # Sotlas — Implementation Status
 
 **Atualizado em:** 2026-09-25  
-**Último baseline verde certificado:** `70a58e767b0812e2e2b3bc87cebaa9757a682a4b`  
-**CI de referência:** Sotlas CI & Toolchain Build Farm #563 — `success`  
+**Último baseline verde certificado:** `81e5774`
+**CI de referência:** Sotlas CI & Toolchain Build Farm #569 — `success`
 **Fonte arquitetural:** `SOTLAS — ESPECIFICAÇÃO MESTRA`
 
 > Este é o índice operacional atual. O snapshot detalhado anterior, com o histórico extenso das microentregas da Fase 2, permanece preservado em `docs/archive/sotlas_implementation_status_2026-09-23.md`.
@@ -26,7 +26,7 @@ Legenda:
 | 1 | Typed Semantic Core | 100% | ✅ COMPLETE |
 | 2 | Ownership Domains | 100% | ✅ COMPLETE |
 | 3 | Authority Domains | 100% | ✅ COMPLETE |
-| 4 | State Spaces | ~52% | 🟡 IN PROGRESS |
+| 4 | State Spaces | ~55% | 🟡 IN PROGRESS |
 | 5 | Effects | ~10% | 🟡 |
 | 6 | Flow | ~0% | 🟡 |
 | 7 | Execution Domains | ~10% | 🟡 |
@@ -90,13 +90,14 @@ Escopo: `docs/sotlas_1_0_phase3_authority_scope.md`.
 
 ## Fase 4 — State Spaces
 
-**Status 1.0: ~45% 🟡 — IN PROGRESS**
+**Status 1.0: ~55% 🟡 — IN PROGRESS**
 
 ### Núcleo semântico
 
 - [x] `StateSpacePlan` canônico;
 - [x] estados com payload contracts ordenados;
 - [x] grafo explícito de transições;
+- [x] estado inicial precisa ser declarado explicitamente; estado não é inferido pela ordem das declarações;
 - [x] validação fail-closed de estados/transições;
 - [x] `StateQualifiedType` para `Type<State>`;
 - [x] boundary check e transições validadas pelo grafo;
@@ -110,6 +111,7 @@ Escopo: `docs/sotlas_1_0_phase3_authority_scope.md`.
 - [x] `Space<State>` é reconhecido como typestate no subset 1.0 quando existe `space Space`;
 - [x] generics não associados a um State Space continuam compatíveis;
 - [x] `StateSpaceFrontendPlan` reconcilia fonte → grafo canônico → typestate;
+- [x] construção de valor nominal só recebe typestate por initializer direto quando coincide com o estado inicial declarado; outros estados não podem ser inventados na inicialização;
 - [x] `StateSpaceTypedSnapshot` preserva State Spaces, payloads, edges e sites tipados;
 - [x] sites de typestate possuem identidade determinística em declarações e locals explícitos;
 - [x] divergência frontend ↔ Typed AST falha fechado;
@@ -122,6 +124,7 @@ Escopo: `docs/sotlas_1_0_phase3_authority_scope.md`.
 
 - [ ] operação pública de transição a partir de código Sotlas real;
 - [ ] contratos de calls/returns que mudam estado;
+- [x] inicialização explícita de valores frescos no estado inicial declarado;
 - [x] fatos source-stable de transição no SIR para o subset opt-in de retorno direto;
 - [x] revalidação semântica source ↔ SIR para esse subset;
 - [ ] lowering/backend mínimo;

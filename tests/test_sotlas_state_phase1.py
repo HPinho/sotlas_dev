@@ -82,6 +82,18 @@ class SotlasStatePhase1Tests(unittest.TestCase):
         self.assertIsNotNone(checked.ownership_sir)
         self.assertIsNotNone(checked.authority)
 
+    def test_typed_state_snapshot_preserves_explicit_initial_state(self):
+        source = self._source().replace(
+            "state Discovered", "initial state Discovered"
+        )
+        checked = sotlas_compile.analyze_source_phase1(
+            source, filename="<state-phase1-initial>"
+        )
+        self.assertEqual(
+            checked.state_spaces.space("Device").initial_state,
+            "Discovered",
+        )
+
     def test_production_checker_accepts_backend_representable_state_types(self):
         module = sotlas_compile.bootstrap.parse(
             self._source(), filename="<state-phase1-immutability>"

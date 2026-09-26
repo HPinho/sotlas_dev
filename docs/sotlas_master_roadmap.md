@@ -391,7 +391,7 @@ Sotlas introduzirá estados como construção de primeira classe.
 
 ```sotlas
 space Download {
-    state idle
+    initial state idle
     state downloading(progress: Percent)
     state paused(progress: Percent)
     state completed(File)

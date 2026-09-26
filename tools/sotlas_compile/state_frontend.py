@@ -52,6 +52,7 @@ class ParsedStateSpaceDecl:
     name: str
     states: tuple[ParsedState, ...]
     transitions: tuple[ParsedStateTransition, ...]
+    initial_state: str | None = None
     public: bool = False
     line: int = 1
     column: int = 1
@@ -248,8 +249,35 @@ def _parse_space_at(tokens, index, bootstrap, filename, source):
 
     states = []
     transitions = []
+    initial_state = None
     while index < len(tokens) and tokens[index].kind != "}":
         token = tokens[index]
+        if token.kind == "IDENT" and token.text == "initial":
+            if initial_state is not None:
+                _error(
+                    bootstrap,
+                    f"space {name_tok.text!r} declares more than one initial state",
+                    token,
+                    filename,
+                    source,
+                )
+            state_kw, index = _expect_ident(
+                tokens, index + 1, bootstrap, filename, source
+            )
+            if state_kw.text != "state":
+                _error(
+                    bootstrap,
+                    "initial must be followed by state",
+                    state_kw,
+                    filename,
+                    source,
+                )
+            state, index = _parse_state_decl(
+                tokens, index - 1, bootstrap, filename, source
+            )
+            initial_state = state.name
+            states.append(state)
+            continue
         if token.kind == "IDENT" and token.text == "state":
             state, index = _parse_state_decl(
                 tokens, index, bootstrap, filename, source
@@ -284,6 +312,7 @@ def _parse_space_at(tokens, index, bootstrap, filename, source):
             name=name_tok.text,
             states=tuple(states),
             transitions=tuple(transitions),
+            initial_state=initial_state,
             public=public,
             line=anchor.line,
             column=anchor.column,
@@ -343,6 +372,7 @@ def _canonical_space(decl: ParsedStateSpaceDecl) -> StateSpacePlan:
                 StateSpaceTransition(item.source, item.target)
                 for item in decl.transitions
             ),
+            initial_state=decl.initial_state,
         )
     except Phase1SemanticError as error:
         raise StateSpaceFrontendError(str(error)) from error
@@ -511,6 +541,99 @@ def _frontend_error_as_bootstrap(bootstrap, module, error):
     ) from error
 
 
+def _validate_state_local_initializers(module, plan, bootstrap):
+    """Keep local typestate annotations from manufacturing arbitrary states.
+
+    A fresh nominal struct value may acquire a typestate only when that space
+    explicitly names the state as its initial state. Other typed locals must
+    come from an already-qualified binding or a function with the exact return
+    contract. The core checker validates calls and assignments after this pass.
+    """
+    functions = {item.name: item for item in getattr(module, "functions", ())}
+
+    def fail(item, message):
+        raise bootstrap.SotlasBootstrapError(
+            message,
+            item.token.line,
+            item.token.column,
+            getattr(module, "filename", None),
+            getattr(module, "source", None),
+        )
+
+    def value_type(value, scope):
+        if isinstance(value, bootstrap.Name):
+            return scope.get(value.value)
+        if isinstance(value, bootstrap.MoveExpr):
+            return value_type(value.value, scope)
+        if isinstance(value, bootstrap.Call):
+            target = functions.get(value.callee)
+            return getattr(target, "result", None) if target is not None else None
+        return None
+
+    def visit(items, inherited_scope):
+        scope = dict(inherited_scope)
+        for item in items:
+            if isinstance(item, bootstrap.Let):
+                expected = item.type
+                if (
+                    expected is not None
+                    and getattr(expected, "state_space", None) is not None
+                    and getattr(expected, "state_name", None) is not None
+                ):
+                    space = plan.space(expected.state_space)
+                    value = item.value
+                    if isinstance(value, bootstrap.StructLit):
+                        if value.struct_name != expected.name:
+                            fail(
+                                item,
+                                "typestate initializer nominal type does not match "
+                                f"{expected.display()}",
+                            )
+                        if space.initial_state is None:
+                            fail(
+                                item,
+                                f"state space {space.name!r} has no declared initial state",
+                            )
+                        if expected.state_name != space.initial_state:
+                            fail(
+                                item,
+                                f"fresh {expected.name} value can only begin in "
+                                f"initial state {space.initial_state}",
+                            )
+                    else:
+                        actual = value_type(value, scope)
+                        if actual is None or not bootstrap.same_type(
+                            actual, expected
+                        ):
+                            fail(
+                                item,
+                                f"cannot establish {expected.display()} from this "
+                                "initializer; use a value with the exact typestate contract",
+                            )
+                if item.type is not None:
+                    scope[item.name] = item.type
+                elif isinstance(item.value, bootstrap.StructLit):
+                    scope[item.name] = bootstrap.Type(item.value.struct_name)
+                else:
+                    inferred = value_type(item.value, scope)
+                    if inferred is not None:
+                        scope[item.name] = inferred
+            elif isinstance(item, bootstrap.If):
+                visit(item.then_body, scope)
+                visit(item.else_body, scope)
+            elif isinstance(
+                item, (bootstrap.While, bootstrap.Loop, bootstrap.Unsafe)
+            ):
+                visit(item.body, scope)
+            elif isinstance(item, bootstrap.For):
+                visit(item.body, scope)
+            elif isinstance(item, bootstrap.Defer) and item.body is not None:
+                visit(item.body, scope)
+
+    for function in getattr(module, "functions", ()):
+        visit(function.body, dict(function.params))
+
+
 def install(bootstrap) -> None:
     """Install State Space syntax on the final canonical production frontend."""
     if getattr(bootstrap, "_STATE_SPACE_FRONTEND_INSTALLED", False):
@@ -579,6 +702,8 @@ def install(bootstrap) -> None:
         phase1_internal = getattr(module, "_state_phase1_internal", False)
         if plan.declarations and not phase1_internal:
             _preview_error(bootstrap, module, plan)
+        if plan.declarations:
+            _validate_state_local_initializers(module, plan, bootstrap)
         module.state_transition_facts = ()
         result = original_check(
             module,

@@ -63,6 +63,28 @@ def _download_plan():
 
 
 class SotlasStateSpaceTests(unittest.TestCase):
+    def test_explicit_initial_state_is_preserved(self):
+        state = state_space.StateSpaceState
+        plan = state_space.certify_state_space(
+            "Device",
+            (state("Discovered"), state("Configured")),
+            (state_space.StateSpaceTransition("Discovered", "Configured"),),
+            initial_state="Discovered",
+        )
+        self.assertEqual(plan.initial_state, "Discovered")
+
+    def test_unknown_initial_state_is_rejected(self):
+        with self.assertRaisesRegex(
+            state_space.StateSpaceError,
+            "unknown initial state 'Missing'",
+        ):
+            state_space.certify_state_space(
+                "Device",
+                (state_space.StateSpaceState("Discovered"),),
+                (),
+                initial_state="Missing",
+            )
+
     def test_master_roadmap_download_graph_is_certified_exactly(self):
         plan = _download_plan()
         self.assertEqual(plan.name, "Download")

@@ -2,7 +2,7 @@
 
 **Atualizado em:** 2026-09-25  
 **Status:** 🟡 IN PROGRESS  
-**Último baseline verde antes deste pacote:** `70a58e767b0812e2e2b3bc87cebaa9757a682a4b` — CI #563 `success`
+**Último baseline verde antes deste pacote:** `81e5774` — Sotlas CI & Toolchain Build Farm #569 `success`
 
 ## Objetivo do 1.0
 
@@ -41,6 +41,7 @@ A mesma regra das fases anteriores continua válida:
 - [x] boundary checks exigem tipo nominal, State Space e estado exatos;
 - [x] transições de typestate consultam exclusivamente o grafo certificado;
 - [x] State Spaces com estados homônimos não compartilham identidade;
+- [x] initial state só existe quando declarado explicitamente; ordem dos estados não inventa inicialização;
 - [x] cobertura de estados possui análise backend-neutral;
 - [x] arms duplicados/desconhecidos são rejeitados;
 - [x] missing states são preservados em ordem de declaração;
@@ -54,6 +55,7 @@ A mesma regra das fases anteriores continua válida:
 - [x] resolução 1.0 é deliberadamente simples: `Space<State>` só é typestate quando existe `space Space` no mesmo módulo;
 - [x] generics comuns mantêm o comportamento anterior quando não existe State Space homônimo;
 - [x] `StateSpaceFrontendPlan` reconcilia AST fonte com `StateSpacePlan` e `StateQualifiedType`;
+- [x] initializer de struct fresca só pode adquirir o typestate declarado como inicial;
 - [x] `StateSpaceTypedSnapshot` congela State Spaces e sites `Type<State>` em uma extensão Typed AST canônica;
 - [x] sites tipados usam identidades determinísticas para parâmetros, retornos, campos, globals, enum payloads e locals explícitos;
 - [x] fatos frontend e Typed AST são cruzados e divergências falham fechado;

@@ -95,6 +95,52 @@ class SotlasStateFrontendTests(unittest.TestCase):
         self.assertIsNone(completed.payload[0].name)
         self.assertEqual(completed.payload[0].type_name, "File")
 
+    def test_explicit_initial_state_is_preserved_in_frontend_plan(self):
+        source = self._source().replace(
+            "state Discovered", "initial state Discovered"
+        )
+        module = bootstrap.parse(source, filename="<state-initial>")
+        self.assertEqual(module.state_spaces[0].initial_state, "Discovered")
+        plan = bootstrap.plan_state_space_frontend(module)
+        self.assertEqual(plan.space("Device").initial_state, "Discovered")
+
+    def test_fresh_struct_can_only_receive_explicit_initial_typestate(self):
+        valid = self._source(
+            "fn make() -> Device<Discovered> { "
+            "let dev: Device<Discovered> = Device { id: 37u32 }; "
+            "return move(dev); }"
+        ).replace("state Discovered", "initial state Discovered")
+        module = bootstrap.parse(valid, filename="<state-initial-valid>")
+        module._state_phase1_internal = True
+        bootstrap.check(module)
+
+        invalid = valid.replace(
+            "Device<Discovered> = Device", "Device<Configured> = Device"
+        )
+        invalid_module = bootstrap.parse(
+            invalid, filename="<state-initial-invalid>"
+        )
+        invalid_module._state_phase1_internal = True
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            "can only begin in initial state Discovered",
+        ):
+            bootstrap.check(invalid_module)
+
+    def test_typestate_construction_requires_declared_initial_state(self):
+        source = self._source(
+            "fn make() -> Device<Discovered> { "
+            "let dev: Device<Discovered> = Device { id: 37u32 }; "
+            "return move(dev); }"
+        )
+        module = bootstrap.parse(source, filename="<state-no-initial>")
+        module._state_phase1_internal = True
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            "has no declared initial state",
+        ):
+            bootstrap.check(module)
+
     def test_frontend_plan_reuses_canonical_state_graph_and_typestate(self):
         module = bootstrap.parse(self._source(), filename="<state-plan>")
         plan = bootstrap.plan_state_space_frontend(module)
@@ -220,7 +266,8 @@ class SotlasStateFrontendTests(unittest.TestCase):
         source = self._source(
             "pub fn configure(dev: Device<Discovered>) -> Device<Configured> "
             "{ unsafe { return transition(move(dev), Configured); } }"
-        ) + "\nfn main() -> i32 { let dev: Device<Discovered> = Device { id: 37u32 }; " \
+        ).replace("state Discovered", "initial state Discovered") \
+        + "\nfn main() -> i32 { let dev: Device<Discovered> = Device { id: 37u32 }; " \
             "let configured = configure(move(dev)); " \
             "return configured.id as i32; }\n"
         # This test exercises the opt-in Phase-1 subset. The public

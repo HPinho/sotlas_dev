@@ -51,6 +51,7 @@ class StateSpacePlan:
     name: str
     states: tuple[StateSpaceState, ...]
     transitions: tuple[StateSpaceTransition, ...]
+    initial_state: str | None = None
 
     def state(self, name: str) -> StateSpaceState:
         matches = tuple(item for item in self.states if item.name == name)
@@ -127,11 +128,14 @@ def certify_state_space(
     name: str,
     states: tuple[StateSpaceState, ...],
     transitions: tuple[StateSpaceTransition, ...],
+    *,
+    initial_state: str | None = None,
 ) -> StateSpacePlan:
     """Validate and freeze one canonical State Space graph.
 
     Source order is preserved for both states and transitions; no implicit edge,
-    reverse edge, transitive edge, or initial state is synthesized.
+    reverse edge, transitive edge, or initial state is synthesized. An initial
+    state exists only when the source explicitly declares one.
     """
     _require_identifier(name, role="state space name")
     if not states:
@@ -173,10 +177,17 @@ def certify_state_space(
         seen_edges.add(edge)
         checked_transitions.append(transition)
 
+    if initial_state is not None and initial_state not in by_name:
+        raise StateSpaceError(
+            f"state space {name!r} declares unknown initial state "
+            f"{initial_state!r}"
+        )
+
     return StateSpacePlan(
         name=name,
         states=tuple(states),
         transitions=tuple(checked_transitions),
+        initial_state=initial_state,
     )
 
 
