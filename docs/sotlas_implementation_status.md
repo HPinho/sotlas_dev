@@ -1,8 +1,8 @@
 # Sotlas — Implementation Status
 
 **Atualizado em:** 2026-09-25  
-**Último baseline verde certificado:** `c91b23a`
-**CI de referência:** Sotlas CI & Toolchain Build Farm #577 — `success`
+**Último baseline verde certificado:** `e820ac2`
+**CI de referência:** Sotlas CI & Toolchain Build Farm #578 — `success`
 **Fonte arquitetural:** `SOTLAS — ESPECIFICAÇÃO MESTRA`
 
 > Este é o índice operacional atual. O snapshot detalhado anterior, com o histórico extenso das microentregas da Fase 2, permanece preservado em `docs/archive/sotlas_implementation_status_2026-09-23.md`.
@@ -90,7 +90,7 @@ Escopo: `docs/sotlas_1_0_phase3_authority_scope.md`.
 
 ## Fase 4 — State Spaces
 
-**Status 1.0: ~55% 🟡 — IN PROGRESS**
+**Status 1.0: ~60% 🟡 — IN PROGRESS**
 
 ### Núcleo semântico
 
@@ -130,7 +130,8 @@ Escopo: `docs/sotlas_1_0_phase3_authority_scope.md`.
 - [x] lowering C11 do subset nominal, com transição validada antes da emissão;
 - [x] e2e positivo nativo e rejeição semântica de edges/transições inválidos;
 - [x] gate dedicado da Fase 4 na CI executa frontend, SIR e e2e C11;
-- [ ] consumer público mínimo para coverage/exhaustividade.
+- [x] API pública backend-neutral para analisar coverage e exigir exhaustividade em `StateSpacePlan` certificado;
+- [ ] integração de `discern`/coverage no frontend de produção e lowering C11.
 
 ### Pós-1.0
 

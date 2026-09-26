@@ -87,7 +87,8 @@ Payloads, armazenamento tipado, métodos, múltiplas transições e transições
 - [x] teste positivo e2e: fonte → compile_source → C11 → execução;
 - [x] teste negativo: edges/transições inválidos são rejeitados antes do backend;
 - [x] gate público e etapa CI dedicados impedem aceitar formas que o backend não suporta;
-- [ ] integrar coverage ao consumer público mínimo escolhido para o 1.0.
+- [x] API Python pública backend-neutral para analisar coverage e exigir exaustividade sobre plano certificado;
+- [ ] integrar `discern`/coverage ao frontend de produção e ao lowering C11.
 
 ## DEFER 1.0.x
 

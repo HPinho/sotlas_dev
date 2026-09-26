@@ -515,6 +515,22 @@ def plan_state_space_frontend(module, bootstrap=None) -> StateSpaceFrontendPlan:
     )
 
 
+def analyze_state_space_coverage(space: StateSpacePlan, arms: tuple[str, ...]):
+    """Public frontend API for validating a State Space consumer's arms."""
+    from .state_coverage import analyze_state_coverage
+
+    return analyze_state_coverage(space, arms)
+
+
+def require_exhaustive_state_space_coverage(
+    space: StateSpacePlan, arms: tuple[str, ...]
+):
+    """Public frontend API that rejects missing/duplicate/unknown arms."""
+    from .state_coverage import require_exhaustive_state_coverage
+
+    return require_exhaustive_state_coverage(space, arms)
+
+
 def _frontend_error_as_bootstrap(bootstrap, module, error):
     decls = tuple(getattr(module, "state_spaces", ()))
     line = decls[0].line if decls else 1
@@ -637,7 +653,6 @@ def _state_release_subset_error(module, plan, bootstrap):
                 f"typestate {type_name} requires a matching sole struct "
                 "for the Sotlas 1.0 C11 subset"
             )
-
     def is_state_type(type_obj):
         return (
             getattr(type_obj, "state_space", None) is not None
@@ -775,6 +790,10 @@ def install(bootstrap) -> None:
         return plan_state_space_frontend(module, bootstrap=bootstrap)
 
     bootstrap.plan_state_space_frontend = public_plan
+    bootstrap.analyze_state_space_coverage = analyze_state_space_coverage
+    bootstrap.require_exhaustive_state_space_coverage = (
+        require_exhaustive_state_space_coverage
+    )
 
     original_check = bootstrap.check
 
@@ -868,5 +887,7 @@ __all__ = [
     "ParsedStateSpaceDecl",
     "StateSpaceFrontendPlan",
     "plan_state_space_frontend",
+    "analyze_state_space_coverage",
+    "require_exhaustive_state_space_coverage",
     "install",
 ]

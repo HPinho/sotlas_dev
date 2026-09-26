@@ -152,6 +152,19 @@ class SotlasStateFrontendTests(unittest.TestCase):
             ("Device<Discovered>", "Device<Configured>"),
         )
 
+    def test_public_coverage_api_uses_frontend_certified_space(self):
+        module = bootstrap.parse(self._source(), filename="<state-coverage-api>")
+        space = bootstrap.plan_state_space_frontend(module).space("Device")
+        complete = sotlas_compile.require_exhaustive_state_space_coverage(
+            space, ("Discovered", "Configured", "Running")
+        )
+        self.assertTrue(complete.complete)
+        self.assertEqual(complete.coverage_text(), "3/3")
+        partial = sotlas_compile.analyze_state_space_coverage(
+            space, ("Configured",)
+        )
+        self.assertEqual(partial.missing_states, ("Discovered", "Running"))
+
     def test_public_typestate_syntax_is_preserved_in_function_signature(self):
         module = bootstrap.parse(self._source(), filename="<state-signature>")
         function = module.functions[0]

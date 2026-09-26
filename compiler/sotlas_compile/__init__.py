@@ -12,7 +12,9 @@ from .region_indirect_safety import install as _install_region_indirect_safety
 from .region_method_safety import install as _install_region_method_safety
 from .state_frontend import (
     StateSpaceFrontendPlan,
+    analyze_state_space_coverage,
     install as _install_state_space_frontend,
+    require_exhaustive_state_space_coverage,
 )
 
 _install_frontend_extensions(bootstrap)
@@ -62,6 +64,7 @@ __all__ = [
     "compile_project", "emit_c_project", "Phase1CheckedModule",
     "analyze_module_phase1", "analyze_source_phase1", "CheckedAuthoritySIR",
     "build_canonical_checked_authority_sir", "StateSpaceFrontendPlan",
+    "analyze_state_space_coverage", "require_exhaustive_state_space_coverage",
     "StateSpaceTypedSnapshot", "plan_state_space_frontend",
     "StateTransitionSIRError", "lower_typestate_transition",
     "FlowDependency", "FlowGraphError", "FlowGraphPlan", "FlowNode",
