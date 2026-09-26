@@ -4063,6 +4063,10 @@ snapshots e inversas verificadas continuam abertos. APIs:
 
 ### 13. Transactions
 
+A auditoria exige que cada handler compensatório aceite o valor de saída
+tipado da stage que poderá compensar (ou zero argumentos quando a stage retorna
+`void`). A incompatibilidade é rejeitada antes que qualquer stage seja executada.
+
 `change`, rollback e compensations.
 
 ### 14. Intent

@@ -35,7 +35,7 @@ Legenda:
 | 10 | Guarantees | ~25% candidato | 🟡 |
 | 11 | Causality | ~12% candidato | 🟡 |
 | 12 | Counterfactuals | ~14% candidato | 🟡 |
-| 13 | Transactions | ~25% candidato | 🟡 |
+| 13 | Transactions | ~27% candidato | 🟡 |
 | 14 | Intent | ~20% candidato | 🟡 |
 | 15 | SIR completo | ~42% candidato | 🟡 |
 | 16 | Native Machine Backend | ~8% | 🟡 |
@@ -111,6 +111,7 @@ target_stage, allowed_effects=...)` em `sotlas_compile.counterfactuals`.
 - [x] auditoria estática dos efeitos de um Flow SIR contra política explícita de reversibilidade;
 - [x] efeito sem política, irreversível ou compensável sem handler bloqueia a satisfação da política de rollback;
 - [x] handler declarado precisa existir no SIR;
+- [x] assinatura do handler é validada contra o tipo de saída da stage antes de qualquer execução ou rollback;
 - [x] auditoria satisfeita expõe camadas de stages que precisam de compensação em ordem reversa de dependência;
 - [x] executor SIR sequencial valida política e bindings antes de iniciar qualquer stage;
 - [x] falha após stages concluídas executa handlers compensatórios em ordem inversa;

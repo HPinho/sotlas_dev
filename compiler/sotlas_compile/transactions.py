@@ -95,6 +95,26 @@ def analyze_sir_flow_transaction_effects(
                     raise TransactionError(
                         f"compensation handler {compensation!r} is not present in SIR"
                     )
+                else:
+                    stage_function = functions[stage.function]
+                    handler_function = functions[compensation]
+                    output_type = stage_function.return_type
+                    expected_parameters = 0 if output_type == "void" else 1
+                    actual_parameters = tuple(handler_function.parameters)
+                    if len(actual_parameters) != expected_parameters:
+                        raise TransactionError(
+                            f"compensation handler {compensation!r} must accept "
+                            f"{expected_parameters} parameter(s) for stage "
+                            f"{stage.name!r} output"
+                        )
+                    if expected_parameters and (
+                        actual_parameters[0].type_name != output_type
+                    ):
+                        raise TransactionError(
+                            f"compensation handler {compensation!r} parameter "
+                            f"type {actual_parameters[0].type_name!r} does not "
+                            f"match stage {stage.name!r} output {output_type!r}"
+                        )
             elif classification == "irreversible":
                 blockers.append(f"{stage.name}: effect {effect} is irreversible")
             records.append(TransactionEffect(

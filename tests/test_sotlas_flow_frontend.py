@@ -41,6 +41,7 @@ module test::flow_frontend;
 fn load_profile() -> i32 {{ return 1; }}
 fn load_posts() -> i32 {{ return 2; }}
 fn render(profile: i32, posts: i32) -> i32 {{ return profile + posts; }}
+fn compensate_profile(value: i32) -> void {{ return; }}
 {flow}
 """
 
@@ -465,11 +466,21 @@ flow Home {
 
         compensatable = package.analyze_sir_flow_transaction_effects(
             sir.module, "Home", {"io": "compensatable"},
-            {"io": "load_posts"},
+            {"io": "compensate_profile"},
         )
         self.assertTrue(compensatable.rollback_policy_satisfied)
-        self.assertEqual(compensatable.effects[0].compensation, "load_posts")
+        self.assertEqual(
+            compensatable.effects[0].compensation, "compensate_profile"
+        )
         self.assertEqual(compensatable.compensation_stage_order, (("profile",),))
+
+        with self.assertRaisesRegex(
+            package.TransactionError, "must accept 1 parameter"
+        ):
+            package.analyze_sir_flow_transaction_effects(
+                sir.module, "Home", {"io": "compensatable"},
+                {"io": "render"},
+            )
 
         no_handler = package.analyze_sir_flow_transaction_effects(
             sir.module, "Home", {"io": "compensatable"}
@@ -506,7 +517,7 @@ flow Home {
             sir.module,
             "Home",
             {"io": "compensatable"},
-            {"io": "load_profile"},
+            {"io": "compensate_profile"},
         )
         self.assertTrue(audit.rollback_policy_satisfied)
         self.assertEqual(
