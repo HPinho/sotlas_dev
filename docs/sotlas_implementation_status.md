@@ -1,8 +1,8 @@
 # Sotlas — Implementation Status
 
 **Atualizado em:** 2026-09-26
-**Último baseline verde certificado:** `a956c04`
-**CI de referência:** Sotlas CI & Toolchain Build Farm #587 — workflow `success`
+**Último baseline verde certificado:** `24ef5ff`
+**CI de referência:** Sotlas CI & Toolchain Build Farm #588 — workflow `success`
 **Fonte arquitetural:** `SOTLAS — ESPECIFICAÇÃO MESTRA`
 
 > Este é o índice operacional atual. O snapshot detalhado anterior, com o histórico extenso das microentregas da Fase 2, permanece preservado em `docs/archive/sotlas_implementation_status_2026-09-23.md`.
@@ -31,7 +31,7 @@ Legenda:
 | 6 | Flow | ~35% candidato | 🟡 |
 | 7 | Execution Domains | ~35% | 🟡 |
 | 8 | Heterogeneous Compute | ~0% | 🟡 |
-| 9 | Trust Domains | ~5% | 🟡 |
+| 9 | Trust Domains | ~10% candidato | 🟡 |
 | 10 | Guarantees | ~0% | 🟡 |
 | 11 | Causality | ~0% | 🟡 |
 | 12 | Counterfactuals | ~0% | 🟡 |
@@ -163,6 +163,7 @@ Escopo: `docs/sotlas_1_0_phase4_state_space_scope.md`.
 - [x] summaries diretos/transitivos, não resolvidos e declarados preservados por função na Typed AST;
 - [x] summaries de fonte acompanham funções no SIR e contratos declarados são revalidados pela inferência SIR;
 - [x] contrato backend-neutral aceita ou rejeita funções conforme os efeitos SIR revalidados;
+- [x] declarações `extern "C"` carregam efeito `ffi` distinto e contratos omissos falham;
 - [ ] backends C11/LLVM aplicam seus próprios contratos durante o lowering;
 - [ ] restrições completas para `@realtime`, async, locks, FFI e efeitos externos;
 - [x] testes end-to-end de fonte Sotlas e gate dedicado desta fatia;

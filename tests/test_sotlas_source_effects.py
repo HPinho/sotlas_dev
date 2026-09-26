@@ -26,6 +26,30 @@ analyze_source_phase1 = package.analyze_source_phase1
 
 
 class SourceEffectContractTests(unittest.TestCase):
+    def test_foreign_declarations_have_explicit_ffi_boundary_effect(self):
+        source = '''
+module test::ffi_effects;
+extern "C" fn foreign_read() -> u32;
+@effects(ffi,io)
+extern "C" fn contracted_read() -> u32;
+'''
+        module = bootstrap.parse(source, filename="ffi-effects.sotlas")
+        summaries = analyze_source_effects(module, bootstrap)
+        self.assertEqual(
+            summaries["foreign_read"].transitive_effects,
+            ("ffi", "unknown_call"),
+        )
+        self.assertEqual(
+            summaries["contracted_read"].transitive_effects,
+            ("io", "ffi"),
+        )
+
+        omitted = source.replace("@effects(ffi,io)", "@effects(io)")
+        with self.assertRaisesRegex(
+            SotlasBootstrapError, "omits inferred effects: ffi"
+        ):
+            compile_source(omitted, filename="ffi-effects.sotlas")
+
     def test_infers_direct_and_transitive_effects_through_recursive_calls(self):
         source = """
 module test::source_effects;

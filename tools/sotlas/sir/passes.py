@@ -28,7 +28,7 @@ class SIRPassResult:
 
 _EFFECT_ORDER = (
     "alloc", "blocking", "async", "io", "sync", "unsafe", "volatile",
-    "system", "unknown_call",
+    "system", "ffi", "unknown_call",
 )
 _KNOWN_EFFECTS = frozenset(_EFFECT_ORDER)
 _CALL_EFFECTS = {

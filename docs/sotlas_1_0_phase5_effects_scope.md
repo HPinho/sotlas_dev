@@ -8,7 +8,7 @@
 
 `EffectInferencePass` records direct and transitive effects for each SIR
 function. The current effect vocabulary is `alloc`, `blocking`, `async`, `io`,
-`sync`, `unsafe`, `volatile`, `system`, and `unknown_call`. Calls to known
+`sync`, `unsafe`, `volatile`, `system`, `ffi`, and `unknown_call`. Calls to known
 functions propagate effects through recursive call graphs to a fixed point.
 Unresolved callees conservatively contribute `unknown_call` and are preserved
 by name in the summary. When SIR is built from a checked source module, source
@@ -31,7 +31,8 @@ The canonical production checker accepts `@effects(...)`, infers direct and
 transitive effects over local recursive calls, and attaches deterministic
 source summaries to the checked module. Classified low-level builtins and
 inline assembly carry conservative effects; unmapped external calls are
-`unknown_call`. Explicit contracts that omit inferred effects fail before C11
+`unknown_call`. `extern "C"` declarations additionally carry a distinct `ffi`
+effect, which a declared contract must include. Explicit contracts that omit inferred effects fail before C11
 lowering. Phase 1 copies each source summary into its corresponding typed
 function, and canonical SIR construction carries the facts into its functions
 for inference and contract revalidation. A backend-neutral effect capability
@@ -59,7 +60,8 @@ not yet model all runtime/FFI names.
 - [x] propagation into canonical SIR and revalidation of declared contracts;
 - [x] backend-neutral per-function effect capability contract;
 - [ ] concrete C11/LLVM contracts enforced during lowering;
-- [ ] effects for `@realtime`, async suspension, locks, FFI, and all runtime calls;
+- [x] distinct `ffi` effect for foreign declarations and contract validation;
+- [ ] effects for `@realtime`, async suspension, locks, and all runtime calls;
 - [x] source tests and a phase-specific release gate for the subset;
 - [ ] broad domain/runtime/backend end-to-end matrix.
 

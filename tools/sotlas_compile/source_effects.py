@@ -7,7 +7,7 @@ import re
 
 EFFECT_ORDER = (
     "alloc", "blocking", "async", "io", "sync", "unsafe", "volatile",
-    "system", "unknown_call",
+    "system", "ffi", "unknown_call",
 )
 KNOWN_EFFECTS = frozenset(EFFECT_ORDER)
 CALL_EFFECTS = {
@@ -116,6 +116,8 @@ def analyze_source_effects(module, bootstrap) -> dict[str, SourceEffectSummary]:
         if name in bootstrap.BUILTIN_FUNCTIONS and name not in module_functions:
             continue
         if not function.body:
+            if "@extern(C)" in function.attributes:
+                direct[name].add("ffi")
             if contract is None:
                 direct[name].add("unknown_call")
                 unresolved[name].add(name)

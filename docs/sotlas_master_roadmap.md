@@ -3966,6 +3966,10 @@ O backend nativo de CPU é pré-requisito arquitetural para esta fase, mas não 
 
 `trusted`, `unsafe`, `foreign`, `isolated`.
 
+O efeito `ffi` distingue chamadas que cruzam `extern "C"` das demais chamadas
+desconhecidas no summary de Effects. Isso registra a fronteira estrangeira no
+SIR para contratos de backend; não fornece sandboxing nem prova isolamento.
+
 ### 10. Guarantees
 
 `requires`, `ensures`, `guarantee`, proof reports.
