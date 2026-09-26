@@ -32,12 +32,12 @@ Legenda:
 | 7 | Execution Domains | ~35% | 🟡 |
 | 8 | Heterogeneous Compute | ~0% | 🟡 |
 | 9 | Trust Domains | ~10% candidato | 🟡 |
-| 10 | Guarantees | ~0% | 🟡 |
+| 10 | Guarantees | ~5% candidato | 🟡 |
 | 11 | Causality | ~0% | 🟡 |
 | 12 | Counterfactuals | ~0% | 🟡 |
 | 13 | Transactions | ~0% | 🟡 |
 | 14 | Intent | ~0% | 🟡 |
-| 15 | SIR completo | ~32% candidato | 🟡 |
+| 15 | SIR completo | ~34% candidato | 🟡 |
 | 16 | Native Machine Backend | ~5% | 🟡 |
 | 17 | Tooling avançado | ~15% | 🟡 |
 
@@ -210,6 +210,20 @@ Escopo: `docs/sotlas_1_0_phase6_flow_scope.md`.
 - [ ] testes nativos positivos/negativos e matriz de release por target.
 
 Escopo: `docs/sotlas_1_0_phase7_execution_scope.md`.
+
+## Fase 10 — Guarantees
+
+**Status 1.0: ~5% candidato 🟡 — IN PROGRESS**
+
+- [x] `requires` tipado em funções com corpo;
+- [x] chamadas com argumentos constantes são provadas ou rejeitadas;
+- [x] chamadas falsas falham estaticamente; demais chamadas são guardadas em runtime;
+- [x] funções públicas mantêm a precondição no ABI C11 com guarda de entrada;
+- [x] relatório de prova da chamada é preservado no SIR canônico;
+- [ ] prova simbólica por refinamento de condições e argumentos dinâmicos;
+- [ ] `ensures`, declaração `guarantee`, safety reports e gate e2e por propriedade.
+
+Escopo: `docs/sotlas_1_0_phase10_guarantees_scope.md`.
 
 ## Regra de baseline
 

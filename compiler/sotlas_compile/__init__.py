@@ -67,6 +67,13 @@ from .flow_sir import (
     FlowSIRPlan,
     lower_typed_flows_to_sir,
 )
+from .contracts_frontend import (
+    ContractFrontendError,
+    ContractCallProof,
+    ContractPrecondition,
+    install as _install_contracts_frontend,
+)
+_install_contracts_frontend(bootstrap)
 from .phase1_pipeline import (
     Phase1CheckedModule,
     analyze_module_phase1,
@@ -99,5 +106,6 @@ __all__ = [
     "FlowFrontendError", "TypedFlowPlan", "TypedFlowStage",
     "plan_source_flows", "FlowSIRError", "FlowSIRValueRef",
     "FlowSIRArgument", "FlowSIRStage", "FlowSIRPlan",
-    "lower_typed_flows_to_sir",
+    "lower_typed_flows_to_sir", "ContractFrontendError", "ContractCallProof",
+    "ContractPrecondition",
 ]

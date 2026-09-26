@@ -60,6 +60,43 @@ def _attach_checked_flow_plans(checked_module: object, sir_module) -> None:
     )
 
 
+def _attach_checked_contract_proofs(checked_module: object, sir_module) -> None:
+    parsed_module = getattr(checked_module, "parsed_module", None)
+    proofs = tuple(
+        getattr(parsed_module, "contract_proofs", ()) or ()
+    )
+    preconditions = tuple(
+        getattr(parsed_module, "contract_preconditions", ()) or ()
+    )
+    if not proofs and not preconditions:
+        return
+    if any(
+        not isinstance(getattr(proof, "function", None), str)
+        or getattr(proof, "predicate", None) is None
+        or getattr(proof, "arguments", None) is None
+        for proof in proofs
+    ):
+        raise RuntimeError("checked contract proof report is malformed")
+    if any(
+        not isinstance(getattr(precondition, "function", None), str)
+        or not isinstance(getattr(precondition, "predicate", None), str)
+        for precondition in preconditions
+    ):
+        raise RuntimeError("checked contract preconditions are malformed")
+    existing = tuple(getattr(sir_module, "contract_proofs", ()) or ())
+    if existing and existing != proofs:
+        raise RuntimeError("generated SIR already contains conflicting proof reports")
+    existing_preconditions = tuple(
+        getattr(sir_module, "contract_preconditions", ()) or ()
+    )
+    if existing_preconditions and existing_preconditions != preconditions:
+        raise RuntimeError(
+            "generated SIR already contains conflicting contract preconditions"
+        )
+    sir_module.contract_proofs = proofs
+    sir_module.contract_preconditions = preconditions
+
+
 def load_canonical_sir():
     existing = sys.modules.get(_CANONICAL_SIR_PACKAGE)
     if existing is not None:
@@ -102,6 +139,7 @@ def build_canonical_checked_ownership_sir(checked_module: object):
     module = generator.generate_from_ast(parsed_module)
     _attach_source_effect_summaries(checked_module, module)
     _attach_checked_flow_plans(checked_module, module)
+    _attach_checked_contract_proofs(checked_module, module)
     placement = sir.apply_ownership_module_plan(module, plan)
     return sir.CheckedOwnershipSIR(module, placement), plan
 
@@ -156,6 +194,7 @@ def build_canonical_checked_authority_sir(
     module = generator.generate_from_ast(parsed_module)
     _attach_source_effect_summaries(checked_module, module)
     _attach_checked_flow_plans(checked_module, module)
+    _attach_checked_contract_proofs(checked_module, module)
 
     # Import locally to keep authority_sir -> canonical_sir loading acyclic.
     from .authority_sir import certify_authority_sir, place_authority_abi_facts

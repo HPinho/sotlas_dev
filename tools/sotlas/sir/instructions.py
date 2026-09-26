@@ -406,6 +406,8 @@ class SIRModule:
         default_factory=dict, init=False
     )
     flow_plans: Tuple[Any, ...] = ()
+    contract_proofs: Tuple[Any, ...] = ()
+    contract_preconditions: Tuple[Any, ...] = ()
 
     def add_function(self, fn: SIRFunction) -> None:
         self.functions.append(fn)
@@ -434,4 +436,18 @@ class SIRModule:
                     f"({arguments}) -> {stage.result_type} effects=[{effects}]"
                 )
             lines.append("}")
+        for proof in self.contract_proofs:
+            arguments = ", ".join(
+                f"{name}={value!r}" for name, value in proof.arguments
+            )
+            lines.append(
+                f"sir_proof call @{proof.function} at "
+                f"{proof.line}:{proof.column} requires {proof.predicate} "
+                f"arguments=[{arguments}]"
+            )
+        for precondition in self.contract_preconditions:
+            lines.append(
+                f"sir_requires @{precondition.function} "
+                f"{precondition.predicate} enforcement=runtime"
+            )
         return "\n\n".join(lines)

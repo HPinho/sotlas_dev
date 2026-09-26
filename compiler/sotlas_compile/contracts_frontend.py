@@ -1,0 +1,347 @@
+"""Conservative function preconditions for the Sotlas 1.0 contract subset."""
+from __future__ import annotations
+
+from dataclasses import dataclass
+import math
+import re
+
+
+class ContractFrontendError(ValueError):
+    """Raised when a function precondition is malformed or cannot be proved."""
+
+
+@dataclass(frozen=True)
+class ContractCallProof:
+    function: str
+    line: int
+    column: int
+    predicate: str
+    arguments: tuple[tuple[str, object], ...]
+
+
+@dataclass(frozen=True)
+class ContractPrecondition:
+    function: str
+    predicate: str
+
+
+def _render(expr, bootstrap) -> str:
+    if isinstance(expr, bootstrap.Name):
+        return expr.value
+    if isinstance(expr, bootstrap.Number):
+        return expr.value
+    if isinstance(expr, bootstrap.Boolean):
+        return "true" if expr.value else "false"
+    if isinstance(expr, bootstrap.Unary):
+        return f"{expr.op}{_render(expr.value, bootstrap)}"
+    if isinstance(expr, bootstrap.Binary):
+        return (
+            f"({_render(expr.left, bootstrap)} {expr.op} "
+            f"{_render(expr.right, bootstrap)})"
+        )
+    raise ContractFrontendError(
+        f"unsupported expression in requires contract: {type(expr).__name__}"
+    )
+
+
+def _referenced_parameters(expr, bootstrap) -> frozenset[str]:
+    if isinstance(expr, bootstrap.Name):
+        return frozenset((expr.value,))
+    if isinstance(expr, bootstrap.Unary):
+        return _referenced_parameters(expr.value, bootstrap)
+    if isinstance(expr, bootstrap.Binary):
+        return (
+            _referenced_parameters(expr.left, bootstrap)
+            | _referenced_parameters(expr.right, bootstrap)
+        )
+    return frozenset()
+
+
+def _contract_type(expr, scope, bootstrap):
+    if isinstance(expr, bootstrap.Name):
+        if expr.value not in scope:
+            raise ContractFrontendError(
+                f"requires references unknown parameter {expr.value!r}"
+            )
+        return scope[expr.value]
+    if isinstance(expr, bootstrap.Number):
+        try:
+            return bootstrap.Type(bootstrap.numeric_literal_type(expr.value))
+        except ValueError as error:
+            raise ContractFrontendError(str(error)) from error
+    if isinstance(expr, bootstrap.Boolean):
+        return bootstrap.Type("bool")
+    if isinstance(expr, bootstrap.Unary):
+        inner = _contract_type(expr.value, scope, bootstrap)
+        if expr.op == "!" and inner.name == "bool":
+            return bootstrap.Type("bool")
+        if expr.op == "+" and inner.name in (
+            "u8", "u16", "u32", "u64", "usize", "i8", "i16", "i32",
+            "i64", "isize", "f32", "f64",
+        ):
+            return inner
+        raise ContractFrontendError(
+            f"operator {expr.op!r} is unsupported in requires"
+        )
+    if isinstance(expr, bootstrap.Binary):
+        left = _contract_type(expr.left, scope, bootstrap)
+        right = _contract_type(expr.right, scope, bootstrap)
+        if expr.op in ("&&", "||"):
+            if left.name != "bool" or right.name != "bool":
+                raise ContractFrontendError(
+                    f"operator {expr.op!r} in requires expects bool operands"
+                )
+            return bootstrap.Type("bool")
+        numeric = {
+            "u8", "u16", "u32", "u64", "usize", "i8", "i16", "i32",
+            "i64", "isize", "f32", "f64",
+        }
+        integers = numeric - {"f32", "f64"}
+        comparators = ("==", "!=", "<", "<=", ">", ">=")
+        if expr.op in comparators:
+            compatible = left.name == right.name
+            if isinstance(expr.left, bootstrap.Number):
+                base, suffix = bootstrap.numeric_literal_parts(expr.left.value)
+                compatible |= (
+                    suffix is None
+                    and "." not in base
+                    and right.name in integers
+                )
+            if isinstance(expr.right, bootstrap.Number):
+                base, suffix = bootstrap.numeric_literal_parts(expr.right.value)
+                compatible |= (
+                    suffix is None
+                    and "." not in base
+                    and left.name in integers
+                )
+            if compatible and (
+                expr.op in ("==", "!=")
+                or (left.name in numeric and right.name in numeric)
+            ):
+                return bootstrap.Type("bool")
+        raise ContractFrontendError(
+            f"requires supports only compatible comparisons and boolean operators; "
+            f"invalid operands for {expr.op!r}"
+        )
+    raise ContractFrontendError(
+        f"unsupported expression in requires contract: {type(expr).__name__}"
+    )
+
+
+def _constant(expr, names, bootstrap):
+    if isinstance(expr, bootstrap.Name):
+        return names.get(expr.value)
+    if isinstance(expr, bootstrap.Number):
+        try:
+            base, suffix = bootstrap.numeric_literal_parts(expr.value)
+            value = float(base) if "." in base else int(base, 0)
+            if isinstance(value, float) and not math.isfinite(value):
+                return None
+            return value
+        except (ValueError, OverflowError):
+            return None
+    if isinstance(expr, bootstrap.Boolean):
+        return expr.value
+    if isinstance(expr, bootstrap.Unary):
+        value = _constant(expr.value, names, bootstrap)
+        if value is None:
+            return None
+        if expr.op == "!" and isinstance(value, bool):
+            return not value
+        if expr.op == "+" and not isinstance(value, bool):
+            return +value
+        if expr.op == "-" and not isinstance(value, bool):
+            return -value
+        return None
+    if not isinstance(expr, bootstrap.Binary):
+        return None
+    left = _constant(expr.left, names, bootstrap)
+    if expr.op == "&&" and left is False:
+        return False
+    if expr.op == "||" and left is True:
+        return True
+    right = _constant(expr.right, names, bootstrap)
+    if left is None or right is None:
+        return None
+    if isinstance(left, bool) != isinstance(right, bool):
+        return None
+    operations = {
+        "+": lambda: left + right,
+        "-": lambda: left - right,
+        "*": lambda: left * right,
+        "/": lambda: int(left / right) if isinstance(left, int) else left / right,
+        "%": lambda: left - int(left / right) * right,
+        "<<": lambda: left << right,
+        ">>": lambda: left >> right,
+        "&": lambda: left & right,
+        "|": lambda: left | right,
+        "^": lambda: left ^ right,
+        "==": lambda: left == right,
+        "!=": lambda: left != right,
+        "<": lambda: left < right,
+        "<=": lambda: left <= right,
+        ">": lambda: left > right,
+        ">=": lambda: left >= right,
+        "&&": lambda: bool(left and right),
+        "||": lambda: bool(left or right),
+    }
+    operation = operations.get(expr.op)
+    if operation is None:
+        return None
+    try:
+        value = operation()
+    except (ArithmeticError, TypeError, ValueError):
+        return None
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    return value
+
+
+def _walk(value, bootstrap):
+    if isinstance(value, (tuple, list)):
+        for item in value:
+            yield from _walk(item, bootstrap)
+        return
+    is_ast = isinstance(value, (bootstrap.Expr, bootstrap.Stmt))
+    is_state_case = type(value).__name__ == "StateCase"
+    if not is_ast and not is_state_case:
+        return
+    if is_ast:
+        yield value
+    for name, child in vars(value).items():
+        if name in {"token", "type", "target_type"}:
+            continue
+        if isinstance(child, dict):
+            yield from _walk(tuple(child.values()), bootstrap)
+        else:
+            yield from _walk(child, bootstrap)
+
+
+def _error(bootstrap, message, token, module):
+    raise bootstrap.SotlasBootstrapError(
+        message,
+        getattr(token, "line", 1),
+        getattr(token, "column", 1),
+        module.filename,
+        module.source,
+    )
+
+
+def install(bootstrap) -> None:
+    parser = bootstrap.Parser
+    if getattr(parser, "_sotlas_contracts_installed", False):
+        return
+    original_function = parser.function
+
+    def function_with_requires(self, public, attributes=None):
+        original_block = self.block
+        parsed = []
+
+        def block_with_requires():
+            self.block = original_block
+            if self.current.kind == "IDENT" and self.current.text == "requires":
+                token = self.current
+                self.at += 1
+                parsed.append((token, self.expression()))
+            return original_block()
+
+        self.block = block_with_requires
+        try:
+            function = original_function(self, public, attributes)
+        finally:
+            self.block = original_block
+        if parsed:
+            function.requires_token, function.requires = parsed[0]
+        return function
+
+    parser.function = function_with_requires
+    parser._sotlas_contracts_installed = True
+
+    original_check = bootstrap.check
+
+    def check_with_contracts(module, *args, **kwargs):
+        result = original_check(module, *args, **kwargs)
+        functions = {function.name: function for function in module.functions}
+        contracts = {
+            name: getattr(function, "requires", None)
+            for name, function in functions.items()
+            if getattr(function, "requires", None) is not None
+        }
+        proofs = []
+        for name, expression in contracts.items():
+            function = functions[name]
+            token = getattr(function, "requires_token", None)
+            if not function.body or "@extern(C)" in function.attributes:
+                _error(
+                    bootstrap,
+                    "requires is supported only on functions with a checked body",
+                    token,
+                    module,
+                )
+            try:
+                result_type = _contract_type(
+                    expression, dict(function.params), bootstrap
+                )
+            except ContractFrontendError as error:
+                _error(bootstrap, str(error), token, module)
+            if result_type.name != "bool":
+                _error(bootstrap, "requires expression must have type bool", token, module)
+
+        checked_roots = [function.body for function in module.functions]
+        checked_roots.extend(global_value.value for global_value in module.globals)
+        for root in checked_roots:
+            for expression_node in _walk(root, bootstrap):
+                if not isinstance(expression_node, bootstrap.Call):
+                    continue
+                predicate = contracts.get(expression_node.callee)
+                if predicate is None:
+                    continue
+                target = functions[expression_node.callee]
+                if len(expression_node.args) != len(target.params):
+                    continue  # The ordinary type checker reports arity first.
+                argument_values = tuple(
+                    (param_name, _constant(argument, {}, bootstrap))
+                    for argument, (param_name, _) in zip(
+                        expression_node.args, target.params
+                    )
+                )
+                bindings = dict(argument_values)
+                proved = _constant(predicate, bindings, bootstrap)
+                if proved is False:
+                    _error(
+                        bootstrap,
+                        f"requires contract for call to {target.name!r} is not satisfied",
+                        expression_node.token,
+                        module,
+                    )
+                if proved is not True:
+                    # The callee enforces predicates that cannot be proved from
+                    # call-site constants; the report records proofs only.
+                    continue
+                referenced = _referenced_parameters(predicate, bootstrap)
+                proven_arguments = tuple(
+                    (name, value)
+                    for name, value in argument_values
+                    if name in referenced
+                )
+                proofs.append(ContractCallProof(
+                    target.name,
+                    expression_node.token.line,
+                    expression_node.token.column,
+                    _render(predicate, bootstrap),
+                    proven_arguments,
+                ))
+        module.contract_proofs = tuple(proofs)
+        module.contract_preconditions = tuple(
+            ContractPrecondition(name, _render(expression, bootstrap))
+            for name, expression in contracts.items()
+        )
+        return result
+
+    bootstrap.check = check_with_contracts
+
+
+__all__ = [
+    "ContractFrontendError", "ContractCallProof", "ContractPrecondition",
+    "install",
+]

@@ -4190,7 +4190,10 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
         if hook in fn_names:
             guards.append(f"#define SOTLAS_OVERRIDE_{hook.upper()} 1")
     lines = guards + ([PREAMBLE] if include_preamble else [])
-    if shared_functions:
+    if shared_functions or any(
+        getattr(function, "requires", None) is not None
+        for function in module.functions
+    ):
         lines.append("#include <stdlib.h>")
     if include_import_headers:
         lines.extend(f'#include "{_c_ident(name)}.h"' for name in module.imports)
@@ -5485,6 +5488,9 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
         extra_attrs = _c_func_attributes(function.attributes)
         lines.append(f"{inline_attr}{extra_attrs}{function.result.c()} {fname}({parameters}) {{")
         lines.extend(f"    (void){name};" for name, _ in function.params)
+        requires = getattr(function, "requires", None)
+        if requires is not None:
+            lines.append(f"    if (!({_emit_expr(requires, prefix)})) abort();")
         lines.extend(
             emit_statements(
                 function.body,

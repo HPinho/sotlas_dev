@@ -3974,6 +3974,13 @@ SIR para contratos de backend; não fornece sandboxing nem prova isolamento.
 
 `requires`, `ensures`, `guarantee`, proof reports.
 
+O frontend inicial aceita `requires` booleano em funções com corpo e prova
+chamadas quando todos os argumentos são constantes avaliáveis. Condições falsas
+são rejeitadas estaticamente; condições sem prova estática são guardadas no
+entry da função C11 com `abort()` se falharem. O comprovante source-stable e a
+precondição seguem para o SIR; refinamento simbólico, `ensures` e declarações
+`guarantee` seguem abertos.
+
 ### 11. Causality
 
 `why`, `explain`, provenance.
@@ -3997,6 +4004,8 @@ Representação integrada de Domains + Flow + Effects + Ownership + Causality.
 O subset inicial de Flow já preserva no `SIRModule` um plano declarativo
 reconciliado com assinaturas e summaries de efeitos. Chamadas executáveis no
 CFG, integração de Ownership e execução pelo scheduler continuam pendentes.
+O `SIRModule` também preserva comprovantes de chamadas que satisfizeram
+precondições constantes verificadas pelo frontend.
 
 Esta fase deve congelar a fronteira semântica que permite substituir C como transporte sem alterar a linguagem:
 
