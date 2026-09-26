@@ -25,6 +25,7 @@ from .instructions import (
     BranchInst,
     CondBranchInst,
     CompareInst,
+    ConstantIntInst,
     PhiInst,
     ReturnInst,
     SystemOpInst,

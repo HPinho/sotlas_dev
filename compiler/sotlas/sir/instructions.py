@@ -285,6 +285,15 @@ class CompareInst(SIRInstruction):
 
 
 @dataclass
+class ConstantIntInst(SIRInstruction):
+    value: int
+    result: SIRValue
+
+    def __str__(self) -> str:
+        return f"  {self.result} = const_int {self.value}"
+
+
+@dataclass
 class BinaryOpInst(SIRInstruction):
     operation: str
     left: SIRValue

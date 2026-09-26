@@ -10,7 +10,8 @@ from .instructions import (
     AllocStackInst, StoreInst, LoadInst, CallInst,
     OwnershipDomainPointInst, SharedOwnershipPointInst, DirectAccessInst,
     WhisperBorrowInst, StateTransitionInst,
-    ReturnInst, BranchInst, CondBranchInst, CompareInst, BinaryOpInst, PhiInst, SystemOpInst
+    ReturnInst, BranchInst, CondBranchInst, CompareInst, ConstantIntInst,
+    BinaryOpInst, PhiInst, SystemOpInst
 )
 
 
@@ -1683,6 +1684,9 @@ class SIRGenerator:
         ):
             return sir_fn
 
+        if self._try_lower_integer_literal_return(fn, entry_block, ret_str):
+            return sir_fn
+
         # Emite retorno padrão no fallback protótipo. Este comentário é também
         # uma sentinela do reality gate: o SIRGenerator ainda não faz lowering
         # completo de corpos de função.
@@ -1743,6 +1747,59 @@ class SIRGenerator:
             return False
         result = self._next_val("arith", return_type)
         entry_block.add(BinaryOpInst(operation, left, right, result))
+        entry_block.add(ReturnInst(
+            value=result,
+            point_id=self._terminal_return_point_id(fn),
+        ))
+        return True
+
+    def _try_lower_integer_literal_return(
+        self, fn: Any, entry_block: SIRBasicBlock, return_type: str
+    ) -> bool:
+        """Lower one explicitly typed integer literal returned by a function."""
+        body = list(getattr(fn, "body", ()) or ())
+        if len(body) != 1 or type(body[0]).__name__ not in (
+            "Return", "ReturnNode",
+        ):
+            return False
+        expression = getattr(body[0], "value", None)
+        expression_kind = type(expression).__name__
+        if expression_kind == "Number":
+            raw = getattr(expression, "value", None)
+        elif expression_kind == "LiteralNode":
+            kind = getattr(getattr(expression, "kind", None), "name", None)
+            if kind != "INT_LIT":
+                return False
+            raw = getattr(expression, "value", None)
+        else:
+            return False
+        if not isinstance(raw, str):
+            return False
+        match = re.fullmatch(
+            r"(.+?)(u8|u16|u32|u64|usize|i8|i16|i32|i64|isize)?", raw
+        )
+        if match is None:
+            return False
+        digits, suffix = match.groups()
+        suffix = suffix or return_type
+        if suffix != return_type:
+            return False
+        try:
+            value = int(digits.replace("_", ""), 0)
+        except ValueError:
+            return False
+        bit_width = {
+            "u8": 8, "i8": 8, "u16": 16, "i16": 16,
+            "u32": 32, "i32": 32, "u64": 64, "i64": 64,
+            "usize": 64, "isize": 64,
+        }[suffix]
+        signed = suffix.startswith("i")
+        minimum = -(1 << (bit_width - 1)) if signed else 0
+        maximum = (1 << (bit_width - 1)) - 1 if signed else (1 << bit_width) - 1
+        if not minimum <= value <= maximum:
+            return False
+        result = self._next_val("const", return_type)
+        entry_block.add(ConstantIntInst(value, result))
         entry_block.add(ReturnInst(
             value=result,
             point_id=self._terminal_return_point_id(fn),

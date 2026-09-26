@@ -14,7 +14,7 @@ sys.path.insert(0, str(ROOT / "compiler"))
 from sotlas.sir.instructions import (
     SIRModule, SIRFunction, SIRValue, AllocStackInst, StoreInst,
     LoadInst, CallInst, ReturnInst, ShareInst, RetainInst, ReleaseInst,
-    BinaryOpInst,
+    BinaryOpInst, ConstantIntInst,
     DestroyInst, OwnershipDomainPointInst, OwnershipDomainTransferInst,
     WhisperBorrowInst,
     DirectAccessInst,
@@ -96,6 +96,55 @@ fn calculate(a: u32, b: u32) -> u32 {{ return a {operator} b; }}
             isinstance(instruction, BinaryOpInst)
             for instruction in division_sir.functions[0].blocks[0].instructions
         ))
+
+    def test_typed_integer_literal_return_reaches_sir_and_llvm(self):
+        for type_name, value, llvm_type in (
+            ("u32", "42u32", "i32"),
+            ("i32", "42i32", "i32"),
+            ("u64", "0x2au64", "i64"),
+        ):
+            source = (
+                f"module test::constant; fn answer() -> {type_name} "
+                f"{{ return {value}; }}"
+            )
+            with self.subTest(type_name=type_name):
+                parsed = source_bootstrap.parse(source)
+                source_bootstrap.check(parsed)
+                sir = SIRGenerator().generate_from_ast(parsed)
+                instructions = sir.functions[0].blocks[0].instructions
+                constant = next(
+                    item for item in instructions
+                    if isinstance(item, ConstantIntInst)
+                )
+                self.assertEqual(constant.value, 42)
+                self.assertEqual(constant.result.type_name, type_name)
+                self.assertIs(instructions[-1].value, constant.result)
+                llvm = CodegenLLVM(sir).emit()
+                self.assertIn(
+                    f"%{constant.result.name} = add {llvm_type} 0, 42", llvm
+                )
+
+        legacy_source = (
+            "module test::constant_legacy; fn answer() -> u32 "
+            "{ return 42; }"
+        )
+        legacy = Parser(Lexer(legacy_source, "constant.sotlas").tokenize()).parse()
+        legacy_sir = SIRGenerator().generate_from_ast(legacy)
+        self.assertTrue(any(
+            isinstance(item, ConstantIntInst)
+            for item in legacy_sir.functions[0].blocks[0].instructions
+        ))
+
+    def test_llvm_integer_constant_rejects_out_of_range_value(self):
+        module = SIRModule(name="invalid_constant")
+        function = SIRFunction(name="answer", parameters=[], return_type="u8")
+        block = function.add_block("entry")
+        result = SIRValue("constant", "u8")
+        block.add(ConstantIntInst(256, result))
+        block.add(ReturnInst(result))
+        module.add_function(function)
+        with self.assertRaisesRegex(ValueError, "out of range"):
+            CodegenLLVM(module).emit()
 
     def test_llvm_arithmetic_instruction_rejects_signed_types_and_unknown_ops(self):
         for operation, type_name in (("add", "i32"), ("div", "u32")):

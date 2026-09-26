@@ -37,8 +37,8 @@ Legenda:
 | 12 | Counterfactuals | ~12% candidato | 🟡 |
 | 13 | Transactions | ~25% candidato | 🟡 |
 | 14 | Intent | ~20% candidato | 🟡 |
-| 15 | SIR completo | ~40% candidato | 🟡 |
-| 16 | Native Machine Backend | ~5% | 🟡 |
+| 15 | SIR completo | ~42% candidato | 🟡 |
+| 16 | Native Machine Backend | ~8% | 🟡 |
 | 17 | Tooling avançado | ~18% | 🟡 |
 
 Os percentuais medem o escopo necessário para o Sotlas 1.0. Generalizações pós-release não mantêm uma fase aberta quando o subset atual pode rejeitá-las de forma correta e fail-closed.
@@ -335,6 +335,13 @@ Escopo: `docs/sotlas_1_0_phase10_guarantees_scope.md`.
 - [x] CLI emite `contract-report` como JSON determinístico derivado do SIR canônico;
 - [x] o relatório separa provas estáticas de precondições e pós-condições que ainda exigem guarda em runtime;
 - [ ] inspeção de Target IR/lowering, `--emit=asm`, register allocation, ABI/stack e source-to-instruction mapping.
+
+### SIR e backend nativo — slice de constantes inteiras
+
+- [x] retorno de literal inteiro tipado `i/u8`, `i/u16`, `i/u32`, `i/u64`, `isize` e `usize` baixa para `ConstantIntInst` no SIR;
+- [x] bootstrap e AST legado cobertos para literais decimais; bootstrap também aceita literal hexadecimal tipado;
+- [x] LLVM verifica tipo e intervalo antes de emitir o valor;
+- [ ] lowering nativo validado com `llc`/Clang, execução por target, CFG completo e semântica definida de overflow.
 
 ## Regra de baseline
 

@@ -14,7 +14,8 @@ from .sir.instructions import (
     WhisperBorrowInst,
     DirectAccessInst,
     SharedOwnershipPointInst, DeferUseInst, ShareInst,
-    BranchInst, CondBranchInst, CompareInst, BinaryOpInst, ReturnInst, SystemOpInst,
+    BranchInst, CondBranchInst, CompareInst, ConstantIntInst, BinaryOpInst,
+    ReturnInst, SystemOpInst,
     AsmInst, AwaitInst, PhiInst
 )
 from .sir.passes import BackendEffectContract
@@ -365,6 +366,29 @@ class CodegenLLVM:
             self._out.write(
                 f"  %{inst.result.name} = icmp {predicate} {llvm_type} "
                 f"%{inst.left.name}, %{inst.right.name}{dbg_suffix}\n"
+            )
+        elif isinstance(inst, ConstantIntInst):
+            integer_type = inst.result.type_name
+            widths = {
+                "u8": 8, "i8": 8, "u16": 16, "i16": 16,
+                "u32": 32, "i32": 32, "u64": 64, "i64": 64,
+                "usize": 64, "isize": 64,
+            }
+            if integer_type not in widths or type(inst.value) is not int:
+                raise ValueError(
+                    f"LLVM backend does not lower integer constant for {integer_type!r}"
+                )
+            width = widths[integer_type]
+            signed = integer_type.startswith("i")
+            minimum = -(1 << (width - 1)) if signed else 0
+            maximum = (1 << (width - 1)) - 1 if signed else (1 << width) - 1
+            if not minimum <= inst.value <= maximum:
+                raise ValueError(
+                    f"LLVM integer constant {inst.value} is out of range for {integer_type}"
+                )
+            llvm_type = to_llvm_type(integer_type)
+            self._out.write(
+                f"  %{inst.result.name} = add {llvm_type} 0, {inst.value}{dbg_suffix}\n"
             )
         elif isinstance(inst, BinaryOpInst):
             if inst.left.type_name != inst.right.type_name or inst.result.type_name != inst.left.type_name:
