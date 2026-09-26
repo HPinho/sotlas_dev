@@ -1,79 +1,54 @@
 # Sotlas 1.0 — Phase 5 Effects Scope
 
-**Atualizado em:** 2026-09-26
-**Status:** 🟡 IN PROGRESS
-**Último baseline verde certificado antes desta fatia:** `5b4d02f` — CI #599 `success`
+**Updated:** 2026-09-26
+**Status:** COMPLETE within the bounded Sotlas 1.0 contract
 
-## SIR effect summaries
+## Contract
 
-`EffectInferencePass` records direct and transitive effects for each SIR
-function. The current effect vocabulary is `alloc`, `blocking`, `async`, `io`,
-`sync`, `unsafe`, `volatile`, `system`, `ffi`, and `unknown_call`. Calls to known
-functions propagate effects through recursive call graphs to a fixed point.
-Unresolved callees conservatively contribute `unknown_call` and are preserved
-by name in the summary. When SIR is built from a checked source module, source
-direct/transitive facts, unresolved callee names, and the declared contract
-are attached to matching SIR functions. Inference combines these facts with
-effects visible in lowered instructions and rechecks the declared contract.
+Source and canonical SIR effect inference classify direct and transitive effects
+over recursive call graphs. The closed vocabulary is `alloc`, `blocking`,
+`async`, `io`, `sync`, `unsafe`, `volatile`, `system`, `ffi`, and
+`unknown_call`. Unmapped calls remain `unknown_call` and retain their names;
+declared contracts cannot erase an inferred effect or an unresolved call.
 
-`SIRFunction.declared_effects` can carry an explicit SIR contract. The pass
-rejects unknown effect names and contracts that omit an inferred effect.
-Summaries are attached to the `SIRModule` and each function. The normal SIR
-pass manager runs effect inference before hardware interrupt validation.
+`@realtime` rejects allocation, blocking, async, I/O, synchronization, FFI, and
+unknown calls transitively. Inline assembly carries `unsafe` and `volatile`.
+SIR summaries preserve inferred/declaration evidence and are revalidated before
+backend gates.
 
-Interrupt handlers reject transitive `alloc` and `blocking` operations,
-`AwaitInst`, and unresolved calls. The diagnostic for a known forbidden call
-preserves the call chain.
+The canonical C11 production route automatically applies its target contract
+before emission. It rejects `async` because there is no suspension runtime and
+rejects `unknown_call` because an unresolved symbol has no checked ABI/effect
+boundary. An explicit `extern "C"` declaration provides a typed FFI boundary
+and infers the `ffi` effect; other unresolved calls remain rejected. Other modeled synchronous effects can be
+lowered to C11; this does not claim that a target supplies the corresponding
+runtime or hardware resource.
 
-## Source contracts (release subset)
+LLVM and the legacy SIR C11 emitter validate `BackendEffectContract` against
+fresh SIR summaries. LLVM has a conservative target default; callers can pass a
+target-specific contract. The legacy SIR C11 API requires an explicit contract
+for this validation path. Neither API implies a runtime is linked or available.
 
-The canonical production checker accepts `@effects(...)`, infers direct and
-transitive effects over local recursive calls, and attaches deterministic
-source summaries to the checked module. Classified low-level builtins and
-inline assembly carry conservative effects; unmapped external calls are
-`unknown_call`. `extern "C"` declarations additionally carry a distinct `ffi`
-effect, which a declared contract must include. Explicit contracts that omit inferred effects fail before C11
-lowering. Phase 1 copies each source summary into its corresponding typed
-function, and canonical SIR construction carries the facts into its functions
-for inference and contract revalidation. A backend-neutral effect capability
-contract reports which functions fit a target's declared effects. C11/LLVM
-lowering does not yet select target contracts automatically. The LLVM IR
-emitter can receive an explicit `BackendEffectContract`, rerun inference, and
-reject functions whose effects exceed that contract before emitting IR. The
-SIR dump prints inferred and declared effects and unresolved calls per
-function. C11 still does not consume a concrete target contract. This starter
-does not yet model all runtime/FFI names.
+## Verification
 
-## Verifications
+- Direct, transitive, recursive, unresolved, and declared effects are tested.
+- Malformed and incomplete source contracts fail before C11 emission.
+- C11 rejects async and unresolved calls before producing output; modeled host
+  I/O and explicit FFI contracts have positive checks.
+- `@realtime` rejects every restricted effect transitively, including locks and
+  FFI; unmapped runtime names fail closed as unknown calls.
+- SIR and backend contracts are tested for accepted and rejected capabilities,
+  deterministic diagnostics, and missing summaries.
+- Source-to-C11 effect checks run in the full test suite and dedicated CI gate.
 
-- direct and transitive summary propagation through mutually recursive calls;
-- deterministic summaries and idempotent repeated analysis;
-- unresolved calls remain explicitly unknown;
-- incomplete declared contracts fail;
-- interrupt paths reject async and unresolved external calls;
-- interrupt diagnostics preserve the transitive path to forbidden allocation.
+## Deferred beyond Sotlas 1.0
 
-## Blockers de 1.0
+- Async suspension/resumption and async runtime integration.
+- Target-provided runtime and hardware resource discovery; C11 uses the
+  conservative built-in contract and LLVM callers provide capabilities.
+- A complete catalog of third-party runtime symbols. Uncatalogued names remain
+  unknown and cannot cross the C11 production boundary without an explicit FFI
+  declaration.
+- Broad per-domain runtime/backend end-to-end matrices.
 
-- [x] SIR-level direct/transitive effect inference;
-- [x] recursive call-graph fixed point;
-- [x] conservative classification of unresolved calls;
-- [x] validation of explicit SIR effect contracts;
-- [x] source syntax, effect inference and canonical checker contract validation;
-- [x] per-function source summary propagation into the Typed AST;
-- [x] propagation into canonical SIR and revalidation of declared contracts;
-- [x] backend-neutral per-function effect capability contract;
-- [x] explicit backend contract enforced by LLVM IR emission;
-- [ ] automatic target contract selection and C11 contract enforcement;
-- [x] per-function inferred/declared effect evidence in SIR dump;
-- [x] distinct `ffi` effect for foreign declarations and contract validation;
-- [ ] effects for `@realtime`, async suspension, locks, and all runtime calls;
-- [x] source tests and a phase-specific release gate for the subset;
-- [ ] broad domain/runtime/backend end-to-end matrix.
-
-## Limites
-
-The current pass is SIR analysis and does not make source-level effect
-declarations `SUPPORTED`. The builtin name map is a starter contract; an
-unmapped call is unknown and remains conservative. Runtime behavior and target
-ABI effects still need explicit modeling.
+These are explicit limits of the 1.0 contract, not implicit effect permissions.

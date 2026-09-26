@@ -94,7 +94,7 @@ extern "C" fn contracted_read() -> u32;
         summaries = analyze_source_effects(module, bootstrap)
         self.assertEqual(
             summaries["foreign_read"].transitive_effects,
-            ("ffi", "unknown_call"),
+            ("ffi",),
         )
         self.assertEqual(
             summaries["contracted_read"].transitive_effects,
@@ -106,6 +106,15 @@ extern "C" fn contracted_read() -> u32;
             SotlasBootstrapError, "omits inferred effects: ffi"
         ):
             compile_source(omitted, filename="ffi-effects.sotlas")
+
+        supported = """
+module test::ffi_effects_supported;
+@effects(ffi)
+extern "C" fn foreign_read() -> u32;
+@system
+fn caller() -> u32 { return foreign_read(); }
+"""
+        self.assertIn("foreign_read", compile_source(supported))
 
     def test_infers_direct_and_transitive_effects_through_recursive_calls(self):
         source = """
@@ -144,13 +153,17 @@ fn caller() -> void { external_call(); }
         with self.assertRaisesRegex(SotlasBootstrapError, "cannot prove calls"):
             compile_source(source, filename="effects.sotlas")
 
-    def test_unknown_external_is_explicitly_permitted(self):
+    def test_unknown_external_is_rejected_by_c11_even_with_unknown_effect(self):
         source = """
 module test::source_effects;
 @effects(unknown_call)
 fn caller() -> void { __external_api(); }
 """
-        compile_source(source, filename="effects.sotlas")
+        with self.assertRaisesRegex(
+            SotlasBootstrapError,
+            "C11 backend effect contract rejected lowering.*unknown_call",
+        ):
+            compile_source(source, filename="effects.sotlas")
 
     def test_unknown_and_malformed_contracts_fail_closed(self):
         for contract in ("@effects(network)", "@effects()", "@effects(io,io)"):

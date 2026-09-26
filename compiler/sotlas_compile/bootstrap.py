@@ -5591,6 +5591,15 @@ def emit_header(module: Module) -> str:
 def compile_module(module: Module, imported_modules: list[Module] | None = None,
                    include_import_headers: bool = False) -> str:
     imported = _public_import_maps(imported_modules)
+    effect_imports = {}
+    for imported_module in imported_modules or ():
+        effect_imports.update(
+            getattr(imported_module, "_effect_import_functions", {}) or {}
+        )
+        effect_imports.update({
+            fn.name: fn for fn in imported_module.functions if fn.public
+        })
+    module._effect_import_functions = effect_imports
     check(module, *imported)
     return emit_c(module, include_import_headers=include_import_headers)
 
@@ -5669,10 +5678,14 @@ def compile_project(entry: Path) -> list[Module]:
         imported_globals: dict[str, Global] = {}
         for dependency in unit.imports:
             dep = units[dependency]
+            imported_fns.update(
+                getattr(dep, "_effect_import_functions", {}) or {}
+            )
             imported_fns.update({fn.name: fn for fn in dep.functions if fn.public})
             imported_types.update({s.name: s for s in dep.structs if s.public})
             imported_enums.update({e.name: e for e in dep.enums if e.public})
             imported_globals.update({g.name: g for g in dep.globals if g.public})
+        unit._effect_import_functions = dict(imported_fns)
         check(unit, imported_fns, imported_types, imported_enums, imported_globals)
         order.append(unit)
 

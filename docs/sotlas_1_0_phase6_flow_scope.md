@@ -1,109 +1,59 @@
 # Sotlas 1.0 — Phase 6 Flow Scope
 
-**Atualizado em:** 2026-09-26
-**Status:** 🟡 IN PROGRESS  
-**Último baseline verde certificado:** `b3ce263` — CI #638 `success`
+**Updated:** 2026-09-26
+**Status:** COMPLETE within the bounded Sotlas 1.0 contract
 
-## Subset de runtime disponível
+## Contract
 
-`certify_flow_graph` valida nomes, referências, duplicatas e ciclos e deriva
-estágios paralelos estáveis na ordem declarada. `execute_flow` executa cada
-estágio concorrentemente, entrega a cada ação somente os resultados de suas
-dependências diretas em um mapa imutável e publica os resultados na ordem dos
-nós declarados.
+The canonical frontend parses and type-checks named Flow stages and explicit
+dependencies. It rejects invalid references, cycles, unresolved stages,
+signature mismatches, and effect/ownership shapes outside the declared subset.
+The typed plan is reconciled with canonical SIR signatures, effect summaries,
+and dependency provenance before execution.
 
-Uma falha cancela tarefas ainda enfileiradas, aguarda as tarefas síncronas já
-iniciadas e impede o início dos estágios seguintes. Se várias ações do mesmo
-estágio falham, o diagnóstico seleciona a primeira na ordem declarada. Um
-`threading.Event` permite cancelamento externo antes ou durante estágios; ações
-síncronas em execução não podem ser interrompidas à força e precisam retornar
-para que o scheduler conclua o cancelamento.
+The local graph scheduler executes independent stages concurrently, limits
+workers, provides only direct dependency outputs through immutable maps, and
+returns outputs in stable source order. Failure or cancellation prevents later
+stages from starting and joins work already running. Cooperative cancellation
+is observed between stages or by bindings that inspect the supplied token; the
+runtime does not forcibly interrupt synchronous work.
 
-Este executor é uma API runtime para grafos certificados. A sintaxe Sotlas e
-seu checker são descritos abaixo; agendamento distribuído continua fora deste
+For compiled SIR CFG execution, `lower_serial_flow_to_cfg` lowers strictly
+serial plans with copy-safe scalar values into certified SIR `CallInst`s.
+`execute_serial_flow_cfg` revalidates that CFG, function signatures, effects,
+call provenance, and serial schedule before interpreting stage bodies and
+dispatching them through the scheduler. End-to-end tests start from Sotlas Flow
+source and verify stage outputs. Pure integer and boolean stage bodies are the
+supported executable subset.
+
+The C11 production backend explicitly rejects source Flow until it has an
+ownership-aware lowering into its scheduler contract. This rejection is tested
+and is part of the 1.0 backend boundary.
+
+## Verification
+
+- Graph names, edges, cycles, deterministic parallel layers, worker limits,
+  immutable dependency inputs, stable results, failure, and cancellation are
+  covered by runtime tests.
+- Source parsing, typing, effect reconciliation, SIR plan validation, tamper
+  rejection, and flow-report serialization are covered.
+- Tests lower source-derived SIR plans into actual call CFGs, execute them via
+  the scheduler, and verify outputs and fail-closed behavior for parallel CFG,
+  effectful functions, and ownership-bearing values.
+- C11's unsupported-Flow diagnostic is checked before code emission.
+- The full suite includes dedicated source, SIR, CFG, runtime, and C11 boundary
+  tests.
+
+## Deferred beyond Sotlas 1.0
+
+- Executable parallel SIR CFGs; declarative Flow and the host graph scheduler
+  already support parallel execution.
+- Ownership, cleanup, and non-scalar/lifetime-bearing values in executable CFG.
+- Native C11 scheduler lowering for source Flow; the backend rejects it
+  explicitly until that contract exists.
+- Backpressure, retries, distributed scheduling, timeouts, and forced
+  interruption of running synchronous functions.
+- Arbitrary source CFG and general Flow unwind/defer integration.
+
+These restrictions are validated fail-closed and define the supported 1.0
 subset.
-
-## Candidato de frontend de fonte
-
-A rota canônica reconhece declarações `flow Name { stage output = function
-after dependency, ...; }`. O checker certifica o DAG, resolve cada função de
-stage, exige resultados não-void, confere aridade e garante que cada parâmetro
-receba o mesmo tipo do resultado do stage produtor. Chamadas não resolvidas em
-um stage são rejeitadas pelo subset inicial. O plano tipado é preservado em
-`Phase1CheckedModule.flows`. O compilador C11 ainda rejeita explicitamente
-essas declarações, pois não há lowering de fonte para scheduler.
-
-Este candidato valida declaração e tipos. O plano SIR declarativo está descrito
-abaixo; ainda não há chamadas em CFG executável nem execução da fonte pelo
-scheduler.
-
-O plano tipado de fonte é preservado em `Phase1CheckedModule.flows`. O lowering
-canônico reconcilia tipos, assinaturas e summaries de efeitos e anexa
-`FlowSIRPlan` ao `SIRModule`; o dump expõe estágios paralelos e chamadas com
-referências tipadas a resultados produtores. O C11 continua rejeitando Flow:
-chamadas de stage ainda não foram baixadas em CFG executável nem ligadas ao
-scheduler.
-
-`execute_typed_flow` executa diretamente esse plano tipado no runtime local.
-Antes de iniciar ações, confere a ordem canônica do grafo, o conjunto de stages,
-as dependências de cada stage e a quantidade de tipos de entrada. Cada ação
-recebe os resultados de suas dependências como argumentos posicionais na ordem
-declarada pela fonte. O runtime ainda não executa código compilado pelo backend
-C11 nem integra ownership de closures.
-
-Typed Flow and bound-SIR Flow runners can opt into cooperative cancellation.
-Each host binding then receives a read-only `FlowCancellationToken` after its
-stage arguments. External cancellation is checked between stages, and the
-scheduler joins active peers before returning; bindings must observe the token
-while they run.
-
-`execute_bound_sir_flow` valida os `FlowSIRPlan` do módulo antes de iniciar o
-scheduler e recebe bindings explícitos por símbolo de função SIR. Argumentos
-de cada stage são resolvidos somente a partir dos outputs indicados pela
-provenance validada. Esse runner executa os bindings fornecidos pelo host; ele
-não interpreta instruções SIR nem afirma executar código compilado.
-
-`execute_interpreted_sir_flow` acrescenta um executor para o subset linear puro
-de inteiros sem sinal do SIR. Ele interpreta constantes, `add`/`sub`/`mul` e
-retornos diretos; aceita somente alocações e inicializações de slots que o
-O interpretador tambem executa comparacoes inteiras e retorna bool.
-frontend usa para materializar parâmetros escalares. Antes do scheduler, valida
-plano, provenance, efeitos, assinaturas e todas as instruções de cada stage.
-Outras instruções e CFG falham fechados. Isso executa corpos SIR reais, mas não
-integra ownership, cleanup nem backend nativo.
-
-## Verificações
-
-- execução concorrente de nós independentes e leitura de dependências diretas;
-- mapas de entrada e resultado imutáveis e outputs em ordem estável;
-- falha cancela o trabalho pendente, junta peers ativos e não executa sucessores;
-- falhas simultâneas usam ordem de fonte estável;
-- cancelamento antes e durante o estágio, inclusive no estágio final;
-- ações ausentes/extras e planos adulterados são rejeitados.
-
-## Blockers de 1.0
-
-- [x] grafo canônico e stages paralelos determinísticos;
-- [x] runtime local por estágios com limite opcional de workers;
-- [x] propagação de resultados de dependências diretas;
-- [x] falha e cancelamento impedem estágios posteriores e não deixam tarefas ativas sem join;
-- [x] sintaxe `flow` com stages nomeados e dependências explícitas;
-- [x] frontend tipa valores vindos das dependências e rejeita grafo cíclico;
-- [x] CI #588 confirma a sintaxe e tipagem;
-- [x] plano declarativo Flow reconciliado com SIR e summaries Effects;
-- [x] executor local consome o plano tipado de fonte, valida sua estrutura e invoca stages com valores dependentes;
-- [x] runner SIR revalida plano, assinaturas, efeitos e provenance antes de invocar bindings de função pelo scheduler;
-- [x] executor de grafo oferece token cooperativo opt-in; ações podem observar cancelamento externo ou falha de peer e parar antes do join;
-- [x] runners de Flow tipado e SIR encaminham o token opt-in aos bindings e propagam cancelamento externo antes de iniciar stages dependentes;
-- [x] interpretador de corpos SIR puros no subset linear unsigned, com rejeição anterior ao scheduler para instruções e formas não suportadas;
-- [x] interpretador SIR de Flow calcula comparacoes unsigned e retorna bool.
-- [ ] lowering para CFG executável, integração de Ownership e execução pelo scheduler;
-- [ ] backpressure e políticas de retry;
-- [ ] e2e da fonte Sotlas ao scheduler e ao backend suportado.
-
-## Fora deste subset
-
-O runtime não executa tarefas assíncronas, não interrompe threads em execução,
-não define retries/timeouts, não agenda em mais de um processo e não valida
-effects ou ownership das closures. Essas operações permanecem fora de
-`SUPPORTED` até terem contratos de linguagem e integração com o compilador.

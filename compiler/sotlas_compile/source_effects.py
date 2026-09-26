@@ -23,6 +23,7 @@ CALL_EFFECTS = {
     "__cli": "system", "__sti": "system", "__hlt": "system",
     "__unknown_intrinsic": "system",
 }
+PURE_INTRINSICS = frozenset({"transition"})
 _CONTRACT = re.compile(r"^@effects\((.*)\)$")
 _REALTIME_FORBIDDEN_EFFECTS = frozenset({
     "alloc", "blocking", "async", "io", "sync", "ffi", "unknown_call",
@@ -107,7 +108,8 @@ def _declared_effects(function) -> tuple[str, ...] | None:
 def analyze_source_effects(module, bootstrap) -> dict[str, SourceEffectSummary]:
     """Infer effects over the source call graph and validate explicit contracts."""
     module_functions = {function.name: function for function in module.functions}
-    functions = dict(module_functions)
+    functions = dict(getattr(module, "_effect_import_functions", {}) or {})
+    functions.update(module_functions)
     functions.update(bootstrap.BUILTIN_FUNCTIONS)
     direct = {name: set() for name in functions}
     callees = {name: set() for name in functions}
@@ -121,11 +123,11 @@ def analyze_source_effects(module, bootstrap) -> dict[str, SourceEffectSummary]:
         if not function.body:
             if "@extern(C)" in function.attributes:
                 direct[name].add("ffi")
-            if contract is None:
+            if contract is not None:
+                direct[name].update(contract)
+            elif "@extern(C)" not in function.attributes:
                 direct[name].add("unknown_call")
                 unresolved[name].add(name)
-            else:
-                direct[name].update(contract)
         for node in _walk(function.body, bootstrap):
             if isinstance(node, bootstrap.Asm):
                 direct[name].add("unsafe")
@@ -135,6 +137,8 @@ def analyze_source_effects(module, bootstrap) -> dict[str, SourceEffectSummary]:
                 effect = CALL_EFFECTS.get(node.callee)
                 if effect is not None:
                     direct[name].add(effect)
+                elif node.callee in PURE_INTRINSICS:
+                    continue
                 elif node.callee in functions:
                     callees[name].add(node.callee)
                 elif node.callee in bootstrap.BUILTIN_FUNCTIONS:
@@ -237,7 +241,13 @@ def install(bootstrap) -> None:
 
 
 def install_c11_backend_effect_contract(bootstrap) -> None:
-    """Reject source effects the current C11 backend cannot lower."""
+    """Apply the conservative, automatically selected C11 effect contract.
+
+    C11 can lower the modeled synchronous effects in this release, but it has no
+    suspension runtime and cannot safely lower an unresolved call. Explicit
+    ``extern C`` declarations provide a typed FFI boundary; other unresolved
+    calls remain rejected.
+    """
     original_emit_c = bootstrap.emit_c
 
     def emit_c_with_effect_contract(module, *args, **kwargs):
@@ -268,7 +278,7 @@ def install_c11_backend_effect_contract(bootstrap) -> None:
                 )
             effects = set(summary.transitive_effects)
             effects.update(summary.declared_effects or ())
-            unsupported = effects - (set(EFFECT_ORDER) - {"async"})
+            unsupported = effects & {"async", "unknown_call"}
             if unsupported:
                 raise bootstrap.SotlasBootstrapError(
                     "C11 backend effect contract rejected lowering for "

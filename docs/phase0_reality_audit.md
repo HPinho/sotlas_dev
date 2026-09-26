@@ -1,53 +1,57 @@
 # Phase 0 Reality Audit
 
-**Date:** 2026-09-22  
+**Updated:** 2026-09-26
 **Authority:** [Implementation Status](sotlas_implementation_status.md) and
 [Master Roadmap](sotlas_master_roadmap.md).
 
-## Verified boundaries
+## Sotlas 1.0 reality contract
 
 - The installed Python package comes from `compiler/` (`setup.py` and
   `pyproject.toml`). The production Stage-0 frontend is
-  `compiler/sotlas_compile/bootstrap.py`; the SIR generator remains a prototype.
-- All 12 numbered examples are listed in `examples/manifest.json` as
-  `EXPERIMENTAL`. Four carry a C11 backend smoke contract. That smoke proves
-  only `check` and C syntax for those examples.
-- The isolated Phase 1 semantic core is certified at `ISOLATED_PHASE1`.
-  The certification does not promote the whole language or backend.
-- Package version metadata and the runtime version agree at `0.5.1`.
-  Package maturity is Alpha. Public README clone and CI links point to the
-  current repository.
-- The earlier v1 architecture audit is preserved as a historical design note;
-  its implementation claims are not current certification evidence.
-- `current_implementation_progress.md` was a stale 2026-09-25 snapshot and
-  incorrectly called itself canonical. It is now labeled historical and links
-  to `sotlas_implementation_status.md` as the current index.
+  `compiler/sotlas_compile/bootstrap.py`; the historical SIR generator remains
+  a prototype and is not the production lowering path.
+- All numbered examples are explicitly classified in `examples/manifest.json`.
+  Example smoke checks prove only the commands named by each manifest entry.
+- Every Markdown file under `docs/` with a fenced `sotlas` block is classified
+  by `docs/public_snippets.json`. Every `RUNNABLE` source is checked through the
+  canonical CLI and emitted as C11 in an isolated temporary directory. Other
+  snippets are explicitly experimental or design-only.
+- The isolated Phase 1 semantic core is certified at `ISOLATED_PHASE1`. This
+  does not promote the entire language, SIR, or backend.
+- Package metadata and runtime version agree at `0.5.1`; package maturity is
+  Alpha. Historical audits and progress snapshots are labeled as such.
+- The `compiler/` and `tools/` trees are intentionally retained for compatibility
+  with existing developer tools and tests. `compiler/` is the installed source
+  of truth. Of 86 paired Python modules, 82 are byte-identical and four reviewed
+  files differ: `sotlas/__init__.py`, `sotlas_compile/__init__.py`,
+  `sotlas_compile/bootstrap.py`, and `sotlas_compile/language_safety.py`.
+  There are 23 compiler-only and three tools-only modules. The reality gate
+  checks the exact reviewed difference set and current unique-module counts.
+  Consolidating compatibility imports is deferred until the old tools clients
+  and tests are migrated; no claim is made that duplicate files were deleted.
 
-## Open Phase 0 work
+## Verified public guide boundary
 
-1. `docs/public_snippets.json` inventories every Markdown document under
-   `docs/` that contains a fenced `sotlas` block. The reality gate checks that
-   every such document is classified. Every `RUNNABLE` source is now checked
-   through the canonical CLI and emitted as C11 in an isolated temporary
-   directory by the test suite. The canonical Quickstart source is runnable;
-   other snippets remain experimental or design-only until checked individually
-   against the production frontend.
-2. Resolve the duplicated `compiler/` and `tools/` Python trees. The current
-   inventory has 84 paired modules: 80 byte-identical and four different
-   (`sotlas/__init__.py`, `sotlas_compile/__init__.py`,
-   `sotlas_compile/bootstrap.py`, and `sotlas_compile/language_safety.py`).
-   There are 23 Python modules only under `compiler/` and three only under
-   `tools/`. The existing parity gate covers the shared modules outside its
-   reviewed-difference allowlist; the large bootstrap divergence still needs
-   a migration decision before the historical duplication checklist can close.
-3. Keep the example manifest, docs, and package metadata under reality gates
-   as the implementation changes.
+The README files and Portuguese Quickstart point to the checked-in example,
+explain host-toolchain requirements, label the class example experimental, and
+describe the local specification as design material. Only the numbered
+Quickstart example currently has a runnable public-snippet contract. A snippet
+classified `EXPERIMENTAL` or `DESIGN_ONLY` is not implementation evidence.
 
-The README and Portuguese Quickstart now use the checked-in example, explain
-which commands are host-toolchain dependent, label the former class example as
-experimental, and stop describing all design prose as a verified language
-contract. `docs/QUICKSTART.md` now checks and emits C11 from the same source and
-links to the local specification as design material.
+The historical v1 architecture audit and the older implementation-progress
+snapshot are retained for context but are not canonical status sources. Current
+support claims must be checked against the implementation status, the snippet
+inventory, and the relevant automated gate.
 
-Phase 0 remains open until the full guide audit and duplicate-code migration
-are complete. CI success alone is insufficient evidence for 100%.
+## Gate
+
+`tests/test_sotlas_reality_gate.py` verifies package metadata, example
+classification, snippet coverage and runnable sources, public quickstarts,
+production entrypoints, SIR prototype labeling, and the exact compiler/tools
+mirror inventory. New fenced documents, mirror differences, or unique modules
+must update their reviewed inventories in the same change.
+
+Phase 0's Sotlas 1.0 contract is complete. Physical consolidation of the
+historical compatibility tree and per-snippet promotion beyond the single
+runnable Quickstart example remain post-1.0 work. CI success alone is not
+evidence for broader language support.

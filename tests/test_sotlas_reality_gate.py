@@ -138,12 +138,10 @@ class SotlasRealityGateTests(unittest.TestCase):
         compiler = ROOT / "compiler"
         tools = ROOT / "tools"
         reviewed_differences = {
-            Path("sotlas/cli.py"),
             Path("sotlas/__init__.py"),
-            Path("sotlas/sir/instructions.py"),
+            Path("sotlas_compile/__init__.py"),
             Path("sotlas_compile/bootstrap.py"),
             Path("sotlas_compile/language_safety.py"),
-            Path("sotlas_compile/__init__.py"),
         }
         paired = {
             path.relative_to(compiler)
@@ -151,12 +149,23 @@ class SotlasRealityGateTests(unittest.TestCase):
             if (tools / path.relative_to(compiler)).is_file()
         }
         self.assertTrue(reviewed_differences <= paired)
-        for relative in paired - reviewed_differences:
-            self.assertEqual(
-                (compiler / relative).read_bytes(),
-                (tools / relative).read_bytes(),
-                f"compiler/tools mirror drift: {relative}",
-            )
+        actual_differences = {
+            relative for relative in paired
+            if (compiler / relative).read_bytes() != (tools / relative).read_bytes()
+        }
+        self.assertEqual(actual_differences, reviewed_differences)
+        self.assertEqual(
+            sum(1 for path in compiler.rglob("*.py")
+                if not (tools / path.relative_to(compiler)).is_file()),
+            23,
+            "compiler-only modules need a reviewed Phase-0 inventory update",
+        )
+        self.assertEqual(
+            sum(1 for path in tools.rglob("*.py")
+                if not (compiler / path.relative_to(tools)).is_file()),
+            3,
+            "tools-only modules need a reviewed Phase-0 inventory update",
+        )
 
     def test_sir_dump_declares_prototype_status(self):
         instructions = (

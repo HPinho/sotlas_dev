@@ -1892,6 +1892,10 @@ sotlas explain proof ...
 
 ## 67. ROADMAP DE IMPLEMENTAÇÃO
 
+> Esta sequência é o roadmap arquitetural original. A matriz operacional 1.0
+> começa em “NOVA ORDEM DE IMPLEMENTAÇÃO” abaixo; status e gates atuais estão em
+> `docs/sotlas_implementation_status.md`.
+
 Não implementaremos tudo simultaneamente.
 
 ### Fase 0 — Reality Reset
@@ -3775,8 +3779,9 @@ Status atual:
 - [x] `check` e backend C11 possuem gate para não aceitar silenciosamente lowering ainda não implementado;
 - [x] fixtures `.sotlas` exercitam os dois lados do gate: enum escalar gera e executa binário C11; `share` com defer chega ao SIR, enquanto o backend C11 o rejeita explicitamente;
 - [x] inventário classifica todos os documentos Markdown com blocos `sotlas`, e o reality gate rejeita documentos sem classificação;
-- [ ] eliminação completa de todo legado/duplicação histórica do projeto;
-- [ ] auditoria feature-by-feature de cada snippet experimental e revisão final de claims antigos.
+- [x] decisão de realidade: `compiler/` é a fonte instalada canônica; a árvore `tools/` fica em compatibilidade até migração dos clientes históricos, com diferenças exatas protegidas por gate;
+- [x] inventário de snippets classifica todos os documentos Sotlas e distingue fontes verificadas, exemplos experimentais e material de design;
+- [x] claims públicos de suporte, maturidade, versões e quickstarts são verificados por reality gates; migração física da árvore histórica e promoção individual de snippets ficam pós-1.0.
 
 ### 1. Typed Semantic Core — ✅ CERTIFIED (`ISOLATED_PHASE1`)
 
@@ -3948,15 +3953,25 @@ Capabilities e `@system`.
 
 ### 5. Effects
 
-O backend C11 aplica um contrato inicial de lowering e rejeita `async` antes
-da emissão, pois ainda não existe runtime C11 de suspensão/retomada. O conjunto
-completo de capabilities por backend e target continua aberto.
+**Sotlas 1.0: COMPLETE dentro do contrato delimitado.** A inferência source/SIR,
+as restrições `@realtime`, o contrato automático C11 e os contratos explícitos
+LLVM estão descritos em `docs/sotlas_1_0_phase5_effects_scope.md`.
+
+O contrato conservador C11 rejeita `async` e chamadas opacas; runtime de
+suspensão, descoberta automática de recursos por target e matriz ampla de
+capabilities ficam pós-1.0.
 
 Effect inference e restrições contextuais.
 
 ### 6. Flow
 
-Dependency graph, structured concurrency e cancellation.
+**Sotlas 1.0: COMPLETE dentro do contrato delimitado.** Flow serial escalar baixa
+para CFG SIR certificado e executa pelo scheduler local; limites e rejeições do
+backend estão em `docs/sotlas_1_0_phase6_flow_scope.md`.
+
+O grafo local também suporta estágios paralelos. O CFG executável 1.0 é serial e
+escalar; parallel CFG, ownership integrado e scheduler nativo C11 ficam
+pós-1.0. O contrato está em `docs/sotlas_1_0_phase6_flow_scope.md`.
 
 ### 7. Execution Domains
 

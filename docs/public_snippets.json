@@ -166,6 +166,13 @@
       "status": "DESIGN_ONLY",
       "source": null,
       "verification": "book-examples-require-per-feature-audit"
+    },
+    {
+      "id": "phase7-execution-scope-snippets",
+      "document": "docs/sotlas_1_0_phase7_execution_scope.md",
+      "status": "DESIGN_ONLY",
+      "source": null,
+      "verification": "execution-domain-scope-is-not-a-supported-code-example"
     }
   ]
 }

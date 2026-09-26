@@ -22,13 +22,13 @@ Legenda:
 
 | Fase | Área | Progresso 1.0 | Estado |
 |---:|---|---:|---|
-| 0 | Reality Reset | ~87% | 🟡 |
+| 0 | Reality Reset | 100% do contrato 1.0 | ✅ COMPLETE |
 | 1 | Typed Semantic Core | 100% | ✅ COMPLETE |
 | 2 | Ownership Domains | 100% | ✅ COMPLETE |
 | 3 | Authority Domains | 100% | ✅ COMPLETE |
 | 4 | State Spaces | 100% | ✅ COMPLETE |
-| 5 | Effects | ~59% candidato | 🟡 |
-| 6 | Flow | ~56% candidato | 🟡 |
+| 5 | Effects | 100% do contrato 1.0 | ✅ COMPLETE |
+| 6 | Flow | 100% do contrato 1.0 | ✅ COMPLETE |
 | 7 | Execution Domains | ~45% | 🟡 |
 | 8 | Heterogeneous Compute | ~5% candidato | 🟡 |
 | 9 | Trust Domains | ~18% candidato | 🟡 |
@@ -42,6 +42,20 @@ Legenda:
 | 17 | Tooling avançado | ~21% candidato | 🟡 |
 
 Os percentuais medem o escopo necessário para o Sotlas 1.0. Generalizações pós-release não mantêm uma fase aberta quando o subset atual pode rejeitá-las de forma correta e fail-closed.
+
+Escopos concluídos: `docs/phase0_reality_audit.md`, `docs/sotlas_1_0_phase5_effects_scope.md` e `docs/sotlas_1_0_phase6_flow_scope.md`.
+
+## Fase 0 — Reality Reset
+
+**Status 1.0: 100% do contrato de realidade — COMPLETE**
+
+- [x] frontend de produção, maturidade certificada e limites do SIR protótipo são identificados sem claims globais de suporte;
+- [x] exemplos e snippets públicos são classificados; a fonte marcada `RUNNABLE` passa pelo CLI canônico e emissão C11 em CI;
+- [x] versão, maturidade, quickstarts, inventário e paridade `compiler/`/`tools/` são cobertos por reality gates;
+- [x] diferenças e módulos exclusivos das árvores duplicadas são inventariados; `compiler/` é a fonte instalada canônica;
+- [x] a retenção temporária da árvore histórica `tools/` e a consolidação pós-1.0 estão documentadas como decisão de compatibilidade.
+
+Escopo e decisão de migração: `docs/phase0_reality_audit.md`.
 
 ### Avanço de Heterogeneous Compute — pipeline de referência DEVICE
 
@@ -268,7 +282,7 @@ Escopo: `docs/sotlas_1_0_phase4_state_space_scope.md`.
 
 ## Fase 5 — Effects
 
-**Status 1.0: ~59% candidato 🟡 — IN PROGRESS**
+**Status 1.0: 100% do contrato delimitado — COMPLETE**
 
 - [x] SIR infere efeitos diretos e transitivos com ponto fixo sobre chamadas recursivas;
 - [x] chamadas não resolvidas são classificadas como `unknown_call` e seus nomes permanecem no summary;
@@ -288,17 +302,18 @@ Escopo: `docs/sotlas_1_0_phase4_state_space_scope.md`.
 - [x] `@realtime` valida efeitos inferidos transitivamente e rejeita alocação, bloqueio, async, I/O, sincronização, FFI e chamadas desconhecidas;
 - [x] dump SIR inclui efeitos inferidos/declarados e chamadas desconhecidas por função;
 - [x] declarações `extern "C"` carregam efeito `ffi` distinto e contratos omissos falham;
-- [ ] contratos C11/LLVM cobrem todos os efeitos, capabilities e runtimes por target;
-- [ ] seleção automática de contratos de target pelo C11/LLVM e cobertura integral das capabilities permanecem pendentes;
-- [ ] restrições completas para `@realtime`, async, locks, FFI e efeitos externos;
+- [x] contrato C11 automático rejeita `async` sem runtime de suspensão e `unknown_call` sem ABI/efeito verificados;
+- [x] `extern "C"` com efeito `ffi` é a fronteira estrangeira explícita; summaries C11/LLVM são revalidados antes do lowering;
+- [x] chamadas de locks conhecidas são classificadas como `sync`; nomes de runtime não catalogados permanecem `unknown_call` e falham fechados na fronteira C11;
+- [x] `@realtime` aplica restrições transitivas a alocação, bloqueio, async, I/O, sync, FFI e chamadas desconhecidas;
 - [x] testes end-to-end de fonte Sotlas e gate dedicado desta fatia;
-- [ ] end-to-end amplo por domínio e matriz de runtime/backend.
+- [x] testes positivos/negativos e gates dedicados validam o contrato de efeitos do subset Sotlas 1.0.
 
-Escopo: `docs/sotlas_1_0_phase5_effects_scope.md`.
+Escopo e limites pós-1.0: `docs/sotlas_1_0_phase5_effects_scope.md`.
 
 ## Fase 6 — Flow
 
-**Status 1.0: ~56% candidato 🟡 — IN PROGRESS**
+**Status 1.0: 100% do contrato delimitado — COMPLETE**
 
 - [x] grafo backend-neutral valida dependências e rejeita ciclos;
 - [x] estágios paralelos são derivados deterministicamente da topologia e da ordem declarada;
@@ -307,7 +322,7 @@ Escopo: `docs/sotlas_1_0_phase5_effects_scope.md`.
 - [x] falha/cancelamento param estágios posteriores, cancelam tarefas pendentes e aguardam peers já iniciados;
 - [x] sintaxe fonte `flow` com stages e dependências declaradas;
 - [x] frontend confere funções de stage, ciclos, aridade e tipos dos valores dependentes;
-- [x] CI #588 confirma a nova sintaxe e tipagem;
+- [x] testes fonte→SIR→CFG→scheduler confirmam a sintaxe, tipagem e execução do subset;
 - [x] plano tipado Flow é reconciliado com assinaturas e summaries Effects e anexado ao SIR canônico;
 - [x] runtime local executa o plano tipado por nome de stage, reconcilia dependências e passa resultados na ordem declarada;
 - [x] runner SIR revalida o plano canônico, reconcilia funções/efeitos e encaminha outputs por provenance para bindings explícitos do scheduler local;
@@ -315,11 +330,13 @@ Escopo: `docs/sotlas_1_0_phase5_effects_scope.md`.
 - [x] consulta source-stable explica caminho causal entre stages usando argumentos tipados e summaries Effects do SIR;
 - [x] executor de grafo oferece token cooperativo opt-in, permite que actions parem após cancelamento ou falha de peer e faz join dos workers;
 - [x] `flow-report` serializa em JSON determinístico o cronograma, assinaturas, efeitos e provenance de cada plano validado no SIR;
-- [ ] lowering das chamadas de stage em CFG executável, integração de Ownership e execução pelo scheduler;
-- [ ] cancelamento cooperativo com bindings tipados de SIR, runtime assíncrono/distribuído e backpressure/retry;
-- [ ] e2e de fonte Sotlas para runtime/backend.
+- [x] planos estritamente seriais de tipos escalares baixam a `CallInst` em CFG SIR certificado e validado contra plano, assinaturas, dependências e provenance;
+- [x] scheduler executa o CFG certificado interpretando os corpos SIR puros e revalida efeitos antes da execução;
+- [x] cancelamento cooperativo do scheduler local e rejeição explícita pelo backend C11 para declarações `flow` sem lowering nativo;
+- [x] teste end-to-end parte de fonte Sotlas, constrói SIR/CFG e confirma resultados no scheduler;
+- [x] formas fora do contrato (CFG paralelo executável, efeitos em stages, tipos com ownership/lifetime) falham fechadas antes de executar.
 
-Escopo: `docs/sotlas_1_0_phase6_flow_scope.md`.
+Escopo e limites pós-1.0: `docs/sotlas_1_0_phase6_flow_scope.md`.
 
 ## Fase 7 — Execution Domains
 
