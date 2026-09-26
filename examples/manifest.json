@@ -46,7 +46,7 @@
       "id": "07_cli_tool",
       "entry": "examples/07_cli_tool/main.sotlas",
       "status": "EXPERIMENTAL",
-      "backend_contract": false
+      "backend_contract": true
     },
     {
       "id": "08_data_structures",

@@ -167,6 +167,11 @@ sotlas compile examples/01_hello_systems/main.sotlas --backend c11 --emit-c -o h
 
 O CLI também oferece comandos experimentais de inspeção, como dump-sir, e ferramentas específicas de backend ou recurso. A existência desses comandos não significa que sua saída pertença ao contrato do preview.
 
+O [exemplo de despacho de comandos](examples/07_cli_tool/README.md) também é
+verificado pelo CI no frontend canônico e no backend C11. Ele demonstra
+despacho por enum; argumentos do processo e I/O de terminal ainda não fazem
+parte deste preview.
+
 ---
 
 ## 💻 Exemplo de design experimental

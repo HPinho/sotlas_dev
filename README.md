@@ -183,6 +183,10 @@ The CLI also has experimental inspection commands such as `dump-sir` and
 backend- or feature-specific tools. Their availability does not imply that
 their output is part of the stable preview contract.
 
+The [command dispatch example](examples/07_cli_tool/README.md) is also checked
+by CI through the canonical frontend and C11 backend. It demonstrates enum
+dispatch; process arguments and terminal I/O remain outside this preview.
+
 ---
 
 ## 💻 Experimental design example
