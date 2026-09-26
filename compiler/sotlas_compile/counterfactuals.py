@@ -148,8 +148,12 @@ def _pure_integer_result_expression(function):
             ):
                 return None
             definitions.add(name)
+            left_expression = expressions[left_name]
+            right_expression = expressions[right_name]
+            if operation in {"add", "mul"} and repr(left_expression) > repr(right_expression):
+                left_expression, right_expression = right_expression, left_expression
             expressions[name] = (
-                operation, type_name, expressions[left_name], expressions[right_name]
+                operation, type_name, left_expression, right_expression
             )
         elif kind == "ReturnInst":
             value = getattr(instruction, "value", None)
@@ -431,7 +435,8 @@ def analyze_sir_flow_recovery_options(
             tuple(effect for effect in failed_effects if effect not in candidate_effects),
             semantic_equivalence_verified=equivalent,
             semantic_equivalence_evidence=(
-                "identical-pure-unsigned-sir-expression" if equivalent else None
+                "commutative-normalized-pure-unsigned-sir-expression"
+                if equivalent else None
             ),
             effect_policy=allowed_effects,
             effects_disallowed=effects_disallowed,

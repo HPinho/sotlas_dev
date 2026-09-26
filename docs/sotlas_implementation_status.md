@@ -34,7 +34,7 @@ Legenda:
 | 9 | Trust Domains | ~18% candidato | 🟡 |
 | 10 | Guarantees | ~25% candidato | 🟡 |
 | 11 | Causality | ~13% candidato | 🟡 |
-| 12 | Counterfactuals | ~14% candidato | 🟡 |
+| 12 | Counterfactuals | ~15% candidato | 🟡 |
 | 13 | Transactions | ~27% candidato | 🟡 |
 | 14 | Intent | ~20% candidato | 🟡 |
 | 15 | SIR completo | ~42% candidato | 🟡 |
@@ -91,14 +91,15 @@ API inicial: `explain_sir_flow_causality(module, flow, source_stage, target_stag
 - [x] consulta valida grafo, dependências e cronograma SIR canônicos e não executa funções;
 - [x] alternativas estruturais com tipo e efeitos comparados; uma allowlist explícita marca efeitos proibidos;
 - [x] equivalência limitada para expressões SIR puras unsigned idênticas, com igualdade dos produtores usados provada recursivamente;
+- [x] normalização comutativa de `add` e `mul` unsigned puros reconhece operandos invertidos, mantendo iguais as provas recursivas dos produtores;
 - [ ] equivalência além do subset estrutural, estado/rollback e análise de cenários fora de Flow.
 
-**Status 1.0: ~14% candidato 🟡 — IN PROGRESS**
+**Status 1.0: ~15% candidato 🟡 — IN PROGRESS**
 
 - [x] opções SIR de stage em outro plano com mesmo nome e tipo de saída, sem dependência do stage indisponível;
 - [x] diferenças de efeitos explícitas e avaliação opcional contra uma allowlist declarada pelo chamador;
 - [x] candidatos que violam a allowlist são marcados sem descartar evidência;
-- [x] equivalência só é marcada quando os corpos são a mesma expressão pura de inteiros unsigned e cada producer usado tem equivalência recursiva;
+- [x] equivalência só é marcada quando os corpos são a mesma expressão pura unsigned após normalizar a comutatividade de soma/multiplicação e cada producer usado tem equivalência recursiva;
 - [ ] prova para transformações algébricas não idênticas, estado/rollback e cenários fora de Flow.
 
 APIs: `analyze_sir_flow_stage_unavailability(module, flow, stage)` e

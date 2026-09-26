@@ -394,6 +394,7 @@ fn changed_value() -> u32 { return 5u32; }
 fn primary_factor() -> u32 { return 3u32; }
 fn backup_factor() -> u32 { return 3u32; }
 fn add(left: u32, right: u32) -> u32 { return left + right; }
+fn add_reversed(left: u32, right: u32) -> u32 { return right + left; }
 flow Home {
     stage profile = primary_value;
     stage factor = primary_factor;
@@ -402,7 +403,7 @@ flow Home {
 flow Backup {
     stage spare = backup_value;
     stage spare_factor = backup_factor;
-    stage page = add after spare, spare_factor;
+    stage page = add_reversed after spare, spare_factor;
 }
 flow BackupChanged {
     stage spare = changed_value;
@@ -421,7 +422,7 @@ flow BackupChanged {
         )
         self.assertEqual(
             candidates["Backup"].semantic_equivalence_evidence,
-            "identical-pure-unsigned-sir-expression",
+            "commutative-normalized-pure-unsigned-sir-expression",
         )
         self.assertFalse(candidates["BackupChanged"].semantic_equivalence_verified)
         self.assertIsNone(candidates["BackupChanged"].semantic_equivalence_evidence)
