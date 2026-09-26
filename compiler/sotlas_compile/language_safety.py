@@ -459,6 +459,9 @@ class _StrictSafetyChecker:
                 }.get(type(item), ())
                 for attr in nested_attrs:
                     yield from flatten(getattr(item, attr, ()) or ())
+                if isinstance(item, b.Discern):
+                    for case in item.cases:
+                        yield from flatten(case.body)
 
         loop_quarantines: set[int] = set()
 
@@ -479,6 +482,9 @@ class _StrictSafetyChecker:
                     collect_loop_quarantines(
                         getattr(item, attr, ()) or (), child_in_loop
                     )
+                if isinstance(item, b.Discern):
+                    for case in item.cases:
+                        collect_loop_quarantines(case.body, child_in_loop)
 
         collect_loop_quarantines(function.body)
 
@@ -512,6 +518,11 @@ class _StrictSafetyChecker:
                     and returns_on_all_paths(statement.else_body)
                 ):
                     return True
+                if isinstance(statement, b.Discern) and statement.cases and all(
+                    returns_on_all_paths(case.body)
+                    for case in statement.cases
+                ):
+                    return True
             return False
 
         def record_paths(items, path=()):
@@ -533,6 +544,12 @@ class _StrictSafetyChecker:
                         continuation += ((
                             id(statement), 1 if then_returns else 0
                         ),)
+                elif isinstance(statement, b.Discern):
+                    for index, case in enumerate(statement.cases):
+                        record_paths(
+                            case.body,
+                            continuation + ((id(statement), index),),
+                        )
                 else:
                     nested = {
                         b.While: ("body",), b.For: ("body",), b.Loop: ("body",),
@@ -886,6 +903,12 @@ class _StrictSafetyChecker:
                 self._infer(item.condition, scope, depth, system_context)
                 self._statements(item.then_body, dict(scope), depth, system_context)
                 self._statements(item.else_body, dict(scope), depth, system_context)
+            elif isinstance(item, b.Discern):
+                self._infer(item.subject, scope, depth, system_context)
+                for case in item.cases:
+                    self._statements(
+                        case.body, dict(scope), depth, system_context
+                    )
             elif isinstance(item, b.While):
                 self._infer(item.condition, scope, depth, system_context)
                 self._statements(item.body, dict(scope), depth, system_context)

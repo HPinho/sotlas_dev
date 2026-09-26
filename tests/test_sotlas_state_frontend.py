@@ -266,6 +266,71 @@ class SotlasStateFrontendTests(unittest.TestCase):
         generated = bootstrap.emit_c(module)
         self.assertIn("Device configure", generated)
 
+    def test_production_discern_requires_complete_state_coverage(self):
+        source = self._source(
+            "pub fn inspect(dev: Device<Discovered>) -> u32 { "
+            "discern dev { Discovered => { return 1u32; } "
+            "Configured => { return 2u32; } "
+            "Running => { return 3u32; } } }"
+        )
+        module = bootstrap.parse(source, filename="<state-discern>")
+        bootstrap.check(module)
+        generated = bootstrap.emit_c(module)
+        # The C11 representation erases typestate, so lowering selects the
+        # sole branch proven reachable by the binding's static state.
+        self.assertIn("return ((uint32_t)(1))", generated)
+        self.assertNotIn("((uint32_t)(2))", generated)
+        self.assertNotIn("((uint32_t)(3))", generated)
+
+    def test_production_discern_rejects_missing_and_duplicate_states(self):
+        missing = self._source(
+            "fn inspect(dev: Device<Discovered>) -> u32 { "
+            "discern dev { Discovered => { return 1u32; } } }"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError, "missing: Configured, Running"
+        ):
+            bootstrap.compile_source(missing, filename="<state-discern-missing>")
+
+        duplicate = self._source(
+            "fn inspect(dev: Device<Discovered>) -> u32 { "
+            "discern dev { Discovered => { return 1u32; } "
+            "Discovered => { return 2u32; } "
+            "Configured => { return 3u32; } "
+            "Running => { return 4u32; } } }"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError, "repeats state 'Discovered'"
+        ):
+            bootstrap.compile_source(duplicate, filename="<state-discern-duplicate>")
+
+    def test_discern_state_branch_executes_natively(self):
+        compiler = shutil.which("gcc") or shutil.which("clang")
+        if compiler is None:
+            self.skipTest("host C compiler not available")
+        source = self._source(
+            "pub fn inspect(dev: Device<Discovered>) -> i32 { "
+            "discern dev { Discovered => { return 41; } "
+            "Configured => { return 42; } "
+            "Running => { return 43; } } }"
+        ) + "\nfn main() -> i32 { let dev: Device<Discovered> = Device { id: 0u32 }; " \
+            "return inspect(dev); }\n"
+        generated = bootstrap.compile_source(source, filename="<state-discern-native>")
+        with tempfile.TemporaryDirectory(prefix="sotlas-state-discern-") as temp_dir:
+            c_file = Path(temp_dir) / "state_discern.c"
+            executable = Path(temp_dir) / "state_discern"
+            c_file.write_text(generated, encoding="utf-8")
+            compiled = subprocess.run(
+                [compiler, "-std=c11", "-Wall", "-Wextra", "-Werror",
+                 str(c_file), "-o", str(executable)],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            executed = subprocess.run(
+                [str(executable)], capture_output=True, text=True
+            )
+            self.assertEqual(executed.returncode, 41, executed.stderr)
+
     def test_payload_state_spaces_remain_fail_closed_in_production(self):
         source = self._source().replace(
             "state Configured", "state Configured(Error)"

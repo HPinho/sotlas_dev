@@ -2,7 +2,7 @@
 
 **Atualizado em:** 2026-09-25  
 **Status:** 🟡 IN PROGRESS  
-**Último baseline verde antes deste pacote:** `0025ec7` — Sotlas CI & Toolchain Build Farm #573 `success`
+**Último baseline verde antes deste pacote:** `bd63182` — Sotlas CI & Toolchain Build Farm #582; jobs individuais `success`
 
 ## Objetivo do 1.0
 
@@ -71,6 +71,8 @@ O frontend e o backend C11 aceitam agora a forma que podem preservar: `Type<Stat
 
 Payloads, armazenamento tipado, métodos, múltiplas transições e transições fora do retorno direto continuam fail-closed. A etapa `Verify Phase 4 State Space release subset` na CI roda os testes públicos, o bridge SIR e o e2e nativo.
 
+`discern` 1.0 aceita binding direto e arms nomeados sem payload nem guards. Como o C11 apaga o typestate e não armazena uma tag no valor, o backend escolhe o arm provado pelo tipo estático. Payload patterns, guards, wildcard e estado dinâmico continuam fora do subset.
+
 ## BLOCKERS 1.0
 
 - [x] parser e AST público para declaração `space`;
@@ -88,7 +90,9 @@ Payloads, armazenamento tipado, métodos, múltiplas transições e transições
 - [x] teste negativo: edges/transições inválidos são rejeitados antes do backend;
 - [x] gate público e etapa CI dedicados impedem aceitar formas que o backend não suporta;
 - [x] API Python pública backend-neutral para analisar coverage e exigir exaustividade sobre plano certificado;
-- [ ] integrar `discern`/coverage ao frontend de produção e ao lowering C11.
+- [x] `discern binding { State => { ... } }` exige cobertura exaustiva de todos os estados declarados no frontend canônico;
+- [x] C11 seleciona o arm correspondente ao typestate certificado, preservado estaticamente;
+- [ ] CI dedicada confirma o e2e nativo do subset de `discern` (candidato atual).
 
 ## DEFER 1.0.x
 

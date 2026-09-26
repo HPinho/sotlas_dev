@@ -1,8 +1,8 @@
 # Sotlas — Implementation Status
 
 **Atualizado em:** 2026-09-26
-**Último baseline verde certificado:** `0e98e1b`
-**CI de referência:** Sotlas CI & Toolchain Build Farm #581 — `success`
+**Último baseline verde certificado:** `bd63182`
+**CI de referência:** Sotlas CI & Toolchain Build Farm #582 — jobs individuais `success`
 **Fonte arquitetural:** `SOTLAS — ESPECIFICAÇÃO MESTRA`
 
 > Este é o índice operacional atual. O snapshot detalhado anterior, com o histórico extenso das microentregas da Fase 2, permanece preservado em `docs/archive/sotlas_implementation_status_2026-09-23.md`.
@@ -26,7 +26,7 @@ Legenda:
 | 1 | Typed Semantic Core | 100% | ✅ COMPLETE |
 | 2 | Ownership Domains | 100% | ✅ COMPLETE |
 | 3 | Authority Domains | 100% | ✅ COMPLETE |
-| 4 | State Spaces | ~70% | 🟡 IN PROGRESS |
+| 4 | State Spaces | ~90% candidato | 🟡 IN PROGRESS |
 | 5 | Effects | ~25% | 🟡 |
 | 6 | Flow | ~20% | 🟡 |
 | 7 | Execution Domains | ~20% | 🟡 |
@@ -131,7 +131,8 @@ Escopo: `docs/sotlas_1_0_phase3_authority_scope.md`.
 - [x] e2e positivo nativo e rejeição semântica de edges/transições inválidos;
 - [x] gate dedicado da Fase 4 na CI executa frontend, SIR e e2e C11;
 - [x] API pública backend-neutral para analisar coverage e exigir exhaustividade em `StateSpacePlan` certificado;
-- [ ] integração de `discern`/coverage no frontend de produção e lowering C11.
+- [x] `discern` exige cobertura exaustiva de estados no frontend de produção e seleciona o arm tipado no C11;
+- [ ] CI dedicada confirma o e2e nativo desse subset (candidato atual).
 
 ### Pós-1.0
 

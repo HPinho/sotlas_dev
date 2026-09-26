@@ -64,6 +64,8 @@ def _walk(value, bootstrap):
                         yield from _walk(item, bootstrap)
                     elif isinstance(item, (tuple, list)):
                         yield from _walk(item, bootstrap)
+                    elif type(item).__name__ == "StateCase":
+                        yield from _walk(getattr(item, "body", ()), bootstrap)
                 continue
             if isinstance(child, (bootstrap.Expr, bootstrap.Stmt)):
                 yield from _walk(child, bootstrap)

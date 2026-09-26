@@ -316,6 +316,14 @@ class _RegionMethodEscapeChecker:
                     set(region_owners),
                     {name: set(owners) for name, owners in aliases.items()},
                 )
+            if type(item).__name__ == "Discern":
+                for case in item.cases:
+                    self._check_statements(
+                        case.body,
+                        dict(scope),
+                        set(region_owners),
+                        {name: set(owners) for name, owners in aliases.items()},
+                    )
 
     def _functions_to_check(self):
         result = []

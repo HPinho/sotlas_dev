@@ -345,6 +345,13 @@ class Loop(Stmt): body: list[Stmt]
 @dataclass
 class If(Stmt): condition: Expr; then_body: list[Stmt]; else_body: list[Stmt]
 @dataclass
+class StateCase:
+    token: Token
+    state_name: str
+    body: list[Stmt]
+@dataclass
+class Discern(Stmt): subject: Expr; cases: list[StateCase]
+@dataclass
 class While(Stmt): condition: Expr; body: list[Stmt]
 @dataclass
 class For(Stmt):
@@ -880,6 +887,28 @@ class Parser:
 
     def statement(self) -> Stmt:
         token = self.current
+        if self.current.kind == "IDENT" and self.current.text == "discern":
+            self.at += 1
+            subject = self.expression()
+            self.expect("{")
+            cases = []
+            while self.current.kind != "}":
+                case_token = self.current
+                if case_token.kind != "IDENT" or case_token.text == "_":
+                    raise SotlasBootstrapError(
+                        "discern State Space accepts named state arms only",
+                        case_token.line, case_token.column,
+                        self.filename, self.source,
+                    )
+                self.at += 1
+                self.expect("=")
+                self.expect(">")
+                body = self.block()
+                cases.append(StateCase(case_token, case_token.text, body))
+                self.accept(",")
+                self.accept(";")
+            self.expect("}")
+            return Discern(token, subject, cases)
         if self.accept("let"):
             is_mut = bool(self.accept("mut"))
             name = self.ident(); typ = None
@@ -2559,6 +2588,44 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
                 statements(item.then_body if isinstance(item, If) else item.body, dict(scope), expected_return, in_unsafe, is_system_fn)
                 if isinstance(item, If) and item.else_body:
                     statements(item.else_body, dict(scope), expected_return, in_unsafe, is_system_fn)
+            elif isinstance(item, Discern):
+                subject_type = expr_type(
+                    item.subject, scope, in_unsafe, is_system_fn
+                )
+                space_name = subject_type.state_space
+                if space_name is None or subject_type.state_name is None:
+                    raise SotlasBootstrapError(
+                        "discern requires a value with a certified State Space type",
+                        item.token.line, item.token.column, filename, source,
+                    )
+                if not isinstance(item.subject, Name):
+                    raise SotlasBootstrapError(
+                        "discern State Space requires a direct named binding",
+                        item.token.line, item.token.column, filename, source,
+                    )
+                item.state_space_name = space_name
+                item.state_name = subject_type.state_name
+                try:
+                    plan = module.state_space_frontend_plan
+                    space = plan.space(space_name)
+                    if any(state.payload for state in space.states):
+                        raise ValueError(
+                            "discern payload patterns remain PREVIEW"
+                        )
+                    from .state_frontend import require_exhaustive_state_space_coverage
+                    require_exhaustive_state_space_coverage(
+                        space, tuple(case.state_name for case in item.cases)
+                    )
+                except ValueError as error:
+                    raise SotlasBootstrapError(
+                        str(error), item.token.line, item.token.column,
+                        filename, source,
+                    ) from error
+                for case in item.cases:
+                    statements(
+                        case.body, dict(scope), expected_return,
+                        in_unsafe, is_system_fn,
+                    )
             elif isinstance(item, Loop):
                 statements(item.body, dict(scope), expected_return, in_unsafe, is_system_fn)
             elif isinstance(item, For):
@@ -3060,6 +3127,10 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
     def _walk_statements_recursive(statements):
         for statement in statements or ():
             yield statement
+            if isinstance(statement, Discern):
+                for case in statement.cases:
+                    yield from _walk_statements_recursive(case.body)
+                continue
             for attribute in ("body", "then_body", "else_body"):
                 nested = getattr(statement, attribute, None)
                 if nested:
@@ -3289,7 +3360,7 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                             item.token.line, item.token.column,
                             module.filename, module.source,
                         )
-                elif isinstance(item, (If, While, Loop, For, Unsafe)):
+                elif isinstance(item, (If, While, Loop, For, Unsafe, Discern)):
                     shared_names = set(aliases) | set(aliases.values())
                     for statement in nested_statements((item,)):
                         if isinstance(statement, (Break, Continue)):
@@ -4601,6 +4672,11 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
         for statement in statements or ():
             if isinstance(statement, Return):
                 return True
+            if isinstance(statement, Discern) and statement.cases and all(
+                _block_definitely_returns(case.body)
+                for case in statement.cases
+            ):
+                return True
             if isinstance(statement, Unsafe) and _block_definitely_returns(
                 statement.body
             ):
@@ -5272,6 +5348,30 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                             "from an if branch that continues"
                         )
                     out.append(f"{pad}}}")
+            elif isinstance(item, Discern):
+                chosen = next(
+                    (case for case in item.cases
+                     if case.state_name == getattr(item, "state_name", None)),
+                    None,
+                )
+                if chosen is None:
+                    raise SotlasBootstrapError(
+                        "C11 discern could not resolve its statically known state",
+                        item.token.line, item.token.column,
+                        module.filename, module.source,
+                    )
+                out.append(f"{pad}{{")
+                out.extend(emit_statements(
+                    chosen.body, depth + 1,
+                    [scope.copy() for scope in defer_scopes],
+                    loop_scope_depth, ret_type,
+                    shared_boxes=dict(shared_boxes),
+                    shared_cleanups=list(local_shared_cleanups),
+                    shared_owner_names=set(shared_owner_cleanup_names),
+                    shared_local_types=dict(shared_local_types),
+                    loop_shared_cleanup_entry_count=loop_shared_cleanup_entry_count,
+                ))
+                out.append(f"{pad}}}")
         current_defers = defer_scopes.pop()
         if (
             shared_owner_cleanup_names - shared_names_at_entry

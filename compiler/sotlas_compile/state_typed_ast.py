@@ -145,6 +145,13 @@ def _iter_local_type_sites(function_name: str, statements, path: str = "body"):
                 getattr(statement, "else_body", ()),
                 f"{path}:if@{_point(statement)}:else",
             )
+        elif kind == "Discern":
+            for case in getattr(statement, "cases", ()):
+                yield from _iter_local_type_sites(
+                    function_name,
+                    getattr(case, "body", ()),
+                    f"{path}:discern:{case.state_name}@{_point(statement)}",
+                )
         elif kind in ("While", "Loop", "For", "Unsafe"):
             yield from _iter_local_type_sites(
                 function_name,

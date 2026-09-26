@@ -78,6 +78,7 @@ def _walk_calls(value: object) -> Iterable[object]:
         for attr in (
             "value", "args", "condition", "then_body", "else_body", "body",
             "expr", "target", "left", "right", "operand", "index",
+            "cases",
         ):
             child = getattr(current, attr, None)
             if child is not None:

@@ -386,6 +386,9 @@ def _iter_statement_types(items, bootstrap):
         elif isinstance(item, bootstrap.If):
             yield from _iter_statement_types(item.then_body, bootstrap)
             yield from _iter_statement_types(item.else_body, bootstrap)
+        elif type(item).__name__ == "Discern":
+            for case in item.cases:
+                yield from _iter_statement_types(case.body, bootstrap)
         elif isinstance(item, (bootstrap.While, bootstrap.Loop, bootstrap.Unsafe)):
             yield from _iter_statement_types(item.body, bootstrap)
         elif isinstance(item, bootstrap.For):
@@ -624,6 +627,9 @@ def _validate_state_local_initializers(module, plan, bootstrap):
             elif isinstance(item, bootstrap.If):
                 visit(item.then_body, scope)
                 visit(item.else_body, scope)
+            elif type(item).__name__ == "Discern":
+                for case in item.cases:
+                    visit(case.body, scope)
             elif isinstance(
                 item, (bootstrap.While, bootstrap.Loop, bootstrap.Unsafe)
             ):
@@ -697,6 +703,8 @@ def _state_release_subset_error(module, plan, bootstrap):
                     for item in child:
                         if isinstance(item, (bootstrap.Expr, bootstrap.Stmt)):
                             yield from walk_ast(item)
+                        elif type(item).__name__ == "StateCase":
+                            yield from walk_ast(getattr(item, "body", ()))
 
     for function in getattr(module, "functions", ()):
         transitions = tuple(

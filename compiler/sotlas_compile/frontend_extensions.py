@@ -154,6 +154,7 @@ def install(bootstrap) -> None:
                     "return", "break", "continue", "handover",
                     "if", "while", "loop", "for", "unsafe",
                 }
+                or (token.kind == "IDENT" and token.text == "discern")
                 or (
                     token.kind == "IDENT"
                     and token.text == "quarantine"
@@ -193,6 +194,9 @@ def install(bootstrap) -> None:
                 yield from walk_statements(item.body)
             elif isinstance(item, bootstrap.For):
                 yield from walk_statements(item.body)
+            elif type(item).__name__ == "Discern":
+                for case in item.cases:
+                    yield from walk_statements(case.body)
             elif isinstance(item, bootstrap.Defer) and item.body is not None:
                 yield from walk_statements(item.body)
 
@@ -218,6 +222,9 @@ def install(bootstrap) -> None:
             elif isinstance(item, bootstrap.If):
                 collect_local_names(item.then_body, output)
                 collect_local_names(item.else_body, output)
+            elif type(item).__name__ == "Discern":
+                for case in item.cases:
+                    collect_local_names(case.body, output)
             elif isinstance(item, (bootstrap.While, bootstrap.Loop, bootstrap.Unsafe)):
                 collect_local_names(item.body, output)
             elif isinstance(item, bootstrap.Defer) and item.body is not None:
@@ -277,6 +284,10 @@ def install(bootstrap) -> None:
                 rename_expr(item.condition, mapping)
                 rename_statements(item.then_body, mapping)
                 rename_statements(item.else_body, mapping)
+            elif type(item).__name__ == "Discern":
+                rename_expr(item.subject, mapping)
+                for case in item.cases:
+                    rename_statements(case.body, mapping)
             elif isinstance(item, bootstrap.While):
                 rename_expr(item.condition, mapping)
                 rename_statements(item.body, mapping)
