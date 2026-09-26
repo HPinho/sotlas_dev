@@ -200,6 +200,8 @@ class Type:
     fn_ret: Type | None = None
     is_reference: bool = False
     ownership_domain: str | None = None
+    state_space: str | None = None
+    state_name: str | None = None
 
     def base_c(self) -> str:
         if self.is_fn_ptr:
@@ -236,6 +238,11 @@ class Type:
             prefix = "" if self.mutable else "const "
             return f"{prefix}{base} *"
         return base
+
+    def display(self) -> str:
+        if self.state_space is not None and self.state_name is not None:
+            return f"{self.name}<{self.state_name}>"
+        return self.name
 
     def c_decl(self, var_name: str) -> str:
         if self.is_fn_ptr:
@@ -554,11 +561,25 @@ class Parser:
                 size_tok = self.expect("IDENT")
                 size = size_tok.text
             self.expect("]")
-            return Type(name=elem_type.name, pointer=elem_type.pointer, mutable=elem_type.mutable, is_array=True, array_size=size, elem_type=elem_type)
+            return Type(
+                name=elem_type.name,
+                pointer=elem_type.pointer,
+                mutable=elem_type.mutable,
+                is_array=True,
+                array_size=size,
+                elem_type=elem_type,
+                state_space=elem_type.state_space,
+                state_name=elem_type.state_name,
+            )
         if self.accept("&"):
             is_mut = bool(self.accept("mut"))
             inner = self.type()
-            return Type(name=inner.name, pointer=True, mutable=is_mut, is_array=inner.is_array, array_size=inner.array_size, elem_type=inner.elem_type, is_reference=True)
+            return replace(
+                inner,
+                pointer=True,
+                mutable=is_mut,
+                is_reference=True,
+            )
         pointer = False; mutable = False
         if self.accept("*"):
             pointer = True
@@ -568,7 +589,12 @@ class Parser:
                 mutable = (self.current.text == "mut")
                 self.at += 1
             inner = self.type()
-            return Type(name=inner.name, pointer=True, mutable=mutable, is_array=inner.is_array, array_size=inner.array_size, elem_type=inner.elem_type)
+            return replace(
+                inner,
+                pointer=True,
+                mutable=mutable,
+                is_reference=False,
+            )
         base_name = self.ident()
         if base_name in UNSUPPORTED_OWNERSHIP_DOMAINS:
             token = self.tokens[self.at - 1]
@@ -1165,6 +1191,8 @@ def same_type(left: Type, right: Type) -> bool:
 
     return (
         left.name == right.name
+        and left.state_space == right.state_space
+        and left.state_name == right.state_name
         and left.pointer == right.pointer
         and left.mutable == right.mutable
         and left.is_reference == right.is_reference
@@ -1328,6 +1356,8 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
     user_funcs = {item.name: item for item in module.functions}
     functions.update(user_funcs)
     if imported_fns: functions.update(imported_fns)
+    state_transition_facts: dict[tuple[str, str], tuple] = {}
+    current_function_name = "<module>"
 
     def binding_type(type_obj: Type, is_mut: bool) -> Type:
         bound = replace(type_obj)
@@ -1977,6 +2007,81 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
                     )
             return Type("bool") if expr.op in ("==", "!=", "<", "<=", ">", ">=", "&&", "||") else left
         if isinstance(expr, Call):
+            if expr.callee == "transition" and getattr(
+                module, "state_space_frontend_plan", None
+            ) is not None:
+                if not in_unsafe:
+                    raise SotlasBootstrapError(
+                        "typestate transition requires an unsafe block because "
+                        "the operation asserts that the resource changed state",
+                        expr.token.line, expr.token.column, filename, source,
+                    )
+                if (
+                    len(expr.args) != 2
+                    or not isinstance(expr.args[0], MoveExpr)
+                    or not isinstance(expr.args[0].value, Name)
+                    or not isinstance(expr.args[1], Name)
+                ):
+                    raise SotlasBootstrapError(
+                        "transition syntax is transition(move(binding), TargetState)",
+                        expr.token.line, expr.token.column, filename, source,
+                    )
+                source_type = expr_type(
+                    expr.args[0], scope, in_unsafe, is_system_fn
+                )
+                space_name = getattr(source_type, "state_space", None)
+                source_state = getattr(source_type, "state_name", None)
+                target_state = expr.args[1].value
+                source_struct = struct_map.get(source_type.name)
+                if (
+                    not isinstance(space_name, str)
+                    or not isinstance(source_state, str)
+                    or source_type.pointer
+                    or source_type.is_reference
+                    or source_type.is_array
+                    or source_struct is None
+                    or not source_struct.is_sole
+                ):
+                    raise SotlasBootstrapError(
+                        "transition requires a by-value typestate of a sole struct",
+                        expr.args[0].token.line,
+                        expr.args[0].token.column,
+                        filename,
+                        source,
+                    )
+                try:
+                    from .state_typestate import (
+                        certify_typestate,
+                        transition_typestate,
+                    )
+
+                    plan = module.state_space_frontend_plan
+                    space = plan.space(space_name)
+                    current = certify_typestate(
+                        space, source_type.name, source_state
+                    )
+                    point_id = (
+                        f"state_transition@{expr.token.line}:{expr.token.column}"
+                    )
+                    fact = transition_typestate(
+                        space, current, target_state, point_id=point_id
+                    )
+                except ValueError as error:
+                    raise SotlasBootstrapError(
+                        str(error), expr.token.line, expr.token.column,
+                        filename, source,
+                    ) from error
+                state_transition_facts[(current_function_name, point_id)] = (
+                    current_function_name,
+                    point_id,
+                    expr.args[0].value.value,
+                    fact,
+                )
+                scope[expr.args[0].value.value] = replace(
+                    source_type, state_name=fact.target.state_name
+                )
+                return replace(source_type, state_name=fact.target.state_name)
+
             argument_types = [
                 expr_type(argument, scope, in_unsafe, is_system_fn)
                 for argument in expr.args
@@ -2496,8 +2601,10 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
                 for e in item.inputs: expr_type(e, scope, in_unsafe, is_system_fn)
 
     for function in module.functions:
+        current_function_name = function.name
         is_system = "@system" in function.attributes or "@inline" in function.attributes
         statements(function.body, dict(function.params), function.result, in_unsafe=False, is_system_fn=is_system)
+    module.state_transition_facts = tuple(state_transition_facts.values())
 
 
 def _c_ident(name: str) -> str:
@@ -2537,6 +2644,8 @@ def _emit_expr(
         return f"({expr.op}{_emit_expr(expr.value, mod_prefix, shared_boxes)})"
     if isinstance(expr, Binary): return f"({_emit_expr(expr.left, mod_prefix, shared_boxes)} {expr.op} {_emit_expr(expr.right, mod_prefix, shared_boxes)})"
     if isinstance(expr, Call):
+        if expr.callee == "transition" and expr.args:
+            return _emit_expr(expr.args[0], mod_prefix, shared_boxes)
         callee = expr.callee
         return f"{callee}(" + ", ".join(_emit_expr(item, mod_prefix, shared_boxes) for item in expr.args) + ")"
     if isinstance(expr, MethodCall):
@@ -4337,6 +4446,16 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
 
         if isinstance(expr, Call):
             callee = function_by_name.get(expr.callee)
+            if expr.callee == "transition" and expr.args:
+                moved = expr.args[0]
+                if (
+                    isinstance(moved, MoveExpr)
+                    and isinstance(moved.value, Name)
+                ):
+                    names.add(moved.value.value)
+                for argument in expr.args:
+                    names.update(_sole_call_transfer_names(argument))
+                return names
             if callee is not None:
                 for argument, (_, parameter_type) in zip(
                     expr.args, callee.params

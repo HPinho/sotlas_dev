@@ -8,7 +8,7 @@ from .instructions import (
     SIRModule, SIRFunction, SIRBasicBlock, SIRValue,
     AllocStackInst, StoreInst, LoadInst, CallInst,
     OwnershipDomainPointInst, SharedOwnershipPointInst, DirectAccessInst,
-    WhisperBorrowInst,
+    WhisperBorrowInst, StateTransitionInst,
     ReturnInst, BranchInst, CondBranchInst, CompareInst, PhiInst, SystemOpInst
 )
 
@@ -40,6 +40,10 @@ class SIRGenerator:
 
         name = getattr(type_info, "name", None)
         if isinstance(name, str) and name:
+            state_space = getattr(type_info, "state_space", None)
+            state_name = getattr(type_info, "state_name", None)
+            if isinstance(state_space, str) and isinstance(state_name, str):
+                name = f"{name}<{state_name}>"
             if (
                 getattr(type_info, "pointer", False)
                 or getattr(type_info, "is_reference", False)
@@ -1502,6 +1506,14 @@ class SIRGenerator:
             function.name: function
             for function in getattr(ast, "functions", ())
         }
+        self._parsed_state_transition_facts = {
+            (item[0], item[1]): item
+            for item in getattr(ast, "state_transition_facts", ())
+            if isinstance(item, tuple) and len(item) == 4
+        }
+        self._state_space_frontend_plan = getattr(
+            ast, "state_space_frontend_plan", None
+        )
         self._sole_names = frozenset(
             item.name for item in getattr(ast, "structs", ())
             if getattr(item, "is_sole", False)
@@ -1558,6 +1570,9 @@ class SIRGenerator:
             entry_block.add(AllocStackInst(var_name=p.name, type_name=p.type_name, result=stack_slot))
             entry_block.add(StoreInst(destination=stack_slot, source=p))
 
+        if self._try_lower_state_transition(fn, entry_block, ret_type):
+            return sir_fn
+
         if self._try_lower_direct_call_subset(
             fn, entry_block, sir_params, ret_str
         ):
@@ -1610,3 +1625,113 @@ class SIRGenerator:
             )
         )
         return sir_fn
+
+    def _try_lower_state_transition(
+        self, fn: Any, entry_block: SIRBasicBlock, return_type: Any
+    ) -> bool:
+        """Lower one checked, linear source transition into backend-neutral SIR."""
+        body = list(getattr(fn, "body", ()) or ())
+        while len(body) == 1 and type(body[0]).__name__ == "Unsafe":
+            body = list(getattr(body[0], "body", ()) or ())
+        if len(body) != 1 or type(body[0]).__name__ != "Return":
+            return False
+        returned = body[0]
+        call = getattr(returned, "value", None)
+        if (
+            type(call).__name__ != "Call"
+            or getattr(call, "callee", None) != "transition"
+            or len(getattr(call, "args", ())) != 2
+        ):
+            return False
+        moved = call.args[0]
+        target_state = call.args[1]
+        if (
+            type(moved).__name__ != "MoveExpr"
+            or type(getattr(moved, "value", None)).__name__ != "Name"
+            or type(target_state).__name__ != "Name"
+        ):
+            return False
+        source_name = moved.value.value
+        function_name = getattr(fn, "name", None)
+        point_token = getattr(call, "token", None)
+        line = getattr(point_token, "line", None)
+        column = getattr(point_token, "column", None)
+        if not isinstance(line, int) or not isinstance(column, int):
+            raise ValueError("State Transition SIR requires source coordinates")
+        point_id = f"state_transition@{line}:{column}"
+        fact_entry = self._parsed_state_transition_facts.get(
+            (function_name, point_id)
+        )
+        if fact_entry is None:
+            return False
+        _, _, checked_binding, fact = fact_entry
+        if checked_binding != source_name:
+            raise ValueError("State Transition SIR source binding diverges from AST proof")
+        if fact.target.state_name != target_state.value:
+            raise ValueError("State Transition SIR target diverges from AST proof")
+        if fact.target.type_name != getattr(return_type, "name", None):
+            raise ValueError("State Transition SIR target diverges from function result")
+        if (
+            getattr(return_type, "state_space", None)
+            != fact.target.space_name
+        ):
+            raise ValueError(
+                "State Transition SIR target space diverges from function result"
+            )
+
+        return_state = getattr(return_type, "state_name", None)
+        if return_state != fact.target.state_name:
+            raise ValueError(
+                "State Transition SIR target state diverges from function result"
+            )
+
+        source_type = next(
+            (
+                type_info
+                for name, type_info in getattr(fn, "params", ())
+                if name == source_name
+            ),
+            None,
+        )
+        if source_type is None:
+            return False
+        source_value = SIRValue(source_name, self._type_name(source_type))
+        source_plan = self._state_space_frontend_plan
+        if source_plan is None:
+            raise ValueError("State Transition SIR lacks the checked State Space plan")
+        try:
+            certified_space = source_plan.space(fact.source.space_name)
+        except (AttributeError, KeyError, ValueError) as error:
+            raise ValueError(
+                "State Transition SIR space is absent from the checked graph"
+            ) from error
+        try:
+            edge = certified_space.require_transition(
+                fact.source.state_name, fact.target.state_name
+            )
+        except (AttributeError, KeyError, ValueError) as error:
+            raise ValueError(
+                "State Transition SIR edge is absent from the checked graph"
+            ) from error
+        if edge != fact.transition:
+            raise ValueError("State Transition SIR edge diverges from checked graph")
+
+        result_name = f"state_{source_name}_{fact.target.state_name}_{line}_{column}"
+        result = SIRValue(result_name, self._type_name(return_type))
+        entry_block.add(
+            StateTransitionInst(
+                source=source_value,
+                result=result,
+                space_name=fact.source.space_name,
+                source_state=fact.source.state_name,
+                target_state=fact.target.state_name,
+                point_id=point_id,
+            )
+        )
+        entry_block.add(
+            ReturnInst(
+                value=result,
+                point_id=self._statement_point_id(returned, "return"),
+            )
+        )
+        return True

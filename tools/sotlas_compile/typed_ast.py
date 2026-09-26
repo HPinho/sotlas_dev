@@ -9,7 +9,7 @@ Maturity: ISOLATED_PHASE1.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 
 
@@ -4573,6 +4573,42 @@ def infer_expression_type(
     if kind == "Call":
         callee = getattr(expr, "callee")
 
+        if callee == "transition":
+            arguments = tuple(getattr(expr, "args", ()))
+            if len(arguments) != 2:
+                raise Phase1SemanticError(
+                    "transition requires a moved value and target state"
+                )
+            moved, target = arguments
+            if type(moved).__name__ != "MoveExpr":
+                raise Phase1SemanticError(
+                    "transition requires an explicit move of its source"
+                )
+            source = infer_expression_type(
+                getattr(moved, "value"), env, typed_module
+            )
+            if source.type.pointer or source.type.is_reference:
+                raise Phase1SemanticError(
+                    "transition source must be a direct value"
+                )
+            if source.type.state_space is None or source.type.state_name is None:
+                raise Phase1SemanticError(
+                    "transition source must have a certified typestate"
+                )
+            if type(target).__name__ != "Name":
+                raise Phase1SemanticError(
+                    "transition target must be a named state"
+                )
+            return TypedExprNode(
+                kind,
+                replace(
+                    source.type,
+                    state_space=source.type.state_space,
+                    state_name=target.value,
+                ),
+                f"{source.label}->{target.value}",
+            )
+
         constructor = None
         for enum in typed_module.enums:
             for variant in enum.variants:
@@ -6393,6 +6429,8 @@ class SemanticType:
     fn_params: tuple["SemanticType", ...] = ()
     fn_ret: "SemanticType | None" = None
     declared_ownership_domain: OwnershipDomain | None = field(default=None, compare=False)
+    state_space: str | None = None
+    state_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -6630,6 +6668,8 @@ def semantic_type(type_obj) -> SemanticType:
             if getattr(type_obj, "ownership_domain", None) is not None
             else None
         ),
+        state_space=getattr(type_obj, "state_space", None),
+        state_name=getattr(type_obj, "state_name", None),
     )
 
 

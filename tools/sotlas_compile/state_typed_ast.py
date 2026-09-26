@@ -8,7 +8,6 @@ gate remains fail-closed until SIR/backend support exists.
 from __future__ import annotations
 
 from collections import Counter
-from copy import deepcopy
 from dataclasses import dataclass
 import re
 
@@ -89,10 +88,18 @@ _TYPESTATE_NAME_RE = re.compile(
 
 def _qualified_from_type(type_obj, frontend: StateSpaceFrontendPlan):
     name = getattr(type_obj, "name", "")
-    match = _TYPESTATE_NAME_RE.fullmatch(name or "")
-    if match is None:
-        return None
-    space_name = match.group("space")
+    space_name = getattr(type_obj, "state_space", None)
+    state_name = getattr(type_obj, "state_name", None)
+    if space_name is None and state_name is None:
+        match = _TYPESTATE_NAME_RE.fullmatch(name or "")
+        if match is None:
+            return None
+        space_name = match.group("space")
+        state_name = match.group("state")
+    elif not isinstance(space_name, str) or not isinstance(state_name, str):
+        raise StateSpaceTypedASTError(
+            "typed State Space name must include both space and state"
+        )
     try:
         space = frontend.space(space_name)
     except Phase1SemanticError:
@@ -102,8 +109,8 @@ def _qualified_from_type(type_obj, frontend: StateSpaceFrontendPlan):
     try:
         return certify_typestate(
             space,
-            space_name,
-            match.group("state"),
+            name,
+            state_name,
         )
     except Phase1SemanticError as error:
         raise StateSpaceTypedASTError(str(error)) from error
@@ -245,25 +252,18 @@ def build_state_space_typed_snapshot(
 
 
 def check_state_space_preview_semantics(module, bootstrap) -> StateSpaceFrontendPlan:
-    """Run the canonical checker for Phase-1 analysis without opening release gate.
-
-    Production ``bootstrap.check`` intentionally rejects modules containing
-    State Spaces until SIR/backend support is certified. The opt-in Phase-1
-    semantic pipeline still needs all existing checker guarantees in order to
-    build its Typed AST. We therefore validate the State Space on the original
-    module, deep-copy the parsed AST, remove only ``state_spaces`` from that
-    private copy so the PREVIEW release gate does not fire, and run the same
-    canonical checker stack on the copy. The caller's AST is never mutated and
-    ``sotlas check`` remains fail-closed.
-    """
+    """Certify declared State Spaces for the opt-in semantic pipeline."""
     frontend = plan_state_space_frontend(module, bootstrap=bootstrap)
     if not frontend.declarations:
         bootstrap.check(module)
         return frontend
+    from copy import deepcopy
 
     shadow = deepcopy(module)
-    shadow.state_spaces = ()
+    shadow._state_phase1_internal = True
     bootstrap.check(shadow)
+    module.state_transition_facts = shadow.state_transition_facts
+    module.state_space_frontend_plan = shadow.state_space_frontend_plan
     return frontend
 
 

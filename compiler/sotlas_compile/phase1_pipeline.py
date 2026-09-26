@@ -16,6 +16,7 @@ from .state_typed_ast import (
     build_state_space_typed_snapshot,
     check_state_space_preview_semantics,
 )
+from .state_frontend import StateSpaceFrontendError
 from .typed_ast import (
     OwnershipDomainTransition,
     Phase1ModuleSnapshot,
@@ -146,10 +147,6 @@ def analyze_module_phase1(parsed_module) -> Phase1CheckedModule:
     state_frontend = None
     try:
         if tuple(getattr(parsed_module, "state_spaces", ())):
-            # State Spaces remain PREVIEW at the public production release gate.
-            # The opt-in semantic pipeline reuses the same canonical checker on
-            # a private AST copy so it can build Typed AST facts without
-            # mutating source or claiming backend support.
             state_frontend = check_state_space_preview_semantics(
                 parsed_module, bootstrap
             )
@@ -162,6 +159,8 @@ def analyze_module_phase1(parsed_module) -> Phase1CheckedModule:
         if "whisper" in error.message:
             raise Phase1SemanticError(error.message) from error
         raise
+    except StateSpaceFrontendError as error:
+        raise Phase1SemanticError(str(error)) from error
 
     # Authority is certified at the checked-module boundary. This keeps the
     # legacy production checker compatible while preventing Phase-1 consumers
@@ -181,7 +180,16 @@ def analyze_module_phase1(parsed_module) -> Phase1CheckedModule:
     # Keep the Typed AST package independent from SIR imports. The public
     # pipeline is the composition boundary between canonical semantic facts
     # and the backend-neutral intermediate representation.
-    from sotlas.sir import lower_ownership_module_semantics
+    try:
+        from sotlas.sir import lower_ownership_module_semantics
+    except ModuleNotFoundError as error:
+        if error.name != "sotlas":
+            raise
+        from .canonical_sir import load_canonical_sir
+
+        lower_ownership_module_semantics = (
+            load_canonical_sir().lower_ownership_module_semantics
+        )
 
     ownership_sir = lower_ownership_module_semantics(
         semantic.ownership,

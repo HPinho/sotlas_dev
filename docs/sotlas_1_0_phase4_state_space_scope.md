@@ -59,6 +59,7 @@ A mesma regra das fases anteriores continua válida:
 - [x] fatos frontend e Typed AST são cruzados e divergências falham fechado;
 - [x] `Phase1CheckedModule` carrega o snapshot de State Spaces no caminho semântico opt-in;
 - [x] a análise opt-in reaproveita o checker canônico sobre cópia privada do AST, sem remover o gate de produção nem mutar a fonte;
+- [x] o subset opt-in valida `unsafe { return transition(move(binding), Target); }`, registra identidade source-stable e revalida origem, edge, destino e estado de retorno antes de gerar SIR;
 - [x] estado inexistente, espaço duplicado, edge inválido e forma indireta fora do subset falham fechado;
 - [x] `check`, C11 e header públicos mantêm um gate `PREVIEW` explícito até existir SIR/backend certificado.
 
@@ -80,8 +81,8 @@ Como State Spaces ainda não possuem lowering SIR/backend 1.0, retornar sucesso 
 - [ ] integração do typestate ao checker de produção de forma que o módulo possa ser aceito quando houver backend;
 - [ ] construção de transições a partir de código Sotlas real;
 - [ ] contratos de chamadas/retornos que mudam typestate;
-- [ ] identidade source-stable das transições no SIR;
-- [ ] revalidação fail-closed entre semântica fonte e SIR;
+- [x] identidade source-stable das transições no SIR para o retorno direto opt-in;
+- [x] revalidação fail-closed entre semântica fonte e SIR para esse subset;
 - [ ] lowering/backend mínimo para o subset declarado estável;
 - [ ] teste positivo e2e: fonte → check → backend → execução;
 - [ ] teste negativo e2e para transição inexistente;

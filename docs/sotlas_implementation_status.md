@@ -26,7 +26,7 @@ Legenda:
 | 1 | Typed Semantic Core | 100% | ✅ COMPLETE |
 | 2 | Ownership Domains | 100% | ✅ COMPLETE |
 | 3 | Authority Domains | 100% | ✅ COMPLETE |
-| 4 | State Spaces | ~45% | 🟡 IN PROGRESS |
+| 4 | State Spaces | ~52% | 🟡 IN PROGRESS |
 | 5 | Effects | ~10% | 🟡 |
 | 6 | Flow | ~0% | 🟡 |
 | 7 | Execution Domains | ~10% | 🟡 |
@@ -115,14 +115,15 @@ Escopo: `docs/sotlas_1_0_phase3_authority_scope.md`.
 - [x] divergência frontend ↔ Typed AST falha fechado;
 - [x] `Phase1CheckedModule` carrega o snapshot tipado no pipeline opt-in;
 - [x] análise Phase 1 usa uma cópia privada para reaproveitar o checker canônico sem mutar o AST original;
+- [x] transição `transition(move(binding), Target)` é certificada no pipeline opt-in e preserva fato source-stable no SIR com revalidação do edge e do estado de retorno;
 - [x] `check`/C/header públicos continuam rejeitando State Spaces como `PREVIEW` até haver lowering certificado, preservando `check => backend suportado`.
 
 ### Blockers 1.0 ainda abertos
 
 - [ ] operação pública de transição a partir de código Sotlas real;
 - [ ] contratos de calls/returns que mudam estado;
-- [ ] fatos source-stable de transição no SIR;
-- [ ] revalidação semântica source ↔ SIR;
+- [x] fatos source-stable de transição no SIR para o subset opt-in de retorno direto;
+- [x] revalidação semântica source ↔ SIR para esse subset;
 - [ ] lowering/backend mínimo;
 - [ ] e2e positivo/negativo a partir de fonte Sotlas;
 - [ ] gate formal de release da Fase 4;

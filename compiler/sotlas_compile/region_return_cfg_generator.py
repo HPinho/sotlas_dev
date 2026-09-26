@@ -125,6 +125,31 @@ def make_region_return_cfg_generator(sir):
                 fn, entry_block, return_type
             )
 
+        def _lower_function(self, fn: Any):
+            function = super()._lower_function(fn)
+            body = tuple(getattr(fn, "body", ()) or ())
+            while len(body) == 1 and type(body[0]).__name__ == "Unsafe":
+                body = tuple(getattr(body[0], "body", ()) or ())
+            if (
+                len(body) == 1
+                and type(body[0]).__name__ == "Return"
+                and type(getattr(body[0], "value", None)).__name__ == "Call"
+                and getattr(body[0].value, "callee", None) == "transition"
+                and not any(
+                    isinstance(instruction, sir.StateTransitionInst)
+                    for block in function.blocks
+                    for instruction in block.instructions
+                )
+            ):
+                self._try_lower_state_transition(
+                    fn,
+                    function.blocks[0],
+                    getattr(fn, "ret", None)
+                    or getattr(fn, "result", None)
+                    or getattr(fn, "return_type", None),
+                )
+            return function
+
     RegionReturnCFGSIRGenerator.__name__ = "RegionReturnCFGSIRGenerator"
     return RegionReturnCFGSIRGenerator
 

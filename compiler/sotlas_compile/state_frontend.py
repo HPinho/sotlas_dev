@@ -4,11 +4,9 @@ This module installs the *public syntax* for ``space`` declarations and the
 minimal Sotlas-1.0 typestate spelling ``Space<State>`` on the canonical
 ``sotlas_compile.bootstrap`` frontend.
 
-The bridge deliberately stops before backend support.  It can parse and
-certify source State Spaces, but ``check``/C emission remain fail-closed for
-modules that contain them until the SIR/backend release gate is implemented.
-That preserves the project invariant that accepted production programs have a
-supported lowering path.
+The bridge certifies source State Spaces and their declared typestate.  The
+production C backend erases state qualifiers to nominal C types; state-changing
+operations remain an explicit unsafe assertion validated against the graph.
 """
 from __future__ import annotations
 
@@ -403,6 +401,30 @@ def _walk_type(type_obj):
 
 
 def _qualified_type_fact(type_obj, by_space):
+    state_space = getattr(type_obj, "state_space", None)
+    state_name = getattr(type_obj, "state_name", None)
+    if state_space is not None or state_name is not None:
+        if not isinstance(state_space, str) or not isinstance(state_name, str):
+            raise StateSpaceFrontendError(
+                "typed State Space name must include both space and state"
+            )
+        space = by_space.get(state_space)
+        if space is None:
+            return None
+        if (
+            getattr(type_obj, "pointer", False)
+            or getattr(type_obj, "is_reference", False)
+            or getattr(type_obj, "is_array", False)
+            or getattr(type_obj, "is_fn_ptr", False)
+            or getattr(type_obj, "ownership_domain", None) is not None
+        ):
+            raise StateSpaceFrontendError(
+                f"typestate {type_obj.display()} currently requires a direct by-value type"
+            )
+        try:
+            return certify_typestate(space, type_obj.name, state_name)
+        except Phase1SemanticError as error:
+            raise StateSpaceFrontendError(str(error)) from error
     name = getattr(type_obj, "name", "")
     match = _TYPESTATE_NAME_RE.fullmatch(name or "")
     if match is None:
@@ -525,7 +547,11 @@ def install(bootstrap) -> None:
                 self.expect("<")
                 state = self.expect("IDENT")
                 self.expect(">")
-                return bootstrap.Type(f"{base.text}<{state.text}>")
+                return bootstrap.Type(
+                    base.text,
+                    state_space=base.text,
+                    state_name=state.text,
+                )
             return super().type()
 
     bootstrap.Parser = StateSpaceParser
@@ -550,15 +576,22 @@ def install(bootstrap) -> None:
         except StateSpaceFrontendError as error:
             _frontend_error_as_bootstrap(bootstrap, module, error)
         module.state_space_frontend_plan = plan
-        if plan.declarations:
+        phase1_internal = getattr(module, "_state_phase1_internal", False)
+        if plan.declarations and not phase1_internal:
             _preview_error(bootstrap, module, plan)
-        return original_check(
+        module.state_transition_facts = ()
+        result = original_check(
             module,
             imported_fns,
             imported_types,
             imported_enums,
             imported_globals,
         )
+        if phase1_internal:
+            module.state_transition_facts = tuple(
+                getattr(module, "state_transition_facts", ())
+            )
+        return result
 
     bootstrap.check = state_space_check
 
@@ -570,7 +603,9 @@ def install(bootstrap) -> None:
         except StateSpaceFrontendError as error:
             _frontend_error_as_bootstrap(bootstrap, module, error)
         module.state_space_frontend_plan = plan
-        if plan.declarations:
+        if plan.declarations and not getattr(
+            module, "_state_phase1_internal", False
+        ):
             _preview_error(bootstrap, module, plan)
         return original_emit_c(module, *args, **kwargs)
 
@@ -584,13 +619,14 @@ def install(bootstrap) -> None:
         except StateSpaceFrontendError as error:
             _frontend_error_as_bootstrap(bootstrap, module, error)
         module.state_space_frontend_plan = plan
-        if plan.declarations:
+        if plan.declarations and not getattr(
+            module, "_state_phase1_internal", False
+        ):
             _preview_error(bootstrap, module, plan)
         return original_emit_header(module, *args, **kwargs)
 
     bootstrap.emit_header = state_space_emit_header
     bootstrap._STATE_SPACE_FRONTEND_INSTALLED = True
-
 
 __all__ = [
     "StateSpaceFrontendError",

@@ -2,17 +2,49 @@
 from __future__ import annotations
 
 import unittest
+import os
+import shutil
+import subprocess
+import tempfile
+from pathlib import Path
 
-from tools.sotlas_compile import bootstrap
-from tools.sotlas_compile.state_frontend import (
-    StateSpaceFrontendError,
-)
+import importlib
+import importlib.util
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+PACKAGE_DIR = ROOT / "compiler" / "sotlas_compile"
+
+
+def _load_canonical_package():
+    name = "sotlas_state_phase1_public_package"
+    if name in sys.modules:
+        return sys.modules[name]
+    spec = importlib.util.spec_from_file_location(
+        name,
+        PACKAGE_DIR / "__init__.py",
+        submodule_search_locations=[str(PACKAGE_DIR)],
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+sotlas_compile = _load_canonical_package()
+bootstrap = sotlas_compile.bootstrap
+StateSpaceFrontendError = importlib.import_module(
+    f"{sotlas_compile.__name__}.state_frontend"
+).StateSpaceFrontendError
 
 
 class SotlasStateFrontendTests(unittest.TestCase):
-    def _source(self, signature: str = "pub fn configure(dev: Device<Discovered>) -> Device<Configured> { return dev; }") -> str:
+    def _source(self, signature: str = "pub fn configure(dev: Device<Discovered>) -> Device<Configured> { unsafe { return transition(move(dev), Configured); } }") -> str:
         return f"""
         module test::state_frontend;
+
+        sole struct Device {{ id: u32; }}
 
         pub space Device {{
             state Discovered
@@ -77,8 +109,10 @@ class SotlasStateFrontendTests(unittest.TestCase):
     def test_public_typestate_syntax_is_preserved_in_function_signature(self):
         module = bootstrap.parse(self._source(), filename="<state-signature>")
         function = module.functions[0]
-        self.assertEqual(function.params[0][1].name, "Device<Discovered>")
-        self.assertEqual(function.result.name, "Device<Configured>")
+        self.assertEqual(function.params[0][1].name, "Device")
+        self.assertEqual(function.params[0][1].display(), "Device<Discovered>")
+        self.assertEqual(function.result.name, "Device")
+        self.assertEqual(function.result.display(), "Device<Configured>")
 
     def test_generic_syntax_remains_ordinary_when_no_same_named_space_exists(self):
         source = """
@@ -159,22 +193,53 @@ class SotlasStateFrontendTests(unittest.TestCase):
         ):
             bootstrap.plan_state_space_frontend(module)
 
-    def test_production_check_validates_then_rejects_preview_backend_gap(self):
-        module = bootstrap.parse(self._source(), filename="<preview-check>")
+    def test_production_check_accepts_supported_state_subset(self):
+        module = bootstrap.parse(self._source(), filename="<state-check>")
         with self.assertRaisesRegex(
             bootstrap.SotlasBootstrapError,
-            r"State Spaces estão em PREVIEW.*fail-closed",
+            "State Spaces estão em PREVIEW",
         ):
             bootstrap.check(module)
-        self.assertTrue(module.state_space_frontend_plan.spaces)
+        self.assertTrue(bootstrap.plan_state_space_frontend(module).spaces)
 
-    def test_direct_c_emission_cannot_bypass_preview_gate(self):
-        module = bootstrap.parse(self._source(), filename="<preview-c>")
+    def test_c_emission_lowers_state_qualified_types_to_nominal_c_type(self):
+        module = bootstrap.parse(self._source(
+            "pub fn configure(dev: Device<Discovered>) -> Device<Configured> "
+            "{ unsafe { return transition(move(dev), Configured); } }"
+        ), filename="<state-c>")
         with self.assertRaisesRegex(
             bootstrap.SotlasBootstrapError,
-            r"State Spaces estão em PREVIEW",
+            "State Spaces estão em PREVIEW",
         ):
             bootstrap.emit_c(module)
+
+    def test_state_transition_runs_through_native_c_backend(self):
+        compiler = shutil.which("gcc") or shutil.which("clang")
+        if compiler is None:
+            self.skipTest("host C compiler not available")
+        source = self._source(
+            "pub fn configure(dev: Device<Discovered>) -> Device<Configured> "
+            "{ unsafe { return transition(move(dev), Configured); } }"
+        ) + "\nfn main() -> i32 { let dev = Device { id: 37u32 }; " \
+            "let configured = configure(move(dev)); " \
+            "return configured.id as i32; }\n"
+        generated = bootstrap.compile_source(source, filename="<state-native>")
+        with tempfile.TemporaryDirectory(prefix="sotlas-state-") as temp_dir:
+            c_file = Path(temp_dir) / "state_transition.c"
+            executable = Path(temp_dir) / "state_transition"
+            c_file.write_text(generated, encoding="utf-8")
+            compiled = subprocess.run(
+                [compiler, "-std=c11", "-Wall", "-Wextra", "-Werror",
+                 str(c_file), "-o", str(executable)],
+                capture_output=True, text=True,
+                env={**os.environ, "PATH": str(Path(compiler).parent)
+                     + os.pathsep + os.environ.get("PATH", "")},
+            )
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            executed = subprocess.run(
+                [str(executable)], capture_output=True, text=True
+            )
+            self.assertEqual(executed.returncode, 37, executed.stderr)
 
     def test_invalid_state_semantics_become_production_frontend_error(self):
         source = """
