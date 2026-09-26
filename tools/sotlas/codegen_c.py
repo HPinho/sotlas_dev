@@ -85,8 +85,30 @@ _ASSIGN_OP_MAP = {
 class CodegenC:
     """Emite código C99 freestanding a partir de um SourceFileNode Sotlas."""
 
-    def __init__(self, ast: SourceFileNode) -> None:
+    def __init__(
+        self,
+        ast: SourceFileNode,
+        *,
+        sir_module=None,
+        effect_contract=None,
+    ) -> None:
         self._ast = ast
+        if effect_contract is not None:
+            from .sir import BackendEffectContract, SIRModule
+
+            if not isinstance(effect_contract, BackendEffectContract):
+                raise TypeError("C11 effect contract must be BackendEffectContract")
+            if not isinstance(sir_module, SIRModule):
+                raise TypeError(
+                    "C11 effect contract requires the canonical SIRModule"
+                )
+        elif sir_module is not None:
+            from .sir import SIRModule
+
+            if not isinstance(sir_module, SIRModule):
+                raise TypeError("C11 effect validation requires the canonical SIRModule")
+        self._sir_module = sir_module
+        self._effect_contract = effect_contract
         self._out = StringIO()
         self._indent = 0
         self._vtables: List[str] = []   # vtables de métodos moldable
@@ -119,6 +141,7 @@ class CodegenC:
         return None
 
     def emit(self) -> str:
+        self._validate_effect_contract()
         a = self._ast
         if a.is_barecore:
             self._w(_BARECORE_PRELUDE)
@@ -164,6 +187,44 @@ class CodegenC:
 
         self._w(body_buf.getvalue())
         return self._out.getvalue()
+
+    def _validate_effect_contract(self) -> None:
+        if self._effect_contract is None:
+            return
+        from .sir import EffectInferencePass, validate_backend_effects
+
+        source_functions = {
+            declaration.name
+            for declaration in self._ast.decls
+            if isinstance(declaration, (FnDeclNode, TrapFnDeclNode))
+        }
+        sir_functions = {function.name for function in self._sir_module.functions}
+        if source_functions != sir_functions:
+            missing = sorted(source_functions - sir_functions)
+            extra = sorted(sir_functions - source_functions)
+            details = []
+            if missing:
+                details.append("missing SIR functions: " + ", ".join(missing))
+            if extra:
+                details.append("unmatched SIR functions: " + ", ".join(extra))
+            raise ValueError(
+                "C11 effect contract source/SIR function set mismatch: "
+                + "; ".join(details)
+            )
+        inferred = EffectInferencePass().run(self._sir_module)
+        if not inferred.success:
+            raise ValueError("C11 effect inference failed: " + "; ".join(inferred.errors))
+        outcomes = validate_backend_effects(self._sir_module, self._effect_contract)
+        rejected = [outcome for outcome in outcomes if not outcome.accepted]
+        if rejected:
+            details = "; ".join(
+                f"{outcome.function}: {', '.join(outcome.rejected_effects)}"
+                for outcome in rejected
+            )
+            raise ValueError(
+                f"C11 backend effect contract {self._effect_contract.name!r} "
+                f"rejected lowering: {details}"
+            )
 
     # ------------------------------------------------------------------
     # Helpers

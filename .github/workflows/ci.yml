@@ -141,6 +141,7 @@ jobs:
     - name: Verify Phase 5 source Effects release subset
       run: |
         python -m unittest discover -s tests -p "test_sotlas_source_effects.py" -v
+        python -m unittest discover -s tests -p "test_sotlas_backend_effect_contract.py" -v
 
     - name: Verify Phase 6 typed Flow source and SIR plan
       run: |

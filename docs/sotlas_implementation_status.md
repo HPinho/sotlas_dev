@@ -27,7 +27,7 @@ Legenda:
 | 2 | Ownership Domains | 100% | ✅ COMPLETE |
 | 3 | Authority Domains | 100% | ✅ COMPLETE |
 | 4 | State Spaces | 100% | ✅ COMPLETE |
-| 5 | Effects | ~57% candidato | 🟡 |
+| 5 | Effects | ~59% candidato | 🟡 |
 | 6 | Flow | ~53% candidato | 🟡 |
 | 7 | Execution Domains | ~45% | 🟡 |
 | 8 | Heterogeneous Compute | ~5% candidato | 🟡 |
@@ -262,7 +262,7 @@ Escopo: `docs/sotlas_1_0_phase4_state_space_scope.md`.
 
 ## Fase 5 — Effects
 
-**Status 1.0: ~57% candidato 🟡 — IN PROGRESS**
+**Status 1.0: ~59% candidato 🟡 — IN PROGRESS**
 
 - [x] SIR infere efeitos diretos e transitivos com ponto fixo sobre chamadas recursivas;
 - [x] chamadas não resolvidas são classificadas como `unknown_call` e seus nomes permanecem no summary;
@@ -278,10 +278,12 @@ Escopo: `docs/sotlas_1_0_phase4_state_space_scope.md`.
 - [x] contrato backend-neutral aceita ou rejeita funções conforme os efeitos SIR revalidados;
 - [x] emissor LLVM aceita contrato explícito de capacidades e valida inferência SIR antes de emitir IR;
 - [x] C11 aplica contrato de lowering e rejeita `async` antes de emitir código sem runtime de suspensão;
+- [x] emissor C11 aceita contrato explícito de capacidades, revalida os efeitos do SIR e bloqueia a emissão antes de gerar código quando o target não permite os efeitos inferidos;
 - [x] `@realtime` valida efeitos inferidos transitivamente e rejeita alocação, bloqueio, async, I/O, sincronização, FFI e chamadas desconhecidas;
 - [x] dump SIR inclui efeitos inferidos/declarados e chamadas desconhecidas por função;
 - [x] declarações `extern "C"` carregam efeito `ffi` distinto e contratos omissos falham;
 - [ ] contratos C11/LLVM cobrem todos os efeitos, capabilities e runtimes por target;
+- [ ] seleção automática de contratos de target pelo C11/LLVM e cobertura integral das capabilities permanecem pendentes;
 - [ ] restrições completas para `@realtime`, async, locks, FFI e efeitos externos;
 - [x] testes end-to-end de fonte Sotlas e gate dedicado desta fatia;
 - [ ] end-to-end amplo por domínio e matriz de runtime/backend.

@@ -12,9 +12,20 @@ from sotlas.sir import (
     validate_backend_effects,
 )
 from sotlas.codegen_llvm import CodegenLLVM
+from sotlas.codegen_c import CodegenC
+from sotlas.lexer import Lexer
+from sotlas.parser import Parser
 
 
 class BackendEffectContractTests(unittest.TestCase):
+    def _ast(self):
+        source = """module test::backend_effect_contract;
+pub fn pure() -> void { return; }
+pub fn reader() -> void { return; }
+pub fn opaque() -> void { return; }
+"""
+        return Parser(Lexer(source, "<backend-effect-contract>").tokenize()).parse()
+
     def _module(self):
         module = SIRModule("backend_effects")
         pure = SIRFunction("pure", [], "void")
@@ -93,6 +104,42 @@ class BackendEffectContractTests(unittest.TestCase):
         ir = CodegenLLVM(module).emit()
         self.assertIn("define void @work()", ir)
         self.assertEqual(module.effect_summaries["work"].transitive_effects, ())
+
+    def test_c11_emission_enforces_explicit_backend_effect_contract(self):
+        module = self._module()
+        with self.assertRaisesRegex(ValueError, "reader: io; opaque: unknown_call"):
+            CodegenC(
+                self._ast(),
+                sir_module=module,
+                effect_contract=BackendEffectContract("pure-c11", frozenset()),
+            ).emit()
+
+        output = CodegenC(
+            self._ast(),
+            sir_module=module,
+            effect_contract=BackendEffectContract(
+                "host-c11",
+                frozenset({"io", "unknown_call"}),
+                allow_unknown_calls=True,
+            ),
+        ).emit()
+        self.assertIn("pure", output)
+
+    def test_c11_contract_rejects_sir_from_a_different_function_set(self):
+        module = self._module()
+        module.add_function(SIRFunction("unmatched", [], "void"))
+        with self.assertRaisesRegex(ValueError, "unmatched SIR functions: unmatched"):
+            CodegenC(
+                self._ast(),
+                sir_module=module,
+                effect_contract=BackendEffectContract("host-c11", frozenset()),
+            ).emit()
+
+    def test_c11_contract_requires_sir_evidence_and_rejects_invalid_contract(self):
+        with self.assertRaisesRegex(TypeError, "requires the canonical SIRModule"):
+            CodegenC(self._ast(), effect_contract=BackendEffectContract("pure", frozenset()))
+        with self.assertRaisesRegex(TypeError, "BackendEffectContract"):
+            CodegenC(self._ast(), sir_module=self._module(), effect_contract=object())
 
     def test_sir_dump_keeps_per_function_effect_evidence(self):
         module = self._module()
