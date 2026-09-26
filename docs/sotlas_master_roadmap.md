@@ -3990,6 +3990,11 @@ preservam a classificação declarada e o efeito `ffi`; `isolated` continua
 explicitamente não verificado até que exista sandbox real no target. Sem
 classificação, a consulta pode exigir trust explícito e falhar fechado.
 
+O boundary no SIR também registra o contexto obrigatório para a chamada:
+`system` para todo `extern(C)` e `unsafe` adicional quando a declaração é
+`@trust(unsafe)` ou `@unsafe`. Isso é metadado auditável para lowering; a
+verificação de contexto no call site continua no checker de segurança.
+
 O efeito `ffi` distingue chamadas que cruzam `extern "C"` das demais chamadas
 desconhecidas no summary de Effects. Isso registra a fronteira estrangeira no
 SIR para contratos de backend; não fornece sandboxing nem prova isolamento.

@@ -19,6 +19,7 @@ class ForeignTrustBoundary:
     trust_domain: str
     effects: tuple[str, ...]
     isolation_verified: bool
+    required_context: tuple[str, ...] = ("system",)
 
 
 def analyze_foreign_trust_boundaries(
@@ -81,6 +82,9 @@ def analyze_foreign_trust_boundaries(
             trust_domain,
             effects,
             False,
+            ("system", "unsafe")
+            if trust_domain == "unsafe" or "@unsafe" in attributes
+            else ("system",),
         ))
     return tuple(boundaries)
 

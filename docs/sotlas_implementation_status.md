@@ -31,7 +31,7 @@ Legenda:
 | 6 | Flow | ~52% candidato | 🟡 |
 | 7 | Execution Domains | ~45% | 🟡 |
 | 8 | Heterogeneous Compute | ~0% | 🟡 |
-| 9 | Trust Domains | ~16% candidato | 🟡 |
+| 9 | Trust Domains | ~18% candidato | 🟡 |
 | 10 | Guarantees | ~25% candidato | 🟡 |
 | 11 | Causality | ~12% candidato | 🟡 |
 | 12 | Counterfactuals | ~14% candidato | 🟡 |
@@ -58,6 +58,7 @@ Os percentuais medem o escopo necessário para o Sotlas 1.0. Generalizações p�
 - [x] `@trust(unsafe)` exige bloco `unsafe` explícito no ponto de chamada FFI, assim como declarações `unsafe fn`;
 - [ ] política de chamadas/wrappers, enforcement de `unsafe` e isolamento real por target continuam pendentes;
 - [x] `isolated` permanece marcado como não verificado até existir sandbox implementado.
+- [x] cada boundary no SIR declara o contexto obrigatório (`system`, mais `unsafe` para trust unsafe ou função foreign unsafe), permitindo auditorias de backend sem inferir política do rótulo;
 
 API inicial: `analyze_foreign_trust_boundaries(module, require_explicit_trust=True)` em `sotlas_compile.trust_domains`.
 

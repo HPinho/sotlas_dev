@@ -236,10 +236,30 @@ fn isolated_read() -> u32;
              for item in boundaries],
             [("trusted_read", "trusted", False), ("isolated_read", "isolated", False)],
         )
+        self.assertEqual(
+            [item.required_context for item in boundaries],
+            [("system",), ("system",)],
+        )
         sir, _ = package.build_canonical_checked_ownership_sir(checked)
         self.assertEqual(sir.module.trust_boundaries, boundaries)
         self.assertIn("sir_foreign @isolated_read", sir.module.dump())
         self.assertIn("isolation=unverified", sir.module.dump())
+        self.assertIn("requires=[system]", sir.module.dump())
+
+        unsafe_source = """
+module test::trust_unsafe_boundary;
+@trust(unsafe)
+@effects(ffi)
+@extern(C)
+fn reset() -> void;
+"""
+        unsafe_checked = analyze_source_phase1(
+            unsafe_source, filename="trust-unsafe.sotlas"
+        )
+        unsafe_boundaries = package.analyze_foreign_trust_boundaries(
+            unsafe_checked.parsed_module, require_explicit_trust=True
+        )
+        self.assertEqual(unsafe_boundaries[0].required_context, ("system", "unsafe"))
 
         with self.assertRaisesRegex(package.TrustBoundaryError, "invalid trust annotation"):
             malformed = bootstrap.parse(

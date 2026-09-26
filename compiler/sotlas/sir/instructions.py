@@ -460,10 +460,11 @@ class SIRModule:
         for boundary in self.trust_boundaries:
             effects = ",".join(boundary.effects) or "pure"
             isolation = "verified" if boundary.isolation_verified else "unverified"
+            required_context = ",".join(boundary.required_context)
             lines.append(
                 f"sir_foreign @{boundary.symbol} convention={boundary.convention} "
                 f"trust={boundary.trust_domain} isolation={isolation} "
-                f"effects=[{effects}]"
+                f"requires=[{required_context}] effects=[{effects}]"
             )
         for plan in self.flow_plans:
             lines.append(f"sir_flow @{plan.name} {{")
