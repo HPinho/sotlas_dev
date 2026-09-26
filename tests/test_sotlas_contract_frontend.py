@@ -34,6 +34,14 @@ tools = _load_package(
 )
 
 
+def _host_c_compiler() -> str | None:
+    compiler = shutil.which("cc") or shutil.which("clang") or shutil.which("gcc")
+    if compiler is not None:
+        return compiler
+    bundled_clang = Path(r"C:\Program Files\LLVM\bin\clang.exe")
+    return str(bundled_clang) if bundled_clang.is_file() else None
+
+
 class SotlasRequiresContractTests(unittest.TestCase):
     def _source(self, call: str) -> str:
         return f"""
@@ -270,7 +278,7 @@ pub fn positive(value: i32) -> i32
             self.assertIn("abort();", package.bootstrap.emit_c(module))
 
     def test_c11_runtime_guard_rejects_external_contract_violation(self):
-        cc = shutil.which("cc") or shutil.which("clang") or shutil.which("gcc")
+        cc = _host_c_compiler()
         if cc is None:
             self.skipTest("C11 compiler is unavailable")
         source = """
@@ -346,6 +354,35 @@ fn nonnegative(value: i32) -> i32
         )
         self.assertIn("sir_ensures @nonnegative (result >= 0)", checked_sir.module.dump())
 
+    def test_ensures_checks_boolean_return_and_is_preserved_in_sir(self):
+        source = """
+module test::contract_ensures_bool;
+fn positive(value: i32) -> bool
+    ensures result == (value > 0)
+{
+    return value > 0;
+}
+"""
+        for package in (compiler, tools):
+            module = package.bootstrap.parse(source)
+            package.bootstrap.check(module)
+            self.assertEqual(
+                module.contract_postconditions[0].predicate,
+                "(result == (value > 0))",
+            )
+            generated = package.bootstrap.emit_c(module)
+            self.assertIn("if (!((_st_ret == (value > 0)))) abort();", generated)
+        checked = compiler.analyze_source_phase1(source)
+        checked_sir, _ = compiler.build_canonical_checked_ownership_sir(checked)
+        self.assertEqual(
+            checked_sir.module.contract_postconditions[0].predicate,
+            "(result == (value > 0))",
+        )
+        self.assertIn(
+            "sir_ensures @positive (result == (value > 0))",
+            checked_sir.module.dump(),
+        )
+
     def test_ensures_can_reference_immutable_scalar_parameters(self):
         source = """
 module test::contract_ensures_parameter;
@@ -376,7 +413,7 @@ fn increment(value: i32) -> i32
         )
 
     def test_ensures_runtime_guard_rejects_false_return(self):
-        cc = shutil.which("cc") or shutil.which("clang") or shutil.which("gcc")
+        cc = _host_c_compiler()
         if cc is None:
             self.skipTest("C11 compiler is unavailable")
         source = """
@@ -407,8 +444,40 @@ pub fn negative() -> i32
             )
             self.assertNotEqual(executed.returncode, 0)
 
+    def test_boolean_ensures_runtime_guard_rejects_false_result(self):
+        cc = _host_c_compiler()
+        if cc is None:
+            self.skipTest("C11 compiler is unavailable")
+        source = """
+module test::contract_bool_ensures_runtime;
+pub fn lie() -> bool
+    ensures result == true
+{
+    return false;
+}
+"""
+        generated = compiler.bootstrap.compile_source(source)
+        with tempfile.TemporaryDirectory(prefix="sotlas_bool_ensures_") as temp:
+            c_path = Path(temp) / "ensures_bool.c"
+            exe_path = Path(temp) / "ensures_bool"
+            c_path.write_text(
+                generated + "\nint main(void) { return lie(); }\n",
+                encoding="utf-8",
+            )
+            compiled = subprocess.run(
+                [cc, "-std=c11", str(c_path), "-o", str(exe_path)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            executed = subprocess.run(
+                [str(exe_path)], capture_output=True, text=True, check=False
+            )
+            self.assertNotEqual(executed.returncode, 0)
+
     def test_ensures_parameter_runtime_guard_uses_parameter_value(self):
-        cc = shutil.which("cc") or shutil.which("clang") or shutil.which("gcc")
+        cc = _host_c_compiler()
         if cc is None:
             self.skipTest("C11 compiler is unavailable")
         source = """
@@ -448,7 +517,7 @@ pub fn identity(value: i32) -> i32
     def test_ensures_fails_closed_outside_scalar_result_subset(self):
         cases = (
             ("fn check() -> void ensures result == 0 { return; }",
-             "scalar numeric return"),
+             "scalar numeric or bool return"),
             ("fn check() -> i32 ensures result { return 1; }",
              "ensures expression must have type bool"),
             ("fn check(value: *i32) -> i32 ensures value == value { return 1; }",

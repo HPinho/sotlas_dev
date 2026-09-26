@@ -538,14 +538,15 @@ def install(bootstrap) -> None:
                 "u8", "u16", "u32", "u64", "usize", "i8", "i16",
                 "i32", "i64", "isize", "f32", "f64",
             }
+            scalar_results = numeric_results | {"bool"}
             if (
                 not function.body
                 or "@extern(C)" in function.attributes
-                or function.result.name not in numeric_results
+                or function.result.name not in scalar_results
             ):
                 _error(
                     bootstrap,
-                    "ensures currently requires a checked function with a scalar numeric return",
+                    "ensures currently requires a checked function with a scalar numeric or bool return",
                     token,
                     module,
                 )
@@ -575,7 +576,7 @@ def install(bootstrap) -> None:
                     token,
                     module,
                 )
-            scalar_contract_types = numeric_results | {"bool"}
+            scalar_contract_types = scalar_results
             invalid_parameters = tuple(
                 parameter
                 for parameter, parameter_type in function.params

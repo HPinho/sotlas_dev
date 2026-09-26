@@ -1,8 +1,8 @@
 # Sotlas — Implementation Status
 
 **Atualizado em:** 2026-09-26
-**Último baseline verde certificado:** `40e4c4c`
-**CI de referência:** Sotlas CI & Toolchain Build Farm #646 — workflow `success`
+**Último baseline verde certificado:** `ea94373`
+**CI de referência:** Sotlas CI & Toolchain Build Farm #647 — workflow `success`
 **Fonte arquitetural:** `SOTLAS — ESPECIFICAÇÃO MESTRA`
 
 > Este é o índice operacional atual. O snapshot detalhado anterior, com o histórico extenso das microentregas da Fase 2, permanece preservado em `docs/archive/sotlas_implementation_status_2026-09-23.md`.
@@ -32,7 +32,7 @@ Legenda:
 | 7 | Execution Domains | ~45% | 🟡 |
 | 8 | Heterogeneous Compute | ~0% | 🟡 |
 | 9 | Trust Domains | ~18% candidato | 🟡 |
-| 10 | Guarantees | ~30% candidato | 🟡 |
+| 10 | Guarantees | ~31% candidato | 🟡 |
 | 11 | Causality | ~13% candidato | 🟡 |
 | 12 | Counterfactuals | ~15% candidato | 🟡 |
 | 13 | Transactions | ~27% candidato | 🟡 |
@@ -330,7 +330,7 @@ Escopo: `docs/sotlas_1_0_phase7_execution_scope.md`.
 
 ## Fase 10 — Guarantees
 
-**Status 1.0: ~30% candidato 🟡 — IN PROGRESS**
+**Status 1.0: ~31% candidato 🟡 — IN PROGRESS**
 
 - [x] `requires` tipado em funções com corpo;
 - [x] chamadas com argumentos constantes são provadas ou rejeitadas;
@@ -340,7 +340,7 @@ Escopo: `docs/sotlas_1_0_phase7_execution_scope.md`.
 - [x] fatos booleanos de branches `if`/`else` provam precondições dinâmicas simples e são preservados no SIR;
 - [x] comparações inteiras simples em branches provam implicações por limites, como `value > 0` ⇒ `value != 0`;
 - [x] refinamentos são invalidados depois de atribuições locais e chamadas potencialmente mutáveis;
-- [x] `ensures result` tipado para retorno numérico escalar, com guarda em cada retorno C11 e evidência preservada no SIR;
+- [x] `ensures result` tipado para retornos numéricos e booleanos escalares, com guarda em cada retorno C11 e evidência preservada no SIR; retorno booleano falso que viola a pós-condição falha em execução nativa;
 - [x] `ensures` pode comparar o resultado com parâmetros escalares numéricos/booleanos;
 - [x] contratos ainda falham fechado para funções `void`, retornos não escalares e parâmetros não escalares;
 - [ ] prova simbólica por refinamento de condições e argumentos dinâmicos;

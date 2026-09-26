@@ -4010,10 +4010,11 @@ entry da função C11 com `abort()` se falharem. O comprovante source-stable e a
 precondição seguem para o SIR; refinamento simbólico e declarações `guarantee`
 seguem abertos.
 
-O subset inicial de `ensures` aceita predicados booleanos que referenciam somente
-`result` em funções com retorno numérico escalar. O C11 captura o valor uma vez,
-executa os defers e verifica a pós-condição em cada caminho de retorno; o SIR
-preserva o contrato. Pós-condições sobre estado/heap e provas simbólicas seguem
+O subset inicial de `ensures` aceita predicados booleanos que referenciam
+`result` em funções com retorno numérico ou booleano escalar. O C11 captura o
+valor uma vez, executa os defers e verifica a pós-condição em cada caminho de
+retorno; o SIR preserva o contrato. O retorno booleano e sua guarda passaram
+execução nativa C11. Pós-condições sobre estado/heap e provas simbólicas seguem
 abertas.
 
 ### 11. Causality
