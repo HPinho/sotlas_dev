@@ -204,6 +204,40 @@ flow Home {
     def test_legacy_tools_package_exports_sir_flow_runner(self):
         self.assertTrue(callable(tools_package.execute_bound_sir_flow))
         self.assertTrue(callable(tools_package.execute_transactional_sir_flow))
+        self.assertTrue(callable(tools_package.execute_interpreted_sir_flow))
+
+    def test_interpreted_sir_flow_executes_pure_unsigned_stage_bodies(self):
+        source = """
+module test::flow_interpreter;
+fn load_left() -> u32 { return 10u32; }
+fn load_right() -> u32 { return 2u32; }
+fn combine(left: u32, right: u32) -> u32 { return left + right; }
+flow Calc {
+    stage left = load_left;
+    stage right = load_right;
+    stage total = combine after left, right;
+}
+"""
+        checked = package.analyze_source_phase1(source)
+        checked_sir, _ = package.build_canonical_checked_ownership_sir(checked)
+        result = package.execute_interpreted_sir_flow(
+            checked_sir.module, "Calc", max_workers=2
+        )
+        self.assertEqual(result.output("total"), 12)
+        self.assertTrue(callable(package.execute_interpreted_sir_flow))
+
+    def test_interpreted_sir_flow_rejects_unsupported_shape_before_execution(self):
+        source = """
+module test::flow_interpreter_reject;
+fn load() -> u32 { return 1u32; }
+flow Calc { stage value = load; }
+"""
+        checked = package.analyze_source_phase1(source)
+        checked_sir, _ = package.build_canonical_checked_ownership_sir(checked)
+        function = checked_sir.module.functions[0]
+        function.blocks = ()
+        with self.assertRaisesRegex(ValueError, "one straight-line block"):
+            package.execute_interpreted_sir_flow(checked_sir.module, "Calc")
 
     def test_source_call_causality_explains_calls_outside_flow(self):
         source = """

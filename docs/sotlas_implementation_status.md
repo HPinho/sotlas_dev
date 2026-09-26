@@ -28,7 +28,7 @@ Legenda:
 | 3 | Authority Domains | 100% | ✅ COMPLETE |
 | 4 | State Spaces | 100% | ✅ COMPLETE |
 | 5 | Effects | ~57% candidato | 🟡 |
-| 6 | Flow | ~47% candidato | 🟡 |
+| 6 | Flow | ~52% candidato | 🟡 |
 | 7 | Execution Domains | ~45% | 🟡 |
 | 8 | Heterogeneous Compute | ~0% | 🟡 |
 | 9 | Trust Domains | ~16% candidato | 🟡 |
@@ -60,6 +60,16 @@ Os percentuais medem o escopo necessário para o Sotlas 1.0. Generalizações p�
 - [x] `isolated` permanece marcado como não verificado até existir sandbox implementado.
 
 API inicial: `analyze_foreign_trust_boundaries(module, require_explicit_trust=True)` em `sotlas_compile.trust_domains`.
+
+### Execução interpretada do subset SIR Flow
+
+- [x] stages puros de inteiros sem sinal executam a partir dos corpos SIR validados, sem bindings fornecidos pelo host;
+- [x] o subset aceita constantes, `add`/`sub`/`mul`, retorno direto e a materialização inerte de parâmetros em slots;
+- [x] planos, provenance, summaries de efeitos, assinaturas, tipos e forma linear do corpo são verificados antes do scheduler;
+- [x] operações, efeitos, tipos, CFG e instruções fora do subset falham fechados;
+- [ ] CFG arbitrário, integração de ownership/cleanup e execução nativa pelo backend continuam pendentes.
+
+API candidata: `execute_interpreted_sir_flow(module, flow, ...)` em `sotlas_compile`.
 
 ### Avanço inicial de Causality
 

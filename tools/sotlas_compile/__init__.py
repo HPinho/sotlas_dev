@@ -49,6 +49,7 @@ from .flow_runtime import (
     TransactionExecutionError,
     execute_transactional_sir_flow,
 )
+from .flow_interpreter import execute_interpreted_sir_flow
 from .flow_frontend import (
     FlowFrontendError,
     TypedFlowPlan,
@@ -113,6 +114,7 @@ __all__ = [
     "FlowDependency", "FlowGraphError", "FlowGraphPlan", "FlowNode",
     "certify_flow_graph", "FlowCancellationToken", "FlowCancelledError", "FlowExecutionError",
     "FlowExecutionResult", "execute_flow", "execute_bound_sir_flow",
+    "execute_interpreted_sir_flow",
     "execute_typed_flow", "TransactionExecutionError",
     "execute_transactional_sir_flow",
     "FlowFrontendError", "TypedFlowPlan", "TypedFlowStage",
