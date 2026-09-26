@@ -5,7 +5,7 @@ análises de segurança de baixo nível, definite initialization e otimizações
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Any, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 
 @dataclass
@@ -85,8 +85,45 @@ class OwnershipDomainPointInst(SIRInstruction):
         )
 
 
+class _OwnershipDomainTransferMeta(type):
+    """Recognize the exact transfer schema across the legacy SIR mirror.
+
+    ``tools/sotlas`` and ``compiler/sotlas`` are still importable during the
+    migration to one canonical package.  Loading the same dataclass from both
+    trees gives it two Python identities even though the SIR contract is
+    identical.  Placement must not silently drop a transfer only because its
+    class object came from the compatibility mirror.
+
+    This is intentionally narrow: only the exact dataclass name and required
+    field schema are accepted.  All semantic point/domain/destination checks
+    remain in the ownership placement pass.
+    """
+
+    _required_fields = frozenset({
+        "operation",
+        "source",
+        "source_domain",
+        "target_domain",
+        "destination",
+        "point_id",
+    })
+
+    def __instancecheck__(cls, instance: object) -> bool:
+        if type.__instancecheck__(cls, instance):
+            return True
+        instance_type = type(instance)
+        if instance_type.__name__ != "OwnershipDomainTransferInst":
+            return False
+        fields = getattr(instance_type, "__dataclass_fields__", None)
+        if not isinstance(fields, dict):
+            return False
+        return cls._required_fields.issubset(fields)
+
+
 @dataclass
-class OwnershipDomainTransferInst(SIRInstruction):
+class OwnershipDomainTransferInst(
+    SIRInstruction, metaclass=_OwnershipDomainTransferMeta
+):
     operation: str
     source: SIRValue
     source_domain: str
@@ -329,6 +366,13 @@ class SIRBasicBlock:
         return "\n".join(lines)
 
 
+@dataclass(frozen=True)
+class SIREffectSummary:
+    direct_effects: Tuple[str, ...] = ()
+    transitive_effects: Tuple[str, ...] = ()
+    unresolved_calls: Tuple[str, ...] = ()
+
+
 @dataclass
 class SIRFunction:
     name: str
@@ -336,6 +380,8 @@ class SIRFunction:
     return_type: str
     is_system: bool = False
     blocks: List[SIRBasicBlock] = field(default_factory=list)
+    declared_effects: Tuple[str, ...] | None = None
+    inferred_effects: Tuple[str, ...] = field(default=(), init=False)
 
     def add_block(self, label: str) -> SIRBasicBlock:
         b = SIRBasicBlock(label=label)
@@ -354,6 +400,9 @@ class SIRFunction:
 class SIRModule:
     name: str
     functions: List[SIRFunction] = field(default_factory=list)
+    effect_summaries: Dict[str, SIREffectSummary] = field(
+        default_factory=dict, init=False
+    )
 
     def add_function(self, fn: SIRFunction) -> None:
         self.functions.append(fn)

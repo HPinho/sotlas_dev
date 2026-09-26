@@ -5,7 +5,7 @@ análises de segurança de baixo nível, definite initialization e otimizações
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Any, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 
 @dataclass
@@ -366,6 +366,13 @@ class SIRBasicBlock:
         return "\n".join(lines)
 
 
+@dataclass(frozen=True)
+class SIREffectSummary:
+    direct_effects: Tuple[str, ...] = ()
+    transitive_effects: Tuple[str, ...] = ()
+    unresolved_calls: Tuple[str, ...] = ()
+
+
 @dataclass
 class SIRFunction:
     name: str
@@ -373,6 +380,8 @@ class SIRFunction:
     return_type: str
     is_system: bool = False
     blocks: List[SIRBasicBlock] = field(default_factory=list)
+    declared_effects: Tuple[str, ...] | None = None
+    inferred_effects: Tuple[str, ...] = field(default=(), init=False)
 
     def add_block(self, label: str) -> SIRBasicBlock:
         b = SIRBasicBlock(label=label)
@@ -391,6 +400,9 @@ class SIRFunction:
 class SIRModule:
     name: str
     functions: List[SIRFunction] = field(default_factory=list)
+    effect_summaries: Dict[str, SIREffectSummary] = field(
+        default_factory=dict, init=False
+    )
 
     def add_function(self, fn: SIRFunction) -> None:
         self.functions.append(fn)

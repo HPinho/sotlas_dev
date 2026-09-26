@@ -35,7 +35,8 @@ from sotlas.sir import (
 from sotlas.lexer import Lexer
 from sotlas.parser import Parser
 from sotlas_compile import bootstrap
-from sotlas.sir.passes import HardwareInterruptEffectPass
+from sotlas.sir.passes import EffectInferencePass, HardwareInterruptEffectPass
+from sotlas.sir.instructions import AwaitInst
 
 
 class SotlasSIRTests(unittest.TestCase):
@@ -3147,6 +3148,88 @@ fn route(flag: bool, count: u32) -> void {
 
         result = HardwareInterruptEffectPass().run(module)
         self.assertTrue(result.success)
+
+    def test_interrupt_effect_pass_rejects_unknown_external_calls(self):
+        handler = SIRFunction("isr_external", [], "void")
+        handler.add_block("0").add(CallInst("foreign_service", []))
+        module = SIRModule("interrupt_unknown_effect")
+        module.add_function(handler)
+
+        result = HardwareInterruptEffectPass().run(module)
+        self.assertFalse(result.success)
+        self.assertTrue(any(
+            "unknown external effects" in error
+            or "efeitos desconhecidos" in error
+            for error in result.errors
+        ))
+
+    def test_interrupt_effect_pass_rejects_await(self):
+        handler = SIRFunction("isr_async", [], "void")
+        handler.add_block("0").add(
+            AwaitInst(SIRValue("pending", "Future<void>"))
+        )
+        module = SIRModule("interrupt_async")
+        module.add_function(handler)
+
+        result = HardwareInterruptEffectPass().run(module)
+        self.assertFalse(result.success)
+        self.assertTrue(any("efeito async proibido" in error for error in result.errors))
+
+    def test_effect_inference_propagates_through_recursive_call_graph(self):
+        caller = SIRFunction("caller", [], "void")
+        caller.add_block("0").add(CallInst("helper", []))
+        helper = SIRFunction("helper", [], "void")
+        helper.add_block("0").add(CallInst("leaf", []))
+        helper.blocks[0].add(CallInst("sleep", []))
+        leaf = SIRFunction("leaf", [], "void")
+        leaf.add_block("0").add(CallInst("helper", []))
+        leaf.blocks[0].add(CallInst("heap_allocate", []))
+        module = SIRModule("effect_inference")
+        for function in (caller, helper, leaf):
+            module.add_function(function)
+
+        inference = EffectInferencePass()
+        result = inference.run(module)
+        self.assertTrue(result.success, result.errors)
+        self.assertEqual(
+            module.effect_summaries["caller"].transitive_effects,
+            ("alloc", "blocking"),
+        )
+        self.assertEqual(
+            module.effect_summaries["helper"].direct_effects,
+            ("blocking",),
+        )
+        self.assertEqual(caller.inferred_effects, ("alloc", "blocking"))
+        self.assertFalse(inference.run(module).changed)
+
+    def test_effect_inference_treats_unresolved_calls_conservatively(self):
+        function = SIRFunction("wrapper", [], "void")
+        function.add_block("0").add(CallInst("external_foreign_call", []))
+        module = SIRModule("unknown_effect")
+        module.add_function(function)
+
+        result = EffectInferencePass().run(module)
+        self.assertTrue(result.success, result.errors)
+        self.assertEqual(
+            module.effect_summaries["wrapper"].transitive_effects,
+            ("unknown_call",),
+        )
+        self.assertEqual(
+            module.effect_summaries["wrapper"].unresolved_calls,
+            ("external_foreign_call",),
+        )
+
+    def test_effect_inference_rejects_an_incomplete_declared_contract(self):
+        function = SIRFunction(
+            "reader", [], "void", declared_effects=("io",)
+        )
+        function.add_block("0").add(CallInst("sleep", []))
+        module = SIRModule("effect_contract")
+        module.add_function(function)
+
+        result = EffectInferencePass().run(module)
+        self.assertFalse(result.success)
+        self.assertTrue(any("omit inferred effects: blocking" in error for error in result.errors))
 
     def test_dead_code_elimination_removes_unreachable_instructions(self):
         fn = SIRFunction("dead_fn", [], "void")

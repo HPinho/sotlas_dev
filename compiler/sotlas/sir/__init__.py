@@ -30,6 +30,7 @@ from .instructions import (
     SystemOpInst,
     AsmInst,
     AwaitInst,
+    SIREffectSummary,
     SIRBasicBlock,
     SIRFunction,
     SIRModule,
@@ -70,6 +71,7 @@ from .passes import (
     DefiniteInitializationPass,
     SystemCapabilitySafetyPass,
     DeadCodeEliminationPass,
+    EffectInferencePass,
 )
 
 __all__ = [
@@ -100,6 +102,7 @@ __all__ = [
     "SIRBasicBlock",
     "SIRFunction",
     "SIRModule",
+    "SIREffectSummary",
     "SIRGenerator",
     "OwnershipDomainSIRPlan",
     "lower_ownership_domain_graph",
@@ -132,4 +135,5 @@ __all__ = [
     "DefiniteInitializationPass",
     "SystemCapabilitySafetyPass",
     "DeadCodeEliminationPass",
+    "EffectInferencePass",
 ]

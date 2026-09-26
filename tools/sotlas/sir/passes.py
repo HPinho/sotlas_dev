@@ -11,9 +11,10 @@ from __future__ import annotations
 from typing import List, Set, Dict, Optional
 from .instructions import (
     SIRModule, SIRFunction, SIRBasicBlock, SIRInstruction,
+    SIREffectSummary,
     AllocStackInst, StoreInst, LoadInst, CallInst, ReturnInst,
     BranchInst, CondBranchInst, SIRValue, PhiInst, BoundsCheckInst,
-    RetainInst, ReleaseInst
+    RetainInst, ReleaseInst, SystemOpInst, AsmInst, AwaitInst,
 )
 
 
@@ -22,6 +23,146 @@ class SIRPassResult:
         self.success = success
         self.errors = errors or []
         self.changed = changed
+
+
+_EFFECT_ORDER = (
+    "alloc", "blocking", "async", "io", "sync", "unsafe", "volatile",
+    "system", "unknown_call",
+)
+_KNOWN_EFFECTS = frozenset(_EFFECT_ORDER)
+_CALL_EFFECTS = {
+    "alloc": "alloc",
+    "allocate": "alloc",
+    "heap_allocate": "alloc",
+    "malloc": "alloc",
+    "sleep": "blocking",
+    "block_on": "blocking",
+    "wait_for_event": "blocking",
+    "blocking_read": "blocking",
+    "io_read": "io",
+    "io_write": "io",
+    "print": "io",
+    "println": "io",
+    "read": "io",
+    "write": "io",
+    "lock": "sync",
+    "unlock": "sync",
+    "mutex_lock": "sync",
+    "mutex_unlock": "sync",
+    "spin_lock": "sync",
+    "spin_unlock": "sync",
+}
+
+
+class EffectInferencePass:
+    """Infer conservative direct and transitive effects over the SIR call graph."""
+
+    def run(self, module: SIRModule) -> SIRPassResult:
+        errors: list[str] = []
+        functions: dict[str, SIRFunction] = {}
+        for function in module.functions:
+            if function.name in functions:
+                errors.append(
+                    f"sir effect error: duplicate function {function.name!r}"
+                )
+            functions[function.name] = function
+        if errors:
+            return SIRPassResult(success=False, errors=errors)
+
+        direct: dict[str, set[str]] = {name: set() for name in functions}
+        callees: dict[str, set[str]] = {name: set() for name in functions}
+        unresolved: dict[str, set[str]] = {name: set() for name in functions}
+        for name, function in functions.items():
+            for block in function.blocks:
+                for instruction in block.instructions:
+                    if isinstance(instruction, CallInst):
+                        effect = _CALL_EFFECTS.get(instruction.callee)
+                        if effect is not None:
+                            direct[name].add(effect)
+                        elif instruction.callee in functions:
+                            callees[name].add(instruction.callee)
+                        else:
+                            direct[name].add("unknown_call")
+                            unresolved[name].add(instruction.callee)
+                    elif isinstance(instruction, AwaitInst):
+                        direct[name].add("async")
+                    elif isinstance(instruction, AsmInst):
+                        direct[name].add("unsafe")
+                        if instruction.is_volatile:
+                            direct[name].add("volatile")
+                    elif isinstance(instruction, SystemOpInst):
+                        direct[name].add("system")
+
+        inferred = {name: set(effects) for name, effects in direct.items()}
+        unresolved_reachable = {
+            name: set(calls) for name, calls in unresolved.items()
+        }
+        changed = True
+        while changed:
+            changed = False
+            for name in functions:
+                for callee in callees[name]:
+                    prior_effect_count = len(inferred[name])
+                    prior_call_count = len(unresolved_reachable[name])
+                    inferred[name].update(inferred[callee])
+                    unresolved_reachable[name].update(
+                        unresolved_reachable[callee]
+                    )
+                    if (
+                        len(inferred[name]) != prior_effect_count
+                        or len(unresolved_reachable[name]) != prior_call_count
+                    ):
+                        changed = True
+
+        summaries: dict[str, SIREffectSummary] = {}
+        for name, function in functions.items():
+            declared = function.declared_effects
+            if declared is not None:
+                if not isinstance(declared, tuple) or any(
+                    not isinstance(effect, str) for effect in declared
+                ):
+                    errors.append(
+                        f"sir effect error: declared effects for {name!r} "
+                        "must be a tuple of names"
+                    )
+                    declared_set: set[str] = set()
+                else:
+                    declared_set = set(declared)
+                    invalid = declared_set - _KNOWN_EFFECTS
+                    if invalid:
+                        errors.append(
+                            f"sir effect error: unknown declared effects for "
+                            f"{name!r}: {', '.join(sorted(invalid))}"
+                        )
+                    missing = inferred[name] - declared_set
+                    if missing:
+                        errors.append(
+                            f"sir effect error: declared effects for {name!r} "
+                            f"omit inferred effects: {', '.join(sorted(missing))}"
+                        )
+
+            summaries[name] = SIREffectSummary(
+                direct_effects=tuple(
+                    effect for effect in _EFFECT_ORDER if effect in direct[name]
+                ),
+                transitive_effects=tuple(
+                    effect for effect in _EFFECT_ORDER if effect in inferred[name]
+                ),
+                unresolved_calls=tuple(sorted(unresolved_reachable[name])),
+            )
+
+        changed_summary = summaries != module.effect_summaries
+        module.effect_summaries = summaries
+        for name, function in functions.items():
+            effects = summaries[name].transitive_effects
+            if function.inferred_effects != effects:
+                changed_summary = True
+            function.inferred_effects = effects
+        return SIRPassResult(
+            success=not errors,
+            errors=errors,
+            changed=changed_summary,
+        )
 
 
 class DefiniteInitializationPass:
@@ -232,9 +373,21 @@ class HardwareInterruptEffectPass:
                     continue
                 for block in current.blocks:
                     for inst in block.instructions:
+                        if isinstance(inst, AwaitInst):
+                            chain = " -> ".join((*path, "await"))
+                            errors.append(
+                                f"sir effect error: efeito async proibido "
+                                f"em contexto de interrupÃ§Ã£o '{fn.name}' "
+                                f"(call chain: {chain})"
+                            )
+                            continue
                         if not isinstance(inst, CallInst):
                             continue
-                        if inst.callee in forbidden:
+                        if (
+                            inst.callee in forbidden
+                            or _CALL_EFFECTS.get(inst.callee)
+                            in {"alloc", "blocking"}
+                        ):
                             chain = " -> ".join((*path, inst.callee))
                             errors.append(
                                 f"sir effect error: operação proibida "
@@ -244,6 +397,14 @@ class HardwareInterruptEffectPass:
                         elif inst.callee in functions and inst.callee not in visited:
                             pending.append(
                                 (inst.callee, (*path, inst.callee))
+                            )
+                        elif inst.callee not in _CALL_EFFECTS:
+                            chain = " -> ".join((*path, inst.callee))
+                            errors.append(
+                                f"sir effect error: chamada com efeitos "
+                                f"desconhecidos '{inst.callee}' em contexto de "
+                                f"interrupÃ§Ã£o '{fn.name}' "
+                                f"(call chain: {chain})"
                             )
         return SIRPassResult(success=len(errors) == 0, errors=errors)
 
@@ -413,6 +574,7 @@ class SIRPassManager:
             DeadCodeEliminationPass(),
             DefiniteInitializationPass(),
             SystemCapabilitySafetyPass(),
+            EffectInferencePass(),
             HardwareInterruptEffectPass(),
             BranchFoldingPass(),
             RedundantLoadPass(),
