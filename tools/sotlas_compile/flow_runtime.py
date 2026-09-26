@@ -32,6 +32,26 @@ class FlowCancelledError(RuntimeError):
     """Execution was cancelled between or during ready stages."""
 
 
+class TransactionExecutionError(RuntimeError):
+    """A transactional Flow failed, with any compensation failures retained."""
+
+    def __init__(
+        self, stage: str, cause: BaseException,
+        rollback_errors=(), completed=(),
+    ):
+        self.stage = stage
+        self.cause = cause
+        self.rollback_errors = tuple(rollback_errors)
+        self.completed_stages = tuple(completed)
+        suffix = (
+            f"; {len(self.rollback_errors)} compensation handler(s) also failed"
+            if self.rollback_errors else ""
+        )
+        super().__init__(
+            f"transaction Flow stage {stage!r} failed: {cause}{suffix}"
+        )
+
+
 @dataclass(frozen=True)
 class FlowExecutionResult:
     """Successful node outputs in the graph's declared source order."""
@@ -299,6 +319,107 @@ def execute_bound_sir_flow(
     )
 
 
+def execute_transactional_sir_flow(
+    sir_module,
+    flow_name: str,
+    function_bindings: Mapping[str, Callable[..., object]],
+    effect_policies: Mapping[str, str],
+    compensation_handlers: Mapping[str, str] | None = None,
+) -> FlowExecutionResult:
+    """Execute a sequential checked SIR Flow and compensate completed stages.
+
+    Compensators receive the output produced by the stage they compensate.
+    This runtime deliberately rejects parallel schedules: the current SIR
+    transaction journal records completed stages in a deterministic order.
+    """
+    from .flow_sir import FlowSIRError, validate_sir_flow_plans
+    from .transactions import (
+        TransactionError,
+        analyze_sir_flow_transaction_effects,
+    )
+
+    plans = validate_sir_flow_plans(sir_module)
+    matches = tuple(plan for plan in plans if plan.name == flow_name)
+    if len(matches) != 1:
+        raise FlowSIRError(
+            "transaction SIR Flow runner requires exactly one plan named "
+            f"{flow_name!r}"
+        )
+    plan = matches[0]
+    audit = analyze_sir_flow_transaction_effects(
+        sir_module,
+        flow_name,
+        dict(effect_policies),
+        dict(compensation_handlers or {}),
+    )
+    if not audit.rollback_policy_satisfied:
+        raise TransactionError(
+            "transaction rollback policy is not satisfied: "
+            + "; ".join(audit.blockers)
+        )
+    if any(len(batch) != 1 for batch in plan.parallel_stages):
+        raise TransactionError(
+            "transaction Flow execution currently requires a sequential schedule"
+        )
+    if not isinstance(function_bindings, Mapping):
+        raise TypeError("transaction SIR bindings must be a mapping")
+    required_stages = tuple(
+        dict.fromkeys(stage.function for stage in plan.stages)
+    )
+    required_handlers = tuple(dict.fromkeys(
+        record.compensation for record in audit.effects
+        if record.compensation is not None
+    ))
+    required = tuple(dict.fromkeys((*required_stages, *required_handlers)))
+    missing = tuple(name for name in required if name not in function_bindings)
+    extra = tuple(name for name in function_bindings if name not in required)
+    if missing or extra:
+        raise ValueError(
+            "transaction SIR bindings must match stage and compensation functions "
+            f"(missing={missing}, extra={extra})"
+        )
+    if any(not callable(function_bindings[name]) for name in required):
+        raise TypeError("Every transaction SIR binding must be callable")
+
+    stage_by_name = {stage.name: stage for stage in plan.stages}
+    committed: dict[str, object] = {}
+    completed: list[str] = []
+    effects_by_stage: dict[str, list[object]] = {}
+    for record in audit.effects:
+        effects_by_stage.setdefault(record.stage, []).append(record)
+    for stage_name, in plan.parallel_stages:
+        stage = stage_by_name[stage_name]
+        arguments = tuple(
+            committed[arg.value.producer_stage] for arg in stage.arguments
+        )
+        try:
+            output = function_bindings[stage.function](*arguments)
+        except BaseException as cause:
+            rollback_errors = []
+            for completed_name in reversed(completed):
+                records = effects_by_stage.get(completed_name, ())
+                for record in reversed(records):
+                    if record.classification != "compensatable":
+                        continue
+                    try:
+                        function_bindings[record.compensation](
+                            committed[completed_name]
+                        )
+                    except BaseException as rollback_error:
+                        rollback_errors.append((
+                            completed_name, record.effect, rollback_error,
+                        ))
+            raise TransactionExecutionError(
+                stage_name, cause, rollback_errors, completed
+            ) from cause
+        committed[stage_name] = output
+        completed.append(stage_name)
+
+    return FlowExecutionResult(MappingProxyType({
+        stage.name: committed[stage.name] for stage in plan.stages
+    }))
+
+
 __all__ = [
     "FlowAction",
     "FlowExecutionError",
@@ -307,4 +428,6 @@ __all__ = [
     "execute_flow",
     "execute_typed_flow",
     "execute_bound_sir_flow",
+    "TransactionExecutionError",
+    "execute_transactional_sir_flow",
 ]

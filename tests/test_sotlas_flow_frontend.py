@@ -203,6 +203,7 @@ flow Home {
 
     def test_legacy_tools_package_exports_sir_flow_runner(self):
         self.assertTrue(callable(tools_package.execute_bound_sir_flow))
+        self.assertTrue(callable(tools_package.execute_transactional_sir_flow))
 
     def test_source_call_causality_explains_calls_outside_flow(self):
         source = """
@@ -437,6 +438,94 @@ flow Home {
             audit.compensation_stage_order,
             (("page",), ("profile", "posts")),
         )
+
+    def test_transaction_runner_compensates_completed_stages_after_failure(self):
+        source = self._source("""
+fn undo(value: i32) -> i32 { return value; }
+flow Home {
+    stage profile = load_profile;
+    stage page = render after profile;
+}
+""").replace(
+            "fn render(profile: i32, posts: i32) -> i32 { return profile + posts; }",
+            "fn render(profile: i32) -> i32 { return profile; }",
+        )
+        checked = package.analyze_source_phase1(source)
+        sir, _ = package.build_canonical_checked_ownership_sir(checked)
+        plan = sir.module.flow_plans[0]
+        for function in sir.module.functions:
+            if function.name in {"load_profile", "render"}:
+                function.source_effect_summary = replace(
+                    function.source_effect_summary,
+                    direct_effects=("io",), transitive_effects=("io",),
+                )
+        sir.module.flow_plans = (replace(
+            plan,
+            stages=tuple(
+                replace(stage, effects=("io",)) for stage in plan.stages
+            ),
+        ),)
+        calls = []
+
+        def apply():
+            calls.append("apply")
+            return 42
+
+        def fail(value):
+            calls.append(("fail", value))
+            raise RuntimeError("stage failed")
+
+        def undo(value):
+            calls.append(("undo", value))
+            return value
+
+        with self.assertRaises(package.TransactionExecutionError) as raised:
+            package.execute_transactional_sir_flow(
+                sir.module,
+                "Home",
+                {"load_profile": apply, "render": fail, "undo": undo},
+                {"io": "compensatable"},
+                {"io": "undo"},
+            )
+        self.assertEqual(calls, ["apply", ("fail", 42), ("undo", 42)])
+        self.assertEqual(raised.exception.stage, "page")
+        self.assertEqual(raised.exception.completed_stages, ("profile",))
+        self.assertEqual(raised.exception.rollback_errors, ())
+
+        calls.clear()
+        result = package.execute_transactional_sir_flow(
+            sir.module,
+            "Home",
+            {
+                "load_profile": apply,
+                "render": lambda value: value + 1,
+                "undo": undo,
+            },
+            {"io": "compensatable"},
+            {"io": "undo"},
+        )
+        self.assertEqual(result.output("page"), 43)
+        self.assertEqual(calls, ["apply"])
+
+    def test_transaction_runner_refuses_parallel_effectful_flow(self):
+        checked = package.analyze_source_phase1(self._source("""
+flow Home {
+    stage profile = load_profile;
+    stage posts = load_posts;
+    stage page = render after profile, posts;
+}
+"""))
+        sir, _ = package.build_canonical_checked_ownership_sir(checked)
+        with self.assertRaisesRegex(
+            package.TransactionError, "requires a sequential schedule"
+        ):
+            package.execute_transactional_sir_flow(
+                sir.module,
+                "Home",
+                {"load_profile": lambda: 1, "load_posts": lambda: 2,
+                 "render": lambda left, right: left + right},
+                {},
+            )
 
     def test_sir_flow_validator_reconciles_signatures_edges_effects_and_schedule(self):
         checked = package.analyze_source_phase1(self._source("""

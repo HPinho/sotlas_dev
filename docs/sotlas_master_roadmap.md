@@ -4035,9 +4035,15 @@ um Flow SIR. Cada efeito precisa de uma política explícita: `reversible`,
 `compensatable` ou `irreversible`; políticas ausentes, efeitos irreversíveis
 e compensações sem função handler no SIR impedem a política declarada de
 rollback de ser considerada satisfeita. Isso não comprova que um handler
-reverte o efeito. A auditoria não executa handlers nem implementa snapshots,
-inversas ou rollback. API: `analyze_sir_flow_transaction_effects(module,
-flow, policies, handlers)`.
+reverte o efeito. A auditoria não executa handlers. O executor transacional
+executa somente cronogramas sequenciais: valida
+todos os bindings e a política antes da primeira stage, registra outputs
+concluídos e invoca compensações em ordem inversa quando uma stage posterior
+falha. Ele preserva o erro original e erros de compensação. Cronogramas paralelos
+são recusados. Efeitos externos atômicos, rollback da própria stage que falhou,
+snapshots e inversas verificadas continuam abertos. APIs:
+`analyze_sir_flow_transaction_effects(module, flow, policies, handlers)` e
+`execute_transactional_sir_flow(module, flow, bindings, policies, handlers)`.
 
 ### 13. Transactions
 

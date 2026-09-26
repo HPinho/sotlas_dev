@@ -53,6 +53,8 @@ from .flow_runtime import (
     execute_flow,
     execute_typed_flow,
     execute_bound_sir_flow,
+    TransactionExecutionError,
+    execute_transactional_sir_flow,
 )
 from .flow_frontend import (
     FlowFrontendError,
@@ -134,6 +136,7 @@ __all__ = [
     "certify_flow_graph", "FlowCancelledError", "FlowExecutionError",
     "FlowExecutionResult", "execute_flow",
     "execute_typed_flow", "execute_bound_sir_flow",
+    "TransactionExecutionError", "execute_transactional_sir_flow",
     "FlowFrontendError", "TypedFlowPlan", "TypedFlowStage",
     "plan_source_flows", "FlowSIRError", "FlowSIRValueRef",
     "FlowSIRArgument", "FlowSIRStage", "FlowSIRPlan",

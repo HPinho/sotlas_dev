@@ -1,8 +1,8 @@
 # Sotlas — Implementation Status
 
 **Atualizado em:** 2026-09-26
-**Último baseline verde certificado:** `7367ec1`
-**CI de referência:** Sotlas CI & Toolchain Build Farm #621 — workflow `success`
+**Último baseline verde certificado:** `3d6b10f`
+**CI de referência:** Sotlas CI & Toolchain Build Farm #622 — workflow `success`
 **Fonte arquitetural:** `SOTLAS — ESPECIFICAÇÃO MESTRA`
 
 > Este é o índice operacional atual. O snapshot detalhado anterior, com o histórico extenso das microentregas da Fase 2, permanece preservado em `docs/archive/sotlas_implementation_status_2026-09-23.md`.
@@ -35,7 +35,7 @@ Legenda:
 | 10 | Guarantees | ~15% candidato | 🟡 |
 | 11 | Causality | ~12% candidato | 🟡 |
 | 12 | Counterfactuals | ~12% candidato | 🟡 |
-| 13 | Transactions | ~10% candidato | 🟡 |
+| 13 | Transactions | ~25% candidato | 🟡 |
 | 14 | Intent | ~12% candidato | 🟡 |
 | 15 | SIR completo | ~40% candidato | 🟡 |
 | 16 | Native Machine Backend | ~5% | 🟡 |
@@ -93,16 +93,19 @@ target_stage, allowed_effects=...)` em `sotlas_compile.counterfactuals`.
 
 ### Avanço inicial de Transactions
 
-**Status 1.0: ~10% candidato 🟡 — IN PROGRESS**
+**Status 1.0: ~25% candidato 🟡 — IN PROGRESS**
 
 - [x] auditoria estática dos efeitos de um Flow SIR contra política explícita de reversibilidade;
 - [x] efeito sem política, irreversível ou compensável sem handler bloqueia a satisfação da política de rollback;
 - [x] handler declarado precisa existir no SIR;
 - [x] auditoria satisfeita expõe camadas de stages que precisam de compensação em ordem reversa de dependência;
-- [x] ordem é apenas precedência estática: execução dos handlers e atomicidade continuam pendentes;
-- [ ] snapshots `before/after`, inversas verificadas, execução atômica, rollback e compensação executada.
+- [x] executor SIR sequencial valida política e bindings antes de iniciar qualquer stage;
+- [x] falha após stages concluídas executa handlers compensatórios em ordem inversa;
+- [x] falhas de compensação são retidas junto ao erro original e à lista de stages concluídas;
+- [x] cronogramas paralelos são rejeitados antes da execução enquanto não houver journal concorrente seguro;
+- [ ] atomicidade de efeitos externos, compensação da própria stage que falhou, snapshots `before/after` e inversas verificadas.
 
-API inicial: `analyze_sir_flow_transaction_effects(module, flow, policies, handlers)` em `sotlas_compile.transactions`.
+APIs: `analyze_sir_flow_transaction_effects(module, flow, policies, handlers)` e `execute_transactional_sir_flow(module, flow, bindings, policies, handlers)` em `sotlas_compile`.
 
 ### Integridade canônica do Flow em SIR
 
