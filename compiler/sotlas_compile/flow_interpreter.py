@@ -43,23 +43,33 @@ def _interpret_function(function, arguments: tuple[object, ...]) -> object:
             f"SIR Flow interpreter requires one straight-line block in {function.name!r}"
         )
 
-    values: dict[str, int] = {}
+    values: dict[str, int | bool] = {}
     for parameter, argument in zip(parameters, arguments):
         name = getattr(parameter, "name", None)
         type_name = getattr(parameter, "type_name", None)
         if not isinstance(name, str) or not name or name in values:
             raise ValueError(f"SIR function {function.name!r} has invalid parameters")
-        values[name] = _checked_unsigned(
-            argument, type_name, f"argument {name!r} to {function.name!r}"
-        )
+        if type_name == "bool":
+            if not isinstance(argument, bool):
+                raise TypeError(f"argument {name!r} to {function.name!r} must be bool")
+            values[name] = argument
+        else:
+            values[name] = _checked_unsigned(
+                argument, type_name, f"argument {name!r} to {function.name!r}"
+            )
 
-    def read(value, context: str) -> int:
+    def read(value, context: str):
         name = getattr(value, "name", None)
         type_name = getattr(value, "type_name", None)
         if not isinstance(name, str) or name not in values:
             raise ValueError(
                 f"SIR function {function.name!r} reads undefined value {name!r}"
             )
+        if type_name == "bool":
+            result = values[name]
+            if not isinstance(result, bool):
+                raise ValueError(f"{context} is not a bool value")
+            return result
         if type_name not in _INTEGER_WIDTHS:
             raise ValueError(f"{context} uses unsupported type {type_name!r}")
         return _checked_unsigned(values[name], type_name, context)
@@ -114,6 +124,26 @@ def _interpret_function(function, arguments: tuple[object, ...]) -> object:
             if width is None:
                 raise ValueError(f"SIR arithmetic uses unsupported type {type_name!r}")
             values[target_name] = calculate(left, right) & ((1 << width) - 1)
+        elif kind == "CompareInst":
+            target = getattr(instruction, "result", None)
+            name = getattr(target, "name", None)
+            operation = getattr(instruction, "operation", None)
+            operand_type = getattr(instruction.left, "type_name", None)
+            if (
+                getattr(target, "type_name", None) != "bool"
+                or operand_type not in _INTEGER_WIDTHS
+                or getattr(instruction.right, "type_name", None) != operand_type
+                or operation not in {"EQ", "NEQ", "LT", "LTE", "GT", "GTE"}
+                or not isinstance(name, str) or not name or name in values
+            ):
+                raise ValueError(f"SIR function {function.name!r} has an unsupported comparison")
+            left = read(instruction.left, f"left comparison operand in {function.name!r}")
+            right = read(instruction.right, f"right comparison operand in {function.name!r}")
+            values[name] = {
+                "EQ": left == right, "NEQ": left != right,
+                "LT": left < right, "LTE": left <= right,
+                "GT": left > right, "GTE": left >= right,
+            }[operation]
         elif kind == "ReturnInst":
             if returned or index != len(instructions) - 1:
                 raise ValueError(
@@ -125,6 +155,8 @@ def _interpret_function(function, arguments: tuple[object, ...]) -> object:
                     f"SIR function {function.name!r} has an unsupported return"
                 )
             result = read(value, f"return value from {function.name!r}")
+            if result_type == "bool" and not isinstance(result, bool):
+                raise ValueError(f"SIR function {function.name!r} returns non-bool")
             returned = True
         else:
             raise ValueError(
@@ -142,12 +174,12 @@ def execute_interpreted_sir_flow(
     max_workers: int | None = None,
     cancel_event: Event | None = None,
 ) -> FlowExecutionResult:
-    """Interpret pure unsigned-integer stage bodies from one verified SIR Flow.
+    """Interpret pure scalar stage bodies from one verified SIR Flow.
 
     This intentionally supports a much smaller subset than a native backend:
-    stage functions must consist of one block with integer constants, unsigned
-    ``add``/``sub``/``mul`` and a direct return. Calls, effects and control flow
-    fail before the scheduler starts any stage.
+    stage functions must consist of one block with unsigned integer arithmetic,
+    integer comparisons returning bool, and a direct return. Calls, effects and
+    control flow fail before the scheduler starts any stage.
     """
     from .flow_sir import FlowSIRError, validate_sir_flow_plans
     from .canonical_sir import load_canonical_sir
@@ -180,7 +212,7 @@ def execute_interpreted_sir_flow(
             raise FlowSIRError(
                 f"SIR interpreter does not execute @system function {stage.function!r}"
             )
-        if function.return_type not in _INTEGER_WIDTHS or any(
+        if function.return_type not in (*_INTEGER_WIDTHS, "bool") or any(
             getattr(parameter, "type_name", None) not in _INTEGER_WIDTHS
             for parameter in function.parameters
         ):
@@ -303,6 +335,23 @@ def _validate_function_shape(function) -> None:
                 raise ValueError(
                     f"SIR function {function.name!r} has invalid arithmetic SSA facts"
                 )
+            definitions.add(name)
+        elif kind == "CompareInst":
+            target = getattr(instruction, "result", None)
+            name = getattr(target, "name", None)
+            operand_type = getattr(instruction.left, "type_name", None)
+            if (
+                function.return_type != "bool"
+                or not isinstance(name, str) or name in definitions
+                or getattr(target, "type_name", None) != "bool"
+                or getattr(instruction, "operation", None)
+                not in {"EQ", "NEQ", "LT", "LTE", "GT", "GTE"}
+                or operand_type not in _INTEGER_WIDTHS
+                or getattr(instruction.right, "type_name", None) != operand_type
+                or instruction.left.name not in definitions
+                or instruction.right.name not in definitions
+            ):
+                raise ValueError(f"SIR function {function.name!r} has invalid comparison facts")
             definitions.add(name)
         elif kind == "ReturnInst":
             value = getattr(instruction, "value", None)

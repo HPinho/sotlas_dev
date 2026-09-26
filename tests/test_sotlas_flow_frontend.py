@@ -284,6 +284,38 @@ flow Calc {
         self.assertEqual(result.output("total"), 12)
         self.assertTrue(callable(package.execute_interpreted_sir_flow))
 
+    def test_interpreted_sir_flow_executes_unsigned_comparison_stage(self):
+        source = """
+module test::flow_interpreter_compare;
+fn left_value() -> u32 { return 1u32; }
+fn right_value() -> u32 { return 2u32; }
+fn equal(left: u32, right: u32) -> bool { return left == right; }
+fn not_equal(left: u32, right: u32) -> bool { return left != right; }
+fn is_before(left: u32, right: u32) -> bool { return left < right; }
+fn before_or_equal(left: u32, right: u32) -> bool { return left <= right; }
+fn is_after(left: u32, right: u32) -> bool { return left > right; }
+fn after_or_equal(left: u32, right: u32) -> bool { return left >= right; }
+flow Check {
+    stage left = left_value;
+    stage right = right_value;
+    stage before = is_before after left, right;
+    stage before_or_same = before_or_equal after left, right;
+    stage same = equal after left, right;
+    stage different = not_equal after left, right;
+    stage greater = is_after after left, right;
+    stage after_or_same = after_or_equal after left, right;
+}
+"""
+        checked = package.analyze_source_phase1(source)
+        checked_sir, _ = package.build_canonical_checked_ownership_sir(checked)
+        result = package.execute_interpreted_sir_flow(checked_sir.module, "Check")
+        self.assertIs(result.output("before"), True)
+        self.assertIs(result.output("before_or_same"), True)
+        self.assertIs(result.output("same"), False)
+        self.assertIs(result.output("different"), True)
+        self.assertIs(result.output("greater"), False)
+        self.assertIs(result.output("after_or_same"), False)
+
     def test_interpreted_sir_flow_rejects_unsupported_shape_before_execution(self):
         source = """
 module test::flow_interpreter_reject;

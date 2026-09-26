@@ -66,6 +66,7 @@ não interpreta instruções SIR nem afirma executar código compilado.
 `execute_interpreted_sir_flow` acrescenta um executor para o subset linear puro
 de inteiros sem sinal do SIR. Ele interpreta constantes, `add`/`sub`/`mul` e
 retornos diretos; aceita somente alocações e inicializações de slots que o
+O interpretador tambem executa comparacoes inteiras e retorna bool.
 frontend usa para materializar parâmetros escalares. Antes do scheduler, valida
 plano, provenance, efeitos, assinaturas e todas as instruções de cada stage.
 Outras instruções e CFG falham fechados. Isso executa corpos SIR reais, mas não
@@ -95,6 +96,7 @@ integra ownership, cleanup nem backend nativo.
 - [x] executor de grafo oferece token cooperativo opt-in; ações podem observar cancelamento externo ou falha de peer e parar antes do join;
 - [x] runners de Flow tipado e SIR encaminham o token opt-in aos bindings e propagam cancelamento externo antes de iniciar stages dependentes;
 - [x] interpretador de corpos SIR puros no subset linear unsigned, com rejeição anterior ao scheduler para instruções e formas não suportadas;
+- [x] interpretador SIR de Flow calcula comparacoes unsigned e retorna bool.
 - [ ] lowering para CFG executável, integração de Ownership e execução pelo scheduler;
 - [ ] backpressure e políticas de retry;
 - [ ] e2e da fonte Sotlas ao scheduler e ao backend suportado.

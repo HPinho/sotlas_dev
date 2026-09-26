@@ -1,8 +1,8 @@
 # Sotlas — Implementation Status
 
 **Atualizado em:** 2026-09-26
-**Último baseline verde certificado:** `8a4c3f4`
-**CI de referência:** Sotlas CI & Toolchain Build Farm #652 — workflow `success`
+**Último baseline verde certificado:** `ea527ea`
+**CI de referência:** Sotlas CI & Toolchain Build Farm #653 — workflow `success`
 **Fonte arquitetural:** `SOTLAS — ESPECIFICAÇÃO MESTRA`
 
 > Este é o índice operacional atual. O snapshot detalhado anterior, com o histórico extenso das microentregas da Fase 2, permanece preservado em `docs/archive/sotlas_implementation_status_2026-09-23.md`.
@@ -28,7 +28,7 @@ Legenda:
 | 3 | Authority Domains | 100% | ✅ COMPLETE |
 | 4 | State Spaces | 100% | ✅ COMPLETE |
 | 5 | Effects | ~59% candidato | 🟡 |
-| 6 | Flow | ~55% candidato | 🟡 |
+| 6 | Flow | ~56% candidato | 🟡 |
 | 7 | Execution Domains | ~45% | 🟡 |
 | 8 | Heterogeneous Compute | ~5% candidato | 🟡 |
 | 9 | Trust Domains | ~18% candidato | 🟡 |
@@ -37,7 +37,7 @@ Legenda:
 | 12 | Counterfactuals | ~17% candidato | 🟡 |
 | 13 | Transactions | ~27% candidato | 🟡 |
 | 14 | Intent | ~20% candidato | 🟡 |
-| 15 | SIR completo | ~44% candidato | 🟡 |
+| 15 | SIR completo | ~45% candidato | 🟡 |
 | 16 | Native Machine Backend | ~11% | 🟡 |
 | 17 | Tooling avançado | ~21% candidato | 🟡 |
 
@@ -74,6 +74,7 @@ API inicial: `analyze_foreign_trust_boundaries(module, require_explicit_trust=Tr
 ### Execução interpretada do subset SIR Flow
 
 - [x] stages puros de inteiros sem sinal executam a partir dos corpos SIR validados, sem bindings fornecidos pelo host;
+- [x] comparacoes unsigned EQ/NEQ/LT/LTE/GT/GTE retornam bool no interpretador;
 - [x] o subset aceita constantes, `add`/`sub`/`mul`, retorno direto e a materialização inerte de parâmetros em slots;
 - [x] planos, provenance, summaries de efeitos, assinaturas, tipos e forma linear do corpo são verificados antes do scheduler;
 - [x] operações, efeitos, tipos, CFG e instruções fora do subset falham fechados;
@@ -293,7 +294,7 @@ Escopo: `docs/sotlas_1_0_phase5_effects_scope.md`.
 
 ## Fase 6 — Flow
 
-**Status 1.0: ~55% candidato 🟡 — IN PROGRESS**
+**Status 1.0: ~56% candidato 🟡 — IN PROGRESS**
 
 - [x] grafo backend-neutral valida dependências e rejeita ciclos;
 - [x] estágios paralelos são derivados deterministicamente da topologia e da ordem declarada;
