@@ -3,11 +3,16 @@
 The declarative ``FlowSIRPlan`` remains the canonical orchestration contract.
 This module materializes that contract as an ordinary ``SIRFunction`` only when
 the plan is strictly serial: every canonical parallel layer contains exactly one
-stage.  Parallel plans stay fail-closed until SIR has an execution contract that
+stage. Parallel plans stay fail-closed until SIR has an execution contract that
 can preserve concurrency instead of silently serializing it.
 
+The first executable subset is also deliberately restricted to primitive scalar
+values. Nominal, pointer/reference and typestate values can carry ownership or
+lifetime obligations that Flow does not yet integrate into its executable CFG;
+they therefore fail closed instead of being copied as ordinary SSA values.
+
 Stage identity/provenance is kept in an external certificate rather than being
-smuggled into unrelated ``CallInst`` fields.  The generated CFG is revalidated
+smuggled into unrelated ``CallInst`` fields. The generated CFG is revalidated
 against the canonical Flow plan before it is returned.
 """
 from __future__ import annotations
@@ -20,6 +25,14 @@ from .flow_sir import FlowSIRError, validate_sir_flow_plans
 
 class FlowCFGError(FlowSIRError):
     """Raised when a Flow plan cannot be represented by the executable CFG subset."""
+
+
+_COPY_SAFE_SCALAR_TYPES = frozenset({
+    "bool",
+    "u8", "u16", "u32", "u64", "usize",
+    "i8", "i16", "i32", "i64", "isize",
+    "f32", "f64",
+})
 
 
 @dataclass(frozen=True)
@@ -80,6 +93,25 @@ def _serial_stage_order(plan) -> tuple[str, ...]:
     return order
 
 
+def _require_copy_safe_types(plan) -> None:
+    """Reject values whose ownership/lifetime semantics are not integrated yet."""
+    for stage in plan.stages:
+        if stage.result_type not in _COPY_SAFE_SCALAR_TYPES:
+            raise FlowCFGError(
+                f"Flow stage {stage.name!r} executable CFG does not yet integrate "
+                f"ownership/lifetime semantics for type {stage.result_type!r}"
+            )
+        for argument in stage.arguments:
+            if (
+                argument.type_name not in _COPY_SAFE_SCALAR_TYPES
+                or argument.value.type_name not in _COPY_SAFE_SCALAR_TYPES
+            ):
+                raise FlowCFGError(
+                    f"Flow stage {stage.name!r} executable CFG does not yet integrate "
+                    f"ownership/lifetime semantics for type {argument.type_name!r}"
+                )
+
+
 def _generated_function_name(flow_name: str) -> str:
     return f"__sotlas_flow_{flow_name}"
 
@@ -92,10 +124,14 @@ def lower_serial_flow_to_cfg(sir_module, flow_name: str) -> FlowExecutableCFG:
     an SSA value and consumer calls receive only the producer results certified
     by ``FlowSIRArgument`` provenance. The final stage result becomes the
     function return value.
+
+    Until Flow is integrated with Ownership, only primitive scalar values may
+    cross stage boundaries in this executable representation.
     """
     sir, module = _unwrap_module(sir_module)
     plan = _select_plan(module, flow_name)
     order = _serial_stage_order(plan)
+    _require_copy_safe_types(plan)
     stages = {stage.name: stage for stage in plan.stages}
     functions = {function.name: function for function in module.functions}
 
@@ -178,6 +214,7 @@ def validate_serial_flow_cfg(sir_module, cfg: FlowExecutableCFG) -> FlowExecutab
         raise FlowCFGError("Flow CFG validation requires a FlowExecutableCFG")
     plan = _select_plan(module, cfg.plan_name)
     order = _serial_stage_order(plan)
+    _require_copy_safe_types(plan)
     stages = {stage.name: stage for stage in plan.stages}
     functions = {function.name: function for function in module.functions}
 

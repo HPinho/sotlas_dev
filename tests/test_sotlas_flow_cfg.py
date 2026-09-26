@@ -119,6 +119,52 @@ flow Serial {
         ):
             package.validate_serial_flow_cfg(sir_module, tampered)
 
+    def test_nominal_values_remain_fail_closed_until_ownership_integration(self):
+        sir_module = self._serial_module()
+        functions = {function.name: function for function in sir_module.functions}
+        functions["load"].return_type = "Token"
+        functions["relay"].parameters[0].type_name = "Token"
+        functions["relay"].return_type = "Token"
+        functions["finish"].parameters[0].type_name = "Token"
+        functions["finish"].return_type = "Token"
+
+        plan = sir_module.flow_plans[0]
+        raw, copied, final = plan.stages
+        copied_arg = copied.arguments[0]
+        final_arg = final.arguments[0]
+        raw = replace(raw, result_type="Token")
+        copied = replace(
+            copied,
+            result_type="Token",
+            arguments=(replace(
+                copied_arg,
+                type_name="Token",
+                value=replace(copied_arg.value, type_name="Token"),
+            ),),
+        )
+        final = replace(
+            final,
+            result_type="Token",
+            arguments=(replace(
+                final_arg,
+                type_name="Token",
+                value=replace(final_arg.value, type_name="Token"),
+            ),),
+        )
+        sir_module.flow_plans = (replace(
+            plan,
+            stages=(raw, copied, final),
+        ),)
+
+        # The declarative plan is internally coherent, but ordinary nominal SSA
+        # copying is not a substitute for Flow/Ownership integration.
+        package.validate_sir_flow_plans(sir_module)
+        with self.assertRaisesRegex(
+            package.FlowCFGError,
+            r"does not yet integrate ownership/lifetime semantics for type 'Token'",
+        ):
+            package.lower_serial_flow_to_cfg(sir_module, "Serial")
+
     def test_parallel_flow_remains_fail_closed_in_executable_cfg_subset(self):
         source = """
 module test::flow_cfg_parallel;
