@@ -48,6 +48,43 @@ _PURE_INTEGER_TYPES = {
 }
 
 
+def _normalize_unsigned_operation(operation, type_name, left, right):
+    """Canonicalize safe identities and constants under modular unsigned math."""
+    width = _PURE_INTEGER_TYPES[type_name]
+    modulus = 1 << width
+    left_constant = left[0] == "constant" and left[1] == type_name
+    right_constant = right[0] == "constant" and right[1] == type_name
+    if left_constant and right_constant:
+        left_value, right_value = left[2], right[2]
+        value = {
+            "add": lambda: left_value + right_value,
+            "sub": lambda: left_value - right_value,
+            "mul": lambda: left_value * right_value,
+        }[operation]() % modulus
+        return ("constant", type_name, value)
+
+    zero = ("constant", type_name, 0)
+    one = ("constant", type_name, 1)
+    if operation == "add":
+        if left == zero:
+            return right
+        if right == zero:
+            return left
+    elif operation == "sub" and right == zero:
+        return left
+    elif operation == "mul":
+        if left == zero or right == zero:
+            return zero
+        if left == one:
+            return right
+        if right == one:
+            return left
+
+    if operation in {"add", "mul"} and repr(left) > repr(right):
+        left, right = right, left
+    return (operation, type_name, left, right)
+
+
 def _pure_integer_result_expression(function):
     """Return a normalized expression for a narrow, pure integer SIR body."""
     if getattr(function, "is_system", False):
@@ -148,12 +185,11 @@ def _pure_integer_result_expression(function):
             ):
                 return None
             definitions.add(name)
-            left_expression = expressions[left_name]
-            right_expression = expressions[right_name]
-            if operation in {"add", "mul"} and repr(left_expression) > repr(right_expression):
-                left_expression, right_expression = right_expression, left_expression
-            expressions[name] = (
-                operation, type_name, left_expression, right_expression
+            expressions[name] = _normalize_unsigned_operation(
+                operation,
+                type_name,
+                expressions[left_name],
+                expressions[right_name],
             )
         elif kind == "ReturnInst":
             value = getattr(instruction, "value", None)
@@ -435,7 +471,7 @@ def analyze_sir_flow_recovery_options(
             tuple(effect for effect in failed_effects if effect not in candidate_effects),
             semantic_equivalence_verified=equivalent,
             semantic_equivalence_evidence=(
-                "commutative-normalized-pure-unsigned-sir-expression"
+                "normalized-pure-unsigned-sir-expression"
                 if equivalent else None
             ),
             effect_policy=allowed_effects,

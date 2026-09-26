@@ -1682,6 +1682,11 @@ class SIRGenerator:
         if self._try_lower_integer_comparison_return(fn, entry_block, sir_params, ret_str):
             return sir_fn
 
+        if self._try_lower_unsigned_parameter_return(
+            fn, entry_block, sir_params, ret_str
+        ):
+            return sir_fn
+
         if self._try_lower_unsigned_arithmetic_return(
             fn, entry_block, sir_params, ret_str
         ):
@@ -1704,6 +1709,37 @@ class SIRGenerator:
             )
         )
         return sir_fn
+
+    def _try_lower_unsigned_parameter_return(
+        self,
+        fn: Any,
+        entry_block: SIRBasicBlock,
+        params: list[SIRValue],
+        return_type: str,
+    ) -> bool:
+        """Lower a direct return of one same-typed unsigned parameter."""
+        if return_type not in {"u8", "u16", "u32", "u64", "usize"}:
+            return False
+        body = list(getattr(fn, "body", ()) or ())
+        if len(body) != 1 or type(body[0]).__name__ not in ("Return", "ReturnNode"):
+            return False
+        expression = getattr(body[0], "value", None)
+        if type(expression).__name__ == "Name":
+            name = getattr(expression, "value", None)
+        elif type(expression).__name__ == "IdentNode":
+            name = getattr(expression, "name", None)
+        else:
+            return False
+        parameter = next(
+            (item for item in params if item.name == name), None
+        )
+        if parameter is None or parameter.type_name != return_type:
+            return False
+        entry_block.add(ReturnInst(
+            value=parameter,
+            point_id=self._terminal_return_point_id(fn),
+        ))
+        return True
 
     def _try_lower_integer_comparison_return(
         self,
@@ -1782,25 +1818,65 @@ class SIRGenerator:
         if operation is None:
             return False
 
-        def name_of(node: Any) -> str | None:
-            if type(node).__name__ == "Name":
-                return getattr(node, "value", None)
-            if type(node).__name__ == "IdentNode":
-                return getattr(node, "name", None)
-            return None
-
-        left_name = name_of(getattr(expression, "left", None))
-        right_name = name_of(getattr(expression, "right", None))
-        left = next((param for param in params if param.name == left_name), None)
-        right = next((param for param in params if param.name == right_name), None)
         unsigned_types = {"u8", "u16", "u32", "u64", "usize"}
-        if (
-            left is None or right is None
-            or left.type_name != right.type_name
-            or left.type_name != return_type
-            or return_type not in unsigned_types
+        if return_type not in unsigned_types:
+            return False
+
+        def operand_of(node: Any) -> SIRValue | tuple[str, int] | None:
+            if type(node).__name__ == "Name":
+                name = getattr(node, "value", None)
+                return next((param for param in params if param.name == name), None)
+            if type(node).__name__ == "IdentNode":
+                name = getattr(node, "name", None)
+                return next((param for param in params if param.name == name), None)
+            if type(node).__name__ == "Number":
+                raw = getattr(node, "value", None)
+            elif type(node).__name__ == "LiteralNode":
+                literal_kind = getattr(getattr(node, "kind", None), "name", None)
+                if literal_kind != "INT_LIT":
+                    return None
+                raw = getattr(node, "value", None)
+            else:
+                return None
+            if not isinstance(raw, str):
+                return None
+            match = re.fullmatch(
+                r"(.+?)(u8|u16|u32|u64|usize)?", raw
+            )
+            if match is None:
+                return None
+            digits, suffix = match.groups()
+            if suffix is not None and suffix != return_type:
+                return None
+            try:
+                value = int(digits.replace("_", ""), 0)
+            except ValueError:
+                return None
+            width = {"u8": 8, "u16": 16, "u32": 32, "u64": 64, "usize": 64}.get(
+                return_type
+            )
+            if width is None or not 0 <= value < (1 << width):
+                return None
+            return ("constant", value)
+
+        left = operand_of(getattr(expression, "left", None))
+        right = operand_of(getattr(expression, "right", None))
+        if left is None or right is None:
+            return False
+        if any(
+            not isinstance(operand, tuple) and operand.type_name != return_type
+            for operand in (left, right)
         ):
             return False
+        for label, operand in (("left", left), ("right", right)):
+            if isinstance(operand, tuple):
+                value = operand[1]
+                constant = self._next_val(f"arith_{label}_const", return_type)
+                entry_block.add(ConstantIntInst(value, constant))
+                if label == "left":
+                    left = constant
+                else:
+                    right = constant
         result = self._next_val("arith", return_type)
         entry_block.add(BinaryOpInst(operation, left, right, result))
         entry_block.add(ReturnInst(

@@ -479,10 +479,39 @@ flow BackupChanged {
         )
         self.assertEqual(
             candidates["Backup"].semantic_equivalence_evidence,
-            "commutative-normalized-pure-unsigned-sir-expression",
+            "normalized-pure-unsigned-sir-expression",
         )
         self.assertFalse(candidates["BackupChanged"].semantic_equivalence_verified)
         self.assertIsNone(candidates["BackupChanged"].semantic_equivalence_evidence)
+
+    def test_counterfactual_normalizes_unsigned_identities_and_constants(self):
+        source = """
+module test::counterfactual_unsigned_normalization;
+fn zero() -> u32 { return 0u32; }
+fn add_zero(value: u32) -> u32 { return value + 0u32; }
+fn identity(value: u32) -> u32 { return value; }
+fn add_one(value: u32) -> u32 { return value + 1u32; }
+flow Home {
+    stage input = zero;
+    stage page = add_zero after input;
+}
+flow Backup {
+    stage spare = zero;
+    stage page = identity after spare;
+}
+flow Changed {
+    stage spare = zero;
+    stage page = add_one after spare;
+}
+        """
+        checked = package.analyze_source_phase1(source)
+        sir, _ = package.build_canonical_checked_ownership_sir(checked)
+        options = package.analyze_sir_flow_recovery_options(
+            sir.module, "Home", "input", "page"
+        )
+        candidates = {candidate.flow: candidate for candidate in options.candidates}
+        self.assertTrue(candidates["Backup"].semantic_equivalence_verified)
+        self.assertFalse(candidates["Changed"].semantic_equivalence_verified)
 
     def test_counterfactual_rejects_unknown_stage_and_noncanonical_graph(self):
         checked = package.analyze_source_phase1(self._source("""

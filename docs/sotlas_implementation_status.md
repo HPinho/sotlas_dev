@@ -1,8 +1,8 @@
 # Sotlas — Implementation Status
 
 **Atualizado em:** 2026-09-26
-**Último baseline verde certificado:** `a44abf8`
-**CI de referência:** Sotlas CI & Toolchain Build Farm #649 — workflow `success`
+**Último baseline verde certificado:** `8a4c3f4`
+**CI de referência:** Sotlas CI & Toolchain Build Farm #652 — workflow `success`
 **Fonte arquitetural:** `SOTLAS — ESPECIFICAÇÃO MESTRA`
 
 > Este é o índice operacional atual. O snapshot detalhado anterior, com o histórico extenso das microentregas da Fase 2, permanece preservado em `docs/archive/sotlas_implementation_status_2026-09-23.md`.
@@ -34,10 +34,10 @@ Legenda:
 | 9 | Trust Domains | ~18% candidato | 🟡 |
 | 10 | Guarantees | ~31% candidato | 🟡 |
 | 11 | Causality | ~13% candidato | 🟡 |
-| 12 | Counterfactuals | ~15% candidato | 🟡 |
+| 12 | Counterfactuals | ~17% candidato | 🟡 |
 | 13 | Transactions | ~27% candidato | 🟡 |
 | 14 | Intent | ~20% candidato | 🟡 |
-| 15 | SIR completo | ~43% candidato | 🟡 |
+| 15 | SIR completo | ~44% candidato | 🟡 |
 | 16 | Native Machine Backend | ~11% | 🟡 |
 | 17 | Tooling avançado | ~21% candidato | 🟡 |
 
@@ -101,14 +101,15 @@ API inicial: `explain_sir_flow_causality(module, flow, source_stage, target_stag
 - [x] alternativas estruturais com tipo e efeitos comparados; uma allowlist explícita marca efeitos proibidos;
 - [x] equivalência limitada para expressões SIR puras unsigned idênticas, com igualdade dos produtores usados provada recursivamente;
 - [x] normalização comutativa de `add` e `mul` unsigned puros reconhece operandos invertidos, mantendo iguais as provas recursivas dos produtores;
+- [x] normalização modular unsigned faz constant folding e reduz identidades seguras (`x + 0`, `x - 0`, `x * 1`, `x * 0`) antes da prova recursiva de produtores;
 - [ ] equivalência além do subset estrutural, estado/rollback e análise de cenários fora de Flow.
 
-**Status 1.0: ~15% candidato 🟡 — IN PROGRESS**
+**Status 1.0: ~17% candidato 🟡 — IN PROGRESS**
 
 - [x] opções SIR de stage em outro plano com mesmo nome e tipo de saída, sem dependência do stage indisponível;
 - [x] diferenças de efeitos explícitas e avaliação opcional contra uma allowlist declarada pelo chamador;
 - [x] candidatos que violam a allowlist são marcados sem descartar evidência;
-- [x] equivalência só é marcada quando os corpos são a mesma expressão pura unsigned após normalizar a comutatividade de soma/multiplicação e cada producer usado tem equivalência recursiva;
+- [x] equivalência só é marcada quando os corpos são expressões puras unsigned normalizadas por comutatividade, constant folding e identidades seguras, e cada producer usado tem equivalência recursiva;
 - [ ] prova para transformações algébricas não idênticas, estado/rollback e cenários fora de Flow.
 
 APIs: `analyze_sir_flow_stage_unavailability(module, flow, stage)` e
@@ -377,6 +378,7 @@ Escopo: `docs/sotlas_1_0_phase10_guarantees_scope.md`.
 - [x] LLVM verifica tipo e intervalo antes de emitir o valor;
 - [x] `--emit-asm` e `--emit=asm` aceitam retorno direto e aritmética inteira unsigned de parâmetros no subset LLVM; a cobertura nativa depende de Clang/LLVM disponível;
 - [x] execução nativa chama um objeto Sotlas com aritmética unsigned por parâmetros e confere o resultado por um caller C compilado;
+- [x] aritmética unsigned linear no SIR aceita operandos literais tipados e preserva a operação modular; retorno direto do parâmetro unsigned também chega ao SIR sem instruções extras;
 - [x] função Sotlas com comparação signed direta de parâmetros compila para objeto LLVM e executa via caller C para os casos `-10 < 2` e `2 < -10`;
 - [ ] lowering nativo validado com `llc`/Clang, execução por target, CFG completo e semântica definida de overflow.
 

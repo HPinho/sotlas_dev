@@ -147,6 +147,29 @@ fn calculate(a: u32, b: u32) -> u32 {{ return a {operator} b; }}
             for instruction in division_sir.functions[0].blocks[0].instructions
         ))
 
+    def test_unsigned_arithmetic_with_typed_literal_and_parameter_identity_reaches_sir(self):
+        source = """
+module test::sir_arithmetic_literal;
+fn add_zero(value: u32) -> u32 { return value + 0u32; }
+fn identity(value: u32) -> u32 { return value; }
+"""
+        parsed = source_bootstrap.parse(source)
+        source_bootstrap.check(parsed)
+        sir = SIRGenerator().generate_from_ast(parsed)
+        add_function, identity_function = sir.functions
+        instructions = add_function.blocks[0].instructions
+        constants = [item for item in instructions if isinstance(item, ConstantIntInst)]
+        arithmetic = next(
+            item for item in instructions if isinstance(item, BinaryOpInst)
+        )
+        self.assertEqual(len(constants), 1)
+        self.assertEqual(constants[0].value, 0)
+        self.assertEqual(arithmetic.operation, "add")
+        self.assertIs(identity_function.blocks[0].instructions[-1].value,
+                      identity_function.parameters[0])
+        llvm = CodegenLLVM(sir).emit()
+        self.assertIn("add i32", llvm)
+
     def test_typed_integer_literal_return_reaches_sir_and_llvm(self):
         for type_name, value, llvm_type in (
             ("u32", "42u32", "i32"),
