@@ -10,8 +10,8 @@
 [![CI](https://github.com/HPinho/sotlas_dev/actions/workflows/ci.yml/badge.svg)](https://github.com/HPinho/sotlas_dev/actions)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Target](https://img.shields.io/badge/target-x86__64--freestanding-orange.svg)](#)
-[![Architecture](https://img.shields.io/badge/architecture-SIR%20%2F%20C11%20Stage--0-green.svg)](#)
-[![Language Version](https://img.shields.io/badge/version-0.5.1-purple.svg)](#)
+[![Architecture](https://img.shields.io/badge/architecture-C11%20%2B%20LLVM%20subsets-green.svg)](#-arquitetura-do-compilador)
+[![Language Version](https://img.shields.io/badge/version-1.0.0-purple.svg)](#)
 
 [Visão Geral](#-visão-geral) • [Por que Sotlas?](#-por-que-sotlas-superando-c-c-e-objective-c) • [Tour Guiado](docs/guided_tour.md) • [Arquitetura](#-arquitetura-do-compilador) • [Biblioteca Padrão](#-biblioteca-padrão-stdlib) • [Quickstart](#-quickstart) • [Exemplos](examples/)
 
@@ -21,9 +21,7 @@
 
 ## 🌟 Visão Geral
 
-**Sotlas** é uma linguagem de programação de sistemas moderna concebida para o desenvolvimento de **sistemas operacionais**, **firmware bare-metal**, **drivers de hardware**, **motores gráficos** e **serviços de alto desempenho**.
-
-Sotlas é um projeto experimental de linguagem de sistemas que evolui em direção a abstrações de custo zero (*zero-cost abstractions*), fronteiras explícitas de segurança, ownership verificável e compilação modular limpa sem exigir um garbage collector de rastreamento. O caminho de produção atual ainda é um compilador Stage 0, e nem todo recurso de pesquisa descrito pelo projeto está implementado de ponta a ponta.
+**Sotlas 1.0** é a primeira versão estável de uma linguagem de programação de sistemas para software de baixo nível. Ela oferece um contrato delimitado e testado, com fronteiras explícitas de segurança, verificação de ownership e geração de código nativo. Execução em hardware, lowering de CFG geral e outros recursos fora desse contrato continuam em prévia ou planejados.
 
 ---
 
@@ -34,12 +32,17 @@ Sotlas usa rótulos explícitos de maturidade para que a documentação não fiq
 | Status | Significado |
 | :--- | :--- |
 | **SUPPORTED** | Especificação, parser, verificação semântica, lowering/backend, testes positivos, negativos e end-to-end estão presentes |
+| **PREVIEW** | Existe implementação útil, mas fora do contrato estável 1.0 |
 | **EXPERIMENTAL** | Existe implementação, mas o contrato completo de suporte ainda não foi comprovado |
 | **PROTOTYPE** | Implementação de pesquisa/tooling fora do contrato de compilação de produção |
 | **DESIGNED** | Especificado, porém ainda não implementado de ponta a ponta |
 | **PLANNED** | Item de roadmap |
 
-A rota de produção atual é o frontend Stage 0 canônico em `compiler/sotlas_compile`, seguido pelas verificações semânticas e lowering C11. SIR é uma arquitetura-alvo em desenvolvimento ativo, ainda não a rota de lowering de produção.
+O compilador instalado usa o frontend canônico em `compiler/sotlas_compile`. `sotlas compile --backend c11` emite C11 a partir desse pipeline verificado. `sotlas compile --backend llvm` baixa o subconjunto fonte certificado por SIR verificado diretamente para LLVM; construções não suportadas são rejeitadas. LLVM é o backend padrão quando a toolchain necessária está disponível. `dump-sir` continua sendo uma visualização protótipo, enquanto `sir-report` inventaria o SIR canônico validado. Os subconjuntos estáveis e recursos em prévia estão listados no [escopo de release 1.0](docs/sotlas_1_0_release_scope.md) e no [status de implementação](docs/sotlas_implementation_status.md).
+
+### Suporte a ownership próprio da Sotlas na versão 1.0
+
+O contrato estável de ownership cobre `sole/exclusive`, `shared`, `region`, `island`, `quarantine`, `handover`, `direct` e `whisper` nos subconjuntos documentados. `device` e `external` estão em **PREVIEW**. A cobertura dos backends não é totalmente intercambiável: o escopo do release informa qual backend aceita cada subconjunto, e formas não suportadas são rejeitadas.
 
 ---
 
@@ -72,12 +75,12 @@ Durante décadas, a engenharia de sistemas e desenvolvimento de sistemas operaci
 | **Segurança por Padrão** | 🧪 Em evolução / parcial | ❌ Não | ❌ Não | ❌ Não |
 | **Separação Privilégio vs Memória** | **`@system` vs `unsafe`** | ❌ Misturado | ❌ Misturado | ❌ Misturado |
 | **Semântica de Valor (Zero-Cost)** | ✅ `struct` de valor | ✅ `struct` básica | ⚠️ Requer cópias manuais | ❌ Quase tudo objeto |
-| **Contagem de Referência (ARC)** | 🧪 Primitivas disponíveis; garantia completa ainda não comprovada | ❌ Manual | ⚠️ `std::shared_ptr` pesado | ⚠️ ARC acoplado a runtime dinâmico |
+| **Contagem de Referência (ARC)** | 🧪 Subconjunto de ownership verificado; consulte o escopo 1.0 | ❌ Manual | ⚠️ `std::shared_ptr` pesado | ⚠️ ARC acoplado a runtime dinâmico |
 | **Sistema Canônico de Módulos** | ✅ `module` & `import` | ❌ `#include` de texto | ⚠️ Módulos complexos | ❌ `#include` / `#import` |
 | **Contratos e Protocolos** | 🧪 `spec` / `adopts` experimental | ❌ Inexistente | ⚠️ Múltipla herança / Concepts | ⚠️ Protocols dinâmicos |
 | **Tratamento de Erros Tipado** | ✅ `Option<T>` / `Result<T, E>` | ❌ Inteiros mágicos | ⚠️ Exceções (proibidas em kernel) | ⚠️ NSError / nil checks |
 | **Target Bare-Metal / Freestanding** | ✅ Cidadão de 1ª classe | ✅ Nativo | ⚠️ Difícil sem runtime | ❌ Incompatível sem runtime GNUstep/Apple |
-| **Intermediário SSA para Análise** | 🧪 **Protótipo SIR**; ainda não é o lowering de produção | ❌ Nenhum | ❌ Nenhum | ❌ Nenhum |
+| **Intermediário SSA para Análise** | 🧪 Subconjunto verificado alimenta relatórios e LLVM direto; `dump-sir` permanece protótipo | ❌ Nenhum | ❌ Nenhum | ❌ Nenhum |
 | **ABI C Estável e Bidirecional** | 🚧 Objetivo de design; contrato completo de estabilidade ainda não congelado | ✅ Nativa | ⚠️ Instável (`extern "C"` parcial) | ⚠️ Frágil fora da Apple |
 
 ---
@@ -126,7 +129,7 @@ Objective-C / C / C++ ──► [Unsafe Boundary] ──► Sotlas Systems ─�
 
 ## 🏗️ Arquitetura do Compilador
 
-Sotlas evolui em direção a uma arquitetura em camadas estritas centrada em uma representação intermediária SSA (**SIR — Sotlas Intermediate Representation**). Hoje, a rota Stage 0 de produção ainda faz lowering pelo frontend canônico diretamente para C11, enquanto SIR permanece uma rota de protótipo/tooling:
+O compilador instalado começa pelo frontend canônico. Há dois caminhos de lowering com escopos explícitos: o backend C11 e o backend LLVM nativo direto para o subconjunto SIR verificado. A saída legada de `dump-sir` é uma visualização protótipo; ela não representa o mesmo contrato do SIR canônico verificado:
 
 ```mermaid
 graph TD
@@ -135,18 +138,19 @@ graph TD
     PARSE --> AST[Typed AST]
     AST --> SEMA[Análise Semântica & Escopos]
     SEMA --> SAFETY[Segurança Estrita: @system & unsafe]
-    SAFETY --> SIR_GEN[Gerador de SIR SSA]
-    SIR_GEN --> SIR_PASSES[Passes SIR: Definite Init, Ownership, DCE]
-    SIR_PASSES --> CODEGEN[Backend C11 Freestanding]
-    CODEGEN --> OUT[Binário / Objeto de Kernel / C11]
+    SAFETY --> C11[Backend C11 verificado]
+    SAFETY --> CSIR[Subconjunto SIR canônico verificado]
+    CSIR --> LLVM[Backend LLVM nativo]
+    C11 --> OUT[C11 / artefato host ou freestanding]
+    LLVM --> OUT
 ```
 
 ### Principais Componentes:
 - **`compiler/sotlas/frontend/`**: Analisador léxico e sintático canônico com geração de spans precisos de erro.
 - **`compiler/sotlas/sema/`**: Verificação de tipos, checagem de escopos, resolução de nomes e inferência de tipos.
 - **`compiler/sotlas/safety/`**: Sistema ortogonal de segurança: isola capacidades de hardware (`@system`) de blocos de manipulação de memória crua (`unsafe { ... }`).
-- **`compiler/sotlas/sir/`**: **Sotlas Intermediate Representation**, representação SSA para verificações de inicialização definitiva (*definite initialization*), auditoria de privilégios e otimizações de ARC.
-- **`compiler/sotlas/codegen/`**: Backend C11 estrito (Bootstrap Stage 0) que emite código ANSI/ISO C11 portável para compiladores nativos e cross-compilers (GCC, Clang) sem dependências externas.
+- **`compiler/sotlas/sir/`**: instruções SIR e subconjunto verificado usado por relatórios validados e lowering LLVM direto; a visualização separada `dump-sir` permanece experimental.
+- **`compiler/sotlas/codegen/`**: backend fonte C11. O backend LLVM baixa seu subconjunto certificado diretamente para artefatos nativos.
 
 ---
 
@@ -167,7 +171,7 @@ A biblioteca padrão de Sotlas é implementada inteiramente na própria linguage
 
 ---
 
-## 🚀 Quickstart (subconjunto Stage-0 verificado)
+## 🚀 Quickstart (subconjunto 1.0 verificado)
 
 ### 1. Instalação
 Clone o repositório e configure em modo editável:
@@ -180,7 +184,7 @@ pip install -e .
 
 ### 2. Comandos do Driver CLI (`sotlas`)
 
-O driver Stage-0 expõe os seguintes comandos para o subconjunto implementado:
+O compilador expõe os seguintes comandos para o subconjunto 1.0 suportado:
 
 ```bash
 # Exibir versão da linguagem
@@ -210,7 +214,7 @@ sotlas test
 ## 💻 Exemplo de design experimental
 
 A sintaxe de classe, ponteiro cru, imports da biblioteca padrão e `@system` abaixo
-é material de design. Ela não faz parte do contrato Stage-0 verificado. Para um
+é material de design. Ela não faz parte do contrato 1.0 verificado. Para um
 programa aceito pelo frontend canônico, use o exemplo validado acima.
 
 ```sotlas
@@ -278,7 +282,7 @@ Cobertura dos 298 testes:
 - Parser, AST e Gramática Formal EBNF
 - Análise Semântica e Checagem de Tipos (3 Camadas de Isolamento)
 - Modelo Ortogonal de Segurança (`@system` e `unsafe`)
-- Representação Intermediária SIR e Passes de Otimização SSA
+- Subconjunto SIR canônico verificado, relatórios e lowering LLVM direto
 - Lowering C11 e Geração de Código Estrito
 - Emissão de LLVM IR textual preliminar
 - Suporte a Classes, Métodos e ARC

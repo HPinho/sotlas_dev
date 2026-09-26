@@ -1,12 +1,12 @@
 # Sotlas Language Project Configuration
 [package]
 name = "sotlas-workspace"
-version = "0.5.1"
+version = "1.0.0"
 authors = ["Hiago Pinho <hiagospinho@gmail.com>"]
 edition = "2026"
 license = "Apache-2.0 WITH LLVM-exception"
 description = "Linguagem de programação moderna, segura e de propósito geral — do bare-metal a jogos e aplicações."
-repository = "https://github.com/Sotlas/sotlas"
+repository = "https://github.com/HPinho/sotlas_dev"
 
 [build]
 target = "native" # Alvos suportados: native, c, wasm, baremetal

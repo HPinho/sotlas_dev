@@ -35,19 +35,25 @@ class TestSotlasHardwareSimd050(unittest.TestCase):
         ast = self._compile_ast(source, filename)
         return CodegenC(ast).emit()
 
-    def test_version_sync_050(self):
-        self.assertEqual(sotlas.SOTLAS_VERSION, "0.5.1")
-        self.assertEqual(sotlas.SOTLAS_LANG_VERSION, "0.5.1")
+    def test_version_sync_100(self):
+        self.assertEqual(sotlas.SOTLAS_VERSION, "1.0.0")
+        self.assertEqual(sotlas.SOTLAS_LANG_VERSION, "1.0.0")
 
         pyproject = (_ROOT / "pyproject.toml").read_text(encoding="utf-8")
-        self.assertIn('version = "0.5.1"', pyproject)
+        self.assertIn('version = "1.0.0"', pyproject)
+
+        setup = (_ROOT / "setup.py").read_text(encoding="utf-8")
+        self.assertIn('version="1.0.0"', setup)
 
         sotlas_toml = (_ROOT / "sotlas.toml").read_text(encoding="utf-8")
-        self.assertIn('version = "0.5.1"', sotlas_toml)
+        self.assertIn('version = "1.0.0"', sotlas_toml)
+        self.assertIn(
+            'repository = "https://github.com/HPinho/sotlas_dev"', sotlas_toml
+        )
 
         lock_path = _ROOT / "toolchain" / "sotlas.lock.json"
         lock_data = json.loads(lock_path.read_text(encoding="utf-8"))
-        self.assertEqual(lock_data["language_version"], "0.5.1")
+        self.assertEqual(lock_data["language_version"], "1.0.0")
 
     def test_register_declaration_and_field_offsets(self):
         source = """\

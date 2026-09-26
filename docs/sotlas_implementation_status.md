@@ -1,8 +1,8 @@
 # Sotlas — Implementation Status
 
 **Atualizado em:** 2026-09-26
-**Último baseline verde certificado:** `ea527ea`
-**CI de referência:** Sotlas CI & Toolchain Build Farm #653 — workflow `success`
+**Último baseline verde certificado antes do candidato 1.0:** `ea527ea`
+**CI de referência:** Sotlas CI & Toolchain Build Farm #653 — workflow `success` nessa baseline. O commit de release precisa ter execução própria verde.
 **Fonte arquitetural:** `SOTLAS — ESPECIFICAÇÃO MESTRA`
 
 > Este é o índice operacional atual. O snapshot detalhado anterior, com o histórico extenso das microentregas da Fase 2, permanece preservado em `docs/archive/sotlas_implementation_status_2026-09-23.md`.
@@ -37,7 +37,7 @@ Legenda:
 | 12 | Counterfactuals | 100% do contrato 1.0 | ✅ COMPLETE |
 | 13 | Transactions | 100% do contrato 1.0 | ✅ COMPLETE |
 | 14 | Intent | 100% do contrato 1.0 | ✅ COMPLETE |
-| 15 | SIR completo | 100% do subset canônico 1.0 | ✅ COMPLETE |
+| 15 | SIR canônico | 100% do subset canônico 1.0 | ✅ COMPLETE |
 | 16 | Native Machine Backend | 100% do backend LLVM 1.0 | ✅ COMPLETE |
 | 17 | Tooling avançado | 100% dos relatórios CLI 1.0 | ✅ COMPLETE |
 

@@ -24,8 +24,8 @@ class SotlasRealityGateTests(unittest.TestCase):
         self.assertIsNotNone(version)
         self.assertIn(f'version="{version.group(1)}"', setup)
         self.assertIn(f'SOTLAS_VERSION = "{version.group(1)}"', package)
-        self.assertIn("Development Status :: 3 - Alpha", project)
-        self.assertNotIn("Development Status :: 4 - Beta", project)
+        self.assertIn("Development Status :: 5 - Production/Stable", project)
+        self.assertIn('SOTLAS_LANG_VERSION = "1.0.0"', package)
 
     def test_historical_audit_does_not_claim_current_support(self):
         audit = (ROOT / "docs" / "sotlas_v1_audit_and_roadmap.md").read_text(

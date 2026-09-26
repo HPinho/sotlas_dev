@@ -7,9 +7,10 @@
 ## Sotlas 1.0 reality contract
 
 - The installed Python package comes from `compiler/` (`setup.py` and
-  `pyproject.toml`). The production Stage-0 frontend is
-  `compiler/sotlas_compile/bootstrap.py`; the historical SIR generator remains
-  a prototype and is not the production lowering path.
+  `pyproject.toml`). The production source frontend is
+  `compiler/sotlas_compile/bootstrap.py`. The C11 backend consumes that
+  verified source pipeline; the LLVM backend consumes the certified checked
+  SIR subset. The legacy `dump-sir` view remains a prototype surface.
 - All numbered examples are explicitly classified in `examples/manifest.json`.
   Example smoke checks prove only the commands named by each manifest entry.
 - Every Markdown file under `docs/` with a fenced `sotlas` block is classified
@@ -18,8 +19,9 @@
   snippets are explicitly experimental or design-only.
 - The isolated Phase 1 semantic core is certified at `ISOLATED_PHASE1`. This
   does not promote the entire language, SIR, or backend.
-- Package metadata and runtime version agree at `0.5.1`; package maturity is
-  Alpha. Historical audits and progress snapshots are labeled as such.
+- Package metadata, project configuration, lockfile, and runtime version agree
+  at `1.0.0`; package maturity is Production/Stable for the bounded release
+  contract. Historical audits and progress snapshots are labeled as such.
 - The `compiler/` and `tools/` trees are intentionally retained for compatibility
   with existing developer tools and tests. `compiler/` is the installed source
   of truth. Of 86 paired Python modules, 82 are byte-identical and four reviewed
@@ -33,10 +35,11 @@
 ## Verified public guide boundary
 
 The README files and Portuguese Quickstart point to the checked-in example,
-explain host-toolchain requirements, label the class example experimental, and
-describe the local specification as design material. Only the numbered
-Quickstart example currently has a runnable public-snippet contract. A snippet
-classified `EXPERIMENTAL` or `DESIGN_ONLY` is not implementation evidence.
+explain the C11 and certified LLVM routes and host-toolchain requirements,
+label the class example experimental, and describe the local specification as
+design material. Only the numbered Quickstart example currently has a runnable
+public-snippet contract. A snippet classified `EXPERIMENTAL` or `DESIGN_ONLY`
+is not implementation evidence.
 
 The historical v1 architecture audit and the older implementation-progress
 snapshot are retained for context but are not canonical status sources. Current

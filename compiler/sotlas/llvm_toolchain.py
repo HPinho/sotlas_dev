@@ -39,13 +39,24 @@ class LLVMToolchainError(Exception):
 
 def canonical_llvm_frontend():
     """Load the compiler-owned frontend even when tools mirrors are imported."""
+    source_package_dir = (
+        Path(__file__).resolve().parents[2]
+        / "compiler"
+        / "sotlas_compile"
+    )
+    if not source_package_dir.is_dir():
+        # Installed wheels place both top-level packages beside each other and
+        # do not include the repository's ``compiler/`` source-tree directory.
+        try:
+            return importlib.import_module("sotlas_compile.bootstrap")
+        except ImportError as error:
+            raise LLVMToolchainError(
+                "canonical Sotlas compiler frontend could not be loaded"
+            ) from error
+
     package_name = "_sotlas_compile_canonical_llvm"
     if package_name not in sys.modules:
-        package_dir = (
-            Path(__file__).resolve().parents[2]
-            / "compiler"
-            / "sotlas_compile"
-        )
+        package_dir = source_package_dir
         spec = importlib.util.spec_from_file_location(
             package_name,
             package_dir / "__init__.py",

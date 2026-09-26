@@ -2,7 +2,7 @@
 
 **Atualizado em:** 2026-09-24  
 **Fase 2 / Ownership Domains:** **COMPLETE para o escopo Sotlas 1.0 ✅**  
-**Baseline certificado:** `5075c6454c0e1f5830b3f0537d267f6fe289d122` — CI #536 `success`
+**Baseline histórico certificado:** `5075c6454c0e1f5830b3f0537d267f6fe289d122` — CI #536 `success`; não certifica o candidato atual.
 
 ## Princípio de produto
 
@@ -82,6 +82,23 @@ Todos os blockers definidos para o subset 1.0 estão fechados. O roadmap técnic
 | `external` | **PREVIEW** | caminhos `repr(C)`/FFI existentes funcionam, mas ABI/layout/lifetime geral não faz parte do contrato estável 1.0 |
 
 ## Evidência de release no CI
+
+Os resultados históricos abaixo são evidência de implementação, não certificam
+um candidato posterior. O release 1.0 deve ser construído a partir do commit
+marcado e ter sua própria execução verde do workflow, incluindo o build e a
+instalação do wheel.
+
+### Contrato dos backends
+
+| Backend | Contrato 1.0 | Limite de suporte |
+|---|---|---|
+| C11 | Frontend canônico instalado, validação e lowering C11 do subset documentado; gates de exemplos e ownership executáveis | Não implica suporte automático a formas arbitrárias de CFG, layouts ou runtime |
+| LLVM | Lowering direto de SIR canônico verificado para IR, assembly e objetos no subset escalar/controle estruturado documentado na Fase 16 | Não há paridade total com C11; formas sem lowering LLVM falham fechadas |
+
+O CLI seleciona LLVM por padrão quando a toolchain está disponível. Use
+`--backend c11` para escolher explicitamente o caminho C11. A cobertura e os
+limites de cada feature são definidos pelos gates específicos, não pela
+disponibilidade do backend.
 
 A matriz principal executa os gates específicos e também os testes nativos históricos. Entre as evidências canônicas:
 
