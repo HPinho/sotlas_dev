@@ -33,7 +33,7 @@ Legenda:
 | 8 | Heterogeneous Compute | ~0% | 🟡 |
 | 9 | Trust Domains | ~10% candidato | 🟡 |
 | 10 | Guarantees | ~10% candidato | 🟡 |
-| 11 | Causality | ~0% | 🟡 |
+| 11 | Causality | ~5% candidato | 🟡 |
 | 12 | Counterfactuals | ~0% | 🟡 |
 | 13 | Transactions | ~0% | 🟡 |
 | 14 | Intent | ~0% | 🟡 |
@@ -42,6 +42,15 @@ Legenda:
 | 17 | Tooling avançado | ~15% | 🟡 |
 
 Os percentuais medem o escopo necessário para o Sotlas 1.0. Generalizações pós-release não mantêm uma fase aberta quando o subset atual pode rejeitá-las de forma correta e fail-closed.
+
+### Avanço inicial de Causality
+
+- [x] consulta source-stable de caminho causal entre stages em Flow tipado/SIR;
+- [x] cada passo informa funções, parâmetro/valor transferido, tipo e summaries de efeitos dos dois stages;
+- [x] consulta não infere caminho por mera ordem: stages desconectados e nomes ausentes falham com erro;
+- [ ] causalidade para expressões e chamadas fora de Flow, provenance de diagnósticos e visualização IDE.
+
+API inicial: `explain_sir_flow_causality(module, flow, source_stage, target_stage)` em `sotlas_compile.causality`.
 
 ## Fase 1 — Typed Semantic Core
 
@@ -187,6 +196,7 @@ Escopo: `docs/sotlas_1_0_phase5_effects_scope.md`.
 - [x] CI #588 confirma a nova sintaxe e tipagem;
 - [x] plano tipado Flow é reconciliado com assinaturas e summaries Effects e anexado ao SIR canônico;
 - [x] runtime local executa o plano tipado por nome de stage, reconcilia dependências e passa resultados na ordem declarada;
+- [x] consulta source-stable explica caminho causal entre stages usando argumentos tipados e summaries Effects do SIR;
 - [ ] lowering das chamadas de stage em CFG executável, integração de Ownership e execução pelo scheduler;
 - [ ] cancelamento cooperativo, runtime assíncrono/distribuído e backpressure;
 - [ ] e2e de fonte Sotlas para runtime/backend.

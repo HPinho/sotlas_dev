@@ -2010,6 +2010,11 @@ dependency provenance
 IDE visualization
 ```
 
+Status atual: protótipo source-stable consulta caminhos de dependência entre
+stages de Flow tipado/SIR e mostra função, parâmetro, tipo e efeitos por passo.
+Chamadas e expressões fora de Flow, provenance de diagnósticos e visualização
+IDE continuam pendentes.
+
 ---
 
 ### Fase 8 — What-if

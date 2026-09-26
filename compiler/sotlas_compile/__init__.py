@@ -68,6 +68,10 @@ from .flow_sir import (
     FlowSIRPlan,
     lower_typed_flows_to_sir,
 )
+from .causality import (
+    CausalityError, CausalStep, CausalExplanation,
+    explain_flow_causality, explain_sir_flow_causality,
+)
 from .contracts_frontend import (
     ContractFrontendError,
     ContractCallProof,
@@ -109,5 +113,7 @@ __all__ = [
     "plan_source_flows", "FlowSIRError", "FlowSIRValueRef",
     "FlowSIRArgument", "FlowSIRStage", "FlowSIRPlan",
     "lower_typed_flows_to_sir", "ContractFrontendError", "ContractCallProof",
-    "ContractPrecondition",
+    "ContractPrecondition", "CausalityError", "CausalStep",
+    "CausalExplanation", "explain_flow_causality",
+    "explain_sir_flow_causality",
 ]

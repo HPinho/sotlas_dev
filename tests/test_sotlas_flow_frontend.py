@@ -91,6 +91,22 @@ flow Home {
             "flow_stage %page = call @render(%profile.result, %posts.result)",
             sir_dump,
         )
+        explanation = package.explain_sir_flow_causality(
+            checked_sir.module, "Home", "profile", "page"
+        )
+        self.assertEqual(
+            [
+                (step.producer_stage, step.consumer_stage,
+                 step.producer_function, step.consumer_function,
+                 step.argument_name, step.type_name)
+                for step in explanation.steps
+            ],
+            [("profile", "page", "load_profile", "render", "profile", "i32")],
+        )
+        with self.assertRaisesRegex(package.CausalityError, "no causal dependency path"):
+            package.explain_sir_flow_causality(
+                checked_sir.module, "Home", "page", "profile"
+            )
         authority_sir = package.build_canonical_checked_authority_sir(checked)
         self.assertEqual(authority_sir.module.flow_plans, checked_sir.module.flow_plans)
         with self.assertRaisesRegex(
@@ -132,6 +148,22 @@ flow Home {
         )
         self.assertEqual(result.output("page"), 17)
         self.assertEqual(observed, ["profile", "posts", ("page", 10, 7)])
+
+    def test_causality_rejects_missing_stages_and_disconnected_paths(self):
+        checked = package.analyze_source_phase1(self._source("""
+flow Home {
+    stage profile = load_profile;
+    stage posts = load_posts;
+    stage page = render after profile, posts;
+}
+"""))
+        sir, _ = package.build_canonical_checked_ownership_sir(checked)
+        with self.assertRaisesRegex(package.CausalityError, "unknown Flow stage"):
+            package.explain_sir_flow_causality(sir.module, "Home", "missing", "page")
+        with self.assertRaisesRegex(package.CausalityError, "no causal dependency path"):
+            package.explain_sir_flow_causality(sir.module, "Home", "profile", "posts")
+        with self.assertRaisesRegex(package.CausalityError, "no unique checked Flow plan"):
+            package.explain_sir_flow_causality(sir.module, "Missing", "profile", "page")
 
     def test_typed_flow_runtime_rejects_dependency_tampering_before_execution(self):
         checked = package.analyze_source_phase1(self._source("""
