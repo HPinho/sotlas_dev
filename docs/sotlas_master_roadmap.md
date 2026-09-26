@@ -4025,6 +4025,11 @@ independentes na ordem fonte e valida dependências e cronograma antes de
 responder. Ela não executa funções nem simula efeitos, estado ou recuperação.
 API: `analyze_sir_flow_stage_unavailability(module, flow, stage)`.
 
+As opções estruturais de recuperação podem ser avaliadas contra uma allowlist
+explícita de efeitos permitidos. Candidatos incompatíveis continuam visíveis
+com os efeitos proibidos registrados; essa política não prova equivalência
+semântica entre implementações.
+
 A primeira base de Transactions fornece uma auditoria estática dos efeitos de
 um Flow SIR. Cada efeito precisa de uma política explícita: `reversible`,
 `compensatable` ou `irreversible`; políticas ausentes, efeitos irreversíveis

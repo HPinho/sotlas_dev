@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from .flow_graph import certify_flow_graph
 from .flow_sir import FlowSIRError, validate_sir_flow_plans
+from .source_effects import EFFECT_ORDER, KNOWN_EFFECTS
 
 
 class CounterfactualError(ValueError):
@@ -30,6 +31,8 @@ class CounterfactualRecoveryCandidate:
     effects_added: tuple[str, ...]
     effects_removed: tuple[str, ...]
     semantic_equivalence_verified: bool = False
+    effect_policy: tuple[str, ...] | None = None
+    effects_disallowed: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -114,6 +117,7 @@ def analyze_sir_flow_stage_unavailability(
 
 def analyze_sir_flow_recovery_options(
     module, flow_name: str, unavailable_stage: str, target_stage: str,
+    *, allowed_effects: tuple[str, ...] | None = None,
 ) -> CounterfactualRecoveryOptions:
     """Find type-compatible alternate Flow implementations for an impacted stage.
 
@@ -122,6 +126,24 @@ def analyze_sir_flow_recovery_options(
     """
     if not isinstance(target_stage, str) or not target_stage:
         raise CounterfactualError("recovery target stage must be a non-empty name")
+    if allowed_effects is not None:
+        if not isinstance(allowed_effects, tuple) or any(
+            not isinstance(effect, str) for effect in allowed_effects
+        ):
+            raise CounterfactualError(
+                "allowed recovery effects must be a tuple of effect names"
+            )
+        if len(set(allowed_effects)) != len(allowed_effects):
+            raise CounterfactualError("allowed recovery effects repeat an effect")
+        unknown = set(allowed_effects) - KNOWN_EFFECTS
+        if unknown:
+            raise CounterfactualError(
+                "unknown allowed recovery effects: "
+                + ", ".join(sorted(unknown))
+            )
+        allowed_effects = tuple(
+            effect for effect in EFFECT_ORDER if effect in allowed_effects
+        )
     try:
         plans = validate_sir_flow_plans(module)
     except FlowSIRError as error:
@@ -168,6 +190,10 @@ def analyze_sir_flow_recovery_options(
         if unavailable_stage in ancestry:
             continue
         candidate_effects = tuple(replacement.effects)
+        effects_disallowed = (
+            tuple(effect for effect in candidate_effects if effect not in allowed_effects)
+            if allowed_effects is not None else ()
+        )
         candidates.append(CounterfactualRecoveryCandidate(
             plan.name,
             target_stage,
@@ -176,6 +202,8 @@ def analyze_sir_flow_recovery_options(
             candidate_effects,
             tuple(effect for effect in candidate_effects if effect not in failed_effects),
             tuple(effect for effect in failed_effects if effect not in candidate_effects),
+            effect_policy=allowed_effects,
+            effects_disallowed=effects_disallowed,
         ))
     candidates.sort(key=lambda candidate: (candidate.flow, candidate.function))
     return CounterfactualRecoveryOptions(impact, target_stage, tuple(candidates))

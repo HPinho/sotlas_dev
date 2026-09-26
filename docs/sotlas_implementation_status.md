@@ -1,8 +1,8 @@
 # Sotlas — Implementation Status
 
 **Atualizado em:** 2026-09-26
-**Último baseline verde certificado:** `6b29d13`
-**CI de referência:** Sotlas CI & Toolchain Build Farm #620 — workflow `success`
+**Último baseline verde certificado:** `7367ec1`
+**CI de referência:** Sotlas CI & Toolchain Build Farm #621 — workflow `success`
 **Fonte arquitetural:** `SOTLAS — ESPECIFICAÇÃO MESTRA`
 
 > Este é o índice operacional atual. O snapshot detalhado anterior, com o histórico extenso das microentregas da Fase 2, permanece preservado em `docs/archive/sotlas_implementation_status_2026-09-23.md`.
@@ -34,7 +34,7 @@ Legenda:
 | 9 | Trust Domains | ~16% candidato | 🟡 |
 | 10 | Guarantees | ~15% candidato | 🟡 |
 | 11 | Causality | ~12% candidato | 🟡 |
-| 12 | Counterfactuals | ~10% candidato | 🟡 |
+| 12 | Counterfactuals | ~12% candidato | 🟡 |
 | 13 | Transactions | ~10% candidato | 🟡 |
 | 14 | Intent | ~12% candidato | 🟡 |
 | 15 | SIR completo | ~40% candidato | 🟡 |
@@ -77,15 +77,19 @@ API inicial: `explain_sir_flow_causality(module, flow, source_stage, target_stag
 - [x] análise source-stable do impacto de uma stage indisponível em Flow tipado/SIR;
 - [x] stages afetadas incluem o ponto indisponível e todos os consumidores transitivos; stages independentes são preservadas;
 - [x] consulta valida grafo, dependências e cronograma SIR canônicos e não executa funções;
-- [ ] alternativas de recuperação, efeitos observáveis, estado/rollback e análise de cenários fora de Flow.
+- [x] alternativas estruturais com tipo e efeitos comparados; uma allowlist explícita marca efeitos proibidos;
+- [ ] equivalência semântica, estado/rollback e análise de cenários fora de Flow.
 
-**Status 1.0: ~10% candidato 🟡 — IN PROGRESS**
+**Status 1.0: ~12% candidato 🟡 — IN PROGRESS**
 
 - [x] opções SIR de stage em outro plano com mesmo nome e tipo de saída, sem dependência do stage indisponível;
-- [x] diferenças de efeitos explícitas; equivalência semântica permanece marcada como não verificada;
+- [x] diferenças de efeitos explícitas e avaliação opcional contra uma allowlist declarada pelo chamador;
+- [x] candidatos que violam a allowlist são marcados sem descartar evidência; equivalência semântica permanece não verificada;
 - [ ] alternativas com equivalência semântica provada, estado/rollback e cenários fora de Flow.
 
-API inicial: `analyze_sir_flow_stage_unavailability(module, flow, stage)` em `sotlas_compile.counterfactuals`.
+APIs: `analyze_sir_flow_stage_unavailability(module, flow, stage)` e
+`analyze_sir_flow_recovery_options(module, flow, unavailable_stage,
+target_stage, allowed_effects=...)` em `sotlas_compile.counterfactuals`.
 
 ### Avanço inicial de Transactions
 
