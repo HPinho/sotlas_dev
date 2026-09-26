@@ -24,6 +24,9 @@ CALL_EFFECTS = {
     "__unknown_intrinsic": "system",
 }
 _CONTRACT = re.compile(r"^@effects\((.*)\)$")
+_REALTIME_FORBIDDEN_EFFECTS = frozenset({
+    "alloc", "blocking", "async", "io", "sync", "ffi", "unknown_call",
+})
 
 
 class SourceEffectError(ValueError):
@@ -168,6 +171,24 @@ def analyze_source_effects(module, bootstrap) -> dict[str, SourceEffectSummary]:
     summaries = {}
     for name in functions:
         contract = declared[name]
+        function = functions[name]
+        realtime_attributes = tuple(
+            attribute for attribute in function.attributes
+            if isinstance(attribute, str) and attribute.startswith("@realtime")
+        )
+        if realtime_attributes:
+            if realtime_attributes != ("@realtime",):
+                raise SourceEffectError(
+                    f"function {name!r} has a malformed or repeated @realtime annotation"
+                )
+            forbidden = inferred[name] & _REALTIME_FORBIDDEN_EFFECTS
+            if forbidden:
+                raise SourceEffectError(
+                    f"@realtime function {name!r} has forbidden inferred effects: "
+                    + ", ".join(
+                        effect for effect in EFFECT_ORDER if effect in forbidden
+                    )
+                )
         if contract is not None:
             omitted = inferred[name] - set(contract)
             if reachable_unknown[name] and "unknown_call" not in contract:

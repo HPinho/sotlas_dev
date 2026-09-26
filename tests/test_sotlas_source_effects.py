@@ -26,6 +26,63 @@ analyze_source_phase1 = package.analyze_source_phase1
 
 
 class SourceEffectContractTests(unittest.TestCase):
+    def test_realtime_policy_rejects_transitive_unbounded_effects(self):
+        accepted = """
+module test::realtime_effects;
+fn arithmetic() -> u32 { return 7; }
+@realtime
+fn tick() -> u32 { return arithmetic(); }
+"""
+        module = bootstrap.parse(accepted, filename="realtime.sotlas")
+        summaries = analyze_source_effects(module, bootstrap)
+        self.assertEqual(summaries["tick"].transitive_effects, ())
+
+        cases = (
+            ("sleep", "blocking"),
+            ("println", "io"),
+            ("lock", "sync"),
+            ("malloc", "alloc"),
+            ("__external_api", "unknown_call"),
+        )
+        for callee, effect in cases:
+            with self.subTest(callee=callee):
+                source = f"""
+module test::realtime_{callee};
+fn helper() -> void {{ {callee}(); }}
+@realtime
+fn tick() -> void {{ helper(); }}
+"""
+                parsed = bootstrap.parse(source, filename="realtime.sotlas")
+                with self.assertRaisesRegex(
+                    ValueError,
+                    rf"@realtime function 'tick' has forbidden inferred effects: .*{effect}",
+                ):
+                    analyze_source_effects(parsed, bootstrap)
+
+    def test_realtime_annotation_shape_is_validated(self):
+        source = """
+module test::realtime_annotation;
+@realtime(soft)
+fn tick() -> void { return; }
+"""
+        with self.assertRaisesRegex(SotlasBootstrapError, "malformed or repeated @realtime"):
+            compile_source(source, filename="realtime.sotlas")
+
+    def test_realtime_checker_rejects_foreign_effect_through_call_graph(self):
+        source = """
+module test::realtime_foreign;
+@effects(ffi)
+extern "C" fn foreign_step() -> void;
+@system
+@realtime
+fn tick() -> void { foreign_step(); }
+"""
+        with self.assertRaisesRegex(
+            SotlasBootstrapError,
+            "@realtime function 'tick' has forbidden inferred effects: ffi",
+        ):
+            compile_source(source, filename="realtime-foreign.sotlas")
+
     def test_foreign_declarations_have_explicit_ffi_boundary_effect(self):
         source = '''
 module test::ffi_effects;

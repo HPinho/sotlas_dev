@@ -1,8 +1,8 @@
 # Sotlas — Implementation Status
 
 **Atualizado em:** 2026-09-26
-**Último baseline verde certificado:** `e1f5b21`
-**CI de referência:** Sotlas CI & Toolchain Build Farm #616 — workflow `success`
+**Último baseline verde certificado:** `e8730e7`
+**CI de referência:** Sotlas CI & Toolchain Build Farm #617 — workflow `success`
 **Fonte arquitetural:** `SOTLAS — ESPECIFICAÇÃO MESTRA`
 
 > Este é o índice operacional atual. O snapshot detalhado anterior, com o histórico extenso das microentregas da Fase 2, permanece preservado em `docs/archive/sotlas_implementation_status_2026-09-23.md`.
@@ -27,7 +27,7 @@ Legenda:
 | 2 | Ownership Domains | 100% | ✅ COMPLETE |
 | 3 | Authority Domains | 100% | ✅ COMPLETE |
 | 4 | State Spaces | 100% | ✅ COMPLETE |
-| 5 | Effects | ~60% candidato | 🟡 |
+| 5 | Effects | ~57% candidato | 🟡 |
 | 6 | Flow | ~40% candidato | 🟡 |
 | 7 | Execution Domains | ~45% | 🟡 |
 | 8 | Heterogeneous Compute | ~0% | 🟡 |
@@ -225,7 +225,7 @@ Escopo: `docs/sotlas_1_0_phase4_state_space_scope.md`.
 
 ## Fase 5 — Effects
 
-**Status 1.0: ~55% candidato 🟡 — IN PROGRESS**
+**Status 1.0: ~57% candidato 🟡 — IN PROGRESS**
 
 - [x] SIR infere efeitos diretos e transitivos com ponto fixo sobre chamadas recursivas;
 - [x] chamadas não resolvidas são classificadas como `unknown_call` e seus nomes permanecem no summary;
@@ -241,6 +241,7 @@ Escopo: `docs/sotlas_1_0_phase4_state_space_scope.md`.
 - [x] contrato backend-neutral aceita ou rejeita funções conforme os efeitos SIR revalidados;
 - [x] emissor LLVM aceita contrato explícito de capacidades e valida inferência SIR antes de emitir IR;
 - [x] C11 aplica contrato de lowering e rejeita `async` antes de emitir código sem runtime de suspensão;
+- [x] `@realtime` valida efeitos inferidos transitivamente e rejeita alocação, bloqueio, async, I/O, sincronização, FFI e chamadas desconhecidas;
 - [x] dump SIR inclui efeitos inferidos/declarados e chamadas desconhecidas por função;
 - [x] declarações `extern "C"` carregam efeito `ffi` distinto e contratos omissos falham;
 - [ ] contratos C11/LLVM cobrem todos os efeitos, capabilities e runtimes por target;
