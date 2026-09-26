@@ -25,12 +25,11 @@
 
 ## Open Phase 0 work
 
-1. `docs/public_snippets.json` starts the public snippet audit. It classifies
-   the checked-in canonical Quickstart example as runnable and identifies
-   README, bootstrap, tour, language-reference, and formal-spec examples as
-   experimental/design material. Reality tests require every listed document
-   and runnable source to exist. The wider docs corpus still needs a snippet
-   inventory before this item is complete.
+1. `docs/public_snippets.json` inventories every Markdown document under
+   `docs/` that contains a fenced `sotlas` block. The reality gate checks that
+   every such document is classified and every runnable source exists. The
+   canonical Quickstart source is runnable; other snippets remain experimental
+   or design-only until checked individually against the production frontend.
 2. Resolve the duplicated `compiler/` and `tools/` Python trees. The current
    inventory has 77 paired modules: 73 byte-identical and four different
    (`sotlas/__init__.py`, `sotlas_compile/__init__.py`,

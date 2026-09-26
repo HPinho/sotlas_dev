@@ -65,6 +65,19 @@ class SotlasRealityGateTests(unittest.TestCase):
                 if snippet["status"] == "RUNNABLE":
                     self.assertTrue(snippet["source"])
                     self.assertTrue((ROOT / snippet["source"]).is_file())
+        inventoried_documents = {
+            item["document"] for item in inventory["snippets"]
+        }
+        documents_with_sotlas_fences = {
+            path.relative_to(ROOT).as_posix()
+            for path in (ROOT / "docs").rglob("*.md")
+            if "```sotlas" in path.read_text(encoding="utf-8").lower()
+        }
+        self.assertLessEqual(
+            documents_with_sotlas_fences,
+            inventoried_documents,
+            "Sotlas code fences need an explicit public-snippet classification",
+        )
         quickstart = next(
             item for item in inventory["snippets"]
             if item["id"] == "quickstart-numbered-example"

@@ -3774,8 +3774,9 @@ Status atual:
 - [x] regra formal de que testes são contratos, não obstáculos;
 - [x] `check` e backend C11 possuem gate para não aceitar silenciosamente lowering ainda não implementado;
 - [x] fixtures `.sotlas` exercitam os dois lados do gate: enum escalar gera e executa binário C11; `share` com defer chega ao SIR, enquanto o backend C11 o rejeita explicitamente;
+- [x] inventário classifica todos os documentos Markdown com blocos `sotlas`, e o reality gate rejeita documentos sem classificação;
 - [ ] eliminação completa de todo legado/duplicação histórica do projeto;
-- [ ] auditoria final de todos os exemplos, documentação pública e claims antigos.
+- [ ] auditoria feature-by-feature de cada snippet experimental e revisão final de claims antigos.
 
 ### 1. Typed Semantic Core — ✅ CERTIFIED (`ISOLATED_PHASE1`)
 

@@ -22,7 +22,7 @@ Legenda:
 
 | Fase | Área | Progresso 1.0 | Estado |
 |---:|---|---:|---|
-| 0 | Reality Reset | ~80% | 🟡 |
+| 0 | Reality Reset | ~85% | 🟡 |
 | 1 | Typed Semantic Core | 100% | ✅ COMPLETE |
 | 2 | Ownership Domains | 100% | ✅ COMPLETE |
 | 3 | Authority Domains | 100% | ✅ COMPLETE |

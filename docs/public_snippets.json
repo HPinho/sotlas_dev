@@ -61,6 +61,111 @@
       "status": "EXPERIMENTAL",
       "source": null,
       "verification": "tour-examples-require-per-feature-audit"
+    },
+    {
+      "id": "quickstart-additional-language-snippets",
+      "document": "docs/QUICKSTART.md",
+      "status": "EXPERIMENTAL",
+      "source": null,
+      "verification": "only-the-numbered-entry-example-has-a-runnable-contract"
+    },
+    {
+      "id": "historical-status-snippets",
+      "document": "docs/archive/sotlas_implementation_status_2026-09-23.md",
+      "status": "DESIGN_ONLY",
+      "source": null,
+      "verification": "archived-status-is-historical-not-support-evidence"
+    },
+    {
+      "id": "compiler-architecture-snippets",
+      "document": "docs/compiler_architecture.md",
+      "status": "DESIGN_ONLY",
+      "source": null,
+      "verification": "architecture-examples-are-not-production-contracts"
+    },
+    {
+      "id": "ecosystem-roadmap-snippets",
+      "document": "docs/ecosystem_and_registration_roadmap.md",
+      "status": "DESIGN_ONLY",
+      "source": null,
+      "verification": "ecosystem-roadmap-syntax-is-prospective"
+    },
+    {
+      "id": "interop-language-snippets",
+      "document": "docs/interop_c_cpp_objc.md",
+      "status": "EXPERIMENTAL",
+      "source": null,
+      "verification": "interop-examples-require-per-feature-audit"
+    },
+    {
+      "id": "phase0-audit-snippets",
+      "document": "docs/phase0_reality_audit.md",
+      "status": "DESIGN_ONLY",
+      "source": null,
+      "verification": "audit-document-examples-are-descriptive"
+    },
+    {
+      "id": "safety-and-ffi-snippets",
+      "document": "docs/safety_and_ffi.md",
+      "status": "EXPERIMENTAL",
+      "source": null,
+      "verification": "safety-examples-require-per-feature-audit"
+    },
+    {
+      "id": "safety-guarantees-snippets",
+      "document": "docs/SAFETY_GUARANTEES.md",
+      "status": "EXPERIMENTAL",
+      "source": null,
+      "verification": "guarantee-examples-require-per-feature-audit"
+    },
+    {
+      "id": "sir-status-snippets",
+      "document": "docs/sir-status.md",
+      "status": "DESIGN_ONLY",
+      "source": null,
+      "verification": "sir-is-a-prototype-not-a-production-contract"
+    },
+    {
+      "id": "phase10-guarantees-scope-snippets",
+      "document": "docs/sotlas_1_0_phase10_guarantees_scope.md",
+      "status": "DESIGN_ONLY",
+      "source": null,
+      "verification": "scope-document-examples-are-not-implementation-evidence"
+    },
+    {
+      "id": "phase4-state-space-scope-snippets",
+      "document": "docs/sotlas_1_0_phase4_state_space_scope.md",
+      "status": "DESIGN_ONLY",
+      "source": null,
+      "verification": "scope-document-examples-are-not-implementation-evidence"
+    },
+    {
+      "id": "implementation-status-snippets",
+      "document": "docs/sotlas_implementation_status.md",
+      "status": "EXPERIMENTAL",
+      "source": null,
+      "verification": "status-examples-are-not-automatically-runnable"
+    },
+    {
+      "id": "master-roadmap-snippets",
+      "document": "docs/sotlas_master_roadmap.md",
+      "status": "DESIGN_ONLY",
+      "source": null,
+      "verification": "master-roadmap-is-architecture-and-planning-material"
+    },
+    {
+      "id": "v1-audit-snippets",
+      "document": "docs/sotlas_v1_audit_and_roadmap.md",
+      "status": "DESIGN_ONLY",
+      "source": null,
+      "verification": "historical-design-audit-is-not-support-evidence"
+    },
+    {
+      "id": "sotlas-book-snippets",
+      "document": "docs/the_sotlas_book.md",
+      "status": "DESIGN_ONLY",
+      "source": null,
+      "verification": "book-examples-require-per-feature-audit"
     }
   ]
 }
