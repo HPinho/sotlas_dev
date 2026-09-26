@@ -223,7 +223,12 @@ class SotlasStateFrontendTests(unittest.TestCase):
         ) + "\nfn main() -> i32 { let dev = Device { id: 37u32 }; " \
             "let configured = configure(move(dev)); " \
             "return configured.id as i32; }\n"
-        generated = bootstrap.compile_source(source, filename="<state-native>")
+        # This test exercises the opt-in Phase-1 subset. The public
+        # compile_source entrypoint intentionally remains PREVIEW-gated.
+        module = bootstrap.parse(source, filename="<state-native>")
+        module._state_phase1_internal = True
+        bootstrap.check(module)
+        generated = bootstrap.emit_c(module)
         with tempfile.TemporaryDirectory(prefix="sotlas-state-") as temp_dir:
             c_file = Path(temp_dir) / "state_transition.c"
             executable = Path(temp_dir) / "state_transition"
