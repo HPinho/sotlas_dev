@@ -4019,6 +4019,7 @@ abertas.
 
 ### 11. Causality
 
+Bounded Sotlas 1.0 contracts for Phases 11 and 12 are complete; see docs/sotlas_1_0_phases_11_12_scope.md. Broader CFG, state, and IDE coverage remains future work.
 `why`, `explain`, provenance.
 
 O subset atual consulta caminhos de chamadas diretas em uma cadeia fonte
@@ -4031,6 +4032,7 @@ bindings locais.
 
 ### 12. Counterfactuals
 
+Bounded Sotlas 1.0 contracts for Phases 11 and 12 are complete; see docs/sotlas_1_0_phases_11_12_scope.md. Broader CFG, state, and IDE coverage remains future work.
 `whatif`.
 
 O primeiro subset de Counterfactuals consulta o impacto de uma stage marcada

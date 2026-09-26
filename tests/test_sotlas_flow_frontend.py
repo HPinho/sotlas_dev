@@ -370,6 +370,22 @@ fn entry(input: i32) -> i32 {
             ],
             [("value", "(raw * 3)", ("raw",))],
         )
+        self.assertEqual(
+            [argument.causal_origins for argument in explanation.steps[0].arguments],
+            [("input",)],
+        )
+        self.assertEqual(
+            [argument.causal_origins for argument in explanation.steps[1].arguments],
+            [("input",)],
+        )
+        self.assertEqual(
+            [argument.causal_expression for argument in explanation.steps[0].arguments],
+            ["(input + 2)"],
+        )
+        self.assertEqual(
+            [argument.causal_expression for argument in explanation.steps[1].arguments],
+            ["((input + 2) * 3)"],
+        )
         legacy_parsed = tools_package.bootstrap.parse(source)
         tools_package.bootstrap.check(legacy_parsed)
         legacy_effects = importlib.import_module(
@@ -385,6 +401,22 @@ fn entry(input: i32) -> i32 {
         self.assertEqual(
             legacy_explanation.steps[0].arguments[0].source_bindings,
             ("input",),
+        )
+        self.assertEqual(
+            legacy_explanation.steps[1].arguments[0].causal_origins,
+            ("input",),
+        )
+        graph = package.render_source_call_causality_mermaid(explanation)
+        self.assertTrue(graph.startswith("flowchart LR\n"))
+        self.assertIn("fn1 -->|", graph)
+        self.assertIn("fn0 -->|", graph)
+        self.assertEqual(
+            graph,
+            tools_package.render_source_call_causality_mermaid(
+                tools_package.explain_source_call_causality(
+                    legacy_checked, "entry", "parse"
+                )
+            ),
         )
         with self.assertRaisesRegex(package.CausalityError, "no source call path"):
             package.explain_source_call_causality(checked, "parse", "entry")
@@ -511,7 +543,7 @@ flow BackupChanged {
         )
         self.assertEqual(
             candidates["Backup"].semantic_equivalence_evidence,
-            "normalized-pure-unsigned-sir-expression",
+            "normalized-pure-unsigned-sir-polynomial",
         )
         self.assertFalse(candidates["BackupChanged"].semantic_equivalence_verified)
         self.assertIsNone(candidates["BackupChanged"].semantic_equivalence_evidence)
@@ -543,6 +575,54 @@ flow Changed {
         )
         candidates = {candidate.flow: candidate for candidate in options.candidates}
         self.assertTrue(candidates["Backup"].semantic_equivalence_verified)
+        self.assertFalse(candidates["Changed"].semantic_equivalence_verified)
+
+    def test_counterfactual_proves_modular_polynomial_equivalence(self):
+        source = """
+module test::counterfactual_polynomial;
+fn load() -> u32 { return 3u32; }
+fn add_self(left: u32, right: u32) -> u32 { return left + left; }
+fn multiply_two(left: u32, right: u32) -> u32 { return left * 2u32; }
+fn multiply_three(left: u32, right: u32) -> u32 { return left * 3u32; }
+flow Home {
+    stage input = load;
+    stage unused = load;
+    stage page = add_self after input, unused;
+}
+flow Backup {
+    stage spare = load;
+    stage spare_unused = load;
+    stage page = multiply_two after spare, spare_unused;
+}
+flow Changed {
+    stage spare = load;
+    stage spare_unused = load;
+    stage page = multiply_three after spare, spare_unused;
+}
+        """
+        checked = package.analyze_source_phase1(source)
+        sir, _ = package.build_canonical_checked_ownership_sir(checked)
+        direct_equivalence = package.analyze_pure_sir_function_equivalence(
+            sir.module, "add_self", "multiply_two"
+        )
+        self.assertTrue(direct_equivalence.semantic_equivalence_verified)
+        self.assertEqual(
+            direct_equivalence.semantic_equivalence_evidence,
+            "normalized-pure-unsigned-sir-polynomial",
+        )
+        direct_difference = package.analyze_pure_sir_function_equivalence(
+            sir.module, "add_self", "multiply_three"
+        )
+        self.assertFalse(direct_difference.semantic_equivalence_verified)
+        options = package.analyze_sir_flow_recovery_options(
+            sir.module, "Home", "input", "page"
+        )
+        candidates = {candidate.flow: candidate for candidate in options.candidates}
+        self.assertTrue(candidates["Backup"].semantic_equivalence_verified)
+        self.assertEqual(
+            candidates["Backup"].semantic_equivalence_evidence,
+            "normalized-pure-unsigned-sir-polynomial",
+        )
         self.assertFalse(candidates["Changed"].semantic_equivalence_verified)
 
     def test_counterfactual_rejects_unknown_stage_and_noncanonical_graph(self):
@@ -664,6 +744,59 @@ flow Home {
             audit.compensation_stage_order,
             (("page",), ("profile", "posts")),
         )
+
+    def test_counterfactual_analyzes_sequential_flow_failure_rollback(self):
+        source = self._source("""
+flow Home {
+    stage profile = load_profile;
+    stage page = render after profile;
+}
+""").replace(
+            "fn render(profile: i32, posts: i32) -> i32 { return profile + posts; }",
+            "fn render(profile: i32) -> i32 { return profile; }",
+        )
+        checked = package.analyze_source_phase1(source)
+        sir, _ = package.build_canonical_checked_ownership_sir(checked)
+        plan = sir.module.flow_plans[0]
+        profile = next(
+            function for function in sir.module.functions
+            if function.name == "load_profile"
+        )
+        profile.source_effect_summary = replace(
+            profile.source_effect_summary,
+            direct_effects=("io",), transitive_effects=("io",),
+        )
+        sir.module.flow_plans = (replace(
+            plan,
+            stages=(replace(plan.stages[0], effects=("io",)), plan.stages[1]),
+        ),)
+        complete = package.analyze_sir_flow_failure_rollback(
+            sir.module, "Home", "page", {"io": "compensatable"},
+            {"io": "compensate_profile"},
+        )
+        self.assertEqual(complete.completed_stages, ("profile",))
+        self.assertEqual(complete.compensation_stages, ("profile",))
+        self.assertTrue(complete.rollback_proven_complete)
+
+        render = next(
+            function for function in sir.module.functions
+            if function.name == "render"
+        )
+        render.source_effect_summary = replace(
+            render.source_effect_summary,
+            direct_effects=("io",), transitive_effects=("io",),
+        )
+        plan = sir.module.flow_plans[0]
+        sir.module.flow_plans = (replace(
+            plan,
+            stages=(plan.stages[0], replace(plan.stages[1], effects=("io",))),
+        ),)
+        partial = package.analyze_sir_flow_failure_rollback(
+            sir.module, "Home", "page", {"io": "compensatable"},
+            {"io": "compensate_profile"},
+        )
+        self.assertEqual(partial.failed_stage_effects, ("io",))
+        self.assertFalse(partial.rollback_proven_complete)
 
     def test_transaction_runner_compensates_completed_stages_after_failure(self):
         source = self._source("""

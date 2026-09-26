@@ -1,6 +1,7 @@
 """Deterministic stage failure analysis over certified Sotlas Flow plans."""
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
 
 from .flow_graph import certify_flow_graph
@@ -43,9 +44,30 @@ class CounterfactualRecoveryOptions:
     candidates: tuple[CounterfactualRecoveryCandidate, ...]
 
 
+@dataclass(frozen=True)
+class CounterfactualFunctionEquivalence:
+    left_function: str
+    right_function: str
+    result_type: str
+    semantic_equivalence_verified: bool
+    semantic_equivalence_evidence: str | None
+
+
+@dataclass(frozen=True)
+class CounterfactualRollbackPlan:
+    flow: str
+    failed_stage: str
+    completed_stages: tuple[str, ...]
+    compensation_stages: tuple[str, ...]
+    failed_stage_effects: tuple[str, ...]
+    blockers: tuple[str, ...]
+    rollback_proven_complete: bool
+
+
 _PURE_INTEGER_TYPES = {
     "u8": 8, "u16": 16, "u32": 32, "u64": 64, "usize": 64,
 }
+_MAX_POLYNOMIAL_TERMS = 256
 
 
 def _normalize_unsigned_operation(operation, type_name, left, right):
@@ -83,6 +105,61 @@ def _normalize_unsigned_operation(operation, type_name, left, right):
     if operation in {"add", "mul"} and repr(left) > repr(right):
         left, right = right, left
     return (operation, type_name, left, right)
+
+
+def _unsigned_polynomial(expression):
+    """Canonicalize a pure unsigned expression in the modular polynomial ring."""
+    try:
+        return _unsigned_polynomial_inner(expression)
+    except RecursionError:
+        return None
+
+
+def _unsigned_polynomial_inner(expression):
+    kind, type_name = expression[:2]
+    width = _PURE_INTEGER_TYPES.get(type_name)
+    if width is None:
+        return None
+    modulus = 1 << width
+    if kind == "parameter":
+        return {(expression[2],): 1}
+    if kind == "constant":
+        return {(): expression[2] % modulus} if expression[2] % modulus else {}
+    if kind not in {"add", "sub", "mul"}:
+        return None
+    left = _unsigned_polynomial(expression[2])
+    right = _unsigned_polynomial(expression[3])
+    if left is None or right is None:
+        return None
+    result = dict(left)
+    if kind in {"add", "sub"}:
+        sign = 1 if kind == "add" else -1
+        for monomial, coefficient in right.items():
+            value = (result.get(monomial, 0) + sign * coefficient) % modulus
+            if value:
+                result[monomial] = value
+            else:
+                result.pop(monomial, None)
+        return result if len(result) <= _MAX_POLYNOMIAL_TERMS else None
+
+    result = {}
+    for left_monomial, left_coefficient in left.items():
+        for right_monomial, right_coefficient in right.items():
+            monomial = tuple(sorted(left_monomial + right_monomial))
+            coefficient = (
+                result.get(monomial, 0) + left_coefficient * right_coefficient
+            ) % modulus
+            if coefficient:
+                result[monomial] = coefficient
+            else:
+                result.pop(monomial, None)
+            if len(result) > _MAX_POLYNOMIAL_TERMS:
+                return None
+    return result
+
+
+def _polynomial_parameter_indices(polynomial) -> frozenset[int]:
+    return frozenset(index for monomial in polynomial for index in monomial)
 
 
 def _pure_integer_result_expression(function):
@@ -264,7 +341,11 @@ def _prove_stage_expression_equivalence(
         return False
     left_expression = _pure_integer_result_expression(left_function)
     right_expression = _pure_integer_result_expression(right_function)
-    if left_expression is None or left_expression != right_expression:
+    if left_expression is None or right_expression is None:
+        return False
+    left_polynomial = _unsigned_polynomial(left_expression)
+    right_polynomial = _unsigned_polynomial(right_expression)
+    if left_polynomial is None or left_polynomial != right_polynomial:
         return False
 
     left_stages = {stage.name: stage for stage in left_plan.stages}
@@ -272,7 +353,7 @@ def _prove_stage_expression_equivalence(
     left_arguments = {item.parameter_index: item for item in left_stage.arguments}
     right_arguments = {item.parameter_index: item for item in right_stage.arguments}
     active.add(key)
-    for index in _expression_parameter_indices(left_expression):
+    for index in _polynomial_parameter_indices(left_polynomial):
         left_argument = left_arguments.get(index)
         right_argument = right_arguments.get(index)
         if (
@@ -471,7 +552,7 @@ def analyze_sir_flow_recovery_options(
             tuple(effect for effect in failed_effects if effect not in candidate_effects),
             semantic_equivalence_verified=equivalent,
             semantic_equivalence_evidence=(
-                "normalized-pure-unsigned-sir-expression"
+                "normalized-pure-unsigned-sir-polynomial"
                 if equivalent else None
             ),
             effect_policy=allowed_effects,
@@ -481,10 +562,144 @@ def analyze_sir_flow_recovery_options(
     return CounterfactualRecoveryOptions(impact, target_stage, tuple(candidates))
 
 
+def analyze_pure_sir_function_equivalence(
+    module, left_function: str, right_function: str,
+) -> CounterfactualFunctionEquivalence:
+    """Compare two pure unsigned straight-line functions outside Flow plans."""
+    if any(not isinstance(name, str) or not name for name in (
+        left_function, right_function,
+    )):
+        raise CounterfactualError("function names must be non-empty strings")
+    try:
+        from .canonical_sir import load_canonical_sir
+        inferred_module = deepcopy(module)
+        inference = load_canonical_sir().EffectInferencePass().run(inferred_module)
+    except (AttributeError, TypeError, ValueError) as error:
+        raise CounterfactualError(f"invalid SIR module for equivalence: {error}") from error
+    if not inference.success:
+        raise CounterfactualError(
+            "SIR effect inference failed before equivalence: "
+            + "; ".join(inference.errors)
+        )
+    functions = {
+        function.name: function
+        for function in tuple(getattr(inferred_module, "functions", ()) or ())
+    }
+    if len(functions) != len(tuple(getattr(inferred_module, "functions", ()) or ())):
+        raise CounterfactualError("SIR module repeats function names")
+    if left_function not in functions or right_function not in functions:
+        raise CounterfactualError("function equivalence references an unknown function")
+    left = functions[left_function]
+    right = functions[right_function]
+    result_type = getattr(left, "return_type", None)
+    equivalent = (
+        result_type == getattr(right, "return_type", None)
+        and tuple(getattr(parameter, "type_name", None) for parameter in left.parameters)
+        == tuple(getattr(parameter, "type_name", None) for parameter in right.parameters)
+        and not getattr(left, "is_system", False)
+        and not getattr(right, "is_system", False)
+    )
+    summaries = inferred_module.effect_summaries
+    if equivalent:
+        for name in (left_function, right_function):
+            summary = summaries.get(name)
+            if summary is None or summary.transitive_effects or summary.unresolved_calls:
+                equivalent = False
+                break
+    left_expression = _pure_integer_result_expression(left)
+    right_expression = _pure_integer_result_expression(right)
+    left_polynomial = (
+        _unsigned_polynomial(left_expression)
+        if equivalent and left_expression is not None else None
+    )
+    right_polynomial = (
+        _unsigned_polynomial(right_expression)
+        if equivalent and right_expression is not None else None
+    )
+    equivalent = (
+        equivalent
+        and left_polynomial is not None
+        and left_polynomial == right_polynomial
+    )
+    return CounterfactualFunctionEquivalence(
+        left_function,
+        right_function,
+        result_type if isinstance(result_type, str) else "unknown",
+        bool(equivalent),
+        "normalized-pure-unsigned-sir-polynomial" if equivalent else None,
+    )
+
+
+def analyze_sir_flow_failure_rollback(
+    module,
+    flow_name: str,
+    failed_stage: str,
+    effect_policies: dict[str, str],
+    compensation_handlers: dict[str, str] | None = None,
+) -> CounterfactualRollbackPlan:
+    """Analyze rollback after one stage fails in a canonical sequential Flow."""
+    try:
+        plans = validate_sir_flow_plans(module)
+    except FlowSIRError as error:
+        raise CounterfactualError(f"invalid canonical SIR Flow plan: {error}") from error
+    matches = tuple(plan for plan in plans if plan.name == flow_name)
+    if len(matches) != 1:
+        raise CounterfactualError(f"SIR has no unique checked Flow plan {flow_name!r}")
+    plan = matches[0]
+    if any(len(batch) != 1 for batch in plan.parallel_stages):
+        raise CounterfactualError(
+            "counterfactual rollback analysis requires a sequential Flow"
+        )
+    stages = tuple(plan.stages)
+    names = tuple(stage.name for stage in stages)
+    if failed_stage not in names:
+        raise CounterfactualError(f"unknown failed Flow stage {failed_stage!r}")
+    failure_index = names.index(failed_stage)
+    completed = names[:failure_index]
+    from .transactions import (
+        TransactionError, analyze_sir_flow_transaction_effects,
+    )
+    try:
+        audit = analyze_sir_flow_transaction_effects(
+            module, flow_name, effect_policies, compensation_handlers
+        )
+    except TransactionError as error:
+        raise CounterfactualError(f"invalid rollback policy: {error}") from error
+    relevant = set(completed) | {failed_stage}
+    blockers = tuple(
+        blocker for blocker in audit.blockers
+        if blocker.partition(":")[0] in relevant
+    )
+    compensatable = {
+        effect.stage for effect in audit.effects
+        if effect.classification == "compensatable"
+        and effect.compensation is not None
+    }
+    compensation_stages = tuple(
+        stage for stage in reversed(completed) if stage in compensatable
+    )
+    failed_effects = tuple(
+        stage.effects for stage in stages if stage.name == failed_stage
+    )[0]
+    return CounterfactualRollbackPlan(
+        flow_name,
+        failed_stage,
+        completed,
+        compensation_stages,
+        failed_effects,
+        blockers,
+        not blockers and not failed_effects,
+    )
+
+
 __all__ = [
     "CounterfactualError", "CounterfactualImpact",
     "CounterfactualRecoveryCandidate", "CounterfactualRecoveryOptions",
+    "CounterfactualFunctionEquivalence",
+    "CounterfactualRollbackPlan",
     "analyze_flow_stage_unavailability",
     "analyze_sir_flow_stage_unavailability",
     "analyze_sir_flow_recovery_options",
+    "analyze_pure_sir_function_equivalence",
+    "analyze_sir_flow_failure_rollback",
 ]

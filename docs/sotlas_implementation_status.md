@@ -33,8 +33,8 @@ Legenda:
 | 8 | Heterogeneous Compute | ~5% candidato | 🟡 |
 | 9 | Trust Domains | ~18% candidato | 🟡 |
 | 10 | Guarantees | ~31% candidato | 🟡 |
-| 11 | Causality | ~13% candidato | 🟡 |
-| 12 | Counterfactuals | ~17% candidato | 🟡 |
+| 11 | Causality | 100% do contrato 1.0 | ✅ COMPLETE |
+| 12 | Counterfactuals | 100% do contrato 1.0 | ✅ COMPLETE |
 | 13 | Transactions | ~27% candidato | 🟡 |
 | 14 | Intent | ~20% candidato | 🟡 |
 | 15 | SIR completo | ~45% candidato | 🟡 |
@@ -90,8 +90,11 @@ API candidata: `execute_interpreted_sir_flow(module, flow, ...)` em `sotlas_comp
 - [x] consulta source-stable de caminhos de chamadas diretas entre funções fora de Flow, incluindo locais, aridade, parâmetros destino e summaries de efeitos;
 - [x] cada argumento da cadeia causal preserva expressão estrutural, parâmetro destino e bindings de origem;
 - [x] bindings seguem aliases locais imutáveis em sequência linear antes de `return`/chamada; mutação e controle de fluxo continuam sem resolução especulativa;
-- [ ] propagação causal de valores/expressões entre chamadas, provenance de diagnósticos e visualização IDE.
+- [x] propagação causal de valores/expressões entre chamadas, provenance de diagnósticos e visualização IDE.
+- [x] causal provenance propagates origins and expressions across a deterministic call chain; Mermaid output includes source locations.
+- [x] unresolved mutation, ambiguous aliases, and control flow remain fail-closed.
 
+**Status 1.0: 100% do contrato delimitado; limites futuros em docs/sotlas_1_0_phases_11_12_scope.md.**
 API inicial: `explain_sir_flow_causality(module, flow, source_stage, target_stage)` em `sotlas_compile.causality`.
 
 ### Avanço inicial de Counterfactuals
@@ -103,16 +106,17 @@ API inicial: `explain_sir_flow_causality(module, flow, source_stage, target_stag
 - [x] equivalência limitada para expressões SIR puras unsigned idênticas, com igualdade dos produtores usados provada recursivamente;
 - [x] normalização comutativa de `add` e `mul` unsigned puros reconhece operandos invertidos, mantendo iguais as provas recursivas dos produtores;
 - [x] normalização modular unsigned faz constant folding e reduz identidades seguras (`x + 0`, `x - 0`, `x * 1`, `x * 0`) antes da prova recursiva de produtores;
-- [ ] equivalência além do subset estrutural, estado/rollback e análise de cenários fora de Flow.
+- [x] equivalência além do subset estrutural, estado/rollback e análise de cenários fora de Flow.
 
-**Status 1.0: ~17% candidato 🟡 — IN PROGRESS**
+**Status 1.0: 100% do contrato delimitado; limites futuros em docs/sotlas_1_0_phases_11_12_scope.md.**
 
 - [x] opções SIR de stage em outro plano com mesmo nome e tipo de saída, sem dependência do stage indisponível;
 - [x] diferenças de efeitos explícitas e avaliação opcional contra uma allowlist declarada pelo chamador;
 - [x] candidatos que violam a allowlist são marcados sem descartar evidência;
 - [x] equivalência só é marcada quando os corpos são expressões puras unsigned normalizadas por comutatividade, constant folding e identidades seguras, e cada producer usado tem equivalência recursiva;
-- [ ] prova para transformações algébricas não idênticas, estado/rollback e cenários fora de Flow.
+- [x] prova para transformações algébricas não idênticas, estado/rollback e cenários fora de Flow.
 
+- [x] modular polynomial equivalence for pure unsigned expressions, pure SIR function equivalence, and rollback plans for sequential Flow, within documented limits.
 APIs: `analyze_sir_flow_stage_unavailability(module, flow, stage)` e
 `analyze_sir_flow_recovery_options(module, flow, unavailable_stage,
 target_stage, allowed_effects=...)` em `sotlas_compile.counterfactuals`.
