@@ -28,6 +28,20 @@ class TestSotlasLLVMDirectEmission(unittest.TestCase):
     def tearDown(self):
         self.tmpdir.cleanup()
 
+    def test_source_llvm_emission_accepts_execution_target_features(self):
+        path = self.tmp_path / "target.ll"
+        result = self.toolchain.compile_source_to_native(
+            "module target_demo; pub fn main() -> i32 { return 0; }",
+            "target_demo",
+            path,
+            emit_type="llvm",
+            target="x86_64-unknown-linux-gnu",
+            cpu_features=("avx2",),
+        )
+        ir = result.read_text(encoding="utf-8")
+        self.assertIn('target triple = "x86_64-unknown-linux-gnu"', ir)
+        self.assertIn('"target-features"="+sse2,+avx,+avx2"', ir)
+
     def test_llvm_toolchain_detected(self):
         self.assertTrue(self.toolchain.is_available(), "LLVM Clang deve ser detectado no ambiente")
         version = self.toolchain.get_version()

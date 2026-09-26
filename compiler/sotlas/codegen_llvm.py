@@ -17,6 +17,10 @@ from .sir.instructions import (
     BranchInst, CondBranchInst, CompareInst, ReturnInst, SystemOpInst,
     AsmInst, AwaitInst, PhiInst
 )
+from .execution_target import (
+    ExecutionTarget,
+    resolve_execution_target,
+)
 
 
 LLVM_TYPE_MAP: Dict[str, str] = {
@@ -62,9 +66,18 @@ def to_llvm_type(sotlas_type: Optional[str]) -> str:
 class CodegenLLVM:
     """Emissor de LLVM IR textual para módulos SIR com suporte a DWARF."""
 
-    def __init__(self, sir_module: SIRModule, is_baremetal: bool = True, emit_debug: bool = False) -> None:
+    def __init__(
+        self,
+        sir_module: SIRModule,
+        is_baremetal: bool = True,
+        emit_debug: bool = False,
+        target: str | ExecutionTarget | None = None,
+        cpu_features: tuple[str, ...] = (),
+    ) -> None:
         self._sir = sir_module
-        self._is_baremetal = is_baremetal
+        self._target = resolve_execution_target(
+            target, is_baremetal=is_baremetal, cpu_features=cpu_features
+        )
         self._emit_debug = emit_debug
         self._out = StringIO()
         self._meta_id = 0
@@ -112,6 +125,7 @@ class CodegenLLVM:
             sub_id = fn_subprograms.get(fn.name)
             self._emit_function(fn, sub_id)
 
+        self._emit_target_attributes()
         if self._emit_debug:
             self._emit_debug_metadata()
 
@@ -120,11 +134,18 @@ class CodegenLLVM:
     def _emit_header(self) -> None:
         self._out.write(f"; ModuleID = '{self._sir.name}'\n")
         self._out.write(f"source_filename = \"{self._sir.name}.sotlas\"\n")
-        if self._is_baremetal:
-            self._out.write("target datalayout = \"e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128\"\n")
-            self._out.write("target triple = \"x86_64-unknown-none-elf\"\n\n")
-        else:
-            self._out.write("target triple = \"x86_64-pc-none\"\n\n")
+        if self._target.data_layout is not None:
+            self._out.write(
+                f'target datalayout = "{self._target.data_layout}"\n'
+            )
+        self._out.write(f'target triple = "{self._target.triple}"\n\n')
+
+    def _emit_target_attributes(self) -> None:
+        features = self._target.llvm_target_features
+        self._out.write(
+            f'attributes #0 = {{ "target-cpu"="{self._target.cpu}" '
+            f'"target-features"="{features}" }}\n'
+        )
 
     def _emit_function(self, fn: SIRFunction, subprogram_id: Optional[int] = None) -> None:
         ret_type = to_llvm_type(fn.return_type)

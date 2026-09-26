@@ -18,6 +18,7 @@ import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 from typing import List, Optional, Tuple, Union
+from .execution_target import ExecutionTarget, resolve_execution_target
 
 
 # Locais canônicos de busca de ferramentas LLVM
@@ -397,7 +398,9 @@ class LLVMToolchain:
         output_obj_path: Union[str, Path],
         opt_level: int = 2,
         is_freestanding: bool = False,
-        extra_flags: Optional[List[str]] = None
+        extra_flags: Optional[List[str]] = None,
+        target: Optional[str] = None,
+        cpu_features: tuple[str, ...] = (),
     ) -> Path:
         """Compila código C11 diretamente para arquivo objeto nativo (.obj / .o) via Clang."""
         clang = self.find_tool("clang")
@@ -408,11 +411,16 @@ class LLVMToolchain:
         out_obj.parent.mkdir(parents=True, exist_ok=True)
 
         cmd = [str(clang), "-std=c11", "-c", f"-O{opt_level}", "-Wall", "-Wextra"]
+        if target:
+            cmd += ["-target", target]
         if is_freestanding:
             cmd += [
                 "-ffreestanding", "-nostdlib", "-nostdinc",
-                "-mno-red-zone", "-mno-mmx", "-mno-sse", "-mno-sse2"
+                "-mno-red-zone", "-mno-mmx",
             ]
+            if not cpu_features:
+                cmd += ["-mno-sse", "-mno-sse2"]
+        cmd += [f"-m{feature}" for feature in cpu_features]
         if extra_flags:
             cmd += extra_flags
 
@@ -504,11 +512,20 @@ class LLVMToolchain:
         emit_type: str = "exe",  # "exe", "obj", "llvm"
         backend: str = "llvm",   # "llvm", "c11"
         is_freestanding: bool = False,
-        emit_debug: bool = True
+        emit_debug: bool = True,
+        target: str | ExecutionTarget | None = None,
+        cpu_features: tuple[str, ...] = (),
     ) -> Path:
         """Pipeline fim a fim: compila código-fonte Sotlas diretamente para .ll, .obj ou .exe."""
         out = Path(output_path).resolve()
         out.parent.mkdir(parents=True, exist_ok=True)
+
+        target_spec = resolve_execution_target(
+            target, is_baremetal=is_freestanding, cpu_features=cpu_features
+        )
+        if target is not None:
+            is_freestanding = target_spec.is_freestanding
+        compiler_target = target_spec.triple if target is not None else None
 
         from sotlas.codegen_llvm import CodegenLLVM
         production_frontend = canonical_llvm_frontend()
@@ -517,7 +534,13 @@ class LLVMToolchain:
         if emit_type == "llvm":
             ast = production_frontend.parse(source_text, filename=source_name)
             sir_mod = generate_llvm_sir(ast, production_frontend)
-            llvm_gen = CodegenLLVM(sir_mod, is_baremetal=is_freestanding, emit_debug=emit_debug)
+            llvm_gen = CodegenLLVM(
+                sir_mod,
+                is_baremetal=is_freestanding,
+                emit_debug=emit_debug,
+                target=target_spec,
+                cpu_features=cpu_features,
+            )
             ir_code = llvm_gen.emit()
             out.write_text(ir_code, encoding="utf-8")
             return out
@@ -527,26 +550,48 @@ class LLVMToolchain:
         if backend == "llvm":
             ast = production_frontend.parse(source_text, filename=source_name)
             sir_mod = generate_llvm_sir(ast, production_frontend)
-            llvm_gen = CodegenLLVM(sir_mod, is_baremetal=is_freestanding, emit_debug=emit_debug)
+            llvm_gen = CodegenLLVM(
+                sir_mod,
+                is_baremetal=is_freestanding,
+                emit_debug=emit_debug,
+                target=target_spec,
+                cpu_features=cpu_features,
+            )
             ir_code = llvm_gen.emit()
 
             if emit_type == "obj":
-                return self.compile_llvm_ir_to_obj(ir_code, out)
+                return self.compile_llvm_ir_to_obj(
+                    ir_code, out, target=compiler_target
+                )
             else:
                 # Compila para obj temporário e linka para exe
                 with tempfile.TemporaryDirectory() as tmpdir:
                     tmp_obj = Path(tmpdir) / f"{safe_stem}.obj"
-                    self.compile_llvm_ir_to_obj(ir_code, tmp_obj)
+                    self.compile_llvm_ir_to_obj(
+                        ir_code, tmp_obj, target=compiler_target
+                    )
                     return self.link_native_binary([tmp_obj], out)
         else:
             # Backend c11 com Clang nativo
             c_code = compile_source(source_text, source_name)
             if emit_type == "obj":
-                return self.compile_c_to_obj(c_code, out, is_freestanding=is_freestanding)
+                return self.compile_c_to_obj(
+                    c_code,
+                    out,
+                    is_freestanding=is_freestanding,
+                    target=compiler_target,
+                    cpu_features=cpu_features,
+                )
             else:
                 with tempfile.TemporaryDirectory() as tmpdir:
                     tmp_obj = Path(tmpdir) / f"{safe_stem}.obj"
-                    self.compile_c_to_obj(c_code, tmp_obj, is_freestanding=is_freestanding)
+                    self.compile_c_to_obj(
+                        c_code,
+                        tmp_obj,
+                        is_freestanding=is_freestanding,
+                        target=compiler_target,
+                        cpu_features=cpu_features,
+                    )
                     return self.link_native_binary([tmp_obj], out)
 
 

@@ -1,8 +1,8 @@
 # Sotlas — Implementation Status
 
 **Atualizado em:** 2026-09-25  
-**Último baseline verde certificado:** `645590f`
-**CI de referência:** Sotlas CI & Toolchain Build Farm #576 — `success`
+**Último baseline verde certificado:** `c91b23a`
+**CI de referência:** Sotlas CI & Toolchain Build Farm #577 — `success`
 **Fonte arquitetural:** `SOTLAS — ESPECIFICAÇÃO MESTRA`
 
 > Este é o índice operacional atual. O snapshot detalhado anterior, com o histórico extenso das microentregas da Fase 2, permanece preservado em `docs/archive/sotlas_implementation_status_2026-09-23.md`.
@@ -29,7 +29,7 @@ Legenda:
 | 4 | State Spaces | ~70% | 🟡 IN PROGRESS |
 | 5 | Effects | ~25% | 🟡 |
 | 6 | Flow | ~20% | 🟡 |
-| 7 | Execution Domains | ~10% | 🟡 |
+| 7 | Execution Domains | ~20% | 🟡 |
 | 8 | Heterogeneous Compute | ~0% | 🟡 |
 | 9 | Trust Domains | ~5% | 🟡 |
 | 10 | Guarantees | ~0% | 🟡 |
@@ -176,6 +176,22 @@ Escopo: `docs/sotlas_1_0_phase5_effects_scope.md`.
 - [ ] e2e de fonte Sotlas para runtime/backend.
 
 Escopo: `docs/sotlas_1_0_phase6_flow_scope.md`.
+
+## Fase 7 — Execution Domains
+
+**Status 1.0: ~20% 🟡 — IN PROGRESS**
+
+- [x] modelo tipado de target x86-64, ABI básica, largura de ponteiro e endianness;
+- [x] triples Linux, Windows, Darwin e freestanding reconhecidos com aliases legados;
+- [x] validação fail-closed e normalização de dependências de CPU features;
+- [x] LLVM IR e Clang recebem target/features configurados;
+- [x] CLI expõe seleção de target e features x86-64;
+- [ ] matrizes completas de ABI/layout e suporte x86-64/AArch64;
+- [ ] intrinsics SIMD Sotlas e dispatch multi-versionado;
+- [ ] domains de execução e lowering heterogêneo tipado;
+- [ ] testes nativos positivos/negativos e gate de release por target.
+
+Escopo: `docs/sotlas_1_0_phase7_execution_scope.md`.
 
 ## Regra de baseline
 

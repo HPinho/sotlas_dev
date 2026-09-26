@@ -51,10 +51,11 @@ def main() -> int:
     cp.add_argument("-o", "--output", default=None, help="Arquivo de saída")
     cp.add_argument(
         "--target",
-        choices=["x86_64-freestanding", "host"],
+        choices=["host", "x86_64-freestanding", "x86_64-unknown-none-elf", "x86_64-pc-none", "x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc", "x86_64-apple-darwin"],
         default="host",
         help="Alvo de compilação",
     )
+    cp.add_argument("--cpu-feature", action="append", default=[], metavar="FEATURE", help="Habilita feature x86-64; pode ser repetida")
     cp.add_argument(
         "--emit-c",
         action="store_true",
@@ -459,7 +460,7 @@ def _run_compile(args) -> int:
         return 0
 
     if is_llvm:
-        is_freestanding = (args.target == "x86_64-freestanding")
+        is_freestanding = args.target in ("x86_64-freestanding", "x86_64-unknown-none-elf")
         try:
             res_path = default_toolchain.compile_source_to_native(
                 text,
@@ -467,7 +468,9 @@ def _run_compile(args) -> int:
                 out_path,
                 emit_type=emit_type,
                 backend="c11",
-                is_freestanding=is_freestanding
+                is_freestanding=is_freestanding,
+                target=None if args.target == "host" else args.target,
+                cpu_features=tuple(args.cpu_feature),
             )
             print(f"sotlas: {emit_type.upper()} gerado via LLVM em {res_path}")
             return 0
@@ -480,13 +483,17 @@ def _run_compile(args) -> int:
     c_file.write_text(c_code, encoding="utf-8")
 
     cc_flags = ["-std=c11", "-Wall", "-Wextra"]
-    if args.target == "x86_64-freestanding":
+    if args.target in ("x86_64-freestanding", "x86_64-unknown-none-elf"):
         cc_flags += [
             "-ffreestanding", "-nostdlib", "-nostdinc",
             "-mno-red-zone", "-mno-mmx", "-mno-sse", "-mno-sse2",
         ]
 
-    cmd = [args.cc, str(c_file), "-o", str(out_path)] + cc_flags
+    cmd = [args.cc, str(c_file)]
+    if args.target not in ("host", "x86_64-freestanding"):
+        cmd += ["-target", args.target]
+    cmd += [f"-m{feature}" for feature in args.cpu_feature]
+    cmd += ["-o", str(out_path)] + cc_flags
     try:
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:

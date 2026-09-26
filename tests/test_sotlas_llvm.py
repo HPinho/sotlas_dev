@@ -16,9 +16,44 @@ from sotlas.sir.instructions import (
     SharedOwnershipPointInst, DeferUseInst,
 )
 from sotlas.codegen_llvm import CodegenLLVM, to_llvm_type
+from sotlas.execution_target import (
+    ExecutionTargetError,
+    resolve_execution_target,
+)
 
 
 class TestCodegenLLVM(unittest.TestCase):
+    def test_execution_target_contract_and_fail_closed_validation(self):
+        host = resolve_execution_target("host")
+        self.assertEqual(host.triple, "x86_64-pc-none")
+        self.assertEqual(host.cpu_features, ("sse2",))
+        avx2 = resolve_execution_target(
+            "x86_64-unknown-linux-gnu", cpu_features=("avx2",)
+        )
+        self.assertEqual(avx2.cpu_features, ("sse2", "avx", "avx2"))
+        self.assertEqual(avx2.abi, "sysv")
+        with self.assertRaisesRegex(ExecutionTargetError, "unsupported execution target"):
+            resolve_execution_target("aarch64-unknown-linux-gnu")
+        with self.assertRaisesRegex(ExecutionTargetError, "unsupported x86-64 CPU features"):
+            resolve_execution_target(cpu_features=("madeup",))
+        with self.assertRaisesRegex(ExecutionTargetError, "must be strings"):
+            resolve_execution_target(cpu_features=([],))
+
+    def test_llvm_ir_uses_selected_target_and_cpu_features(self):
+        module = SIRModule(name="target_contract")
+        function = SIRFunction(name="main", parameters=[], return_type="Void")
+        block = function.add_block("entry")
+        block.add(ReturnInst())
+        module.add_function(function)
+        ir = CodegenLLVM(
+            module,
+            target="x86_64-pc-windows-msvc",
+            cpu_features=("avx2",),
+        ).emit()
+        self.assertIn('target triple = "x86_64-pc-windows-msvc"', ir)
+        self.assertIn('"target-features"="+sse2,+avx,+avx2"', ir)
+        self.assertIn('"target-cpu"="x86-64"', ir)
+
     def test_llvm_type_mapping(self):
         self.assertEqual(to_llvm_type("UInt32"), "i32")
         self.assertEqual(to_llvm_type("Int64"), "i64")
