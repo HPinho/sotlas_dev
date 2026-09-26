@@ -405,6 +405,7 @@ class SIRModule:
     effect_summaries: Dict[str, SIREffectSummary] = field(
         default_factory=dict, init=False
     )
+    flow_plans: Tuple[Any, ...] = ()
 
     def add_function(self, fn: SIRFunction) -> None:
         self.functions.append(fn)
@@ -417,4 +418,20 @@ class SIRModule:
         ]
         for fn in self.functions:
             lines.append(str(fn))
+        for plan in self.flow_plans:
+            lines.append(f"sir_flow @{plan.name} {{")
+            for index, stage_names in enumerate(plan.parallel_stages):
+                members = ", ".join(f"%{name}" for name in stage_names)
+                lines.append(f"  parallel_stage {index} = [{members}]")
+            for stage in plan.stages:
+                arguments = ", ".join(
+                    f"%{argument.value.producer_stage}.result"
+                    for argument in stage.arguments
+                )
+                effects = ",".join(stage.effects)
+                lines.append(
+                    f"  flow_stage %{stage.name} = call @{stage.function}"
+                    f"({arguments}) -> {stage.result_type} effects=[{effects}]"
+                )
+            lines.append("}")
         return "\n\n".join(lines)

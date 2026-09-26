@@ -1,8 +1,8 @@
 # Sotlas — Implementation Status
 
 **Atualizado em:** 2026-09-26
-**Último baseline verde certificado:** `24ef5ff`
-**CI de referência:** Sotlas CI & Toolchain Build Farm #588 — workflow `success`
+**Último baseline verde certificado:** `0787120`
+**CI de referência:** Sotlas CI & Toolchain Build Farm #590 — workflow `success`
 **Fonte arquitetural:** `SOTLAS — ESPECIFICAÇÃO MESTRA`
 
 > Este é o índice operacional atual. O snapshot detalhado anterior, com o histórico extenso das microentregas da Fase 2, permanece preservado em `docs/archive/sotlas_implementation_status_2026-09-23.md`.
@@ -28,7 +28,7 @@ Legenda:
 | 3 | Authority Domains | 100% | ✅ COMPLETE |
 | 4 | State Spaces | 100% | ✅ COMPLETE |
 | 5 | Effects | ~55% candidato | 🟡 |
-| 6 | Flow | ~35% candidato | 🟡 |
+| 6 | Flow | ~40% candidato | 🟡 |
 | 7 | Execution Domains | ~35% | 🟡 |
 | 8 | Heterogeneous Compute | ~0% | 🟡 |
 | 9 | Trust Domains | ~10% candidato | 🟡 |
@@ -37,7 +37,7 @@ Legenda:
 | 12 | Counterfactuals | ~0% | 🟡 |
 | 13 | Transactions | ~0% | 🟡 |
 | 14 | Intent | ~0% | 🟡 |
-| 15 | SIR completo | ~30% | 🟡 |
+| 15 | SIR completo | ~32% candidato | 🟡 |
 | 16 | Native Machine Backend | ~5% | 🟡 |
 | 17 | Tooling avançado | ~15% | 🟡 |
 
@@ -182,8 +182,9 @@ Escopo: `docs/sotlas_1_0_phase5_effects_scope.md`.
 - [x] falha/cancelamento param estágios posteriores, cancelam tarefas pendentes e aguardam peers já iniciados;
 - [x] sintaxe fonte `flow` com stages e dependências declaradas;
 - [x] frontend confere funções de stage, ciclos, aridade e tipos dos valores dependentes;
-- [ ] CI #588 confirma a nova sintaxe e tipagem (candidato atual);
-- [ ] lowering de Flow para SIR e integração com Effects/Ownership;
+- [x] CI #588 confirma a nova sintaxe e tipagem;
+- [x] plano tipado Flow é reconciliado com assinaturas e summaries Effects e anexado ao SIR canônico;
+- [ ] lowering das chamadas de stage em CFG executável, integração de Ownership e execução pelo scheduler;
 - [ ] cancelamento cooperativo, runtime assíncrono/distribuído e backpressure;
 - [ ] e2e de fonte Sotlas para runtime/backend.
 

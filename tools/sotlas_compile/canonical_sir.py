@@ -47,6 +47,19 @@ def _attach_source_effect_summaries(checked_module: object, sir_module) -> None:
         function.declared_effects = summary.declared_effects
 
 
+def _attach_checked_flow_plans(checked_module: object, sir_module) -> None:
+    flows = tuple(getattr(checked_module, "flows", ()) or ())
+    if not flows:
+        return
+    from .flow_sir import lower_typed_flows_to_sir
+
+    lower_typed_flows_to_sir(
+        flows,
+        getattr(checked_module, "parsed_module", None),
+        sir_module,
+    )
+
+
 def load_canonical_sir():
     existing = sys.modules.get(_CANONICAL_SIR_PACKAGE)
     if existing is not None:
@@ -88,6 +101,7 @@ def build_canonical_checked_ownership_sir(checked_module: object):
     )
     module = generator.generate_from_ast(parsed_module)
     _attach_source_effect_summaries(checked_module, module)
+    _attach_checked_flow_plans(checked_module, module)
     placement = sir.apply_ownership_module_plan(module, plan)
     return sir.CheckedOwnershipSIR(module, placement), plan
 
@@ -141,6 +155,7 @@ def build_canonical_checked_authority_sir(
     )
     module = generator.generate_from_ast(parsed_module)
     _attach_source_effect_summaries(checked_module, module)
+    _attach_checked_flow_plans(checked_module, module)
 
     # Import locally to keep authority_sir -> canonical_sir loading acyclic.
     from .authority_sir import certify_authority_sir, place_authority_abi_facts

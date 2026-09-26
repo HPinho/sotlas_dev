@@ -59,6 +59,14 @@ from .flow_frontend import (
     install as _install_flow_frontend,
 )
 _install_flow_frontend(bootstrap)
+from .flow_sir import (
+    FlowSIRError,
+    FlowSIRValueRef,
+    FlowSIRArgument,
+    FlowSIRStage,
+    FlowSIRPlan,
+    lower_typed_flows_to_sir,
+)
 from .phase1_pipeline import (
     Phase1CheckedModule,
     analyze_module_phase1,
@@ -89,5 +97,7 @@ __all__ = [
     "certify_flow_graph", "FlowCancelledError", "FlowExecutionError",
     "FlowExecutionResult", "execute_flow",
     "FlowFrontendError", "TypedFlowPlan", "TypedFlowStage",
-    "plan_source_flows",
+    "plan_source_flows", "FlowSIRError", "FlowSIRValueRef",
+    "FlowSIRArgument", "FlowSIRStage", "FlowSIRPlan",
+    "lower_typed_flows_to_sir",
 ]

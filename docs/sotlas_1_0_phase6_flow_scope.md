@@ -2,7 +2,7 @@
 
 **Atualizado em:** 2026-09-26
 **Status:** 🟡 IN PROGRESS  
-**Último baseline verde certificado:** `24ef5ff` — CI #588 `success`
+**Último baseline verde certificado:** `0787120` — CI #590 `success`
 
 ## Subset de runtime disponível
 
@@ -19,9 +19,9 @@ estágio falham, o diagnóstico seleciona a primeira na ordem declarada. Um
 síncronas em execução não podem ser interrompidas à força e precisam retornar
 para que o scheduler conclua o cancelamento.
 
-Este executor é uma API runtime para grafos certificados. Ele ainda não é
-sintaxe Sotlas e não afirma tipagem, lowering SIR, integração com Effects ou
-Ownership, nem agendamento distribuído.
+Este executor é uma API runtime para grafos certificados. A sintaxe Sotlas e
+seu checker são descritos abaixo; agendamento distribuído continua fora deste
+subset.
 
 ## Candidato de frontend de fonte
 
@@ -33,8 +33,16 @@ um stage são rejeitadas pelo subset inicial. O plano tipado é preservado em
 `Phase1CheckedModule.flows`. O compilador C11 ainda rejeita explicitamente
 essas declarações, pois não há lowering de fonte para scheduler.
 
-Este candidato valida declaração e tipos; ele ainda não baixa chamadas para
-SIR nem executa a fonte pelo scheduler.
+Este candidato valida declaração e tipos. O plano SIR declarativo está descrito
+abaixo; ainda não há chamadas em CFG executável nem execução da fonte pelo
+scheduler.
+
+O plano tipado de fonte é preservado em `Phase1CheckedModule.flows`. O lowering
+canônico reconcilia tipos, assinaturas e summaries de efeitos e anexa
+`FlowSIRPlan` ao `SIRModule`; o dump expõe estágios paralelos e chamadas com
+referências tipadas a resultados produtores. O C11 continua rejeitando Flow:
+chamadas de stage ainda não foram baixadas em CFG executável nem ligadas ao
+scheduler.
 
 ## Verificações
 
@@ -53,8 +61,9 @@ SIR nem executa a fonte pelo scheduler.
 - [x] falha e cancelamento impedem estágios posteriores e não deixam tarefas ativas sem join;
 - [x] sintaxe `flow` com stages nomeados e dependências explícitas;
 - [x] frontend tipa valores vindos das dependências e rejeita grafo cíclico;
-- [ ] CI #588 confirma a sintaxe e tipagem (candidato atual; ainda na fila);
-- [ ] lowering para SIR e integração com Effects/Ownership;
+- [x] CI #588 confirma a sintaxe e tipagem;
+- [x] plano declarativo Flow reconciliado com SIR e summaries Effects;
+- [ ] lowering para CFG executável, integração de Ownership e execução pelo scheduler;
 - [ ] cancelamento cooperativo de ações, backpressure e políticas de retry;
 - [ ] e2e da fonte Sotlas ao scheduler e ao backend suportado.
 

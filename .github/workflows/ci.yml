@@ -142,7 +142,7 @@ jobs:
       run: |
         python -m unittest discover -s tests -p "test_sotlas_source_effects.py" -v
 
-    - name: Verify Phase 6 typed Flow source subset
+    - name: Verify Phase 6 typed Flow source and SIR plan
       run: |
         python -m unittest discover -s tests -p "test_sotlas_flow_frontend.py" -v
 

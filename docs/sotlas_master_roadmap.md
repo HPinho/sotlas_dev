@@ -3994,6 +3994,10 @@ Planejamento declarativo sobre todas as fundações anteriores.
 
 Representação integrada de Domains + Flow + Effects + Ownership + Causality.
 
+O subset inicial de Flow já preserva no `SIRModule` um plano declarativo
+reconciliado com assinaturas e summaries de efeitos. Chamadas executáveis no
+CFG, integração de Ownership e execução pelo scheduler continuam pendentes.
+
 Esta fase deve congelar a fronteira semântica que permite substituir C como transporte sem alterar a linguagem:
 
 - [ ] todos os corpos e construções `SUPPORTED` representáveis no SIR;

@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import sys
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -64,11 +65,68 @@ flow Home {
         self.assertEqual(page.dependencies, ("profile", "posts"))
         self.assertEqual(tuple(t.name for t in page.input_types), ("i32", "i32"))
         self.assertEqual(page.result_type.name, "i32")
+        checked_sir, _ = package.build_canonical_checked_ownership_sir(checked)
+        sir_plan = checked_sir.module.flow_plans[0]
+        self.assertEqual(sir_plan.name, "Home")
+        self.assertEqual(sir_plan.parallel_stages, (("profile", "posts"), ("page",)))
+        lowered_page = next(stage for stage in sir_plan.stages if stage.name == "page")
+        self.assertEqual(lowered_page.function, "render")
+        self.assertEqual(
+            [
+                (argument.parameter_index, argument.parameter_name,
+                 argument.value.producer_stage, argument.value.producer_function,
+                 argument.type_name)
+                for argument in lowered_page.arguments
+            ],
+            [
+                (0, "profile", "profile", "load_profile", "i32"),
+                (1, "posts", "posts", "load_posts", "i32"),
+            ],
+        )
+        sir_dump = checked_sir.module.dump()
+        self.assertIn("sir_flow @Home", sir_dump)
+        self.assertIn("parallel_stage 0 = [%profile, %posts]", sir_dump)
+        self.assertIn("parallel_stage 1 = [%page]", sir_dump)
+        self.assertIn(
+            "flow_stage %page = call @render(%profile.result, %posts.result)",
+            sir_dump,
+        )
+        authority_sir = package.build_canonical_checked_authority_sir(checked)
+        self.assertEqual(authority_sir.module.flow_plans, checked_sir.module.flow_plans)
         with self.assertRaisesRegex(
             package.SotlasBootstrapError,
             "C11 backend does not lower source Flow declarations yet",
         ):
             package.compile_source(source)
+
+    def test_flow_sir_lowering_rejects_tampered_checked_type_facts(self):
+        source = self._source("""
+flow Home {
+    stage profile = load_profile;
+    stage page = render after profile;
+}
+""").replace(
+            "fn render(profile: i32, posts: i32) -> i32 { return profile + posts; }",
+            "fn render(profile: i32) -> i32 { return profile; }",
+        )
+        checked = package.analyze_source_phase1(source)
+        checked_sir, _ = package.build_canonical_checked_ownership_sir(checked)
+        plan = checked.flows[0]
+        page = next(stage for stage in plan.stages if stage.name == "page")
+        tampered_page = replace(page, input_types=(package.bootstrap.Type("u32"),))
+        tampered_plan = replace(
+            plan,
+            stages=tuple(
+                tampered_page if stage.name == "page" else stage
+                for stage in plan.stages
+            ),
+        )
+        with self.assertRaisesRegex(
+            package.FlowSIRError, "checked input type changed"
+        ):
+            package.lower_typed_flows_to_sir(
+                (tampered_plan,), checked.parsed_module, checked_sir.module
+            )
 
     def test_flow_source_rejects_unknown_stage_function_and_dependency(self):
         for flow, diagnostic in (
