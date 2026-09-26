@@ -38,6 +38,8 @@ def _load_module(name: str):
 
 state_space = _load_module("state_space")
 typestate = _load_module("state_typestate")
+state_sir = _load_module("state_sir")
+canonical_sir = _load_module("canonical_sir")
 
 
 class TypestateTests(unittest.TestCase):
@@ -91,6 +93,59 @@ class TypestateTests(unittest.TestCase):
             "Running",
         )
         self.assertEqual(running_fact.target.display(), "Device<Running>")
+
+    def test_certified_transition_lowers_to_source_stable_sir(self):
+        space = self._device_space()
+        discovered = typestate.certify_typestate(space, "Device", "Discovered")
+        fact = typestate.transition_typestate(
+            space,
+            discovered,
+            "Configured",
+            point_id="state_transition@12:9",
+        )
+        sir = canonical_sir.load_canonical_sir()
+        instruction = state_sir.lower_typestate_transition(
+            fact,
+            sir.SIRValue("device", "Device<Discovered>"),
+            "configured_device",
+        )
+        self.assertIsInstance(instruction, sir.StateTransitionInst)
+        self.assertEqual(instruction.result.type_name, "Device<Configured>")
+        self.assertEqual(instruction.point_id, "state_transition@12:9")
+        self.assertIn("Discovered->Configured", str(instruction))
+
+    def test_transition_sir_rejects_missing_or_wrong_source_identity(self):
+        space = self._device_space()
+        discovered = typestate.certify_typestate(space, "Device", "Discovered")
+        missing_identity = typestate.transition_typestate(
+            space, discovered, "Configured"
+        )
+        sir = canonical_sir.load_canonical_sir()
+        with self.assertRaisesRegex(
+            state_sir.StateTransitionSIRError,
+            "requires source-stable identity",
+        ):
+            state_sir.lower_typestate_transition(
+                missing_identity,
+                sir.SIRValue("device", "Device<Discovered>"),
+                "configured_device",
+            )
+
+        sourced = typestate.transition_typestate(
+            space,
+            discovered,
+            "Configured",
+            point_id="state_transition@12:9",
+        )
+        with self.assertRaisesRegex(
+            state_sir.StateTransitionSIRError,
+            "source must have type Device<Discovered>",
+        ):
+            state_sir.lower_typestate_transition(
+                sourced,
+                sir.SIRValue("device", "Device<Running>"),
+                "configured_device",
+            )
 
     def test_transition_cannot_skip_required_state(self):
         space = self._device_space()

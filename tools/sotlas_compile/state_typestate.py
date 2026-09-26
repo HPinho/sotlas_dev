@@ -41,6 +41,7 @@ class TypestateTransitionFact:
     source: StateQualifiedType
     target: StateQualifiedType
     transition: StateSpaceTransition
+    point_id: str | None = None
 
 
 
@@ -109,12 +110,23 @@ def transition_typestate(
     space: StateSpacePlan,
     value: StateQualifiedType,
     target_state: str,
+    *,
+    point_id: str | None = None,
 ) -> TypestateTransitionFact:
     """Certify one explicit typestate transition through the State Space graph."""
     if not isinstance(space, StateSpacePlan):
         raise TypestateError("typestate transition requires a certified StateSpacePlan")
     if not isinstance(value, StateQualifiedType):
         raise TypestateError("typestate transition requires a state-qualified value")
+    if point_id is not None and (
+        not isinstance(point_id, str)
+        or re.fullmatch(r"state_transition@[1-9][0-9]*:[1-9][0-9]*", point_id)
+        is None
+    ):
+        raise TypestateError(
+            "typestate transition requires a source-stable point id "
+            "state_transition@line:column"
+        )
     _require_identifier(target_state, role="typestate transition target")
     if value.space_name != space.name:
         raise TypestateError(
@@ -137,6 +149,7 @@ def transition_typestate(
         source=value,
         target=target,
         transition=edge,
+        point_id=point_id,
     )
 
 

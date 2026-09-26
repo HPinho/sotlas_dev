@@ -107,6 +107,25 @@ class OwnershipDomainTransferInst(SIRInstruction):
 
 
 @dataclass
+class StateTransitionInst(SIRInstruction):
+    """Source-identified typestate transition with an explicit SSA result."""
+
+    source: SIRValue
+    result: SIRValue
+    space_name: str
+    source_state: str
+    target_state: str
+    point_id: str
+
+    def __str__(self) -> str:
+        return (
+            f"  {self.result} = state_transition {self.source} "
+            f"[{self.space_name}:{self.source_state}->{self.target_state}] "
+            f"// {self.point_id}"
+        )
+
+
+@dataclass
 class WhisperBorrowInst(SIRInstruction):
     """Backend-neutral call-scoped borrow fact; has no runtime effect."""
 
