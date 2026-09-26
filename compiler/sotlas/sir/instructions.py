@@ -406,6 +406,7 @@ class SIRModule:
         default_factory=dict, init=False
     )
     flow_plans: Tuple[Any, ...] = ()
+    trust_boundaries: Tuple[Any, ...] = ()
     contract_proofs: Tuple[Any, ...] = ()
     contract_preconditions: Tuple[Any, ...] = ()
 
@@ -434,6 +435,14 @@ class SIRModule:
                     f"// effects @{name}: inferred=[{effects}] "
                     f"declared=[{declared}] unresolved=[{unresolved}]"
                 )
+        for boundary in self.trust_boundaries:
+            effects = ",".join(boundary.effects) or "pure"
+            isolation = "verified" if boundary.isolation_verified else "unverified"
+            lines.append(
+                f"sir_foreign @{boundary.symbol} convention={boundary.convention} "
+                f"trust={boundary.trust_domain} isolation={isolation} "
+                f"effects=[{effects}]"
+            )
         for plan in self.flow_plans:
             lines.append(f"sir_flow @{plan.name} {{")
             for index, stage_names in enumerate(plan.parallel_stages):

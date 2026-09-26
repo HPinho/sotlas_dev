@@ -60,6 +60,19 @@ def _attach_checked_flow_plans(checked_module: object, sir_module) -> None:
     )
 
 
+def _attach_foreign_trust_boundaries(checked_module: object, sir_module) -> None:
+    parsed_module = getattr(checked_module, "parsed_module", None)
+    if parsed_module is None:
+        raise ValueError("foreign trust lowering requires the checked source module")
+    from .trust_domains import analyze_foreign_trust_boundaries
+
+    boundaries = analyze_foreign_trust_boundaries(parsed_module)
+    existing = tuple(getattr(sir_module, "trust_boundaries", ()) or ())
+    if existing and existing != boundaries:
+        raise ValueError("generated SIR already contains conflicting trust boundaries")
+    sir_module.trust_boundaries = boundaries
+
+
 def _attach_checked_contract_proofs(checked_module: object, sir_module) -> None:
     parsed_module = getattr(checked_module, "parsed_module", None)
     proofs = tuple(
@@ -138,6 +151,7 @@ def build_canonical_checked_ownership_sir(checked_module: object):
     )
     module = generator.generate_from_ast(parsed_module)
     _attach_source_effect_summaries(checked_module, module)
+    _attach_foreign_trust_boundaries(checked_module, module)
     _attach_checked_flow_plans(checked_module, module)
     _attach_checked_contract_proofs(checked_module, module)
     placement = sir.apply_ownership_module_plan(module, plan)
@@ -193,6 +207,7 @@ def build_canonical_checked_authority_sir(
     )
     module = generator.generate_from_ast(parsed_module)
     _attach_source_effect_summaries(checked_module, module)
+    _attach_foreign_trust_boundaries(checked_module, module)
     _attach_checked_flow_plans(checked_module, module)
     _attach_checked_contract_proofs(checked_module, module)
 

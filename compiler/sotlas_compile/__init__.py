@@ -86,6 +86,10 @@ from .transactions import (
 from .intent import (
     IntentError, IntentCandidateReview, IntentPlan, plan_sir_intent,
 )
+from .trust_domains import (
+    TrustBoundaryError, ForeignTrustBoundary,
+    analyze_foreign_trust_boundaries,
+)
 from .contracts_frontend import (
     ContractFrontendError,
     ContractCallProof,
@@ -138,4 +142,6 @@ __all__ = [
     "TransactionError", "TransactionEffect", "TransactionAudit",
     "analyze_sir_flow_transaction_effects",
     "IntentError", "IntentCandidateReview", "IntentPlan", "plan_sir_intent",
+    "TrustBoundaryError", "ForeignTrustBoundary",
+    "analyze_foreign_trust_boundaries",
 ]

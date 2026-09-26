@@ -158,6 +158,58 @@ fn run() -> void { raw(); }
             ("unsafe", "volatile"),
         )
 
+    def test_foreign_trust_annotations_are_checked_and_preserved_in_sir(self):
+        source = """
+module test::trust_boundaries;
+@trust(trusted)
+@effects(ffi)
+@extern(C)
+fn trusted_read() -> u32;
+@trust(isolated)
+@extern(C)
+fn isolated_read() -> u32;
+"""
+        checked = analyze_source_phase1(source, filename="trust.sotlas")
+        parsed = checked.parsed_module
+        boundaries = package.analyze_foreign_trust_boundaries(
+            parsed, require_explicit_trust=True
+        )
+        self.assertEqual(
+            [(item.symbol, item.trust_domain, item.isolation_verified)
+             for item in boundaries],
+            [("trusted_read", "trusted", False), ("isolated_read", "isolated", False)],
+        )
+        sir, _ = package.build_canonical_checked_ownership_sir(checked)
+        self.assertEqual(sir.module.trust_boundaries, boundaries)
+        self.assertIn("sir_foreign @isolated_read", sir.module.dump())
+        self.assertIn("isolation=unverified", sir.module.dump())
+
+        with self.assertRaisesRegex(package.TrustBoundaryError, "invalid trust annotation"):
+            malformed = bootstrap.parse(
+                """module test::trust_bad; @trust(automatic) @extern(C) fn call() -> void;""",
+                filename="trust-bad.sotlas",
+            )
+            bootstrap.check(malformed)
+            package.analyze_foreign_trust_boundaries(malformed)
+
+        unlabelled = bootstrap.parse(
+            """module test::trust_missing; @extern(C) fn call() -> void;""",
+            filename="trust-missing.sotlas",
+        )
+        bootstrap.check(unlabelled)
+        with self.assertRaisesRegex(package.TrustBoundaryError, "requires an explicit trust annotation"):
+            package.analyze_foreign_trust_boundaries(
+                unlabelled, require_explicit_trust=True
+            )
+
+        with self.assertRaisesRegex(package.TrustBoundaryError, r"requires @extern\(C\)"):
+            local = bootstrap.parse(
+                """module test::trust_local; @trust(trusted) fn local() -> void { return; }""",
+                filename="trust-local.sotlas",
+            )
+            bootstrap.check(local)
+            package.analyze_foreign_trust_boundaries(local)
+
     def test_checked_source_effects_are_revalidated_in_canonical_sir(self):
         source = """
 module test::effects_sir;

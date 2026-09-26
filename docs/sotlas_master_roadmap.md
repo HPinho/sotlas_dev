@@ -3983,6 +3983,12 @@ O backend nativo de CPU é pré-requisito arquitetural para esta fase, mas não 
 
 `trusted`, `unsafe`, `foreign`, `isolated`.
 
+As declarações `@extern(C)` podem receber `@trust(trusted)`,
+`@trust(unsafe)` ou `@trust(isolated)`. O relatório de fronteira e o SIR
+preservam a classificação declarada e o efeito `ffi`; `isolated` continua
+explicitamente não verificado até que exista sandbox real no target. Sem
+classificação, a consulta pode exigir trust explícito e falhar fechado.
+
 O efeito `ffi` distingue chamadas que cruzam `extern "C"` das demais chamadas
 desconhecidas no summary de Effects. Isso registra a fronteira estrangeira no
 SIR para contratos de backend; não fornece sandboxing nem prova isolamento.

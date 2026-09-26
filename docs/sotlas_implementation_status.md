@@ -31,7 +31,7 @@ Legenda:
 | 6 | Flow | ~40% candidato | 🟡 |
 | 7 | Execution Domains | ~40% | 🟡 |
 | 8 | Heterogeneous Compute | ~0% | 🟡 |
-| 9 | Trust Domains | ~10% candidato | 🟡 |
+| 9 | Trust Domains | ~15% candidato | 🟡 |
 | 10 | Guarantees | ~10% candidato | 🟡 |
 | 11 | Causality | ~5% candidato | 🟡 |
 | 12 | Counterfactuals | ~5% candidato | 🟡 |
@@ -42,6 +42,16 @@ Legenda:
 | 17 | Tooling avançado | ~15% | 🟡 |
 
 Os percentuais medem o escopo necessário para o Sotlas 1.0. Generalizações pós-release não mantêm uma fase aberta quando o subset atual pode rejeitá-las de forma correta e fail-closed.
+
+### Avanço inicial de Trust Domains
+
+- [x] `@trust(trusted|unsafe|isolated)` classifica explicitamente declarações `@extern(C)`;
+- [x] fronteiras FFI exigem summary com efeito `ffi` e podem exigir classificação explícita;
+- [x] o SIR preserva símbolo, convenção, classificação, efeitos e estado de verificação de isolamento;
+- [ ] política de chamadas/wrappers, enforcement de `unsafe` e isolamento real por target continuam pendentes;
+- [x] `isolated` permanece marcado como não verificado até existir sandbox implementado.
+
+API inicial: `analyze_foreign_trust_boundaries(module, require_explicit_trust=True)` em `sotlas_compile.trust_domains`.
 
 ### Avanço inicial de Causality
 
