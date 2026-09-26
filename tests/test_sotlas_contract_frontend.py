@@ -141,6 +141,28 @@ fn entry(value: i32) -> i32 {
             self.assertEqual(module.contract_proofs, ())
             self.assertEqual(len(module.contract_preconditions), 1)
 
+    def test_complex_call_argument_keeps_the_runtime_guard(self):
+        source = """
+module test::contract_complex_argument;
+fn divide_by(b: i32) -> i32
+    requires b != 0
+{
+    return 84i32 / b;
+}
+fn dynamic_value() -> i32 { return 2; }
+fn entry(value: i32) -> i32 {
+    if value != 0 {
+        return divide_by(dynamic_value());
+    }
+    return 0;
+}
+"""
+        for package in (compiler, tools):
+            module = package.bootstrap.parse(source)
+            package.bootstrap.check(module)
+            self.assertEqual(module.contract_proofs, ())
+            self.assertIn("if (!((b != 0))) abort();", package.bootstrap.emit_c(module))
+
     def test_requires_must_be_boolean(self):
         source = """
 module test::contracts;

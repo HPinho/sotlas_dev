@@ -77,7 +77,12 @@ def _refinement_terms(expr, bindings, bootstrap) -> tuple[str, ...]:
             _refinement_terms(expr.left, bindings, bootstrap)
             + _refinement_terms(expr.right, bindings, bootstrap)
         )
-    return (_render_with_bindings(expr, bindings, bootstrap),)
+    try:
+        return (_render_with_bindings(expr, bindings, bootstrap),)
+    except ContractFrontendError:
+        # Complex arguments (calls, fields, indexing, and so on) stay guarded
+        # in the callee until the contract model can describe their effects.
+        return ()
 
 
 _INVERT_COMPARISON = {
