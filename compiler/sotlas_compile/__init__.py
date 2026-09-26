@@ -72,6 +72,11 @@ from .causality import (
     CausalityError, CausalStep, CausalExplanation,
     explain_flow_causality, explain_sir_flow_causality,
 )
+from .counterfactuals import (
+    CounterfactualError, CounterfactualImpact,
+    analyze_flow_stage_unavailability,
+    analyze_sir_flow_stage_unavailability,
+)
 from .contracts_frontend import (
     ContractFrontendError,
     ContractCallProof,
@@ -116,4 +121,7 @@ __all__ = [
     "ContractPrecondition", "CausalityError", "CausalStep",
     "CausalExplanation", "explain_flow_causality",
     "explain_sir_flow_causality",
+    "CounterfactualError", "CounterfactualImpact",
+    "analyze_flow_stage_unavailability",
+    "analyze_sir_flow_stage_unavailability",
 ]

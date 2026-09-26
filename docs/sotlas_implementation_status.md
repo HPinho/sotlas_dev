@@ -1,8 +1,8 @@
 # Sotlas — Implementation Status
 
 **Atualizado em:** 2026-09-26
-**Último baseline verde certificado:** `5b4d02f`
-**CI de referência:** Sotlas CI & Toolchain Build Farm #599 — workflow `success`
+**Último baseline verde certificado:** `f14bb70`
+**CI de referência:** Sotlas CI & Toolchain Build Farm #602 — workflow `success`
 **Fonte arquitetural:** `SOTLAS — ESPECIFICAÇÃO MESTRA`
 
 > Este é o índice operacional atual. O snapshot detalhado anterior, com o histórico extenso das microentregas da Fase 2, permanece preservado em `docs/archive/sotlas_implementation_status_2026-09-23.md`.
@@ -34,7 +34,7 @@ Legenda:
 | 9 | Trust Domains | ~10% candidato | 🟡 |
 | 10 | Guarantees | ~10% candidato | 🟡 |
 | 11 | Causality | ~5% candidato | 🟡 |
-| 12 | Counterfactuals | ~0% | 🟡 |
+| 12 | Counterfactuals | ~5% candidato | 🟡 |
 | 13 | Transactions | ~0% | 🟡 |
 | 14 | Intent | ~0% | 🟡 |
 | 15 | SIR completo | ~34% candidato | 🟡 |
@@ -51,6 +51,15 @@ Os percentuais medem o escopo necessário para o Sotlas 1.0. Generalizações p�
 - [ ] causalidade para expressões e chamadas fora de Flow, provenance de diagnósticos e visualização IDE.
 
 API inicial: `explain_sir_flow_causality(module, flow, source_stage, target_stage)` em `sotlas_compile.causality`.
+
+### Avanço inicial de Counterfactuals
+
+- [x] análise source-stable do impacto de uma stage indisponível em Flow tipado/SIR;
+- [x] stages afetadas incluem o ponto indisponível e todos os consumidores transitivos; stages independentes são preservadas;
+- [x] consulta valida grafo, dependências e cronograma SIR canônicos e não executa funções;
+- [ ] alternativas de recuperação, efeitos observáveis, estado/rollback e análise de cenários fora de Flow.
+
+API inicial: `analyze_sir_flow_stage_unavailability(module, flow, stage)` em `sotlas_compile.counterfactuals`.
 
 ## Fase 1 — Typed Semantic Core
 

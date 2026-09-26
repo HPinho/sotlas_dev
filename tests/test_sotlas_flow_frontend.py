@@ -107,6 +107,17 @@ flow Home {
             package.explain_sir_flow_causality(
                 checked_sir.module, "Home", "page", "profile"
             )
+        impact = package.analyze_flow_stage_unavailability(plan, "profile")
+        self.assertEqual(impact.affected_stages, ("profile", "page"))
+        self.assertEqual(impact.unaffected_stages, ("posts",))
+        self.assertEqual(
+            impact.affected_dependencies,
+            (("profile", "page"), ("posts", "page")),
+        )
+        sir_impact = package.analyze_sir_flow_stage_unavailability(
+            checked_sir.module, "Home", "profile"
+        )
+        self.assertEqual(sir_impact, impact)
         authority_sir = package.build_canonical_checked_authority_sir(checked)
         self.assertEqual(authority_sir.module.flow_plans, checked_sir.module.flow_plans)
         with self.assertRaisesRegex(
@@ -164,6 +175,32 @@ flow Home {
             package.explain_sir_flow_causality(sir.module, "Home", "profile", "posts")
         with self.assertRaisesRegex(package.CausalityError, "no unique checked Flow plan"):
             package.explain_sir_flow_causality(sir.module, "Missing", "profile", "page")
+
+    def test_counterfactual_rejects_unknown_stage_and_noncanonical_graph(self):
+        checked = package.analyze_source_phase1(self._source("""
+flow Home {
+    stage profile = load_profile;
+    stage page = render after profile;
+}
+""").replace(
+            "fn render(profile: i32, posts: i32) -> i32 { return profile + posts; }",
+            "fn render(profile: i32) -> i32 { return profile; }",
+        ))
+        plan = checked.flows[0]
+        with self.assertRaisesRegex(package.CounterfactualError, "unknown Flow stage"):
+            package.analyze_flow_stage_unavailability(plan, "absent")
+        bad_graph = replace(plan.graph, parallel_stages=(("page",), ("profile",)))
+        with self.assertRaisesRegex(package.CounterfactualError, "not in canonical"):
+            package.analyze_flow_stage_unavailability(replace(plan, graph=bad_graph), "profile")
+        sir, _ = package.build_canonical_checked_ownership_sir(checked)
+        with self.assertRaisesRegex(package.CounterfactualError, "no unique checked Flow plan"):
+            package.analyze_sir_flow_stage_unavailability(sir.module, "Missing", "profile")
+        plan_sir = sir.module.flow_plans[0]
+        sir.module.flow_plans = (replace(
+            plan_sir, parallel_stages=(("page",), ("profile",))
+        ),)
+        with self.assertRaisesRegex(package.CounterfactualError, "parallel stages are not canonical"):
+            package.analyze_sir_flow_stage_unavailability(sir.module, "Home", "profile")
 
     def test_typed_flow_runtime_rejects_dependency_tampering_before_execution(self):
         checked = package.analyze_source_phase1(self._source("""

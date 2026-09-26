@@ -3994,6 +3994,13 @@ precondição seguem para o SIR; refinamento simbólico, `ensures` e declaraçõ
 
 `whatif`.
 
+O primeiro subset de Counterfactuals consulta o impacto de uma stage marcada
+como indisponível em um Flow tipado ou em seu plano canônico no SIR. A análise
+propaga a indisponibilidade aos consumidores transitivos, preserva stages
+independentes na ordem fonte e valida dependências e cronograma antes de
+responder. Ela não executa funções nem simula efeitos, estado ou recuperação.
+API: `analyze_sir_flow_stage_unavailability(module, flow, stage)`.
+
 ### 13. Transactions
 
 `change`, rollback e compensations.
