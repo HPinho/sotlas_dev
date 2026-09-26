@@ -19,17 +19,22 @@
   current repository.
 - The earlier v1 architecture audit is preserved as a historical design note;
   its implementation claims are not current certification evidence.
+- `current_implementation_progress.md` was a stale 2026-09-25 snapshot and
+  incorrectly called itself canonical. It is now labeled historical and links
+  to `sotlas_implementation_status.md` as the current index.
 
 ## Open Phase 0 work
 
 1. Audit every public guide and specification example against the canonical
    frontend and label runnable, experimental, or design-only snippets.
-2. Resolve the duplicated `compiler/` and `tools/` Python trees. The audit
-   found 26 byte-identical mirrors, six differing mirrors, and four modules
-   present only under `compiler/`. Some differences are intentional (the SIR
-   prototype banner), but the large bootstrap divergence still needs a
-   migration decision and parity tests before the historical duplication
-   checklist can be closed.
+2. Resolve the duplicated `compiler/` and `tools/` Python trees. The current
+   inventory has 77 paired modules: 73 byte-identical and four different
+   (`sotlas/__init__.py`, `sotlas_compile/__init__.py`,
+   `sotlas_compile/bootstrap.py`, and `sotlas_compile/language_safety.py`).
+   There are 23 Python modules only under `compiler/` and three only under
+   `tools/`. The existing parity gate covers the shared modules outside its
+   reviewed-difference allowlist; the large bootstrap divergence still needs
+   a migration decision before the historical duplication checklist can close.
 3. Keep the example manifest, docs, and package metadata under reality gates
    as the implementation changes.
 

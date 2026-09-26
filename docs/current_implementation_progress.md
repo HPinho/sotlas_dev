@@ -1,12 +1,12 @@
-# Sotlas — Current Implementation Progress
+# Sotlas — Historical Implementation Progress Snapshot (2026-09-25)
 
 **Atualizado em:** 2026-09-25  
 **Último baseline verde certificado:** `70a58e767b0812e2e2b3bc87cebaa9757a682a4b`  
 **CI de referência:** Sotlas CI & Toolchain Build Farm #563 — `success`
 
-> Este arquivo é o snapshot canônico de progresso de engenharia. Os percentuais medem o escopo necessário para o Sotlas 1.0, não a implementação de toda generalização teórica prevista para versões futuras.
+> Snapshot histórico de 2026-09-25. Os percentuais abaixo não representam o status atual. Consulte [sotlas_implementation_status.md](sotlas_implementation_status.md) para o índice vigente e os percentuais certificados do Sotlas 1.0.
 
-## Estado atual
+## Estado registrado no snapshot
 
 ```text
 Fase 0 — Reality Reset              ~80%
