@@ -5,7 +5,11 @@ from dataclasses import dataclass
 from typing import Mapping
 
 from .flow_sir import FlowSIRError, _source_type_name, validate_sir_flow_plans
-from .flow_runtime import FlowExecutionResult, execute_typed_flow
+from .flow_runtime import (
+    FlowExecutionResult,
+    execute_bound_sir_flow,
+    execute_typed_flow,
+)
 
 
 class IntentError(ValueError):
@@ -222,7 +226,56 @@ def execute_sir_intent(
     return IntentExecutionResult(intent.name, intent.selected_flow, execution)
 
 
+def execute_bound_sir_intent(
+    sir_module,
+    intent: IntentPlan,
+    function_bindings: Mapping[str, object],
+    *,
+    max_workers: int | None = None,
+    cancel_event=None,
+) -> IntentExecutionResult:
+    """Execute the selected strategy using only its reconciled canonical SIR plan."""
+    if not isinstance(intent, IntentPlan):
+        raise IntentError("SIR intent execution requires a checked IntentPlan")
+    reviews = tuple(intent.inspection)
+    if any(
+        not isinstance(item, IntentCandidateReview)
+        or item.role not in {"prefer", "fallback"}
+        or not isinstance(item.priority, int)
+        or isinstance(item.priority, bool)
+        for item in reviews
+    ):
+        raise IntentError("intent inspection contains malformed candidate evidence")
+    ordered_reviews = tuple(sorted(reviews, key=lambda item: item.priority))
+    try:
+        canonical = plan_sir_intent(
+            sir_module,
+            intent.name,
+            prefer=tuple(item.flow for item in ordered_reviews if item.role == "prefer"),
+            fallback=tuple(item.flow for item in ordered_reviews if item.role == "fallback"),
+            forbidden_effects=intent.forbidden_effects,
+            unavailable_stages=dict(intent.unavailable_stages),
+        )
+    except (IntentError, TypeError, ValueError) as error:
+        raise IntentError(f"intent plan no longer validates: {error}") from error
+    if canonical != intent:
+        raise IntentError("intent plan differs from the canonical SIR strategy")
+    if intent.selected_flow is None:
+        raise IntentError("intent has no eligible Flow to execute")
+    try:
+        execution = execute_bound_sir_flow(
+            sir_module,
+            intent.selected_flow,
+            function_bindings,
+            max_workers=max_workers,
+            cancel_event=cancel_event,
+        )
+    except (FlowSIRError, TypeError, ValueError) as error:
+        raise IntentError(f"selected SIR Flow cannot execute: {error}") from error
+    return IntentExecutionResult(intent.name, intent.selected_flow, execution)
+
+
 __all__ = [
     "IntentError", "IntentCandidateReview", "IntentPlan", "IntentExecutionResult",
-    "plan_sir_intent", "execute_sir_intent",
+    "plan_sir_intent", "execute_sir_intent", "execute_bound_sir_intent",
 ]

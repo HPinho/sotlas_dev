@@ -4053,6 +4053,12 @@ snapshots e inversas verificadas continuam abertos. APIs:
 
 Planejamento declarativo sobre todas as fundações anteriores.
 
+O executor atual revalida a escolha `prefer`/`fallback`, efeitos proibidos e
+disponibilidade antes de agendar a estratégia selecionada. A API de execução
+SIR recebe bindings por símbolo de função e deriva chamadas e argumentos do
+plano canônico validado. Sintaxe declarativa `intent`, objetivos funcionais,
+guarantees tipadas e integração com Ownership permanecem abertos.
+
 ### 15. SIR completo
 
 Representação integrada de Domains + Flow + Effects + Ownership + Causality.

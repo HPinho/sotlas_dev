@@ -598,6 +598,12 @@ flow Local { stage value = local; }
         )
         self.assertEqual(execution.selected_flow, "Local")
         self.assertEqual(execution.execution.output("value"), 42)
+        bound_execution = package.execute_bound_sir_intent(
+            sir.module, selected, {"local": lambda: 43}
+        )
+        self.assertEqual(bound_execution.selected_flow, "Local")
+        self.assertEqual(bound_execution.execution.output("value"), 43)
+        self.assertTrue(callable(tools_package.execute_bound_sir_intent))
         with self.assertRaisesRegex(package.IntentError, "differs from the canonical"):
             package.execute_sir_intent(
                 checked,
