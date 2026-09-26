@@ -405,6 +405,20 @@ class Function:
     public: bool = False
     attributes: list[str] = field(default_factory=list)
 
+@dataclass(frozen=True)
+class FlowStageDecl:
+    token: Token
+    name: str
+    function: str
+    dependencies: tuple[str, ...]
+
+@dataclass(frozen=True)
+class FlowDecl:
+    token: Token
+    name: str
+    stages: tuple[FlowStageDecl, ...]
+    public: bool = False
+
 @dataclass
 class Module:
     name: str
@@ -416,6 +430,7 @@ class Module:
     functions: list[Function] = field(default_factory=list)
     filename: str | None = None
     source: str | None = None
+    flows: list[FlowDecl] = field(default_factory=list)
 
 
 class Parser:
@@ -634,6 +649,41 @@ class Parser:
                 public = bool(self.accept("pub"))
             if not is_sole and public:
                 is_sole = bool(self.accept("sole"))
+
+            if self.current.kind == "IDENT" and self.current.text == "flow":
+                flow_token = self.current
+                self.at += 1
+                flow_name = self.ident()
+                self.expect("{")
+                stages = []
+                while self.current.kind != "}":
+                    stage_token = self.current
+                    if stage_token.kind != "IDENT" or stage_token.text != "stage":
+                        raise SotlasBootstrapError(
+                            "flow declarations require 'stage name = function' entries",
+                            stage_token.line, stage_token.column,
+                            self.filename, self.source,
+                        )
+                    self.at += 1
+                    stage_name = self.ident()
+                    self.expect("=")
+                    function_name = self.ident()
+                    dependencies = []
+                    if self.current.kind == "IDENT" and self.current.text == "after":
+                        self.at += 1
+                        dependencies.append(self.ident())
+                        while self.accept(","):
+                            dependencies.append(self.ident())
+                    self.expect(";")
+                    stages.append(FlowStageDecl(
+                        stage_token, stage_name, function_name,
+                        tuple(dependencies),
+                    ))
+                self.expect("}")
+                module.flows.append(FlowDecl(
+                    flow_token, flow_name, tuple(stages), public
+                ))
+                continue
 
             if self.accept("struct"):
                 name = self.ident()

@@ -28,7 +28,7 @@ Legenda:
 | 3 | Authority Domains | 100% | ✅ COMPLETE |
 | 4 | State Spaces | 100% | ✅ COMPLETE |
 | 5 | Effects | ~55% candidato | 🟡 |
-| 6 | Flow | ~20% | 🟡 |
+| 6 | Flow | ~35% candidato | 🟡 |
 | 7 | Execution Domains | ~35% | 🟡 |
 | 8 | Heterogeneous Compute | ~0% | 🟡 |
 | 9 | Trust Domains | ~5% | 🟡 |
@@ -171,14 +171,16 @@ Escopo: `docs/sotlas_1_0_phase5_effects_scope.md`.
 
 ## Fase 6 — Flow
 
-**Status 1.0: ~20% 🟡 — IN PROGRESS**
+**Status 1.0: ~35% candidato 🟡 — IN PROGRESS**
 
 - [x] grafo backend-neutral valida dependências e rejeita ciclos;
 - [x] estágios paralelos são derivados deterministicamente da topologia e da ordem declarada;
 - [x] executor local roda nós independentes por estágio e limita workers;
 - [x] ações recebem somente outputs de dependências diretas por mapa imutável;
 - [x] falha/cancelamento param estágios posteriores, cancelam tarefas pendentes e aguardam peers já iniciados;
-- [ ] sintaxe `flow` e tipagem de valores dependentes;
+- [x] sintaxe fonte `flow` com stages e dependências declaradas;
+- [x] frontend confere funções de stage, ciclos, aridade e tipos dos valores dependentes;
+- [ ] gate Phase 6 confirma a nova sintaxe e tipagem (candidato atual);
 - [ ] lowering de Flow para SIR e integração com Effects/Ownership;
 - [ ] cancelamento cooperativo, runtime assíncrono/distribuído e backpressure;
 - [ ] e2e de fonte Sotlas para runtime/backend.

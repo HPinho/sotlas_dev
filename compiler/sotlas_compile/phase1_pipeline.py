@@ -34,6 +34,7 @@ class Phase1CheckedModule:
     authority: AuthorityDomainPlan
     state_spaces: StateSpaceTypedSnapshot | None = None
     source_effects: object | None = None
+    flows: tuple[object, ...] = ()
 
 
 def _restore_checked_handover_transitions(
@@ -209,6 +210,7 @@ def analyze_module_phase1(parsed_module) -> Phase1CheckedModule:
         authority=authority,
         state_spaces=state_spaces,
         source_effects=source_effects,
+        flows=tuple(getattr(parsed_module, "typed_flows", ())),
     )
 
 

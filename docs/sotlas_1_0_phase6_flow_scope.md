@@ -1,8 +1,8 @@
 # Sotlas 1.0 — Phase 6 Flow Scope
 
-**Atualizado em:** 2026-09-25  
+**Atualizado em:** 2026-09-26
 **Status:** 🟡 IN PROGRESS  
-**Último baseline verde certificado:** `0e98e1b` — CI #581 `success`
+**Último baseline verde certificado:** `33e60d8` — CI #586 `success`
 
 ## Subset de runtime disponível
 
@@ -23,6 +23,18 @@ Este executor é uma API runtime para grafos certificados. Ele ainda não é
 sintaxe Sotlas e não afirma tipagem, lowering SIR, integração com Effects ou
 Ownership, nem agendamento distribuído.
 
+## Candidato de frontend de fonte
+
+A rota canônica reconhece declarações `flow Name { stage output = function
+after dependency, ...; }`. O checker certifica o DAG, resolve cada função de
+stage, exige resultados não-void, confere aridade e garante que cada parâmetro
+receba o mesmo tipo do resultado do stage produtor. Chamadas não resolvidas em
+um stage são rejeitadas pelo subset inicial. O plano tipado é preservado em
+`Phase1CheckedModule.flows`.
+
+Este candidato valida declaração e tipos; ele ainda não baixa chamadas para
+SIR nem executa a fonte pelo scheduler.
+
 ## Verificações
 
 - execução concorrente de nós independentes e leitura de dependências diretas;
@@ -38,7 +50,9 @@ Ownership, nem agendamento distribuído.
 - [x] runtime local por estágios com limite opcional de workers;
 - [x] propagação de resultados de dependências diretas;
 - [x] falha e cancelamento impedem estágios posteriores e não deixam tarefas ativas sem join;
-- [ ] sintaxe `flow` e tipagem de valores dependentes no frontend;
+- [x] sintaxe `flow` com stages nomeados e dependências explícitas;
+- [x] frontend tipa valores vindos das dependências e rejeita grafo cíclico;
+- [ ] CI #588 confirma a sintaxe e tipagem (candidato atual);
 - [ ] lowering para SIR e integração com Effects/Ownership;
 - [ ] cancelamento cooperativo de ações, backpressure e políticas de retry;
 - [ ] e2e da fonte Sotlas ao scheduler e ao backend suportado.

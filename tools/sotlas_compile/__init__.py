@@ -44,6 +44,14 @@ from .flow_runtime import (
     FlowExecutionResult,
     execute_flow,
 )
+from .flow_frontend import (
+    FlowFrontendError,
+    TypedFlowPlan,
+    TypedFlowStage,
+    plan_source_flows,
+    install as _install_flow_frontend,
+)
+_install_flow_frontend(bootstrap)
 
 SotlasBootstrapError = bootstrap.SotlasBootstrapError
 compile_source = bootstrap.compile_source
@@ -58,4 +66,6 @@ __all__ = [
     "FlowDependency", "FlowGraphError", "FlowGraphPlan", "FlowNode",
     "certify_flow_graph", "FlowCancelledError", "FlowExecutionError",
     "FlowExecutionResult", "execute_flow",
+    "FlowFrontendError", "TypedFlowPlan", "TypedFlowStage",
+    "plan_source_flows",
 ]
