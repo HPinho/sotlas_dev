@@ -313,7 +313,8 @@ class SotlasStateFrontendTests(unittest.TestCase):
             "discern dev { Discovered => { return 41; } "
             "Configured => { return 42; } "
             "Running => { return 43; } } }"
-        ) + "\nfn main() -> i32 { let dev: Device<Discovered> = Device { id: 0u32 }; " \
+        ).replace("state Discovered", "initial state Discovered") \
+        + "\nfn main() -> i32 { let dev: Device<Discovered> = Device { id: 0u32 }; " \
             "return inspect(dev); }\n"
         generated = bootstrap.compile_source(source, filename="<state-discern-native>")
         with tempfile.TemporaryDirectory(prefix="sotlas-state-discern-") as temp_dir:
