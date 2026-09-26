@@ -63,8 +63,19 @@ def _completed_lifecycle():
         function="submit",
         point_id="handover@3:5",
     )
+    transfer = typed_ast.OwnershipDomainTransfer(
+        function="submit",
+        binding="buffer",
+        domain=typed_ast.OwnershipDomain.EXCLUSIVE,
+        via="handover",
+        destination="device_buffer",
+        point_id="handover@3:5",
+        source_domain=typed_ast.OwnershipDomain.EXCLUSIVE,
+        target_domain=typed_ast.OwnershipDomain.DEVICE,
+        destination_domain=typed_ast.OwnershipDomain.DEVICE,
+    )
     graph = typed_ast.OwnershipDomainGraph(
-        nodes=(), transfers=(), planned_transitions=(submission,)
+        nodes=(), transfers=(transfer,), planned_transitions=(submission,)
     )
     token = device_semantics.open_device_completion(
         graph, function="submit", binding="buffer"
@@ -93,11 +104,13 @@ class SotlasDeviceSIRTests(unittest.TestCase):
 
         self.assertIsInstance(completion, device_sir.DeviceCompletionInst)
         self.assertIsInstance(completion, sir.OwnershipDomainPointInst)
+        self.assertEqual(completion.source_name, "device_buffer")
         self.assertEqual(completion.submission_point_id, "handover@3:5")
         self.assertEqual(completion.point_id, "completion@8:1")
 
         self.assertIsInstance(reacquisition, device_sir.DeviceReacquisitionInst)
         self.assertIsInstance(reacquisition, sir.OwnershipDomainTransferInst)
+        self.assertEqual(reacquisition.source.name, "device_buffer")
         self.assertEqual(reacquisition.submission_point_id, "handover@3:5")
         self.assertEqual(reacquisition.completion_point_id, "completion@8:1")
         self.assertEqual(reacquisition.point_id, "reacquire@9:1")
@@ -105,6 +118,7 @@ class SotlasDeviceSIRTests(unittest.TestCase):
         self.assertEqual(reacquisition.target_domain, "exclusive")
 
         rendered = "\n".join(str(inst) for inst in lowered.instructions)
+        self.assertIn("device_buffer", rendered)
         self.assertIn("handover@3:5", rendered)
         self.assertIn("completion@8:1", rendered)
         self.assertIn("reacquire@9:1", rendered)
@@ -130,6 +144,15 @@ class SotlasDeviceSIRTests(unittest.TestCase):
                 destination,
             )
 
+        with self.assertRaisesRegex(
+            device_sir.DeviceSIRLoweringError, "canonical DEVICE owner"
+        ):
+            device_sir.lower_device_reacquisition(
+                plan,
+                sir.SIRValue("wrong_device", "Token"),
+                destination,
+            )
+
     def test_device_sir_rejects_mismatched_reacquisition_identity(self):
         _, plan, reacquired = _completed_lifecycle()
         source = sir.SIRValue("device_buffer", "Token")
@@ -137,6 +160,7 @@ class SotlasDeviceSIRTests(unittest.TestCase):
         mismatched = type(plan)(
             function=plan.function,
             binding=plan.binding,
+            device_binding=plan.device_binding,
             type=plan.type,
             source=plan.source,
             target=plan.target,
