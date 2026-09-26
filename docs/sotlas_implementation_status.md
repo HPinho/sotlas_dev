@@ -1,8 +1,8 @@
 # Sotlas — Implementation Status
 
 **Atualizado em:** 2026-09-25  
-**Último baseline verde certificado:** `a49f628`
-**CI de referência:** Sotlas CI & Toolchain Build Farm #570 — `success`
+**Último baseline verde certificado:** `7098f41`
+**CI de referência:** Sotlas CI & Toolchain Build Farm #571 — `success`
 **Fonte arquitetural:** `SOTLAS — ESPECIFICAÇÃO MESTRA`
 
 > Este é o índice operacional atual. O snapshot detalhado anterior, com o histórico extenso das microentregas da Fase 2, permanece preservado em `docs/archive/sotlas_implementation_status_2026-09-23.md`.
@@ -28,7 +28,7 @@ Legenda:
 | 3 | Authority Domains | 100% | ✅ COMPLETE |
 | 4 | State Spaces | ~55% | 🟡 IN PROGRESS |
 | 5 | Effects | ~15% | 🟡 |
-| 6 | Flow | ~0% | 🟡 |
+| 6 | Flow | ~10% | 🟡 |
 | 7 | Execution Domains | ~10% | 🟡 |
 | 8 | Heterogeneous Compute | ~0% | 🟡 |
 | 9 | Trust Domains | ~5% | 🟡 |
@@ -154,6 +154,16 @@ Escopo: `docs/sotlas_1_0_phase4_state_space_scope.md`.
 - [ ] declarações/inferência de efeitos na fonte e plano canônico;
 - [ ] integração do efeito inferido ao checker de produção e aos contratos do backend;
 - [ ] restrições completas para `@realtime`, async, locks e efeitos externos.
+
+## Fase 6 — Flow
+
+**Status 1.0: ~10% 🟡 — IN PROGRESS**
+
+- [x] grafo backend-neutral valida dependências e rejeita ciclos;
+- [x] estágios paralelos são derivados deterministicamente da topologia e da ordem declarada;
+- [ ] sintaxe de `flow` e tipagem de valores dependentes;
+- [ ] lowering de Flow para SIR e integração com Effects/Ownership;
+- [ ] runtime de scheduling, cancellation estruturada e testes end-to-end.
 
 ## Regra de baseline
 
