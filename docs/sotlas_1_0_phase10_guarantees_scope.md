@@ -2,7 +2,7 @@
 
 **Atualizado em:** 2026-09-26
 **Status:** 🟡 IN PROGRESS
-**Baseline de código:** `a4b95f4` — CI #591 `success`
+**Baseline de código:** `bb3de63` — CI #593 `success`
 
 ## Subset inicial de precondições
 

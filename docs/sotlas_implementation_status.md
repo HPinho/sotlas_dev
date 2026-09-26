@@ -1,8 +1,8 @@
 # Sotlas — Implementation Status
 
 **Atualizado em:** 2026-09-26
-**Último baseline verde certificado:** `a4b95f4`
-**CI de referência:** Sotlas CI & Toolchain Build Farm #591 — workflow `success`
+**Último baseline verde certificado:** `bb3de63`
+**CI de referência:** Sotlas CI & Toolchain Build Farm #593 — workflow `success`
 **Fonte arquitetural:** `SOTLAS — ESPECIFICAÇÃO MESTRA`
 
 > Este é o índice operacional atual. O snapshot detalhado anterior, com o histórico extenso das microentregas da Fase 2, permanece preservado em `docs/archive/sotlas_implementation_status_2026-09-23.md`.
