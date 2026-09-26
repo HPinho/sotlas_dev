@@ -173,7 +173,7 @@ Escopo: `docs/sotlas_1_0_phase5_effects_scope.md`.
 
 ## Fase 6 — Flow
 
-**Status 1.0: ~35% candidato 🟡 — IN PROGRESS**
+**Status 1.0: ~45% candidato 🟡 — IN PROGRESS**
 
 - [x] grafo backend-neutral valida dependências e rejeita ciclos;
 - [x] estágios paralelos são derivados deterministicamente da topologia e da ordem declarada;
@@ -184,6 +184,7 @@ Escopo: `docs/sotlas_1_0_phase5_effects_scope.md`.
 - [x] frontend confere funções de stage, ciclos, aridade e tipos dos valores dependentes;
 - [x] CI #588 confirma a nova sintaxe e tipagem;
 - [x] plano tipado Flow é reconciliado com assinaturas e summaries Effects e anexado ao SIR canônico;
+- [x] runtime local executa o plano tipado por nome de stage, reconcilia dependências e passa resultados na ordem declarada;
 - [ ] lowering das chamadas de stage em CFG executável, integração de Ownership e execução pelo scheduler;
 - [ ] cancelamento cooperativo, runtime assíncrono/distribuído e backpressure;
 - [ ] e2e de fonte Sotlas para runtime/backend.

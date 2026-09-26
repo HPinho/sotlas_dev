@@ -50,6 +50,7 @@ from .flow_runtime import (
     FlowExecutionError,
     FlowExecutionResult,
     execute_flow,
+    execute_typed_flow,
 )
 from .flow_frontend import (
     FlowFrontendError,
@@ -103,6 +104,7 @@ __all__ = [
     "FlowDependency", "FlowGraphError", "FlowGraphPlan", "FlowNode",
     "certify_flow_graph", "FlowCancelledError", "FlowExecutionError",
     "FlowExecutionResult", "execute_flow",
+    "execute_typed_flow",
     "FlowFrontendError", "TypedFlowPlan", "TypedFlowStage",
     "plan_source_flows", "FlowSIRError", "FlowSIRValueRef",
     "FlowSIRArgument", "FlowSIRStage", "FlowSIRPlan",

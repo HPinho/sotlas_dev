@@ -99,6 +99,66 @@ flow Home {
         ):
             package.compile_source(source)
 
+    def test_typed_source_flow_executes_checked_stages_in_dependency_order(self):
+        checked = package.analyze_source_phase1(self._source("""
+flow Home {
+    stage profile = load_profile;
+    stage posts = load_posts;
+    stage page = render after profile, posts;
+}
+"""))
+        plan = checked.flows[0]
+        observed = []
+
+        def load_profile():
+            observed.append("profile")
+            return 10
+
+        def load_posts():
+            observed.append("posts")
+            return 7
+
+        def render(profile, posts):
+            observed.append(("page", profile, posts))
+            return profile + posts
+
+        result = package.execute_typed_flow(
+            plan,
+            {
+                "profile": load_profile,
+                "posts": load_posts,
+                "page": render,
+            },
+        )
+        self.assertEqual(result.output("page"), 17)
+        self.assertEqual(observed, ["profile", "posts", ("page", 10, 7)])
+
+    def test_typed_flow_runtime_rejects_dependency_tampering_before_execution(self):
+        checked = package.analyze_source_phase1(self._source("""
+flow Home {
+    stage profile = load_profile;
+    stage page = render after profile;
+}
+""").replace(
+            "fn render(profile: i32, posts: i32) -> i32 { return profile + posts; }",
+            "fn render(profile: i32) -> i32 { return profile; }",
+        ))
+        plan = checked.flows[0]
+        page = next(stage for stage in plan.stages if stage.name == "page")
+        tampered = replace(page, dependencies=())
+        bad_plan = replace(
+            plan,
+            stages=tuple(tampered if stage.name == "page" else stage
+                         for stage in plan.stages),
+        )
+        called = []
+        with self.assertRaisesRegex(ValueError, "dependencies differ"):
+            package.execute_typed_flow(
+                bad_plan,
+                {"profile": lambda: 1, "page": lambda value: called.append(value)},
+            )
+        self.assertEqual(called, [])
+
     def test_flow_sir_lowering_rejects_tampered_checked_type_facts(self):
         source = self._source("""
 flow Home {

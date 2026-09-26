@@ -2,7 +2,7 @@
 
 **Atualizado em:** 2026-09-26
 **Status:** 🟡 IN PROGRESS  
-**Último baseline verde certificado:** `a4b95f4` — CI #591 `success`
+**Último baseline verde certificado:** `bb3de63` — CI #593 `success`
 
 ## Subset de runtime disponível
 
@@ -44,6 +44,13 @@ referências tipadas a resultados produtores. O C11 continua rejeitando Flow:
 chamadas de stage ainda não foram baixadas em CFG executável nem ligadas ao
 scheduler.
 
+`execute_typed_flow` executa diretamente esse plano tipado no runtime local.
+Antes de iniciar ações, confere a ordem canônica do grafo, o conjunto de stages,
+as dependências de cada stage e a quantidade de tipos de entrada. Cada ação
+recebe os resultados de suas dependências como argumentos posicionais na ordem
+declarada pela fonte. O runtime ainda não executa código compilado pelo backend
+C11 nem integra ownership de closures.
+
 ## Verificações
 
 - execução concorrente de nós independentes e leitura de dependências diretas;
@@ -63,6 +70,7 @@ scheduler.
 - [x] frontend tipa valores vindos das dependências e rejeita grafo cíclico;
 - [x] CI #588 confirma a sintaxe e tipagem;
 - [x] plano declarativo Flow reconciliado com SIR e summaries Effects;
+- [x] executor local consome o plano tipado de fonte, valida sua estrutura e invoca stages com valores dependentes;
 - [ ] lowering para CFG executável, integração de Ownership e execução pelo scheduler;
 - [ ] cancelamento cooperativo de ações, backpressure e políticas de retry;
 - [ ] e2e da fonte Sotlas ao scheduler e ao backend suportado.

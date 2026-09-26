@@ -43,6 +43,7 @@ from .flow_runtime import (
     FlowExecutionError,
     FlowExecutionResult,
     execute_flow,
+    execute_typed_flow,
 )
 from .flow_frontend import (
     FlowFrontendError,

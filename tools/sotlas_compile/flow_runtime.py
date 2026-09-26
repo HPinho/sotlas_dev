@@ -161,10 +161,81 @@ def execute_flow(
     )
 
 
+def execute_typed_flow(
+    plan,
+    actions: Mapping[str, Callable[..., object]],
+    *,
+    max_workers: int | None = None,
+    cancel_event: Event | None = None,
+) -> FlowExecutionResult:
+    """Execute a checked source Flow plan using stage-name callables.
+
+    Each callable receives dependency outputs as positional arguments in the
+    source declaration order. The typed plan is reconciled with its certified
+    graph before any user action runs.
+    """
+    graph = getattr(plan, "graph", None)
+    stages = getattr(plan, "stages", None)
+    if not isinstance(graph, FlowGraphPlan) or not isinstance(stages, tuple):
+        raise TypeError("Typed Flow execution requires a checked source plan")
+    canonical = certify_flow_graph(graph.nodes, graph.dependencies)
+    if canonical != graph:
+        raise ValueError("Typed Flow graph is not in canonical stage order")
+    stage_names = tuple(node.name for node in graph.nodes)
+    by_name = {getattr(stage, "name", None): stage for stage in stages}
+    if len(by_name) != len(stages) or set(by_name) != set(stage_names):
+        raise ValueError("Typed Flow stages do not match its certified graph")
+    expected_dependencies: dict[str, list[str]] = {
+        name: [] for name in stage_names
+    }
+    for edge in graph.dependencies:
+        expected_dependencies[edge.consumer].append(edge.producer)
+    for name in stage_names:
+        stage = by_name[name]
+        dependencies = getattr(stage, "dependencies", None)
+        input_types = getattr(stage, "input_types", None)
+        function = getattr(stage, "function", None)
+        if dependencies != tuple(expected_dependencies[name]):
+            raise ValueError(
+                f"Typed Flow stage {name!r} dependencies differ from its graph"
+            )
+        if not isinstance(input_types, tuple) or len(input_types) != len(dependencies):
+            raise ValueError(
+                f"Typed Flow stage {name!r} input types differ from its dependencies"
+            )
+        if not isinstance(function, str) or not function:
+            raise ValueError(f"Typed Flow stage {name!r} has no function symbol")
+    if not isinstance(actions, Mapping):
+        raise TypeError("Typed Flow actions must be a mapping keyed by stage name")
+    missing = tuple(name for name in stage_names if name not in actions)
+    extra = tuple(name for name in actions if name not in stage_names)
+    if missing or extra:
+        raise ValueError(
+            f"Typed Flow actions must match stages (missing={missing}, extra={extra})"
+        )
+    if any(not callable(actions[name]) for name in stage_names):
+        raise TypeError("Every typed Flow stage action must be callable")
+
+    wrapped: dict[str, FlowAction] = {}
+    for name in stage_names:
+        stage = by_name[name]
+        dependencies = stage.dependencies
+        action = actions[name]
+
+        def invoke(values, *, dependencies=dependencies, action=action):
+            return action(*(values[dependency] for dependency in dependencies))
+
+        wrapped[name] = invoke
+    return execute_flow(
+        graph, wrapped, max_workers=max_workers, cancel_event=cancel_event
+    )
+
+
 __all__ = [
     "FlowAction",
     "FlowExecutionError",
     "FlowCancelledError",
     "FlowExecutionResult",
     "execute_flow",
+    "execute_typed_flow",
 ]
