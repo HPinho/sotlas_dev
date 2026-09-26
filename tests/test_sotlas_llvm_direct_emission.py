@@ -172,6 +172,39 @@ pub fn add_numbers(left: u32, right: u32) -> u32 {
         run_result = subprocess.run([str(executable)])
         self.assertEqual(run_result.returncode, 0)
 
+    def test_llvm_signed_parameter_comparison_executes_from_native_caller(self):
+        source = """module test::llvm_signed_native_compare;
+pub fn less(left: i32, right: i32) -> bool {
+    return left < right;
+}
+"""
+        object_file = self.tmp_path / "llvm_signed_native_compare.obj"
+        self.toolchain.compile_source_to_native(
+            source,
+            "test::llvm_signed_native_compare",
+            object_file,
+            emit_type="obj",
+            backend="llvm",
+        )
+        caller_file = self.tmp_path / "native_signed_compare_caller.c"
+        caller_file.write_text(
+            "#include <stdbool.h>\n"
+            "extern bool less(int, int);\n"
+            "int main(void) { return less(-10, 2) && !less(2, -10) ? 0 : 1; }\n",
+            encoding="utf-8",
+        )
+        executable = self.tmp_path / "llvm_signed_native_compare.exe"
+        clang = self.toolchain.find_tool("clang")
+        self.assertIsNotNone(clang)
+        subprocess.run(
+            [str(clang), str(caller_file), str(object_file), "-o", str(executable)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        run_result = subprocess.run([str(executable)])
+        self.assertEqual(run_result.returncode, 0)
+
     def test_compile_sotlas_source_to_llvm_ir(self):
         source = """module test::ir_demo;
 pub fn answer() -> i32 {

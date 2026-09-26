@@ -4100,8 +4100,11 @@ reconciliação. As chamadas ainda não estão nos CFGs executáveis.
 
 O SIR também representa retornos diretos de literais inteiros explicitamente
 tipados como `ConstantIntInst`, e o LLVM valida o intervalo antes de emitir o
-valor. Aritmética assinada continua bloqueada até a linguagem definir os modos
-de overflow.
+valor. Comparações diretas entre parâmetros inteiros do mesmo tipo chegam ao
+SIR como `CompareInst`; comparações signed e unsigned são emitidas pelo LLVM. A
+comparação signed fonte→objeto→caller C passou execução nativa para os dois
+sentidos de `<`. Aritmética assinada continua bloqueada até a linguagem definir
+os modos de overflow.
 
 
 Esta fase deve congelar a fronteira semântica que permite substituir C como transporte sem alterar a linguagem:

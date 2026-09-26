@@ -1679,6 +1679,9 @@ class SIRGenerator:
         ):
             return sir_fn
 
+        if self._try_lower_integer_comparison_return(fn, entry_block, sir_params, ret_str):
+            return sir_fn
+
         if self._try_lower_unsigned_arithmetic_return(
             fn, entry_block, sir_params, ret_str
         ):
@@ -1701,6 +1704,59 @@ class SIRGenerator:
             )
         )
         return sir_fn
+
+    def _try_lower_integer_comparison_return(
+        self,
+        fn: Any,
+        entry_block: SIRBasicBlock,
+        params: list[SIRValue],
+        return_type: str,
+    ) -> bool:
+        """Lower one direct comparison of same-typed integer parameters."""
+        body = list(getattr(fn, "body", ()) or ())
+        if len(body) != 1 or type(body[0]).__name__ not in ("Return", "ReturnNode"):
+            return False
+        expression = getattr(body[0], "value", None)
+        if type(expression).__name__ not in ("Binary", "BinaryExprNode"):
+            return False
+        if return_type not in {"bool", "Bool"}:
+            return False
+        operator = getattr(expression, "op", None)
+        operator_name = getattr(operator, "name", None)
+        operation = operator_name or {
+            "==": "EQ", "!=": "NEQ", "<": "LT", "<=": "LTE",
+            ">": "GT", ">=": "GTE",
+        }.get(operator)
+        if operation not in {"EQ", "NEQ", "LT", "LTE", "GT", "GTE"}:
+            return False
+
+        def name_of(node: Any) -> str | None:
+            if type(node).__name__ == "Name":
+                return getattr(node, "value", None)
+            if type(node).__name__ == "IdentNode":
+                return getattr(node, "name", None)
+            return None
+
+        left_name = name_of(getattr(expression, "left", None))
+        right_name = name_of(getattr(expression, "right", None))
+        left = next((param for param in params if param.name == left_name), None)
+        right = next((param for param in params if param.name == right_name), None)
+        integer_types = {
+            "u8", "i8", "u16", "i16", "u32", "i32", "u64", "i64",
+            "usize", "isize",
+        }
+        if (
+            left is None or right is None
+            or left.type_name not in integer_types
+            or right.type_name != left.type_name
+        ):
+            return False
+        result = self._next_val("cmp", "bool")
+        entry_block.add(CompareInst(operation, left, right, result))
+        entry_block.add(
+            ReturnInst(value=result, point_id=self._terminal_return_point_id(fn))
+        )
+        return True
 
     def _try_lower_unsigned_arithmetic_return(
         self,

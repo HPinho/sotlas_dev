@@ -1,8 +1,8 @@
 # Sotlas — Implementation Status
 
 **Atualizado em:** 2026-09-26
-**Último baseline verde certificado:** `3f01b19`
-**CI de referência:** Sotlas CI & Toolchain Build Farm #644 — workflow `success`
+**Último baseline verde certificado:** `40e4c4c`
+**CI de referência:** Sotlas CI & Toolchain Build Farm #646 — workflow `success`
 **Fonte arquitetural:** `SOTLAS — ESPECIFICAÇÃO MESTRA`
 
 > Este é o índice operacional atual. O snapshot detalhado anterior, com o histórico extenso das microentregas da Fase 2, permanece preservado em `docs/archive/sotlas_implementation_status_2026-09-23.md`.
@@ -37,8 +37,8 @@ Legenda:
 | 12 | Counterfactuals | ~15% candidato | 🟡 |
 | 13 | Transactions | ~27% candidato | 🟡 |
 | 14 | Intent | ~20% candidato | 🟡 |
-| 15 | SIR completo | ~42% candidato | 🟡 |
-| 16 | Native Machine Backend | ~10% | 🟡 |
+| 15 | SIR completo | ~43% candidato | 🟡 |
+| 16 | Native Machine Backend | ~11% | 🟡 |
 | 17 | Tooling avançado | ~21% candidato | 🟡 |
 
 Os percentuais medem o escopo necessário para o Sotlas 1.0. Generalizações pós-release não mantêm uma fase aberta quando o subset atual pode rejeitá-las de forma correta e fail-closed.
@@ -46,9 +46,10 @@ Os percentuais medem o escopo necessário para o Sotlas 1.0. Generalizações p�
 ### Avanço de SIR — aritmética escalar sem sinal
 
 - [x] retorno linear de `u8`, `u16`, `u32`, `u64` e `usize` com `+`, `-` ou `*` entre parâmetros do mesmo tipo chega ao SIR como `BinaryOpInst` e ao LLVM como operação modular;
+- [x] comparação direta de parâmetros inteiros de mesmo tipo chega ao SIR como `CompareInst`; o subset LLVM emite comparações signed/unsigned e uma comparação signed passou por execução nativa via caller C;
 - [x] as rotas de AST bootstrap e parser legado são cobertas;
-- [x] o SIR só emite essa instrução quando operandos e resultado atendem ao subset; o backend LLVM rejeita tipos assinados e operações desconhecidas;
-- [ ] constantes, demais expressões, signed overflow definido pela linguagem, CFG geral, lowering para máquina e execução nativa seguem pendentes.
+- [x] o SIR só emite essa instrução aritmética unsigned quando operandos e resultado atendem ao subset; o backend LLVM rejeita tipos assinados e operações desconhecidas;
+- [ ] constantes em expressões, demais formas aritméticas, signed overflow definido pela linguagem, CFG geral e lowering completo para máquina seguem pendentes.
 
 ### Avanço inicial de Trust Domains
 
@@ -365,6 +366,7 @@ Escopo: `docs/sotlas_1_0_phase10_guarantees_scope.md`.
 - [x] LLVM verifica tipo e intervalo antes de emitir o valor;
 - [x] `--emit-asm` e `--emit=asm` aceitam retorno direto e aritmética inteira unsigned de parâmetros no subset LLVM; a cobertura nativa depende de Clang/LLVM disponível;
 - [x] execução nativa chama um objeto Sotlas com aritmética unsigned por parâmetros e confere o resultado por um caller C compilado;
+- [x] função Sotlas com comparação signed direta de parâmetros compila para objeto LLVM e executa via caller C para os casos `-10 < 2` e `2 < -10`;
 - [ ] lowering nativo validado com `llc`/Clang, execução por target, CFG completo e semântica definida de overflow.
 
 ## Regra de baseline
