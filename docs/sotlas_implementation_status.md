@@ -1,8 +1,8 @@
 # Sotlas — Implementation Status
 
 **Atualizado em:** 2026-09-26
-**Último baseline verde certificado:** `c3bbbdd`
-**CI de referência:** Sotlas CI & Toolchain Build Farm #636 — workflow `success`
+**Último baseline verde certificado:** `030a414`
+**CI de referência:** Sotlas CI & Toolchain Build Farm #637 — workflow `success`
 **Fonte arquitetural:** `SOTLAS — ESPECIFICAÇÃO MESTRA`
 
 > Este é o índice operacional atual. O snapshot detalhado anterior, com o histórico extenso das microentregas da Fase 2, permanece preservado em `docs/archive/sotlas_implementation_status_2026-09-23.md`.
@@ -34,7 +34,7 @@ Legenda:
 | 9 | Trust Domains | ~16% candidato | 🟡 |
 | 10 | Guarantees | ~25% candidato | 🟡 |
 | 11 | Causality | ~12% candidato | 🟡 |
-| 12 | Counterfactuals | ~12% candidato | 🟡 |
+| 12 | Counterfactuals | ~14% candidato | 🟡 |
 | 13 | Transactions | ~25% candidato | 🟡 |
 | 14 | Intent | ~20% candidato | 🟡 |
 | 15 | SIR completo | ~42% candidato | 🟡 |
@@ -88,14 +88,16 @@ API inicial: `explain_sir_flow_causality(module, flow, source_stage, target_stag
 - [x] stages afetadas incluem o ponto indisponível e todos os consumidores transitivos; stages independentes são preservadas;
 - [x] consulta valida grafo, dependências e cronograma SIR canônicos e não executa funções;
 - [x] alternativas estruturais com tipo e efeitos comparados; uma allowlist explícita marca efeitos proibidos;
-- [ ] equivalência semântica, estado/rollback e análise de cenários fora de Flow.
+- [x] equivalência limitada para expressões SIR puras unsigned idênticas, com igualdade dos produtores usados provada recursivamente;
+- [ ] equivalência além do subset estrutural, estado/rollback e análise de cenários fora de Flow.
 
-**Status 1.0: ~12% candidato 🟡 — IN PROGRESS**
+**Status 1.0: ~14% candidato 🟡 — IN PROGRESS**
 
 - [x] opções SIR de stage em outro plano com mesmo nome e tipo de saída, sem dependência do stage indisponível;
 - [x] diferenças de efeitos explícitas e avaliação opcional contra uma allowlist declarada pelo chamador;
-- [x] candidatos que violam a allowlist são marcados sem descartar evidência; equivalência semântica permanece não verificada;
-- [ ] alternativas com equivalência semântica provada, estado/rollback e cenários fora de Flow.
+- [x] candidatos que violam a allowlist são marcados sem descartar evidência;
+- [x] equivalência só é marcada quando os corpos são a mesma expressão pura de inteiros unsigned e cada producer usado tem equivalência recursiva;
+- [ ] prova para transformações algébricas não idênticas, estado/rollback e cenários fora de Flow.
 
 APIs: `analyze_sir_flow_stage_unavailability(module, flow, stage)` e
 `analyze_sir_flow_recovery_options(module, flow, unavailable_stage,

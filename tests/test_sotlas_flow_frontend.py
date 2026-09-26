@@ -363,6 +363,47 @@ flow Backup {
                         allowed_effects=policy,
                     )
 
+    def test_counterfactual_proves_only_recursively_equal_pure_sir_values(self):
+        source = """
+module test::counterfactual_equivalence;
+fn primary_value() -> u32 { return 4u32; }
+fn backup_value() -> u32 { return 4u32; }
+fn changed_value() -> u32 { return 5u32; }
+fn primary_factor() -> u32 { return 3u32; }
+fn backup_factor() -> u32 { return 3u32; }
+fn add(left: u32, right: u32) -> u32 { return left + right; }
+flow Home {
+    stage profile = primary_value;
+    stage factor = primary_factor;
+    stage page = add after profile, factor;
+}
+flow Backup {
+    stage spare = backup_value;
+    stage spare_factor = backup_factor;
+    stage page = add after spare, spare_factor;
+}
+flow BackupChanged {
+    stage spare = changed_value;
+    stage spare_factor = backup_factor;
+    stage page = add after spare, spare_factor;
+}
+"""
+        checked = package.analyze_source_phase1(source)
+        sir, _ = package.build_canonical_checked_ownership_sir(checked)
+        options = package.analyze_sir_flow_recovery_options(
+            sir.module, "Home", "profile", "page"
+        )
+        candidates = {item.flow: item for item in options.candidates}
+        self.assertEqual(
+            candidates["Backup"].semantic_equivalence_verified, True
+        )
+        self.assertEqual(
+            candidates["Backup"].semantic_equivalence_evidence,
+            "identical-pure-unsigned-sir-expression",
+        )
+        self.assertFalse(candidates["BackupChanged"].semantic_equivalence_verified)
+        self.assertIsNone(candidates["BackupChanged"].semantic_equivalence_evidence)
+
     def test_counterfactual_rejects_unknown_stage_and_noncanonical_graph(self):
         checked = package.analyze_source_phase1(self._source("""
 flow Home {

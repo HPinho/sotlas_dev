@@ -4034,7 +4034,12 @@ API: `analyze_sir_flow_stage_unavailability(module, flow, stage)`.
 As opções estruturais de recuperação podem ser avaliadas contra uma allowlist
 explícita de efeitos permitidos. Candidatos incompatíveis continuam visíveis
 com os efeitos proibidos registrados; essa política não prova equivalência
-semântica entre implementações.
+semântica entre implementações em geral. Para o subset de corpos SIR puros
+unsigned, a análise marca equivalência quando as árvores de expressão são
+idênticas e os valores de cada producer usado também são provados equivalentes
+recursivamente. O comprovante permanece falso para efeitos, operações ou CFG
+fora desse subset; transformações algébricas e simulação de estado continuam
+abertas.
 
 A primeira base de Transactions fornece uma auditoria estática dos efeitos de
 um Flow SIR. Cada efeito precisa de uma política explícita: `reversible`,
