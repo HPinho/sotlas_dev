@@ -1,8 +1,8 @@
 # Sotlas — Implementation Status
 
 **Atualizado em:** 2026-09-26
-**Último baseline verde certificado:** `33e60d8`
-**CI de referência:** Sotlas CI & Toolchain Build Farm #586 — workflow `success`
+**Último baseline verde certificado:** `a956c04`
+**CI de referência:** Sotlas CI & Toolchain Build Farm #587 — workflow `success`
 **Fonte arquitetural:** `SOTLAS — ESPECIFICAÇÃO MESTRA`
 
 > Este é o índice operacional atual. O snapshot detalhado anterior, com o histórico extenso das microentregas da Fase 2, permanece preservado em `docs/archive/sotlas_implementation_status_2026-09-23.md`.
@@ -162,7 +162,8 @@ Escopo: `docs/sotlas_1_0_phase4_state_space_scope.md`.
 - [x] contratos malformados ou que omitem efeitos falham antes do lowering C11;
 - [x] summaries diretos/transitivos, não resolvidos e declarados preservados por função na Typed AST;
 - [x] summaries de fonte acompanham funções no SIR e contratos declarados são revalidados pela inferência SIR;
-- [ ] contrato de backend consome os summaries revalidados;
+- [x] contrato backend-neutral aceita ou rejeita funções conforme os efeitos SIR revalidados;
+- [ ] backends C11/LLVM aplicam seus próprios contratos durante o lowering;
 - [ ] restrições completas para `@realtime`, async, locks, FFI e efeitos externos;
 - [x] testes end-to-end de fonte Sotlas e gate dedicado desta fatia;
 - [ ] end-to-end amplo por domínio e matriz de runtime/backend.
@@ -180,7 +181,7 @@ Escopo: `docs/sotlas_1_0_phase5_effects_scope.md`.
 - [x] falha/cancelamento param estágios posteriores, cancelam tarefas pendentes e aguardam peers já iniciados;
 - [x] sintaxe fonte `flow` com stages e dependências declaradas;
 - [x] frontend confere funções de stage, ciclos, aridade e tipos dos valores dependentes;
-- [ ] gate Phase 6 confirma a nova sintaxe e tipagem (candidato atual);
+- [ ] CI #588 confirma a nova sintaxe e tipagem (candidato atual);
 - [ ] lowering de Flow para SIR e integração com Effects/Ownership;
 - [ ] cancelamento cooperativo, runtime assíncrono/distribuído e backpressure;
 - [ ] e2e de fonte Sotlas para runtime/backend.

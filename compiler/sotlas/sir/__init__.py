@@ -72,6 +72,9 @@ from .passes import (
     SystemCapabilitySafetyPass,
     DeadCodeEliminationPass,
     EffectInferencePass,
+    BackendEffectContract,
+    BackendEffectResult,
+    validate_backend_effects,
 )
 
 __all__ = [
@@ -136,4 +139,7 @@ __all__ = [
     "SystemCapabilitySafetyPass",
     "DeadCodeEliminationPass",
     "EffectInferencePass",
+    "BackendEffectContract",
+    "BackendEffectResult",
+    "validate_backend_effects",
 ]

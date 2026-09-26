@@ -2,7 +2,7 @@
 
 **Atualizado em:** 2026-09-26
 **Status:** 🟡 IN PROGRESS  
-**Último baseline verde certificado:** `33e60d8` — CI #586 `success`
+**Último baseline verde certificado:** `a956c04` — CI #587 `success`
 
 ## Subset de runtime disponível
 
@@ -30,7 +30,8 @@ after dependency, ...; }`. O checker certifica o DAG, resolve cada função de
 stage, exige resultados não-void, confere aridade e garante que cada parâmetro
 receba o mesmo tipo do resultado do stage produtor. Chamadas não resolvidas em
 um stage são rejeitadas pelo subset inicial. O plano tipado é preservado em
-`Phase1CheckedModule.flows`.
+`Phase1CheckedModule.flows`. O compilador C11 ainda rejeita explicitamente
+essas declarações, pois não há lowering de fonte para scheduler.
 
 Este candidato valida declaração e tipos; ele ainda não baixa chamadas para
 SIR nem executa a fonte pelo scheduler.
@@ -52,7 +53,7 @@ SIR nem executa a fonte pelo scheduler.
 - [x] falha e cancelamento impedem estágios posteriores e não deixam tarefas ativas sem join;
 - [x] sintaxe `flow` com stages nomeados e dependências explícitas;
 - [x] frontend tipa valores vindos das dependências e rejeita grafo cíclico;
-- [ ] CI #588 confirma a sintaxe e tipagem (candidato atual);
+- [ ] CI #588 confirma a sintaxe e tipagem (candidato atual; ainda na fila);
 - [ ] lowering para SIR e integração com Effects/Ownership;
 - [ ] cancelamento cooperativo de ações, backpressure e políticas de retry;
 - [ ] e2e da fonte Sotlas ao scheduler e ao backend suportado.

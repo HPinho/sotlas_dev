@@ -9,6 +9,7 @@ Implementa verificações e otimizações essenciais em nível SIR:
 """
 from __future__ import annotations
 from typing import List, Set, Dict, Optional
+from dataclasses import dataclass
 from .instructions import (
     SIRModule, SIRFunction, SIRBasicBlock, SIRInstruction,
     SIREffectSummary,
@@ -52,6 +53,65 @@ _CALL_EFFECTS = {
     "spin_lock": "sync",
     "spin_unlock": "sync",
 }
+
+
+@dataclass(frozen=True)
+class BackendEffectContract:
+    """Effect capabilities a backend accepts for one lowering target."""
+
+    name: str
+    allowed_effects: frozenset[str]
+    allow_unknown_calls: bool = False
+
+    def __post_init__(self):
+        if not isinstance(self.name, str) or not self.name:
+            raise ValueError("backend effect contract requires a name")
+        if not isinstance(self.allowed_effects, frozenset):
+            raise TypeError("backend allowed_effects must be a frozenset")
+        unknown = self.allowed_effects - _KNOWN_EFFECTS
+        if unknown:
+            raise ValueError(
+                "backend effect contract contains unknown effects: "
+                + ", ".join(sorted(unknown))
+            )
+        if not isinstance(self.allow_unknown_calls, bool):
+            raise TypeError("allow_unknown_calls must be a bool")
+
+
+@dataclass(frozen=True)
+class BackendEffectResult:
+    backend: str
+    function: str
+    accepted: bool
+    rejected_effects: tuple[str, ...] = ()
+
+
+def validate_backend_effects(
+    module: SIRModule, contract: BackendEffectContract
+) -> tuple[BackendEffectResult, ...]:
+    """Reject functions whose verified SIR effects exceed backend support."""
+    if not isinstance(module, SIRModule):
+        raise TypeError("backend effect validation requires an SIRModule")
+    if not isinstance(contract, BackendEffectContract):
+        raise TypeError("backend effect validation requires a contract")
+    if set(module.effect_summaries) != {fn.name for fn in module.functions}:
+        result = EffectInferencePass().run(module)
+        if not result.success:
+            raise ValueError("SIR effects must validate before backend selection: " + "; ".join(result.errors))
+
+    results = []
+    for function in module.functions:
+        summary = module.effect_summaries.get(function.name)
+        if summary is None:
+            raise ValueError(f"SIR effects are missing for function {function.name!r}")
+        rejected = set(summary.transitive_effects) - contract.allowed_effects
+        if summary.unresolved_calls and not contract.allow_unknown_calls:
+            rejected.add("unknown_call")
+        ordered = tuple(effect for effect in _EFFECT_ORDER if effect in rejected)
+        results.append(BackendEffectResult(
+            contract.name, function.name, not ordered, ordered,
+        ))
+    return tuple(results)
 
 
 class EffectInferencePass:
@@ -603,6 +663,18 @@ class SIRPassManager:
             ArcOptimizationPass(),
             Mem2RegPass()
         ]
+
+    def validate_backend_effects(
+        self, module: SIRModule, contract: BackendEffectContract
+    ) -> tuple[BackendEffectResult, ...]:
+        """Run canonical effect inference before checking backend capabilities."""
+        result = EffectInferencePass().run(module)
+        if not result.success:
+            raise ValueError(
+                "SIR effects must validate before backend selection: "
+                + "; ".join(result.errors)
+            )
+        return validate_backend_effects(module, contract)
 
     def run_all(self, module: SIRModule) -> SIRPassResult:
         all_errors = []

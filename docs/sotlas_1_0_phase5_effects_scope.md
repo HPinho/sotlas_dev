@@ -2,7 +2,7 @@
 
 **Atualizado em:** 2026-09-26
 **Status:** 🟡 IN PROGRESS
-**Último baseline verde certificado:** `33e60d8` — CI #586 `success`
+**Último baseline verde certificado:** `a956c04` — CI #587 `success`
 
 ## SIR effect summaries
 
@@ -34,8 +34,10 @@ inline assembly carry conservative effects; unmapped external calls are
 `unknown_call`. Explicit contracts that omit inferred effects fail before C11
 lowering. Phase 1 copies each source summary into its corresponding typed
 function, and canonical SIR construction carries the facts into its functions
-for inference and contract revalidation. Backend contracts remain open. This
-starter contract does not yet model all runtime/FFI names.
+for inference and contract revalidation. A backend-neutral effect capability
+contract reports which functions fit a target's declared effects. C11/LLVM
+lowering does not yet enforce a concrete target contract. This starter does
+not yet model all runtime/FFI names.
 
 ## Verifications
 
@@ -55,7 +57,8 @@ starter contract does not yet model all runtime/FFI names.
 - [x] source syntax, effect inference and canonical checker contract validation;
 - [x] per-function source summary propagation into the Typed AST;
 - [x] propagation into canonical SIR and revalidation of declared contracts;
-- [ ] backend contract integration;
+- [x] backend-neutral per-function effect capability contract;
+- [ ] concrete C11/LLVM contracts enforced during lowering;
 - [ ] effects for `@realtime`, async suspension, locks, FFI, and all runtime calls;
 - [x] source tests and a phase-specific release gate for the subset;
 - [ ] broad domain/runtime/backend end-to-end matrix.
