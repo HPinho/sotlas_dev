@@ -2,7 +2,7 @@
 
 **Atualizado em:** 2026-09-25  
 **Status:** 🟡 IN PROGRESS  
-**Último baseline verde antes deste pacote:** `c34e568787a8afc8ce22150933555067c84468a8` — CI #561 `success`
+**Último baseline verde antes deste pacote:** `70a58e767b0812e2e2b3bc87cebaa9757a682a4b` — CI #563 `success`
 
 ## Objetivo do 1.0
 
@@ -46,7 +46,7 @@ A mesma regra das fases anteriores continua válida:
 - [x] missing states são preservados em ordem de declaração;
 - [x] gate de exhaustividade pode rejeitar consumidor incompleto.
 
-## Bridge do frontend de produção
+## Bridge do frontend e Typed AST
 
 - [x] a rota canônica `sotlas_compile.bootstrap` reconhece declaração `space`;
 - [x] a AST fonte preserva `pub`, nome, estados, payload contracts e edges;
@@ -54,12 +54,17 @@ A mesma regra das fases anteriores continua válida:
 - [x] resolução 1.0 é deliberadamente simples: `Space<State>` só é typestate quando existe `space Space` no mesmo módulo;
 - [x] generics comuns mantêm o comportamento anterior quando não existe State Space homônimo;
 - [x] `StateSpaceFrontendPlan` reconcilia AST fonte com `StateSpacePlan` e `StateQualifiedType`;
+- [x] `StateSpaceTypedSnapshot` congela State Spaces e sites `Type<State>` em uma extensão Typed AST canônica;
+- [x] sites tipados usam identidades determinísticas para parâmetros, retornos, campos, globals, enum payloads e locals explícitos;
+- [x] fatos frontend e Typed AST são cruzados e divergências falham fechado;
+- [x] `Phase1CheckedModule` carrega o snapshot de State Spaces no caminho semântico opt-in;
+- [x] a análise opt-in reaproveita o checker canônico sobre cópia privada do AST, sem remover o gate de produção nem mutar a fonte;
 - [x] estado inexistente, espaço duplicado, edge inválido e forma indireta fora do subset falham fechado;
-- [x] `check`, C11 e header mantêm um gate `PREVIEW` explícito até existir SIR/backend certificado.
+- [x] `check`, C11 e header públicos mantêm um gate `PREVIEW` explícito até existir SIR/backend certificado.
 
 ### Por que `check` ainda rejeita esses módulos
 
-O parser e o planner semântico agora compreendem State Spaces, mas o contrato de produção da Sotlas exige:
+O parser, o planner e o pipeline Phase 1 agora compreendem State Spaces e preservam seus fatos tipados, mas o contrato de produção da Sotlas exige:
 
 > se `sotlas check` retorna sucesso, o pipeline oficialmente suportado deve conseguir compilar corretamente o programa.
 
@@ -68,10 +73,11 @@ Como State Spaces ainda não possuem lowering SIR/backend 1.0, retornar sucesso 
 ## BLOCKERS 1.0
 
 - [x] parser e AST público para declaração `space`;
-- [ ] representação Typed AST canônica de `space` dentro de `Phase1CheckedModule`;
+- [x] representação Typed AST canônica de `space` dentro de `Phase1CheckedModule`;
 - [x] sintaxe pública para tipos `Type<State>` no subset `Space<State>`;
 - [x] resolução de `Type<State>` contra o State Space homônimo correto;
-- [ ] integração do typestate ao Typed AST/checker de produção de forma que o módulo possa ser aceito quando houver backend;
+- [x] pipeline semântico opt-in preserva typestate sem mutar a AST nem contornar o release gate público;
+- [ ] integração do typestate ao checker de produção de forma que o módulo possa ser aceito quando houver backend;
 - [ ] construção de transições a partir de código Sotlas real;
 - [ ] contratos de chamadas/retornos que mudam typestate;
 - [ ] identidade source-stable das transições no SIR;

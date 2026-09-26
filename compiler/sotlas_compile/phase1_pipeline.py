@@ -1,9 +1,9 @@
 """Opt-in canonical Phase-1 semantic pipeline.
 
 This module composes the production bootstrap parser/checker with the isolated
-Phase-1 Typed AST, ownership passes and Authority Domains. It is explicit by
-design: importing the package does not change bootstrap.check and callers must
-opt in to this API.
+Phase-1 Typed AST, ownership passes, Authority Domains, and the Phase-4 State
+Space Typed AST extension. It is explicit by design: importing the package does
+not change bootstrap.check and callers must opt in to this API.
 """
 from __future__ import annotations
 
@@ -11,6 +11,11 @@ from dataclasses import dataclass, replace
 
 from . import bootstrap
 from .authority import AuthorityDomainPlan, plan_authority_domains
+from .state_typed_ast import (
+    StateSpaceTypedSnapshot,
+    build_state_space_typed_snapshot,
+    check_state_space_preview_semantics,
+)
 from .typed_ast import (
     OwnershipDomainTransition,
     Phase1ModuleSnapshot,
@@ -26,6 +31,7 @@ class Phase1CheckedModule:
     semantic: Phase1ModuleSnapshot
     ownership_sir: object
     authority: AuthorityDomainPlan
+    state_spaces: StateSpaceTypedSnapshot | None = None
 
 
 def _restore_checked_handover_transitions(
@@ -136,9 +142,19 @@ def _restore_checked_handover_transitions(
 
 
 def analyze_module_phase1(parsed_module) -> Phase1CheckedModule:
-    """Run checker, authority, semantic snapshot, and ownership SIR bridge."""
+    """Run checker, State/Authority facts, semantic snapshot, and ownership SIR."""
+    state_frontend = None
     try:
-        bootstrap.check(parsed_module)
+        if tuple(getattr(parsed_module, "state_spaces", ())):
+            # State Spaces remain PREVIEW at the public production release gate.
+            # The opt-in semantic pipeline reuses the same canonical checker on
+            # a private AST copy so it can build Typed AST facts without
+            # mutating source or claiming backend support.
+            state_frontend = check_state_space_preview_semantics(
+                parsed_module, bootstrap
+            )
+        else:
+            bootstrap.check(parsed_module)
     except bootstrap.SotlasBootstrapError as error:
         # The production checker now runs the shared whisper escape validator.
         # Keep Phase-1 callers' semantic error type stable while preserving the
@@ -156,6 +172,12 @@ def analyze_module_phase1(parsed_module) -> Phase1CheckedModule:
         build_phase1_semantic_snapshot(parsed_module)
     )
 
+    state_spaces = (
+        build_state_space_typed_snapshot(parsed_module, state_frontend)
+        if state_frontend is not None and state_frontend.declarations
+        else None
+    )
+
     # Keep the Typed AST package independent from SIR imports. The public
     # pipeline is the composition boundary between canonical semantic facts
     # and the backend-neutral intermediate representation.
@@ -170,6 +192,7 @@ def analyze_module_phase1(parsed_module) -> Phase1CheckedModule:
         semantic=semantic,
         ownership_sir=ownership_sir,
         authority=authority,
+        state_spaces=state_spaces,
     )
 
 

@@ -27,6 +27,7 @@ _install_state_space_frontend(bootstrap)
 plan_state_space_frontend = bootstrap.plan_state_space_frontend
 
 from .errors import SotlasError
+from .state_typed_ast import StateSpaceTypedSnapshot
 from .phase1_pipeline import (
     Phase1CheckedModule,
     analyze_module_phase1,
@@ -47,5 +48,5 @@ __all__ = [
     "compile_project", "emit_c_project", "Phase1CheckedModule",
     "analyze_module_phase1", "analyze_source_phase1", "CheckedAuthoritySIR",
     "build_canonical_checked_authority_sir", "StateSpaceFrontendPlan",
-    "plan_state_space_frontend",
+    "StateSpaceTypedSnapshot", "plan_state_space_frontend",
 ]

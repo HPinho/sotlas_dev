@@ -1,8 +1,8 @@
 # Sotlas — Current Implementation Progress
 
 **Atualizado em:** 2026-09-25  
-**Último baseline verde certificado:** `c34e568787a8afc8ce22150933555067c84468a8`  
-**CI de referência:** Sotlas CI & Toolchain Build Farm #561 — `success`
+**Último baseline verde certificado:** `70a58e767b0812e2e2b3bc87cebaa9757a682a4b`  
+**CI de referência:** Sotlas CI & Toolchain Build Farm #563 — `success`
 
 > Este arquivo é o snapshot canônico de progresso de engenharia. Os percentuais medem o escopo necessário para o Sotlas 1.0, não a implementação de toda generalização teórica prevista para versões futuras.
 
@@ -13,7 +13,7 @@ Fase 0 — Reality Reset              ~80%
 Fase 1 — Typed Semantic Core       100% ✅
 Fase 2 — Ownership Domains         100% ✅  (escopo Sotlas 1.0)
 Fase 3 — Authority Domains         100% ✅  (escopo Sotlas 1.0)
-Fase 4 — State Spaces               ~35% 🟡
+Fase 4 — State Spaces               ~45% 🟡
 Fase 5 — Effects                    ~10%
 Fase 6 — Flow                        ~0%
 Fase 7 — Execution Domains          ~10%
@@ -65,9 +65,9 @@ Detalhes: `docs/sotlas_1_0_phase3_authority_scope.md`.
 
 ## Fase 4 — State Spaces
 
-**Status do roadmap 1.0: ~35% 🟡 — EM CONSTRUÇÃO**
+**Status do roadmap 1.0: ~45% 🟡 — EM CONSTRUÇÃO**
 
-A Fase 4 já possui núcleo semântico backend-neutral e agora começa a entrar no frontend de produção sem violar a regra `check => backend suportado`.
+A Fase 4 já possui núcleo semântico backend-neutral, sintaxe pública e uma extensão Typed AST canônica integrável ao `Phase1CheckedModule`, mantendo o release gate público fechado até existir backend certificado.
 
 ### Já implementado
 
@@ -87,25 +87,31 @@ A Fase 4 já possui núcleo semântico backend-neutral e agora começa a entrar 
 - [x] generics existentes continuam com a semântica anterior quando não existe State Space homônimo;
 - [x] `StateSpaceFrontendPlan` reconcilia a AST fonte com `StateSpacePlan` e `StateQualifiedType`;
 - [x] typestate direto por valor é revalidado contra o espaço correto; formas indiretas ainda não contratadas falham fechado;
-- [x] `check` e emissão C/header possuem gate PREVIEW explícito: State Spaces são validados semanticamente, mas não são aceitos como compiláveis antes do SIR/backend certificado.
+- [x] `StateSpaceTypedSnapshot` congela State Spaces, payloads, edges e typestates em fatos Typed AST determinísticos;
+- [x] sites de typestate possuem identidade determinística para parâmetros, retornos, campos, globals, enum payloads e locals tipados;
+- [x] frontend e Typed AST são cruzados por multiset de fatos; divergência falha fechado;
+- [x] o pipeline Phase 1 pode validar State Spaces em cópia privada do AST, sem mutar a fonte nem abrir o release gate;
+- [x] `Phase1CheckedModule` passa a carregar o snapshot tipado de State Spaces no caminho opt-in;
+- [x] `check` e emissão C/header continuam com gate PREVIEW explícito: State Spaces não são aceitos como compiláveis antes do SIR/backend certificado.
 
-### Por que o gate PREVIEW é intencional
+### Por que o gate PREVIEW continua intencional
 
-Neste ponto o frontend consegue **entender** `space` e `Space<State>`, mas ainda não existe um lowering 1.0 certificado para preservar essas informações até o backend. Portanto:
+Neste ponto o frontend e o pipeline semântico opt-in conseguem **entender e congelar** `space`/`Space<State>`, mas ainda não existe lowering 1.0 certificado para preservar transições até o backend. Portanto:
 
 ```text
-parse        ✅
-source AST   ✅
-semantic plan✅
-production check as SUPPORTED  ❌ (fail-closed)
-backend      ❌
+parse                    ✅
+source AST               ✅
+semantic plan            ✅
+Phase1 typed snapshot    ✅
+production check SUPPORTED ❌ (fail-closed)
+state transition SIR     ❌
+backend                  ❌
 ```
 
 Isso impede o compilador de retornar sucesso para um programa que o backend oficial ainda não consegue materializar corretamente.
 
 ### BLOCKERS restantes para fechar a Fase 4 no Sotlas 1.0
 
-- [ ] integrar State Space/typestate ao Typed AST canônico carregado por `Phase1CheckedModule`;
 - [ ] definir a operação pública de transição em código Sotlas real;
 - [ ] validar chamadas/retornos que efetivamente mudam typestate;
 - [ ] preservar identidade source-stable das transições no SIR;
@@ -147,4 +153,4 @@ Não contornar testes, não relaxar invariantes para obter CI verde e não empil
 
 ## Próximo foco principal
 
-O caminho crítico permanece na **Fase 4 — State Spaces**. Depois do bridge de sintaxe pública, o próximo marco é colocar `StateSpacePlan`/typestate dentro do `Phase1CheckedModule`/Typed AST canônico e definir a primeira transição source-stable real, mantendo o gate de produção fechado até o backend estar pronto.
+O caminho crítico permanece na **Fase 4 — State Spaces**. Com frontend e Typed AST conectados, o próximo blocker é definir a primeira operação de transição source-stable em código Sotlas real e levá-la ao SIR sem inventar transições implícitas.

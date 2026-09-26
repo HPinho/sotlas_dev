@@ -1,8 +1,8 @@
 # Sotlas — Implementation Status
 
 **Atualizado em:** 2026-09-25  
-**Último baseline verde certificado:** `c34e568787a8afc8ce22150933555067c84468a8`  
-**CI de referência:** Sotlas CI & Toolchain Build Farm #561 — `success`  
+**Último baseline verde certificado:** `70a58e767b0812e2e2b3bc87cebaa9757a682a4b`  
+**CI de referência:** Sotlas CI & Toolchain Build Farm #563 — `success`  
 **Fonte arquitetural:** `SOTLAS — ESPECIFICAÇÃO MESTRA`
 
 > Este é o índice operacional atual. O snapshot detalhado anterior, com o histórico extenso das microentregas da Fase 2, permanece preservado em `docs/archive/sotlas_implementation_status_2026-09-23.md`.
@@ -26,7 +26,7 @@ Legenda:
 | 1 | Typed Semantic Core | 100% | ✅ COMPLETE |
 | 2 | Ownership Domains | 100% | ✅ COMPLETE |
 | 3 | Authority Domains | 100% | ✅ COMPLETE |
-| 4 | State Spaces | ~35% | 🟡 IN PROGRESS |
+| 4 | State Spaces | ~45% | 🟡 IN PROGRESS |
 | 5 | Effects | ~10% | 🟡 |
 | 6 | Flow | ~0% | 🟡 |
 | 7 | Execution Domains | ~10% | 🟡 |
@@ -90,7 +90,7 @@ Escopo: `docs/sotlas_1_0_phase3_authority_scope.md`.
 
 ## Fase 4 — State Spaces
 
-**Status 1.0: ~35% 🟡 — IN PROGRESS**
+**Status 1.0: ~45% 🟡 — IN PROGRESS**
 
 ### Núcleo semântico
 
@@ -103,19 +103,22 @@ Escopo: `docs/sotlas_1_0_phase3_authority_scope.md`.
 - [x] identidade de State Space preservada;
 - [x] coverage backend-neutral e exhaustiveness gate.
 
-### Frontend de produção
+### Frontend e Typed AST
 
 - [x] `space` é reconhecido na rota canônica `sotlas_compile.bootstrap`;
 - [x] AST fonte preserva nome, visibilidade, estados, payloads e transições;
 - [x] `Space<State>` é reconhecido como typestate no subset 1.0 quando existe `space Space`;
 - [x] generics não associados a um State Space continuam compatíveis;
 - [x] `StateSpaceFrontendPlan` reconcilia fonte → grafo canônico → typestate;
-- [x] estado inexistente, espaço duplicado, edge inválido e typestate indireto fora do subset falham fechado;
-- [x] `check`/C/header rejeitam State Spaces como `PREVIEW` até haver lowering certificado, preservando `check => backend suportado`.
+- [x] `StateSpaceTypedSnapshot` preserva State Spaces, payloads, edges e sites tipados;
+- [x] sites de typestate possuem identidade determinística em declarações e locals explícitos;
+- [x] divergência frontend ↔ Typed AST falha fechado;
+- [x] `Phase1CheckedModule` carrega o snapshot tipado no pipeline opt-in;
+- [x] análise Phase 1 usa uma cópia privada para reaproveitar o checker canônico sem mutar o AST original;
+- [x] `check`/C/header públicos continuam rejeitando State Spaces como `PREVIEW` até haver lowering certificado, preservando `check => backend suportado`.
 
 ### Blockers 1.0 ainda abertos
 
-- [ ] State Spaces/typestate dentro do Typed AST canônico de `Phase1CheckedModule`;
 - [ ] operação pública de transição a partir de código Sotlas real;
 - [ ] contratos de calls/returns que mudam estado;
 - [ ] fatos source-stable de transição no SIR;

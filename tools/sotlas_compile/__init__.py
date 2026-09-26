@@ -29,6 +29,7 @@ _install_state_space_frontend(bootstrap)
 plan_state_space_frontend = bootstrap.plan_state_space_frontend
 
 from .errors import SotlasError
+from .state_typed_ast import StateSpaceTypedSnapshot
 
 SotlasBootstrapError = bootstrap.SotlasBootstrapError
 compile_source = bootstrap.compile_source
@@ -38,5 +39,5 @@ emit_c_project = bootstrap.emit_c_project
 __all__ = [
     "bootstrap", "SotlasError", "SotlasBootstrapError", "compile_source",
     "compile_project", "emit_c_project", "StateSpaceFrontendPlan",
-    "plan_state_space_frontend",
+    "StateSpaceTypedSnapshot", "plan_state_space_frontend",
 ]
