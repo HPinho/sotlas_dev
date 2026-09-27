@@ -50,17 +50,31 @@ zero-based. Stage outputs are copied to caller memory only after every stage
 completes, so cancellation leaves those outputs unchanged. A native C caller
 test covers cancellation between stages and the success path.
 
+An additional `_dispatch` ABI lets a C host provide one executor callback for
+the checked stage schedule. Each callback receives the zero-based stage index,
+dependency values as read-only pointers, the input count, and a pointer to the
+stage's scalar output. Callback status `0` means success; any nonzero value is
+reported as wrapper status `3`, with the original callback value written to
+`stage_status` and the stage index written to `stopped_stage`. Wrapper status
+`1` means an output pointer is null, `2` means cancellation, and `4` means no
+executor was supplied. As with `_cancelable`, caller outputs are committed only
+after every stage succeeds. The callback is responsible for implementing the
+stage associated with each checked index; the compiler does not prove callback
+equivalence to the Sotlas function body. This is a scalar host/provider ABI, not
+a built-in GPU/NPU backend.
+
 This initial native path serializes accepted DAGs in deterministic dependency
 order, including plans with independent stages. It rejects unsupported types,
 contracts, system/foreign functions, method calls, and global access (including
 access through directly called helpers). The source effect pass does not yet
 classify global reads and writes, so the C11 gate checks that case syntactically
-and conservatively. The host scheduler remains the only path with structured
-stage-failure and cooperative cancellation propagation. Native Flow functions
-are restricted to proven-pure scalar-returning stages and cannot report stage
-failures through this ABI. Cancellation is cooperative between stages and
-cannot interrupt a running stage. The native entrypoints do not add parallel
-scheduling or asynchronous execution.
+and conservatively. The host scheduler remains the only path that runs the
+checked source stage bodies with structured stage-failure and cooperative
+cancellation propagation. Direct native entrypoints are restricted to
+proven-pure scalar-returning stages; their cancellation hook cannot interrupt a
+running stage. `_dispatch` delegates stage bodies to a caller-supplied executor,
+which is not verified against the source implementation. Native entrypoints do
+not add parallel scheduling or asynchronous execution.
 
 ## Verification
 

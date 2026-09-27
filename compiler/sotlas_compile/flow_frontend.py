@@ -78,6 +78,7 @@ def _emit_c11_flow_entrypoints(module, bootstrap) -> str:
         )
         outputs_name = f"{entry_name}_outputs"
         cancelable_name = f"{entry_name}_cancelable"
+        dispatch_name = f"{entry_name}_dispatch"
         if entry_name in generated_names:
             raise FlowFrontendError(
                 f"multiple Flow plans map to generated C11 symbol {entry_name!r}"
@@ -95,6 +96,12 @@ def _emit_c11_flow_entrypoints(module, bootstrap) -> str:
                 "collides with a function or another Flow plan"
             )
         generated_names.add(cancelable_name)
+        if dispatch_name in generated_names or dispatch_name in used_names:
+            raise FlowFrontendError(
+                f"generated C11 Flow dispatch symbol {dispatch_name!r} "
+                "collides with a function or another Flow plan"
+            )
+        generated_names.add(dispatch_name)
         declaration = functions.get(entry_name)
         if declaration is not None:
             if (
@@ -115,11 +122,13 @@ def _emit_c11_flow_entrypoints(module, bootstrap) -> str:
             used_names.add(entry_name)
 
         output_names: dict[str, str] = {}
+        dispatch_output_names: dict[str, str] = {}
         output_parameters = []
         body = []
         outputs_body = []
         cancelable_body = []
         cancelable_publish = []
+        dispatch_body = []
         for stage_index, stage_name in enumerate(order):
             stage = stages[stage_name]
             function = functions.get(stage.function)
@@ -187,6 +196,52 @@ def _emit_c11_flow_entrypoints(module, bootstrap) -> str:
                 f"sotlas_flow_value_{plan.name}_{stage.name}"
             )
             call = f"{bootstrap._c_ident(stage.function)}({', '.join(arguments)})"
+            dispatch_arguments = []
+            for dependency in stage.dependencies:
+                dispatch_dependency = dispatch_output_names.get(dependency)
+                if dispatch_dependency is None:
+                    raise FlowFrontendError(
+                        f"C11 Flow dispatch stage {stage.name!r} reads a dependency "
+                        f"{dependency!r} before it is produced"
+                    )
+                dispatch_arguments.append(dispatch_dependency)
+            dispatch_inputs_name = bootstrap._c_ident(
+                f"sotlas_flow_inputs_{plan.name}_{stage.name}"
+            )
+            if dispatch_arguments:
+                dispatch_body.append(
+                    f"    const void *{dispatch_inputs_name}[] = {{ "
+                    + ", ".join(
+                        f"(const void *)&{name}" for name in dispatch_arguments
+                    )
+                    + " };"
+                )
+                dispatch_inputs = dispatch_inputs_name
+            else:
+                dispatch_inputs = "0"
+            dispatch_value = bootstrap._c_ident(
+                f"sotlas_flow_dispatch_value_{plan.name}_{stage.name}"
+            )
+            dispatch_status = bootstrap._c_ident(
+                f"sotlas_flow_dispatch_status_{plan.name}_{stage.name}"
+            )
+            dispatch_body.extend([
+                "    if (is_cancelled != 0 && is_cancelled(context)) {",
+                f"        if (stopped_stage != 0) *stopped_stage = {stage_index};",
+                "        return 2;",
+                "    }",
+                f"    {stage.result_type.c()} {dispatch_value};",
+                f"    int32_t {dispatch_status} = dispatch_stage(context, "
+                f"{stage_index}u, {dispatch_inputs}, "
+                f"{len(dispatch_arguments)}u, "
+                f"(void *)&{dispatch_value});",
+                f"    if ({dispatch_status} != 0) {{",
+                f"        if (stopped_stage != 0) *stopped_stage = {stage_index};",
+                f"        if (stage_status != 0) *stage_status = {dispatch_status};",
+                "        return 3;",
+                "    }",
+            ])
+            dispatch_output_names[stage.name] = dispatch_value
             cancelable_body.extend([
                 "    if (is_cancelled != 0 && is_cancelled(context)) {",
                 f"        if (cancelled_stage != 0) *cancelled_stage = {stage_index};",
@@ -220,7 +275,36 @@ def _emit_c11_flow_entrypoints(module, bootstrap) -> str:
                 for kind, name in output_parameters
             ),
         ])
+        dispatch_signature = ", ".join([
+            "int32_t (*dispatch_stage)(void *, uint32_t, "
+            "const void *const *, uint32_t, void *)",
+            "void *context",
+            "int32_t (*is_cancelled)(void *)",
+            "int32_t *stopped_stage",
+            "int32_t *stage_status",
+            *(
+                f"{kind} *{name}"
+                for kind, name in output_parameters
+            ),
+        ])
         emitted.extend([
+            f"int32_t {dispatch_name}({dispatch_signature}) {{",
+            *[
+                f"    if ({name} == 0) return 1;"
+                for _, name in output_parameters
+            ],
+            "    if (dispatch_stage == 0) return 4;",
+            "    if (stopped_stage != 0) *stopped_stage = -1;",
+            "    if (stage_status != 0) *stage_status = 0;",
+            *dispatch_body,
+            *[
+                f"    *out_{bootstrap._c_ident(stage.name)} = "
+                f"{dispatch_output_names[stage.name]};"
+                for stage in (stages[item] for item in order)
+            ],
+            "    return 0;",
+            "}",
+            "",
             f"int32_t {cancelable_name}({cancelable_signature}) {{",
             *[
                 f"    if ({name} == 0) return 1;"

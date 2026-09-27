@@ -3971,14 +3971,16 @@ stages with structured failure and cooperative cancellation. The native C11
 subset compiles pure scalar stages in deterministic dependency order and
 supports structured stage branches and early returns.
 
-The C11 backend now also emits an optional `_cancelable` ABI. A host callback is
-polled between stages; cancellation returns a status and zero-based stage index,
-and stage outputs are copied to caller memory only after successful completion.
-Because accepted native stages are proven-pure scalar functions, this ABI does
-not report stage failures and cannot interrupt an executing stage. Native
-execution remains serial. Parallel SIR CFG, ownership payloads, a native stage
-failure channel, and GPU/NPU dispatch remain open. The bounded contract and
-rejections are documented in `docs/sotlas_1_0_phase6_flow_scope.md`.
+The C11 backend also emits optional `_cancelable` and `_dispatch` ABIs. The first
+polls a host cancellation callback between direct calls to pure scalar stages.
+The second accepts a caller-supplied scalar stage executor and propagates its
+failure status; both report the stopped stage and publish outputs only after
+success. Dispatch callbacks are not verified equivalent to the Sotlas stage
+bodies, and the interface does not provide device buffers or transfers. Native
+execution remains serial. Parallel SIR CFG, ownership payloads, verified stage
+failure semantics, and built-in GPU/NPU dispatch remain open. The bounded
+contract and rejections are documented in
+`docs/sotlas_1_0_phase6_flow_scope.md`.
 
 ### 7. Execution Domains
 

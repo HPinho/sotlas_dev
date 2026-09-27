@@ -23,6 +23,91 @@ bootstrap = canonical_llvm_frontend()
 
 
 class SotlasFlowNativeTests(unittest.TestCase):
+    def test_c11_flow_dispatch_abi_propagates_stage_failure_and_cancellation(self):
+        compiler = default_toolchain.find_tool("clang") or shutil.which("gcc")
+        if compiler is None:
+            self.skipTest("Clang or GCC is required for native Flow execution")
+        source = """module test::native_dispatch_flow;
+fn seed() -> u32 { return 4u32; }
+fn increment(value: u32) -> u32 { return value + 1u32; }
+fn twice(value: u32) -> u32 { return value * 2u32; }
+flow Compute {
+    stage first = seed;
+    stage second = increment after first;
+    stage third = twice after second;
+}
+"""
+        c_source = bootstrap.compile_source(source, "native_dispatch_flow.sotlas")
+        entrypoint = "sotlas_flow_test__native_dispatch_flow_Compute_dispatch"
+        self.assertIn(f"int32_t {entrypoint}(", c_source)
+
+        with tempfile.TemporaryDirectory(prefix="sotlas-flow-dispatch-c11-") as tmpdir:
+            root = Path(tmpdir)
+            generated = root / "flow.c"
+            caller = root / "caller.c"
+            executable = root / ("caller.exe" if os.name == "nt" else "caller")
+            generated.write_text(c_source, encoding="utf-8")
+            caller.write_text(
+                "#include <stdint.h>\n"
+                "typedef struct { int32_t fail_stage; int32_t cancel_check; "
+                "int32_t checks; } Context;\n"
+                "typedef int32_t (*Dispatch)(void *, uint32_t, "
+                "const void *const *, uint32_t, void *);\n"
+                "typedef int32_t (*Cancel)(void *);\n"
+                f"extern int32_t {entrypoint}(Dispatch, void *, Cancel, "
+                "int32_t *, int32_t *, uint32_t *, uint32_t *, uint32_t *);\n"
+                "static int32_t dispatch_stage(void *raw, uint32_t stage, "
+                "const void *const *inputs, uint32_t count, void *output) {\n"
+                "  Context *ctx = (Context *)raw;\n"
+                "  if (stage == 0 && count == 0) { *(uint32_t *)output = 4; return 0; }\n"
+                "  if (stage == 1 && count == 1) {\n"
+                "    *(uint32_t *)output = *(const uint32_t *)inputs[0] + 1;\n"
+                "    return ctx->fail_stage == 1 ? 41 : 0;\n"
+                "  }\n"
+                "  if (stage == 2 && count == 1) {\n"
+                "    *(uint32_t *)output = *(const uint32_t *)inputs[0] * 2;\n"
+                "    return 0;\n"
+                "  }\n"
+                "  return 99;\n"
+                "}\n"
+                "static int32_t is_cancelled(void *raw) {\n"
+                "  Context *ctx = (Context *)raw;\n"
+                "  return ctx->cancel_check >= 0 && ctx->checks++ == ctx->cancel_check;\n"
+                "}\n"
+                "int main(void) {\n"
+                "  uint32_t first = 91, second = 92, third = 93;\n"
+                "  int32_t stopped = -9, status = 0;\n"
+                "  Context ctx = {1, -1, 0};\n"
+                f"  if ({entrypoint}(dispatch_stage, &ctx, is_cancelled, &stopped, "
+                "&status, &first, &second, &third) != 3) return 1;\n"
+                "  if (stopped != 1 || status != 41 || first != 91 || "
+                "second != 92 || third != 93) return 2;\n"
+                "  ctx.fail_stage = -1; ctx.cancel_check = 2; ctx.checks = 0;\n"
+                f"  if ({entrypoint}(dispatch_stage, &ctx, is_cancelled, &stopped, "
+                "&status, &first, &second, &third) != 2) return 3;\n"
+                "  if (stopped != 2 || status != 0 || first != 91 || "
+                "second != 92 || third != 93) return 4;\n"
+                "  ctx.cancel_check = -1; ctx.checks = 0;\n"
+                f"  if ({entrypoint}(dispatch_stage, &ctx, is_cancelled, &stopped, "
+                "&status, &first, &second, &third) != 0) return 5;\n"
+                "  return stopped == -1 && status == 0 && first == 4 && "
+                "second == 5 && third == 10 ? 0 : 6;\n"
+                "}\n",
+                encoding="utf-8",
+            )
+            compiled = subprocess.run(
+                [str(compiler), "-std=c11", "-Wall", "-Wextra", str(generated),
+                 str(caller), "-o", str(executable)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            executed = subprocess.run(
+                [str(executable)], capture_output=True, text=True, check=False
+            )
+            self.assertEqual(executed.returncode, 0, executed.stderr)
+
     def test_c11_flow_cancel_abi_stops_between_stages_without_partial_outputs(self):
         compiler = default_toolchain.find_tool("clang") or shutil.which("gcc")
         if compiler is None:
