@@ -38,12 +38,17 @@ async function main() {
     fs.mkdirSync(testExtensionsDir, { recursive: true });
     const sourcePath = path.join(workspaceDir, 'main.sotlas');
     fs.writeFileSync(sourcePath, 'module smoke;\npub fn main() -> i64 { return 0; }\n');
-    const compilerPath = path.join(temporary, 'sotlas-diagnostic-fixture.sh');
-    fs.writeFileSync(compilerPath, '#!/bin/sh\nprintf "sotlas: erro: %s:2:3: installed VSIX diagnostic probe\\n" "$2"\nexit 1\n');
-    fs.chmodSync(compilerPath, 0o755);
+    // Use Node itself as the configured compiler so this fixture works on
+    // Windows as well as Unix without relying on shell-script execution.
+    fs.writeFileSync(
+      path.join(workspaceDir, 'check'),
+      'const file = process.argv[2];\n'
+        + 'process.stderr.write(`sotlas: erro: ${file}:2:3: installed VSIX diagnostic probe\\n`);\n'
+        + 'process.exitCode = 1;\n',
+    );
     fs.writeFileSync(
       path.join(workspaceDir, '.vscode', 'settings.json'),
-      JSON.stringify({ 'sotlas.compilerPath': compilerPath }, null, 2),
+      JSON.stringify({ 'sotlas.compilerPath': process.execPath }, null, 2),
     );
 
     const testExitCode = await runTests({
@@ -55,7 +60,12 @@ async function main() {
     });
     assert.equal(testExitCode, 0, 'the installed VSIX activates and publishes compiler diagnostics');
   } finally {
-    fs.rmSync(temporary, { recursive: true, force: true });
+    fs.rmSync(temporary, {
+      recursive: true,
+      force: true,
+      maxRetries: 20,
+      retryDelay: 250,
+    });
   }
 }
 

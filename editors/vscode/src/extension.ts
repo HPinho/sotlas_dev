@@ -146,7 +146,12 @@ export async function activate(context: vscode.ExtensionContext) {
         }
         timeout = setTimeout(() => {
             const result = validator.validateDocument(document);
-            diagnosticCollection.set(document.uri, result.diagnostics);
+            const compilerDiagnostics = (diagnosticCollection.get(document.uri) || [])
+                .filter(existing => existing.source === 'Sotlas compiler');
+            diagnosticCollection.set(
+                document.uri,
+                [...result.diagnostics, ...compilerDiagnostics]
+            );
         }, 150);
     }
 

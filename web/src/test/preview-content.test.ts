@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { navigationGroups } from "@/data/documentation";
 import { documentationPages, getDocPage } from "@/data/documentation-pages";
 
@@ -41,27 +42,27 @@ describe("preview documentation", () => {
   });
 
   it("does not expose registry routes that the preview does not implement", () => {
-    const apiPage = readFileSync(new URL("../pages/ApiReference.tsx", import.meta.url), "utf8");
+    const apiPage = readFileSync(resolve(process.cwd(), "src/pages/ApiReference.tsx"), "utf8");
     expect(apiPage).toContain("No hosted registry API is available");
     expect(apiPage).not.toContain("/v1/packages");
   });
 
   it("keeps privacy statements tied to browser behavior in the source", () => {
-    const privacyPage = readFileSync(new URL("../pages/PrivacyPolicy.tsx", import.meta.url), "utf8");
+    const privacyPage = readFileSync(resolve(process.cwd(), "src/pages/PrivacyPolicy.tsx"), "utf8");
     expect(privacyPage).toContain("sotlas_feedback_<page>");
     expect(privacyPage).not.toContain("TasteTrack");
     expect(privacyPage).not.toContain("compile latency telemetry");
   });
 
   it("loads website examples from the files exercised by CI", () => {
-    const playground = readFileSync(new URL("../pages/Playground.tsx", import.meta.url), "utf8");
+    const playground = readFileSync(resolve(process.cwd(), "src/pages/Playground.tsx"), "utf8");
     expect(playground).toContain("../../../examples/01_hello_systems/main.sotlas?raw");
     expect(playground).toContain("../../../examples/07_cli_tool/main.sotlas?raw");
     expect(playground).not.toContain("Simulated");
   });
 
   it("does not present the retired Studio page as a hosted compiler", () => {
-    const studio = readFileSync(new URL("../../public/studio/index.html", import.meta.url), "utf8");
+    const studio = readFileSync(resolve(process.cwd(), "public/studio/index.html"), "utf8");
     expect(studio).toContain("does not provide a browser compiler");
     expect(studio).not.toContain("/api/compile");
     expect(studio).not.toContain("function runCode()");
