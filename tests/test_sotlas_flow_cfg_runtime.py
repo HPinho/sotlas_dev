@@ -55,16 +55,16 @@ flow Serial {
         self.assertEqual(result.output("doubled"), 14)
         self.assertEqual(result.output("final"), 14)
 
-    def test_executes_signed_integer_passthrough_stages(self):
+    def test_executes_signed_integer_arithmetic_stages(self):
         source = """
 module test::flow_cfg_signed;
 fn seed() -> i32 { return 7i32; }
-fn pass(value: i32) -> i32 { return value; }
+fn double(value: i32) -> i32 { return value + value; }
 fn finish(value: i32) -> i32 { return value; }
 flow SignedSerial {
     stage raw = seed;
-    stage copied = pass after raw;
-    stage final = finish after copied;
+    stage doubled = double after raw;
+    stage final = finish after doubled;
 }
 """
         checked = package.analyze_source_phase1(source)
@@ -72,8 +72,26 @@ flow SignedSerial {
         cfg = package.lower_serial_flow_to_cfg(checked_sir.module, "SignedSerial")
         result = package.execute_serial_flow_cfg(checked_sir.module, cfg)
         self.assertEqual(result.output("raw"), 7)
-        self.assertEqual(result.output("copied"), 7)
-        self.assertEqual(result.output("final"), 7)
+        self.assertEqual(result.output("doubled"), 14)
+        self.assertEqual(result.output("final"), 14)
+
+    def test_rejects_signed_overflow_before_publishing_flow_outputs(self):
+        source = """
+module test::flow_cfg_signed_overflow;
+fn seed() -> i8 { return 100i8; }
+fn double(value: i8) -> i8 { return value + value; }
+flow SignedOverflow {
+    stage raw = seed;
+    stage doubled = double after raw;
+}
+"""
+        checked = package.analyze_source_phase1(source)
+        checked_sir, _ = package.build_canonical_checked_ownership_sir(checked)
+        cfg = package.lower_serial_flow_to_cfg(checked_sir.module, "SignedOverflow")
+        with self.assertRaisesRegex(
+            package.FlowExecutionError, "outside the range of i8"
+        ):
+            package.execute_serial_flow_cfg(checked_sir.module, cfg)
 
     def test_revalidates_call_cfg_before_any_stage_execution(self):
         sir_module = self._module()

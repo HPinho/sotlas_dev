@@ -1701,7 +1701,7 @@ class SIRGenerator:
         ):
             return sir_fn
 
-        if self._try_lower_unsigned_arithmetic_return(
+        if self._try_lower_integer_arithmetic_return(
             fn, entry_block, sir_params, ret_str
         ):
             return sir_fn
@@ -1865,14 +1865,14 @@ class SIRGenerator:
         ))
         return True
 
-    def _try_lower_unsigned_arithmetic_return(
+    def _try_lower_integer_arithmetic_return(
         self,
         fn: Any,
         entry_block: SIRBasicBlock,
         params: list[SIRValue],
         return_type: str,
     ) -> bool:
-        """Lower a single unsigned parameter arithmetic expression returned by a function."""
+        """Lower one fixed-width integer parameter/literal arithmetic return."""
         body = list(getattr(fn, "body", ()) or ())
         if len(body) != 1 or type(body[0]).__name__ not in ("Return", "ReturnNode"):
             return False
@@ -1889,9 +1889,16 @@ class SIRGenerator:
         if operation is None:
             return False
 
-        unsigned_types = {"u8", "u16", "u32", "u64", "usize"}
-        if return_type not in unsigned_types:
+        integer_widths = {
+            "u8": 8, "u16": 16, "u32": 32, "u64": 64,
+            "i8": 8, "i16": 16, "i32": 32, "i64": 64,
+        }
+        width = integer_widths.get(return_type)
+        if width is None:
             return False
+        signed = return_type.startswith("i")
+        minimum = -(1 << (width - 1)) if signed else 0
+        maximum = (1 << (width - 1)) - 1 if signed else (1 << width) - 1
 
         def operand_of(node: Any) -> SIRValue | tuple[str, int] | None:
             if type(node).__name__ == "Name":
@@ -1911,9 +1918,7 @@ class SIRGenerator:
                 return None
             if not isinstance(raw, str):
                 return None
-            match = re.fullmatch(
-                r"(.+?)(u8|u16|u32|u64|usize)?", raw
-            )
+            match = re.fullmatch(r"(.+?)(u8|u16|u32|u64|i8|i16|i32|i64)?", raw)
             if match is None:
                 return None
             digits, suffix = match.groups()
@@ -1923,10 +1928,7 @@ class SIRGenerator:
                 value = int(digits.replace("_", ""), 0)
             except ValueError:
                 return None
-            width = {"u8": 8, "u16": 16, "u32": 32, "u64": 64, "usize": 64}.get(
-                return_type
-            )
-            if width is None or not 0 <= value < (1 << width):
+            if not minimum <= value <= maximum:
                 return None
             return ("constant", value)
 

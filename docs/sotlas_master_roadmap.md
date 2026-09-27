@@ -3980,9 +3980,10 @@ propagates executor failure status. Both report the stopped stage and publish
 outputs only after success. Dispatch
 callbacks are not verified equivalent to the Sotlas stage
 bodies, and the interface does not provide device buffers or transfers. Native
-execution remains serial. The executable serial SIR CFG runtime accepts signed
-integer pass-through stages and checks their inputs/outputs against declared
-signed ranges; general signed source arithmetic lowering is still not validated. Parallel SIR
+execution remains serial. The executable serial SIR CFG runtime lowers fixed-
+width signed add/subtract/multiply return expressions, checks input and result
+ranges, and rejects overflow before returning a Flow result. This checked
+interpreter behavior does not define signed overflow for generated C11. Parallel SIR
 CFG, ownership payloads, verified stage failure semantics, and built-in GPU/NPU
 dispatch remain open. The bounded
 contract and rejections are documented in

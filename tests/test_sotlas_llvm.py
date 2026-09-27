@@ -128,15 +128,21 @@ fn calculate(a: u32, b: u32) -> u32 {{ return a {operator} b; }}
             for instruction in legacy_sir.functions[0].blocks[0].instructions
         ))
 
-    def test_signed_scalar_arithmetic_is_rejected_by_sir_subset(self):
+    def test_signed_scalar_arithmetic_reaches_sir_but_is_rejected_by_llvm(self):
         source = "module test::sir_signed_arithmetic; fn calculate(a: i32, b: i32) -> i32 { return a + b; }"
         parsed = source_bootstrap.parse(source)
         source_bootstrap.check(parsed)
         sir = SIRGenerator().generate_from_ast(parsed)
-        self.assertFalse(any(
-            isinstance(instruction, BinaryOpInst)
+        signed_arithmetic = next(
+            instruction
             for instruction in sir.functions[0].blocks[0].instructions
-        ))
+            if isinstance(instruction, BinaryOpInst)
+        )
+        self.assertEqual(signed_arithmetic.operation, "add")
+        with self.assertRaisesRegex(
+            ValueError, "LLVM backend does not lower arithmetic for 'i32'"
+        ):
+            CodegenLLVM(sir).emit()
 
         division = source_bootstrap.parse(
             "module test::sir_division; fn calculate(a: u32, b: u32) -> u32 { return a / b; }"
