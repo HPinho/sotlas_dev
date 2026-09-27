@@ -40,6 +40,16 @@ class RegionArenaFlowResolution:
 
 
 @dataclass(frozen=True)
+class RegionArenaFlowMerge:
+    """Alternative producers proven to cover disjoint paths to one pre epoch."""
+
+    function: str
+    binding: str
+    pre_epoch_id: str
+    producer_epoch_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class RegionArenaFlowRecurrence:
     function: str
     binding: str
@@ -73,6 +83,7 @@ class RegionArenaFlowCertificate:
     unresolved: tuple[RegionArenaFlowUnresolved, ...]
     recurrences: tuple[RegionArenaFlowRecurrence, ...] = ()
     activations: tuple[RegionArenaFlowActivation, ...] = ()
+    merges: tuple[RegionArenaFlowMerge, ...] = ()
 
     @property
     def complete(self) -> bool:
@@ -91,6 +102,14 @@ class RegionArenaFlowCertificate:
         if len(matches) != 1:
             raise RegionArenaFlowError(
                 f"REGION arena flow requires exactly one recurrence for {pre_epoch_id!r}"
+            )
+        return matches[0]
+
+    def merge_for(self, pre_epoch_id: str) -> RegionArenaFlowMerge:
+        matches = tuple(item for item in self.merges if item.pre_epoch_id == pre_epoch_id)
+        if len(matches) != 1:
+            raise RegionArenaFlowError(
+                f"REGION arena flow requires exactly one merge for {pre_epoch_id!r}"
             )
         return matches[0]
 
@@ -202,11 +221,49 @@ def _maximal_reaching(producers, target, successors):
     return tuple(maximal), ambiguous_reachability
 
 
+def _all_paths_hit_producer(successors, start, goal, producer_blocks):
+    """Prove every path from entry to goal crosses one candidate producer."""
+    stack = [(start, False)]
+    visited: set[tuple[str, bool]] = set()
+    while stack:
+        block, seen = stack.pop()
+        state = (block, seen or block in producer_blocks)
+        if state in visited:
+            continue
+        visited.add(state)
+        if block == goal:
+            if not state[1]:
+                return False
+            continue
+        targets = successors.get(block, ())
+        if not targets:
+            # A path that exits before the target is irrelevant to this use.
+            continue
+        stack.extend((target, state[1]) for target in targets)
+    return True
+
+
 def _append_resolution(resolutions, pre, producer):
     if producer.type != pre.type:
         raise RegionArenaFlowError(f"REGION arena flow type mismatch at {pre.epoch_id!r}")
     resolutions.append(
         RegionArenaFlowResolution(pre.function, pre.binding, pre.epoch_id, producer.epoch_id)
+    )
+
+
+def _append_merge(merges, pre, producers):
+    epochs = tuple(item.epoch for item in producers)
+    if len(epochs) < 2 or any(item.type != pre.type for item in epochs):
+        raise RegionArenaFlowError(
+            f"REGION arena merge requires two or more same-typed producers at {pre.epoch_id!r}"
+        )
+    merges.append(
+        RegionArenaFlowMerge(
+            pre.function,
+            pre.binding,
+            pre.epoch_id,
+            tuple(item.epoch_id for item in epochs),
+        )
     )
 
 
@@ -324,6 +381,7 @@ def certify_region_arena_flow(
     resolutions = []
     recurrences = []
     activations = []
+    merges = []
     unresolved = []
 
     for slot in arena.slots:
@@ -379,7 +437,36 @@ def certify_region_arena_flow(
             if len(maximal) == 1:
                 _append_resolution(resolutions, pre, maximal[0].epoch)
             elif len(maximal) > 1:
-                _append_unresolved(unresolved, pre, "ambiguous_merge")
+                all_reach = all(
+                    _reachable(successors, producer.location.block, pre_location.block)
+                    or producer.location.block == pre_location.block
+                    for producer in maximal
+                )
+                pairwise_disjoint = all(
+                    not _reachable(successors, first.location.block, second.location.block)
+                    and not _reachable(successors, second.location.block, first.location.block)
+                    for index, first in enumerate(maximal)
+                    for second in maximal[index + 1:]
+                )
+                entry = function.blocks[0].label if function.blocks else None
+                covered = (
+                    entry is not None
+                    and _all_paths_hit_producer(
+                        successors,
+                        entry,
+                        pre_location.block,
+                        {producer.location.block for producer in maximal},
+                    )
+                )
+                if (
+                    all_reach
+                    and pairwise_disjoint
+                    and len(maximal) == len(producers)
+                    and covered
+                ):
+                    _append_merge(merges, pre, maximal)
+                else:
+                    _append_unresolved(unresolved, pre, "ambiguous_merge")
             elif ambiguous:
                 _append_unresolved(unresolved, pre, "cyclic_reachability")
             else:
@@ -389,6 +476,7 @@ def certify_region_arena_flow(
         {item.pre_epoch_id for item in resolutions},
         {item.pre_epoch_id for item in recurrences},
         {item.pre_epoch_id for item in activations},
+        {item.pre_epoch_id for item in merges},
         {item.pre_epoch_id for item in unresolved},
     ]
     for index, first in enumerate(classified):
@@ -404,12 +492,14 @@ def certify_region_arena_flow(
         unresolved=tuple(unresolved),
         recurrences=tuple(recurrences),
         activations=tuple(activations),
+        merges=tuple(merges),
     )
 
 
 __all__ = [
     "RegionArenaFlowError",
     "RegionArenaFlowResolution",
+    "RegionArenaFlowMerge",
     "RegionArenaFlowRecurrence",
     "RegionArenaFlowActivation",
     "RegionArenaFlowUnresolved",
