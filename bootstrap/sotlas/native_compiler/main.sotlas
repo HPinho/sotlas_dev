@@ -84,6 +84,17 @@ pub fn sotlas_native_compile_diagnostic(
     let mut sem: Sema = Sema::new();
     sem.enter_system();
     let _is_safe: bool = sem.check_system_privilege();
+    if !sem.check_top_level_declarations(
+        node_ptr, p.node_count, module_node, source, len
+    ) {
+        if error_line != null {
+            unsafe { *error_line = sem.error_line; }
+        }
+        if error_col != null {
+            unsafe { *error_col = sem.error_col; }
+        }
+        return 0;
+    }
 
     // 4. Inicializa o Emissor C11 em Sotlas puro
     let mut emitter: CEmitter = CEmitter::new(

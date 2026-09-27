@@ -24,6 +24,8 @@ pub struct Symbol {
 
 pub struct Sema {
     pub error_count: usize;
+    pub error_line: u32;
+    pub error_col: u32;
     pub is_in_system: bool;
     pub is_in_unsafe: bool;
     pub symbol_count: usize;
@@ -33,6 +35,8 @@ impl Sema {
     pub fn new() -> Sema {
         return Sema {
             error_count: 0,
+            error_line: 0,
+            error_col: 0,
             is_in_system: false,
             is_in_unsafe: false,
             symbol_count: 0
@@ -84,6 +88,102 @@ impl Sema {
             return false;
         }
         self.symbol_count = self.symbol_count + 1;
+        return true;
+    }
+
+    pub fn declaration_namespace(self: &Self, kind: AstKind) -> i64 {
+        if kind == AstKind::FnDecl || kind == AstKind::TrapfnDecl {
+            return 1;
+        }
+        if kind == AstKind::StructDecl
+            || kind == AstKind::EnumDecl
+            || kind == AstKind::MeshDecl
+            || kind == AstKind::SpecDecl {
+            return 2;
+        }
+        return 0;
+    }
+
+    pub fn same_declaration_name(
+        self: &Self,
+        source: *const u8,
+        source_len: usize,
+        left: AstNode,
+        right: AstNode
+    ) -> bool {
+        if left.str_len != right.str_len
+            || left.str_offset > source_len
+            || right.str_offset > source_len {
+            return false;
+        }
+        if left.str_len > source_len - left.str_offset
+            || right.str_len > source_len - right.str_offset {
+            return false;
+        }
+        let mut index: usize = 0;
+        while index < left.str_len {
+            let left_byte: u8 = unsafe { *(source + left.str_offset + index) };
+            let right_byte: u8 = unsafe { *(source + right.str_offset + index) };
+            if left_byte != right_byte {
+                return false;
+            }
+            index = index + 1;
+        }
+        return true;
+    }
+
+    pub fn check_top_level_declarations(
+        mut self: &mut Self,
+        nodes: *const AstNode,
+        node_count: usize,
+        module_index: usize,
+        source: *const u8,
+        source_len: usize
+    ) -> bool {
+        if nodes == null || source == null || module_index == 0
+            || module_index >= node_count {
+            self.error_count = self.error_count + 1;
+            return false;
+        }
+
+        let module_node: AstNode = unsafe { *(nodes + module_index) };
+        if module_node.kind != AstKind::Module {
+            self.error_count = self.error_count + 1;
+            self.error_line = module_node.span.line;
+            self.error_col = module_node.span.col;
+            return false;
+        }
+
+        let mut current_index: usize = module_node.first_child;
+        while current_index != 0 {
+            if current_index >= node_count {
+                self.error_count = self.error_count + 1;
+                return false;
+            }
+            let current: AstNode = unsafe { *(nodes + current_index) };
+            let namespace: i64 = self.declaration_namespace(current.kind);
+            if namespace != 0 && current.str_len != 0 {
+                let mut previous_index: usize = module_node.first_child;
+                while previous_index != current_index {
+                    if previous_index == 0 || previous_index >= node_count {
+                        self.error_count = self.error_count + 1;
+                        return false;
+                    }
+                    let previous: AstNode = unsafe { *(nodes + previous_index) };
+                    if self.declaration_namespace(previous.kind) == namespace
+                        && self.same_declaration_name(
+                            source, source_len, previous, current
+                        ) {
+                        self.error_count = self.error_count + 1;
+                        self.error_line = current.span.line;
+                        self.error_col = current.span.col;
+                        return false;
+                    }
+                    previous_index = previous.next_sibling;
+                }
+            }
+            current_index = current.next_sibling;
+        }
         return true;
     }
 }
