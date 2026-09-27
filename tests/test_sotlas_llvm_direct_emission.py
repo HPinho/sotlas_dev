@@ -423,6 +423,18 @@ pub fn sum_from(start: u32, limit: u32, initial: u32) -> u32 {
     }
     return total;
 }
+pub fn wrap_u8(input: u8) -> u8 {
+    let result: u8 = (input + 250u8) * 3u8;
+    return result;
+}
+pub fn wrap_u16(input: u16) -> u16 {
+    let result: u16 = (input + 65530u16) * 3u16;
+    return result;
+}
+pub fn wrap_u64(input: u64) -> u64 {
+    let result: u64 = (input + 18446744073709551610u64) * 3u64;
+    return result;
+}
 """
         clang = self.toolchain.find_tool("clang")
         if clang is None:
@@ -436,6 +448,9 @@ pub fn sum_from(start: u32, limit: u32, initial: u32) -> u32 {
             "extern uint32_t descending_to(uint32_t);\n"
             "extern uint32_t nested_arithmetic(uint32_t);\n"
             "extern uint32_t sum_from(uint32_t, uint32_t, uint32_t);\n"
+            "extern uint8_t wrap_u8(uint8_t);\n"
+            "extern uint16_t wrap_u16(uint16_t);\n"
+            "extern uint64_t wrap_u64(uint64_t);\n"
             "int main(void) {\n"
             "  if (stepped_sum(1u) != 5u) return 1;\n"
             "  if (stepped_sum(2u) != 8u) return 2;\n"
@@ -450,6 +465,9 @@ pub fn sum_from(start: u32, limit: u32, initial: u32) -> u32 {
             "  if (nested_arithmetic(5u) != 28u) return 11;\n"
             "  if (sum_from(2u, 5u, 10u) != 19u) return 12;\n"
             "  if (sum_from(2u, 2u, 10u) != 10u) return 13;\n"
+            "  if (wrap_u8(10u) != 12u) return 14;\n"
+            "  if (wrap_u16(10u) != 12u) return 15;\n"
+            "  if (wrap_u64(10u) != 12u) return 16;\n"
             "  return 0;\n"
             "}\n",
             encoding="utf-8",
