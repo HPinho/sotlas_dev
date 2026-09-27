@@ -53,7 +53,7 @@ Escopos concluídos: `docs/phase0_reality_audit.md`, contratos 1.0 das fases 5�
 - The SIR Flow interpreter now accepts checked boolean parameters and parameter forwarding; the new Flow case runs a comparison result through a second stage.
 - C11 and direct LLVM are compared by compiling the same unsigned arithmetic function and running both artifacts with the same native C caller and inputs.
 - Standard-library ownership, mutability, allocator lifetime, cleanup, and failure contracts are documented in `stdlib/core/README.md`.
-- Flow now emits a C-callable C11 entrypoint for serial pure signed/unsigned integer and bool plans; native callers receive the final stage result. The gate rejects parallel plans, unsupported types, contracts, global access, method calls, and system/foreign stage functions. Parallel native scheduling, source-level Flow invocation, error/cancellation propagation, ownership payloads, and GPU/NPU providers remain open. Production compiler self-hosting also remains open: Sotlas-lite does not replace the Python compiler.
+- Flow now emits a C-callable C11 entrypoint for serial pure signed/unsigned integer and bool plans; C and Sotlas `@system` callers can invoke it through an exact `@extern(C)` declaration. Native callers receive the final stage result. The gate rejects parallel plans, unsupported types, contracts, global access, method calls, and system/foreign stage functions. A dedicated Flow invocation syntax, parallel native scheduling, error/cancellation propagation, ownership payloads, and GPU/NPU providers remain open. Production compiler self-hosting also remains open: Sotlas-lite does not replace the Python compiler.
 - `tests/test_sotlas_flow_native.py` compiles and executes the generated entrypoint with the same C toolchain used by the native preview gates.
 
 ## Fase 0 — Reality Reset
@@ -177,6 +177,7 @@ API: `validate_sir_flow_plans(module)` em `sotlas_compile.flow_sir`.
 **Status 1.0: 100% da API de planejamento e execução verificada — COMPLETE**
 
 - [x] planejamento determinístico escolhe a primeira estratégia Flow elegível em ordem `prefer` e `fallback`;
+- [x] candidates may declare required provider names and select a fallback from an explicit available-provider set; this does not perform device discovery or hardware dispatch;
 - [x] inspeção registra efeitos observados e razões de rejeição por candidato;
 - [x] constraints iniciais verificam ausência de efeitos proibidos e disponibilidade das stages escolhidas;
 - [x] execução chama apenas a Flow selecionada depois de revalidar o plano Intent e reconciliar stages, tipos, dependências e efeitos entre Typed Flow e SIR;

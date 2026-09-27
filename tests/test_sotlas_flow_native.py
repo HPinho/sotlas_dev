@@ -171,6 +171,60 @@ flow Select {
             )
             self.assertEqual(executed.returncode, 0, executed.stderr)
 
+    def test_sotlas_source_can_call_declared_native_flow_entrypoint(self):
+        compiler = default_toolchain.find_tool("clang") or shutil.which("gcc")
+        if compiler is None:
+            self.skipTest("Clang or GCC is required for native Flow execution")
+
+        entrypoint = "sotlas_flow_test__native_flow_source_call_Count"
+        source = f"""module test::native_flow_source_call;
+fn first() -> u32 {{ return 41u32; }}
+fn increment(value: u32) -> u32 {{ return value + 1u32; }}
+flow Count {{
+    stage input = first;
+    stage output = increment after input;
+}}
+@extern(C) fn {entrypoint}() -> u32;
+@system pub fn main() -> i32 {{
+    let mut result: u32 = 0u32;
+    unsafe {{ result = {entrypoint}(); }}
+    if result == 42u32 {{ return 0; }}
+    return 1;
+}}
+"""
+        c_source = bootstrap.compile_source(source, "native_flow_source_call.sotlas")
+        self.assertIn(f"uint32_t {entrypoint}(void)", c_source)
+
+        with tempfile.TemporaryDirectory(prefix="sotlas-flow-source-call-") as tmpdir:
+            generated = Path(tmpdir) / "flow.c"
+            executable = Path(tmpdir) / ("flow.exe" if os.name == "nt" else "flow")
+            generated.write_text(c_source, encoding="utf-8")
+            compiled = subprocess.run(
+                [str(compiler), "-std=c11", "-Wall", "-Wextra", str(generated),
+                 "-o", str(executable)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            executed = subprocess.run(
+                [str(executable)], capture_output=True, text=True, check=False
+            )
+            self.assertEqual(executed.returncode, 0, executed.stderr)
+
+    def test_source_flow_entrypoint_declaration_must_match_final_type(self):
+        entrypoint = "sotlas_flow_test__native_flow_bad_abi_Count"
+        source = f"""module test::native_flow_bad_abi;
+fn value() -> u32 {{ return 7u32; }}
+flow Count {{ stage output = value; }}
+@extern(C) fn {entrypoint}() -> i32;
+"""
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            "collides with an incompatible function declaration",
+        ):
+            bootstrap.compile_source(source, "native_flow_bad_abi.sotlas")
+
     def test_effectful_flow_stage_is_rejected_before_c11_lowering(self):
         source = """module test::effectful_native_flow;
 static mut counter: u32 = 0;

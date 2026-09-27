@@ -26,11 +26,13 @@ dispatching them through the scheduler. End-to-end tests start from Sotlas Flow
 source and verify stage outputs. Pure integer and boolean stage bodies are the
 supported executable subset.
 
-For serial plans whose stage functions are proven pure and use only unsigned
-scalar or `bool` values, the C11 backend emits a C-callable entrypoint named
+For serial plans whose stage functions are proven pure and use signed or
+unsigned integer scalars or `bool`, the C11 backend emits a C-callable entrypoint named
 `sotlas_flow_<module>_<flow>`. It calls stages in certified dependency order and
-returns the final stage result. A native C caller test compiles and executes this
-entrypoint. The source language cannot call the generated symbol yet.
+returns the final stage result. Native C and Sotlas callers execute this
+entrypoint in tests. Sotlas callers declare the exact generated symbol with
+`@extern(C)` and call it from an `@system` function. A dedicated Flow invocation
+syntax is not available yet.
 
 This initial native path rejects parallel plans, unsupported types, contracts,
 system/foreign functions, method calls, and global access (including access
@@ -59,7 +61,8 @@ failure/cancellation propagation.
 - Executable parallel SIR CFGs; declarative Flow and the host graph scheduler
   already support parallel execution.
 - Ownership, cleanup, and non-scalar/lifetime-bearing values in executable CFG.
-- A native scheduler, parallel execution, and source-level invocation of Flow.
+- A native scheduler, parallel execution, and dedicated source syntax for Flow
+  invocation (the explicit C11 ABI declaration path is supported).
 - Ownership, cleanup, stage errors/cancellation, and general effects in native
   Flow execution.
 - Backpressure, retries, distributed scheduling, timeouts, and forced

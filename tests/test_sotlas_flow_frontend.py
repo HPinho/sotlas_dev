@@ -1001,6 +1001,35 @@ flow Local { stage value = local; }
         )
         self.assertIsNone(unavailable.selected_flow)
         self.assertEqual(unavailable.guarantees, ())
+        provider_fallback = package.plan_sir_intent(
+            sir.module,
+            "LoadValue",
+            prefer=("Cached",),
+            fallback=("Local",),
+            required_providers={"Cached": ("gpu.cuda",)},
+            available_providers=("cpu.reference",),
+        )
+        self.assertEqual(provider_fallback.selected_flow, "Local")
+        self.assertIn(
+            "unavailable providers: gpu.cuda",
+            provider_fallback.inspection[0].reasons[0],
+        )
+        provider_ready = package.plan_sir_intent(
+            sir.module,
+            "LoadValue",
+            prefer=("Cached",),
+            fallback=("Local",),
+            required_providers={"Cached": ("gpu.cuda",)},
+            available_providers=("cpu.reference", "gpu.cuda"),
+        )
+        self.assertEqual(provider_ready.selected_flow, "Cached")
+        with self.assertRaisesRegex(package.IntentError, "non-candidate Flow"):
+            package.plan_sir_intent(
+                sir.module,
+                "LoadValue",
+                prefer=("Cached",),
+                required_providers={"Missing": ("gpu.cuda",)},
+            )
         with self.assertRaisesRegex(package.IntentError, "unknown stages"):
             package.plan_sir_intent(
                 sir.module, "LoadValue", prefer=("Cached",),

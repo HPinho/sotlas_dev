@@ -48,6 +48,7 @@ def _emit_c11_flow_entrypoints(module, bootstrap) -> str:
     globals_ = {item.name for item in module.globals}
     emitted = []
     used_names = set(functions)
+    generated_names: set[str] = set()
 
     for plan in plans:
         layers = tuple(plan.graph.parallel_stages)
@@ -62,15 +63,34 @@ def _emit_c11_flow_entrypoints(module, bootstrap) -> str:
             raise FlowFrontendError(
                 f"C11 Flow lowering found an inconsistent stage schedule for {plan.name!r}"
             )
+        final_stage = stages[order[-1]]
 
         entry_name = bootstrap._c_ident(
             f"sotlas_flow_{module.name}_{plan.name}"
         )
-        if entry_name in used_names:
+        if entry_name in generated_names:
             raise FlowFrontendError(
-                f"generated C11 Flow entrypoint {entry_name!r} collides with a function"
+                f"multiple Flow plans map to generated C11 symbol {entry_name!r}"
             )
-        used_names.add(entry_name)
+        generated_names.add(entry_name)
+        declaration = functions.get(entry_name)
+        if declaration is not None:
+            if (
+                declaration.body
+                or "@extern(C)" not in declaration.attributes
+                or declaration.params
+                or not bootstrap.same_type(declaration.result, final_stage.result_type)
+            ):
+                raise FlowFrontendError(
+                    f"generated C11 Flow entrypoint {entry_name!r} collides with an "
+                    "incompatible function declaration"
+                )
+        else:
+            if entry_name in used_names:
+                raise FlowFrontendError(
+                    f"generated C11 Flow entrypoint {entry_name!r} collides with a function"
+                )
+            used_names.add(entry_name)
 
         output_names: dict[str, str] = {}
         body = []
@@ -146,7 +166,6 @@ def _emit_c11_flow_entrypoints(module, bootstrap) -> str:
             )
             output_names[stage.name] = value_name
 
-        final_stage = stages[order[-1]]
         emitted.extend([
             f"{final_stage.result_type.c()} {entry_name}(void) {{",
             *body,

@@ -32,6 +32,8 @@ class IntentPlan:
     selected_flow: str | None
     forbidden_effects: tuple[str, ...]
     unavailable_stages: tuple[tuple[str, tuple[str, ...]], ...]
+    required_providers: tuple[tuple[str, tuple[str, ...]], ...]
+    available_providers: tuple[str, ...]
     guarantees: tuple[str, ...]
     inspection: tuple[IntentCandidateReview, ...]
 
@@ -62,6 +64,8 @@ def plan_sir_intent(
     fallback: tuple[str, ...] = (),
     forbidden_effects: tuple[str, ...] = (),
     unavailable_stages: Mapping[str, tuple[str, ...]] | None = None,
+    required_providers: Mapping[str, tuple[str, ...]] | None = None,
+    available_providers: tuple[str, ...] = (),
 ) -> IntentPlan:
     """Choose and explain the first eligible Flow strategy without executing it.
 
@@ -87,6 +91,16 @@ def plan_sir_intent(
             "intent availability references a non-candidate Flow: "
             + ", ".join(sorted(unknown_availability))
         )
+    provider_requirements = required_providers or {}
+    if not isinstance(provider_requirements, Mapping):
+        raise IntentError("intent provider requirements must be a mapping by Flow name")
+    unknown_provider_requirements = set(provider_requirements) - set(ordered)
+    if unknown_provider_requirements:
+        raise IntentError(
+            "intent provider requirements reference a non-candidate Flow: "
+            + ", ".join(sorted(unknown_provider_requirements))
+        )
+    providers = _names(available_providers, "available providers")
 
     try:
         plans = validate_sir_flow_plans(module)
@@ -105,6 +119,10 @@ def plan_sir_intent(
         stage_names = tuple(stage.name for stage in plan.stages)
         unavailable_for_flow = _names(
             unavailable.get(flow_name, ()), f"unavailable stages for {flow_name}"
+        )
+        required_providers_for_flow = _names(
+            provider_requirements.get(flow_name, ()),
+            f"required providers for {flow_name}",
         )
         unknown_stages = tuple(
             stage for stage in unavailable_for_flow if stage not in stage_names
@@ -126,6 +144,14 @@ def plan_sir_intent(
             reasons.append(
                 "unavailable stages: " + ", ".join(unavailable_for_flow)
             )
+        missing_providers = tuple(
+            provider for provider in required_providers_for_flow
+            if provider not in providers
+        )
+        if missing_providers:
+            reasons.append(
+                "unavailable providers: " + ", ".join(missing_providers)
+            )
         eligible = not reasons
         role = "prefer" if priority < len(preferred) else "fallback"
         reviews.append(IntentCandidateReview(
@@ -143,6 +169,12 @@ def plan_sir_intent(
         selected,
         forbidden,
         tuple(availability_summary),
+        tuple(
+            (flow_name, _names(provider_requirements.get(flow_name, ()),
+                               f"required providers for {flow_name}"))
+            for flow_name in ordered
+        ),
+        providers,
         guarantees,
         tuple(reviews),
     )
@@ -180,6 +212,8 @@ def execute_sir_intent(
             fallback=fallbacks,
             forbidden_effects=intent.forbidden_effects,
             unavailable_stages=dict(intent.unavailable_stages),
+            required_providers=dict(intent.required_providers),
+            available_providers=intent.available_providers,
         )
     except (IntentError, TypeError, ValueError) as error:
         raise IntentError(f"intent plan no longer validates: {error}") from error
@@ -255,6 +289,8 @@ def execute_bound_sir_intent(
             fallback=tuple(item.flow for item in ordered_reviews if item.role == "fallback"),
             forbidden_effects=intent.forbidden_effects,
             unavailable_stages=dict(intent.unavailable_stages),
+            required_providers=dict(intent.required_providers),
+            available_providers=intent.available_providers,
         )
     except (IntentError, TypeError, ValueError) as error:
         raise IntentError(f"intent plan no longer validates: {error}") from error
