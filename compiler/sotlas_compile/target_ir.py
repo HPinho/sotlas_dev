@@ -1,0 +1,225 @@
+"""A small, explicit Target IR boundary for the checked SIR subset.
+
+This is an inspection/lowering foundation. It deliberately does not perform
+instruction selection, register allocation, or object emission.
+"""
+from __future__ import annotations
+
+from typing import Any
+
+
+class TargetIRLoweringError(ValueError):
+    """Raised when checked SIR contains an operation outside Target IR v1."""
+
+
+def _value_name(value: Any, *, context: str) -> str:
+    name = getattr(value, "name", None)
+    if not isinstance(name, str) or not name:
+        raise TargetIRLoweringError(f"{context} has an invalid SIR value")
+    return name
+
+
+def _lower_instruction(instruction: Any, *, function: str) -> dict[str, Any]:
+    kind = type(instruction).__name__
+    context = f"{function}: {kind}"
+    if kind == "AllocStackInst":
+        return {
+            "op": "alloc_stack",
+            "result": _value_name(instruction.result, context=context),
+            "type": instruction.type_name,
+            "attributes": {"source_name": instruction.var_name},
+        }
+    if kind == "StoreInst":
+        return {
+            "op": "store",
+            "operands": [
+                _value_name(instruction.source, context=context),
+                _value_name(instruction.destination, context=context),
+            ],
+        }
+    if kind == "LoadInst":
+        return {
+            "op": "load",
+            "result": _value_name(instruction.result, context=context),
+            "operands": [_value_name(instruction.source, context=context)],
+            "type": getattr(instruction.result, "type_name", None),
+        }
+    if kind == "ConstantIntInst":
+        return {
+            "op": "const_int",
+            "result": _value_name(instruction.result, context=context),
+            "type": getattr(instruction.result, "type_name", None),
+            "attributes": {"value": instruction.value},
+        }
+    if kind == "BinaryOpInst":
+        return {
+            "op": instruction.operation,
+            "result": _value_name(instruction.result, context=context),
+            "type": getattr(instruction.result, "type_name", None),
+            "operands": [
+                _value_name(instruction.left, context=context),
+                _value_name(instruction.right, context=context),
+            ],
+        }
+    if kind == "CompareInst":
+        return {
+            "op": "compare",
+            "result": _value_name(instruction.result, context=context),
+            "type": getattr(instruction.result, "type_name", None),
+            "operands": [
+                _value_name(instruction.left, context=context),
+                _value_name(instruction.right, context=context),
+            ],
+            "attributes": {"predicate": instruction.operation},
+        }
+    if kind == "PhiInst":
+        incoming = getattr(instruction, "incoming", None)
+        if not isinstance(incoming, list) or not incoming:
+            raise TargetIRLoweringError(f"{context} has no incoming values")
+        return {
+            "op": "phi",
+            "result": _value_name(instruction.result, context=context),
+            "type": getattr(instruction.result, "type_name", None),
+            "incoming": [
+                {
+                    "value": _value_name(value, context=context),
+                    "block": str(block),
+                }
+                for value, block in incoming
+            ],
+        }
+    if kind == "CallInst":
+        result = getattr(instruction, "result", None)
+        return {
+            "op": "call",
+            "result": _value_name(result, context=context) if result else None,
+            "operands": [
+                _value_name(value, context=context)
+                for value in instruction.arguments
+            ],
+            "attributes": {
+                "callee": instruction.callee,
+                "system": bool(instruction.is_system),
+            },
+        }
+    if kind == "BranchInst":
+        return {
+            "op": "branch",
+            "targets": [str(instruction.target_block)],
+            "attributes": {
+                "point_id": getattr(instruction, "point_id", None),
+                "control_kind": getattr(instruction, "control_kind", None),
+            },
+        }
+    if kind == "CondBranchInst":
+        return {
+            "op": "cond_branch",
+            "operands": [_value_name(instruction.condition, context=context)],
+            "targets": [str(instruction.true_block), str(instruction.false_block)],
+        }
+    if kind == "ReturnInst":
+        value = getattr(instruction, "value", None)
+        return {
+            "op": "return",
+            "operands": [_value_name(value, context=context)] if value else [],
+            "attributes": {"point_id": getattr(instruction, "point_id", None)},
+        }
+    raise TargetIRLoweringError(
+        f"Target IR v1 does not lower {kind} in function {function!r}"
+    )
+
+
+def lower_sir_to_target_ir(module: Any) -> dict[str, Any]:
+    """Lower the checked SIR operation subset into deterministic Target IR v1."""
+    functions = []
+    seen_functions: set[str] = set()
+    for function in tuple(getattr(module, "functions", ()) or ()):
+        name = getattr(function, "name", None)
+        if not isinstance(name, str) or not name or name in seen_functions:
+            raise TargetIRLoweringError("SIR module has an invalid function name")
+        seen_functions.add(name)
+        parameters = tuple(getattr(function, "parameters", ()) or ())
+        blocks = tuple(getattr(function, "blocks", ()) or ())
+        labels = [str(getattr(block, "label", "")) for block in blocks]
+        if not blocks or any(not label for label in labels) or len(set(labels)) != len(labels):
+            raise TargetIRLoweringError(
+                f"SIR function {name!r} has invalid or duplicate blocks"
+            )
+        lowered_blocks = []
+        for block in blocks:
+            label = str(block.label)
+            instructions = [
+                _lower_instruction(instruction, function=name)
+                for instruction in tuple(getattr(block, "instructions", ()) or ())
+            ]
+            if not instructions:
+                raise TargetIRLoweringError(
+                    f"SIR block {label!r} in {name!r} is empty"
+                )
+            for instruction in instructions:
+                if instruction["op"] in {"branch", "cond_branch"}:
+                    missing = set(instruction.get("targets", ())) - set(labels)
+                    if missing:
+                        raise TargetIRLoweringError(
+                            f"SIR block {label!r} in {name!r} targets missing blocks"
+                        )
+            lowered_blocks.append({"label": label, "instructions": instructions})
+        definitions = {
+            _value_name(parameter, context=f"{name}: parameter")
+            for parameter in parameters
+        }
+        references: list[str] = []
+        for block in lowered_blocks:
+            instructions = block["instructions"]
+            terminators = [
+                index for index, instruction in enumerate(instructions)
+                if instruction["op"] in {"return", "branch", "cond_branch"}
+            ]
+            if terminators != [len(instructions) - 1]:
+                raise TargetIRLoweringError(
+                    f"SIR block {block['label']!r} in {name!r} must end in one terminator"
+                )
+            for instruction in instructions:
+                result = instruction.get("result")
+                if result is not None:
+                    if result in definitions:
+                        raise TargetIRLoweringError(
+                            f"SIR function {name!r} defines {result!r} more than once"
+                        )
+                    definitions.add(result)
+                references.extend(instruction.get("operands", ()))
+                references.extend(
+                    incoming["value"]
+                    for incoming in instruction.get("incoming", ())
+                )
+        missing_values = sorted(set(references) - definitions)
+        if missing_values:
+            raise TargetIRLoweringError(
+                f"SIR function {name!r} uses undefined values: "
+                + ", ".join(missing_values)
+            )
+        functions.append({
+            "name": name,
+            "parameters": [
+                {
+                    "name": _value_name(parameter, context=f"{name}: parameter"),
+                    "type": getattr(parameter, "type_name", None),
+                }
+                for parameter in parameters
+            ],
+            "return_type": getattr(function, "return_type", None),
+            "blocks": lowered_blocks,
+        })
+    return {
+        "schema": "sotlas.target-ir.v1",
+        "stage": "pre_selection",
+        "module": getattr(module, "name", None),
+        "functions": functions,
+        "limitations": [
+            "No target instruction selection or register allocation is performed.",
+            "Native code emission still uses the selected existing backend.",
+        ],
+    }
+
+
+__all__ = ["TargetIRLoweringError", "lower_sir_to_target_ir"]

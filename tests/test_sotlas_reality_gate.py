@@ -158,7 +158,7 @@ class SotlasRealityGateTests(unittest.TestCase):
         self.assertEqual(
             sum(1 for path in compiler.rglob("*.py")
                 if not (tools / path.relative_to(compiler)).is_file()),
-            24,
+            25,
             "compiler-only modules need a reviewed Phase-0 inventory update",
         )
         self.assertEqual(

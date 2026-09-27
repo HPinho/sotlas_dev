@@ -4194,7 +4194,7 @@ Primeiro alvo recomendado: um backend nativo completo para uma arquitetura/ABI d
 
 Checklist:
 
-- [ ] Target IR/lowering explícito após o SIR;
+- [x] Target IR v1 tipado e target-neutral após o SIR canônico, com blocks, valores virtuais, operações escalares, chamadas e terminadores para o subset validado; seleção de instruções e lowering por target permanecem pendentes;
 - [ ] definição de calling convention e ABI lowering;
 - [ ] lowering de parâmetros, retornos, aggregates e tagged unions;
 - [ ] stack-frame layout;
@@ -4256,7 +4256,7 @@ nativo permanece aberta.
 Inclui também tooling específico do backend nativo:
 
 - [x] inspeção source-stable do subset canônico via `sir-report` e `dump-sir`;
-- [ ] inspeção do Target IR/lowering;
+- [x] inspeção JSON do Target IR v1 pre-selection para o subset canônico validado; source mapping e inspeção do lowering físico permanecem pendentes;
 - [x] `--emit-asm` no subset inteiro explicitamente suportado pelo backend LLVM;
 - [ ] dump de register allocation;
 - [ ] visualização de stack frames/ABI;
