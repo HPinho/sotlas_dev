@@ -2084,9 +2084,30 @@ class SIRGenerator:
         if return_type not in {"f32", "f64"}:
             return False
         body = list(getattr(fn, "body", ()) or ())
-        if len(body) != 1 or type(body[0]).__name__ not in ("Return", "ReturnNode"):
+        if len(body) == 1 and type(body[0]).__name__ in ("Return", "ReturnNode"):
+            return_statement = body[0]
+            expression = getattr(return_statement, "value", None)
+        elif (
+            len(body) == 2
+            and type(body[0]).__name__ == "Let"
+            and type(body[1]).__name__ == "Return"
+        ):
+            binding, return_statement = body
+            if (
+                getattr(binding, "is_mut", False)
+                or getattr(binding, "is_static", False)
+                or self._type_name(getattr(binding, "type", None)) != return_type
+            ):
+                return False
+            returned = getattr(return_statement, "value", None)
+            if (
+                type(returned).__name__ != "Name"
+                or getattr(returned, "value", None) != getattr(binding, "name", None)
+            ):
+                return False
+            expression = getattr(binding, "value", None)
+        else:
             return False
-        expression = getattr(body[0], "value", None)
         if type(expression).__name__ not in ("Binary", "BinaryExprNode"):
             return False
         operator = getattr(expression, "op", None)
@@ -2136,9 +2157,30 @@ class SIRGenerator:
     ) -> bool:
         """Lower one fixed-width integer parameter/literal arithmetic return."""
         body = list(getattr(fn, "body", ()) or ())
-        if len(body) != 1 or type(body[0]).__name__ not in ("Return", "ReturnNode"):
+        if len(body) == 1 and type(body[0]).__name__ in ("Return", "ReturnNode"):
+            return_statement = body[0]
+            expression = getattr(return_statement, "value", None)
+        elif (
+            len(body) == 2
+            and type(body[0]).__name__ == "Let"
+            and type(body[1]).__name__ == "Return"
+        ):
+            binding, return_statement = body
+            if (
+                getattr(binding, "is_mut", False)
+                or getattr(binding, "is_static", False)
+                or self._type_name(getattr(binding, "type", None)) != return_type
+            ):
+                return False
+            returned = getattr(return_statement, "value", None)
+            if (
+                type(returned).__name__ != "Name"
+                or getattr(returned, "value", None) != getattr(binding, "name", None)
+            ):
+                return False
+            expression = getattr(binding, "value", None)
+        else:
             return False
-        expression = getattr(body[0], "value", None)
         if type(expression).__name__ not in ("Binary", "BinaryExprNode"):
             return False
         operator = getattr(expression, "op", None)

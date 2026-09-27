@@ -117,11 +117,33 @@ class TestSotlasLLVMDirectEmission(unittest.TestCase):
         self.toolchain.compile_llvm_ir_to_obj(comparison_ir, comparison_object)
         self.assertGreater(comparison_object.stat().st_size, 0)
 
+        for type_name, operation, llvm_type in (
+            ("u32", "+", "add i32"),
+            ("f32", "+", "fadd float"),
+        ):
+            local_arithmetic = self.tmp_path / f"local_arithmetic_{type_name}.ll"
+            self.toolchain.compile_source_to_native(
+                "module test::llvm_local_arithmetic; "
+                f"fn calculate(left: {type_name}, right: {type_name}) -> {type_name} {{ "
+                f"let result: {type_name} = left {operation} right; "
+                "return result; }",
+                "test::llvm_local_arithmetic",
+                local_arithmetic,
+                emit_type="llvm",
+                backend="llvm",
+            )
+            arithmetic_ir = local_arithmetic.read_text(encoding="utf-8")
+            self.assertIn(llvm_type, arithmetic_ir)
+            arithmetic_object = self.tmp_path / f"local_arithmetic_{type_name}.obj"
+            self.toolchain.compile_llvm_ir_to_obj(arithmetic_ir, arithmetic_object)
+            self.assertGreater(arithmetic_object.stat().st_size, 0)
+
         cases = (
             (
                 "module test::llvm_unlowered_value; "
                 "fn answer(input: u32) -> u32 { "
-                "let value: u32 = input + 7u32; return value; }",
+                "let value: u32 = input + 7u32; "
+                "let result: u32 = value + 1u32; return result; }",
                 "answer",
             ),
             (
@@ -153,7 +175,8 @@ class TestSotlasLLVMDirectEmission(unittest.TestCase):
         module = bootstrap.parse(
             "module test::sir_unlowered; "
             "fn answer(input: u32) -> u32 { "
-            "let value: u32 = input + 7u32; return value; }"
+            "let value: u32 = input + 7u32; "
+            "let result: u32 = value + 1u32; return result; }"
         )
         sir = SIRGenerator().generate_from_ast(module)
         self.assertEqual(sir.unlowered_functions, ["answer"])
