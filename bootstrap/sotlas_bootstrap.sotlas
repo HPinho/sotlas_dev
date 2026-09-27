@@ -49,7 +49,8 @@ pub enum TokenKind {
     OpenBrace,
     CloseBrace,
     OpenBracket,
-    CloseBracket
+    CloseBracket,
+    Error
 }
 
 // Representação de posição geográfica no código fonte
@@ -77,6 +78,9 @@ pub class SotlasLexer {
         let mut lexer: SotlasLexer = 0;
         lexer.source = src;
         lexer.source_len = len;
+        if src == null {
+            lexer.source_len = 0;
+        }
         lexer.cursor = 0;
         lexer.current_line = 1;
         lexer.current_col = 1;
@@ -143,8 +147,8 @@ pub class SotlasLexer {
                     if self.cursor + 1 < self.source_len {
                         let next_c: u8 = *(self.source + self.cursor + 1);
                         if next_c == 47 { // '//'
-                            while self.cursor < self.source_len && *(self.source + self.cursor) != 10 {
-                                self.cursor = self.cursor + 1;
+                            while self.cursor < self.source_len && self.peek() != 10 {
+                                self.advance();
                             }
                         } else {
                             return;
@@ -203,6 +207,29 @@ pub class SotlasLexer {
             if ch == 44 { return Token { kind: TokenKind::Comma, span: span }; }
             if ch == 43 { return Token { kind: TokenKind::Plus, span: span }; }
             if ch == 42 { return Token { kind: TokenKind::Star, span: span }; }
+            if ch == 47 { return Token { kind: TokenKind::Slash, span: span }; }
+
+            if ch == 34 { // quoted byte string; preserve the source spelling in the span
+                let start_offset: usize = span.offset;
+                while !self.is_at_end() {
+                    let next_ch: u8 = self.peek();
+                    if next_ch == 34 {
+                        self.advance();
+                        span.length = self.cursor - start_offset;
+                        return Token { kind: TokenKind::StringLiteral, span: span };
+                    }
+                    if next_ch == 92 { // backslash escapes the following byte
+                        self.advance();
+                        if self.is_at_end() {
+                            span.length = self.cursor - start_offset;
+                            return Token { kind: TokenKind::Error, span: span };
+                        }
+                    }
+                    self.advance();
+                }
+                span.length = self.cursor - start_offset;
+                return Token { kind: TokenKind::Error, span: span };
+            }
 
             if ch == 45 { // '-' ou '->'
                 if self.peek() == 62 { // '>'
@@ -246,7 +273,7 @@ pub class SotlasLexer {
                 return Token { kind: TokenKind::NumberLiteral, span: span };
             }
 
-            return Token { kind: TokenKind::Eof, span: span };
+            return Token { kind: TokenKind::Error, span: span };
         }
     }
 }

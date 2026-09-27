@@ -241,9 +241,11 @@ bootstrap implementation detail and must not define language semantics.
 The current bootstrap evidence is narrower: `bootstrap/sotlas_bootstrap.sotlas`
 passes the canonical frontend, and its generated C11 links with a native caller
 under warnings-as-errors. The caller executes the Sotlas-written lexer and
-checks identifier, arrow, and number tokens with their source spans. This does
-not validate a stage1 compiler, a stage2 rebuild, or a replacement for the
-Python production frontend.
+checks identifiers, arrows, numbers, quoted byte strings, line-comment
+locations, malformed strings, and null-input handling. The lexer preserves
+source spelling in token spans and does not decode string escapes or classify
+keywords yet. This does not validate a stage1 compiler, a stage2 rebuild, or a
+replacement for the Python production frontend.
 
 ## 9. Diagnostics as an API
 
