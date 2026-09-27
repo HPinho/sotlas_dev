@@ -78,7 +78,7 @@ The reference runner is useful for validating pure scalar Flow plans before
 lowering them to the serial C11 subset:
 
 ```sh
-sotlas flow-run examples/flow/compute.sotlas --flow Compute --workers 4
+sotlas flow-run examples/12_sotlas_by_example/04_flow_cpu.sotlas --flow Compute --workers 4
 ```
 
 It checks the source through the canonical frontend, validates the Flow plan
