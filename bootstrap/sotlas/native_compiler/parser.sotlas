@@ -82,6 +82,15 @@ impl Parser {
         return tok;
     }
 
+    pub fn reject_current(mut self: &mut Self) {
+        let tok: Token = self.current();
+        if self.error_count == 0 {
+            self.error_line = tok.span.line;
+            self.error_col = tok.span.col;
+        }
+        self.error_count = self.error_count + 1;
+    }
+
     pub fn alloc_node(mut self: &mut Self, kind: AstKind, span: Span) -> usize {
         if self.nodes == null || self.node_count >= self.node_capacity {
             return 0;
@@ -739,8 +748,10 @@ impl Parser {
             }
             if self.match_token(TokenKind::OpenBrace) {
                 self.advance();
-                while !self.is_at_end() && !self.match_token(TokenKind::CloseBrace) {
-                    self.advance();
+                if !self.match_token(TokenKind::CloseBrace) {
+                    // Aggregate members are not represented by the bootstrap AST.
+                    self.reject_current();
+                    return 0;
                 }
                 self.expect(TokenKind::CloseBrace);
             }
@@ -757,8 +768,10 @@ impl Parser {
             }
             if self.match_token(TokenKind::OpenBrace) {
                 self.advance();
-                while !self.is_at_end() && !self.match_token(TokenKind::CloseBrace) {
-                    self.advance();
+                if !self.match_token(TokenKind::CloseBrace) {
+                    // Enum variants are not represented by the bootstrap AST.
+                    self.reject_current();
+                    return 0;
                 }
                 self.expect(TokenKind::CloseBrace);
             }
