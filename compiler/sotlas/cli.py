@@ -153,6 +153,17 @@ def main() -> int:
     )
     flow_report.add_argument("source", help=f"Arquivo fonte {SOTLAS_EXT}")
 
+    flow_run = sub.add_parser(
+        "flow-run",
+        help="Interpret a checked pure scalar Flow plan on the CPU",
+    )
+    flow_run.add_argument("source", help=f"Source file {SOTLAS_EXT}")
+    flow_run.add_argument("--flow", required=True, help="Name of the Flow plan to execute")
+    flow_run.add_argument(
+        "--workers", type=int, default=None,
+        help="Maximum concurrent independent stages (default: runtime setting)",
+    )
+
     sir_report = sub.add_parser(
         "sir-report",
         help="Emite inventário JSON do subset SIR canônico validado",
@@ -258,6 +269,8 @@ def main() -> int:
         return _run_contract_report(args.source)
     if args.cmd == "flow-report":
         return _run_flow_report(args.source)
+    if args.cmd == "flow-run":
+        return _run_flow_run(args.source, args.flow, args.workers)
     if args.cmd == "sir-report":
         return _run_sir_report(args.source)
     if args.cmd == "target-report":
@@ -460,6 +473,38 @@ def _run_flow_report(source_path: str) -> int:
         print(json.dumps(report, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
     except Exception as error:
         print(f"sotlas: erro ao gerar flow report: {error}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def _run_flow_run(source_path: str, flow_name: str, workers: int | None) -> int:
+    loaded = _read_source(source_path)
+    if loaded is None:
+        return 1
+    _, text = loaded
+    try:
+        from sotlas_compile import (
+            analyze_source_phase1,
+            build_canonical_checked_ownership_sir,
+            execute_interpreted_sir_flow,
+        )
+
+        checked = analyze_source_phase1(text, filename=source_path)
+        checked_sir, _ = build_canonical_checked_ownership_sir(checked)
+        result = execute_interpreted_sir_flow(
+            checked_sir.module,
+            flow_name,
+            max_workers=workers,
+        )
+        report = {
+            "schema": "sotlas.flow-result.v1",
+            "module": checked_sir.module.name,
+            "flow": flow_name,
+            "outputs": dict(result.outputs),
+        }
+        print(json.dumps(report, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+    except Exception as error:
+        print(f"sotlas: Flow execution failed: {error}", file=sys.stderr)
         return 1
     return 0
 

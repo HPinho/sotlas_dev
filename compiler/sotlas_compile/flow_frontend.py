@@ -40,7 +40,13 @@ _C11_FLOW_SCALAR_TYPES = frozenset({
 
 
 def _emit_c11_flow_entrypoints(module, bootstrap) -> str:
-    """Emit C-callable entrypoints for verified, serial, pure scalar Flows."""
+    """Emit C-callable entrypoints for verified pure scalar Flow plans.
+
+    C11 currently uses a deterministic serial fallback for independent stages.
+    The source and reference scheduler retain the parallel layers; because every
+    accepted stage is proven pure, evaluating one layer in canonical order
+    preserves the result while the backend lacks a native task runtime.
+    """
     plans = tuple(getattr(module, "typed_flows", ()) or ())
     if not plans:
         return ""
@@ -53,16 +59,17 @@ def _emit_c11_flow_entrypoints(module, bootstrap) -> str:
 
     for plan in plans:
         layers = tuple(plan.graph.parallel_stages)
-        if not layers or any(len(layer) != 1 for layer in layers):
+        if not layers or any(not layer for layer in layers):
             raise FlowFrontendError(
-                f"C11 Flow lowering requires a strictly serial plan; "
-                f"Flow {plan.name!r} contains parallel stages"
+                f"C11 Flow lowering found an invalid stage schedule for "
+                f"Flow {plan.name!r}"
             )
-        order = tuple(layer[0] for layer in layers)
+        order = tuple(stage for layer in layers for stage in layer)
         stages = {stage.name: stage for stage in plan.stages}
         if set(order) != set(stages) or len(order) != len(stages):
             raise FlowFrontendError(
-                f"C11 Flow lowering found an inconsistent stage schedule for {plan.name!r}"
+                f"C11 Flow lowering found an inconsistent stage schedule for "
+                f"{plan.name!r}"
             )
         final_stage = stages[order[-1]]
 

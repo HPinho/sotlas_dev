@@ -23,6 +23,57 @@ bootstrap = canonical_llvm_frontend()
 
 
 class SotlasFlowNativeTests(unittest.TestCase):
+    def test_parallel_pure_flow_uses_c11_serial_fallback_with_matching_result(self):
+        compiler = default_toolchain.find_tool("clang") or shutil.which("gcc")
+        if compiler is None:
+            self.skipTest("Clang or GCC is required for native Flow execution")
+        source = """module test::native_parallel_flow;
+fn load() -> u32 { return 4u32; }
+fn twice(value: u32) -> u32 { return value * 2u32; }
+fn increment(value: u32) -> u32 { return value + 1u32; }
+fn combine(left: u32, right: u32) -> u32 { return left + right; }
+flow Compute {
+    stage seed = load;
+    stage doubled = twice after seed;
+    stage incremented = increment after seed;
+    stage result = combine after doubled, incremented;
+}
+"""
+        package = importlib.import_module(bootstrap.__package__)
+        checked = package.analyze_source_phase1(source)
+        checked_sir, _ = package.build_canonical_checked_ownership_sir(checked)
+        interpreted = package.execute_interpreted_sir_flow(
+            checked_sir.module, "Compute", max_workers=2
+        ).output("result")
+        c_source = bootstrap.compile_source(source, "native_parallel_flow.sotlas")
+        entrypoint = "sotlas_flow_test__native_parallel_flow_Compute"
+        self.assertIn(f"uint32_t {entrypoint}(void)", c_source)
+
+        with tempfile.TemporaryDirectory(prefix="sotlas-flow-parallel-c11-") as tmpdir:
+            root = Path(tmpdir)
+            generated = root / "flow.c"
+            caller = root / "caller.c"
+            executable = root / ("caller.exe" if os.name == "nt" else "caller")
+            generated.write_text(c_source, encoding="utf-8")
+            caller.write_text(
+                "#include <stdint.h>\n"
+                f"extern uint32_t {entrypoint}(void);\n"
+                f"int main(void) {{ return {entrypoint}() == {interpreted}u ? 0 : 1; }}\n",
+                encoding="utf-8",
+            )
+            compiled = subprocess.run(
+                [str(compiler), "-std=c11", "-Wall", "-Wextra", str(generated),
+                 str(caller), "-o", str(executable)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            executed = subprocess.run(
+                [str(executable)], capture_output=True, text=True, check=False
+            )
+            self.assertEqual(executed.returncode, 0, executed.stderr)
+
     def test_serial_pure_float_flow_executes_through_generated_c_entrypoint(self):
         compiler = default_toolchain.find_tool("clang") or shutil.which("gcc")
         if compiler is None:

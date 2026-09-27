@@ -63,13 +63,32 @@ performance advantages over established systems languages.
 | :--- | :--- |
 | Ownership and safety analysis | Verified only for the subsets listed in the [release scope](docs/sotlas_1_0_release_scope.md) |
 | Native C11 output | Bounded source subset; unsupported forms are rejected |
-| Flow on C11 | Serial, pure signed/unsigned integer, float, and bool plans expose a generated C entrypoint; source callers can use a matching `@extern(C)` declaration inside `@system` code. Parallel, stateful, and ownership-bearing plans are rejected |
+| Flow on C11 | Pure scalar plans, including graphs with independent stages, expose a generated C entrypoint; C11 currently evaluates stages in deterministic dependency order. Stateful and ownership-bearing plans are rejected |
+| Flow CPU reference runner | `sotlas flow-run FILE --flow NAME` interprets checked pure scalar stages, schedules independent stages concurrently, and reports stage outputs; this is a reference runtime, not native parallel code |
 | LLVM output | Checked direct-lowering subset; unsupported forms are rejected |
 | Hardware domains and runtime | Preview or planned; do not assume hardware execution support |
 | VS Code | Syntax, outline, hover, local structural hints, compiler commands, and source-located compiler diagnostics; extension install/use smoke test runs in CI |
 | Installation | Python prerelease package; clean-install smoke tests run on Linux, Windows, and macOS in CI |
 
 These are Sotlas's current contracts, not a feature comparison with other languages. The release scope links the exact supported forms and known gaps.
+
+### Run a checked Flow plan
+
+The reference runner is useful for validating pure scalar Flow plans before
+lowering them to the serial C11 subset:
+
+```sh
+sotlas flow-run examples/flow/compute.sotlas --flow Compute --workers 4
+```
+
+It checks the source through the canonical frontend, validates the Flow plan
+against canonical SIR, then runs supported integer and boolean stage bodies on
+the CPU. Independent stages may run concurrently. A stage error or cancellation
+stops dependent work and returns a nonzero exit status. Successful output is
+deterministic JSON with the result of each stage. Ownership-bearing values,
+effects, unsupported SIR instructions, device execution, and native parallel
+scheduling remain outside this runner's contract. See the [Flow CPU preview
+contract](docs/flow_cpu_preview.md) for the exact boundary.
 
 For phase-by-phase test evidence and explicit boundaries, see the [generated phase gate matrix](docs/phase_gate_matrix.md), the [standard-library API contracts](stdlib/core/README.md), and the [high-level language and self-hosting roadmap](docs/high_level_and_self_hosting_roadmap.md).
 
