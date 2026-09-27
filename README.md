@@ -63,6 +63,7 @@ performance advantages over established systems languages.
 | :--- | :--- |
 | Ownership and safety analysis | Verified only for the subsets listed in the [release scope](docs/sotlas_1_0_release_scope.md) |
 | Native C11 output | Bounded source subset; unsupported forms are rejected |
+| Flow on C11 | Serial, pure unsigned/bool plans expose a generated C entrypoint; parallel, stateful, and ownership-bearing plans are rejected |
 | LLVM output | Checked direct-lowering subset; unsupported forms are rejected |
 | Hardware domains and runtime | Preview or planned; do not assume hardware execution support |
 | VS Code | Syntax, outline, hover, local structural hints, compiler commands, and source-located compiler diagnostics; extension install/use smoke test runs in CI |

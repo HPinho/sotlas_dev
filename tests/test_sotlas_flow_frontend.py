@@ -126,7 +126,7 @@ flow Home {
         self.assertEqual(authority_sir.module.flow_plans, checked_sir.module.flow_plans)
         with self.assertRaisesRegex(
             package.SotlasBootstrapError,
-            "C11 backend does not lower source Flow declarations yet",
+            "strictly serial plan.*parallel stages",
         ):
             package.compile_source(source)
 
@@ -1106,7 +1106,7 @@ flow Home {
         self.assertEqual(len(module.typed_flows), 1)
         with self.assertRaisesRegex(
             tools_package.SotlasBootstrapError,
-            "C11 backend does not lower source Flow declarations yet",
+            "does not support value type",
         ):
             tools_package.compile_source(source)
 

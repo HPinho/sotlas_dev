@@ -180,6 +180,8 @@ PY
         python -m unittest discover -s tests -p "test_sotlas_flow_frontend.py" -v
         python -m unittest discover -s tests -p "test_sotlas_flow_cfg.py" -v
         python -m unittest discover -s tests -p "test_sotlas_flow_cfg_runtime.py" -v
+        python -m unittest discover -s tests -p "test_sotlas_flow_runtime.py" -v
+        python -m unittest discover -s tests -p "test_sotlas_flow_native.py" -v
 
     - name: Verify Phase 7 execution target contract
       run: |

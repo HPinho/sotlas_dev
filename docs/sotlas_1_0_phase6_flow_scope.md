@@ -26,9 +26,18 @@ dispatching them through the scheduler. End-to-end tests start from Sotlas Flow
 source and verify stage outputs. Pure integer and boolean stage bodies are the
 supported executable subset.
 
-The C11 production backend explicitly rejects source Flow until it has an
-ownership-aware lowering into its scheduler contract. This rejection is tested
-and is part of the 1.0 backend boundary.
+For serial plans whose stage functions are proven pure and use only unsigned
+scalar or `bool` values, the C11 backend emits a C-callable entrypoint named
+`sotlas_flow_<module>_<flow>`. It calls stages in certified dependency order and
+returns the final stage result. A native C caller test compiles and executes this
+entrypoint. The source language cannot call the generated symbol yet.
+
+This initial native path rejects parallel plans, unsupported types, contracts,
+system/foreign functions, method calls, and global access (including access
+through directly called helpers). The source effect pass does not yet classify
+global reads and writes, so the C11 gate checks that case syntactically and
+conservatively. The host scheduler remains the only path with structured
+failure/cancellation propagation.
 
 ## Verification
 
@@ -40,7 +49,8 @@ and is part of the 1.0 backend boundary.
 - Tests lower source-derived SIR plans into actual call CFGs, execute them via
   the scheduler, and verify outputs and fail-closed behavior for parallel CFG,
   effectful functions, and ownership-bearing values.
-- C11's unsupported-Flow diagnostic is checked before code emission.
+- Native C11 entrypoint execution is tested with a C caller; negative tests
+  check parallel plans, unsupported types, and global access before emission.
 - The full suite includes dedicated source, SIR, CFG, runtime, and C11 boundary
   tests.
 
@@ -49,8 +59,9 @@ and is part of the 1.0 backend boundary.
 - Executable parallel SIR CFGs; declarative Flow and the host graph scheduler
   already support parallel execution.
 - Ownership, cleanup, and non-scalar/lifetime-bearing values in executable CFG.
-- Native C11 scheduler lowering for source Flow; the backend rejects it
-  explicitly until that contract exists.
+- A native scheduler, parallel execution, and source-level invocation of Flow.
+- Ownership, cleanup, stage errors/cancellation, and general effects in native
+  Flow execution.
 - Backpressure, retries, distributed scheduling, timeouts, and forced
   interruption of running synchronous functions.
 - Arbitrary source CFG and general Flow unwind/defer integration.

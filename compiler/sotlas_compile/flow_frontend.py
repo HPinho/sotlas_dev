@@ -32,6 +32,165 @@ class TypedFlowPlan:
     stages: tuple[TypedFlowStage, ...]
 
 
+_C11_FLOW_SCALAR_TYPES = frozenset({
+    "bool", "u8", "u16", "u32", "u64", "usize",
+})
+
+
+def _emit_c11_flow_entrypoints(module, bootstrap) -> str:
+    """Emit C-callable entrypoints for verified, serial, pure scalar Flows."""
+    plans = tuple(getattr(module, "typed_flows", ()) or ())
+    if not plans:
+        return ""
+    functions = {function.name: function for function in module.functions}
+    summaries = getattr(module, "source_effect_summaries", None) or {}
+    globals_ = {item.name for item in module.globals}
+    emitted = []
+    used_names = set(functions)
+
+    for plan in plans:
+        layers = tuple(plan.graph.parallel_stages)
+        if not layers or any(len(layer) != 1 for layer in layers):
+            raise FlowFrontendError(
+                f"C11 Flow lowering requires a strictly serial plan; "
+                f"Flow {plan.name!r} contains parallel stages"
+            )
+        order = tuple(layer[0] for layer in layers)
+        stages = {stage.name: stage for stage in plan.stages}
+        if set(order) != set(stages) or len(order) != len(stages):
+            raise FlowFrontendError(
+                f"C11 Flow lowering found an inconsistent stage schedule for {plan.name!r}"
+            )
+
+        entry_name = bootstrap._c_ident(
+            f"sotlas_flow_{module.name}_{plan.name}"
+        )
+        if entry_name in used_names:
+            raise FlowFrontendError(
+                f"generated C11 Flow entrypoint {entry_name!r} collides with a function"
+            )
+        used_names.add(entry_name)
+
+        output_names: dict[str, str] = {}
+        body = []
+        for stage_name in order:
+            stage = stages[stage_name]
+            function = functions.get(stage.function)
+            if function is None:
+                raise FlowFrontendError(
+                    f"C11 Flow stage {stage.name!r} has no source function"
+                )
+            if stage.result_type.name not in _C11_FLOW_SCALAR_TYPES or any(
+                item.name not in _C11_FLOW_SCALAR_TYPES
+                for item in stage.input_types
+            ):
+                raise FlowFrontendError(
+                    f"C11 Flow lowering does not support value type in stage "
+                    f"{stage.name!r}"
+                )
+            summary = summaries.get(stage.function)
+            if (
+                summary is None
+                or tuple(getattr(summary, "transitive_effects", ()))
+                or tuple(getattr(summary, "unresolved_calls", ()))
+            ):
+                raise FlowFrontendError(
+                    f"C11 Flow lowering requires a proven pure stage function "
+                    f"{stage.function!r}"
+                )
+            if _flow_function_reaches_global_access(
+                function, functions, globals_, bootstrap
+            ):
+                raise FlowFrontendError(
+                    f"C11 Flow lowering does not yet verify global access in "
+                    f"stage function {stage.function!r}"
+                )
+            if any(
+                attribute in {"@system", "@extern(C)"}
+                for attribute in function.attributes
+            ):
+                raise FlowFrontendError(
+                    f"C11 Flow lowering does not call system or foreign stage "
+                    f"function {stage.function!r}"
+                )
+            if (
+                getattr(function, "requires", None) is not None
+                or getattr(function, "ensures", None) is not None
+            ):
+                raise FlowFrontendError(
+                    f"C11 Flow lowering does not yet integrate contracts on "
+                    f"stage function {stage.function!r}"
+                )
+            if len(function.params) != len(stage.dependencies):
+                raise FlowFrontendError(
+                    f"C11 Flow stage {stage.name!r} parameter count changed"
+                )
+
+            arguments = []
+            for dependency in stage.dependencies:
+                value_name = output_names.get(dependency)
+                if value_name is None:
+                    raise FlowFrontendError(
+                        f"C11 Flow stage {stage.name!r} reads a dependency "
+                        f"{dependency!r} before it is produced"
+                    )
+                arguments.append(value_name)
+
+            value_name = bootstrap._c_ident(
+                f"sotlas_flow_value_{plan.name}_{stage.name}"
+            )
+            call = f"{bootstrap._c_ident(stage.function)}({', '.join(arguments)})"
+            body.append(
+                f"    {stage.result_type.c()} {value_name} = {call};"
+            )
+            output_names[stage.name] = value_name
+
+        final_stage = stages[order[-1]]
+        emitted.extend([
+            f"{final_stage.result_type.c()} {entry_name}(void) {{",
+            *body,
+            f"    return {output_names[final_stage.name]};",
+            "}",
+            "",
+        ])
+    return "\n".join(emitted)
+
+
+def _flow_function_reaches_global_access(function, functions, globals_, bootstrap):
+    """Fail closed on globals, including through directly called helpers.
+
+    The current source effect pass does not classify global reads and writes,
+    so its empty summary alone is not a sufficient purity proof for Flow.
+    """
+    pending = [function]
+    visited = set()
+
+    def children(value):
+        if isinstance(value, (bootstrap.Expr, bootstrap.Stmt)):
+            return tuple(vars(value).values())
+        if isinstance(value, (tuple, list)):
+            return tuple(value)
+        return ()
+
+    while pending:
+        current = pending.pop()
+        if current.name in visited:
+            continue
+        visited.add(current.name)
+        stack = list(current.body)
+        while stack:
+            value = stack.pop()
+            if isinstance(value, bootstrap.Name) and value.value in globals_:
+                return True
+            if type(value).__name__ == "MethodCall":
+                # Method resolution is not yet part of the Flow purity proof.
+                return True
+            if isinstance(value, bootstrap.Call) and value.callee in functions:
+                pending.append(functions[value.callee])
+            stack.extend(children(value))
+    return False
+
+
 def plan_source_flows(module, bootstrap) -> tuple[TypedFlowPlan, ...]:
     """Validate source Flow DAGs and type each stage's dependency values."""
     flows = tuple(getattr(module, "flows", ()))
@@ -139,16 +298,17 @@ def install(bootstrap) -> None:
 
     bootstrap.check = check_with_flows
 
-    def compile_without_flow_lowering(module, *args, **kwargs):
+    def compile_serial_scalar_flows(module, *args, **kwargs):
         generated = original_compile_module(module, *args, **kwargs)
-        if tuple(getattr(module, "flows", ())):
+        try:
+            flow_c = _emit_c11_flow_entrypoints(module, bootstrap)
+        except FlowFrontendError as error:
             raise bootstrap.SotlasBootstrapError(
-                "C11 backend does not lower source Flow declarations yet",
-                1, 1, module.filename, module.source,
-            )
-        return generated
+                str(error), 1, 1, module.filename, module.source
+            ) from error
+        return generated + ("\n" + flow_c if flow_c else "")
 
-    bootstrap.compile_module = compile_without_flow_lowering
+    bootstrap.compile_module = compile_serial_scalar_flows
 
 
 __all__ = [
