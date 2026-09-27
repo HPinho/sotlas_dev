@@ -48,6 +48,8 @@ flow Compute {
         c_source = bootstrap.compile_source(source, "native_parallel_flow.sotlas")
         entrypoint = "sotlas_flow_test__native_parallel_flow_Compute"
         self.assertIn(f"uint32_t {entrypoint}(void)", c_source)
+        outputs_entrypoint = f"{entrypoint}_outputs"
+        self.assertIn(f"int32_t {outputs_entrypoint}(", c_source)
 
         with tempfile.TemporaryDirectory(prefix="sotlas-flow-parallel-c11-") as tmpdir:
             root = Path(tmpdir)
@@ -58,7 +60,15 @@ flow Compute {
             caller.write_text(
                 "#include <stdint.h>\n"
                 f"extern uint32_t {entrypoint}(void);\n"
-                f"int main(void) {{ return {entrypoint}() == {interpreted}u ? 0 : 1; }}\n",
+                f"extern int32_t {outputs_entrypoint}(uint32_t *, uint32_t *, "
+                "uint32_t *, uint32_t *);\n"
+                "int main(void) {\n"
+                "  uint32_t seed = 0, doubled = 0, incremented = 0, result = 0;\n"
+                f"  if (!{outputs_entrypoint}(&seed, &doubled, &incremented, &result)) return 2;\n"
+                "  if (seed != 4u || doubled != 8u || incremented != 5u || result != 13u) return 3;\n"
+                f"  if ({outputs_entrypoint}(0, &doubled, &incremented, &result)) return 4;\n"
+                f"  return {entrypoint}() == {interpreted}u ? 0 : 1;\n"
+                "}\n",
                 encoding="utf-8",
             )
             compiled = subprocess.run(

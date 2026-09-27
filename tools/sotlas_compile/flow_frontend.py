@@ -76,11 +76,18 @@ def _emit_c11_flow_entrypoints(module, bootstrap) -> str:
         entry_name = bootstrap._c_ident(
             f"sotlas_flow_{module.name}_{plan.name}"
         )
+        outputs_name = f"{entry_name}_outputs"
         if entry_name in generated_names:
             raise FlowFrontendError(
                 f"multiple Flow plans map to generated C11 symbol {entry_name!r}"
             )
         generated_names.add(entry_name)
+        if outputs_name in generated_names or outputs_name in used_names:
+            raise FlowFrontendError(
+                f"generated C11 Flow outputs symbol {outputs_name!r} collides "
+                "with a function or another Flow plan"
+            )
+        generated_names.add(outputs_name)
         declaration = functions.get(entry_name)
         if declaration is not None:
             if (
@@ -101,7 +108,9 @@ def _emit_c11_flow_entrypoints(module, bootstrap) -> str:
             used_names.add(entry_name)
 
         output_names: dict[str, str] = {}
+        output_parameters = []
         body = []
+        outputs_body = []
         for stage_name in order:
             stage = stages[stage_name]
             function = functions.get(stage.function)
@@ -172,9 +181,27 @@ def _emit_c11_flow_entrypoints(module, bootstrap) -> str:
             body.append(
                 f"    {stage.result_type.c()} {value_name} = {call};"
             )
+            outputs_body.append(
+                f"    {stage.result_type.c()} {value_name} = {call};"
+            )
             output_names[stage.name] = value_name
+            output_parameter = f"out_{bootstrap._c_ident(stage.name)}"
+            output_parameters.append((stage.result_type.c(), output_parameter))
+            outputs_body.append(f"    *{output_parameter} = {value_name};")
 
+        outputs_signature = ", ".join(
+            f"{kind} *{name}" for kind, name in output_parameters
+        )
         emitted.extend([
+            f"int32_t {outputs_name}({outputs_signature}) {{",
+            *[
+                f"    if ({name} == 0) return 0;"
+                for _, name in output_parameters
+            ],
+            *outputs_body,
+            "    return 1;",
+            "}",
+            "",
             f"{final_stage.result_type.c()} {entry_name}(void) {{",
             *body,
             f"    return {output_names[final_stage.name]};",

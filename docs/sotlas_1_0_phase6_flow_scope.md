@@ -32,8 +32,11 @@ For plans whose stage functions are proven pure and use signed or unsigned
 integer scalars, `f32`, `f64`, or `bool`, the C11 backend emits a
 C-callable entrypoint named
 `sotlas_flow_<module>_<flow>`. It calls stages in certified dependency order and
-returns the final stage result. Native C and Sotlas callers execute this
-entrypoint in tests. Sotlas callers declare the exact generated symbol with
+returns the final stage result. A companion
+`sotlas_flow_<module>_<flow>_outputs` entrypoint writes every stage result to
+caller-provided scalar pointers and returns 0 if any pointer is null. Both
+entrypoints execute in native tests, including a graph with independent
+stages. Sotlas callers declare the exact generated symbol with
 `@extern(C)` and call it from an `@system` function. A dedicated Flow invocation
 syntax is not available yet.
 
@@ -43,7 +46,9 @@ contracts, system/foreign functions, method calls, and global access (including
 access through directly called helpers). The source effect pass does not yet
 classify global reads and writes, so the C11 gate checks that case syntactically
 and conservatively. The host scheduler remains the only path with structured
-failure/cancellation propagation.
+failure/cancellation propagation. The outputs entrypoint exposes all computed
+values but does not add native scheduling, asynchronous execution, or structured
+stage failures.
 
 ## Verification
 
