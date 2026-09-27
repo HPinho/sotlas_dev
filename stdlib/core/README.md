@@ -43,8 +43,11 @@ validated before the offset is advanced.
 `foundation::string_buf::StringBuf` is a caller-owned, fixed-capacity,
 null-terminated byte buffer. Its capacity includes the trailing NUL byte, so a
 zero-capacity buffer cannot accept appends and a one-byte buffer can only hold
-the terminator. Append operations return `false` when no payload byte fits. The
-API is byte-oriented and does not validate UTF-8.
+the terminator. `string_buf_append_str` and `string_buf_append_bytes` either
+append the complete input or return `false` without changing the buffer. Byte
+appends support input ranges that overlap the destination buffer. The caller
+must provide readable source storage and writable backing storage for their
+declared extents. The API is byte-oriented and does not validate UTF-8.
 
 ## Ring buffer
 
@@ -68,6 +71,8 @@ zero, one, and two-byte capacities in native execution. These tests do not
 dereference arbitrary invalid non-null addresses, because that is undefined
 behavior in the C11 runtime.
 
-`tests/native/test_ring_buffer_native.sotlas` executes wraparound, FIFO ordering,
-full and empty behavior, invalid reinitialization, and corrupted public index and
-count rejection through the canonical C11 compiler.
+`tests/native/test_string_buf_native.sotlas` also checks atomic rejection when a
+string does not fit, overlapping self-append, and source and destination address
+wraparound. `tests/native/test_ring_buffer_native.sotlas` executes wraparound,
+FIFO ordering, full and empty behavior, invalid reinitialization, and corrupted
+public index and count rejection through the canonical C11 compiler.

@@ -1,4 +1,5 @@
 static mut storage: [u8; 4] = 0;
+static mut storage_large: [u8; 8] = 0;
 
 pub fn main() -> i32 {
     unsafe {
@@ -39,6 +40,64 @@ pub fn main() -> i32 {
     unsafe {
         if storage[0] != 65 || storage[1] != 0 {
             return 8;
+        }
+    }
+
+    string_buf_clear(two_ptr);
+    if string_buf_append_str(two_ptr, "abc" as *const u8) {
+        return 9;
+    }
+    if string_buf_len(two_ptr as *const StringBuf) != 0 {
+        return 10;
+    }
+
+    let mut full: StringBuf = string_buf_new(storage as *mut u8, 4);
+    let full_ptr: *mut StringBuf = unsafe { (&mut full) as *mut StringBuf };
+    if !string_buf_append_str(full_ptr, "abc" as *const u8) {
+        return 11;
+    }
+    if string_buf_len(full_ptr as *const StringBuf) != 3 {
+        return 12;
+    }
+    if string_buf_append_bytes(full_ptr, "x" as *const u8, 1) {
+        return 13;
+    }
+    if string_buf_len(full_ptr as *const StringBuf) != 3 {
+        return 14;
+    }
+
+    let max_value: usize = ~0usize;
+    let mut wrapped_destination: StringBuf = 0;
+    unsafe { wrapped_destination.buffer = max_value as *mut u8; }
+    wrapped_destination.capacity = 4;
+    wrapped_destination.length = 0;
+    let wrapped_ptr: *mut StringBuf = unsafe { (&mut wrapped_destination) as *mut StringBuf };
+    if string_buf_append_char(wrapped_ptr, 65) {
+        return 15;
+    }
+    unsafe {
+        if string_buf_append_bytes(full_ptr, max_value as *const u8, 1) {
+            return 16;
+        }
+    }
+
+    let mut aliasing: StringBuf = string_buf_new(storage_large as *mut u8, 8);
+    let aliasing_ptr: *mut StringBuf = unsafe { (&mut aliasing) as *mut StringBuf };
+    if !string_buf_append_str(aliasing_ptr, "abc" as *const u8) {
+        return 17;
+    }
+    if !string_buf_append_bytes(aliasing_ptr, storage_large as *const u8, 3) {
+        return 18;
+    }
+    if string_buf_len(aliasing_ptr as *const StringBuf) != 6 {
+        return 19;
+    }
+    unsafe {
+        if storage_large[0] != 97 || storage_large[1] != 98 ||
+            storage_large[2] != 99 || storage_large[3] != 97 ||
+            storage_large[4] != 98 || storage_large[5] != 99 ||
+            storage_large[6] != 0 {
+            return 20;
         }
     }
     return 0;

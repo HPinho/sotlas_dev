@@ -59,15 +59,37 @@ pub fn string_buf_is_empty(sb: *const StringBuf) -> bool {
     }
 }
 
-pub fn string_buf_append_char(sb: *mut StringBuf, ch: u8) -> bool {
+fn string_buf_can_append(sb: *const StringBuf, count: usize) -> bool {
     if sb == null {
         return false;
     }
     unsafe {
         if (*sb).buffer == null || (*sb).capacity == 0 ||
-            (*sb).length >= ((*sb).capacity - 1) {
+            (*sb).length >= (*sb).capacity {
             return false;
         }
+        let available: usize = ((*sb).capacity - 1) - (*sb).length;
+        if count > available {
+            return false;
+        }
+        let base_addr: usize = (*sb).buffer as usize;
+        let final_offset: usize = (*sb).length + count;
+        let max_addr: usize = ~0usize;
+        if final_offset > max_addr - base_addr {
+            return false;
+        }
+        return true;
+    }
+}
+
+pub fn string_buf_append_char(sb: *mut StringBuf, ch: u8) -> bool {
+    if sb == null {
+        return false;
+    }
+    if !string_buf_can_append(sb as *const StringBuf, 1) {
+        return false;
+    }
+    unsafe {
         let target: *mut u8 = (*sb).buffer + (*sb).length;
         *target = ch;
         (*sb).length = (*sb).length + 1;
@@ -77,21 +99,71 @@ pub fn string_buf_append_char(sb: *mut StringBuf, ch: u8) -> bool {
     }
 }
 
+/// Appends a NUL-terminated string atomically; returns false if it does not fit.
 pub fn string_buf_append_str(sb: *mut StringBuf, s: *const u8) -> bool {
     if sb == null || s == null {
         return false;
     }
-    unsafe {
-        if (*sb).buffer == null || (*sb).capacity == 0 {
+    let max_addr: usize = ~0usize;
+    let source_addr: usize = s as usize;
+    let mut count: usize = 0;
+    loop {
+        if count > max_addr - source_addr {
             return false;
         }
-        let mut i: usize = 0;
-        let cap_minus_one: usize = (*sb).capacity - 1;
-        while *(s + i) != 0 && (*sb).length < cap_minus_one {
-            let target: *mut u8 = (*sb).buffer + (*sb).length;
-            *target = *(s + i);
-            (*sb).length = (*sb).length + 1;
-            i = i + 1;
+        unsafe {
+            if *(s + count) == 0 {
+                return string_buf_append_bytes(sb, s, count);
+            }
+        }
+        if count == max_addr - source_addr {
+            return false;
+        }
+        count = count + 1;
+    }
+}
+
+/// Appends exactly `count` bytes, or leaves the buffer unchanged on failure.
+pub fn string_buf_append_bytes(
+    sb: *mut StringBuf,
+    data: *const u8,
+    count: usize
+) -> bool {
+    if (data == null && count != 0) ||
+        !string_buf_can_append(sb as *const StringBuf, count) {
+        return false;
+    }
+    if count != 0 {
+        let source_addr: usize = data as usize;
+        let max_addr: usize = ~0usize;
+        if count > max_addr - source_addr {
+            return false;
+        }
+    }
+    unsafe {
+        let destination_addr: usize = ((*sb).buffer + (*sb).length) as usize;
+        let source_addr: usize = data as usize;
+        let source_end: usize = source_addr + count;
+        let overlaps: bool = count != 0 && destination_addr > source_addr &&
+            destination_addr < source_end;
+        if overlaps {
+            let mut i: usize = count;
+            while i > 0 {
+                i = i - 1;
+                let target: *mut u8 = (*sb).buffer + (*sb).length + i;
+                *target = *(data + i);
+            }
+        } else {
+            let mut i: usize = 0;
+            while i < count {
+                let target: *mut u8 = (*sb).buffer + (*sb).length;
+                *target = *(data + i);
+                (*sb).length = (*sb).length + 1;
+                i = i + 1;
+            }
+        }
+        if overlaps {
+            (*sb).length = (*sb).length + count;
         }
         let null_term: *mut u8 = (*sb).buffer + (*sb).length;
         *null_term = 0;
