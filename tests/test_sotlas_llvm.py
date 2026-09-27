@@ -128,6 +128,58 @@ fn calculate(a: u32, b: u32) -> u32 {{ return a {operator} b; }}
             for instruction in legacy_sir.functions[0].blocks[0].instructions
         ))
 
+    def test_source_loop_phi_flows_into_target_liveness_and_register_preview(self):
+        source = """module test::sir_loop_liveness;
+fn sum_to(limit: u32) -> u32 {
+    let mut index: u32 = 0u32;
+    let mut total: u32 = 0u32;
+    while index < limit {
+        total = total + index;
+        index = index + 1u32;
+    }
+    return total;
+}
+"""
+        parsed = source_bootstrap.parse(source)
+        source_bootstrap.check(parsed)
+        sir = SIRGenerator().generate_from_ast(parsed)
+        from sotlas_compile.target_ir import (
+            allocate_target_ir_registers,
+            analyze_target_ir_liveness,
+            lower_sir_to_target_ir,
+        )
+
+        target_ir = lower_sir_to_target_ir(sir)
+        target_function = target_ir["functions"][0]
+        phi_nodes = [
+            instruction
+            for block in target_function["blocks"]
+            for instruction in block["instructions"]
+            if instruction["op"] == "phi"
+        ]
+        self.assertEqual(len(phi_nodes), 2)
+        loop_block = next(
+            block for block in target_function["blocks"]
+            if any(instruction["op"] == "phi" for instruction in block["instructions"])
+        )
+        self.assertTrue(any(
+            loop_block["label"] in block["instructions"][-1].get("targets", ())
+            for block in target_function["blocks"]
+        ))
+
+        liveness = analyze_target_ir_liveness(target_ir)["functions"][0]
+        live_blocks = {block["label"]: block for block in liveness["blocks"]}
+        for phi in phi_nodes:
+            for incoming in phi["incoming"]:
+                self.assertIn(
+                    incoming["value"], live_blocks[incoming["block"]]["live_out"]
+                )
+
+        allocation = allocate_target_ir_registers(target_ir, register_count=8)
+        allocated = allocation["functions"][0]
+        allocated_values = {value["value"] for value in allocated["values"]}
+        self.assertTrue(all(phi["result"] in allocated_values for phi in phi_nodes))
+
     def test_signed_scalar_arithmetic_reaches_sir_but_is_rejected_by_llvm(self):
         source = "module test::sir_signed_arithmetic; fn calculate(a: i32, b: i32) -> i32 { return a + b; }"
         parsed = source_bootstrap.parse(source)

@@ -73,7 +73,9 @@ Flow plans, function contracts, and canonical SIR inventory. Each report is
 derived from the corresponding validated source/SIR pipeline, rejects invalid
 input without emitting partial JSON, and has a CLI regression test. Assembly
 emission is available for the certified LLVM subset and rejects unsupported
-forms.
+forms. A backend test also feeds the source-generated unsigned loop CFG through
+Target IR lowering, phi-edge liveness, and the inspection-only register preview;
+these analyses do not yet feed LLVM code generation.
 
 Interactive Domain/State/Authority views, a causal debugger, safety explorer,
 register-allocation and ABI/stack visualization, and source-to-instruction
