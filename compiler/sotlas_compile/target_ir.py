@@ -546,6 +546,8 @@ def layout_target_ir_stack(
         "i32": (4, 4), "u32": (4, 4), "f32": (4, 4),
         "i64": (8, 8), "u64": (8, 8), "usize": (8, 8), "f64": (8, 8),
     }
+
+
     functions = []
     for function in target_ir.get("functions", ()):
         slots = []
@@ -589,7 +591,129 @@ def layout_target_ir_stack(
     }
 
 
+def analyze_target_ir_liveness(target_ir: dict[str, Any]) -> dict[str, Any]:
+    """Compute CFG liveness and SSA interference for the checked Target IR."""
+    if not isinstance(target_ir, dict) or target_ir.get("schema") != "sotlas.target-ir.v1":
+        raise TargetIRLoweringError("liveness analysis requires Target IR v1")
+
+    functions = []
+    for function in target_ir.get("functions", ()):
+        blocks = function.get("blocks", ())
+        labels = [block.get("label") for block in blocks]
+        successors: dict[str, set[str]] = {label: set() for label in labels}
+        instructions_by_block = {
+            block["label"]: block.get("instructions", ()) for block in blocks
+        }
+        definitions: dict[str, dict[str, Any]] = {}
+        for parameter in function.get("parameters", ()):
+            definitions[parameter["name"]] = {
+                "value": parameter["name"], "type": parameter.get("type"),
+                "kind": "parameter",
+            }
+        uses: dict[str, set[str]] = {}
+        defs: dict[str, set[str]] = {}
+        phi_defs: dict[str, set[str]] = {}
+        phi_edge_uses: dict[tuple[str, str], set[str]] = {}
+
+        for block in blocks:
+            label = block["label"]
+            block_use: set[str] = set()
+            block_defs: set[str] = set()
+            block_phi_defs: set[str] = set()
+            for instruction in instructions_by_block[label]:
+                for target in instruction.get("targets", ()):
+                    successors[label].add(target)
+                result = instruction.get("result")
+                if result is not None:
+                    definitions[result] = {
+                        "value": result, "type": instruction.get("type"),
+                        "kind": "value",
+                    }
+                    block_defs.add(result)
+                    if instruction.get("op") == "phi":
+                        block_phi_defs.add(result)
+                if instruction.get("op") == "phi":
+                    for incoming in instruction.get("incoming", ()):
+                        phi_edge_uses.setdefault(
+                            (incoming["block"], label), set()
+                        ).add(incoming["value"])
+                    continue
+                if instruction.get("semantic_only"):
+                    continue
+                for operand in instruction.get("operands", ()):
+                    if operand not in block_defs:
+                        block_use.add(operand)
+            uses[label] = block_use
+            defs[label] = block_defs
+            phi_defs[label] = block_phi_defs
+
+        live_in = {label: set() for label in labels}
+        live_out = {label: set() for label in labels}
+        changed = True
+        while changed:
+            changed = False
+            for label in reversed(labels):
+                outgoing = set()
+                for successor in successors[label]:
+                    outgoing.update(live_in[successor] - phi_defs[successor])
+                    outgoing.update(phi_edge_uses.get((label, successor), ()))
+                incoming = uses[label] | (outgoing - defs[label])
+                if outgoing != live_out[label] or incoming != live_in[label]:
+                    live_out[label] = outgoing
+                    live_in[label] = incoming
+                    changed = True
+
+        interference: set[tuple[str, str]] = set()
+
+        def add_live_clique(values: set[str]) -> None:
+            ordered = sorted(values)
+            for index, first in enumerate(ordered):
+                for second in ordered[index + 1:]:
+                    interference.add((first, second))
+
+        for label in labels:
+            live = set(live_out[label])
+            add_live_clique(live)
+            for instruction in reversed(instructions_by_block[label]):
+                if instruction.get("semantic_only"):
+                    continue
+                result = instruction.get("result")
+                if result is not None:
+                    for value in live:
+                        if result != value:
+                            interference.add(tuple(sorted((result, value))))
+                    live.discard(result)
+                if instruction.get("op") != "phi":
+                    live.update(instruction.get("operands", ()))
+                add_live_clique(live)
+
+        functions.append({
+            "name": function.get("name"),
+            "blocks": [
+                {
+                    "label": label,
+                    "successors": sorted(successors[label]),
+                    "live_in": sorted(live_in[label]),
+                    "live_out": sorted(live_out[label]),
+                }
+                for label in labels
+            ],
+            "values": [definitions[name] for name in sorted(definitions)],
+            "interference_edges": [list(edge) for edge in sorted(interference)],
+        })
+    return {
+        "schema": "sotlas.target-ir-liveness.v1",
+        "analysis": "backward_dataflow_with_phi_edge_uses",
+        "functions": functions,
+        "limitations": [
+            "Semantic-only ownership/state annotations do not participate as machine-value uses.",
+            "Interference is analysis output only; no target register classes, ABI constraints, coalescing, spill code, or machine instructions are produced.",
+        ],
+    }
+
+
 __all__ = [
     "TargetIRLoweringError", "allocate_target_ir_registers",
+    "analyze_target_ir_liveness",
     "layout_target_ir_stack", "lower_sir_to_target_ir",
 ]

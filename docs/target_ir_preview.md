@@ -26,9 +26,22 @@ allocation preview is available for single-block scalar functions:
 sotlas register-allocation-report path/to/program.sotlas --registers 4
 ```
 
-It reports linear live intervals and virtual register/spill-slot assignments. It fails
-closed for control flow, phi nodes, and non-scalar values. The assignments are
-not consumed by code generation; CFG-aware liveness, spill/reload instructions,
+It reports linear live intervals and virtual register/spill-slot assignments.
+It fails closed for control flow, phi nodes, and non-scalar values. The
+assignments are not consumed by code generation.
+
+CFG liveness and SSA interference can be inspected independently, including
+phi operands on their incoming predecessor edges:
+
+```sh
+sotlas target-ir-liveness-report path/to/program.sotlas
+```
+
+This analysis runs over the checked Target IR CFG, including loops. It does not
+select target register classes, coalesce values, or emit spills. CFG-aware
+allocation, spill/reload instructions, source locations, and a complete ABI
+model remain open work.
+
 An abstract local-slot layout report is also available:
 
 ```sh

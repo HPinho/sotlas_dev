@@ -287,6 +287,73 @@ pub fn sum(left: u32, right: u32) -> u32 { return left + right; }
         self.assertNotEqual(invalid.returncode, 0)
         self.assertIn("power of two", invalid.stderr)
 
+    def test_target_ir_liveness_respects_phi_predecessor_edges(self):
+        source = """module test::liveness;
+pub fn choose(flag: bool, yes: u32, no: u32) -> u32 {
+    return if flag { yes } else { no };
+}
+"""
+        result = self._run_report(source, "target-ir-liveness-report")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)
+        self.assertEqual(report["schema"], "sotlas.target-ir-liveness.v1")
+        self.assertEqual(
+            report["analysis"], "backward_dataflow_with_phi_edge_uses"
+        )
+        target_ir = json.loads(self._run_report(source, "target-ir-report").stdout)
+        function = report["functions"][0]
+        target_function = target_ir["functions"][0]
+        block_liveness = {block["label"]: block for block in function["blocks"]}
+        entry = function["blocks"][0]
+        self.assertIn("flag", entry["live_in"])
+        phi = next(
+            instruction
+            for block in target_function["blocks"]
+            for instruction in block["instructions"]
+            if instruction["op"] == "phi"
+        )
+        for incoming in phi["incoming"]:
+            self.assertIn(
+                incoming["value"], block_liveness[incoming["block"]]["live_out"]
+            )
+
+    def test_target_ir_liveness_converges_across_loop_backedges(self):
+        target_ir = {
+            "schema": "sotlas.target-ir.v1",
+            "functions": [{
+                "name": "iterate",
+                "parameters": [
+                    {"name": "flag", "type": "bool"},
+                    {"name": "start", "type": "u32"},
+                    {"name": "step", "type": "u32"},
+                ],
+                "blocks": [
+                    {"label": "entry", "instructions": [
+                        {"op": "cond_branch", "operands": ["flag"],
+                         "targets": ["loop", "exit"]},
+                    ]},
+                    {"label": "loop", "instructions": [
+                        {"op": "phi", "result": "current", "type": "u32",
+                         "incoming": [
+                             {"block": "entry", "value": "start"},
+                             {"block": "loop", "value": "next"},
+                         ]},
+                        {"op": "add", "result": "next", "type": "u32",
+                         "operands": ["current", "step"]},
+                        {"op": "branch", "targets": ["loop"]},
+                    ]},
+                    {"label": "exit", "instructions": [
+                        {"op": "return", "operands": ["start"]},
+                    ]},
+                ],
+            }],
+        }
+        report = self._load_target_ir().analyze_target_ir_liveness(target_ir)
+        blocks = {item["label"]: item for item in report["functions"][0]["blocks"]}
+        self.assertIn("start", blocks["entry"]["live_out"])
+        self.assertIn("next", blocks["loop"]["live_out"])
+        self.assertIn("step", blocks["loop"]["live_in"])
+
     def test_target_ir_lowerer_preserves_handover_domains_and_source_point(self):
         sys.path.insert(0, str(ROOT / "compiler"))
         try:
