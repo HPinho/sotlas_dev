@@ -420,10 +420,11 @@ def lower_sir_to_target_ir(module: Any) -> dict[str, Any]:
 def allocate_target_ir_registers(
     target_ir: dict[str, Any], *, register_count: int = 4
 ) -> dict[str, Any]:
-    """Produce an inspection-only linear-scan allocation for straight-line IR.
+    """Produce an inspection-only graph-coloring allocation for scalar CFG IR.
 
-    This deliberately rejects control flow and non-scalar values: linear block
-    order is not a sound substitute for CFG-aware liveness or ABI lowering.
+    This report consumes the CFG liveness/interference analysis, including phi
+    edge uses. It remains a preview and does not impose ABI constraints or
+    generate moves, spill code, or machine instructions.
     """
     if not isinstance(register_count, int) or isinstance(register_count, bool) or register_count < 1:
         raise TargetIRLoweringError("register_count must be a positive integer")
@@ -434,96 +435,99 @@ def allocate_target_ir_registers(
         "bool", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64",
         "usize", "f32", "f64",
     }
+    liveness = analyze_target_ir_liveness(target_ir)
+    liveness_by_name = {
+        item["name"]: item for item in liveness["functions"]
+    }
     functions = []
     for function in target_ir.get("functions", ()):
-        blocks = function.get("blocks", ())
-        if len(blocks) != 1:
+        name = function.get("name")
+        live_function = liveness_by_name.get(name)
+        if live_function is None:
             raise TargetIRLoweringError(
-                f"register allocation preview requires one straight-line block in {function.get('name')!r}"
-            )
-        instructions = blocks[0].get("instructions", ())
-        if any(item.get("op") in {"branch", "cond_branch", "phi"} for item in instructions):
-            raise TargetIRLoweringError("register allocation preview does not support CFG or phi nodes")
-        supported_ops = {
-            "alloc_stack", "load", "store", "const_int", "add", "sub", "mul",
-            "compare", "call", "return",
-        }
-        unsupported_ops = sorted({item.get("op") for item in instructions} - supported_ops)
-        if unsupported_ops:
-            raise TargetIRLoweringError(
-                "register allocation preview does not support operations: "
-                + ", ".join(str(item) for item in unsupported_ops)
+                f"register allocation preview has no liveness result for {name!r}"
             )
 
-        intervals: dict[str, dict[str, Any]] = {}
+        allocatable: dict[str, dict[str, Any]] = {}
         for parameter in function.get("parameters", ()):
-            name, type_name = parameter.get("name"), parameter.get("type")
+            value = parameter.get("name")
+            type_name = parameter.get("type")
             if type_name not in scalar_types:
                 raise TargetIRLoweringError(
                     f"register allocation preview does not support type {type_name!r}"
                 )
-            intervals[name] = {"value": name, "type": type_name, "start": 0, "end": 0}
-
-        for index, instruction in enumerate(instructions):
-            result = instruction.get("result")
-            if result is not None and instruction.get("op") != "alloc_stack":
+            allocatable[value] = {"value": value, "type": type_name}
+        for block in function.get("blocks", ()):
+            for instruction in block.get("instructions", ()):
+                value = instruction.get("result")
+                if (
+                    value is None or instruction.get("op") == "alloc_stack"
+                    or instruction.get("semantic_only")
+                ):
+                    continue
                 type_name = instruction.get("type")
                 if type_name not in scalar_types:
                     raise TargetIRLoweringError(
                         f"register allocation preview does not support type {type_name!r}"
                     )
-                intervals[result] = {
-                    "value": result, "type": type_name, "start": index, "end": index,
-                }
-            operands = instruction.get("operands", ())
-            if instruction.get("op") == "load":
-                operands = ()  # The stack address is not an allocatable scalar.
-            elif instruction.get("op") == "store":
-                operands = operands[:1]  # Only the stored scalar has a live interval.
-            for operand in operands:
-                if operand in intervals:
-                    intervals[operand]["end"] = max(intervals[operand]["end"], index)
+                allocatable[value] = {"value": value, "type": type_name}
 
-        ordered = sorted(intervals.values(), key=lambda item: (item["start"], item["value"]))
-        active: list[tuple[int, str, int]] = []
-        free_registers = list(range(register_count))
+        graph = {value: set() for value in allocatable}
+        for left, right in live_function["interference_edges"]:
+            if left in graph and right in graph:
+                graph[left].add(right)
+                graph[right].add(left)
+        interference_edges = [
+            [left, right]
+            for left in sorted(graph)
+            for right in sorted(graph[left])
+            if left < right
+        ]
+
+        # Deterministic greedy coloring: choose the most constrained value
+        # first, then its source-stable name. Uncolored values receive unique
+        # spill slots; no claim is made about spill reuse or target registers.
+        coloring_order = sorted(
+            graph, key=lambda value: (-len(graph[value]), value)
+        )
         locations: dict[str, dict[str, Any]] = {}
         next_spill = 0
-        for interval in ordered:
-            still_active = []
-            for end, value, register in active:
-                if end < interval["start"]:
-                    free_registers.append(register)
-                else:
-                    still_active.append((end, value, register))
-            active = still_active
-            free_registers.sort()
-            if free_registers:
-                register = free_registers.pop(0)
-                locations[interval["value"]] = {"kind": "register", "index": register}
-                active.append((interval["end"], interval["value"], register))
-                active.sort()
-            else:
-                locations[interval["value"]] = {"kind": "spill", "slot": next_spill}
+        for value in coloring_order:
+            unavailable = {
+                locations[neighbor]["index"]
+                for neighbor in graph[value]
+                if locations.get(neighbor, {}).get("kind") == "register"
+            }
+            register = next(
+                (candidate for candidate in range(register_count)
+                 if candidate not in unavailable),
+                None,
+            )
+            if register is None:
+                locations[value] = {"kind": "spill", "slot": next_spill}
                 next_spill += 1
+            else:
+                locations[value] = {"kind": "register", "index": register}
 
         functions.append({
-            "name": function.get("name"),
-            "block": blocks[0].get("label"),
-            "intervals": [
-                {**interval, "location": locations[interval["value"]]}
-                for interval in ordered
+            "name": name,
+            "blocks": live_function["blocks"],
+            "interference_edges": interference_edges,
+            "values": [
+                {**allocatable[value], "location": locations[value],
+                 "interferes_with": sorted(graph[value])}
+                for value in sorted(allocatable)
             ],
             "spill_slots": next_spill,
         })
     return {
         "schema": "sotlas.register-allocation-preview.v1",
-        "algorithm": "linear_scan_straight_line",
+        "algorithm": "greedy_cfg_graph_coloring",
         "register_count": register_count,
         "functions": functions,
         "limitations": [
             "Inspection only; this allocation is not consumed by a code generator.",
-            "Only single-block scalar functions are supported; CFG liveness, ABI, stack layout, and spill code are not modeled.",
+            "Scalar values only; register classes, ABI constraints, coalescing, spill reuse/code, and machine instructions are not modeled.",
         ],
     }
 

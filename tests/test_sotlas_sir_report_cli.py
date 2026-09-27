@@ -236,7 +236,7 @@ fn quarantine_source(source: Token, temporary: Token) -> void {
         )
         self.assertEqual(quarantine["operands"], ["source"])
 
-    def test_register_allocation_preview_reports_intervals_and_spills(self):
+    def test_register_allocation_preview_colors_cfg_and_reports_spills(self):
         result = self._run_report(
             """module test::registers;
 pub fn sum(left: u32, right: u32) -> u32 { return left + right; }
@@ -246,9 +246,9 @@ pub fn sum(left: u32, right: u32) -> u32 { return left + right; }
         self.assertEqual(result.returncode, 0, result.stderr)
         report = json.loads(result.stdout)
         self.assertEqual(report["schema"], "sotlas.register-allocation-preview.v1")
-        self.assertEqual(report["algorithm"], "linear_scan_straight_line")
+        self.assertEqual(report["algorithm"], "greedy_cfg_graph_coloring")
         self.assertEqual(report["functions"][0]["spill_slots"], 0)
-        values = {item["value"]: item for item in report["functions"][0]["intervals"]}
+        values = {item["value"]: item for item in report["functions"][0]["values"]}
         self.assertIn("left", values)
         self.assertIn("right", values)
         self.assertEqual(values["left"]["location"]["kind"], "register")
@@ -264,15 +264,34 @@ pub fn sum(left: u32, right: u32) -> u32 { return left + right; }
         constrained_report = json.loads(constrained.stdout)
         self.assertGreater(constrained_report["functions"][0]["spill_slots"], 0)
 
-    def test_register_allocation_preview_rejects_cfg_and_bad_register_count(self):
+    def test_register_allocation_preview_colors_phi_cfg_and_rejects_bad_count(self):
         source = """module test::registers_cfg;
 pub fn choose(flag: bool, yes: u32, no: u32) -> u32 {
     return if flag { yes } else { no };
 }
 """
         cfg = self._run_report(source, "register-allocation-report")
-        self.assertNotEqual(cfg.returncode, 0)
-        self.assertIn("one straight-line block", cfg.stderr)
+        self.assertEqual(cfg.returncode, 0, cfg.stderr)
+        cfg_report = json.loads(cfg.stdout)
+        function = cfg_report["functions"][0]
+        self.assertGreater(len(function["blocks"]), 1)
+        locations = {
+            value["value"]: value["location"]
+            for value in function["values"]
+        }
+        for left, right in function["interference_edges"]:
+            if locations[left]["kind"] == "register" and locations[right]["kind"] == "register":
+                self.assertNotEqual(locations[left]["index"], locations[right]["index"])
+        self.assertNotIn("register_count must", cfg.stderr)
+
+        constrained = self._run_report(
+            source,
+            "register-allocation-report",
+            ("--registers", "1"),
+        )
+        self.assertEqual(constrained.returncode, 0, constrained.stderr)
+        constrained_report = json.loads(constrained.stdout)
+        self.assertGreater(constrained_report["functions"][0]["spill_slots"], 0)
 
         bad_count = self._run_report(
             "module test::registers_bad; pub fn value(x: u32) -> u32 { return x; }",

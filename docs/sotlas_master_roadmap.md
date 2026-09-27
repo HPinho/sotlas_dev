@@ -4274,7 +4274,7 @@ Inclui também tooling específico do backend nativo:
 - [x] inspeção JSON do Target IR v1 pre-selection para o subset canônico validado, com source-stable IDs de chamada preservados; mapeamento de instrução física e inspeção do lowering permanecem pendentes;
 - [x] `target-ir-liveness-report` computes CFG live-in/live-out sets and SSA interference, including `phi` edge uses; target register classes, coalescing, and emitted spill code remain pending;
 - [x] `--emit-asm` no subset inteiro explicitamente suportado pelo backend LLVM;
-- [x] `register-allocation-report` reports live intervals and virtual register/spill slots for single-block scalar functions; CFG-aware allocation and lowering remain pending;
+- [x] `register-allocation-report` uses CFG liveness and `phi` edge-aware interference to produce a deterministic inspection-only graph coloring and spill-slot preview for scalar values; target register classes, ABI constraints, coalescing, spill reuse/code, and machine lowering remain pending;
 - [x] `stack-layout-report` shows aligned scalar local slots in a target-neutral frame preview; parameters, spills, saved registers, outgoing arguments, and platform ABI remain pending;
 - [ ] source-to-instruction mapping;
 - [ ] explicação de por que determinada instrução/lowering foi selecionada.
