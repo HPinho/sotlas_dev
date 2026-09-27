@@ -3777,7 +3777,7 @@ Status atual:
 - [x] reality gates para impedir regressão da maturidade do Typed AST;
 - [x] regra formal de que testes são contratos, não obstáculos;
 - [x] `check` e backend C11 possuem gate para não aceitar silenciosamente lowering ainda não implementado;
-- [x] o frontend nativo Sotlas-in-Sotlas resolve chamadas diretas contra as funções declaradas no módulo, valida aridade, compara tipos explícitos de argumentos, valida retornos cujo tipo de expressão é conhecido e rejeita `return;` em função tipada; resolução de imports/FFI, inferência de literais/coerções/comparações/agregados, análise de retorno em todos os caminhos e chamadas indiretas ainda não existem nesse bootstrap;
+- [x] o frontend nativo Sotlas-in-Sotlas resolve chamadas diretas contra as funções declaradas no módulo, valida aridade, compara tipos explícitos de argumentos, valida retornos cujo tipo de expressão é conhecido, rejeita `return;` em função tipada e rejeita fallthrough em funções tipadas para sequências/`if/else` representáveis, aceitando o caso em que ambos os ramos retornam; análise de retorno em loops/CFG arbitrário, resolução de imports/FFI, inferência de literais/coerções/comparações/agregados e chamadas indiretas ainda não existem nesse bootstrap;
 - [x] fixtures `.sotlas` exercitam os dois lados do gate: enum escalar gera e executa binário C11; `share` com defer chega ao SIR, enquanto o backend C11 o rejeita explicitamente;
 - [x] inventário classifica todos os documentos Markdown com blocos `sotlas`, e o reality gate rejeita documentos sem classificação;
 - [x] decisão de realidade: `compiler/` é a fonte instalada canônica; a árvore `tools/` fica em compatibilidade até migração dos clientes históricos, com diferenças exatas protegidas por gate;
