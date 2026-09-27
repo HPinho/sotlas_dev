@@ -71,11 +71,14 @@ from .flow_cfg import (
     FlowCFGError,
     FlowCFGCallPoint,
     FlowExecutableCFG,
+    lower_flow_to_cfg,
+    validate_flow_cfg,
     lower_serial_flow_to_cfg,
     validate_serial_flow_cfg,
 )
 from .flow_cfg_runtime import (
     FlowCFGExecutionError,
+    execute_flow_cfg,
     execute_serial_flow_cfg,
 )
 from .causality import (
@@ -137,8 +140,9 @@ __all__ = [
     "FlowSIRArgument", "FlowSIRStage", "FlowSIRPlan",
     "lower_typed_flows_to_sir", "validate_sir_flow_plans",
     "FlowCFGError", "FlowCFGCallPoint", "FlowExecutableCFG",
+    "lower_flow_to_cfg", "validate_flow_cfg",
     "lower_serial_flow_to_cfg", "validate_serial_flow_cfg",
-    "FlowCFGExecutionError", "execute_serial_flow_cfg",
+    "FlowCFGExecutionError", "execute_flow_cfg", "execute_serial_flow_cfg",
     "ContractFrontendError", "ContractCallProof",
     "ContractPrecondition", "ContractPostcondition",
     "CausalityError", "CausalStep",

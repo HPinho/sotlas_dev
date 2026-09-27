@@ -184,7 +184,18 @@ flow Parallel {
         ):
             package.lower_serial_flow_to_cfg(checked_sir.module, "Parallel")
 
+        cfg = package.lower_flow_to_cfg(checked_sir.module, "Parallel")
+        self.assertEqual(
+            tuple(point.stage_name for point in cfg.calls),
+            ("a", "b", "total"),
+        )
+        self.assertIs(package.validate_flow_cfg(checked_sir.module, cfg), cfg)
+
     def test_compat_package_exports_serial_flow_cfg_api(self):
+        self.assertTrue(callable(package.lower_flow_to_cfg))
+        self.assertTrue(callable(package.validate_flow_cfg))
+        self.assertTrue(callable(tools_package.lower_flow_to_cfg))
+        self.assertTrue(callable(tools_package.validate_flow_cfg))
         self.assertTrue(callable(tools_package.lower_serial_flow_to_cfg))
         self.assertTrue(callable(tools_package.validate_serial_flow_cfg))
         self.assertTrue(hasattr(tools_package, "FlowCFGError"))

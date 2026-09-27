@@ -3980,11 +3980,14 @@ propagates executor failure status. Both report the stopped stage and publish
 outputs only after success. Dispatch
 callbacks are not verified equivalent to the Sotlas stage
 bodies, and the interface does not provide device buffers or transfers. Native
-execution remains serial. The executable serial SIR CFG runtime lowers fixed-
-width signed add/subtract/multiply return expressions, checks input and result
-ranges, and rejects overflow before returning a Flow result. This checked
-interpreter behavior does not define signed overflow for generated C11. The
-serial SIR interpreter also executes scalar stage CFGs with conditional
+execution remains serial. The executable SIR CFG runtime preserves canonical
+parallel layers and executes independent pure scalar stages concurrently;
+dependent stages receive only committed producer outputs. Its serial API remains
+available as a strict compatibility gate. The interpreter lowers fixed-width
+signed add/subtract/multiply return expressions, checks input and result ranges,
+and rejects overflow before returning a Flow result. This checked interpreter
+behavior does not define signed overflow for generated C11. The SIR interpreter
+also executes scalar stage CFGs with conditional
 branches, loop-carried `phi` joins, and backedges after Target IR validation;
 cooperative cancellation is checked on each block entry and execution stops
 after one million block visits. Unreachable blocks, unsupported operations, and

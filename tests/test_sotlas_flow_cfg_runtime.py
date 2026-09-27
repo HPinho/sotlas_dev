@@ -4,7 +4,9 @@ from dataclasses import replace
 import importlib.util
 from pathlib import Path
 import sys
+from threading import Barrier
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -54,6 +56,42 @@ flow Serial {
         self.assertEqual(result.output("raw"), 7)
         self.assertEqual(result.output("doubled"), 14)
         self.assertEqual(result.output("final"), 14)
+
+    def test_executes_independent_stages_concurrently_from_checked_cfg(self):
+        source = """
+module test::flow_cfg_parallel;
+fn left() -> u32 { return 7u32; }
+fn right() -> u32 { return 9u32; }
+fn combine(a: u32, b: u32) -> u32 { return a + b; }
+flow Parallel {
+    stage left_value = left;
+    stage right_value = right;
+    stage total = combine after left_value, right_value;
+}
+"""
+        checked = package.analyze_source_phase1(source)
+        checked_sir, _ = package.build_canonical_checked_ownership_sir(checked)
+        cfg = package.lower_flow_to_cfg(checked_sir.module, "Parallel")
+
+        interpreter = importlib.import_module(
+            "sotlas_flow_cfg_runtime_test_package.flow_interpreter"
+        )
+        original = interpreter._interpret_function
+        independent_stage_barrier = Barrier(2)
+
+        def synchronized_interpret(function, arguments, **kwargs):
+            if function.name in {"left", "right"}:
+                independent_stage_barrier.wait(timeout=5)
+            return original(function, arguments, **kwargs)
+
+        with patch.object(
+            interpreter, "_interpret_function", side_effect=synchronized_interpret
+        ):
+            result = package.execute_flow_cfg(checked_sir.module, cfg)
+
+        self.assertEqual(result.output("left_value"), 7)
+        self.assertEqual(result.output("right_value"), 9)
+        self.assertEqual(result.output("total"), 16)
 
     def test_executes_signed_integer_arithmetic_stages(self):
         source = """

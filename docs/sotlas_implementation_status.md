@@ -55,6 +55,7 @@ Escopos concluídos: `docs/phase0_reality_audit.md`, contratos 1.0 das fases 5�
 - Standard-library ownership, mutability, allocator lifetime, cleanup, and failure contracts are documented in `stdlib/core/README.md`.
 - C11 emits a callable entrypoint for pure scalar Flow graphs, including graphs with independent stages; it uses deterministic dependency order as a serial fallback and still rejects effects, unsupported types, contracts, global access, methods, and system/foreign stage functions. `sotlas flow-run` executes checked integer/boolean plans through the CPU reference scheduler, which supports concurrent independent layers and error/cancellation propagation. Native parallel scheduling, ownership payloads, GPU/NPU providers, and a Sotlas-native replacement for the production Python compiler remain open.
 - SIR Flow execution now accepts signed integer stage signatures and direct parameter forwarding; arithmetic results are range-checked, while native signed-overflow behavior remains outside the language contract.
+- The executable SIR Flow CFG path now preserves canonical parallel layers and runs independent pure scalar stages concurrently; dependent stages receive committed results. The C11 generated ABI remains a deterministic serial fallback, and ownership-bearing payloads remain fail-closed.
 - `tests/test_sotlas_flow_native.py` compiles and executes the generated entrypoint with the same C toolchain used by the native preview gates.
 
 ## Fase 0 — Reality Reset

@@ -1,20 +1,26 @@
-"""Scheduler execution for certified serial Flow executable CFGs.
+"""Scheduler execution for certified Flow executable CFGs.
 
 This module consumes the actual ``CallInst`` sequence emitted by ``flow_cfg``.
 It does not reconstruct execution from source Flow declarations. The call CFG is
 revalidated first, then each referenced stage body is checked against the same
 pure unsigned/bool interpreter subset used by ``execute_interpreted_sir_flow``.
 
-The initial executable CFG is intentionally serial and copy-safe. Ownership,
-cleanup-bearing values and true parallel call CFGs remain fail-closed until their
-SIR contracts are implemented.
+The call certificate preserves the canonical dependency graph, so independent
+stages execute concurrently while dependent stages wait for committed inputs.
+Ownership and cleanup-bearing values remain fail-closed until their SIR
+contracts are implemented.
 """
 from __future__ import annotations
 
 from threading import Event
 
 from .canonical_sir import load_canonical_sir
-from .flow_cfg import FlowCFGError, FlowExecutableCFG, validate_serial_flow_cfg
+from .flow_cfg import (
+    FlowCFGError,
+    FlowExecutableCFG,
+    validate_flow_cfg,
+    validate_serial_flow_cfg,
+)
 from .flow_graph import FlowDependency, FlowNode, certify_flow_graph
 from .flow_runtime import FlowExecutionResult, execute_flow
 
@@ -23,19 +29,19 @@ class FlowCFGExecutionError(FlowCFGError):
     """Raised when a certified Flow call CFG cannot be safely executed."""
 
 
-def execute_serial_flow_cfg(
+def execute_flow_cfg(
     sir_module,
     cfg: FlowExecutableCFG,
     *,
     cancel_event: Event | None = None,
 ) -> FlowExecutionResult:
-    """Execute one certified serial Flow call CFG through the local scheduler.
+    """Execute one certified Flow call CFG with dependency-layer concurrency.
 
     Execution is derived from the generated ``CallInst`` arguments/results and
     the external call-point certificate after full reconciliation. Stage bodies
     are interpreted from canonical SIR; host bindings are not accepted.
     """
-    cfg = validate_serial_flow_cfg(sir_module, cfg)
+    cfg = validate_flow_cfg(sir_module, cfg)
     sir = load_canonical_sir()
     module = getattr(sir_module, "module", sir_module)
 
@@ -127,10 +133,14 @@ def execute_serial_flow_cfg(
             for producer in producers
         ),
     )
-    expected_layers = tuple((point.stage_name,) for point in cfg.calls)
-    if graph.parallel_stages != expected_layers:
+    plan = next(
+        (item for item in getattr(module, "flow_plans", ())
+         if item.name == cfg.plan_name),
+        None,
+    )
+    if plan is None or graph.parallel_stages != tuple(plan.parallel_stages):
         raise FlowCFGExecutionError(
-            f"Flow CFG {cfg.plan_name!r} no longer has the certified serial schedule"
+            f"Flow CFG {cfg.plan_name!r} no longer has its certified stage schedule"
         )
 
     actions = {}
@@ -149,13 +159,25 @@ def execute_serial_flow_cfg(
     return execute_flow(
         graph,
         actions,
-        max_workers=1,
+        max_workers=max(1, min(len(runtime_calls), 32)),
         cancel_event=cancel_event,
         cooperative=True,
     )
 
 
+def execute_serial_flow_cfg(
+    sir_module,
+    cfg: FlowExecutableCFG,
+    *,
+    cancel_event: Event | None = None,
+) -> FlowExecutionResult:
+    """Compatibility API that rejects plans with concurrent stages."""
+    validate_serial_flow_cfg(sir_module, cfg)
+    return execute_flow_cfg(sir_module, cfg, cancel_event=cancel_event)
+
+
 __all__ = [
     "FlowCFGExecutionError",
+    "execute_flow_cfg",
     "execute_serial_flow_cfg",
 ]

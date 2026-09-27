@@ -18,12 +18,16 @@ stages from starting and joins work already running. Cooperative cancellation
 is observed between stages or by bindings that inspect the supplied token; the
 runtime does not forcibly interrupt synchronous work.
 
-For compiled SIR CFG execution, `lower_serial_flow_to_cfg` lowers strictly
-serial plans with copy-safe scalar values into certified SIR `CallInst`s.
-`execute_serial_flow_cfg` revalidates that CFG, function signatures, effects,
-call provenance, and serial schedule before interpreting stage bodies and
-dispatching them through the scheduler. End-to-end tests start from Sotlas Flow
-source and verify stage outputs. The SIR interpreter supports straight-line
+For compiled SIR CFG execution, `lower_flow_to_cfg` lowers copy-safe scalar
+plans into topologically ordered SIR `CallInst`s plus a certificate that keeps
+the canonical dependency layers. `execute_flow_cfg` revalidates the CFG,
+function signatures, effects, call provenance, and stage schedule before
+interpreting stage bodies. Independent stages run concurrently through the
+existing scheduler; dependent stages receive only committed producer outputs.
+End-to-end tests start from Sotlas Flow source and verify stage outputs and
+overlap of independent stages. The compatibility APIs
+`lower_serial_flow_to_cfg` and `execute_serial_flow_cfg` continue to enforce a
+strict serial schedule. The SIR interpreter supports straight-line
 integer and boolean bodies plus scalar branches, comparisons, `phi` joins, and
 loop backedges. It validates the CFG through Target IR before execution and
 rejects unreachable blocks, unsupported instructions, and unsupported types.
@@ -89,16 +93,18 @@ not add parallel scheduling or asynchronous execution.
 - Source parsing, typing, effect reconciliation, SIR plan validation, tamper
   rejection, and flow-report serialization are covered.
 - Tests lower source-derived SIR plans into actual call CFGs, execute them via
-  the scheduler, and verify outputs and fail-closed behavior for parallel CFG,
-  effectful functions and ownership-bearing values. Source-derived stage tests
+  the scheduler, and verify outputs, real overlap between independent stages,
+  and fail-closed behavior for effectful functions and ownership-bearing
+  values. Source-derived stage tests
   verify branch selection and scalar `phi` joins; a loop-carried `phi` test
   executes through the scheduler. Cancellation interrupts an executing loop
   stage at a block boundary, and a non-terminating CFG hits its visit cap.
 - Native C11 entrypoint execution is tested with C and Sotlas callers; positive
   tests include independent stages in a DAG. Negative tests check unsupported
-  types and global access before emission. The separate executable SIR CFG
-  subset rejects parallel plans because that interpreter currently lowers only
-  serial plans. C integration tests verify `_cancelable` and `_dispatch` success,
+  types and global access before emission. The executable scalar SIR CFG
+  accepts parallel layers in the host scheduler; native C11 entrypoints still
+  use serial deterministic dependency order. C integration tests verify
+  `_cancelable` and `_dispatch` success,
   cancellation, stage-failure status propagation, stage indices, and unchanged
   caller outputs on non-success paths.
 - The full suite includes dedicated source, SIR, CFG, runtime, and C11 boundary
@@ -106,11 +112,9 @@ not add parallel scheduling or asynchronous execution.
 
 ## Deferred beyond Sotlas 1.0
 
-- Executable parallel SIR CFGs; declarative Flow and the host graph scheduler
-  already support parallel execution.
+- Native C11 parallel scheduling and dedicated source syntax for Flow invocation
+  (the explicit ABI declaration path is supported).
 - Ownership, cleanup, and non-scalar/lifetime-bearing values in executable CFG.
-- A native scheduler, parallel execution, and dedicated source syntax for Flow
-  invocation (the explicit C11 ABI declaration path is supported).
 - Verified source-stage failure semantics, ownership, cleanup, and general
   effects in native Flow execution. `_dispatch` propagates callback failures but
   does not verify that an external callback matches the checked source body.

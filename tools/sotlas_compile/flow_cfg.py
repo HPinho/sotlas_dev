@@ -1,10 +1,9 @@
 """Executable SIR CFG lowering for the serial Sotlas Flow subset.
 
 The declarative ``FlowSIRPlan`` remains the canonical orchestration contract.
-This module materializes that contract as an ordinary ``SIRFunction`` only when
-the plan is strictly serial: every canonical parallel layer contains exactly one
-stage. Parallel plans stay fail-closed until SIR has an execution contract that
-can preserve concurrency instead of silently serializing it.
+This module materializes its checked scalar subset as a topologically ordered
+``SIRFunction`` plus a stage/dependency certificate. The CFG runtime consumes
+that certificate to schedule independent stages concurrently.
 
 The first executable subset is also deliberately restricted to primitive scalar
 values. Nominal, pointer/reference and typestate values can carry ownership or
@@ -75,22 +74,26 @@ def _select_plan(module, flow_name: str):
     return matches[0]
 
 
-def _serial_stage_order(plan) -> tuple[str, ...]:
+def _stage_order(plan) -> tuple[str, ...]:
     layers = tuple(plan.parallel_stages)
     if not layers or not tuple(plan.stages):
         raise FlowCFGError(f"Flow plan {plan.name!r} has no executable stages")
-    if any(len(layer) != 1 for layer in layers):
-        raise FlowCFGError(
-            f"Flow plan {plan.name!r} is not strictly serial; executable CFG "
-            "currently rejects parallel stages"
-        )
-    order = tuple(layer[0] for layer in layers)
+    order = tuple(name for layer in layers for name in layer)
     declared = tuple(stage.name for stage in plan.stages)
     if len(order) != len(declared) or set(order) != set(declared):
         raise FlowCFGError(
-            f"Flow plan {plan.name!r} serial schedule does not cover its stages"
+            f"Flow plan {plan.name!r} stage schedule does not cover its stages"
         )
     return order
+
+
+def _serial_stage_order(plan) -> tuple[str, ...]:
+    if any(len(layer) != 1 for layer in tuple(plan.parallel_stages)):
+        raise FlowCFGError(
+            f"Flow plan {plan.name!r} is not strictly serial; use the general "
+            "Flow CFG API to preserve parallel stages"
+        )
+    return _stage_order(plan)
 
 
 def _require_copy_safe_types(plan) -> None:
@@ -116,8 +119,8 @@ def _generated_function_name(flow_name: str) -> str:
     return f"__sotlas_flow_{flow_name}"
 
 
-def lower_serial_flow_to_cfg(sir_module, flow_name: str) -> FlowExecutableCFG:
-    """Lower one strictly serial Flow plan to a revalidated SIR call CFG.
+def lower_flow_to_cfg(sir_module, flow_name: str) -> FlowExecutableCFG:
+    """Lower one checked Flow plan to a revalidated topological SIR call CFG.
 
     The generated function has no parameters because root Flow stages are
     already required to have no dependencies/parameters. Every stage result is
@@ -125,12 +128,14 @@ def lower_serial_flow_to_cfg(sir_module, flow_name: str) -> FlowExecutableCFG:
     by ``FlowSIRArgument`` provenance. The final stage result becomes the
     function return value.
 
-    Until Flow is integrated with Ownership, only primitive scalar values may
-    cross stage boundaries in this executable representation.
+    Independent stages share a layer in the canonical Flow plan. The runtime
+    uses this dependency provenance to execute those calls concurrently. Until
+    Flow is integrated with Ownership, only primitive scalar values may cross
+    stage boundaries in this executable representation.
     """
     sir, module = _unwrap_module(sir_module)
     plan = _select_plan(module, flow_name)
-    order = _serial_stage_order(plan)
+    order = _stage_order(plan)
     _require_copy_safe_types(plan)
     stages = {stage.name: stage for stage in plan.stages}
     functions = {function.name: function for function in module.functions}
@@ -203,17 +208,24 @@ def lower_serial_flow_to_cfg(sir_module, flow_name: str) -> FlowExecutableCFG:
         order[-1],
         final_stage.result_type,
     )
-    validate_serial_flow_cfg(module, certificate)
+    validate_flow_cfg(module, certificate)
     return certificate
 
 
-def validate_serial_flow_cfg(sir_module, cfg: FlowExecutableCFG) -> FlowExecutableCFG:
-    """Reconcile one generated serial Flow CFG with the canonical SIR plan."""
+def lower_serial_flow_to_cfg(sir_module, flow_name: str) -> FlowExecutableCFG:
+    """Compatibility API that accepts only strictly serial Flow plans."""
+    _, module = _unwrap_module(sir_module)
+    _serial_stage_order(_select_plan(module, flow_name))
+    return lower_flow_to_cfg(sir_module, flow_name)
+
+
+def validate_flow_cfg(sir_module, cfg: FlowExecutableCFG) -> FlowExecutableCFG:
+    """Reconcile a generated topological Flow CFG with its canonical plan."""
     sir, module = _unwrap_module(sir_module)
     if not isinstance(cfg, FlowExecutableCFG):
         raise FlowCFGError("Flow CFG validation requires a FlowExecutableCFG")
     plan = _select_plan(module, cfg.plan_name)
-    order = _serial_stage_order(plan)
+    order = _stage_order(plan)
     _require_copy_safe_types(plan)
     stages = {stage.name: stage for stage in plan.stages}
     functions = {function.name: function for function in module.functions}
@@ -333,10 +345,19 @@ def validate_serial_flow_cfg(sir_module, cfg: FlowExecutableCFG) -> FlowExecutab
     return cfg
 
 
+def validate_serial_flow_cfg(sir_module, cfg: FlowExecutableCFG) -> FlowExecutableCFG:
+    """Compatibility validator restricted to strictly serial Flow plans."""
+    _, module = _unwrap_module(sir_module)
+    _serial_stage_order(_select_plan(module, cfg.plan_name))
+    return validate_flow_cfg(sir_module, cfg)
+
+
 __all__ = [
     "FlowCFGError",
     "FlowCFGCallPoint",
     "FlowExecutableCFG",
+    "lower_flow_to_cfg",
+    "validate_flow_cfg",
     "lower_serial_flow_to_cfg",
     "validate_serial_flow_cfg",
 ]
