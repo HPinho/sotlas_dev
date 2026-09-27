@@ -1033,6 +1033,81 @@ flow Local { stage value = local; }
                 unavailable_stages={"Cached": ("missing",)},
             )
 
+    def test_intent_provider_selection_requires_a_bound_executor(self):
+        source = """
+module test::provider_intent;
+fn accelerated() -> i32 { return 1; }
+fn local() -> i32 { return 2; }
+flow Accelerated { stage value = accelerated; }
+flow Local { stage value = local; }
+"""
+        checked = package.analyze_source_phase1(source)
+        sir, _ = package.build_canonical_checked_ownership_sir(checked)
+        intent = package.plan_sir_intent(
+            sir.module,
+            "LoadValue",
+            prefer=("Accelerated",),
+            fallback=("Local",),
+            required_providers={"Accelerated": ("gpu.opencl",)},
+            available_providers=("cpu.reference", "gpu.opencl"),
+        )
+        with self.assertRaisesRegex(package.IntentError, "no bound Flow executor"):
+            package.execute_sir_intent(checked, sir.module, intent, {"value": lambda: 1})
+
+        def execute_gpu(typed_plan, actions, **_kwargs):
+            self.assertEqual(typed_plan.name, "Accelerated")
+            self.assertIn("value", actions)
+            return package.FlowExecutionResult({"value": 3})
+
+        executed = package.execute_sir_intent(
+            checked,
+            sir.module,
+            intent,
+            {"value": lambda: 1},
+            provider_executors={"gpu.opencl": execute_gpu},
+        )
+        self.assertEqual(executed.selected_flow, "Accelerated")
+        self.assertEqual(executed.execution.output("value"), 3)
+
+    def test_bound_sir_intent_uses_provider_executor_and_checks_stage_outputs(self):
+        source = """
+module test::bound_provider_intent;
+fn accelerated() -> i32 { return 1; }
+flow Accelerated { stage value = accelerated; }
+"""
+        checked = package.analyze_source_phase1(source)
+        sir, _ = package.build_canonical_checked_ownership_sir(checked)
+        intent = package.plan_sir_intent(
+            sir.module,
+            "LoadValue",
+            prefer=("Accelerated",),
+            required_providers={"Accelerated": ("gpu.opencl",)},
+            available_providers=("gpu.opencl",),
+        )
+        with self.assertRaisesRegex(package.IntentError, "no bound Flow executor"):
+            package.execute_bound_sir_intent(sir.module, intent, {"accelerated": lambda: 1})
+
+        result = package.execute_bound_sir_intent(
+            sir.module,
+            intent,
+            {"accelerated": lambda: 1},
+            provider_executors={
+                "gpu.opencl": lambda _module, _plan, _bindings, **_kwargs:
+                    package.FlowExecutionResult({"value": 5})
+            },
+        )
+        self.assertEqual(result.execution.output("value"), 5)
+        with self.assertRaisesRegex(package.IntentError, "outputs that do not match"):
+            package.execute_bound_sir_intent(
+                sir.module,
+                intent,
+                {"accelerated": lambda: 1},
+                provider_executors={
+                    "gpu.opencl": lambda *_args, **_kwargs:
+                        package.FlowExecutionResult({"wrong": 5})
+                },
+            )
+
     def test_typed_flow_runtime_rejects_dependency_tampering_before_execution(self):
         checked = package.analyze_source_phase1(self._source("""
 flow Home {

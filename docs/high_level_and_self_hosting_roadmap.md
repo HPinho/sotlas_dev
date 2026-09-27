@@ -33,7 +33,10 @@ hardware synchronization remain unsupported.
 
 Intent planning can also associate required provider names with candidate Flows
 and select a fallback from a caller-supplied available-provider set. This is a
-deterministic planning contract; it does not probe devices or dispatch hardware.
+deterministic planning contract; it does not probe devices. Running an intent
+that requires a non-CPU provider now needs an explicit executor binding, and the
+returned stage names must match the selected typed or SIR plan. The binding is
+an interface point; it does not claim that Flow-to-OpenCL lowering is available.
 
 ## High-level language milestones
 

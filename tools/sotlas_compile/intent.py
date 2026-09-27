@@ -56,6 +56,29 @@ def _names(value, label: str) -> tuple[str, ...]:
     return names
 
 
+def _execution_provider(intent: IntentPlan) -> str | None:
+    requirements = dict(intent.required_providers).get(intent.selected_flow, ())
+    if not requirements or set(requirements) <= {"cpu.reference"}:
+        return None
+    if len(requirements) != 1:
+        raise IntentError(
+            "coordinated execution across multiple providers is not implemented"
+        )
+    return requirements[0]
+
+
+def _validate_provider_result(result, stage_names, provider: str):
+    if not isinstance(result, FlowExecutionResult):
+        raise IntentError(
+            f"provider {provider!r} must return a FlowExecutionResult"
+        )
+    if set(result.outputs) != set(stage_names):
+        raise IntentError(
+            f"provider {provider!r} returned outputs that do not match the Flow stages"
+        )
+    return result
+
+
 def plan_sir_intent(
     module,
     name: str,
@@ -188,6 +211,7 @@ def execute_sir_intent(
     *,
     max_workers: int | None = None,
     cancel_event=None,
+    provider_executors: Mapping[str, object] | None = None,
 ) -> IntentExecutionResult:
     """Execute only the selected Flow after revalidating intent and SIR evidence."""
     if not isinstance(intent, IntentPlan):
@@ -254,9 +278,29 @@ def execute_sir_intent(
             raise IntentError(
                 f"selected typed Flow stage {name!r} differs from canonical SIR"
             )
-    execution = execute_typed_flow(
-        typed_plan, actions, max_workers=max_workers, cancel_event=cancel_event
-    )
+    provider = _execution_provider(intent)
+    if provider is None:
+        execution = execute_typed_flow(
+            typed_plan, actions, max_workers=max_workers, cancel_event=cancel_event
+        )
+    else:
+        executors = provider_executors or {}
+        executor = executors.get(provider) if isinstance(executors, Mapping) else None
+        if not callable(executor):
+            raise IntentError(
+                f"selected provider {provider!r} has no bound Flow executor"
+            )
+        try:
+            execution = executor(
+                typed_plan, actions,
+                max_workers=max_workers,
+                cancel_event=cancel_event,
+            )
+        except Exception as error:
+            raise IntentError(f"provider {provider!r} failed: {error}") from error
+        execution = _validate_provider_result(
+            execution, tuple(stage.name for stage in typed_plan.stages), provider
+        )
     return IntentExecutionResult(intent.name, intent.selected_flow, execution)
 
 
@@ -267,6 +311,7 @@ def execute_bound_sir_intent(
     *,
     max_workers: int | None = None,
     cancel_event=None,
+    provider_executors: Mapping[str, object] | None = None,
 ) -> IntentExecutionResult:
     """Execute the selected strategy using only its reconciled canonical SIR plan."""
     if not isinstance(intent, IntentPlan):
@@ -298,16 +343,41 @@ def execute_bound_sir_intent(
         raise IntentError("intent plan differs from the canonical SIR strategy")
     if intent.selected_flow is None:
         raise IntentError("intent has no eligible Flow to execute")
+    provider = _execution_provider(intent)
     try:
-        execution = execute_bound_sir_flow(
-            sir_module,
-            intent.selected_flow,
-            function_bindings,
-            max_workers=max_workers,
-            cancel_event=cancel_event,
-        )
+        if provider is None:
+            execution = execute_bound_sir_flow(
+                sir_module,
+                intent.selected_flow,
+                function_bindings,
+                max_workers=max_workers,
+                cancel_event=cancel_event,
+            )
+        else:
+            executors = provider_executors or {}
+            executor = executors.get(provider) if isinstance(executors, Mapping) else None
+            if not callable(executor):
+                raise IntentError(
+                    f"selected provider {provider!r} has no bound Flow executor"
+                )
+            sir_plan = next(
+                plan for plan in validate_sir_flow_plans(sir_module)
+                if plan.name == intent.selected_flow
+            )
+            execution = executor(
+                sir_module, sir_plan, function_bindings,
+                max_workers=max_workers,
+                cancel_event=cancel_event,
+            )
+            execution = _validate_provider_result(
+                execution, tuple(stage.name for stage in sir_plan.stages), provider
+            )
+    except IntentError:
+        raise
     except (FlowSIRError, TypeError, ValueError) as error:
         raise IntentError(f"selected SIR Flow cannot execute: {error}") from error
+    except Exception as error:
+        raise IntentError(f"provider {provider!r} failed: {error}") from error
     return IntentExecutionResult(intent.name, intent.selected_flow, execution)
 
 
