@@ -163,10 +163,27 @@ class SotlasRegionArenaFlowTests(unittest.TestCase):
         )
         merges = []
         arena_flow._append_merge(merges, pre, maximal)
+        self.assertTrue(arena_flow._all_paths_hit_producer(
+            successors,
+            "entry",
+            "join",
+            {item.location.block for item in maximal},
+        ))
         self.assertEqual(
             merges[0].producer_epoch_ids,
             ("post@then", "post@else"),
         )
+
+    def test_cfg_merge_requires_all_branch_paths_to_define_owner(self):
+        successors = {
+            "entry": ("then", "else"),
+            "then": ("join",),
+            "else": ("join",),
+            "join": (),
+        }
+        self.assertFalse(arena_flow._all_paths_hit_producer(
+            successors, "entry", "join", {"then"}
+        ))
 
     def test_cfg_merge_rejects_type_mismatch(self):
         pre = type(

@@ -221,6 +221,28 @@ def _maximal_reaching(producers, target, successors):
     return tuple(maximal), ambiguous_reachability
 
 
+def _all_paths_hit_producer(successors, start, goal, producer_blocks):
+    """Prove every path from entry to goal crosses one candidate producer."""
+    stack = [(start, False)]
+    visited: set[tuple[str, bool]] = set()
+    while stack:
+        block, seen = stack.pop()
+        state = (block, seen or block in producer_blocks)
+        if state in visited:
+            continue
+        visited.add(state)
+        if block == goal:
+            if not state[1]:
+                return False
+            continue
+        targets = successors.get(block, ())
+        if not targets:
+            # A path that exits before the target is irrelevant to this use.
+            continue
+        stack.extend((target, state[1]) for target in targets)
+    return True
+
+
 def _append_resolution(resolutions, pre, producer):
     if producer.type != pre.type:
         raise RegionArenaFlowError(f"REGION arena flow type mismatch at {pre.epoch_id!r}")
@@ -426,7 +448,22 @@ def certify_region_arena_flow(
                     for index, first in enumerate(maximal)
                     for second in maximal[index + 1:]
                 )
-                if all_reach and pairwise_disjoint and len(maximal) == len(producers):
+                entry = function.blocks[0].label if function.blocks else None
+                covered = (
+                    entry is not None
+                    and _all_paths_hit_producer(
+                        successors,
+                        entry,
+                        pre_location.block,
+                        {producer.location.block for producer in maximal},
+                    )
+                )
+                if (
+                    all_reach
+                    and pairwise_disjoint
+                    and len(maximal) == len(producers)
+                    and covered
+                ):
                     _append_merge(merges, pre, maximal)
                 else:
                     _append_unresolved(unresolved, pre, "ambiguous_merge")
