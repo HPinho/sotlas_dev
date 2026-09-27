@@ -44,7 +44,8 @@ system OpenCL framework. A machine without an OpenCL GPU returns the explicit
 - The GPU-only profiled call reports OpenCL event durations for both input
   uploads, kernel execution, and result download separately. These are device
   event times; they do not include host-side setup, compilation, allocation, or
-  total call latency.
+  total call latency. A very short command can report zero when it finishes
+  within the device timer's resolution.
 - This demonstrates Sotlas-to-OpenCL C interop through C11. It does not yet
   lower Flow stages or Sotlas expressions into GPU kernels, and it does not
   provide CUDA, Vulkan, NPU, explicit cross-device scheduling, or a benchmark

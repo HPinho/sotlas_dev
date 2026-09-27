@@ -9,6 +9,7 @@ int main(void) {
     const float expected[] = {3.0f, 1.0f, 0.0f, 10.0f, 5.0f, 0.0f};
     float output[] = {-99.0f, -99.0f, -99.0f, -99.0f, -99.0f, -99.0f};
     const size_t count = sizeof(left) / sizeof(left[0]);
+    size_t gpu_index;
     size_t index;
     size_t gpu_count = 0;
     sotlas_opencl_status_t status;
@@ -18,17 +19,20 @@ int main(void) {
     if (status == SOTLAS_OPENCL_NO_GPU ||
         status == SOTLAS_OPENCL_RUNTIME_UNAVAILABLE) return 77;
     if (status != SOTLAS_OPENCL_OK || gpu_count == 0) return 10;
-    status = sotlas_opencl_vector_add_f32_profiled_on_gpu(
-        left, right, output, count, 0, &profile
-    );
-    if (status != SOTLAS_OPENCL_OK) return 1;
-    for (index = 0; index < count; ++index) {
-        const float cpu_reference = left[index] + right[index];
-        if (output[index] != cpu_reference || output[index] != expected[index]) return 2;
+    for (gpu_index = 0; gpu_index < gpu_count; ++gpu_index) {
+        status = sotlas_opencl_vector_add_f32_profiled_on_gpu(
+            left, right, output, count, gpu_index, &profile
+        );
+        if (status != SOTLAS_OPENCL_OK) return 1;
+        for (index = 0; index < count; ++index) {
+            const float cpu_reference = left[index] + right[index];
+            if (output[index] != cpu_reference || output[index] != expected[index]) return 2;
+        }
+        if (gpu_index == 0 &&
+            (profile.upload_nanoseconds == 0 ||
+             profile.kernel_nanoseconds == 0 ||
+             profile.download_nanoseconds == 0)) return 7;
     }
-    if (profile.upload_nanoseconds == 0 ||
-        profile.kernel_nanoseconds == 0 ||
-        profile.download_nanoseconds == 0) return 7;
     if (sotlas_opencl_vector_add_f32_profiled(
             left, right, output, count, NULL
         ) != SOTLAS_OPENCL_INVALID_ARGUMENT) return 8;
