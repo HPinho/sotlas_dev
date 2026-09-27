@@ -273,6 +273,7 @@ static sotlas_opencl_status_t sotlas_opencl_vector_add_f32_impl(
     float *staging = NULL;
     sotlas_opencl_api_t api;
     sotlas_opencl_status_t status = SOTLAS_OPENCL_BACKEND_ERROR;
+    sotlas_opencl_status_t device_status = SOTLAS_OPENCL_BACKEND_ERROR;
     cl_device_id device = NULL;
     cl_context context = NULL;
     cl_command_queue queue = NULL;
@@ -308,8 +309,11 @@ static sotlas_opencl_status_t sotlas_opencl_vector_add_f32_impl(
         return SOTLAS_OPENCL_RUNTIME_UNAVAILABLE;
     }
 
-    device = sotlas_opencl_gpu_at(&api, gpu_index, NULL, &status);
-    if (!device) goto cleanup;
+    device = sotlas_opencl_gpu_at(&api, gpu_index, NULL, &device_status);
+    if (!device) {
+        status = device_status;
+        goto cleanup;
+    }
     context = api.create_context(NULL, 1, &device, NULL, NULL, &result);
     if (!context || result != CL_SUCCESS) goto cleanup;
     queue = api.create_command_queue(
