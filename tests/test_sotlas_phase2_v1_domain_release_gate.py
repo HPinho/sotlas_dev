@@ -35,6 +35,16 @@ fn main() -> i32 {
 }
 """
 
+EXTERNAL_WRAPPER_SOURCE = """module app::phase2_v1_external_wrapper;
+@repr(C) sole struct Token { value: u32; }
+@repr(C) sole struct Bundle { token: external Token; tag: u32; }
+@extern(C) fn consume_bundle(bundle: external Bundle) -> void;
+@system @export fn dispose(bundle: external Bundle) -> void {
+    consume_bundle(move bundle);
+    return;
+}
+"""
+
 
 class SotlasPhase2V1DomainReleaseGateTests(unittest.TestCase):
     def test_island_handover_executes_through_canonical_c11_with_one_drop_per_owner(self):
@@ -53,6 +63,56 @@ class SotlasPhase2V1DomainReleaseGateTests(unittest.TestCase):
                 emit_type="exe",
                 backend="c11",
             )
+            executed = subprocess.run(
+                [str(executable)], capture_output=True, text=True, check=False
+            )
+            self.assertEqual(executed.returncode, 0, executed.stderr or executed.stdout)
+
+    def test_external_repr_c_wrapper_executes_through_canonical_c11_and_c_caller(self):
+        compiler = default_toolchain.find_tool("clang") or shutil.which("gcc")
+        if compiler is None:
+            self.skipTest("Clang or GCC is required for canonical FFI execution")
+
+        with tempfile.TemporaryDirectory(prefix="sotlas-external-ffi-") as temp:
+            directory = Path(temp)
+            object_file = directory / "external_wrapper.o"
+            caller = directory / "ffi_caller.c"
+            executable = directory / (
+                "external_wrapper.exe" if os.name == "nt" else "external_wrapper"
+            )
+            default_toolchain.compile_source_to_native(
+                EXTERNAL_WRAPPER_SOURCE,
+                "app::phase2_v1_external_wrapper",
+                object_file,
+                emit_type="obj",
+                backend="c11",
+            )
+            caller.write_text(
+                "#include <stdint.h>\n"
+                "typedef struct { uint32_t value; } Token;\n"
+                "typedef struct { Token token; uint32_t tag; } Bundle;\n"
+                "extern void dispose(Bundle bundle);\n"
+                "static uint32_t observed_value;\n"
+                "static uint32_t observed_tag;\n"
+                "void consume_bundle(Bundle bundle) {\n"
+                "  observed_value = bundle.token.value;\n"
+                "  observed_tag = bundle.tag;\n"
+                "}\n"
+                "int main(void) {\n"
+                "  Bundle bundle = {{37u}, 9u};\n"
+                "  dispose(bundle);\n"
+                "  return observed_value == 37u && observed_tag == 9u ? 0 : 1;\n"
+                "}\n",
+                encoding="utf-8",
+            )
+            compiled = subprocess.run(
+                [str(compiler), "-std=c11", "-Wall", "-Wextra", "-Werror",
+                 str(caller), str(object_file), "-o", str(executable)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
             executed = subprocess.run(
                 [str(executable)], capture_output=True, text=True, check=False
             )
