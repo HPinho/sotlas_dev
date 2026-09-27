@@ -419,6 +419,7 @@ class CodegenLLVM:
         elif isinstance(inst, ConstantIntInst):
             integer_type = inst.result.type_name
             widths = {
+                "bool": 1,
                 "u8": 8, "i8": 8, "u16": 16, "i16": 16,
                 "u32": 32, "i32": 32, "u64": 64, "i64": 64,
                 "usize": 64, "isize": 64,

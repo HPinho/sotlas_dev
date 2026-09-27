@@ -69,6 +69,38 @@ class TestSotlasLLVMDirectEmission(unittest.TestCase):
         alias_ir = alias_destination.read_text(encoding="utf-8")
         self.assertIn("ret i32 %input", alias_ir)
 
+        for literal, expected in (("true", "1"), ("false", "0")):
+            direct_bool = self.tmp_path / f"direct_bool_{expected}.ll"
+            self.toolchain.compile_source_to_native(
+                "module test::llvm_bool_direct; "
+                f"fn answer() -> bool {{ return {literal}; }}",
+                "test::llvm_bool_direct",
+                direct_bool,
+                emit_type="llvm",
+                backend="llvm",
+            )
+            direct_ir = direct_bool.read_text(encoding="utf-8")
+            self.assertIn(f"add i1 0, {expected}", direct_ir)
+            direct_object = self.tmp_path / f"direct_bool_{expected}.obj"
+            self.toolchain.compile_llvm_ir_to_obj(direct_ir, direct_object)
+            self.assertGreater(direct_object.stat().st_size, 0)
+
+            local_bool = self.tmp_path / f"local_bool_{expected}.ll"
+            self.toolchain.compile_source_to_native(
+                "module test::llvm_bool_local; "
+                f"fn answer() -> bool {{ let value: bool = {literal}; "
+                "return value; }",
+                "test::llvm_bool_local",
+                local_bool,
+                emit_type="llvm",
+                backend="llvm",
+            )
+            local_ir = local_bool.read_text(encoding="utf-8")
+            self.assertIn(f"add i1 0, {expected}", local_ir)
+            local_object = self.tmp_path / f"local_bool_{expected}.obj"
+            self.toolchain.compile_llvm_ir_to_obj(local_ir, local_object)
+            self.assertGreater(local_object.stat().st_size, 0)
+
         cases = (
             (
                 "module test::llvm_unlowered_value; "

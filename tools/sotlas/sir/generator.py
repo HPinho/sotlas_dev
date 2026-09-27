@@ -1895,6 +1895,9 @@ class SIRGenerator:
         if self._try_lower_integer_literal_return(fn, entry_block, ret_str):
             return sir_fn
 
+        if self._try_lower_boolean_literal_return(fn, entry_block, ret_str):
+            return sir_fn
+
         # Marca o fallback protótipo para impedir emissão nativa enganosa. Esta
         # sentinela do reality gate mantém explícito que o SIRGenerator ainda
         # não faz lowering completo de corpos de função.
@@ -2253,6 +2256,7 @@ class SIRGenerator:
     ) -> bool:
         """Lower one immutable, explicitly typed integer local returned by name."""
         integer_widths = {
+            "bool": 1,
             "u8": 8, "u16": 16, "u32": 32, "u64": 64, "usize": 64,
             "i8": 8, "i16": 16, "i32": 32, "i64": 64, "isize": 64,
         }
@@ -2277,23 +2281,31 @@ class SIRGenerator:
         ):
             return False
         initializer = getattr(binding, "value", None)
-        if type(initializer).__name__ != "Number":
-            return False
-        raw = getattr(initializer, "value", None)
-        if not isinstance(raw, str):
-            return False
-        match = re.fullmatch(
-            r"(.+?)(u8|u16|u32|u64|usize|i8|i16|i32|i64|isize)?", raw
-        )
-        if match is None:
-            return False
-        digits, suffix = match.groups()
-        if suffix is not None and suffix != return_type:
-            return False
-        try:
-            value = int(digits.replace("_", ""), 0)
-        except ValueError:
-            return False
+        if return_type == "bool":
+            if type(initializer).__name__ != "Boolean":
+                return False
+            boolean_value = getattr(initializer, "value", None)
+            if type(boolean_value) is not bool:
+                return False
+            value = int(boolean_value)
+        else:
+            if type(initializer).__name__ != "Number":
+                return False
+            raw = getattr(initializer, "value", None)
+            if not isinstance(raw, str):
+                return False
+            match = re.fullmatch(
+                r"(.+?)(u8|u16|u32|u64|usize|i8|i16|i32|i64|isize)?", raw
+            )
+            if match is None:
+                return False
+            digits, suffix = match.groups()
+            if suffix is not None and suffix != return_type:
+                return False
+            try:
+                value = int(digits.replace("_", ""), 0)
+            except ValueError:
+                return False
         signed = return_type.startswith("i")
         minimum = -(1 << (width - 1)) if signed else 0
         maximum = (1 << (width - 1)) - 1 if signed else (1 << width) - 1
@@ -2301,6 +2313,29 @@ class SIRGenerator:
             return False
         result = self._next_val("local_const", return_type)
         entry_block.add(ConstantIntInst(value, result))
+        entry_block.add(ReturnInst(
+            value=result,
+            point_id=self._terminal_return_point_id(fn),
+        ))
+        return True
+
+    def _try_lower_boolean_literal_return(
+        self, fn: Any, entry_block: SIRBasicBlock, return_type: str
+    ) -> bool:
+        """Lower one direct bool literal return to a validated i1 constant."""
+        if return_type != "bool":
+            return False
+        body = list(getattr(fn, "body", ()) or ())
+        if len(body) != 1 or type(body[0]).__name__ != "Return":
+            return False
+        expression = getattr(body[0], "value", None)
+        if type(expression).__name__ != "Boolean":
+            return False
+        value = getattr(expression, "value", None)
+        if type(value) is not bool:
+            return False
+        result = self._next_val("bool_const", "bool")
+        entry_block.add(ConstantIntInst(int(value), result))
         entry_block.add(ReturnInst(
             value=result,
             point_id=self._terminal_return_point_id(fn),

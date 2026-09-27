@@ -54,9 +54,10 @@ format or that arbitrary source bodies lower to SIR.
 The certified scalar and structured-control subset lowers from source through
 SIR directly to LLVM IR, then to host assembly, relocatable objects, or native
 executables without C as an intermediate language. Covered cases include
-direct scalar returns, immutable scalar locals that alias a same-typed
-parameter, immutable explicitly typed integer locals initialized from literals,
-selected integer arithmetic/comparisons, conditional
+direct scalar returns, bool literal returns and immutable bool locals, immutable
+scalar locals that alias a same-typed parameter, immutable explicitly typed
+integer locals initialized from literals, selected integer
+arithmetic/comparisons, conditional
 branches/phi values, one unsigned counter/accumulator loop lowered with
 loop-carried `phi` nodes, and verified native caller interoperability. The loop
 is compiled to an object and executed through a native C caller. Unsupported
