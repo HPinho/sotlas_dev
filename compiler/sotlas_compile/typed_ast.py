@@ -6226,6 +6226,159 @@ def _validate_quarantine_alias_lifetimes(
                 for branch_id, branch in right
             )
 
+        aliases_at_quarantine: dict[
+            int, dict[str, frozenset[str]]
+        ] = {}
+
+        def alias_flow(statements, flow_env, flow_aliases, flow_owners):
+            for item in statements:
+                kind = type(item).__name__
+                if kind == "Let":
+                    value = getattr(item, "value", None)
+                    try:
+                        local_type = (
+                            semantic_type(item.type)
+                            if getattr(item, "type", None) is not None
+                            else infer_expression_type(
+                                value, flow_env, typed_module
+                            ).type
+                        )
+                    except Phase1SemanticError:
+                        local_type = None
+                    related = alias_owners(
+                        value, flow_env, flow_owners, flow_aliases
+                    )
+                    flow_env[item.name] = (
+                        local_type or SemanticType("unknown")
+                    )
+                    if related and (
+                        contains_address_or_cast(value)
+                        or bool(flow_aliases.keys() & names_in_expr(value))
+                        or (local_type is not None and (
+                            local_type.pointer or local_type.is_reference
+                        ))
+                    ):
+                        flow_aliases[item.name] = related
+                    else:
+                        flow_aliases.pop(item.name, None)
+                        if (
+                            local_type is not None
+                            and is_sole_type(local_type, typed_module)
+                        ):
+                            flow_owners.add(item.name)
+                    continue
+
+                if kind == "Assign":
+                    target = getattr(item, "target", None)
+                    if type(target).__name__ == "Name":
+                        name = getattr(target, "value", "")
+                        related = alias_owners(
+                            getattr(item, "value", None),
+                            flow_env,
+                            flow_owners,
+                            flow_aliases,
+                        )
+                        if related:
+                            flow_aliases[name] = related
+                        else:
+                            flow_aliases.pop(name, None)
+                    continue
+
+                if kind == "Quarantine":
+                    aliases_at_quarantine[id(item)] = {
+                        name: frozenset(sources)
+                        for name, sources in flow_aliases.items()
+                    }
+                    continue
+
+                if kind == "If":
+                    base_env = dict(flow_env)
+                    base_aliases = dict(flow_aliases)
+                    branches = (
+                        getattr(item, "then_body", ()) or (),
+                        getattr(item, "else_body", ()) or (),
+                    )
+                    branch_results = []
+                    branch_locals = []
+                    for branch in branches:
+                        branch_env = dict(base_env)
+                        branch_alias = dict(base_aliases)
+                        alias_flow(
+                            branch, branch_env, branch_alias,
+                            set(flow_owners),
+                        )
+                        branch_results.append(branch_alias)
+                        branch_locals.append({
+                            nested.name for nested in branch
+                            if type(nested).__name__ == "Let"
+                        })
+                    for name in base_env:
+                        sources = set()
+                        for branch_alias, local_names in zip(
+                            branch_results, branch_locals
+                        ):
+                            source_state = (
+                                base_aliases if name in local_names
+                                else branch_alias
+                            )
+                            sources.update(source_state.get(name, ()))
+                        if sources:
+                            flow_aliases[name] = frozenset(sources)
+                        else:
+                            flow_aliases.pop(name, None)
+                    continue
+
+                if kind in ("While", "For", "Loop", "Unsafe"):
+                    body = getattr(item, "body", ()) or ()
+                    body_env = dict(flow_env)
+                    body_aliases = dict(flow_aliases)
+                    alias_flow(
+                        body, body_env, body_aliases, set(flow_owners)
+                    )
+                    if kind in ("While", "For", "Loop"):
+                        # The loop may execute zero times or carry an alias
+                        # from an earlier iteration, so join with entry state.
+                        for name in flow_env:
+                            sources = set(flow_aliases.get(name, ()))
+                            sources.update(body_aliases.get(name, ()))
+                            if sources:
+                                flow_aliases[name] = frozenset(sources)
+                            else:
+                                flow_aliases.pop(name, None)
+                    else:
+                        flow_aliases.clear()
+                        flow_aliases.update(body_aliases)
+                    continue
+
+                if kind == "Discern":
+                    base_aliases = dict(flow_aliases)
+                    cases = tuple(getattr(item, "cases", ()) or ())
+                    case_states = []
+                    for case in cases:
+                        case_env = dict(flow_env)
+                        case_aliases = dict(base_aliases)
+                        alias_flow(
+                            case.body, case_env, case_aliases,
+                            set(flow_owners),
+                        )
+                        case_states.append(case_aliases)
+                    case_states.append(base_aliases)
+                    for name in flow_env:
+                        sources = set().union(*(
+                            state.get(name, set()) for state in case_states
+                        ))
+                        if sources:
+                            flow_aliases[name] = frozenset(sources)
+                        else:
+                            flow_aliases.pop(name, None)
+
+        alias_flow(
+            parsed_function.body,
+            dict(env),
+            {},
+            set(owners),
+        )
+
         statements = sorted(
             flatten(parsed_function.body),
             key=lambda item: (
@@ -6308,7 +6461,10 @@ def _validate_quarantine_alias_lifetimes(
                 value = getattr(statement, "value", None)
                 if type(value).__name__ == "Name":
                     owner = getattr(value, "value", "")
-                    for alias, targets in aliases.items():
+                    reaching_aliases = aliases_at_quarantine.get(
+                        id(statement), aliases
+                    )
+                    for alias, targets in reaching_aliases.items():
                         if owner in targets:
                             invalid_aliases[alias] = owner
                             invalidated_at[alias] = branch_paths.get(id(statement), ())

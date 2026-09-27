@@ -959,6 +959,42 @@ fn isolate(token: Token, other: Token, flag: bool) -> u32 {
             source, filename="<phase1-quarantine-join-rebind-alias>"
         )
 
+    def test_quarantine_alias_join_preserves_unmodified_branch_origin(self):
+        source = """module test::quarantine_alias_join_origins;
+sole struct Token { value: u32; }
+fn isolate(token: Token, other: Token, flag: bool) -> u32 {
+    let mut alias = &token;
+    if flag { alias = &other; }
+    quarantine token;
+    unsafe { return alias.value; }
+}
+"""
+        parsed = sotlas_compile.bootstrap.parse(
+            source, filename="<quarantine-alias-join-origins>"
+        )
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        with self.assertRaisesRegex(
+            typed_ast.Phase1SemanticError,
+            r"reference alias 'alias' to quarantined owner 'token' is used after quarantine",
+        ):
+            typed_ast._validate_quarantine_alias_lifetimes(parsed, typed)
+
+    def test_quarantine_alias_join_accepts_rebind_in_every_branch(self):
+        source = """module test::quarantine_alias_join_all_rebound;
+sole struct Token { value: u32; }
+fn isolate(token: Token, other: Token, flag: bool) -> u32 {
+    let mut alias = &token;
+    if flag { alias = &other; } else { alias = &other; }
+    quarantine token;
+    unsafe { return alias.value; }
+}
+"""
+        parsed = sotlas_compile.bootstrap.parse(
+            source, filename="<quarantine-alias-join-all-rebound>"
+        )
+        typed = typed_ast.build_declaration_typed_ast(parsed)
+        typed_ast._validate_quarantine_alias_lifetimes(parsed, typed)
+
     def test_quarantine_in_one_branch_does_not_invalidate_sibling_branch_alias(self):
         source = """module test::quarantine_disjoint_branches;
 sole struct Token { value: u32; }
