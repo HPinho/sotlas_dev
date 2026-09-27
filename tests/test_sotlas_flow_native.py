@@ -114,6 +114,56 @@ flow Count {
             )
             self.assertEqual(executed.returncode, 0, executed.stderr)
 
+    def test_serial_flow_executes_stage_with_branch_and_early_return(self):
+        compiler = default_toolchain.find_tool("clang") or shutil.which("gcc")
+        if compiler is None:
+            self.skipTest("Clang or GCC is required for native Flow execution")
+
+        source = """module test::native_branch_flow;
+fn first() -> u32 { return 0u32; }
+fn choose(value: u32) -> u32 {
+    if value == 0u32 {
+        return 17u32;
+    }
+    if value > 0u32 {
+        return 23u32;
+    }
+    return 99u32;
+}
+flow Select {
+    stage input = first;
+    stage selected = choose after input;
+}
+"""
+        c_source = bootstrap.compile_source(source, "native_branch_flow.sotlas")
+        entrypoint = "sotlas_flow_test__native_branch_flow_Select"
+        self.assertIn(f"uint32_t {entrypoint}(void)", c_source)
+
+        with tempfile.TemporaryDirectory(prefix="sotlas-flow-branch-") as tmpdir:
+            root = Path(tmpdir)
+            generated = root / "flow.c"
+            caller = root / "caller.c"
+            executable = root / ("caller.exe" if os.name == "nt" else "caller")
+            generated.write_text(c_source, encoding="utf-8")
+            caller.write_text(
+                "#include <stdint.h>\n"
+                f"extern uint32_t {entrypoint}(void);\n"
+                f"int main(void) {{ return {entrypoint}() == 17u ? 0 : 1; }}\n",
+                encoding="utf-8",
+            )
+            compiled = subprocess.run(
+                [str(compiler), "-std=c11", "-Wall", "-Wextra", str(generated),
+                 str(caller), "-o", str(executable)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            executed = subprocess.run(
+                [str(executable)], capture_output=True, text=True, check=False
+            )
+            self.assertEqual(executed.returncode, 0, executed.stderr)
+
     def test_effectful_flow_stage_is_rejected_before_c11_lowering(self):
         source = """module test::effectful_native_flow;
 static mut counter: u32 = 0;
