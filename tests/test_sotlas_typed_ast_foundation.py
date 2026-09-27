@@ -10045,6 +10045,10 @@ fn Parent_deinit(self: &mut Parent) -> void {
     drops = drops * 10u32 + 2u32;
     return;
 }
+fn cleanup_marker() -> void {
+    drops = drops * 10u32 + 9u32;
+    return;
+}
 pub fn make_and_drop() -> void {
     let first: Child = Child { value: 1u32 };
     let second: Child = Child { value: 2u32 };
@@ -10054,6 +10058,27 @@ pub fn make_and_drop() -> void {
     let sixth: Child = Child { value: 6u32 };
     let parent: Parent = Parent { first: first, children: [[third, fourth], [fifth, sixth]], second: second };
     return;
+}
+pub fn make_with_defer() -> void {
+    let first: Child = Child { value: 1u32 };
+    let second: Child = Child { value: 2u32 };
+    let third: Child = Child { value: 3u32 };
+    let fourth: Child = Child { value: 4u32 };
+    let fifth: Child = Child { value: 5u32 };
+    let sixth: Child = Child { value: 6u32 };
+    let parent: Parent = Parent { first: first, children: [[third, fourth], [fifth, sixth]], second: second };
+    defer cleanup_marker();
+    return;
+}
+pub fn make_with_defer_fallthrough() -> void {
+    let first: Child = Child { value: 1u32 };
+    let second: Child = Child { value: 2u32 };
+    let third: Child = Child { value: 3u32 };
+    let fourth: Child = Child { value: 4u32 };
+    let fifth: Child = Child { value: 5u32 };
+    let sixth: Child = Child { value: 6u32 };
+    let parent: Parent = Parent { first: first, children: [[third, fourth], [fifth, sixth]], second: second };
+    defer cleanup_marker();
 }
 pub fn consume(parent: Parent) -> void { return; }
 pub fn move_and_drop() -> void {
@@ -10091,8 +10116,14 @@ int main(void) {
     make_and_drop();
     if (drops != 2111111u) return 1;
     drops = 0u;
+    make_with_defer();
+    if (drops != 92111111u) return 2;
+    drops = 0u;
+    make_with_defer_fallthrough();
+    if (drops != 92111111u) return 3;
+    drops = 0u;
     move_and_drop();
-    return drops == 2111111u ? 0 : 2;
+    return drops == 2111111u ? 0 : 4;
 }
 """
         with tempfile.TemporaryDirectory(prefix="sotlas_sole_drop_") as temp:
