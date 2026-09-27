@@ -138,12 +138,30 @@ class TestSotlasLLVMDirectEmission(unittest.TestCase):
             self.toolchain.compile_llvm_ir_to_obj(arithmetic_ir, arithmetic_object)
             self.assertGreater(arithmetic_object.stat().st_size, 0)
 
+        chained_locals = self.tmp_path / "chained_locals.ll"
+        self.toolchain.compile_source_to_native(
+            "module test::llvm_chained_locals; "
+            "fn calculate(input: u32) -> u32 { "
+            "let first: u32 = input + 1u32; "
+            "let second: u32 = first * 2u32; return second; }",
+            "test::llvm_chained_locals",
+            chained_locals,
+            emit_type="llvm",
+            backend="llvm",
+        )
+        chained_ir = chained_locals.read_text(encoding="utf-8")
+        self.assertIn("add i32", chained_ir)
+        self.assertIn("mul i32", chained_ir)
+        chained_object = self.tmp_path / "chained_locals.obj"
+        self.toolchain.compile_llvm_ir_to_obj(chained_ir, chained_object)
+        self.assertGreater(chained_object.stat().st_size, 0)
+
         cases = (
             (
                 "module test::llvm_unlowered_value; "
                 "fn answer(input: u32) -> u32 { "
-                "let value: u32 = input + 7u32; "
-                "let result: u32 = value + 1u32; return result; }",
+                "let mut value: u32 = input; "
+                "value = value + 7u32; return value; }",
                 "answer",
             ),
             (
@@ -175,8 +193,8 @@ class TestSotlasLLVMDirectEmission(unittest.TestCase):
         module = bootstrap.parse(
             "module test::sir_unlowered; "
             "fn answer(input: u32) -> u32 { "
-            "let value: u32 = input + 7u32; "
-            "let result: u32 = value + 1u32; return result; }"
+            "let mut value: u32 = input; "
+            "value = value + 7u32; return value; }"
         )
         sir = SIRGenerator().generate_from_ast(module)
         self.assertEqual(sir.unlowered_functions, ["answer"])

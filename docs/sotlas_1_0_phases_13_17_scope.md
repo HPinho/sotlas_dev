@@ -56,8 +56,9 @@ SIR directly to LLVM IR, then to host assembly, relocatable objects, or native
 executables without C as an intermediate language. Covered cases include
 direct scalar returns, bool literal returns and immutable bool locals, immutable
 scalar locals that alias a same-typed parameter, immutable explicitly typed
-integer locals initialized from literals, selected integer and float arithmetic
-returned directly or through one immutable typed local, scalar comparisons
+integer locals initialized from literals, selected integer arithmetic returned
+through straight-line chains of immutable typed locals, selected float
+arithmetic returned directly or through one immutable typed local, comparisons
 returned directly or through an immutable bool local,
 conditional
 branches/phi values, one unsigned counter/accumulator loop lowered with

@@ -1892,6 +1892,11 @@ class SIRGenerator:
         ):
             return sir_fn
 
+        if self._try_lower_integer_linear_locals_return(
+            fn, entry_block, sir_params, ret_str
+        ):
+            return sir_fn
+
         if self._try_lower_integer_literal_return(fn, entry_block, ret_str):
             return sir_fn
 
@@ -2260,6 +2265,124 @@ class SIRGenerator:
             value=result,
             point_id=self._terminal_return_point_id(fn),
         ))
+        return True
+
+    def _try_lower_integer_linear_locals_return(
+        self,
+        fn: Any,
+        entry_block: SIRBasicBlock,
+        params: list[SIRValue],
+        return_type: str,
+    ) -> bool:
+        """Lower a pure straight-line chain of immutable integer locals."""
+        widths = {
+            "u8": 8, "u16": 16, "u32": 32, "u64": 64,
+            "i8": 8, "i16": 16, "i32": 32, "i64": 64,
+        }
+        width = widths.get(return_type)
+        body = list(getattr(fn, "body", ()) or ())
+        if width is None or len(body) < 2 or type(body[-1]).__name__ != "Return":
+            return False
+
+        values = {parameter.name: parameter for parameter in params}
+        if len(values) != len(params):
+            return False
+        emitted = []
+        next_counter = self._val_counter
+        signed = return_type.startswith("i")
+        minimum = -(1 << (width - 1)) if signed else 0
+        maximum = (1 << (width - 1)) - 1 if signed else (1 << width) - 1
+
+        def new_value(prefix: str) -> SIRValue:
+            nonlocal next_counter
+            value = SIRValue(f"{prefix}{next_counter}", return_type)
+            next_counter += 1
+            return value
+
+        def literal(node: Any) -> SIRValue | None:
+            if type(node).__name__ != "Number":
+                return None
+            raw = getattr(node, "value", None)
+            if not isinstance(raw, str):
+                return None
+            match = re.fullmatch(
+                r"(.+?)(u8|u16|u32|u64|i8|i16|i32|i64)?", raw
+            )
+            if match is None:
+                return None
+            digits, suffix = match.groups()
+            if suffix is not None and suffix != return_type:
+                return None
+            try:
+                number = int(digits.replace("_", ""), 0)
+            except ValueError:
+                return None
+            if not minimum <= number <= maximum:
+                return None
+            value = new_value("linear_const")
+            emitted.append(ConstantIntInst(number, value))
+            return value
+
+        def resolve(node: Any) -> SIRValue | None:
+            kind = type(node).__name__
+            if kind in ("Name", "IdentNode"):
+                name = (
+                    getattr(node, "value", None)
+                    if kind == "Name" else getattr(node, "name", None)
+                )
+                value = values.get(name)
+                return value if value is not None and value.type_name == return_type else None
+            return literal(node)
+
+        for statement in body[:-1]:
+            if type(statement).__name__ != "Let":
+                return False
+            name = getattr(statement, "name", None)
+            if (
+                not isinstance(name, str)
+                or not name
+                or name in values
+                or getattr(statement, "is_mut", False)
+                or getattr(statement, "is_static", False)
+                or self._type_name(getattr(statement, "type", None)) != return_type
+            ):
+                return False
+            initializer = getattr(statement, "value", None)
+            if type(initializer).__name__ in ("Name", "IdentNode", "Number"):
+                result = resolve(initializer)
+                if result is None:
+                    return False
+            elif type(initializer).__name__ in ("Binary", "BinaryExprNode"):
+                operator = getattr(initializer, "op", None)
+                operator_name = getattr(operator, "name", None)
+                symbol = operator if isinstance(operator, str) else {
+                    "PLUS": "+", "MINUS": "-", "STAR": "*",
+                }.get(operator_name)
+                operation = {"+": "add", "-": "sub", "*": "mul"}.get(symbol)
+                if operation is None:
+                    return False
+                left = resolve(getattr(initializer, "left", None))
+                right = resolve(getattr(initializer, "right", None))
+                if left is None or right is None:
+                    return False
+                result = new_value("linear_arith")
+                emitted.append(BinaryOpInst(operation, left, right, result))
+            else:
+                return False
+            values[name] = result
+
+        returned = getattr(body[-1], "value", None)
+        if type(returned).__name__ not in ("Name", "IdentNode"):
+            return False
+        result = resolve(returned)
+        if result is None:
+            return False
+        emitted.append(ReturnInst(
+            value=result,
+            point_id=self._terminal_return_point_id(fn),
+        ))
+        entry_block.instructions.extend(emitted)
+        self._val_counter = next_counter
         return True
 
     def _try_lower_integer_literal_return(
