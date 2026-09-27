@@ -458,7 +458,7 @@ Escopo: `docs/sotlas_1_0_phase10_guarantees_scope.md`.
 - [x] `target-report` emite JSON estável com triple, ABI, largura de ponteiro, endianness, CPU, features normalizadas e data layout;
 - [x] `sir-report` apresenta inventário JSON do subset SIR canônico após revalidar planos Flow;
 - [x] fonte inválida é rejeitada sem relatório JSON parcial;
-- [x] visualizações interativas, alocação de registradores, ABI/stack e source-to-instruction mapping são pós-1.0.
+- [x] `register-allocation-report` exposes an inspection-only virtual allocation preview for single-block scalar functions; `stack-layout-report` exposes target-neutral scalar local slots. CFG-aware allocation, platform ABI/stack frames, source-to-instruction mapping, and interactive backend visualizations remain post-1.0 work.
 
 ### SIR e backend nativo — slice de constantes inteiras
 
