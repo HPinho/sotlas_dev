@@ -10,12 +10,6 @@ interface CliCommand {
   command: string;
 }
 
-const installSteps = [
-  { step: "1", label: "Clone the development repository", command: "git clone https://github.com/HPinho/sotlas_dev.git" },
-  { step: "2", label: "Enter the checkout", command: "cd sotlas_dev" },
-  { step: "3", label: "Install the preview package", command: "python -m pip install -e ." },
-];
-
 const cliCommands: CliCommand[] = [
   { label: "sotlas version", description: "Display language version", command: "sotlas version" },
   { label: "sotlas check", description: "Validate syntax, types, and safety", command: "sotlas check examples/01_hello_systems/main.sotlas" },
@@ -48,6 +42,15 @@ function CopyButton({ text }: { text: string }) {
 }
 
 export function GettingStarted() {
+  const isWindows = typeof navigator !== "undefined" && navigator.platform.startsWith("Win");
+  const installSteps = [
+    { step: "1", label: "Clone the development repository", command: "git clone https://github.com/HPinho/sotlas_dev.git" },
+    { step: "2", label: "Enter the checkout", command: "cd sotlas_dev" },
+    { step: "3", label: "Create a virtual environment", command: "python -m venv .venv" },
+    { step: "4", label: "Activate the virtual environment", command: isWindows ? ".\\.venv\\Scripts\\Activate.ps1" : "source .venv/bin/activate" },
+    { step: "5", label: "Install the preview package", command: "python -m pip install -e ." },
+  ];
+
   return (
     <section className="px-4 md:px-8 py-16 md:py-24 relative overflow-hidden">
       <div className="absolute top-0 left-1/3 w-96 h-96 bg-[radial-gradient(ellipse_at_center,rgba(6,182,212,0.05)_0%,transparent_70%)] pointer-events-none" />

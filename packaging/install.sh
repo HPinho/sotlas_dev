@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Instalador Automatizado da Linguagem Sotlas para Linux e macOS
+# Sotlas preview installer for Linux and macOS.
 # ==============================================================================
-# Uso:
-#   curl -fsSL https://sotlas.org/install.sh | bash
-# Ou localmente:
+# Usage from a source checkout:
 #   bash packaging/install.sh
 # ==============================================================================
 
@@ -15,25 +13,32 @@ BIN_DIR="$INSTALL_DIR/bin"
 
 echo ""
 echo "==================================================================="
-echo "              INSTALADOR DA LINGUAGEM SOTLAS                       "
-echo "     Segura por padrão, desculpadamente orientada a sistemas       "
+echo "                  SOTLAS PREVIEW INSTALLER                         "
 echo "==================================================================="
 echo ""
 
-echo "-> Diretório de destino: $INSTALL_DIR"
+echo "-> Install directory: $INSTALL_DIR"
 mkdir -p "$INSTALL_DIR"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-if [ -d "$REPO_ROOT/dist/sotlas-v0.2.0-linux-x64" ]; then
-    echo "-> Instalando a partir do pacote construído..."
-    cp -R "$REPO_ROOT/dist/sotlas-v0.2.0-linux-x64/"* "$INSTALL_DIR/"
-else
-    echo "-> Gerando bundle de produção local..."
-    python3 "$SCRIPT_DIR/package.py" --target linux || python "$SCRIPT_DIR/package.py" --target linux
-    cp -R "$REPO_ROOT/dist/sotlas-v0.2.0-linux-x64/"* "$INSTALL_DIR/"
+VERSION="$(sed -n 's/^SOTLAS_VERSION = "\(.*\)"$/\1/p' "$REPO_ROOT/compiler/sotlas/__init__.py")"
+if [ -z "$VERSION" ]; then
+    echo "Unable to determine the current Sotlas version." >&2
+    exit 1
 fi
+BUNDLE_PATH="$REPO_ROOT/dist/sotlas-v${VERSION}-linux-x64"
+if [ ! -d "$BUNDLE_PATH" ]; then
+    echo "-> Building the current local release bundle..."
+    python3 "$SCRIPT_DIR/package.py" --target linux --dist-dir "$REPO_ROOT/dist"
+fi
+if [ ! -d "$BUNDLE_PATH" ]; then
+    echo "The packager did not produce the expected bundle for version $VERSION: $BUNDLE_PATH" >&2
+    exit 1
+fi
+echo "-> Installing $BUNDLE_PATH..."
+cp -R "$BUNDLE_PATH/"* "$INSTALL_DIR/"
 
 chmod +x "$BIN_DIR"/* 2>/dev/null || true
 
@@ -48,23 +53,21 @@ for RC in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
             echo "# Sotlas Toolchain" >> "$RC"
             echo "$SOTLAS_HOME_LINE" >> "$RC"
             echo "$PATH_LINE" >> "$RC"
-            echo "-> Atualizado: $RC"
+            echo "-> Updated: $RC"
         fi
     fi
 done
 
 echo ""
 echo "==================================================================="
-echo "          LINGUAGEM SOTLAS INSTALADA COM SUCESSO!                  "
+echo "              SOTLAS PREVIEW INSTALLED                             "
 echo "==================================================================="
 echo ""
-echo "Comandos disponíveis:"
-echo "  sotlas --help           # Exibe ajuda e comandos"
-echo "  sotlas repl             # Abre o terminal interativo (REPL)"
-echo "  sotlas studio           # Inicia o Web Studio Playground"
-echo "  sotlas dump-wasm <file> # Emite WebAssembly direto (sem C)"
+echo "Try these verified preview commands:"
+echo "  sotlas version"
+echo "  sotlas check examples/01_hello_systems/main.sotlas"
 echo ""
-echo "Reinicie sua sessão de terminal ou execute:"
+echo "Restart your terminal or update PATH for this session:"
 echo "  export PATH=\"$BIN_DIR:\$PATH\""
 echo "  sotlas version"
 echo ""

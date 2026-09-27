@@ -35,7 +35,7 @@ def get_version() -> str:
         for line in init_py.read_text(encoding="utf-8").splitlines():
             if line.startswith("SOTLAS_VERSION"):
                 return line.split("=")[1].strip().strip('"').strip("'")
-    return "0.2.0"
+    raise RuntimeError(f"Unable to determine Sotlas version from {init_py}")
 
 def compute_sha256(filepath: Path) -> str:
     h = hashlib.sha256()

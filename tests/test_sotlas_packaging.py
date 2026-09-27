@@ -20,6 +20,8 @@ class TestSotlasPackaging(unittest.TestCase):
         text = install_ps1.read_text(encoding="utf-8")
         self.assertIn("SOTLAS_HOME", text)
         self.assertIn("sotlas.cmd", text)
+        self.assertIn('"sotlas-v$Version-windows-x64"', text)
+        self.assertNotIn("sotlas-v0.2.0", text)
 
     def test_install_sh_exists(self):
         install_sh = ROOT / "packaging" / "install.sh"
@@ -27,6 +29,20 @@ class TestSotlasPackaging(unittest.TestCase):
         text = install_sh.read_text(encoding="utf-8")
         self.assertIn("SOTLAS_HOME", text)
         self.assertIn("sotlas", text)
+        self.assertIn('sotlas-v${VERSION}-linux-x64', text)
+        self.assertNotIn("sotlas-v0.2.0", text)
+
+    def test_packager_uses_current_runtime_version_and_fails_closed(self):
+        from importlib.util import module_from_spec, spec_from_file_location
+
+        path = ROOT / "packaging" / "package.py"
+        spec = spec_from_file_location("sotlas_release_packager", path)
+        self.assertIsNotNone(spec)
+        module = module_from_spec(spec)
+        spec.loader.exec_module(module)
+        self.assertEqual(module.get_version(), "1.0.0rc1")
+        source = path.read_text(encoding="utf-8")
+        self.assertIn("raise RuntimeError", source)
 
     def test_inno_setup_script_exists(self):
         iss_file = ROOT / "packaging" / "windows" / "sotlas.iss"

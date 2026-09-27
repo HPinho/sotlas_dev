@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Copy, Check, Terminal } from "lucide-react";
 
 interface InstallOption {
-  id: "unix" | "windows" | "pkg";
+  id: "unix" | "windows";
   label: string;
   command: string;
 }
@@ -11,22 +11,17 @@ const installOptions: InstallOption[] = [
   {
     id: "unix",
     label: "Linux / macOS",
-    command: "curl -proto '=https' --tlsv1.2 -sSf https://sotlas.org/install.sh | sh",
+    command: "git clone https://github.com/HPinho/sotlas_dev.git && cd sotlas_dev && python3 -m venv .venv && . .venv/bin/activate && python -m pip install -e .",
   },
   {
     id: "windows",
     label: "Windows (PowerShell)",
-    command: "irm https://sotlas.org/install.ps1 | iex",
-  },
-  {
-    id: "pkg",
-    label: "Sotlas Toolchain",
-    command: "sotlasup toolchain install stable",
+    command: "git clone https://github.com/HPinho/sotlas_dev.git; cd sotlas_dev; py -3 -m venv .venv; .\\.venv\\Scripts\\Activate.ps1; python -m pip install -e .",
   },
 ];
 
 export function InstallSnippet() {
-  const [selectedId, setSelectedId] = useState<"unix" | "windows" | "pkg">("unix");
+  const [selectedId, setSelectedId] = useState<"unix" | "windows">("unix");
   const [copied, setCopied] = useState(false);
 
   const currentOption = installOptions.find((o) => o.id === selectedId) || installOptions[0];
@@ -48,7 +43,7 @@ export function InstallSnippet() {
         <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-muted/40 text-xs font-mono">
           <div className="flex items-center gap-1.5 sm:gap-2">
             <Terminal className="w-3.5 h-3.5 text-primary" />
-            <span className="font-semibold text-foreground/80 hidden sm:inline">Official Install:</span>
+            <span className="font-semibold text-foreground/80 hidden sm:inline">Install from source:</span>
             <div className="flex items-center gap-1">
               {installOptions.map((opt) => (
                 <button
@@ -67,7 +62,7 @@ export function InstallSnippet() {
           </div>
 
           <span className="text-[11px] text-muted-foreground font-mono hidden md:inline">
-            v0.5.1 Official
+            Preview · Python 3.10+
           </span>
         </div>
 

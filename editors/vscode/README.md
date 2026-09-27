@@ -38,13 +38,13 @@ advanced examples remain experimental or planned.
   - Can be enabled with `sotlas.enableExternalLsp` when the installed compiler provides `sotlas lsp --stdio`.
   - Completion, compiler diagnostics, and navigation depend on that server; the extension's local structural hints do not provide those guarantees.
 - **Integrated Developer Tools & Commands**:
-  - `Sotlas: Build Current Package` (`sotlas.build`)
+  - `Sotlas: Build Workspace` (`sotlas.build`)
   - `Sotlas: Check Active File` (`sotlas.check`)
-  - `Sotlas: Format Current File` (`sotlas.format`)
-  - `Sotlas: Open Sotlas Studio (Browser)` (`sotlas.studio`)
-  - `Sotlas: Start Interactive REPL` (`sotlas.repl`)
+  - `Sotlas: Format Active File` (`sotlas.format`)
+  - `Sotlas: Open Studio` (`sotlas.studio`)
+  - `Sotlas: Start REPL` (`sotlas.repl`)
   - `Sotlas: Emit WebAssembly (.wat)` (`sotlas.dumpWasm`)
-  - `Sotlas: Restart Language Server (LSP)` (`sotlas.restartServer`)
+  - `Sotlas: Restart Language Server` (`sotlas.restartServer`)
 
 ---
 

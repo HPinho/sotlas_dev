@@ -27,6 +27,9 @@ const evidence = [
 const commands = [
   "git clone https://github.com/HPinho/sotlas_dev.git",
   "cd sotlas_dev",
+  "python -m venv .venv",
+  "# PowerShell: .\\.venv\\Scripts\\Activate.ps1",
+  "# Linux/macOS: source .venv/bin/activate",
   "python -m pip install -e .",
   "sotlas check examples/01_hello_systems/main.sotlas",
   "sotlas run examples/01_hello_systems/main.sotlas",

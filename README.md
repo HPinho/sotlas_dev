@@ -187,12 +187,17 @@ The suite parses, type-checks, and emits selected standard-library modules. Nati
 ## 🚀 Quickstart (verified preview subset)
 
 ### 1. Installation
-Clone the repository and install in editable mode:
+Requirements: Python 3.10 or newer and Git. Clone the repository and install
+the preview in an isolated virtual environment:
 
 ```bash
 git clone https://github.com/HPinho/sotlas_dev.git
 cd sotlas_dev
-pip install -e .
+python -m venv .venv
+# PowerShell: .\.venv\Scripts\Activate.ps1
+# Linux/macOS: source .venv/bin/activate
+# Run the activation command for your shell, then:
+python -m pip install -e .
 ```
 
 ### 2. Verified compiler path
@@ -213,6 +218,9 @@ sotlas compile examples/01_hello_systems/main.sotlas --backend c11 --emit-c -o h
 The CLI also has experimental inspection commands such as `dump-sir` and
 backend- or feature-specific tools. Their availability does not imply that
 their output is part of the stable preview contract.
+
+Native `sotlas run` and C11 executable builds also require GCC or Clang. The
+`--emit-c` command above only writes C source and does not invoke a C compiler.
 
 The [command dispatch example](examples/07_cli_tool/README.md) is also checked
 by CI through the canonical frontend and C11 backend. It demonstrates enum

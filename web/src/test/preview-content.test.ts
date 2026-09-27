@@ -41,6 +41,17 @@ describe("preview documentation", () => {
     expect(siteCopy).not.toContain("zero-cost destruction");
   });
 
+  it("shows a reproducible source install instead of unpublished installers", () => {
+    const installSnippet = readFileSync(resolve(process.cwd(), "src/components/hero/InstallSnippet.tsx"), "utf8");
+    expect(installSnippet).toContain("git clone https://github.com/HPinho/sotlas_dev.git");
+    expect(installSnippet).toContain("python3 -m venv .venv");
+    expect(installSnippet).toContain("py -3 -m venv .venv");
+    expect(installSnippet).not.toContain("sotlasup");
+    expect(installSnippet).not.toContain("https://sotlas.org/install.sh");
+    expect(installSnippet).not.toContain("https://sotlas.org/install.ps1");
+    expect(installSnippet).not.toContain("v0.5.1 Official");
+  });
+
   it("does not expose registry routes that the preview does not implement", () => {
     const apiPage = readFileSync(resolve(process.cwd(), "src/pages/ApiReference.tsx"), "utf8");
     expect(apiPage).toContain("No hosted registry API is available");
