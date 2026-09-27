@@ -301,9 +301,17 @@ def generate_llvm_sir(module, frontend):
     ownership_plan = require_llvm_ownership_supported(module, frontend)
     if ownership_plan is not None:
         return generate_checked_ownership_sir(ownership_plan).module
-    return SIRGenerator(
+    sir_module = SIRGenerator(
         module_name=getattr(module, "name", "main")
     ).generate_from_ast(module)
+    unlowered = tuple(getattr(sir_module, "unlowered_functions", ()))
+    if unlowered:
+        names = ", ".join(f"'{name}'" for name in unlowered)
+        raise LLVMToolchainError(
+            "LLVM backend cannot emit prototype SIR for functions with "
+            f"unlowered bodies: {names}"
+        )
+    return sir_module
 
 
 class LLVMToolchain:

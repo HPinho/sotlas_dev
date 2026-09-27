@@ -1877,6 +1877,11 @@ class SIRGenerator:
         ):
             return sir_fn
 
+        if self._try_lower_integer_local_literal_return(
+            fn, entry_block, ret_str
+        ):
+            return sir_fn
+
         if self._try_lower_integer_arithmetic_return(
             fn, entry_block, sir_params, ret_str
         ):
@@ -1885,9 +1890,12 @@ class SIRGenerator:
         if self._try_lower_integer_literal_return(fn, entry_block, ret_str):
             return sir_fn
 
-        # Emite retorno padrão no fallback protótipo. Este comentário é também
-        # uma sentinela do reality gate: o SIRGenerator ainda não faz lowering
-        # completo de corpos de função.
+        # Marca o fallback protótipo para impedir emissão nativa enganosa. Esta
+        # sentinela do reality gate mantém explícito que o SIRGenerator ainda
+        # não faz lowering completo de corpos de função.
+        # Preserve the prototype for inspection, but make production backends
+        # reject it instead of treating a fabricated return as executable SIR.
+        self.sir_mod.unlowered_functions.append(fn_name)
         # Quando o bloco corresponde a um return terminal direto da AST,
         # preserva sua identidade source-stable.
         return_point = self._terminal_return_point_id(fn)
@@ -2180,6 +2188,65 @@ class SIRGenerator:
         if not minimum <= value <= maximum:
             return False
         result = self._next_val("const", return_type)
+        entry_block.add(ConstantIntInst(value, result))
+        entry_block.add(ReturnInst(
+            value=result,
+            point_id=self._terminal_return_point_id(fn),
+        ))
+        return True
+
+    def _try_lower_integer_local_literal_return(
+        self, fn: Any, entry_block: SIRBasicBlock, return_type: str
+    ) -> bool:
+        """Lower one immutable, explicitly typed integer local returned by name."""
+        integer_widths = {
+            "u8": 8, "u16": 16, "u32": 32, "u64": 64, "usize": 64,
+            "i8": 8, "i16": 16, "i32": 32, "i64": 64, "isize": 64,
+        }
+        width = integer_widths.get(return_type)
+        if width is None:
+            return False
+        body = list(getattr(fn, "body", ()) or ())
+        if len(body) != 2 or type(body[0]).__name__ != "Let":
+            return False
+        binding, returned = body
+        if type(returned).__name__ != "Return":
+            return False
+        if getattr(binding, "is_mut", False) or getattr(binding, "is_static", False):
+            return False
+        binding_type = getattr(binding, "type", None)
+        if binding_type is None or self._type_name(binding_type) != return_type:
+            return False
+        expression = getattr(returned, "value", None)
+        if (
+            type(expression).__name__ != "Name"
+            or getattr(expression, "value", None) != getattr(binding, "name", None)
+        ):
+            return False
+        initializer = getattr(binding, "value", None)
+        if type(initializer).__name__ != "Number":
+            return False
+        raw = getattr(initializer, "value", None)
+        if not isinstance(raw, str):
+            return False
+        match = re.fullmatch(
+            r"(.+?)(u8|u16|u32|u64|usize|i8|i16|i32|i64|isize)?", raw
+        )
+        if match is None:
+            return False
+        digits, suffix = match.groups()
+        if suffix is not None and suffix != return_type:
+            return False
+        try:
+            value = int(digits.replace("_", ""), 0)
+        except ValueError:
+            return False
+        signed = return_type.startswith("i")
+        minimum = -(1 << (width - 1)) if signed else 0
+        maximum = (1 << (width - 1)) - 1 if signed else (1 << width) - 1
+        if not minimum <= value <= maximum:
+            return False
+        result = self._next_val("local_const", return_type)
         entry_block.add(ConstantIntInst(value, result))
         entry_block.add(ReturnInst(
             value=result,

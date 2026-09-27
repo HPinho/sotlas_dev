@@ -42,6 +42,61 @@ class TestSotlasLLVMDirectEmission(unittest.TestCase):
         self.assertIn('target triple = "x86_64-unknown-linux-gnu"', ir)
         self.assertIn('"target-features"="+sse2,+avx,+avx2"', ir)
 
+    def test_source_llvm_emission_rejects_prototype_fallback_bodies(self):
+        local_destination = self.tmp_path / "local_const.ll"
+        self.toolchain.compile_source_to_native(
+            "module test::llvm_local_const; "
+            "fn answer() -> u32 { let value: u32 = 7u32; return value; }",
+            "test::llvm_local_const",
+            local_destination,
+            emit_type="llvm",
+            backend="llvm",
+        )
+        self.assertIn(
+            "add i32 0, 7", local_destination.read_text(encoding="utf-8")
+        )
+
+        cases = (
+            (
+                "module test::llvm_unlowered_value; "
+                "fn answer(input: u32) -> u32 { "
+                "let value: u32 = input + 7u32; return value; }",
+                "answer",
+            ),
+            (
+                "module test::llvm_unlowered_void; "
+                "fn work() -> void { let value: u32 = 7u32; return; }",
+                "work",
+            ),
+        )
+        for source, function_name in cases:
+            with self.subTest(function=function_name):
+                destination = self.tmp_path / f"{function_name}.ll"
+                with self.assertRaisesRegex(
+                    LLVMToolchainError,
+                    rf"prototype SIR.*'{function_name}'",
+                ):
+                    self.toolchain.compile_source_to_native(
+                        source,
+                        f"test::llvm_unlowered_{function_name}",
+                        destination,
+                        emit_type="llvm",
+                        backend="llvm",
+                    )
+                self.assertFalse(destination.exists())
+
+    def test_sir_prototype_marks_functions_with_unlowered_bodies(self):
+        from sotlas.sir.generator import SIRGenerator
+        from sotlas_compile import bootstrap
+
+        module = bootstrap.parse(
+            "module test::sir_unlowered; "
+            "fn answer(input: u32) -> u32 { "
+            "let value: u32 = input + 7u32; return value; }"
+        )
+        sir = SIRGenerator().generate_from_ast(module)
+        self.assertEqual(sir.unlowered_functions, ["answer"])
+
     def test_llvm_toolchain_detected(self):
         self.assertTrue(self.toolchain.is_available(), "LLVM Clang deve ser detectado no ambiente")
         version = self.toolchain.get_version()

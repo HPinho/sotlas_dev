@@ -54,11 +54,16 @@ format or that arbitrary source bodies lower to SIR.
 The certified scalar and structured-control subset lowers from source through
 SIR directly to LLVM IR, then to host assembly, relocatable objects, or native
 executables without C as an intermediate language. Covered cases include
-direct scalar returns, selected integer arithmetic/comparisons, conditional
+direct scalar returns, immutable explicitly typed integer locals initialized
+from literals, selected integer arithmetic/comparisons, conditional
 branches/phi values, one unsigned counter/accumulator loop lowered with
 loop-carried `phi` nodes, and verified native caller interoperability. The loop
 is compiled to an object and executed through a native C caller. Unsupported
-instructions/domains fail before artifact emission.
+instructions/domains fail before artifact emission. Functions that fall through
+the prototype SIR generator's body-lowering fallback are now identified in SIR
+inspection output and rejected by the LLVM source path before writing an IR,
+object, or executable artifact; the prototype dump remains available for
+inspection only.
 
 LLVM supplies instruction selection, register allocation, ABI lowering, and
 object emission for this 1.0 path. Sotlas does not yet provide its own machine

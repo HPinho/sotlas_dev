@@ -424,6 +424,7 @@ class SIRFunction:
 class SIRModule:
     name: str
     functions: List[SIRFunction] = field(default_factory=list)
+    unlowered_functions: List[str] = field(default_factory=list)
     effect_summaries: Dict[str, SIREffectSummary] = field(
         default_factory=dict, init=False
     )
