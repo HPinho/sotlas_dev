@@ -1096,11 +1096,12 @@ flow Broken {
             package.compile_source(mismatch)
 
     def test_compatibility_frontend_parses_and_fails_closed_in_c11(self):
-        source = self._source("""
+        source = """module test::flow_frontend;
+fn load_profile() -> f64 { return 1.0; }
 flow Home {
     stage profile = load_profile;
 }
-""")
+"""
         module = tools_package.bootstrap.parse(source)
         tools_package.bootstrap.check(module)
         self.assertEqual(len(module.typed_flows), 1)
