@@ -126,6 +126,14 @@ jobs:
                 print(item["entry"])
         PY
 
+        python - <<'PY' > build/check-contract/native-run.txt
+        import json
+        data = json.load(open("examples/manifest.json", encoding="utf-8"))
+        for item in data["examples"]:
+            if item.get("native_run") is True:
+                print(item["entry"])
+        PY
+
         while IFS= read -r source; do
           [ -n "$source" ] || continue
           name="$(basename "$(dirname "$source")")"
@@ -135,16 +143,7 @@ jobs:
           sotlas check "$source"
           sotlas compile "$source" --backend c11 --emit-c -o "$output"
           cc -std=c11 -Wall -Wextra -fsyntax-only "$output"
-          if python - "$source" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-manifest = json.loads(Path("examples/manifest.json").read_text(encoding="utf-8"))
-entry = sys.argv[1].replace("\\", "/")
-raise SystemExit(0 if any(item["entry"] == entry and item.get("native_run") is True for item in manifest["examples"]) else 1)
-PY
-          then
+          if grep -Fxq "$source" build/check-contract/native-run.txt; then
             sotlas run "$source"
           fi
           echo "::endgroup::"
