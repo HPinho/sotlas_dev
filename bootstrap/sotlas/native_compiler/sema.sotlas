@@ -207,7 +207,58 @@ impl Sema {
                     return false;
                 }
             }
+            if node.kind == AstKind::BreakStmt
+                || node.kind == AstKind::ContinueStmt
+                || node.kind == AstKind::ReturnStmt {
+                if !self.check_control_context(nodes, node_count, node_index) {
+                    return false;
+                }
+            }
             node_index = node_index + 1;
+        }
+        return true;
+    }
+
+    pub fn check_control_context(
+        mut self: &mut Self,
+        nodes: *const AstNode,
+        node_count: usize,
+        statement_index: usize
+    ) -> bool {
+        let statement: AstNode = unsafe { *(nodes + statement_index) };
+        let mut parent_index: usize = statement.parent;
+        let mut traversed: usize = 0;
+        let mut valid_context: bool = false;
+        while parent_index != 0 {
+            if parent_index >= node_count || traversed >= node_count {
+                self.error_count = self.error_count + 1;
+                self.error_line = statement.span.line;
+                self.error_col = statement.span.col;
+                return false;
+            }
+            let parent: AstNode = unsafe { *(nodes + parent_index) };
+            if statement.kind == AstKind::ReturnStmt {
+                if parent.kind == AstKind::FnDecl || parent.kind == AstKind::TrapfnDecl {
+                    valid_context = true;
+                    break;
+                }
+            } else {
+                if parent.kind == AstKind::FnDecl || parent.kind == AstKind::TrapfnDecl {
+                    break;
+                }
+                if parent.kind == AstKind::WhileStmt {
+                    valid_context = true;
+                    break;
+                }
+            }
+            parent_index = parent.parent;
+            traversed = traversed + 1;
+        }
+        if !valid_context {
+            self.error_count = self.error_count + 1;
+            self.error_line = statement.span.line;
+            self.error_col = statement.span.col;
+            return false;
         }
         return true;
     }
