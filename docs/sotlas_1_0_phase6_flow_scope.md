@@ -90,7 +90,9 @@ not add parallel scheduling or asynchronous execution.
   tests include independent stages in a DAG. Negative tests check unsupported
   types and global access before emission. The separate executable SIR CFG
   subset rejects parallel plans because that interpreter currently lowers only
-  serial plans.
+  serial plans. C integration tests verify `_cancelable` and `_dispatch` success,
+  cancellation, stage-failure status propagation, stage indices, and unchanged
+  caller outputs on non-success paths.
 - The full suite includes dedicated source, SIR, CFG, runtime, and C11 boundary
   tests.
 
@@ -101,8 +103,9 @@ not add parallel scheduling or asynchronous execution.
 - Ownership, cleanup, and non-scalar/lifetime-bearing values in executable CFG.
 - A native scheduler, parallel execution, and dedicated source syntax for Flow
   invocation (the explicit C11 ABI declaration path is supported).
-- Ownership, cleanup, stage errors/cancellation, and general effects in native
-  Flow execution.
+- Verified source-stage failure semantics, ownership, cleanup, and general
+  effects in native Flow execution. `_dispatch` propagates callback failures but
+  does not verify that an external callback matches the checked source body.
 - Backpressure, retries, distributed scheduling, timeouts, and forced
   interruption of running synchronous functions.
 - Arbitrary source CFG and general Flow unwind/defer integration.
