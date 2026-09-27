@@ -63,6 +63,21 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         self.assertIn("node_capacity", c_code)
         self.assertIn("AstNode", c_code)
 
+    def test_native_parser_records_unexpected_token_location_and_rejects_module(self):
+        parser_file = ROOT / "bootstrap" / "sotlas" / "native_compiler" / "parser.sotlas"
+        text = parser_file.read_text(encoding="utf-8")
+        c_code = compile_source(text, str(parser_file))
+        self.assertIn("pub error_count: usize;", text)
+        self.assertIn("pub error_line: u32;", text)
+        self.assertIn("pub error_col: u32;", text)
+        self.assertIn("self.error_line = tok.span.line;", text)
+        self.assertIn("self.error_col = tok.span.col;", text)
+        self.assertIn("self.error_count = self.error_count + 1;", text)
+        error_check = text.index("if self.error_count != 0")
+        self.assertIn("return 0;", text[error_check:])
+        self.assertIn("error_line", c_code)
+        self.assertIn("error_col", c_code)
+
     def test_native_parser_persists_allocated_ast_nodes(self):
         parser_file = (
             ROOT / "bootstrap" / "sotlas" / "native_compiler" / "parser.sotlas"
