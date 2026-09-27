@@ -356,6 +356,18 @@ pub fn less(left: i32, right: i32) -> bool {
 pub fn product(left: f64, right: f64) -> f64 {
     return left * right;
 }
+pub fn sum(left: f64, right: f64) -> f64 {
+    return left + right;
+}
+pub fn difference(left: f64, right: f64) -> f64 {
+    return left - right;
+}
+pub fn quotient(left: f64, right: f64) -> f64 {
+    return left / right;
+}
+pub fn product_f32(left: f32, right: f32) -> f32 {
+    return left * right;
+}
 pub fn identity(value: f64) -> f64 {
     return value;
 }
@@ -364,6 +376,18 @@ pub fn below(value: f64, limit: f64) -> bool {
 }
 pub fn same(left: f64, right: f64) -> bool {
     return left == right;
+}
+pub fn different(left: f64, right: f64) -> bool {
+    return left != right;
+}
+pub fn at_most(left: f64, right: f64) -> bool {
+    return left <= right;
+}
+pub fn above(left: f64, right: f64) -> bool {
+    return left > right;
+}
+pub fn at_least(left: f64, right: f64) -> bool {
+    return left >= right;
 }
 """
         clang = self.toolchain.find_tool("clang")
@@ -375,19 +399,35 @@ pub fn same(left: f64, right: f64) -> bool {
             "#include <stdbool.h>\n"
             "#include <math.h>\n"
             "extern double product(double, double);\n"
+            "extern double sum(double, double);\n"
+            "extern double difference(double, double);\n"
+            "extern double quotient(double, double);\n"
+            "extern float product_f32(float, float);\n"
             "extern double identity(double);\n"
             "extern bool below(double, double);\n"
             "extern bool same(double, double);\n"
+            "extern bool different(double, double);\n"
+            "extern bool at_most(double, double);\n"
+            "extern bool above(double, double);\n"
+            "extern bool at_least(double, double);\n"
             "int main(void) {\n"
             "  if (product(1.5, 2.0) != 3.0) return 1;\n"
             "  if (product(-1.25, 2.0) != -2.5) return 2;\n"
+            "  if (sum(1.25, 2.75) != 4.0) return 10;\n"
+            "  if (difference(-1.0, 2.5) != -3.5) return 11;\n"
+            "  if (quotient(7.5, 2.5) != 3.0) return 12;\n"
+            "  if (product_f32(1.5f, 2.0f) != 3.0f) return 13;\n"
             "  if (identity(-3.75) != -3.75) return 9;\n"
             "  if (!below(-1.0, 0.0)) return 3;\n"
             "  if (below(0.0, -1.0)) return 4;\n"
             "  if (below(2.5, 2.5)) return 5;\n"
+            "  if (!at_most(2.5, 2.5)) return 14;\n"
+            "  if (!above(3.0, 2.5)) return 15;\n"
+            "  if (!at_least(2.5, 2.5)) return 16;\n"
             "  if (below(NAN, 0.0)) return 6;\n"
             "  if (!same(2.5, 2.5)) return 7;\n"
             "  if (same(NAN, NAN)) return 8;\n"
+            "  if (!different(NAN, NAN)) return 17;\n"
             "  return 0;\n"
             "}\n",
             encoding="utf-8",
