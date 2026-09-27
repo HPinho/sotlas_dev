@@ -554,6 +554,11 @@ pub fn string_append_char_in_arena(
             return false;
         }
 
+        let max_length: usize = ~0usize;
+        if (*s).length == max_length {
+            return false;
+        }
+
         if (*s).length == (*s).capacity {
             let required: usize = (*s).length + 1;
             if !string_reserve_in_arena(s, arena, required) {
@@ -582,6 +587,11 @@ pub fn string_append_slice_in_arena(
 
     unsafe {
         if (*s).length > (*s).capacity {
+            return false;
+        }
+
+        let max_length: usize = ~0usize;
+        if slice.length > max_length - (*s).length {
             return false;
         }
 

@@ -33,7 +33,8 @@ class TypedFlowPlan:
 
 
 _C11_FLOW_SCALAR_TYPES = frozenset({
-    "bool", "u8", "u16", "u32", "u64", "usize",
+    "bool", "i8", "i16", "i32", "i64", "isize",
+    "u8", "u16", "u32", "u64", "usize",
 })
 
 

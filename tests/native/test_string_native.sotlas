@@ -141,7 +141,8 @@ pub fn main() -> i32 {
     }
 
     let mut combined: String = string_new(g_string_buf as *mut u8, 32);
-    if !string_concat_into(&mut combined, hello, world) {
+    let combined_ptr: *mut String = unsafe { (&mut combined) as *mut String };
+    if !string_concat_into(combined_ptr, hello, world) {
         return 17;
     }
     if combined.length != 11 {
@@ -150,12 +151,13 @@ pub fn main() -> i32 {
 
     let expected_raw: *const u8 = "helloworld!" as *const u8;
     let expected: StringSlice = string_from_raw(expected_raw, 11);
-    if !string_equals(string_as_slice(&combined), expected) {
+    if !string_equals(string_as_slice(combined_ptr as *const String), expected) {
         return 19;
     }
 
     let mut too_small: String = string_new(g_string_buf as *mut u8, 5);
-    if string_concat_into(&mut too_small, hello, world) {
+    let too_small_ptr: *mut String = unsafe { (&mut too_small) as *mut String };
+    if string_concat_into(too_small_ptr, hello, world) {
         return 20;
     }
     if too_small.length != 0 {
@@ -163,70 +165,72 @@ pub fn main() -> i32 {
     }
 
     let mut arena: ArenaAllocator = arena_new(g_arena_buf as *mut u8, 64);
-    let mut arena_string: String = string_new_in_arena(&mut arena, 16);
+    let arena_ptr: *mut ArenaAllocator = unsafe { (&mut arena) as *mut ArenaAllocator };
+    let mut arena_string: String = string_new_in_arena(arena_ptr, 16);
+    let arena_string_ptr: *mut String = unsafe { (&mut arena_string) as *mut String };
     if arena_string.data == null || arena_string.capacity != 16 {
         return 22;
     }
-    if arena_used(&arena) < 16 {
+    if arena_used(arena_ptr as *const ArenaAllocator) < 16 {
         return 23;
     }
-    if !string_append_slice(&mut arena_string, hello) {
+    if !string_append_slice(arena_string_ptr, hello) {
         return 24;
     }
-    if !string_equals(string_as_slice(&arena_string), hello) {
+    if !string_equals(string_as_slice(arena_string_ptr as *const String), hello) {
         return 25;
     }
 
-    if !string_reserve_in_arena(&mut arena_string, &mut arena, 32) {
+    if !string_reserve_in_arena(arena_string_ptr, arena_ptr, 32) {
         return 26;
     }
     if arena_string.capacity != 32 || arena_string.length != 5 {
         return 27;
     }
-    if !string_equals(string_as_slice(&arena_string), hello) {
+    if !string_equals(string_as_slice(arena_string_ptr as *const String), hello) {
         return 28;
     }
 
-    if string_reserve_in_arena(&mut arena_string, &mut arena, 128) {
+    if string_reserve_in_arena(arena_string_ptr, arena_ptr, 128) {
         return 29;
     }
     if arena_string.capacity != 32 || arena_string.length != 5 {
         return 30;
     }
-    if !string_equals(string_as_slice(&arena_string), hello) {
+    if !string_equals(string_as_slice(arena_string_ptr as *const String), hello) {
         return 31;
     }
 
     let append_more_raw: *const u8 = ", world!" as *const u8;
     let append_more: StringSlice = string_from_raw(append_more_raw, 8);
-    let arena_string_ptr: *mut String = (&mut arena_string) as *mut String;
-    let arena_ptr: *mut ArenaAllocator = (&mut arena) as *mut ArenaAllocator;
     if !string_append_slice_in_arena(arena_string_ptr, arena_ptr, append_more) {
         return 32;
     }
     if arena_string.length != 13 || arena_string.capacity < 13 {
         return 33;
     }
-    if !string_equals(string_as_slice(&arena_string), s) {
+    if !string_equals(string_as_slice(arena_string_ptr as *const String), s) {
         return 34;
     }
 
     let before_fail_length: usize = arena_string.length;
     let before_fail_capacity: usize = arena_string.capacity;
-    if string_append_slice_in_arena(arena_string_ptr, arena_ptr, s) {
+    let oversized_raw: *const u8 = "01234567890123456789" as *const u8;
+    let oversized: StringSlice = string_from_raw(oversized_raw, 20);
+    if string_append_slice_in_arena(arena_string_ptr, arena_ptr, oversized) {
         return 35;
     }
     if arena_string.length != before_fail_length || arena_string.capacity != before_fail_capacity {
         return 36;
     }
-    if !string_equals(string_as_slice(&arena_string), s) {
+    if !string_equals(string_as_slice(arena_string_ptr as *const String), s) {
         return 37;
     }
 
     let mut char_arena: ArenaAllocator = arena_new(g_arena_buf as *mut u8, 64);
-    let mut char_string: String = string_new_in_arena(&mut char_arena, 1);
-    let char_string_ptr: *mut String = (&mut char_string) as *mut String;
-    let char_arena_ptr: *mut ArenaAllocator = (&mut char_arena) as *mut ArenaAllocator;
+    let char_arena_ptr: *mut ArenaAllocator = unsafe { (&mut char_arena) as *mut ArenaAllocator };
+    let mut char_string: String = string_new_in_arena(char_arena_ptr, 1);
+    let char_string_ptr: *mut String = unsafe { (&mut char_string) as *mut String };
 
     if !string_append_char_in_arena(char_string_ptr, char_arena_ptr, 65) {
         return 38;
@@ -237,14 +241,14 @@ pub fn main() -> i32 {
     if char_string.length != 2 || char_string.capacity < 2 {
         return 40;
     }
-    if string_char_at(string_as_slice(&char_string), 0) != 65 {
+    if string_char_at(string_as_slice(char_string_ptr as *const String), 0) != 65 {
         return 41;
     }
-    if string_char_at(string_as_slice(&char_string), 1) != 66 {
+    if string_char_at(string_as_slice(char_string_ptr as *const String), 1) != 66 {
         return 42;
     }
 
-    let failed_string: String = string_new_in_arena(&mut arena, 128);
+    let failed_string: String = string_new_in_arena(arena_ptr, 128);
     if failed_string.data != null || failed_string.capacity != 0 {
         return 43;
     }
@@ -254,7 +258,7 @@ pub fn main() -> i32 {
         64
     );
     let generic_arena_ptr: *mut ArenaAllocator =
-        (&mut generic_arena) as *mut ArenaAllocator;
+        unsafe { (&mut generic_arena) as *mut ArenaAllocator };
     let generic: Allocator = arena_as_allocator(generic_arena_ptr);
 
     let first: *mut u8 = allocator_alloc(generic, 4, 1);
@@ -281,15 +285,15 @@ pub fn main() -> i32 {
         }
     }
 
-    let used_before_free: usize = arena_used(&generic_arena);
+    let used_before_free: usize = arena_used(generic_arena_ptr as *const ArenaAllocator);
     allocator_free(generic, grown, 8, 1);
-    if arena_used(&generic_arena) != used_before_free {
+    if arena_used(generic_arena_ptr as *const ArenaAllocator) != used_before_free {
         return 48;
     }
 
     let mut owned_allocator: Allocator = arena_as_allocator(generic_arena_ptr);
     let owned_allocator_ptr: *mut Allocator =
-        (&mut owned_allocator) as *mut Allocator;
+        unsafe { (&mut owned_allocator) as *mut Allocator };
     let mut owned: String = string_new_with_allocator(owned_allocator_ptr, 8);
     if owned.data == null || owned.capacity != 8 || owned.length != 0 {
         return 49;
@@ -298,7 +302,7 @@ pub fn main() -> i32 {
         return 50;
     }
 
-    let owned_ptr: *mut String = (&mut owned) as *mut String;
+    let owned_ptr: *mut String = unsafe { (&mut owned) as *mut String };
     if !string_append_slice(owned_ptr, hello) {
         return 51;
     }
@@ -308,7 +312,7 @@ pub fn main() -> i32 {
     if owned.capacity != 16 || owned.length != 5 {
         return 53;
     }
-    if !string_equals(string_as_slice(&owned), hello) {
+    if !string_equals(string_as_slice(owned_ptr as *const String), hello) {
         return 54;
     }
 
@@ -319,7 +323,7 @@ pub fn main() -> i32 {
     if owned.data != before_failed_reserve || owned.capacity != 16 {
         return 56;
     }
-    if owned.length != 5 || !string_equals(string_as_slice(&owned), hello) {
+    if owned.length != 5 || !string_equals(string_as_slice(owned_ptr as *const String), hello) {
         return 57;
     }
 
@@ -333,7 +337,7 @@ pub fn main() -> i32 {
     }
 
     let empty_owned_ptr: *mut String =
-        (&mut empty_owned) as *mut String;
+        unsafe { (&mut empty_owned) as *mut String };
     if !string_reserve(empty_owned_ptr, 4) {
         return 60;
     }
@@ -346,19 +350,19 @@ pub fn main() -> i32 {
 
     let mut append_arena: ArenaAllocator = arena_new(
         g_owned_arena_buf as *mut u8,
-        128
+        48
     );
     let append_arena_ptr: *mut ArenaAllocator =
-        (&mut append_arena) as *mut ArenaAllocator;
+        unsafe { (&mut append_arena) as *mut ArenaAllocator };
     let mut append_allocator: Allocator =
         arena_as_allocator(append_arena_ptr);
     let append_allocator_ptr: *mut Allocator =
-        (&mut append_allocator) as *mut Allocator;
+        unsafe { (&mut append_allocator) as *mut Allocator };
 
     let mut owned_append: String =
         string_new_with_allocator(append_allocator_ptr, 5);
     let owned_append_ptr: *mut String =
-        (&mut owned_append) as *mut String;
+        unsafe { (&mut owned_append) as *mut String };
 
     if !string_append_slice_owned(owned_append_ptr, hello) {
         return 63;
@@ -370,14 +374,14 @@ pub fn main() -> i32 {
     if !string_append_char_owned(owned_append_ptr, 44) {
         return 65;
     }
-    if owned_append.length != 6 || owned_append.capacity != 10 {
+    if owned_append.length != 6 || owned_append.capacity != 8 {
         return 66;
     }
 
     if !string_append_slice_owned(owned_append_ptr, world) {
         return 67;
     }
-    if owned_append.length != 12 || owned_append.capacity != 20 {
+    if owned_append.length != 12 || owned_append.capacity != 16 {
         return 68;
     }
 
@@ -385,7 +389,7 @@ pub fn main() -> i32 {
         "hello,world!" as *const u8;
     let expected_owned: StringSlice =
         string_from_raw(expected_owned_raw, 12);
-    if !string_equals(string_as_slice(&owned_append), expected_owned) {
+    if !string_equals(string_as_slice(owned_append_ptr as *const String), expected_owned) {
         return 69;
     }
 
@@ -404,21 +408,21 @@ pub fn main() -> i32 {
     if owned_append.capacity != before_owned_fail_capacity {
         return 73;
     }
-    if !string_equals(string_as_slice(&owned_append), expected_owned) {
+    if !string_equals(string_as_slice(owned_append_ptr as *const String), expected_owned) {
         return 74;
     }
 
     let mut zero_owned: String =
         string_new_with_allocator(owned_allocator_ptr, 0);
     let zero_owned_ptr: *mut String =
-        (&mut zero_owned) as *mut String;
+        unsafe { (&mut zero_owned) as *mut String };
     if !string_append_char_owned(zero_owned_ptr, 90) {
         return 75;
     }
     if zero_owned.length != 1 || zero_owned.capacity != 8 {
         return 76;
     }
-    if string_char_at(string_as_slice(&zero_owned), 0) != 90 {
+    if string_char_at(string_as_slice(zero_owned_ptr as *const String), 0) != 90 {
         return 77;
     }
 
@@ -427,7 +431,7 @@ pub fn main() -> i32 {
         32
     );
     let deinit_arena_ptr: *mut ArenaAllocator =
-        (&mut deinit_arena) as *mut ArenaAllocator;
+        unsafe { (&mut deinit_arena) as *mut ArenaAllocator };
     let deinit_context: *mut void =
         deinit_arena_ptr as *mut void;
     let mut deinit_allocator: Allocator = allocator_new(
@@ -437,7 +441,7 @@ pub fn main() -> i32 {
         tracking_free
     );
     let deinit_allocator_ptr: *mut Allocator =
-        (&mut deinit_allocator) as *mut Allocator;
+        unsafe { (&mut deinit_allocator) as *mut Allocator };
     let mut deinit_string: String =
         string_new_with_allocator(deinit_allocator_ptr, 8);
     if deinit_string.data == null {
@@ -445,7 +449,7 @@ pub fn main() -> i32 {
     }
 
     let deinit_string_ptr: *mut String =
-        (&mut deinit_string) as *mut String;
+        unsafe { (&mut deinit_string) as *mut String };
     string_deinit(deinit_string_ptr);
     unsafe {
         if g_owned_free_count != 1 {

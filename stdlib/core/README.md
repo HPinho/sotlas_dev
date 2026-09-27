@@ -34,11 +34,24 @@ buffer cannot satisfy the requested size/alignment. `arena_reset`,
 `arena_restore`, and `bump_reset` invalidate allocations after the selected
 point; every pointer into that storage must be treated as expired. A checkpoint
 is only valid for the same arena and a position previously reached by that arena.
+Arena allocation rejects offsets beyond capacity, address wraparound, and size or
+alignment requests that exceed the remaining buffer. Capacity arithmetic is
+validated before the offset is advanced.
+
+## Foundation string buffer
+
+`foundation::string_buf::StringBuf` is a caller-owned, fixed-capacity,
+null-terminated byte buffer. Its capacity includes the trailing NUL byte, so a
+zero-capacity buffer cannot accept appends and a one-byte buffer can only hold
+the terminator. Append operations return `false` when no payload byte fits. The
+API is byte-oriented and does not validate UTF-8.
 
 ## Verification scope
 
 `tests/native/test_string_native.sotlas` exercises empty and malformed slices,
 failed fixed-buffer and arena growth, allocator-backed growth, and explicit
-cleanup through the checked C11 project pipeline. It does not test arbitrary
-invalid non-null addresses, because dereferencing such an address is undefined
+cleanup through the checked C11 project pipeline. `test_arena_overflow_native.sotlas`
+checks exhaustion and address wraparound; `test_string_buf_native.sotlas` checks
+zero, one, and two-byte capacities in native execution. These tests do not
+dereference arbitrary invalid non-null addresses, because that is undefined
 behavior in the C11 runtime.
