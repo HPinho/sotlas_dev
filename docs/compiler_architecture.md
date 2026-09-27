@@ -239,10 +239,11 @@ and reproducibility checks. Until the native backend exists, C11 remains a
 bootstrap implementation detail and must not define language semantics.
 
 The current bootstrap evidence is narrower: `bootstrap/sotlas_bootstrap.sotlas`
-passes the canonical frontend and its generated C11 compiles to a native object
-with warnings treated as errors. This validates a Sotlas-written lexer module;
-it is not a stage1 compiler, a stage2 rebuild, or a replacement for the Python
-production frontend.
+passes the canonical frontend, and its generated C11 links with a native caller
+under warnings-as-errors. The caller executes the Sotlas-written lexer and
+checks identifier, arrow, and number tokens with their source spans. This does
+not validate a stage1 compiler, a stage2 rebuild, or a replacement for the
+Python production frontend.
 
 ## 9. Diagnostics as an API
 

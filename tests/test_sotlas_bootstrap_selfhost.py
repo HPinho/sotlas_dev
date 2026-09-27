@@ -36,19 +36,66 @@ class SotlasBootstrapSelfhostTests(unittest.TestCase):
             self.skipTest("Clang or GCC is required for native bootstrap validation")
         with tempfile.TemporaryDirectory(prefix="sotlas-bootstrap-lexer-") as temp:
             generated = Path(temp) / "bootstrap_lexer.c"
+            caller = Path(temp) / "lexer_caller.c"
             native_object = Path(temp) / "bootstrap_lexer.o"
+            executable = Path(temp) / "bootstrap_lexer_test"
             generated.write_text(c_code, encoding="utf-8")
+            caller.write_text(
+                """#include <stddef.h>
+#include <stdint.h>
+
+typedef enum {
+    TokenKind_Eof = 0,
+    TokenKind_Identifier = 1,
+    TokenKind_NumberLiteral = 2,
+    TokenKind_Arrow = 34
+} TokenKind;
+typedef struct { uint32_t line, col; size_t offset, length; } Span;
+typedef struct { TokenKind kind; Span span; } Token;
+typedef struct {
+    const uint8_t *source;
+    size_t source_len, cursor;
+    uint32_t current_line, current_col;
+} SotlasLexer;
+
+SotlasLexer SotlasLexer_new(const uint8_t *source, size_t length);
+Token SotlasLexer_next_token(SotlasLexer *lexer);
+
+int main(void) {
+    static const uint8_t source[] = "name -> 42";
+    SotlasLexer lexer = SotlasLexer_new(source, sizeof(source) - 1);
+    Token token = SotlasLexer_next_token(&lexer);
+    if (token.kind != TokenKind_Identifier || token.span.line != 1 ||
+        token.span.col != 1 || token.span.offset != 0 || token.span.length != 4)
+        return 1;
+    token = SotlasLexer_next_token(&lexer);
+    if (token.kind != TokenKind_Arrow || token.span.offset != 5 ||
+        token.span.length != 2)
+        return 2;
+    token = SotlasLexer_next_token(&lexer);
+    if (token.kind != TokenKind_NumberLiteral || token.span.offset != 8 ||
+        token.span.length != 2)
+        return 3;
+    token = SotlasLexer_next_token(&lexer);
+    return token.kind == TokenKind_Eof ? 0 : 4;
+}
+""",
+                encoding="utf-8",
+            )
             result = subprocess.run(
                 [
                     str(compiler), "-std=c11", "-Wall", "-Wextra", "-Werror",
-                    "-c", str(generated), "-o", str(native_object),
+                    str(generated), str(caller), "-o", str(executable),
                 ],
                 capture_output=True,
                 text=True,
                 check=False,
             )
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertTrue(native_object.is_file())
+            executed = subprocess.run(
+                [str(executable)], capture_output=True, text=True, check=False
+            )
+            self.assertEqual(executed.returncode, 0, executed.stderr)
 
     def test_libsotlas_rt_headers_and_sources_exist(self):
         rt_header = ROOT / "runtime" / "libsotlas_rt.h"
