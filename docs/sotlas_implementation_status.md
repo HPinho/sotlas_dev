@@ -83,7 +83,8 @@ Escopo e decisão de migração: `docs/phase0_reality_audit.md`.
 - [x] comparação direta de parâmetros inteiros de mesmo tipo chega ao SIR como `CompareInst`; o subset LLVM emite comparações signed/unsigned e uma comparação signed passou por execução nativa via caller C;
 - [x] as rotas de AST bootstrap e parser legado são cobertas;
 - [x] o SIR só emite essa instrução aritmética unsigned quando operandos e resultado atendem ao subset; o backend LLVM rejeita tipos assinados e operações desconhecidas;
-- [ ] constantes em expressões, demais formas aritméticas, signed overflow definido pela linguagem, CFG geral e lowering completo para máquina seguem pendentes.
+- C11 and LLVM now have a native differential gate for `u32` parameter addition and addition with a typed `u32` literal.
+- [ ] other constant-expression forms, remaining arithmetic, language-defined signed overflow, general CFG, and complete machine lowering remain open.
 
 ### Avanço inicial de Trust Domains
 
