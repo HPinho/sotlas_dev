@@ -253,6 +253,40 @@ pub fn choose(flag: bool, yes: u32, no: u32) -> u32 {
         self.assertNotEqual(bad_count.returncode, 0)
         self.assertIn("positive integer", bad_count.stderr)
 
+    def test_stack_layout_preview_aligns_scalar_locals_and_rejects_bad_alignment(self):
+        target_ir = {
+            "schema": "sotlas.target-ir.v1",
+            "functions": [{
+                "name": "sizes",
+                "blocks": [{"instructions": [
+                    {"op": "alloc_stack", "result": "small_slot", "type": "u8",
+                     "attributes": {"source_name": "small"}},
+                    {"op": "alloc_stack", "result": "middle_slot", "type": "u32",
+                     "attributes": {"source_name": "middle"}},
+                    {"op": "alloc_stack", "result": "wide_slot", "type": "u64",
+                     "attributes": {"source_name": "wide"}},
+                ]}],
+            }],
+        }
+        report = self._load_target_ir().layout_target_ir_stack(target_ir)
+        self.assertEqual(report["schema"], "sotlas.stack-layout-preview.v1")
+        function = report["functions"][0]
+        by_name = {slot["source_name"]: slot for slot in function["slots"]}
+        self.assertEqual(by_name["small"]["offset_bytes"], 0)
+        self.assertEqual(by_name["middle"]["offset_bytes"], 4)
+        self.assertEqual(by_name["wide"]["offset_bytes"], 8)
+        self.assertEqual(function["raw_size_bytes"], 16)
+        self.assertEqual(function["frame_size_bytes"], 16)
+
+        source = """module test::stack_layout;
+pub fn sum(left: u32, right: u32) -> u32 { return left + right; }
+"""
+        result = self._run_report(source, "stack-layout-report")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        invalid = self._run_report(source, "stack-layout-report", ("--alignment", "3"))
+        self.assertNotEqual(invalid.returncode, 0)
+        self.assertIn("power of two", invalid.stderr)
+
     def test_target_ir_lowerer_preserves_handover_domains_and_source_point(self):
         sys.path.insert(0, str(ROOT / "compiler"))
         try:

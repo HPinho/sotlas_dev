@@ -29,6 +29,15 @@ sotlas register-allocation-report path/to/program.sotlas --registers 4
 It reports linear live intervals and virtual register/spill-slot assignments. It fails
 closed for control flow, phi nodes, and non-scalar values. The assignments are
 not consumed by code generation; CFG-aware liveness, spill/reload instructions,
-stack frames, source locations, and a complete ABI model remain open work.
+An abstract local-slot layout report is also available:
+
+```sh
+sotlas stack-layout-report path/to/program.sotlas --alignment 16
+```
+
+It reports scalar local offsets and frame padding relative to an abstract base.
+Parameters, spills, saved registers, outgoing arguments, and platform ABI rules
+are not included, and the reported layout is not used by code generation.
+Source locations and a complete ABI model remain open work.
 Semantic annotations do not provide an ownership runtime or lower transfers
 into executable code.

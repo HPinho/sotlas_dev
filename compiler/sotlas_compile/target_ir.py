@@ -526,7 +526,70 @@ def allocate_target_ir_registers(
     }
 
 
+def layout_target_ir_stack(
+    target_ir: dict[str, Any], *, stack_alignment: int = 16
+) -> dict[str, Any]:
+    """Lay out scalar alloc_stack slots using a target-neutral frame model."""
+    if (
+        not isinstance(stack_alignment, int)
+        or isinstance(stack_alignment, bool)
+        or stack_alignment < 1
+        or stack_alignment & (stack_alignment - 1)
+    ):
+        raise TargetIRLoweringError("stack_alignment must be a positive power of two")
+    if not isinstance(target_ir, dict) or target_ir.get("schema") != "sotlas.target-ir.v1":
+        raise TargetIRLoweringError("stack layout requires Target IR v1")
+
+    type_layout = {
+        "bool": (1, 1), "i8": (1, 1), "u8": (1, 1),
+        "i16": (2, 2), "u16": (2, 2),
+        "i32": (4, 4), "u32": (4, 4), "f32": (4, 4),
+        "i64": (8, 8), "u64": (8, 8), "usize": (8, 8), "f64": (8, 8),
+    }
+    functions = []
+    for function in target_ir.get("functions", ()):
+        slots = []
+        cursor = 0
+        for block in function.get("blocks", ()):
+            for instruction in block.get("instructions", ()):
+                if instruction.get("op") != "alloc_stack":
+                    continue
+                type_name = instruction.get("type")
+                if type_name not in type_layout:
+                    raise TargetIRLoweringError(
+                        f"stack layout preview does not support type {type_name!r}"
+                    )
+                size, alignment = type_layout[type_name]
+                cursor = (cursor + alignment - 1) & -alignment
+                slots.append({
+                    "value": instruction.get("result"),
+                    "source_name": instruction.get("attributes", {}).get("source_name"),
+                    "type": type_name,
+                    "offset_bytes": cursor,
+                    "size_bytes": size,
+                    "alignment_bytes": alignment,
+                })
+                cursor += size
+        frame_size = (cursor + stack_alignment - 1) & -stack_alignment
+        functions.append({
+            "name": function.get("name"),
+            "slots": slots,
+            "raw_size_bytes": cursor,
+            "frame_size_bytes": frame_size,
+            "frame_alignment_bytes": stack_alignment,
+        })
+    return {
+        "schema": "sotlas.stack-layout-preview.v1",
+        "model": "target_neutral_local_slots",
+        "functions": functions,
+        "limitations": [
+            "Local scalar slots only; parameters, spills, saved registers, and outgoing arguments are not included.",
+            "Offsets are relative to an abstract frame base and do not describe a platform ABI or emitted machine stack frame.",
+        ],
+    }
+
+
 __all__ = [
     "TargetIRLoweringError", "allocate_target_ir_registers",
-    "lower_sir_to_target_ir",
+    "layout_target_ir_stack", "lower_sir_to_target_ir",
 ]

@@ -190,6 +190,16 @@ def main() -> int:
         help="Number of virtual register slots in the preview (default: 4)",
     )
 
+    stack_report = sub.add_parser(
+        "stack-layout-report",
+        help="Report target-neutral scalar local stack slots from checked Target IR",
+    )
+    stack_report.add_argument("source", help=f"Source file {SOTLAS_EXT}")
+    stack_report.add_argument(
+        "--alignment", type=int, default=16,
+        help="Abstract frame alignment in bytes (default: 16; must be a power of two)",
+    )
+
     target_report = sub.add_parser(
         "target-report",
         help="Emite JSON determinístico do contrato do target selecionado",
@@ -297,6 +307,8 @@ def main() -> int:
         return _run_target_ir_report(args.source)
     if args.cmd == "register-allocation-report":
         return _run_register_allocation_report(args.source, args.registers)
+    if args.cmd == "stack-layout-report":
+        return _run_stack_layout_report(args.source, args.alignment)
     if args.cmd == "target-report":
         return _run_target_report(args.target, args.cpu_feature)
     if args.cmd == "dump-llvm":
@@ -686,6 +698,34 @@ def _run_register_allocation_report(source_path: str, register_count: int) -> in
         print(json.dumps(report, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
     except Exception as error:
         print(f"sotlas: error generating register allocation preview: {error}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def _run_stack_layout_report(source_path: str, stack_alignment: int) -> int:
+    loaded = _read_source(source_path)
+    if loaded is None:
+        return 1
+    _, text = loaded
+    try:
+        from sotlas_compile import (
+            analyze_source_phase1,
+            build_canonical_checked_ownership_sir,
+            validate_sir_flow_plans,
+        )
+        from sotlas_compile.target_ir import (
+            layout_target_ir_stack,
+            lower_sir_to_target_ir,
+        )
+
+        checked = analyze_source_phase1(text, filename=source_path)
+        checked_sir, _ = build_canonical_checked_ownership_sir(checked)
+        validate_sir_flow_plans(checked_sir.module)
+        target_ir = lower_sir_to_target_ir(checked_sir.module)
+        report = layout_target_ir_stack(target_ir, stack_alignment=stack_alignment)
+        print(json.dumps(report, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+    except Exception as error:
+        print(f"sotlas: error generating stack layout preview: {error}", file=sys.stderr)
         return 1
     return 0
 
