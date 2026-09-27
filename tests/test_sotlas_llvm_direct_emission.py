@@ -381,6 +381,69 @@ pub fn sum_to(limit: u32) -> u32 {
         result = subprocess.run([str(executable)], check=False)
         self.assertEqual(result.returncode, 0)
 
+    def test_c11_and_llvm_execute_general_unsigned_scalar_recurrence(self):
+        source = """module test::llvm_general_loop_native;
+pub fn stepped_sum(limit: u32) -> u32 {
+    let mut index: u32 = 2u32;
+    let mut total: u32 = 5u32;
+    while index <= limit {
+        total = total + 3u32;
+        index = index + 2u32;
+    }
+    return total;
+}
+pub fn product_to(limit: u32) -> u32 {
+    let mut index: u32 = 1u32;
+    let mut total: u32 = 1u32;
+    while index < limit {
+        total = total * 2u32;
+        index = index + 1u32;
+    }
+    return total;
+}
+"""
+        clang = self.toolchain.find_tool("clang")
+        if clang is None:
+            self.skipTest("Clang is required for native loop execution")
+
+        caller = self.tmp_path / "general_loop_caller.c"
+        caller.write_text(
+            "#include <stdint.h>\n"
+            "extern uint32_t stepped_sum(uint32_t);\n"
+            "extern uint32_t product_to(uint32_t);\n"
+            "int main(void) {\n"
+            "  if (stepped_sum(1u) != 5u) return 1;\n"
+            "  if (stepped_sum(2u) != 8u) return 2;\n"
+            "  if (stepped_sum(5u) != 11u) return 3;\n"
+            "  if (product_to(0u) != 1u) return 4;\n"
+            "  if (product_to(1u) != 1u) return 5;\n"
+            "  if (product_to(4u) != 8u) return 6;\n"
+            "  return 0;\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        for backend in ("c11", "llvm"):
+            with self.subTest(backend=backend):
+                object_file = self.tmp_path / f"general-loop-{backend}.o"
+                self.toolchain.compile_source_to_native(
+                    source,
+                    "test::llvm_general_loop_native",
+                    object_file,
+                    emit_type="obj",
+                    backend=backend,
+                )
+                executable = self.tmp_path / f"general-loop-{backend}.exe"
+                subprocess.run(
+                    [str(clang), str(caller), str(object_file), "-o", str(executable)],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+                result = subprocess.run(
+                    [str(executable)], capture_output=True, text=True, check=False
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_c11_and_llvm_backends_agree_on_shared_unsigned_arithmetic_input(self):
         source = """module test::backend_differential;
 pub fn add_numbers(left: u32, right: u32) -> u32 {

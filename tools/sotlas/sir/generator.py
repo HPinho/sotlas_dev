@@ -589,11 +589,11 @@ class SIRGenerator:
         sir_params: list[SIRValue],
         return_type: str,
     ) -> bool:
-        """Lower one source-level unsigned counter/sum loop into SSA CFG.
+        """Lower a bounded unsigned scalar recurrence into SSA CFG.
 
-        The narrow accepted form has two zero-initialized mutable locals, a
-        parameter bound, an accumulator update, and a unit counter increment.
-        Other mutable loop bodies remain outside this SIR generator subset.
+        The loop must have one counter and one accumulator, statically known
+        initial values, a scalar bound, and constant counter step. This keeps
+        the recurrence and its modular integer semantics explicit in SIR.
         """
         widths = {"u8": 8, "u16": 16, "u32": 32, "u64": 64}
         if return_type not in widths:
@@ -642,24 +642,35 @@ class SIRGenerator:
                 return None
             return value
 
-        if (
-            integer_literal(getattr(counter, "value", None)) != 0
-            or integer_literal(getattr(accumulator, "value", None)) != 0
-        ):
+        counter_initial_value = integer_literal(getattr(counter, "value", None))
+        accumulator_initial_value = integer_literal(getattr(accumulator, "value", None))
+        if counter_initial_value is None or accumulator_initial_value is None:
             return False
 
         condition = getattr(loop, "condition", None)
+        if type(condition).__name__ != "Binary":
+            return False
+        comparison = getattr(condition, "op", None)
+        comparison_name = getattr(comparison, "name", None)
+        comparison = comparison if isinstance(comparison, str) else {
+            "LT": "<", "LTE": "<=", "GT": ">", "GTE": ">=",
+        }.get(comparison_name)
+        compare_ops = {"<": "LT", "<=": "LTE", ">": "GT", ">=": "GTE"}
+        if comparison not in compare_ops:
+            return False
+        left_condition = getattr(condition, "left", None)
+        right_condition = getattr(condition, "right", None)
         if (
-            type(condition).__name__ != "Binary"
-            or getattr(condition, "op", None) != "<"
-            or type(getattr(condition, "left", None)).__name__ != "Name"
-            or getattr(condition.left, "value", None) != counter_name
-            or type(getattr(condition, "right", None)).__name__ != "Name"
+            type(left_condition).__name__ != "Name"
+            or getattr(left_condition, "value", None) != counter_name
         ):
             return False
-        bound_name = getattr(condition.right, "value", None)
+        bound_name = getattr(right_condition, "value", None)
         bound = next((item for item in sir_params if item.name == bound_name), None)
-        if bound is None or bound.type_name != return_type:
+        bound_value = integer_literal(right_condition)
+        if bound is not None and bound.type_name != return_type:
+            return False
+        if bound is None and bound_value is None:
             return False
         returned = getattr(return_statement, "value", None)
         if (
@@ -685,18 +696,44 @@ class SIRGenerator:
         total_expression = getattr(total_update, "value", None)
         counter_target = getattr(counter_update, "target", None)
         counter_expression = getattr(counter_update, "value", None)
+        def binary_symbol(expression):
+            operation = getattr(expression, "op", None)
+            operation_name = getattr(operation, "name", None)
+            return operation if isinstance(operation, str) else {
+                "PLUS": "+", "MINUS": "-", "STAR": "*",
+                "LT": "<", "LTE": "<=", "GT": ">", "GTE": ">=",
+            }.get(operation_name)
+
+        total_symbol = binary_symbol(total_expression)
         if (
             not is_name(total_target, accumulator_name)
             or type(total_expression).__name__ != "Binary"
-            or getattr(total_expression, "op", None) != "+"
+            or total_symbol not in {"+", "-", "*"}
             or not is_name(total_expression.left, accumulator_name)
-            or not is_name(total_expression.right, counter_name)
             or not is_name(counter_target, counter_name)
             or type(counter_expression).__name__ != "Binary"
-            or getattr(counter_expression, "op", None) != "+"
+            or binary_symbol(counter_expression) not in {"+", "-"}
             or not is_name(counter_expression.left, counter_name)
-            or integer_literal(counter_expression.right) != 1
         ):
+            return False
+        counter_step = integer_literal(counter_expression.right)
+        if counter_step is None or counter_step == 0:
+            return False
+        counter_op = "add" if binary_symbol(counter_expression) == "+" else "sub"
+
+        total_rhs = total_expression.right
+        total_rhs_name = getattr(total_rhs, "value", None)
+        total_rhs_param = next(
+            (item for item in sir_params if item.name == total_rhs_name), None
+        )
+        total_rhs_literal = integer_literal(total_rhs)
+        if total_rhs_name == counter_name:
+            total_rhs_kind = "counter"
+        elif total_rhs_param is not None and total_rhs_param.type_name == return_type:
+            total_rhs_kind = "parameter"
+        elif total_rhs_literal is not None:
+            total_rhs_kind = "literal"
+        else:
             return False
 
         location = getattr(loop, "token", None)
@@ -715,8 +752,11 @@ class SIRGenerator:
 
         counter_initial = self._next_val(f"{counter_name}_init", return_type)
         total_initial = self._next_val(f"{accumulator_name}_init", return_type)
-        entry_block.add(ConstantIntInst(0, counter_initial))
-        entry_block.add(ConstantIntInst(0, total_initial))
+        entry_block.add(ConstantIntInst(counter_initial_value, counter_initial))
+        entry_block.add(ConstantIntInst(accumulator_initial_value, total_initial))
+        if bound is None:
+            bound = self._next_val("loop_bound", return_type)
+            entry_block.add(ConstantIntInst(bound_value, bound))
         entry_block.add(BranchInst(header_label))
 
         header = sir_fn.add_block(header_label)
@@ -731,14 +771,22 @@ class SIRGenerator:
             total_phi, [(total_initial, entry_label), (total_next, body_label)]
         ))
         condition_value = self._next_val("loop_test", "bool")
-        header.add(CompareInst("LT", counter_phi, bound, condition_value))
+        header.add(CompareInst(compare_ops[comparison], counter_phi, bound, condition_value))
         header.add(CondBranchInst(condition_value, body_label, exit_label))
 
         loop_block = sir_fn.add_block(body_label)
         increment = self._next_val("loop_increment", return_type)
-        loop_block.add(ConstantIntInst(1, increment))
-        loop_block.add(BinaryOpInst("add", total_phi, counter_phi, total_next))
-        loop_block.add(BinaryOpInst("add", counter_phi, increment, counter_next))
+        loop_block.add(ConstantIntInst(counter_step, increment))
+        total_operand = (
+            counter_phi if total_rhs_kind == "counter"
+            else total_rhs_param if total_rhs_kind == "parameter"
+            else self._next_val("loop_total_operand", return_type)
+        )
+        if total_rhs_kind == "literal":
+            loop_block.add(ConstantIntInst(total_rhs_literal, total_operand))
+        total_op = {"+": "add", "-": "sub", "*": "mul"}[total_symbol]
+        loop_block.add(BinaryOpInst(total_op, total_phi, total_operand, total_next))
+        loop_block.add(BinaryOpInst(counter_op, counter_phi, increment, counter_next))
         loop_block.add(BranchInst(
             header_label,
             point_id=self._statement_point_id(loop, "while_backedge"),

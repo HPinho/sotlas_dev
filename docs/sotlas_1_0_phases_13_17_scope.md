@@ -61,9 +61,10 @@ through straight-line chains of immutable typed locals, selected float
 arithmetic returned directly or through one immutable typed local, comparisons
 returned directly or through an immutable bool local,
 conditional
-branches/phi values, one unsigned counter/accumulator loop lowered with
-loop-carried `phi` nodes, and verified native caller interoperability. The loop
-is compiled to an object and executed through a native C caller. Unsupported
+branches/phi values, bounded unsigned counter/accumulator recurrences with
+nonzero starts, parameter or literal bounds, ordered comparisons, constant
+steps, and additive, subtractive, or multiplicative accumulation. C11 and LLVM
+compile the loop subset to objects and execute it through native C callers. Unsupported
 instructions/domains fail before artifact emission. Functions that fall through
 the prototype SIR generator's body-lowering fallback are now identified in SIR
 inspection output and rejected by the LLVM source path before writing an IR,
