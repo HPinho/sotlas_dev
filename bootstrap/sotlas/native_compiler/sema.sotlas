@@ -232,6 +232,12 @@ impl Sema {
                 ) {
                 return false;
             }
+            if node.kind == AstKind::ReturnStmt
+                && !self.check_return_type(
+                    nodes, node_count, node_index, source, source_len
+                ) {
+                return false;
+            }
             if node.kind == AstKind::AssignStmt {
                 let target_index: usize = node.first_child;
                 if target_index == 0 || target_index >= node_count {
@@ -660,6 +666,88 @@ impl Sema {
             }
             parameter_index = parameter.next_sibling;
             argument_index = argument.next_sibling;
+        }
+        return true;
+    }
+
+    pub fn check_return_type(
+        mut self: &mut Self,
+        nodes: *const AstNode,
+        node_count: usize,
+        return_index: usize,
+        source: *const u8,
+        source_len: usize
+    ) -> bool {
+        if nodes == null || return_index == 0 || return_index >= node_count {
+            self.error_count = self.error_count + 1;
+            return false;
+        }
+        let return_node: AstNode = unsafe { *(nodes + return_index) };
+        let expression_index: usize = return_node.first_child;
+        let mut parent_index: usize = return_node.parent;
+        let mut traversed: usize = 0;
+        let mut function_index: usize = 0;
+        while parent_index != 0 {
+            if parent_index >= node_count || traversed >= node_count {
+                self.error_count = self.error_count + 1;
+                return false;
+            }
+            let parent: AstNode = unsafe { *(nodes + parent_index) };
+            if parent.kind == AstKind::FnDecl
+                || parent.kind == AstKind::TrapfnDecl {
+                function_index = parent_index;
+                break;
+            }
+            parent_index = parent.parent;
+            traversed = traversed + 1;
+        }
+        if function_index == 0 {
+            return true; // The control-context check reports this case.
+        }
+        let function: AstNode = unsafe { *(nodes + function_index) };
+        let mut expected_type: usize = 0;
+        let mut child: usize = function.first_child;
+        while child != 0 {
+            if child >= node_count {
+                self.error_count = self.error_count + 1;
+                return false;
+            }
+            let current: AstNode = unsafe { *(nodes + child) };
+            if current.kind == AstKind::TypeRef {
+                expected_type = child;
+            }
+            child = current.next_sibling;
+        }
+        if expected_type == 0 {
+            if expression_index != 0 {
+                let expression: AstNode = unsafe { *(nodes + expression_index) };
+                self.error_count = self.error_count + 1;
+                self.error_line = expression.span.line;
+                self.error_col = expression.span.col;
+                return false;
+            }
+            return true;
+        }
+        if expression_index == 0 || expression_index >= node_count {
+            return true; // Missing return values need path-sensitive analysis.
+        }
+        let errors_before: usize = self.error_count;
+        let actual_type: usize = self.infer_expression_type_ref(
+            nodes, node_count, expression_index, source, source_len
+        );
+        if self.error_count != errors_before {
+            return false;
+        }
+        if actual_type != 0 {
+            let expected: AstNode = unsafe { *(nodes + expected_type) };
+            let actual: AstNode = unsafe { *(nodes + actual_type) };
+            if !self.same_source_text(source, source_len, expected, actual) {
+                let expression: AstNode = unsafe { *(nodes + expression_index) };
+                self.error_count = self.error_count + 1;
+                self.error_line = expression.span.line;
+                self.error_col = expression.span.col;
+                return false;
+            }
         }
         return true;
     }

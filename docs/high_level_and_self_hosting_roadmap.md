@@ -22,7 +22,9 @@ locations for unknown callees, arity errors, and known type mismatches. Literal
 inference and coercions, comparison results, aggregate inference, imported and
 foreign symbol resolution, and general type checking are still absent. Simple
 arithmetic arguments propagate a type only when the operands have the same
-explicit local/parameter type.
+explicit local/parameter type. Return values are compared with the declared
+result type when the expression type is known; all-path return analysis is not
+implemented yet.
 
 LLVM currently supplies instruction selection, register allocation, ABI
 lowering, and object emission on the direct LLVM route. Sotlas does not yet have
