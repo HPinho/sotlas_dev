@@ -642,9 +642,23 @@ class SIRGenerator:
                 return None
             return value
 
-        counter_initial_value = integer_literal(getattr(counter, "value", None))
-        accumulator_initial_value = integer_literal(getattr(accumulator, "value", None))
-        if counter_initial_value is None or accumulator_initial_value is None:
+        def initial_operand(expression):
+            parameter_name = getattr(expression, "value", None)
+            parameter = next(
+                (item for item in sir_params if item.name == parameter_name), None
+            )
+            if type(expression).__name__ == "Name" and parameter is not None:
+                return ("parameter", parameter)
+            value = integer_literal(expression)
+            if value is not None:
+                return ("literal", value)
+            return None
+
+        counter_initial_operand = initial_operand(getattr(counter, "value", None))
+        accumulator_initial_operand = initial_operand(
+            getattr(accumulator, "value", None)
+        )
+        if counter_initial_operand is None or accumulator_initial_operand is None:
             return False
 
         condition = getattr(loop, "condition", None)
@@ -750,10 +764,20 @@ class SIRGenerator:
         ):
             return False
 
-        counter_initial = self._next_val(f"{counter_name}_init", return_type)
-        total_initial = self._next_val(f"{accumulator_name}_init", return_type)
-        entry_block.add(ConstantIntInst(counter_initial_value, counter_initial))
-        entry_block.add(ConstantIntInst(accumulator_initial_value, total_initial))
+        def emit_initial(prefix, operand):
+            kind, value = operand
+            if kind == "parameter":
+                return value
+            result = self._next_val(prefix, return_type)
+            entry_block.add(ConstantIntInst(value, result))
+            return result
+
+        counter_initial = emit_initial(
+            f"{counter_name}_init", counter_initial_operand
+        )
+        total_initial = emit_initial(
+            f"{accumulator_name}_init", accumulator_initial_operand
+        )
         if bound is None:
             bound = self._next_val("loop_bound", return_type)
             entry_block.add(ConstantIntInst(bound_value, bound))

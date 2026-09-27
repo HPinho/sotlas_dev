@@ -414,6 +414,15 @@ pub fn nested_arithmetic(input: u32) -> u32 {
     let result: u32 = (input + 2u32) * (3u32 + 1u32);
     return result;
 }
+pub fn sum_from(start: u32, limit: u32, initial: u32) -> u32 {
+    let mut index: u32 = start;
+    let mut total: u32 = initial;
+    while index < limit {
+        total = total + index;
+        index = index + 1u32;
+    }
+    return total;
+}
 """
         clang = self.toolchain.find_tool("clang")
         if clang is None:
@@ -426,6 +435,7 @@ pub fn nested_arithmetic(input: u32) -> u32 {
             "extern uint32_t product_to(uint32_t);\n"
             "extern uint32_t descending_to(uint32_t);\n"
             "extern uint32_t nested_arithmetic(uint32_t);\n"
+            "extern uint32_t sum_from(uint32_t, uint32_t, uint32_t);\n"
             "int main(void) {\n"
             "  if (stepped_sum(1u) != 5u) return 1;\n"
             "  if (stepped_sum(2u) != 8u) return 2;\n"
@@ -438,6 +448,8 @@ pub fn nested_arithmetic(input: u32) -> u32 {
             "  if (descending_to(2u) != 20u) return 9;\n"
             "  if (nested_arithmetic(0u) != 8u) return 10;\n"
             "  if (nested_arithmetic(5u) != 28u) return 11;\n"
+            "  if (sum_from(2u, 5u, 10u) != 19u) return 12;\n"
+            "  if (sum_from(2u, 2u, 10u) != 10u) return 13;\n"
             "  return 0;\n"
             "}\n",
             encoding="utf-8",
