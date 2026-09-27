@@ -5,7 +5,8 @@ the first available OpenCL GPU. Sotlas source declares the C ABI call and
 exports a system entrypoint; a small C host supplies arrays and checks the
 result. The provider dynamically loads the system OpenCL runtime, copies input
 arrays to device buffers, dispatches an OpenCL C 1.2 kernel, waits for the queue,
-and copies the result back.
+and copies the result back. A backend policy API can require OpenCL, run on CPU,
+or try OpenCL and fall back to CPU when no runtime or GPU is available.
 
 ## Build and run
 
@@ -29,16 +30,20 @@ system OpenCL framework. A machine without an OpenCL GPU returns the explicit
 
 - Input and output are contiguous arrays of 32-bit floats with an explicit
   element count.
-- The first GPU returned by the OpenCL platform enumeration is selected.
+- The first GPU returned by the OpenCL platform enumeration is selected; there
+  is no stable device identifier or caller-selected GPU yet.
 - Input is copied to device-owned buffers; host arrays remain owned by the
   caller. Output is copied back only after kernel execution and readback succeed.
 - Empty input succeeds without loading the driver. Null pointers and size
   overflow are rejected before device access.
-- Failures leave the caller's output unchanged. The API returns a status code;
-  it does not expose a stable device identifier or asynchronous event handle.
+- GPU failures leave the caller's output unchanged. The policy API reports the
+  selected backend and falls back only for `RUNTIME_UNAVAILABLE` or `NO_GPU`;
+  kernel, allocation, and transfer errors remain visible. Execution is
+  synchronous and has no asynchronous event handle.
 - This demonstrates Sotlas-to-OpenCL C interop through C11. It does not yet
   lower Flow stages or Sotlas expressions into GPU kernels, and it does not
-  provide CUDA, Vulkan, NPU, CPU fallback, or cross-device scheduling.
+  provide CUDA, Vulkan, NPU, explicit cross-device scheduling, or transfer and
+  kernel timing metrics.
 
 The hardware test is optional in CI because hosted runners do not promise an
 OpenCL GPU. It was executed against a physical OpenCL GPU during development.

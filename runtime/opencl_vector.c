@@ -294,3 +294,65 @@ cleanup:
     free(staging);
     return status;
 }
+
+static sotlas_opencl_status_t sotlas_cpu_vector_add_f32(
+    const float *left,
+    const float *right,
+    float *output,
+    size_t count
+) {
+    size_t index;
+    if (count == 0) return SOTLAS_OPENCL_OK;
+    if (!left || !right || !output) return SOTLAS_OPENCL_INVALID_ARGUMENT;
+    if (count > SIZE_MAX / sizeof(float)) return SOTLAS_OPENCL_SIZE_OVERFLOW;
+    for (index = 0; index < count; ++index) {
+        output[index] = left[index] + right[index];
+    }
+    return SOTLAS_OPENCL_OK;
+}
+
+sotlas_opencl_status_t sotlas_vector_add_f32_with_policy(
+    const float *left,
+    const float *right,
+    float *output,
+    size_t count,
+    sotlas_compute_policy_t policy,
+    sotlas_compute_backend_t *selected_backend
+) {
+    sotlas_opencl_status_t status;
+    if (!selected_backend) return SOTLAS_OPENCL_INVALID_ARGUMENT;
+    *selected_backend = SOTLAS_COMPUTE_BACKEND_NONE;
+    if (policy != SOTLAS_COMPUTE_CPU_ONLY &&
+        policy != SOTLAS_COMPUTE_OPENCL_REQUIRED &&
+        policy != SOTLAS_COMPUTE_OPENCL_WITH_CPU_FALLBACK) {
+        return SOTLAS_OPENCL_INVALID_ARGUMENT;
+    }
+    if (count == 0) return SOTLAS_OPENCL_OK;
+    if (!left || !right || !output) return SOTLAS_OPENCL_INVALID_ARGUMENT;
+    if (count > SIZE_MAX / sizeof(float)) return SOTLAS_OPENCL_SIZE_OVERFLOW;
+
+    if (policy == SOTLAS_COMPUTE_CPU_ONLY) {
+        status = sotlas_cpu_vector_add_f32(left, right, output, count);
+        if (status == SOTLAS_OPENCL_OK) {
+            *selected_backend = SOTLAS_COMPUTE_BACKEND_CPU;
+        }
+        return status;
+    }
+
+    status = sotlas_opencl_vector_add_f32(left, right, output, count);
+    if (status == SOTLAS_OPENCL_OK) {
+        *selected_backend = SOTLAS_COMPUTE_BACKEND_OPENCL_GPU;
+        return status;
+    }
+    if (policy != SOTLAS_COMPUTE_OPENCL_WITH_CPU_FALLBACK ||
+        (status != SOTLAS_OPENCL_RUNTIME_UNAVAILABLE &&
+         status != SOTLAS_OPENCL_NO_GPU)) {
+        return status;
+    }
+
+    status = sotlas_cpu_vector_add_f32(left, right, output, count);
+    if (status == SOTLAS_OPENCL_OK) {
+        *selected_backend = SOTLAS_COMPUTE_BACKEND_CPU;
+    }
+    return status;
+}

@@ -66,7 +66,7 @@ performance advantages over established systems languages.
 | Flow on C11 | Pure scalar plans, including graphs with independent stages, expose a generated C entrypoint; C11 currently evaluates stages in deterministic dependency order. Stateful and ownership-bearing plans are rejected |
 | Flow CPU reference runner | `sotlas flow-run FILE --flow NAME` interprets checked pure scalar stages, schedules independent stages concurrently, and reports stage outputs; this is a reference runtime, not native parallel code |
 | LLVM output | Checked direct-lowering subset; unsupported forms are rejected |
-| Hardware domains and runtime | Experimental OpenCL C11 interop runs one f32 vector-add kernel on an available GPU; Flow GPU lowering and NPU execution remain unavailable |
+| Hardware domains and runtime | Experimental OpenCL C11 interop runs one f32 vector-add kernel; explicit CPU-only, GPU-required, and GPU-with-CPU-fallback policies report the selected backend; Flow GPU lowering and NPU execution remain unavailable |
 | VS Code | Syntax, outline, hover, local structural hints, compiler commands, and source-located compiler diagnostics; extension install/use smoke test runs in CI |
 | Installation | Python prerelease package; clean-install smoke tests run on Linux, Windows, and macOS in CI |
 

@@ -15,6 +15,33 @@ from sotlas.llvm_toolchain import default_toolchain  # noqa: E402
 
 
 class SotlasOpenCLGpuRuntimeTests(unittest.TestCase):
+    def test_compute_policy_reports_cpu_and_validates_device_fallback(self):
+        compiler = default_toolchain.find_tool("clang") or shutil.which("gcc")
+        if compiler is None:
+            self.skipTest("Clang or GCC is required for the compute policy check")
+
+        with tempfile.TemporaryDirectory(prefix="sotlas-compute-policy-") as temp:
+            executable = Path(temp) / (
+                "compute_policy_test.exe" if os.name == "nt" else "compute_policy_test"
+            )
+            command = [
+                str(compiler), "-std=c11", "-Wall", "-Wextra", "-Werror",
+                "-I", str(ROOT / "runtime"),
+                str(ROOT / "runtime" / "opencl_vector.c"),
+                str(ROOT / "tests" / "native" / "test_compute_policy_native.c"),
+                "-o", str(executable),
+            ]
+            if os.name != "nt":
+                command.append("-ldl")
+            compiled = subprocess.run(
+                command, capture_output=True, text=True, check=False
+            )
+            self.assertEqual(compiled.returncode, 0, compiled.stderr or compiled.stdout)
+            executed = subprocess.run(
+                [str(executable)], capture_output=True, text=True, check=False
+            )
+            self.assertEqual(executed.returncode, 0, executed.stderr or executed.stdout)
+
     def test_f32_vector_add_runs_on_opencl_gpu_and_checks_failure_inputs(self):
         compiler = default_toolchain.find_tool("clang") or shutil.which("gcc")
         if compiler is None:
