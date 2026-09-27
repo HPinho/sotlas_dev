@@ -18,7 +18,17 @@ and source points. An operation without a defined lowering is rejected.
 The canonical `return if ... else ...` form is tested through conditional
 branches and typed phi inputs; this does not imply support for arbitrary CFGs.
 
-This preview does not select machine instructions, allocate registers, lay out
-stack frames, emit object files, or replace the LLVM backend. Source locations
-and a complete ABI model are also still open work. Semantic annotations do
-not provide an ownership runtime or lower transfers into executable code.
+This preview does not select machine instructions, lay out stack frames, emit
+object files, or replace the LLVM backend. An inspection-only virtual register
+allocation preview is available for single-block scalar functions:
+
+```sh
+sotlas register-allocation-report path/to/program.sotlas --registers 4
+```
+
+It reports linear live intervals and virtual register/spill-slot assignments. It fails
+closed for control flow, phi nodes, and non-scalar values. The assignments are
+not consumed by code generation; CFG-aware liveness, spill/reload instructions,
+stack frames, source locations, and a complete ABI model remain open work.
+Semantic annotations do not provide an ownership runtime or lower transfers
+into executable code.

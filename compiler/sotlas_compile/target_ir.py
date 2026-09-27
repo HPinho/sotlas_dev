@@ -415,4 +415,118 @@ def lower_sir_to_target_ir(module: Any) -> dict[str, Any]:
     }
 
 
-__all__ = ["TargetIRLoweringError", "lower_sir_to_target_ir"]
+def allocate_target_ir_registers(
+    target_ir: dict[str, Any], *, register_count: int = 4
+) -> dict[str, Any]:
+    """Produce an inspection-only linear-scan allocation for straight-line IR.
+
+    This deliberately rejects control flow and non-scalar values: linear block
+    order is not a sound substitute for CFG-aware liveness or ABI lowering.
+    """
+    if not isinstance(register_count, int) or isinstance(register_count, bool) or register_count < 1:
+        raise TargetIRLoweringError("register_count must be a positive integer")
+    if not isinstance(target_ir, dict) or target_ir.get("schema") != "sotlas.target-ir.v1":
+        raise TargetIRLoweringError("register allocation requires Target IR v1")
+
+    scalar_types = {
+        "bool", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64",
+        "usize", "f32", "f64",
+    }
+    functions = []
+    for function in target_ir.get("functions", ()):
+        blocks = function.get("blocks", ())
+        if len(blocks) != 1:
+            raise TargetIRLoweringError(
+                f"register allocation preview requires one straight-line block in {function.get('name')!r}"
+            )
+        instructions = blocks[0].get("instructions", ())
+        if any(item.get("op") in {"branch", "cond_branch", "phi"} for item in instructions):
+            raise TargetIRLoweringError("register allocation preview does not support CFG or phi nodes")
+        supported_ops = {
+            "alloc_stack", "load", "store", "const_int", "add", "sub", "mul",
+            "compare", "call", "return",
+        }
+        unsupported_ops = sorted({item.get("op") for item in instructions} - supported_ops)
+        if unsupported_ops:
+            raise TargetIRLoweringError(
+                "register allocation preview does not support operations: "
+                + ", ".join(str(item) for item in unsupported_ops)
+            )
+
+        intervals: dict[str, dict[str, Any]] = {}
+        for parameter in function.get("parameters", ()):
+            name, type_name = parameter.get("name"), parameter.get("type")
+            if type_name not in scalar_types:
+                raise TargetIRLoweringError(
+                    f"register allocation preview does not support type {type_name!r}"
+                )
+            intervals[name] = {"value": name, "type": type_name, "start": 0, "end": 0}
+
+        for index, instruction in enumerate(instructions):
+            result = instruction.get("result")
+            if result is not None and instruction.get("op") != "alloc_stack":
+                type_name = instruction.get("type")
+                if type_name not in scalar_types:
+                    raise TargetIRLoweringError(
+                        f"register allocation preview does not support type {type_name!r}"
+                    )
+                intervals[result] = {
+                    "value": result, "type": type_name, "start": index, "end": index,
+                }
+            operands = instruction.get("operands", ())
+            if instruction.get("op") == "load":
+                operands = ()  # The stack address is not an allocatable scalar.
+            elif instruction.get("op") == "store":
+                operands = operands[:1]  # Only the stored scalar has a live interval.
+            for operand in operands:
+                if operand in intervals:
+                    intervals[operand]["end"] = max(intervals[operand]["end"], index)
+
+        ordered = sorted(intervals.values(), key=lambda item: (item["start"], item["value"]))
+        active: list[tuple[int, str, int]] = []
+        free_registers = list(range(register_count))
+        locations: dict[str, dict[str, Any]] = {}
+        next_spill = 0
+        for interval in ordered:
+            still_active = []
+            for end, value, register in active:
+                if end < interval["start"]:
+                    free_registers.append(register)
+                else:
+                    still_active.append((end, value, register))
+            active = still_active
+            free_registers.sort()
+            if free_registers:
+                register = free_registers.pop(0)
+                locations[interval["value"]] = {"kind": "register", "index": register}
+                active.append((interval["end"], interval["value"], register))
+                active.sort()
+            else:
+                locations[interval["value"]] = {"kind": "spill", "slot": next_spill}
+                next_spill += 1
+
+        functions.append({
+            "name": function.get("name"),
+            "block": blocks[0].get("label"),
+            "intervals": [
+                {**interval, "location": locations[interval["value"]]}
+                for interval in ordered
+            ],
+            "spill_slots": next_spill,
+        })
+    return {
+        "schema": "sotlas.register-allocation-preview.v1",
+        "algorithm": "linear_scan_straight_line",
+        "register_count": register_count,
+        "functions": functions,
+        "limitations": [
+            "Inspection only; this allocation is not consumed by a code generator.",
+            "Only single-block scalar functions are supported; CFG liveness, ABI, stack layout, and spill code are not modeled.",
+        ],
+    }
+
+
+__all__ = [
+    "TargetIRLoweringError", "allocate_target_ir_registers",
+    "lower_sir_to_target_ir",
+]

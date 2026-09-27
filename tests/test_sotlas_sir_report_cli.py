@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class SotlasSIRReportCliTests(unittest.TestCase):
-    def _run_report(self, source: str, command: str = "sir-report"):
+    def _run_report(self, source: str, command: str = "sir-report", extra=()):
         temp = tempfile.TemporaryDirectory(prefix="sotlas_sir_report_")
         self.addCleanup(temp.cleanup)
         source_path = Path(temp.name) / "report.sotlas"
@@ -31,6 +31,7 @@ class SotlasSIRReportCliTests(unittest.TestCase):
                 str(ROOT / "compiler" / "sotlas" / "cli.py"),
                 command,
                 str(source_path),
+                *extra,
             ],
             capture_output=True,
             text=True,
@@ -205,6 +206,52 @@ fn quarantine_source(source: Token, temporary: Token) -> void {
             quarantine["attributes"]["point_id"].startswith("quarantine@")
         )
         self.assertEqual(quarantine["operands"], ["source"])
+
+    def test_register_allocation_preview_reports_intervals_and_spills(self):
+        result = self._run_report(
+            """module test::registers;
+pub fn sum(left: u32, right: u32) -> u32 { return left + right; }
+""",
+            "register-allocation-report",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)
+        self.assertEqual(report["schema"], "sotlas.register-allocation-preview.v1")
+        self.assertEqual(report["algorithm"], "linear_scan_straight_line")
+        self.assertEqual(report["functions"][0]["spill_slots"], 0)
+        values = {item["value"]: item for item in report["functions"][0]["intervals"]}
+        self.assertIn("left", values)
+        self.assertIn("right", values)
+        self.assertEqual(values["left"]["location"]["kind"], "register")
+
+        constrained = self._run_report(
+            """module test::register_pressure;
+pub fn sum(left: u32, right: u32) -> u32 { return left + right; }
+""",
+            "register-allocation-report",
+            ("--registers", "1"),
+        )
+        self.assertEqual(constrained.returncode, 0, constrained.stderr)
+        constrained_report = json.loads(constrained.stdout)
+        self.assertGreater(constrained_report["functions"][0]["spill_slots"], 0)
+
+    def test_register_allocation_preview_rejects_cfg_and_bad_register_count(self):
+        source = """module test::registers_cfg;
+pub fn choose(flag: bool, yes: u32, no: u32) -> u32 {
+    return if flag { yes } else { no };
+}
+"""
+        cfg = self._run_report(source, "register-allocation-report")
+        self.assertNotEqual(cfg.returncode, 0)
+        self.assertIn("one straight-line block", cfg.stderr)
+
+        bad_count = self._run_report(
+            "module test::registers_bad; pub fn value(x: u32) -> u32 { return x; }",
+            "register-allocation-report",
+            ("--registers", "0"),
+        )
+        self.assertNotEqual(bad_count.returncode, 0)
+        self.assertIn("positive integer", bad_count.stderr)
 
     def test_target_ir_lowerer_preserves_handover_domains_and_source_point(self):
         sys.path.insert(0, str(ROOT / "compiler"))

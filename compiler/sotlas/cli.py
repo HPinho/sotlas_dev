@@ -180,6 +180,16 @@ def main() -> int:
     )
     target_ir_report.add_argument("source", help=f"Arquivo fonte {SOTLAS_EXT}")
 
+    allocation_report = sub.add_parser(
+        "register-allocation-report",
+        help="Report linear liveness/allocation for straight-line scalar functions",
+    )
+    allocation_report.add_argument("source", help=f"Arquivo fonte {SOTLAS_EXT}")
+    allocation_report.add_argument(
+        "--registers", type=int, default=4,
+        help="Number of virtual register slots in the preview (default: 4)",
+    )
+
     target_report = sub.add_parser(
         "target-report",
         help="Emite JSON determinístico do contrato do target selecionado",
@@ -285,6 +295,8 @@ def main() -> int:
         return _run_sir_report(args.source)
     if args.cmd == "target-ir-report":
         return _run_target_ir_report(args.source)
+    if args.cmd == "register-allocation-report":
+        return _run_register_allocation_report(args.source, args.registers)
     if args.cmd == "target-report":
         return _run_target_report(args.target, args.cpu_feature)
     if args.cmd == "dump-llvm":
@@ -646,6 +658,34 @@ def _run_target_ir_report(source_path: str) -> int:
         print(json.dumps(report, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
     except Exception as error:
         print(f"sotlas: error generating target IR report: {error}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def _run_register_allocation_report(source_path: str, register_count: int) -> int:
+    loaded = _read_source(source_path)
+    if loaded is None:
+        return 1
+    _, text = loaded
+    try:
+        from sotlas_compile import (
+            analyze_source_phase1,
+            build_canonical_checked_ownership_sir,
+            validate_sir_flow_plans,
+        )
+        from sotlas_compile.target_ir import (
+            allocate_target_ir_registers,
+            lower_sir_to_target_ir,
+        )
+
+        checked = analyze_source_phase1(text, filename=source_path)
+        checked_sir, _ = build_canonical_checked_ownership_sir(checked)
+        validate_sir_flow_plans(checked_sir.module)
+        target_ir = lower_sir_to_target_ir(checked_sir.module)
+        report = allocate_target_ir_registers(target_ir, register_count=register_count)
+        print(json.dumps(report, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+    except Exception as error:
+        print(f"sotlas: error generating register allocation preview: {error}", file=sys.stderr)
         return 1
     return 0
 

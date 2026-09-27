@@ -4269,7 +4269,7 @@ Inclui também tooling específico do backend nativo:
 - [x] inspeção source-stable do subset canônico via `sir-report` e `dump-sir`;
 - [x] inspeção JSON do Target IR v1 pre-selection para o subset canônico validado; source mapping e inspeção do lowering físico permanecem pendentes;
 - [x] `--emit-asm` no subset inteiro explicitamente suportado pelo backend LLVM;
-- [ ] dump de register allocation;
+- [x] `register-allocation-report` reports live intervals and virtual register/spill slots for single-block scalar functions; CFG-aware allocation and lowering remain pending;
 - [ ] visualização de stack frames/ABI;
 - [ ] source-to-instruction mapping;
 - [ ] explicação de por que determinada instrução/lowering foi selecionada.
