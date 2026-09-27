@@ -160,6 +160,11 @@ fn transfer(source: Token, destination: Token) -> void {
     handover source to destination;
     return;
 }
+fn quarantine_source(source: Token, temporary: Token) -> void {
+    discard(move temporary);
+    quarantine source;
+    return;
+}
 """,
             "target-ir-report",
         )
@@ -182,6 +187,24 @@ fn transfer(source: Token, destination: Token) -> void {
             transfer["attributes"]["point_id"].split("@")[0], "handover"
         )
         self.assertEqual(transfer["operands"], ["source", "destination"])
+        quarantine_fn = next(
+            item for item in report["functions"]
+            if item["name"] == "quarantine_source"
+        )
+        quarantine_operations = [
+            instruction
+            for block in quarantine_fn["blocks"]
+            for instruction in block["instructions"]
+        ]
+        quarantine = next(
+            item for item in quarantine_operations
+            if item["op"] == "semantic.ownership_transfer"
+        )
+        self.assertEqual(quarantine["attributes"]["operation"], "quarantine")
+        self.assertTrue(
+            quarantine["attributes"]["point_id"].startswith("quarantine@")
+        )
+        self.assertEqual(quarantine["operands"], ["source"])
 
     def test_target_ir_lowerer_preserves_handover_domains_and_source_point(self):
         sys.path.insert(0, str(ROOT / "compiler"))
