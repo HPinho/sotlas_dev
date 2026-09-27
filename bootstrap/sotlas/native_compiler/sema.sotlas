@@ -214,6 +214,12 @@ impl Sema {
                     return false;
                 }
             }
+            if node.kind == AstKind::ExprIdent
+                && !self.check_local_reference(
+                    nodes, node_count, node_index, source, source_len
+                ) {
+                return false;
+            }
             node_index = node_index + 1;
         }
         return true;
@@ -261,6 +267,88 @@ impl Sema {
             return false;
         }
         return true;
+    }
+
+    pub fn check_local_reference(
+        mut self: &mut Self,
+        nodes: *const AstNode,
+        node_count: usize,
+        expression_index: usize,
+        source: *const u8,
+        source_len: usize
+    ) -> bool {
+        let expression: AstNode = unsafe { *(nodes + expression_index) };
+        let mut parent_index: usize = expression.parent;
+        if parent_index != 0 && parent_index < node_count {
+            let parent: AstNode = unsafe { *(nodes + parent_index) };
+            if parent.kind == AstKind::ExprCall && parent.first_child == expression_index {
+                return true;
+            }
+        }
+
+        let mut child_on_path: usize = expression_index;
+        let mut traversed: usize = 0;
+        while parent_index != 0 {
+            if parent_index >= node_count || traversed >= node_count {
+                break;
+            }
+            let parent: AstNode = unsafe { *(nodes + parent_index) };
+            if parent.kind == AstKind::Block {
+                let mut sibling_index: usize = parent.first_child;
+                let mut found_path: bool = false;
+                while sibling_index != 0 {
+                    if sibling_index >= node_count {
+                        break;
+                    }
+                    if sibling_index == child_on_path {
+                        found_path = true;
+                        break;
+                    }
+                    let sibling: AstNode = unsafe { *(nodes + sibling_index) };
+                    if sibling.kind == AstKind::LetStmt
+                        && self.same_declaration_name(
+                            source, source_len, sibling, expression
+                        ) {
+                        return true;
+                    }
+                    sibling_index = sibling.next_sibling;
+                }
+                if !found_path {
+                    break;
+                }
+            }
+            if parent.kind == AstKind::FnDecl || parent.kind == AstKind::TrapfnDecl {
+                let mut parameter_index: usize = parent.first_child;
+                let mut parameter_count: usize = 0;
+                while parameter_index != 0 {
+                    if parameter_index >= node_count {
+                        break;
+                    }
+                    let parameter: AstNode = unsafe { *(nodes + parameter_index) };
+                    if parameter.kind == AstKind::ParamDecl {
+                        parameter_count = parameter_count + 1;
+                        if parameter_count > MAX_SYMBOLS {
+                            break;
+                        }
+                        if self.same_declaration_name(
+                            source, source_len, parameter, expression
+                        ) {
+                            return true;
+                        }
+                    }
+                    parameter_index = parameter.next_sibling;
+                }
+                break;
+            }
+            child_on_path = parent_index;
+            parent_index = parent.parent;
+            traversed = traversed + 1;
+        }
+
+        self.error_count = self.error_count + 1;
+        self.error_line = expression.span.line;
+        self.error_col = expression.span.col;
+        return false;
     }
 
     pub fn check_function_parameters(
