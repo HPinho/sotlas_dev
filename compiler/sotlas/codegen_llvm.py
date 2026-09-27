@@ -377,24 +377,41 @@ class CodegenLLVM:
         elif isinstance(inst, CompareInst):
             if inst.left.type_name != inst.right.type_name:
                 raise ValueError("LLVM comparison operands have different types")
-            integer_type = inst.left.type_name
+            value_type = inst.left.type_name
+            if value_type in {"f32", "f64"}:
+                predicates = {
+                    "EQ": "oeq", "NEQ": "une", "LT": "olt",
+                    "LTE": "ole", "GT": "ogt", "GTE": "oge",
+                }
+                predicate = predicates.get(inst.operation)
+                if predicate is None:
+                    raise ValueError(
+                        f"LLVM backend does not lower float comparison "
+                        f"{inst.operation!r}"
+                    )
+                llvm_type = to_llvm_type(value_type)
+                self._out.write(
+                    f"  %{inst.result.name} = fcmp {predicate} {llvm_type} "
+                    f"%{inst.left.name}, %{inst.right.name}{dbg_suffix}\n"
+                )
+                return
             predicates = {
                 "EQ": "eq", "NEQ": "ne",
-                "LT": "ult" if integer_type.startswith("u") else "slt",
-                "LTE": "ule" if integer_type.startswith("u") else "sle",
-                "GT": "ugt" if integer_type.startswith("u") else "sgt",
-                "GTE": "uge" if integer_type.startswith("u") else "sge",
+                "LT": "ult" if value_type.startswith("u") else "slt",
+                "LTE": "ule" if value_type.startswith("u") else "sle",
+                "GT": "ugt" if value_type.startswith("u") else "sgt",
+                "GTE": "uge" if value_type.startswith("u") else "sge",
             }
             predicate = predicates.get(inst.operation)
-            if predicate is None or integer_type not in {
+            if predicate is None or value_type not in {
                 "u8", "i8", "u16", "i16", "u32", "i32", "u64", "i64",
                 "usize", "isize",
             }:
                 raise ValueError(
-                    f"LLVM backend does not lower integer comparison "
-                    f"{inst.operation!r} for {integer_type!r}"
+                    f"LLVM backend does not lower numeric comparison "
+                    f"{inst.operation!r} for {value_type!r}"
                 )
-            llvm_type = to_llvm_type(integer_type)
+            llvm_type = to_llvm_type(value_type)
             self._out.write(
                 f"  %{inst.result.name} = icmp {predicate} {llvm_type} "
                 f"%{inst.left.name}, %{inst.right.name}{dbg_suffix}\n"
@@ -425,15 +442,22 @@ class CodegenLLVM:
         elif isinstance(inst, BinaryOpInst):
             if inst.left.type_name != inst.right.type_name or inst.result.type_name != inst.left.type_name:
                 raise ValueError("LLVM arithmetic operands and result have different types")
-            if inst.left.type_name not in {"u8", "u16", "u32", "u64", "usize"}:
+            value_type = inst.left.type_name
+            floating = value_type in {"f32", "f64"}
+            if value_type not in {"u8", "u16", "u32", "u64", "usize", "f32", "f64"}:
                 raise ValueError(
-                    f"LLVM backend does not lower unsigned arithmetic for {inst.left.type_name!r}"
+                    f"LLVM backend does not lower arithmetic for {value_type!r}"
                 )
-            if inst.operation not in {"add", "sub", "mul"}:
+            operations = (
+                {"add": "fadd", "sub": "fsub", "mul": "fmul", "div": "fdiv"}
+                if floating else {"add": "add", "sub": "sub", "mul": "mul"}
+            )
+            llvm_operation = operations.get(inst.operation)
+            if llvm_operation is None:
                 raise ValueError(f"LLVM backend does not lower arithmetic operation {inst.operation!r}")
-            llvm_type = to_llvm_type(inst.left.type_name)
+            llvm_type = to_llvm_type(value_type)
             self._out.write(
-                f"  %{inst.result.name} = {inst.operation} {llvm_type} "
+                f"  %{inst.result.name} = {llvm_operation} {llvm_type} "
                 f"%{inst.left.name}, %{inst.right.name}{dbg_suffix}\n"
             )
         elif isinstance(inst, PhiInst):

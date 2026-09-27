@@ -1679,7 +1679,14 @@ class SIRGenerator:
         ):
             return sir_fn
 
-        if self._try_lower_integer_comparison_return(fn, entry_block, sir_params, ret_str):
+        if self._try_lower_numeric_comparison_return(
+            fn, entry_block, sir_params, ret_str
+        ):
+            return sir_fn
+
+        if self._try_lower_float_arithmetic_return(
+            fn, entry_block, sir_params, ret_str
+        ):
             return sir_fn
 
         if self._try_lower_scalar_parameter_return(
@@ -1720,7 +1727,7 @@ class SIRGenerator:
         """Lower a direct return of one same-typed scalar parameter."""
         if return_type not in {
             "u8", "u16", "u32", "u64", "usize", "bool",
-            "i8", "i16", "i32", "i64", "isize",
+            "i8", "i16", "i32", "i64", "isize", "f32", "f64",
         }:
             return False
         body = list(getattr(fn, "body", ()) or ())
@@ -1744,14 +1751,14 @@ class SIRGenerator:
         ))
         return True
 
-    def _try_lower_integer_comparison_return(
+    def _try_lower_numeric_comparison_return(
         self,
         fn: Any,
         entry_block: SIRBasicBlock,
         params: list[SIRValue],
         return_type: str,
     ) -> bool:
-        """Lower one direct comparison of same-typed integer parameters."""
+        """Lower one direct comparison of same-typed scalar parameters."""
         body = list(getattr(fn, "body", ()) or ())
         if len(body) != 1 or type(body[0]).__name__ not in ("Return", "ReturnNode"):
             return False
@@ -1780,13 +1787,13 @@ class SIRGenerator:
         right_name = name_of(getattr(expression, "right", None))
         left = next((param for param in params if param.name == left_name), None)
         right = next((param for param in params if param.name == right_name), None)
-        integer_types = {
+        numeric_types = {
             "u8", "i8", "u16", "i16", "u32", "i32", "u64", "i64",
-            "usize", "isize",
+            "usize", "isize", "f32", "f64",
         }
         if (
             left is None or right is None
-            or left.type_name not in integer_types
+            or left.type_name not in numeric_types
             or right.type_name != left.type_name
         ):
             return False
@@ -1795,6 +1802,60 @@ class SIRGenerator:
         entry_block.add(
             ReturnInst(value=result, point_id=self._terminal_return_point_id(fn))
         )
+        return True
+
+    def _try_lower_float_arithmetic_return(
+        self,
+        fn: Any,
+        entry_block: SIRBasicBlock,
+        params: list[SIRValue],
+        return_type: str,
+    ) -> bool:
+        """Lower one f32/f64 arithmetic operation over same-typed parameters."""
+        if return_type not in {"f32", "f64"}:
+            return False
+        body = list(getattr(fn, "body", ()) or ())
+        if len(body) != 1 or type(body[0]).__name__ not in ("Return", "ReturnNode"):
+            return False
+        expression = getattr(body[0], "value", None)
+        if type(expression).__name__ not in ("Binary", "BinaryExprNode"):
+            return False
+        operator = getattr(expression, "op", None)
+        operator_name = getattr(operator, "name", None)
+        operator_symbol = operator if isinstance(operator, str) else {
+            "PLUS": "+", "MINUS": "-", "STAR": "*", "SLASH": "/",
+        }.get(operator_name)
+        operation = {"+": "add", "-": "sub", "*": "mul", "/": "div"}.get(
+            operator_symbol
+        )
+        if operation is None:
+            return False
+
+        def parameter_of(node: Any) -> SIRValue | None:
+            if type(node).__name__ == "Name":
+                name = getattr(node, "value", None)
+            elif type(node).__name__ == "IdentNode":
+                name = getattr(node, "name", None)
+            else:
+                return None
+            return next(
+                (param for param in params if param.name == name), None
+            )
+
+        left = parameter_of(getattr(expression, "left", None))
+        right = parameter_of(getattr(expression, "right", None))
+        if (
+            left is None or right is None
+            or left.type_name != return_type
+            or right.type_name != return_type
+        ):
+            return False
+        result = self._next_val("float_arith", return_type)
+        entry_block.add(BinaryOpInst(operation, left, right, result))
+        entry_block.add(ReturnInst(
+            value=result,
+            point_id=self._terminal_return_point_id(fn),
+        ))
         return True
 
     def _try_lower_unsigned_arithmetic_return(

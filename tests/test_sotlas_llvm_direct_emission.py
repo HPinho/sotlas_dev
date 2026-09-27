@@ -351,6 +351,71 @@ pub fn less(left: i32, right: i32) -> bool {
 
         self.assertEqual(results, {"c11": 0, "llvm": 0})
 
+    def test_c11_and_llvm_match_f64_arithmetic_and_comparison(self):
+        source = """module test::backend_f64_differential;
+pub fn product(left: f64, right: f64) -> f64 {
+    return left * right;
+}
+pub fn identity(value: f64) -> f64 {
+    return value;
+}
+pub fn below(value: f64, limit: f64) -> bool {
+    return value < limit;
+}
+pub fn same(left: f64, right: f64) -> bool {
+    return left == right;
+}
+"""
+        clang = self.toolchain.find_tool("clang")
+        if clang is None:
+            self.skipTest("Clang is required for the C11/LLVM differential test")
+
+        caller = self.tmp_path / "f64_backend_caller.c"
+        caller.write_text(
+            "#include <stdbool.h>\n"
+            "#include <math.h>\n"
+            "extern double product(double, double);\n"
+            "extern double identity(double);\n"
+            "extern bool below(double, double);\n"
+            "extern bool same(double, double);\n"
+            "int main(void) {\n"
+            "  if (product(1.5, 2.0) != 3.0) return 1;\n"
+            "  if (product(-1.25, 2.0) != -2.5) return 2;\n"
+            "  if (identity(-3.75) != -3.75) return 9;\n"
+            "  if (!below(-1.0, 0.0)) return 3;\n"
+            "  if (below(0.0, -1.0)) return 4;\n"
+            "  if (below(2.5, 2.5)) return 5;\n"
+            "  if (below(NAN, 0.0)) return 6;\n"
+            "  if (!same(2.5, 2.5)) return 7;\n"
+            "  if (same(NAN, NAN)) return 8;\n"
+            "  return 0;\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        results = {}
+        for backend in ("c11", "llvm"):
+            with self.subTest(backend=backend):
+                object_file = self.tmp_path / f"f64-{backend}.o"
+                self.toolchain.compile_source_to_native(
+                    source,
+                    "test::backend_f64_differential",
+                    object_file,
+                    emit_type="obj",
+                    backend=backend,
+                )
+                executable = self.tmp_path / f"f64-{backend}-caller.exe"
+                subprocess.run(
+                    [str(clang), str(caller), str(object_file), "-o", str(executable)],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+                results[backend] = subprocess.run(
+                    [str(executable)], capture_output=True, text=True, check=False
+                ).returncode
+
+        self.assertEqual(results, {"c11": 0, "llvm": 0})
+
     def test_llvm_signed_parameter_comparison_executes_from_native_caller(self):
         source = """module test::llvm_signed_native_compare;
 pub fn less(left: i32, right: i32) -> bool {
