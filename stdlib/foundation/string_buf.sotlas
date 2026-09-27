@@ -64,7 +64,8 @@ pub fn string_buf_append_char(sb: *mut StringBuf, ch: u8) -> bool {
         return false;
     }
     unsafe {
-        if (*sb).buffer == null || (*sb).length >= ((*sb).capacity - 1) {
+        if (*sb).buffer == null || (*sb).capacity == 0 ||
+            (*sb).length >= ((*sb).capacity - 1) {
             return false;
         }
         let target: *mut u8 = (*sb).buffer + (*sb).length;
@@ -81,7 +82,7 @@ pub fn string_buf_append_str(sb: *mut StringBuf, s: *const u8) -> bool {
         return false;
     }
     unsafe {
-        if (*sb).buffer == null {
+        if (*sb).buffer == null || (*sb).capacity == 0 {
             return false;
         }
         let mut i: usize = 0;
@@ -100,7 +101,9 @@ pub fn string_buf_append_str(sb: *mut StringBuf, s: *const u8) -> bool {
 
 pub fn string_buf_as_str(sb: *const StringBuf) -> *const u8 {
     if sb == null {
-        return "" as *const u8;
+        unsafe {
+            return "" as *const u8;
+        }
     }
     unsafe {
         if (*sb).buffer == null {
