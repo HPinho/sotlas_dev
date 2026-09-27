@@ -62,6 +62,24 @@ fn run(source: region Token, destination: region Token, final: region Token) -> 
 """
 
 
+BRANCH_MERGE_SOURCE = """module app::region_arena_flow_branch_merge;
+sole struct Token { value: u32; }
+
+fn consume(token: region Token) -> void { return; }
+
+fn run(flag: bool, source: region Token, destination: region Token) -> void {
+    consume(move destination);
+    if flag {
+        handover source to destination;
+    } else {
+        handover source to destination;
+    }
+    consume(move destination);
+    return;
+}
+"""
+
+
 def _certificate(source: str, filename: str):
     checked = package.analyze_source_phase1(source, filename=filename)
     plan = closed.plan_checked_region_closed_interprocedural(checked)
@@ -197,6 +215,24 @@ class SotlasRegionArenaFlowTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(arena_flow.RegionArenaFlowError, "same-typed"):
             arena_flow._append_merge([], pre, producers)
+
+    def test_source_branch_handover_is_certified_across_canonical_layers(self):
+        plan, flow = _certificate(
+            BRANCH_MERGE_SOURCE,
+            "<region-arena-flow-branch-merge>",
+        )
+        graph = plan.arena_lifetime
+        destination_pres = tuple(
+            item for item in graph.epochs_for("run", "destination")
+            if item.phase == "pre"
+        )
+        post_use = next(
+            item for item in destination_pres
+            if item.point_id == "call@13:5"
+        )
+        merge = flow.merge_for(post_use.epoch_id)
+        self.assertEqual(len(merge.producer_epoch_ids), 2)
+        self.assertTrue(flow.complete, flow.unresolved)
 
 if __name__ == "__main__":
     unittest.main()

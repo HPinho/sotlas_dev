@@ -461,7 +461,6 @@ def certify_region_arena_flow(
                 if (
                     all_reach
                     and pairwise_disjoint
-                    and len(maximal) == len(producers)
                     and covered
                 ):
                     _append_merge(merges, pre, maximal)

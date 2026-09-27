@@ -91,6 +91,9 @@ def _instruction_matches_transfer(sir, instruction, transfer) -> bool:
         return False
     if instruction.callee != transfer.callee:
         return False
+    embedded_point = getattr(instruction, "source_point_id", None)
+    if embedded_point is not None and embedded_point != transfer.point_id:
+        return False
     arguments = tuple(instruction.arguments)
     if transfer.argument_index < 0 or transfer.argument_index >= len(arguments):
         return False
@@ -192,6 +195,10 @@ def validate_region_call_sir(
             claimed_locations[(transfer.function, selected[0], selected[1])] = transfer.point_id
 
         block, instruction_index = matches[0]
+        instruction = next(
+            item for item in function.blocks
+            if item.label == block
+        ).instructions[instruction_index]
         sites.append(
             RegionCallSIRSite(
                 function=transfer.function,
@@ -202,6 +209,10 @@ def validate_region_call_sir(
                 point_id=transfer.point_id,
                 block=block,
                 instruction_index=instruction_index,
+                source_identity_embedded=(
+                    getattr(instruction, "source_point_id", None)
+                    == transfer.point_id
+                ),
             )
         )
 

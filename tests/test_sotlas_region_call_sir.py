@@ -43,6 +43,22 @@ fn run(source: region Token, destination: region Token) -> void {
 """
 
 
+BRANCH_SOURCE = """module app::region_call_sir_branch;
+sole struct Token { value: u32; }
+fn consume(token: region Token) -> void { return; }
+fn run(flag: bool, source: region Token, destination: region Token) -> void {
+    consume(move destination);
+    if flag {
+        handover source to destination;
+    } else {
+        handover source to destination;
+    }
+    consume(move destination);
+    return;
+}
+"""
+
+
 class SotlasRegionCallSIRTests(unittest.TestCase):
     def _plans(self):
         checked = package.analyze_source_phase1(
@@ -71,6 +87,21 @@ class SotlasRegionCallSIRTests(unittest.TestCase):
             checked_sir.module,
         )
         self.assertEqual(len(bridge.sites), 1)
+
+    def test_embedded_source_ids_disambiguate_branch_local_calls(self):
+        checked = package.analyze_source_phase1(
+            BRANCH_SOURCE,
+            filename="<region-call-sir-branch>",
+        )
+        calls = region_call.plan_checked_region_calls(checked)
+        checked_sir, _ = canonical_sir.build_canonical_checked_ownership_sir(checked)
+        bridge = region_call_sir.validate_region_call_sir(calls, checked_sir)
+        self.assertEqual(len(bridge.sites), 2)
+        self.assertEqual(
+            {item.point_id for item in bridge.sites},
+            {"call@5:5", "call@11:5"},
+        )
+        self.assertTrue(all(item.source_identity_embedded for item in bridge.sites))
 
     def test_tampered_binding_is_rejected_against_sir(self):
         calls, checked_sir = self._plans()

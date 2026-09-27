@@ -58,6 +58,7 @@ class CallInst(SIRInstruction):
     result: Optional[SIRValue] = None
     is_system: bool = False
     defer_point_id: str | None = None
+    source_point_id: str | None = None
 
     def __str__(self) -> str:
         prefix = f"{self.result} = " if self.result else ""

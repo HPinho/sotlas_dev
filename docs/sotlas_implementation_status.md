@@ -214,10 +214,13 @@ O subset estável de `sole/exclusive`, `shared`, `region`, `island`, `quarantine
 - [x] moves, invalidation, joins e transfers suportados;
 - [x] ARC backend-neutral + cleanup no subset `shared`;
 - [x] lifetime/arena/interprocedural mínimo de `region`;
+- [x] CFG canônico para `if/else` com `handover` do mesmo binding em ambos os ramos, consumidor único após o join e certificado arena-flow que prova cobertura total de caminhos;
 - [x] isolamento e transferências certificadas de `island`/`quarantine`/`handover`;
 - [x] borrows call-scoped/no-escape de `direct`/`whisper`;
 - [x] caminhos C11/e2e representativos;
 - [x] unsupported shapes permanecem fail-closed.
+
+Limite restante: branches de ownership com corpos arbitrários, transferências em apenas um ramo, ou destinos/fontes diferentes continuam sem lowering canônico geral.
 
 Escopo: `docs/sotlas_1_0_release_scope.md`.
 
