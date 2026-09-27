@@ -34,8 +34,10 @@ ABI. `--workers` applies to the reference backend; C11 remains serial.
 - Stage parameters and return values are scalars. The reference interpreter
   currently handles integer and boolean SIR; C11 also accepts pure `f32` and
   `f64` plans.
-- Function bodies use the straight-line instructions accepted by the Flow SIR
-  interpreter.
+- Stage signatures and effects must satisfy the checked Flow contract. The
+  reference interpreter supports the instruction subset accepted by Flow SIR;
+  C11 stage functions may also use structured branches and early returns that
+  the C11 source backend lowers.
 - Dependency layers are derived from the checked plan. Independent stages in a
   layer may run concurrently, up to `--workers`.
 - A stage failure stops later layers, cancels work that has not started, and

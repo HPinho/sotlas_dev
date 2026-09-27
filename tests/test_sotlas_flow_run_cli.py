@@ -155,6 +155,31 @@ flow SinglePrecision { stage seed = first; stage result = add after seed; }
             json.loads(native.stdout)["outputs"],
         )
 
+    def test_c11_flow_runner_executes_structured_stage_branches(self):
+        result = self._run(
+            """module test::flow_run_branches;
+fn choose(value: u32) -> u32 {
+    if value > 4u32 { return value * 2u32; }
+    else { return value + 1u32; }
+}
+fn high() -> u32 { return choose(5u32); }
+fn low() -> u32 { return choose(2u32); }
+flow Compute {
+    stage high = high;
+    stage low = low;
+}
+""",
+            "--flow",
+            "Compute",
+            "--backend",
+            "c11",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)
+        self.assertEqual(report["backend"], "c11")
+        self.assertEqual(report["outputs"], {"high": 10, "low": 3})
+
     def test_reports_unknown_plan_without_success_json(self):
         result = self._run(
             """module test::flow_run_missing;
