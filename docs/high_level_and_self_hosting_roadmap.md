@@ -23,7 +23,7 @@ LLVM is not the same as Sotlas owning an assembly language or code generator.
 
 Flow has a canonical typed plan, SIR plan, a host reference scheduler, and an
 interpreter for pure scalar stages. The checked subset forwards boolean results
-between stages. Serial pure unsigned/bool Flow plans can also emit a C-callable
+between stages. Serial pure signed/unsigned integer and bool Flow plans can also emit a C-callable
 C11 entrypoint that returns the last stage result. The source language cannot
 invoke that generated entrypoint yet. Parallel native scheduling, Flow error and
 cancellation propagation, physical device providers, GPU/NPU dispatch, and

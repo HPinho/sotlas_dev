@@ -72,6 +72,48 @@ flow Count {
             )
             self.assertEqual(executed.returncode, 0, executed.stderr)
 
+    def test_serial_pure_signed_scalar_flow_executes_through_generated_c_entrypoint(self):
+        compiler = default_toolchain.find_tool("clang") or shutil.which("gcc")
+        if compiler is None:
+            self.skipTest("Clang or GCC is required for native Flow execution")
+
+        source = """module test::native_signed_flow;
+fn first() -> i32 { return 40i32; }
+fn add_one(value: i32) -> i32 { return value + 1i32; }
+flow Count {
+    stage first = first;
+    stage final = add_one after first;
+}
+"""
+        c_source = bootstrap.compile_source(source, "native_signed_flow.sotlas")
+        entrypoint = "sotlas_flow_test__native_signed_flow_Count"
+        self.assertIn(f"int32_t {entrypoint}(void)", c_source)
+
+        with tempfile.TemporaryDirectory(prefix="sotlas-flow-signed-") as tmpdir:
+            root = Path(tmpdir)
+            generated = root / "flow.c"
+            caller = root / "caller.c"
+            executable = root / ("caller.exe" if os.name == "nt" else "caller")
+            generated.write_text(c_source, encoding="utf-8")
+            caller.write_text(
+                "#include <stdint.h>\n"
+                f"extern int32_t {entrypoint}(void);\n"
+                f"int main(void) {{ return {entrypoint}() == 41 ? 0 : 1; }}\n",
+                encoding="utf-8",
+            )
+            compiled = subprocess.run(
+                [str(compiler), "-std=c11", "-Wall", "-Wextra", str(generated),
+                 str(caller), "-o", str(executable)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            executed = subprocess.run(
+                [str(executable)], capture_output=True, text=True, check=False
+            )
+            self.assertEqual(executed.returncode, 0, executed.stderr)
+
     def test_effectful_flow_stage_is_rejected_before_c11_lowering(self):
         source = """module test::effectful_native_flow;
 static mut counter: u32 = 0;
