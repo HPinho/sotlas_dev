@@ -28,7 +28,7 @@ export function CookieConsentBanner() {
     const prefs: CookiePreferences = {
       strictlyNecessary: true,
       functional: true,
-      performance: true,
+      performance: false,
       updatedAt: new Date().toISOString(),
     };
     saveStoredCookiePreferences(prefs);

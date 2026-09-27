@@ -43,7 +43,7 @@ export function CalloutBanner() {
               className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-secondary hover:bg-secondary/80 border border-border text-foreground text-sm transition-colors font-mono shadow-2xs"
             >
               <Terminal className="w-4 h-4 text-emerald-500" />
-              <span>C & C++ Interop Guide</span>
+              <span>C ABI Guide</span>
             </Link>
           </div>
         </div>

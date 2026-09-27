@@ -55,6 +55,8 @@ describe("preview documentation", () => {
     const cookieSettings = readFileSync(resolve(process.cwd(), "src/components/cookie-manager/CookiePreferencesManager.tsx"), "utf8");
     expect(cookieSettings).toContain("does not load analytics or compiler telemetry");
     expect(cookieSettings).not.toContain("WebAssembly compiler runtime benchmarking data");
+    expect(cookieSettings).toContain("Not collected");
+    expect(cookieSettings).not.toContain("aria-checked={prefs.performance}");
   });
 
   it("loads website examples from the files exercised by CI", () => {

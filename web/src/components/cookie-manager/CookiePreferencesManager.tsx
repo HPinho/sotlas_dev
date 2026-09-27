@@ -170,12 +170,12 @@ export function CookiePreferencesManager() {
           </div>
         </div>
 
-        {/* 3. Performance & Diagnostics */}
+        {/* 3. Analytics */}
         <div className="pt-4 flex flex-col md:flex-row md:items-start justify-between gap-4">
           <div className="space-y-1 max-w-xl">
             <div className="flex items-center gap-2">
               <Info className="w-4 h-4 text-amber-500" />
-              <h4 className="text-sm font-semibold text-foreground">Performance & Diagnostic Telemetry</h4>
+              <h4 className="text-sm font-semibold text-foreground">Analytics</h4>
               <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">
                 Optional
               </span>
@@ -184,23 +184,7 @@ export function CookiePreferencesManager() {
               This preference is reserved for future optional analytics. The current website does not load analytics or compiler telemetry, regardless of this setting.
             </p>
           </div>
-          <div className="flex items-center">
-            <button
-              type="button"
-              role="switch"
-              aria-checked={prefs.performance}
-              onClick={() => setPrefs((prev) => ({ ...prev, performance: !prev.performance }))}
-              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors ${
-                prefs.performance ? "bg-primary" : "bg-muted border border-border"
-              }`}
-            >
-              <span
-                className={`inline-block h-4 w-4 rounded-full bg-white transition-transform ${
-                  prefs.performance ? "translate-x-6" : "translate-x-1"
-                }`}
-              />
-            </button>
-          </div>
+          <span className="shrink-0 rounded-full border border-border px-3 py-1 text-xs text-muted-foreground">Not collected</span>
         </div>
       </div>
 

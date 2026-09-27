@@ -75,7 +75,7 @@ export const navigationGroups: NavGroup[] = [
     title: "Architecture & Compiler",
     items: [
       { id: "compiler", title: "SIR SSA & C11 Pipeline", href: "/docs/compiler", icon: Cpu, isNew: true },
-      { id: "interoperability", title: "C & C++ Interoperability", href: "/docs/interoperability", icon: ShieldCheck, isNew: true },
+      { id: "interoperability", title: "C ABI Interoperability", href: "/docs/interoperability", icon: ShieldCheck, isNew: true },
       { id: "stdlib", title: "Standard Library (stdlib)", href: "/docs/stdlib", icon: Boxes, isNew: true },
     ],
   },

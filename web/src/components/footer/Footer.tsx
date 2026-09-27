@@ -9,7 +9,7 @@ const footerSections = [
       { label: "Types & Bounded Types", href: "/docs/types" },
       { label: "SRG Memory Graph", href: "/docs/memory" },
       { label: "Topology Pointers", href: "/docs/pointers" },
-      { label: "C & C++ Interoperability", href: "/docs/interoperability" },
+      { label: "C ABI Interoperability", href: "/docs/interoperability" },
     ],
   },
   {

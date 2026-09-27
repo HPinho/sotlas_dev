@@ -14,7 +14,7 @@ const categories: CategoryCardData[] = [
   {
     type: "interop",
     badge: "C ABI preview",
-    title: "C & C++ Interoperability",
+    title: "C ABI Interoperability",
     description: "Documented C ABI forms and their current compiler constraints.",
     linkText: "Read interop guide",
     href: "/docs/interoperability",
