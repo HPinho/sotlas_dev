@@ -155,9 +155,18 @@ impl Sema {
         }
 
         let mut current_index: usize = module_node.first_child;
+        let mut declaration_count: usize = 0;
         while current_index != 0 {
             if current_index >= node_count {
                 self.error_count = self.error_count + 1;
+                return false;
+            }
+            declaration_count = declaration_count + 1;
+            if declaration_count > MAX_SYMBOLS {
+                let overflow: AstNode = unsafe { *(nodes + current_index) };
+                self.error_count = self.error_count + 1;
+                self.error_line = overflow.span.line;
+                self.error_col = overflow.span.col;
                 return false;
             }
             let current: AstNode = unsafe { *(nodes + current_index) };
@@ -171,6 +180,120 @@ impl Sema {
                     }
                     let previous: AstNode = unsafe { *(nodes + previous_index) };
                     if self.declaration_namespace(previous.kind) == namespace
+                        && self.same_declaration_name(
+                            source, source_len, previous, current
+                        ) {
+                        self.error_count = self.error_count + 1;
+                        self.error_line = current.span.line;
+                        self.error_col = current.span.col;
+                        return false;
+                    }
+                    previous_index = previous.next_sibling;
+                }
+            }
+            current_index = current.next_sibling;
+        }
+
+        let mut node_index: usize = 1;
+        while node_index < node_count {
+            let node: AstNode = unsafe { *(nodes + node_index) };
+            if node.kind == AstKind::FnDecl || node.kind == AstKind::TrapfnDecl {
+                if !self.check_function_parameters(nodes, node_count, node_index, source, source_len) {
+                    return false;
+                }
+            }
+            if node.kind == AstKind::Block {
+                if !self.check_block_locals(nodes, node_count, node_index, source, source_len) {
+                    return false;
+                }
+            }
+            node_index = node_index + 1;
+        }
+        return true;
+    }
+
+    pub fn check_function_parameters(
+        mut self: &mut Self,
+        nodes: *const AstNode,
+        node_count: usize,
+        function_index: usize,
+        source: *const u8,
+        source_len: usize
+    ) -> bool {
+        let function: AstNode = unsafe { *(nodes + function_index) };
+        let mut current_index: usize = function.first_child;
+        let mut parameter_count: usize = 0;
+        while current_index != 0 {
+            if current_index >= node_count {
+                self.error_count = self.error_count + 1;
+                return false;
+            }
+            let current: AstNode = unsafe { *(nodes + current_index) };
+            if current.kind == AstKind::ParamDecl {
+                parameter_count = parameter_count + 1;
+                if parameter_count > MAX_SYMBOLS {
+                    self.error_count = self.error_count + 1;
+                    self.error_line = current.span.line;
+                    self.error_col = current.span.col;
+                    return false;
+                }
+                let mut previous_index: usize = function.first_child;
+                while previous_index != current_index {
+                    if previous_index == 0 || previous_index >= node_count {
+                        self.error_count = self.error_count + 1;
+                        return false;
+                    }
+                    let previous: AstNode = unsafe { *(nodes + previous_index) };
+                    if previous.kind == AstKind::ParamDecl
+                        && self.same_declaration_name(
+                            source, source_len, previous, current
+                        ) {
+                        self.error_count = self.error_count + 1;
+                        self.error_line = current.span.line;
+                        self.error_col = current.span.col;
+                        return false;
+                    }
+                    previous_index = previous.next_sibling;
+                }
+            }
+            current_index = current.next_sibling;
+        }
+        return true;
+    }
+
+    pub fn check_block_locals(
+        mut self: &mut Self,
+        nodes: *const AstNode,
+        node_count: usize,
+        block_index: usize,
+        source: *const u8,
+        source_len: usize
+    ) -> bool {
+        let block: AstNode = unsafe { *(nodes + block_index) };
+        let mut current_index: usize = block.first_child;
+        let mut local_count: usize = 0;
+        while current_index != 0 {
+            if current_index >= node_count {
+                self.error_count = self.error_count + 1;
+                return false;
+            }
+            let current: AstNode = unsafe { *(nodes + current_index) };
+            if current.kind == AstKind::LetStmt {
+                local_count = local_count + 1;
+                if local_count > MAX_SYMBOLS {
+                    self.error_count = self.error_count + 1;
+                    self.error_line = current.span.line;
+                    self.error_col = current.span.col;
+                    return false;
+                }
+                let mut previous_index: usize = block.first_child;
+                while previous_index != current_index {
+                    if previous_index == 0 || previous_index >= node_count {
+                        self.error_count = self.error_count + 1;
+                        return false;
+                    }
+                    let previous: AstNode = unsafe { *(nodes + previous_index) };
+                    if previous.kind == AstKind::LetStmt
                         && self.same_declaration_name(
                             source, source_len, previous, current
                         ) {
