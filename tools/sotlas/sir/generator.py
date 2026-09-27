@@ -2397,7 +2397,28 @@ class SIRGenerator:
                 )
                 value = values.get(name)
                 return value if value is not None and value.type_name == return_type else None
-            return literal(node)
+            if kind == "Number":
+                return literal(node)
+            if kind not in ("Binary", "BinaryExprNode"):
+                return None
+            operator = getattr(node, "op", None)
+            operator_name = getattr(operator, "name", None)
+            symbol = operator if isinstance(operator, str) else {
+                "PLUS": "+", "MINUS": "-", "STAR": "*",
+            }.get(operator_name)
+            operation = {"+": "add", "-": "sub", "*": "mul"}.get(symbol)
+            if operation is None:
+                return None
+            left = resolve(getattr(node, "left", None))
+            right = resolve(getattr(node, "right", None))
+            if left is None or right is None:
+                return None
+            result = new_value("linear_arith")
+            emitted.append(BinaryOpInst(
+                operation, left, right, result,
+                source_point_id=self._statement_point_id(node, "binary"),
+            ))
+            return result
 
         for statement in body[:-1]:
             if type(statement).__name__ != "Let":
@@ -2413,29 +2434,8 @@ class SIRGenerator:
             ):
                 return False
             initializer = getattr(statement, "value", None)
-            if type(initializer).__name__ in ("Name", "IdentNode", "Number"):
-                result = resolve(initializer)
-                if result is None:
-                    return False
-            elif type(initializer).__name__ in ("Binary", "BinaryExprNode"):
-                operator = getattr(initializer, "op", None)
-                operator_name = getattr(operator, "name", None)
-                symbol = operator if isinstance(operator, str) else {
-                    "PLUS": "+", "MINUS": "-", "STAR": "*",
-                }.get(operator_name)
-                operation = {"+": "add", "-": "sub", "*": "mul"}.get(symbol)
-                if operation is None:
-                    return False
-                left = resolve(getattr(initializer, "left", None))
-                right = resolve(getattr(initializer, "right", None))
-                if left is None or right is None:
-                    return False
-                result = new_value("linear_arith")
-                emitted.append(BinaryOpInst(
-                    operation, left, right, result,
-                    source_point_id=self._statement_point_id(initializer, "binary"),
-                ))
-            else:
+            result = resolve(initializer)
+            if result is None:
                 return False
             values[name] = result
 

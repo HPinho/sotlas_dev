@@ -401,6 +401,19 @@ pub fn product_to(limit: u32) -> u32 {
     }
     return total;
 }
+pub fn descending_to(limit: u32) -> u32 {
+    let mut index: u32 = 6u32;
+    let mut total: u32 = 30u32;
+    while index > limit {
+        total = total - index;
+        index = index - 2u32;
+    }
+    return total;
+}
+pub fn nested_arithmetic(input: u32) -> u32 {
+    let result: u32 = (input + 2u32) * (3u32 + 1u32);
+    return result;
+}
 """
         clang = self.toolchain.find_tool("clang")
         if clang is None:
@@ -411,6 +424,8 @@ pub fn product_to(limit: u32) -> u32 {
             "#include <stdint.h>\n"
             "extern uint32_t stepped_sum(uint32_t);\n"
             "extern uint32_t product_to(uint32_t);\n"
+            "extern uint32_t descending_to(uint32_t);\n"
+            "extern uint32_t nested_arithmetic(uint32_t);\n"
             "int main(void) {\n"
             "  if (stepped_sum(1u) != 5u) return 1;\n"
             "  if (stepped_sum(2u) != 8u) return 2;\n"
@@ -418,6 +433,11 @@ pub fn product_to(limit: u32) -> u32 {
             "  if (product_to(0u) != 1u) return 4;\n"
             "  if (product_to(1u) != 1u) return 5;\n"
             "  if (product_to(4u) != 8u) return 6;\n"
+            "  if (descending_to(7u) != 30u) return 7;\n"
+            "  if (descending_to(6u) != 30u) return 8;\n"
+            "  if (descending_to(2u) != 20u) return 9;\n"
+            "  if (nested_arithmetic(0u) != 8u) return 10;\n"
+            "  if (nested_arithmetic(5u) != 28u) return 11;\n"
             "  return 0;\n"
             "}\n",
             encoding="utf-8",

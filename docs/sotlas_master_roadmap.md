@@ -4127,7 +4127,8 @@ stages. Stage failure's own external effects, atomicity, verified inverses,
 snapshots, crash recovery, and concurrent journals remain future work. See
 `docs/sotlas_1_0_phases_13_17_scope.md`.
 
-The source SIR generator lowers bounded unsigned counter/accumulator
+The source SIR generator lowers nested integer expression trees in immutable
+local chains and bounded unsigned counter/accumulator
 recurrences with nonzero initial values, parameter or literal bounds, ordered
 comparisons, constant steps, and additive, subtractive, or multiplicative
 accumulation to loop-carried `phi` values and a CFG backedge. C11 and LLVM
