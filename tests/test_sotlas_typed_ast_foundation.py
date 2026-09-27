@@ -10143,6 +10143,27 @@ int main(void) {
             )
             self.assertEqual(executed.returncode, 0, executed.stderr)
 
+    def test_c11_sole_recursive_cleanup_rejects_parent_deinit_using_self(self):
+        source = """module test::sole_parent_deinit_self;
+sole struct Child { value: u32; }
+sole struct Parent { child: Child; }
+fn Child_deinit(self: &mut Child) -> void { return; }
+fn Parent_deinit(self: &mut Parent) -> void {
+    let value: u32 = self.child.value;
+    return;
+}
+fn make() -> void {
+    let child: Child = Child { value: 3u32 };
+    let parent: Parent = Parent { child: child };
+    return;
+}
+"""
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            "exclusive recursive cleanup requires a detached owner deinit",
+        ):
+            bootstrap.compile_source(source)
+
     def test_sole_enum_payload_with_nested_owner_fails_closed(self):
         source = """module test::owned_enum_nested_payload;
 sole struct Child { value: u32; }

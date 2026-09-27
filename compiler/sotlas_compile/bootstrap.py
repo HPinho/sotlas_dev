@@ -4544,6 +4544,22 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
     sole_recursive_drop_types: set[str] = set()
     sole_drop_visiting: set[str] = set()
 
+    def sole_deinit_references_self(node) -> bool:
+        if node is None:
+            return False
+        if type(node).__name__ == "Name":
+            return getattr(node, "value", None) == "self"
+        if isinstance(node, (tuple, list)):
+            return any(sole_deinit_references_self(item) for item in node)
+        fields = getattr(node, "__dataclass_fields__", None)
+        if not fields:
+            return False
+        return any(
+            sole_deinit_references_self(getattr(node, field_name, None))
+            for field_name in fields
+            if field_name != "token"
+        )
+
     def collect_sole_drop_types(struct_name: str) -> bool:
         if struct_name in sole_drop_types:
             return True
@@ -4575,6 +4591,23 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
             for function in module.functions
         )
         if contains_owned_fields:
+            deinit = next(
+                (
+                    function for function in module.functions
+                    if function.name == f"{struct_name}_deinit"
+                    and function.params
+                ),
+                None,
+            )
+            if deinit is not None and any(
+                sole_deinit_references_self(statement)
+                for statement in deinit.body
+            ):
+                raise SotlasBootstrapError(
+                    "C11 exclusive recursive cleanup requires a detached "
+                    "owner deinit when sole-owned fields are present",
+                    1, 1, module.filename, module.source,
+                )
             sole_recursive_drop_types.add(struct_name)
             sole_drop_types.add(struct_name)
             return True
