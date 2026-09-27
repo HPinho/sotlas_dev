@@ -73,7 +73,7 @@ class SotlasOpenCLGpuRuntimeTests(unittest.TestCase):
                 self.skipTest("No OpenCL runtime or GPU is available on this host")
             self.assertEqual(executed.returncode, 0, executed.stderr or executed.stdout)
 
-    def test_canonical_sotlas_c11_program_dispatches_opencl_gpu_work(self):
+    def test_canonical_sotlas_c11_program_selects_gpu_or_cpu_fallback(self):
         compiler = default_toolchain.find_tool("clang") or shutil.which("gcc")
         if compiler is None:
             self.skipTest("Clang or GCC is required for the Sotlas/OpenCL integration")
@@ -111,8 +111,6 @@ class SotlasOpenCLGpuRuntimeTests(unittest.TestCase):
             executed = subprocess.run(
                 [str(executable)], capture_output=True, text=True, check=False
             )
-            if executed.returncode == 77:
-                self.skipTest("No OpenCL runtime or GPU is available on this host")
             self.assertEqual(executed.returncode, 0, executed.stderr or executed.stdout)
 
 

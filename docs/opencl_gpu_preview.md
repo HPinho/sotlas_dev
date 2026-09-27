@@ -1,9 +1,9 @@
 # OpenCL GPU preview
 
 The preview includes one native accelerator workload: f32 vector addition on
-the first available OpenCL GPU. Sotlas source declares the C ABI call and
-exports a system entrypoint; a small C host supplies arrays and checks the
-result. The provider dynamically loads the system OpenCL runtime, copies input
+the first available OpenCL GPU. Sotlas source declares the C ABI calls and
+exports system entrypoints; a small C host supplies arrays, requests GPU with
+CPU fallback, and checks the result. The provider dynamically loads the system OpenCL runtime, copies input
 arrays to device buffers, dispatches an OpenCL C 1.2 kernel, waits for the queue,
 and copies the result back. A backend policy API can require OpenCL, run on CPU,
 or try OpenCL and fall back to CPU when no runtime or GPU is available.

@@ -7,6 +7,15 @@ module examples::opencl_vector_add;
     count: usize
 ) -> i32;
 
+@extern(C) fn sotlas_vector_add_f32_with_policy(
+    left: *const f32,
+    right: *const f32,
+    output: *mut f32,
+    count: usize,
+    policy: i32,
+    selected_backend: *mut i32
+) -> i32;
+
 @system @export fn run_gpu_add(
     left: *const f32,
     right: *const f32,
@@ -14,4 +23,17 @@ module examples::opencl_vector_add;
     count: usize
 ) -> i32 {
     return sotlas_opencl_vector_add_f32(left, right, output, count);
+}
+
+@system @export fn run_vector_add(
+    left: *const f32,
+    right: *const f32,
+    output: *mut f32,
+    count: usize,
+    policy: i32,
+    selected_backend: *mut i32
+) -> i32 {
+    return sotlas_vector_add_f32_with_policy(
+        left, right, output, count, policy, selected_backend
+    );
 }
