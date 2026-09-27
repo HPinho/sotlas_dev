@@ -86,6 +86,27 @@ class SotlasSIRReportCliTests(unittest.TestCase):
         cli_report = json.loads(cli_result.stdout)
         self.assertEqual(cli_report["schema"], "sotlas.target-ir-source-map.v1")
 
+        mapped = self._run_report(
+            "module test::source_map_operations; "
+            "pub fn calculate(input: u32) -> u32 { "
+            "let first: u32 = input + 1u32; "
+            "let second: u32 = first * 2u32; return second; }",
+            "target-ir-source-map-report",
+        )
+        self.assertEqual(mapped.returncode, 0, mapped.stderr)
+        operation_report = json.loads(mapped.stdout)
+        operation_mappings = operation_report["functions"][0]["mappings"]
+        operation_rows = [
+            row for row in operation_mappings
+            if row["operation"] in {"const_int", "add", "mul"}
+        ]
+        self.assertEqual(
+            [(row["operation"], row["source_kind"]) for row in operation_rows],
+            [("const_int", "constant"), ("add", "binary"),
+             ("const_int", "constant"), ("mul", "binary")],
+        )
+        self.assertTrue(all(row["line"] == 1 and row["column"] for row in operation_rows))
+
     def test_sir_report_is_deterministic_and_summarizes_checked_module(self):
         source = """module test::sir_report;
 fn load() -> u32 { return 4u32; }

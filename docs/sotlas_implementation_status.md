@@ -464,7 +464,7 @@ Escopo: `docs/sotlas_1_0_phase10_guarantees_scope.md`.
 - [x] `sir-report` apresenta inventário JSON do subset SIR canônico após revalidar planos Flow;
 - [x] fonte inválida é rejeitada sem relatório JSON parcial;
 - [x] `target-ir-liveness-report` computes CFG live-in/live-out and SSA interference with `phi` edge uses; `register-allocation-report` exposes deterministic inspection-only graph coloring and spill-slot previews for scalar CFG functions; `stack-layout-report` exposes target-neutral scalar local slots; Target IR preserves source-stable call-site IDs. Target register classes, emitted spills, platform ABI/stack frames, machine-instruction mapping, and interactive backend visualizations remain post-1.0 work.
-- [x] `target-ir-source-map-report` maps preserved source-stable call, return, defer, and ownership point IDs to pre-selection Target IR positions with explicit coverage; ordinary operation spans and physical instruction mapping remain open.
+- [x] `target-ir-source-map-report` maps preserved source-stable call, return, defer, and ownership point IDs, plus lowered integer constants, arithmetic, and comparisons, to pre-selection Target IR positions with explicit coverage; unsupported operation spans and physical instruction mapping remain open.
 
 ### SIR e backend nativo — slice de constantes inteiras
 

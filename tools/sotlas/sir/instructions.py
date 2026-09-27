@@ -277,6 +277,7 @@ class CompareInst(SIRInstruction):
     left: SIRValue
     right: SIRValue
     result: SIRValue
+    source_point_id: str | None = None
 
     def __str__(self) -> str:
         return (
@@ -289,6 +290,7 @@ class CompareInst(SIRInstruction):
 class ConstantIntInst(SIRInstruction):
     value: int
     result: SIRValue
+    source_point_id: str | None = None
 
     def __str__(self) -> str:
         return f"  {self.result} = const_int {self.value}"
@@ -300,6 +302,7 @@ class BinaryOpInst(SIRInstruction):
     left: SIRValue
     right: SIRValue
     result: SIRValue
+    source_point_id: str | None = None
 
     def __str__(self) -> str:
         return f"  {self.result} = {self.operation} {self.left}, {self.right}"

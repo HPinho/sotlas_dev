@@ -4299,7 +4299,7 @@ Inclui também tooling específico do backend nativo:
 - [x] `--emit-asm` no subset inteiro explicitamente suportado pelo backend LLVM;
 - [x] `register-allocation-report` uses CFG liveness and `phi` edge-aware interference to produce a deterministic inspection-only graph coloring and spill-slot preview for scalar values; target register classes, ABI constraints, coalescing, spill reuse/code, and machine lowering remain pending;
 - [x] source-generated unsigned loop CFG is consumed by Target IR lowering, `phi` edge liveness, and the inspection-only allocation preview; these reports remain separate from physical register assignment and emitted code;
-- [x] `target-ir-source-map-report` indexes source-stable call, return, defer, and ownership point IDs to their pre-selection Target IR block/instruction positions and reports per-function coverage; ordinary operation spans and physical machine-instruction mappings remain pending;
+- [x] `target-ir-source-map-report` indexes source-stable call, return, defer, and ownership point IDs plus source spans for the currently lowered integer constants, arithmetic, and comparisons to pre-selection Target IR positions, with per-function coverage; unsupported operation spans and physical machine-instruction mappings remain pending;
 - [x] `stack-layout-report` shows aligned scalar local slots in a target-neutral frame preview; parameters, spills, saved registers, outgoing arguments, and platform ABI remain pending;
 - [ ] source-to-instruction mapping;
 - [ ] explicação de por que determinada instrução/lowering foi selecionada.

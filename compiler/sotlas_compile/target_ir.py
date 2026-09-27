@@ -150,13 +150,21 @@ def _lower_instruction(instruction: Any, *, function: str) -> dict[str, Any]:
             "type": getattr(instruction.result, "type_name", None),
         }
     if kind == "ConstantIntInst":
+        attributes = {"value": instruction.value}
+        source_point_id = getattr(instruction, "source_point_id", None)
+        if isinstance(source_point_id, str) and source_point_id:
+            attributes["source_point_id"] = source_point_id
         return {
             "op": "const_int",
             "result": _value_name(instruction.result, context=context),
             "type": getattr(instruction.result, "type_name", None),
-            "attributes": {"value": instruction.value},
+            "attributes": attributes,
         }
     if kind == "BinaryOpInst":
+        attributes = {}
+        source_point_id = getattr(instruction, "source_point_id", None)
+        if isinstance(source_point_id, str) and source_point_id:
+            attributes["source_point_id"] = source_point_id
         return {
             "op": instruction.operation,
             "result": _value_name(instruction.result, context=context),
@@ -165,8 +173,13 @@ def _lower_instruction(instruction: Any, *, function: str) -> dict[str, Any]:
                 _value_name(instruction.left, context=context),
                 _value_name(instruction.right, context=context),
             ],
+            "attributes": attributes,
         }
     if kind == "CompareInst":
+        attributes = {"predicate": instruction.operation}
+        source_point_id = getattr(instruction, "source_point_id", None)
+        if isinstance(source_point_id, str) and source_point_id:
+            attributes["source_point_id"] = source_point_id
         return {
             "op": "compare",
             "result": _value_name(instruction.result, context=context),
@@ -175,7 +188,7 @@ def _lower_instruction(instruction: Any, *, function: str) -> dict[str, Any]:
                 _value_name(instruction.left, context=context),
                 _value_name(instruction.right, context=context),
             ],
-            "attributes": {"predicate": instruction.operation},
+            "attributes": attributes,
         }
     if kind == "PhiInst":
         incoming = getattr(instruction, "incoming", None)
@@ -778,7 +791,7 @@ def map_target_ir_source_points(target_ir: dict[str, Any]) -> dict[str, Any]:
         })
     return {
         "schema": "sotlas.target-ir-source-map.v1",
-        "representation": "source_stable_point_ids",
+        "representation": "source_stable_point_ids_and_expression_spans",
         "instruction_count": total_instructions,
         "mapped_instruction_count": mapped_instructions,
         "coverage": (
@@ -787,7 +800,7 @@ def map_target_ir_source_points(target_ir: dict[str, Any]) -> dict[str, Any]:
         ),
         "functions": functions,
         "limitations": [
-            "Only instructions with source-stable point IDs are mapped; arithmetic and other ordinary instructions do not yet carry source spans.",
+            "Only instructions with source-stable point IDs or expression spans are mapped; unsupported SIR operations may remain unmapped.",
             "Mappings describe pre-selection Target IR positions and do not identify emitted machine instructions.",
         ],
     }

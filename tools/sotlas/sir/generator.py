@@ -2071,7 +2071,10 @@ class SIRGenerator:
         ):
             return False
         result = self._next_val("cmp", "bool")
-        entry_block.add(CompareInst(operation, left, right, result))
+        entry_block.add(CompareInst(
+            operation, left, right, result,
+            source_point_id=self._statement_point_id(expression, "compare"),
+        ))
         entry_block.add(ReturnInst(
             value=result,
             point_id=self._terminal_return_point_id(fn),
@@ -2146,7 +2149,10 @@ class SIRGenerator:
         ):
             return False
         result = self._next_val("float_arith", return_type)
-        entry_block.add(BinaryOpInst(operation, left, right, result))
+        entry_block.add(BinaryOpInst(
+            operation, left, right, result,
+            source_point_id=self._statement_point_id(expression, "binary"),
+        ))
         entry_block.add(ReturnInst(
             value=result,
             point_id=self._terminal_return_point_id(fn),
@@ -2254,13 +2260,21 @@ class SIRGenerator:
             if isinstance(operand, tuple):
                 value = operand[1]
                 constant = self._next_val(f"arith_{label}_const", return_type)
-                entry_block.add(ConstantIntInst(value, constant))
+                entry_block.add(ConstantIntInst(
+                    value, constant,
+                    source_point_id=self._statement_point_id(
+                        getattr(expression, label), "constant"
+                    ),
+                ))
                 if label == "left":
                     left = constant
                 else:
                     right = constant
         result = self._next_val("arith", return_type)
-        entry_block.add(BinaryOpInst(operation, left, right, result))
+        entry_block.add(BinaryOpInst(
+            operation, left, right, result,
+            source_point_id=self._statement_point_id(expression, "binary"),
+        ))
         entry_block.add(ReturnInst(
             value=result,
             point_id=self._terminal_return_point_id(fn),
@@ -2320,7 +2334,10 @@ class SIRGenerator:
             if not minimum <= number <= maximum:
                 return None
             value = new_value("linear_const")
-            emitted.append(ConstantIntInst(number, value))
+            emitted.append(ConstantIntInst(
+                number, value,
+                source_point_id=self._statement_point_id(node, "constant"),
+            ))
             return value
 
         def resolve(node: Any) -> SIRValue | None:
@@ -2366,7 +2383,10 @@ class SIRGenerator:
                 if left is None or right is None:
                     return False
                 result = new_value("linear_arith")
-                emitted.append(BinaryOpInst(operation, left, right, result))
+                emitted.append(BinaryOpInst(
+                    operation, left, right, result,
+                    source_point_id=self._statement_point_id(initializer, "binary"),
+                ))
             else:
                 return False
             values[name] = result
@@ -2431,7 +2451,10 @@ class SIRGenerator:
         if not minimum <= value <= maximum:
             return False
         result = self._next_val("const", return_type)
-        entry_block.add(ConstantIntInst(value, result))
+        entry_block.add(ConstantIntInst(
+            value, result,
+            source_point_id=self._statement_point_id(expression, "constant"),
+        ))
         entry_block.add(ReturnInst(
             value=result,
             point_id=self._terminal_return_point_id(fn),
@@ -2499,7 +2522,10 @@ class SIRGenerator:
         if not minimum <= value <= maximum:
             return False
         result = self._next_val("local_const", return_type)
-        entry_block.add(ConstantIntInst(value, result))
+        entry_block.add(ConstantIntInst(
+            value, result,
+            source_point_id=self._statement_point_id(initializer, "constant"),
+        ))
         entry_block.add(ReturnInst(
             value=result,
             point_id=self._terminal_return_point_id(fn),
@@ -2522,7 +2548,10 @@ class SIRGenerator:
         if type(value) is not bool:
             return False
         result = self._next_val("bool_const", "bool")
-        entry_block.add(ConstantIntInst(int(value), result))
+        entry_block.add(ConstantIntInst(
+            int(value), result,
+            source_point_id=self._statement_point_id(expression, "constant"),
+        ))
         entry_block.add(ReturnInst(
             value=result,
             point_id=self._terminal_return_point_id(fn),
