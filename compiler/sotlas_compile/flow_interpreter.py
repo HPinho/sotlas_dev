@@ -19,6 +19,7 @@ _SCALAR_TYPES = frozenset((*_INTEGER_WIDTHS, *_SIGNED_WIDTHS, "bool"))
 _BINARY_OPERATIONS = {"add": lambda left, right: left + right,
                       "sub": lambda left, right: left - right,
                       "mul": lambda left, right: left * right}
+_MAX_BLOCK_VISITS = 1_000_000
 
 
 def _checked_unsigned(value, type_name: str, context: str) -> int:
@@ -56,7 +57,12 @@ def _checked_integer(value, type_name: str, context: str) -> int:
     return _checked_unsigned(value, type_name, context)
 
 
-def _interpret_function(function, arguments: tuple[object, ...]) -> object:
+def _interpret_function(
+    function,
+    arguments: tuple[object, ...],
+    *,
+    max_block_visits: int = _MAX_BLOCK_VISITS,
+) -> object:
     parameters = tuple(getattr(function, "parameters", ()) or ())
     blocks = tuple(getattr(function, "blocks", ()) or ())
     result_type = getattr(function, "return_type", None)
@@ -64,6 +70,8 @@ def _interpret_function(function, arguments: tuple[object, ...]) -> object:
         raise ValueError(
             f"SIR function {function.name!r} received the wrong argument count"
         )
+    if not isinstance(max_block_visits, int) or isinstance(max_block_visits, bool) or max_block_visits < 1:
+        raise ValueError("SIR Flow interpreter block-visit limit must be positive")
     if not blocks:
         raise ValueError(f"SIR Flow interpreter requires blocks in {function.name!r}")
 
@@ -103,6 +111,12 @@ def _interpret_function(function, arguments: tuple[object, ...]) -> object:
     predecessor = None
     visited_blocks = 0
     while True:
+        visited_blocks += 1
+        if visited_blocks > max_block_visits:
+            raise ValueError(
+                f"SIR function {function.name!r} exceeded the block-visit limit "
+                f"({max_block_visits})"
+            )
         block = blocks_by_label.get(current_label)
         if block is None:
             raise ValueError(
@@ -110,24 +124,32 @@ def _interpret_function(function, arguments: tuple[object, ...]) -> object:
             )
         next_label = None
         instructions = tuple(getattr(block, "instructions", ()) or ())
+        phi_updates = []
+        for instruction in instructions:
+            if type(instruction).__name__ != "PhiInst":
+                break
+            result_value = getattr(instruction, "result", None)
+            result_name = getattr(result_value, "name", None)
+            incoming = tuple(getattr(instruction, "incoming", ()) or ())
+            selected = tuple(value for value, label in incoming if label == predecessor)
+            if (
+                not isinstance(result_name, str) or not result_name
+                or len(selected) != 1
+                or getattr(result_value, "type_name", None) not in _SCALAR_TYPES
+            ):
+                raise ValueError(f"SIR function {function.name!r} has invalid phi facts")
+            selected_value = selected[0]
+            if getattr(selected_value, "type_name", None) != result_value.type_name:
+                raise ValueError(f"SIR function {function.name!r} has a mistyped phi input")
+            phi_updates.append((result_name, read(
+                selected_value, f"phi input in {function.name!r}"
+            )))
+        # Phi nodes read the predecessor environment simultaneously. Applying
+        # updates only after evaluating every selected input preserves loop SSA.
+        values.update(phi_updates)
         for instruction in instructions:
             kind = type(instruction).__name__
             if kind == "PhiInst":
-                result_value = getattr(instruction, "result", None)
-                result_name = getattr(result_value, "name", None)
-                incoming = tuple(getattr(instruction, "incoming", ()) or ())
-                selected = tuple(
-                    value for value, label in incoming if label == predecessor
-                )
-                if (
-                    not isinstance(result_name, str) or not result_name
-                    or result_name in values or len(selected) != 1
-                    or getattr(result_value, "type_name", None) not in _SCALAR_TYPES
-                ):
-                    raise ValueError(f"SIR function {function.name!r} has invalid phi facts")
-                values[result_name] = read(
-                    selected[0], f"phi input in {function.name!r}"
-                )
                 continue
             if kind == "BranchInst":
                 next_label = getattr(instruction, "target_block", None)
@@ -163,7 +185,7 @@ def _interpret_function(function, arguments: tuple[object, ...]) -> object:
                 target = getattr(instruction, "result", None)
                 name = getattr(target, "name", None)
                 type_name = getattr(target, "type_name", None)
-                if not isinstance(name, str) or not name or name in values:
+                if not isinstance(name, str) or not name:
                     raise ValueError(
                         f"SIR function {function.name!r} has an invalid SSA result"
                     )
@@ -186,7 +208,7 @@ def _interpret_function(function, arguments: tuple[object, ...]) -> object:
                     )
                 if (
                     not isinstance(target_name, str) or not target_name
-                    or target_name in values or type_name not in _SCALAR_TYPES
+                    or type_name not in _SCALAR_TYPES
                     or getattr(left_value, "type_name", None) != type_name
                     or getattr(right_value, "type_name", None) != type_name
                 ):
@@ -218,7 +240,7 @@ def _interpret_function(function, arguments: tuple[object, ...]) -> object:
                     or operand_type not in (*_INTEGER_WIDTHS, *_SIGNED_WIDTHS)
                     or getattr(instruction.right, "type_name", None) != operand_type
                     or operation not in {"EQ", "NEQ", "LT", "LTE", "GT", "GTE"}
-                    or not isinstance(name, str) or not name or name in values
+                    or not isinstance(name, str) or not name
                 ):
                     raise ValueError(
                         f"SIR function {function.name!r} has an unsupported comparison"
@@ -244,11 +266,6 @@ def _interpret_function(function, arguments: tuple[object, ...]) -> object:
             )
         predecessor = current_label
         current_label = next_label
-        visited_blocks += 1
-        if visited_blocks > len(blocks):
-            raise ValueError(
-                f"SIR function {function.name!r} exceeded its acyclic CFG block limit"
-            )
 
 
 def execute_interpreted_sir_flow(
@@ -262,8 +279,8 @@ def execute_interpreted_sir_flow(
 
     This intentionally supports a smaller subset than a native backend:
     stage functions may contain straight-line scalar operations or an acyclic
-    branched CFG with scalar phi joins. Calls, effects, cycles, and unsupported
-    instructions fail before the scheduler starts any stage.
+    branched CFG with scalar phi joins. Calls, effects, unsupported instructions,
+    and graphs outside the block-visit budget fail before or during execution.
     """
     from .flow_sir import FlowSIRError, validate_sir_flow_plans
     from .canonical_sir import load_canonical_sir
@@ -347,7 +364,7 @@ def _validate_function_shape(function) -> None:
     blocks = tuple(getattr(function, "blocks", ()) or ())
     if not blocks:
         raise ValueError(
-            f"SIR Flow interpreter requires one straight-line block or an acyclic "
+            f"SIR Flow interpreter requires one straight-line block or a scalar "
             f"branched CFG in {function.name!r}"
         )
     if len(blocks) > 1:
@@ -400,23 +417,6 @@ def _validate_function_shape(function) -> None:
         if reachable != set(successors):
             raise ValueError(
                 f"SIR function {function.name!r} has unreachable CFG blocks"
-            )
-        indegree = {label: 0 for label in successors}
-        for targets in successors.values():
-            for target in targets:
-                indegree[target] += 1
-        ready = [label for label, count in indegree.items() if count == 0]
-        visited = 0
-        while ready:
-            label = ready.pop()
-            visited += 1
-            for target in successors[label]:
-                indegree[target] -= 1
-                if indegree[target] == 0:
-                    ready.append(target)
-        if visited != len(successors):
-            raise ValueError(
-                f"SIR Flow interpreter currently rejects cyclic CFG in {function.name!r}"
             )
         return
     instructions = tuple(getattr(blocks[0], "instructions", ()) or ())

@@ -118,11 +118,14 @@ flow Branching {
         self.assertFalse(result.output("same"))
         self.assertEqual(result.output("selected"), 10)
 
-    def test_rejects_cyclic_stage_cfg_before_execution(self):
+    def test_executes_scalar_phi_loop_in_flow_stage(self):
         source = """
 module test::flow_cfg_loop;
-fn choose(flag: bool, yes: i32, no: i32) -> i32 {
-    return if flag { yes } else { no };
+fn seed() -> i32 { return 4i32; }
+fn accumulate(limit: i32) -> i32 { return limit; }
+flow Looping {
+    stage bound = seed;
+    stage total = accumulate after bound;
 }
 """
         checked = package.analyze_source_phase1(source)
@@ -131,16 +134,56 @@ fn choose(flag: bool, yes: i32, no: i32) -> i32 {
             "sotlas_flow_cfg_runtime_test_package.canonical_sir"
         )
         sir = canonical_sir.load_canonical_sir()
-        loop_function = sir.SIRFunction("looping", [], "i32")
-        entry = loop_function.add_block("entry")
-        loop = loop_function.add_block("loop")
-        entry.add(sir.BranchInst(loop.label))
-        loop.add(sir.BranchInst(loop.label))
-        with self.assertRaisesRegex(ValueError, "rejects cyclic CFG"):
-            interpreter = importlib.import_module(
-                "sotlas_flow_cfg_runtime_test_package.flow_interpreter"
-            )
-            interpreter._validate_function_shape(loop_function)
+        instructions = importlib.import_module(
+            "_sotlas_compiler_canonical_sir.instructions"
+        )
+        function = next(
+            item for item in checked_sir.module.functions
+            if item.name == "accumulate"
+        )
+        function.blocks.clear()
+        zero = sir.SIRValue("zero", "i32")
+        one = sir.SIRValue("one", "i32")
+        index = sir.SIRValue("index", "i32")
+        total = sir.SIRValue("total", "i32")
+        below_limit = sir.SIRValue("below_limit", "bool")
+        next_index = sir.SIRValue("next_index", "i32")
+        next_total = sir.SIRValue("next_total", "i32")
+        entry = function.add_block("entry")
+        header = function.add_block("header")
+        body = function.add_block("body")
+        exit_block = function.add_block("exit")
+        entry.add(sir.ConstantIntInst(0, zero))
+        entry.add(sir.ConstantIntInst(1, one))
+        entry.add(sir.BranchInst("header"))
+        header.add(sir.PhiInst(index, [(zero, "entry"), (next_index, "body")]))
+        header.add(sir.PhiInst(total, [(zero, "entry"), (next_total, "body")]))
+        header.add(sir.CompareInst("LT", index, function.parameters[0], below_limit))
+        header.add(sir.CondBranchInst(below_limit, "body", "exit"))
+        body.add(instructions.BinaryOpInst("add", index, one, next_index))
+        body.add(instructions.BinaryOpInst("add", total, index, next_total))
+        body.add(sir.BranchInst("header"))
+        exit_block.add(sir.ReturnInst(total))
+
+        cfg = package.lower_serial_flow_to_cfg(checked_sir.module, "Looping")
+        result = package.execute_serial_flow_cfg(checked_sir.module, cfg)
+        self.assertEqual(result.output("bound"), 4)
+        self.assertEqual(result.output("total"), 6)
+
+    def test_scalar_cyclic_cfg_execution_has_a_block_visit_limit(self):
+        canonical_sir = importlib.import_module(
+            "sotlas_flow_cfg_runtime_test_package.canonical_sir"
+        )
+        interpreter = importlib.import_module(
+            "sotlas_flow_cfg_runtime_test_package.flow_interpreter"
+        )
+        sir = canonical_sir.load_canonical_sir()
+        looping = sir.SIRFunction("looping", [], "i32")
+        looping.add_block("entry").add(sir.BranchInst("spin"))
+        looping.add_block("spin").add(sir.BranchInst("spin"))
+        interpreter._validate_function_shape(looping)
+        with self.assertRaisesRegex(ValueError, r"block-visit limit \(4\)"):
+            interpreter._interpret_function(looping, (), max_block_visits=4)
 
     def test_revalidates_call_cfg_before_any_stage_execution(self):
         sir_module = self._module()
