@@ -4533,6 +4533,120 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
             tag += 1
         lines.extend(["    default:", "        break;", "    }", "}", ""])
 
+    sole_struct_by_name = {
+        item.name: item for item in module.structs
+        if item.is_sole and not item.is_register
+    }
+    sole_struct_order = {
+        item.name: index for index, item in enumerate(module.structs)
+    }
+    sole_drop_types: set[str] = set()
+    sole_recursive_drop_types: set[str] = set()
+    sole_drop_visiting: set[str] = set()
+
+    def collect_sole_drop_types(struct_name: str) -> bool:
+        if struct_name in sole_drop_types:
+            return True
+        if struct_name in sole_drop_visiting:
+            return False
+        struct = sole_struct_by_name.get(struct_name)
+        if struct is None:
+            return False
+        sole_drop_visiting.add(struct_name)
+        contains_owned_fields = False
+        for field in struct.fields:
+            field_type = field.type
+            while field_type.is_array and field_type.elem_type is not None:
+                field_type = field_type.elem_type
+            if (
+                field_type.pointer or field_type.is_reference
+                or field_type.is_fn_ptr
+            ):
+                continue
+            child = sole_struct_by_name.get(field_type.name)
+            if child is not None:
+                child_has_cleanup = collect_sole_drop_types(child.name)
+                contains_owned_fields = (
+                    child_has_cleanup or contains_owned_fields
+                )
+        sole_drop_visiting.remove(struct_name)
+        has_deinit = any(
+            function.name == f"{struct_name}_deinit" and function.params
+            for function in module.functions
+        )
+        if contains_owned_fields:
+            sole_recursive_drop_types.add(struct_name)
+            sole_drop_types.add(struct_name)
+            return True
+        if has_deinit:
+            sole_drop_types.add(struct_name)
+            return True
+        return False
+
+    for sole_name in sole_struct_by_name:
+        collect_sole_drop_types(sole_name)
+
+    if sole_drop_types:
+        lines.append("/* Exclusive sole owner recursive cleanup. */")
+        for struct_name in sorted(sole_drop_types):
+            lines.append(
+                f"static inline void __sotlas_sole_drop_{struct_name}"
+                f"({struct_name} *value);"
+            )
+        for struct_name in sorted(
+            sole_drop_types, key=lambda name: sole_struct_order[name]
+        ):
+            struct = sole_struct_by_name[struct_name]
+            deinit = next(
+                (
+                    fn for fn in module.functions
+                    if fn.name == f"{struct_name}_deinit" and fn.params
+                ),
+                None,
+            )
+            lines.append(
+                f"static inline void __sotlas_sole_drop_{struct_name}"
+                f"({struct_name} *value) {{"
+            )
+            if deinit is not None:
+                argument = "value" if deinit.params[0][1].pointer else "*value"
+                lines.append(f"    {struct_name}_deinit({argument});")
+            for field in reversed(struct.fields):
+                field_type = field.type
+                array_dims = []
+                while field_type.is_array and field_type.elem_type is not None:
+                    array_dims.append(field_type)
+                    field_type = field_type.elem_type
+                child = sole_struct_by_name.get(field_type.name)
+                if (
+                    child is None or child.name not in sole_drop_types
+                    or field_type.pointer or field_type.is_reference
+                    or field_type.is_fn_ptr
+                ):
+                    continue
+                access = f"value->{field.name}"
+                indent = "    "
+                for dimension, _ in enumerate(array_dims):
+                    index_name = _c_ident(
+                        f"__sotlas_sole_drop_{struct_name}_"
+                        f"{field.name}_{dimension}"
+                    )
+                    lines.append(
+                        f"{indent}for (size_t {index_name} = "
+                        f"sizeof({access}) / sizeof({access}[0]); "
+                        f"{index_name} > 0; --{index_name}) {{"
+                    )
+                    indent += "    "
+                    access += f"[{index_name} - 1]"
+                lines.append(
+                    f"{indent}__sotlas_sole_drop_{child.name}(&{access});"
+                )
+                for _ in array_dims:
+                    indent = indent[:-4]
+                    lines.append(f"{indent}}}")
+            lines.append("}")
+        lines.append("")
+
     if shared_functions:
         shared_drop_type_names: set[str] = set()
         shared_drop_type_visiting: set[str] = set()
@@ -4779,19 +4893,33 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
             if struct is not None and struct.is_sole:
                 for field_name, value in expr.fields:
                     field = field_map.get(field_name)
-                    if (
-                        field is not None
-                        and field.type.name in sole_types
-                        and not field.type.pointer
-                        and not field.type.is_reference
-                    ):
-                        moved_value = (
-                            value.value
-                            if isinstance(value, MoveExpr)
-                            else value
-                        )
-                        if isinstance(moved_value, Name):
-                            names.add(moved_value.value)
+                    if field is not None:
+                        field_type = field.type
+                        while (
+                            field_type.is_array
+                            and field_type.elem_type is not None
+                        ):
+                            field_type = field_type.elem_type
+                        if (
+                            field_type.name in sole_types
+                            and not field_type.pointer
+                            and not field_type.is_reference
+                            and not field_type.is_fn_ptr
+                        ):
+                            source_values = (
+                                value.elements
+                                if isinstance(value, ArrayLit)
+                                and not value.is_repeat
+                                else (value,)
+                            )
+                            for source_value in source_values:
+                                moved_value = (
+                                    source_value.value
+                                    if isinstance(source_value, MoveExpr)
+                                    else source_value
+                                )
+                                if isinstance(moved_value, Name):
+                                    names.add(moved_value.value)
 
                     names.update(_sole_struct_transfer_names(value))
             return names
@@ -5132,6 +5260,25 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                 auto_cleanup_name=name,
             )
 
+        def sole_cleanup_for(
+            typ: Type, name: str, token: Token
+        ) -> Defer | None:
+            if (
+                typ.name not in sole_recursive_drop_types or typ.pointer
+                or typ.is_array or typ.is_reference
+                or getattr(typ, "ownership_domain", None) is not None
+            ):
+                return None
+            return Defer(
+                token,
+                value=Call(
+                    token,
+                    f"__sotlas_sole_drop_{typ.name}",
+                    [Unary(token, "&", Name(token, name))],
+                ),
+                auto_cleanup_name=name,
+            )
+
         if owned_params is not None:
             for param_name, param_type in owned_params:
                 region_cleanup = region_cleanup_for(
@@ -5140,7 +5287,13 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                 )
                 if region_cleanup is not None:
                     defer_scopes[-1].append(region_cleanup)
-                if (
+                sole_cleanup = sole_cleanup_for(
+                    param_type, param_name,
+                    Token("IDENT", param_name, 0, 0),
+                )
+                if sole_cleanup is not None:
+                    defer_scopes[-1].append(sole_cleanup)
+                elif (
                     param_type.name in sole_types
                     and not param_type.pointer
                     and param_type.ownership_domain != "region"
@@ -5257,7 +5410,12 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                     )
                     if region_cleanup is not None:
                         defer_scopes[-1].append(region_cleanup)
-                    if (
+                    sole_cleanup = sole_cleanup_for(
+                        typ, item.name, item.token
+                    )
+                    if sole_cleanup is not None and region_cleanup is None:
+                        defer_scopes[-1].append(sole_cleanup)
+                    elif (
                         typ.name in deinit_methods and not typ.pointer
                         and region_cleanup is None
                     ):
@@ -5283,7 +5441,12 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                     )
                     if region_cleanup is not None:
                         defer_scopes[-1].append(region_cleanup)
-                    if (
+                    sole_cleanup = sole_cleanup_for(
+                        typ, item.name, item.token
+                    )
+                    if sole_cleanup is not None and region_cleanup is None:
+                        defer_scopes[-1].append(sole_cleanup)
+                    elif (
                         typ.name in deinit_methods
                         and region_cleanup is None
                     ):
@@ -5411,6 +5574,10 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                     destination_cleanup = region_cleanup_for(
                         destination_type, destination_name, item.token
                     )
+                    if destination_cleanup is None:
+                        destination_cleanup = sole_cleanup_for(
+                            destination_type, destination_name, item.token
+                        )
                     if destination_cleanup is None and (
                         destination_type.name in deinit_methods
                         and destination_type.name in sole_types

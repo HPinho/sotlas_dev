@@ -10032,6 +10032,82 @@ int main(void) {
             )
             self.assertEqual(executed.returncode, 0, executed.stderr)
 
+    def test_c11_sole_struct_cleanup_is_recursive_and_reverse_ordered(self):
+        source = """module test::sole_recursive_drop;
+pub sole struct Child { value: u32; }
+pub sole struct Parent { first: Child; children: [Child; 2]; second: Child; }
+pub static mut drops: u32 = 0u32;
+fn Child_deinit(self: &mut Child) -> void {
+    drops = drops * 10u32 + 1u32;
+    return;
+}
+fn Parent_deinit(self: &mut Parent) -> void {
+    drops = drops * 10u32 + 2u32;
+    return;
+}
+pub fn make_and_drop() -> void {
+    let first: Child = Child { value: 1u32 };
+    let second: Child = Child { value: 2u32 };
+    let third: Child = Child { value: 3u32 };
+    let fourth: Child = Child { value: 4u32 };
+    let parent: Parent = Parent { first: first, children: [third, fourth], second: second };
+    return;
+}
+pub fn consume(parent: Parent) -> void { return; }
+pub fn move_and_drop() -> void {
+    let first: Child = Child { value: 3u32 };
+    let second: Child = Child { value: 4u32 };
+    let third: Child = Child { value: 5u32 };
+    let fourth: Child = Child { value: 6u32 };
+    let parent: Parent = Parent { first: first, children: [third, fourth], second: second };
+    let moved: Parent = parent;
+    consume(moved);
+    return;
+}
+"""
+        parsed = bootstrap.parse(source, filename="<sole-recursive-drop>")
+        generated = bootstrap.compile_module(parsed)
+        self.assertIn("__sotlas_sole_drop_Parent((&parent))", generated)
+        self.assertIn("__sotlas_sole_drop_Child(&value->second)", generated)
+        self.assertIn("sizeof(value->children) / sizeof(value->children[0])", generated)
+
+        compiler = shutil.which(os.environ.get("CC", "")) or next(
+            (path for name in ("clang", "cc", "gcc")
+             if (path := shutil.which(name))),
+            None,
+        )
+        if compiler is None and os.name == "nt":
+            bundled_clang = Path(r"C:\Program Files\LLVM\bin\clang.exe")
+            if bundled_clang.is_file():
+                compiler = str(bundled_clang)
+        if compiler is None:
+            self.skipTest("C11 compiler unavailable")
+        harness = """
+int main(void) {
+    make_and_drop();
+    if (drops != 21111u) return 1;
+    drops = 0u;
+    move_and_drop();
+    return drops == 21111u ? 0 : 2;
+}
+"""
+        with tempfile.TemporaryDirectory(prefix="sotlas_sole_drop_") as temp:
+            c_file = Path(temp) / "sole_drop.c"
+            executable = Path(temp) / (
+                "sole_drop.exe" if os.name == "nt" else "sole_drop"
+            )
+            c_file.write_text(generated + "\n" + harness, encoding="utf-8")
+            compiled = subprocess.run(
+                [compiler, "-std=c11", "-Wall", "-Wextra", "-Werror",
+                 str(c_file), "-o", str(executable)],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            executed = subprocess.run(
+                [str(executable)], capture_output=True, text=True, check=False
+            )
+            self.assertEqual(executed.returncode, 0, executed.stderr)
+
     def test_sole_enum_payload_with_nested_owner_fails_closed(self):
         source = """module test::owned_enum_nested_payload;
 sole struct Child { value: u32; }
