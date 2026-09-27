@@ -23,7 +23,7 @@ describe the tested 1.0 subset. They are not claims of full language support.
 | 13 | Transactions | `test_sotlas_flow_frontend.py` | Effect policy checks and sequential compensation behavior. | Parallel transactional execution and arbitrary rollback semantics are rejected. |
 | 14 | Intent | `test_sotlas_flow_frontend.py` | Selection among checked eligible Flow alternatives, fallback reports, and explicit provider availability requirements. | Provider availability is supplied by the caller; intent does not discover or dispatch physical hardware. |
 | 15 | Canonical SIR | `test_sotlas_sir.py`, `test_sotlas_sir_report_cli.py` | Canonical SIR facts, validation, and reports. | SIR body lowering remains a certified subset, not complete lowering for the language. |
-| 16 | Native machine backend | `test_sotlas_llvm_direct_emission.py` | Direct LLVM subset emission, native execution, and C11/LLVM differential checks for tested unsigned parameter and literal arithmetic. | Parity covers only tested forms. LLVM provides target code generation; Sotlas does not yet own register allocation or a machine backend. |
+| 16 | Native machine backend | `test_sotlas_llvm_direct_emission.py` | Direct LLVM subset emission, native execution, and C11/LLVM differential checks for unsigned parameter/literal arithmetic and signed comparison inputs. | Parity covers only tested forms. LLVM provides target code generation; Sotlas does not yet own register allocation or a machine backend. |
 | 17 | Advanced tooling | `test_sotlas_contract_report_cli.py`, `test_sotlas_flow_report_cli.py`, `test_sotlas_sir_report_cli.py` | Deterministic report CLI contracts. | Reports describe only facts represented by the checked subset. |
 
 ## Cross-cutting validation

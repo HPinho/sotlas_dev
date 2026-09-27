@@ -253,6 +253,52 @@ pub fn add_bias(value: u32) -> u32 {
                 ).returncode
         self.assertEqual(results, {"c11": 0, "llvm": 0})
 
+    def test_c11_and_llvm_backends_agree_on_signed_comparison_inputs(self):
+        source = """module test::backend_signed_compare_differential;
+pub fn less(left: i32, right: i32) -> bool {
+    return left < right;
+}
+"""
+        clang = self.toolchain.find_tool("clang")
+        if clang is None:
+            self.skipTest("Clang is required for the C11/LLVM differential test")
+
+        caller = self.tmp_path / "signed_compare_backend_caller.c"
+        caller.write_text(
+            "#include <stdbool.h>\n"
+            "extern bool less(int, int);\n"
+            "int main(void) {\n"
+            "  if (!less(-10, 2)) return 1;\n"
+            "  if (less(2, -10)) return 2;\n"
+            "  if (less(-4, -4)) return 3;\n"
+            "  return 0;\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        results = {}
+        for backend in ("c11", "llvm"):
+            with self.subTest(backend=backend):
+                object_file = self.tmp_path / f"signed-compare-{backend}.o"
+                self.toolchain.compile_source_to_native(
+                    source,
+                    "test::backend_signed_compare_differential",
+                    object_file,
+                    emit_type="obj",
+                    backend=backend,
+                )
+                executable = self.tmp_path / f"signed-compare-{backend}.exe"
+                subprocess.run(
+                    [str(clang), str(caller), str(object_file), "-o", str(executable)],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+                results[backend] = subprocess.run(
+                    [str(executable)], capture_output=True, text=True, check=False
+                ).returncode
+
+        self.assertEqual(results, {"c11": 0, "llvm": 0})
+
     def test_llvm_signed_parameter_comparison_executes_from_native_caller(self):
         source = """module test::llvm_signed_native_compare;
 pub fn less(left: i32, right: i32) -> bool {
