@@ -15,6 +15,55 @@ from sotlas.llvm_toolchain import default_toolchain  # noqa: E402
 
 
 class SotlasOpenCLGpuRuntimeTests(unittest.TestCase):
+    def test_opencl_failure_paths_release_every_created_resource_without_a_gpu(self):
+        if sys.platform != "linux":
+            self.skipTest("The fault provider overrides Linux libOpenCL dynamic loading")
+        compiler = default_toolchain.find_tool("clang") or shutil.which("gcc")
+        if compiler is None:
+            self.skipTest("Clang or GCC is required for the OpenCL cleanup check")
+
+        with tempfile.TemporaryDirectory(prefix="sotlas-opencl-fault-") as temp:
+            directory = Path(temp)
+            provider = directory / "libOpenCL.so.1"
+            executable = directory / "opencl_fault_test"
+            provider_build = subprocess.run(
+                [str(compiler), "-std=c11", "-Wall", "-Wextra", "-Werror",
+                 "-shared", "-fPIC",
+                 str(ROOT / "tests" / "native" / "fake_opencl_fault.c"),
+                 "-o", str(provider)],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(provider_build.returncode, 0,
+                             provider_build.stderr or provider_build.stdout)
+            runtime_build = subprocess.run(
+                [str(compiler), "-std=c11", "-Wall", "-Wextra", "-Werror",
+                 "-I", str(ROOT / "runtime"),
+                 str(ROOT / "runtime" / "opencl_vector.c"),
+                 str(ROOT / "tests" / "native" / "test_opencl_fault_native.c"),
+                 "-ldl", "-o", str(executable)],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(runtime_build.returncode, 0,
+                             runtime_build.stderr or runtime_build.stdout)
+
+            # Exercise failures from partial initialization through readback. The
+            # provider aborts during dlclose if any acquired OpenCL handle leaked.
+            for fail_at in ("context", "queue", "program", "build", "kernel",
+                            "buffer", "write", "arg", "kernel_enqueue",
+                            "finish", "read", "profile"):
+                with self.subTest(fail_at=fail_at):
+                    environment = os.environ.copy()
+                    environment["LD_LIBRARY_PATH"] = str(directory) + os.pathsep + environment.get(
+                        "LD_LIBRARY_PATH", ""
+                    )
+                    environment["SOTLAS_FAKE_OPENCL_FAIL_AT"] = fail_at
+                    executed = subprocess.run(
+                        [str(executable)], env=environment,
+                        capture_output=True, text=True, check=False,
+                    )
+                    self.assertEqual(executed.returncode, 0,
+                                     executed.stderr or executed.stdout)
+
     def test_compute_policy_reports_cpu_and_validates_device_fallback(self):
         compiler = default_toolchain.find_tool("clang") or shutil.which("gcc")
         if compiler is None:
