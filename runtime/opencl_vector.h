@@ -3,6 +3,7 @@
 #define SOTLAS_OPENCL_VECTOR_H
 
 #include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -29,6 +30,12 @@ typedef enum sotlas_compute_backend {
     SOTLAS_COMPUTE_BACKEND_OPENCL_GPU = 2
 } sotlas_compute_backend_t;
 
+typedef struct sotlas_opencl_profile {
+    uint64_t upload_nanoseconds;
+    uint64_t kernel_nanoseconds;
+    uint64_t download_nanoseconds;
+} sotlas_opencl_profile_t;
+
 /* Adds count f32 values on the first available OpenCL GPU.
  * Input buffers are copied to device memory; output is copied back after the
  * queue completes. The output array is written only after a successful read.
@@ -38,6 +45,17 @@ sotlas_opencl_status_t sotlas_opencl_vector_add_f32(
     const float *right,
     float *output,
     size_t count
+);
+
+/* GPU-only variant with OpenCL event profiling. All durations are device event
+ * timestamps in nanoseconds; upload is the sum of both input-buffer writes.
+ */
+sotlas_opencl_status_t sotlas_opencl_vector_add_f32_profiled(
+    const float *left,
+    const float *right,
+    float *output,
+    size_t count,
+    sotlas_opencl_profile_t *profile
 );
 
 /* Runs the same vector operation with an explicit backend policy. The selected

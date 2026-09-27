@@ -11,8 +11,11 @@ int main(void) {
     const size_t count = sizeof(left) / sizeof(left[0]);
     size_t index;
     sotlas_opencl_status_t status;
+    sotlas_opencl_profile_t profile;
 
-    status = sotlas_opencl_vector_add_f32(left, right, output, count);
+    status = sotlas_opencl_vector_add_f32_profiled(
+        left, right, output, count, &profile
+    );
     if (status == SOTLAS_OPENCL_NO_GPU ||
         status == SOTLAS_OPENCL_RUNTIME_UNAVAILABLE) return 77;
     if (status != SOTLAS_OPENCL_OK) return 1;
@@ -20,6 +23,12 @@ int main(void) {
         const float cpu_reference = left[index] + right[index];
         if (output[index] != cpu_reference || output[index] != expected[index]) return 2;
     }
+    if (profile.upload_nanoseconds == 0 ||
+        profile.kernel_nanoseconds == 0 ||
+        profile.download_nanoseconds == 0) return 7;
+    if (sotlas_opencl_vector_add_f32_profiled(
+            left, right, output, count, NULL
+        ) != SOTLAS_OPENCL_INVALID_ARGUMENT) return 8;
 
     if (sotlas_opencl_vector_add_f32(NULL, right, output, count) !=
             SOTLAS_OPENCL_INVALID_ARGUMENT) return 3;
@@ -32,6 +41,6 @@ int main(void) {
             (const float *)(uintptr_t)2u,
             (float *)(uintptr_t)3u,
             SIZE_MAX / sizeof(float) + 1u
-        ) != SOTLAS_OPENCL_SIZE_OVERFLOW) return 6;
+        ) != SOTLAS_OPENCL_SIZE_OVERFLOW) return 9;
     return 0;
 }

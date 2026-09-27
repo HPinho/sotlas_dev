@@ -40,10 +40,14 @@ system OpenCL framework. A machine without an OpenCL GPU returns the explicit
   selected backend and falls back only for `RUNTIME_UNAVAILABLE` or `NO_GPU`;
   kernel, allocation, and transfer errors remain visible. Execution is
   synchronous and has no asynchronous event handle.
+- The GPU-only profiled call reports OpenCL event durations for both input
+  uploads, kernel execution, and result download separately. These are device
+  event times; they do not include host-side setup, compilation, allocation, or
+  total call latency.
 - This demonstrates Sotlas-to-OpenCL C interop through C11. It does not yet
   lower Flow stages or Sotlas expressions into GPU kernels, and it does not
-  provide CUDA, Vulkan, NPU, explicit cross-device scheduling, or transfer and
-  kernel timing metrics.
+  provide CUDA, Vulkan, NPU, explicit cross-device scheduling, or a benchmark
+  harness that accounts for host setup and end-to-end latency.
 
 The hardware test is optional in CI because hosted runners do not promise an
 OpenCL GPU. It was executed against a physical OpenCL GPU during development.

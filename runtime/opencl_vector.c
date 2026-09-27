@@ -21,6 +21,8 @@ typedef uint32_t cl_bool;
 typedef uint64_t cl_device_type;
 typedef uint64_t cl_mem_flags;
 typedef uint64_t cl_ulong;
+typedef uint64_t cl_command_queue_properties;
+typedef uint32_t cl_profiling_info;
 typedef intptr_t cl_context_properties;
 typedef intptr_t cl_queue_properties;
 typedef struct _cl_platform_id *cl_platform_id;
@@ -28,6 +30,7 @@ typedef struct _cl_device_id *cl_device_id;
 typedef struct _cl_context *cl_context;
 typedef struct _cl_command_queue *cl_command_queue;
 typedef struct _cl_mem *cl_mem;
+typedef struct _cl_event *cl_event;
 typedef struct _cl_program *cl_program;
 typedef struct _cl_kernel *cl_kernel;
 
@@ -37,13 +40,16 @@ typedef struct _cl_kernel *cl_kernel;
 #define CL_MEM_WRITE_ONLY ((cl_mem_flags)1u << 1)
 #define CL_MEM_READ_ONLY ((cl_mem_flags)1u << 2)
 #define CL_MEM_COPY_HOST_PTR ((cl_mem_flags)1u << 5)
+#define CL_QUEUE_PROFILING_ENABLE ((cl_command_queue_properties)1u << 1)
+#define CL_PROFILING_COMMAND_START ((cl_profiling_info)0x1282u)
+#define CL_PROFILING_COMMAND_END ((cl_profiling_info)0x1283u)
 #define CL_TRUE 1u
 
 typedef cl_int (SOTLAS_CL_CALL *clGetPlatformIDs_fn)(cl_uint, cl_platform_id *, cl_uint *);
 typedef cl_int (SOTLAS_CL_CALL *clGetDeviceIDs_fn)(cl_platform_id, cl_device_type, cl_uint, cl_device_id *, cl_uint *);
 typedef cl_context (SOTLAS_CL_CALL *clCreateContext_fn)(const cl_context_properties *, cl_uint, const cl_device_id *, void (*)(const char *, const void *, size_t, void *), void *, cl_int *);
 typedef cl_int (SOTLAS_CL_CALL *clReleaseContext_fn)(cl_context);
-typedef cl_command_queue (SOTLAS_CL_CALL *clCreateCommandQueue_fn)(cl_context, cl_device_id, cl_ulong, cl_int *);
+typedef cl_command_queue (SOTLAS_CL_CALL *clCreateCommandQueue_fn)(cl_context, cl_device_id, cl_command_queue_properties, cl_int *);
 typedef cl_int (SOTLAS_CL_CALL *clReleaseCommandQueue_fn)(cl_command_queue);
 typedef cl_program (SOTLAS_CL_CALL *clCreateProgramWithSource_fn)(cl_context, cl_uint, const char **, const size_t *, cl_int *);
 typedef cl_int (SOTLAS_CL_CALL *clBuildProgram_fn)(cl_program, cl_uint, const cl_device_id *, const char *, void (*)(cl_program, void *), void *);
@@ -55,6 +61,9 @@ typedef cl_int (SOTLAS_CL_CALL *clReleaseMemObject_fn)(cl_mem);
 typedef cl_int (SOTLAS_CL_CALL *clSetKernelArg_fn)(cl_kernel, cl_uint, size_t, const void *);
 typedef cl_int (SOTLAS_CL_CALL *clEnqueueNDRangeKernel_fn)(cl_command_queue, cl_kernel, cl_uint, const size_t *, const size_t *, const size_t *, cl_uint, const void *, void *);
 typedef cl_int (SOTLAS_CL_CALL *clEnqueueReadBuffer_fn)(cl_command_queue, cl_mem, cl_bool, size_t, size_t, void *, cl_uint, const void *, void *);
+typedef cl_int (SOTLAS_CL_CALL *clEnqueueWriteBuffer_fn)(cl_command_queue, cl_mem, cl_bool, size_t, size_t, const void *, cl_uint, const cl_event *, cl_event *);
+typedef cl_int (SOTLAS_CL_CALL *clGetEventProfilingInfo_fn)(cl_event, cl_profiling_info, size_t, void *, size_t *);
+typedef cl_int (SOTLAS_CL_CALL *clReleaseEvent_fn)(cl_event);
 typedef cl_int (SOTLAS_CL_CALL *clFinish_fn)(cl_command_queue);
 
 typedef struct sotlas_opencl_api {
@@ -75,6 +84,9 @@ typedef struct sotlas_opencl_api {
     clSetKernelArg_fn set_kernel_arg;
     clEnqueueNDRangeKernel_fn enqueue_ndrange_kernel;
     clEnqueueReadBuffer_fn enqueue_read_buffer;
+    clEnqueueWriteBuffer_fn enqueue_write_buffer;
+    clGetEventProfilingInfo_fn get_event_profiling_info;
+    clReleaseEvent_fn release_event;
     clFinish_fn finish;
 } sotlas_opencl_api_t;
 
@@ -129,6 +141,9 @@ static int sotlas_opencl_load(sotlas_opencl_api_t *api) {
     SOTLAS_LOAD_OPENCL(api, set_kernel_arg, "clSetKernelArg");
     SOTLAS_LOAD_OPENCL(api, enqueue_ndrange_kernel, "clEnqueueNDRangeKernel");
     SOTLAS_LOAD_OPENCL(api, enqueue_read_buffer, "clEnqueueReadBuffer");
+    SOTLAS_LOAD_OPENCL(api, enqueue_write_buffer, "clEnqueueWriteBuffer");
+    SOTLAS_LOAD_OPENCL(api, get_event_profiling_info, "clGetEventProfilingInfo");
+    SOTLAS_LOAD_OPENCL(api, release_event, "clReleaseEvent");
     SOTLAS_LOAD_OPENCL(api, finish, "clFinish");
     return 1;
 }
@@ -198,11 +213,33 @@ done:
     return selected;
 }
 
-sotlas_opencl_status_t sotlas_opencl_vector_add_f32(
+static int sotlas_opencl_event_duration(
+    sotlas_opencl_api_t *api,
+    cl_event event,
+    cl_ulong *duration
+) {
+    cl_ulong start = 0;
+    cl_ulong end = 0;
+    if (!event || !duration ||
+        api->get_event_profiling_info(
+            event, CL_PROFILING_COMMAND_START, sizeof(start), &start, NULL
+        ) != CL_SUCCESS ||
+        api->get_event_profiling_info(
+            event, CL_PROFILING_COMMAND_END, sizeof(end), &end, NULL
+        ) != CL_SUCCESS ||
+        end < start) {
+        return 0;
+    }
+    *duration = end - start;
+    return 1;
+}
+
+static sotlas_opencl_status_t sotlas_opencl_vector_add_f32_impl(
     const float *left,
     const float *right,
     float *output,
-    size_t count
+    size_t count,
+    sotlas_opencl_profile_t *profile
 ) {
     static const char kernel_source[] =
         "__kernel void vector_add_f32(__global const float *left, "
@@ -221,9 +258,22 @@ sotlas_opencl_status_t sotlas_opencl_vector_add_f32(
     cl_mem left_buffer = NULL;
     cl_mem right_buffer = NULL;
     cl_mem output_buffer = NULL;
+    cl_event left_write_event = NULL;
+    cl_event right_write_event = NULL;
+    cl_event kernel_event = NULL;
+    cl_event read_event = NULL;
     cl_int result = CL_SUCCESS;
+    cl_ulong left_write_duration = 0;
+    cl_ulong right_write_duration = 0;
+    cl_ulong kernel_duration = 0;
+    cl_ulong read_duration = 0;
     size_t index;
 
+    if (profile) {
+        profile->upload_nanoseconds = 0;
+        profile->kernel_nanoseconds = 0;
+        profile->download_nanoseconds = 0;
+    }
     if (count == 0) return SOTLAS_OPENCL_OK;
     if (!left || !right || !output) return SOTLAS_OPENCL_INVALID_ARGUMENT;
     if (count > SIZE_MAX / sizeof(float)) return SOTLAS_OPENCL_SIZE_OVERFLOW;
@@ -239,7 +289,9 @@ sotlas_opencl_status_t sotlas_opencl_vector_add_f32(
     if (!device) goto cleanup;
     context = api.create_context(NULL, 1, &device, NULL, NULL, &result);
     if (!context || result != CL_SUCCESS) goto cleanup;
-    queue = api.create_command_queue(context, device, 0, &result);
+    queue = api.create_command_queue(
+        context, device, CL_QUEUE_PROFILING_ENABLE, &result
+    );
     if (!queue || result != CL_SUCCESS) goto cleanup;
     program = api.create_program_with_source(context, 1, &source_pointer, NULL, &result);
     if (!program || result != CL_SUCCESS) goto cleanup;
@@ -249,40 +301,70 @@ sotlas_opencl_status_t sotlas_opencl_vector_add_f32(
     kernel = api.create_kernel(program, "vector_add_f32", &result);
     if (!kernel || result != CL_SUCCESS) goto cleanup;
     left_buffer = api.create_buffer(
-        context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-        byte_count, (void *)left, &result
+        context, CL_MEM_READ_ONLY, byte_count, NULL, &result
     );
     if (!left_buffer || result != CL_SUCCESS) goto cleanup;
     right_buffer = api.create_buffer(
-        context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-        byte_count, (void *)right, &result
+        context, CL_MEM_READ_ONLY, byte_count, NULL, &result
     );
     if (!right_buffer || result != CL_SUCCESS) goto cleanup;
     output_buffer = api.create_buffer(
         context, CL_MEM_WRITE_ONLY, byte_count, NULL, &result
     );
     if (!output_buffer || result != CL_SUCCESS) goto cleanup;
+    if (api.enqueue_write_buffer(
+            queue, left_buffer, CL_TRUE, 0, byte_count, left,
+            0, NULL, &left_write_event
+        ) != CL_SUCCESS || !left_write_event) {
+        goto cleanup;
+    }
+    if (api.enqueue_write_buffer(
+            queue, right_buffer, CL_TRUE, 0, byte_count, right,
+            0, NULL, &right_write_event
+        ) != CL_SUCCESS || !right_write_event) {
+        goto cleanup;
+    }
     if (api.set_kernel_arg(kernel, 0, sizeof(left_buffer), &left_buffer) != CL_SUCCESS ||
         api.set_kernel_arg(kernel, 1, sizeof(right_buffer), &right_buffer) != CL_SUCCESS ||
         api.set_kernel_arg(kernel, 2, sizeof(output_buffer), &output_buffer) != CL_SUCCESS) {
         goto cleanup;
     }
     if (api.enqueue_ndrange_kernel(
-            queue, kernel, 1, NULL, &count, NULL, 0, NULL, NULL
-        ) != CL_SUCCESS) {
+            queue, kernel, 1, NULL, &count, NULL, 0, NULL, &kernel_event
+        ) != CL_SUCCESS || !kernel_event) {
         goto cleanup;
     }
     if (api.finish(queue) != CL_SUCCESS) goto cleanup;
     if (api.enqueue_read_buffer(
             queue, output_buffer, CL_TRUE, 0, byte_count, staging,
-            0, NULL, NULL
-        ) != CL_SUCCESS) {
+            0, NULL, &read_event
+        ) != CL_SUCCESS || !read_event) {
         goto cleanup;
+    }
+    if (!sotlas_opencl_event_duration(
+            &api, left_write_event, &left_write_duration
+        ) ||
+        !sotlas_opencl_event_duration(
+            &api, right_write_event, &right_write_duration
+        ) ||
+        !sotlas_opencl_event_duration(&api, kernel_event, &kernel_duration) ||
+        !sotlas_opencl_event_duration(&api, read_event, &read_duration)) {
+        goto cleanup;
+    }
+    if (profile) {
+        profile->upload_nanoseconds =
+            (uint64_t)left_write_duration + (uint64_t)right_write_duration;
+        profile->kernel_nanoseconds = (uint64_t)kernel_duration;
+        profile->download_nanoseconds = (uint64_t)read_duration;
     }
     for (index = 0; index < count; ++index) output[index] = staging[index];
     status = SOTLAS_OPENCL_OK;
 
 cleanup:
+    if (read_event) (void)api.release_event(read_event);
+    if (kernel_event) (void)api.release_event(kernel_event);
+    if (right_write_event) (void)api.release_event(right_write_event);
+    if (left_write_event) (void)api.release_event(left_write_event);
     if (output_buffer) (void)api.release_mem_object(output_buffer);
     if (right_buffer) (void)api.release_mem_object(right_buffer);
     if (left_buffer) (void)api.release_mem_object(left_buffer);
@@ -293,6 +375,28 @@ cleanup:
     sotlas_opencl_close_library(api.library);
     free(staging);
     return status;
+}
+
+sotlas_opencl_status_t sotlas_opencl_vector_add_f32(
+    const float *left,
+    const float *right,
+    float *output,
+    size_t count
+) {
+    return sotlas_opencl_vector_add_f32_impl(left, right, output, count, NULL);
+}
+
+sotlas_opencl_status_t sotlas_opencl_vector_add_f32_profiled(
+    const float *left,
+    const float *right,
+    float *output,
+    size_t count,
+    sotlas_opencl_profile_t *profile
+) {
+    if (!profile) return SOTLAS_OPENCL_INVALID_ARGUMENT;
+    return sotlas_opencl_vector_add_f32_impl(
+        left, right, output, count, profile
+    );
 }
 
 static sotlas_opencl_status_t sotlas_cpu_vector_add_f32(
