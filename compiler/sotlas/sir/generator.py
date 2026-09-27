@@ -1877,6 +1877,11 @@ class SIRGenerator:
         ):
             return sir_fn
 
+        if self._try_lower_scalar_local_parameter_return(
+            fn, entry_block, sir_params, ret_str
+        ):
+            return sir_fn
+
         if self._try_lower_integer_local_literal_return(
             fn, entry_block, ret_str
         ):
@@ -1933,6 +1938,54 @@ class SIRGenerator:
             return False
         parameter = next(
             (item for item in params if item.name == name), None
+        )
+        if parameter is None or parameter.type_name != return_type:
+            return False
+        entry_block.add(ReturnInst(
+            value=parameter,
+            point_id=self._terminal_return_point_id(fn),
+        ))
+        return True
+
+    def _try_lower_scalar_local_parameter_return(
+        self,
+        fn: Any,
+        entry_block: SIRBasicBlock,
+        params: list[SIRValue],
+        return_type: str,
+    ) -> bool:
+        """Lower a local immutable alias of one same-typed scalar parameter."""
+        scalar_types = {
+            "u8", "u16", "u32", "u64", "usize", "bool",
+            "i8", "i16", "i32", "i64", "isize", "f32", "f64",
+        }
+        if return_type not in scalar_types:
+            return False
+        body = list(getattr(fn, "body", ()) or ())
+        if len(body) != 2 or type(body[0]).__name__ != "Let":
+            return False
+        binding, returned = body
+        if type(returned).__name__ != "Return":
+            return False
+        if getattr(binding, "is_mut", False) or getattr(binding, "is_static", False):
+            return False
+        binding_type = getattr(binding, "type", None)
+        if binding_type is None or self._type_name(binding_type) != return_type:
+            return False
+
+        def name_of(node: Any) -> str | None:
+            if type(node).__name__ == "Name":
+                return getattr(node, "value", None)
+            if type(node).__name__ == "IdentNode":
+                return getattr(node, "name", None)
+            return None
+
+        local_name = getattr(binding, "name", None)
+        if name_of(getattr(returned, "value", None)) != local_name:
+            return False
+        initializer_name = name_of(getattr(binding, "value", None))
+        parameter = next(
+            (item for item in params if item.name == initializer_name), None
         )
         if parameter is None or parameter.type_name != return_type:
             return False

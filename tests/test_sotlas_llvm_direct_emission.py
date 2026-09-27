@@ -56,6 +56,19 @@ class TestSotlasLLVMDirectEmission(unittest.TestCase):
             "add i32 0, 7", local_destination.read_text(encoding="utf-8")
         )
 
+        alias_destination = self.tmp_path / "local_parameter_alias.ll"
+        self.toolchain.compile_source_to_native(
+            "module test::llvm_local_alias; "
+            "fn identity(input: u32) -> u32 { "
+            "let value: u32 = input; return value; }",
+            "test::llvm_local_alias",
+            alias_destination,
+            emit_type="llvm",
+            backend="llvm",
+        )
+        alias_ir = alias_destination.read_text(encoding="utf-8")
+        self.assertIn("ret i32 %input", alias_ir)
+
         cases = (
             (
                 "module test::llvm_unlowered_value; "

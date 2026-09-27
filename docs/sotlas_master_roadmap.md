@@ -4176,8 +4176,10 @@ Causality, Counterfactuals e Transactions rejeitam planos que falham nessa
 reconciliação. As chamadas ainda não estão nos CFGs executáveis.
 
 O SIR também representa retornos diretos de literais inteiros explicitamente
-tipados como `ConstantIntInst`, e o LLVM valida o intervalo antes de emitir o
-valor. Comparações diretas entre parâmetros inteiros do mesmo tipo chegam ao
+tipados como `ConstantIntInst`, imutáveis inteiros inicializados por esses
+literais, e alias locais escalares imutáveis de um parâmetro de mesmo tipo; o
+LLVM valida o intervalo antes de emitir os literais. Comparações diretas entre
+parâmetros inteiros do mesmo tipo chegam ao
 SIR como `CompareInst`; comparações signed e unsigned são emitidas pelo LLVM. A
 comparação signed fonte→objeto→caller C passou execução nativa para os dois
 sentidos de `<`. Aritmética assinada continua bloqueada até a linguagem definir
