@@ -668,8 +668,15 @@ class SIRGenerator:
                         or not source_name
                         or source_type is None
                         or target_type is None
-                        or source_domain is None
-                        or target_domain is None
+                        # The parser's Type object does not carry inferred
+                        # ownership domains for nominal `sole struct` types.
+                        # The canonical checked pipeline supplies those facts
+                        # to ownership placement, which validates this call
+                        # against the graph. Here, reject only an explicit
+                        # disagreement; requiring both annotations would
+                        # prevent otherwise checked consuming calls from
+                        # reaching their following ownership point.
+                        or source_domain != target_domain
                         or getattr(source_type, "name", None)
                         != getattr(target_type, "name", None)
                     ):

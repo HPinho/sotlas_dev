@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import importlib.util
 import os
 import subprocess
 import sys
@@ -36,6 +37,17 @@ class SotlasSIRReportCliTests(unittest.TestCase):
             env=environment,
             check=False,
         )
+
+    def _load_target_ir(self):
+        module_path = ROOT / "compiler" / "sotlas_compile" / "target_ir.py"
+        spec = importlib.util.spec_from_file_location(
+            "sotlas_test_target_ir", module_path
+        )
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
 
     def test_sir_report_is_deterministic_and_summarizes_checked_module(self):
         source = """module test::sir_report;
@@ -138,13 +150,46 @@ fn caller(token: Token) -> void { inspect(&token); return; }
         self.assertTrue(borrow["semantic_only"])
         self.assertEqual(borrow["attributes"]["callee"], "inspect")
 
+    def test_target_ir_report_preserves_checked_handover_after_move_call(self):
+        result = self._run_report(
+            """module test;
+sole struct Token { value: u32; }
+fn discard(token: Token) -> void { return; }
+fn transfer(source: Token, destination: Token) -> void {
+    discard(move destination);
+    handover source to destination;
+    return;
+}
+""",
+            "target-ir-report",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)
+        function = next(
+            item for item in report["functions"] if item["name"] == "transfer"
+        )
+        operations = [
+            instruction
+            for block in function["blocks"]
+            for instruction in block["instructions"]
+        ]
+        transfer = next(
+            item for item in operations
+            if item["op"] == "semantic.ownership_transfer"
+        )
+        self.assertEqual(transfer["attributes"]["operation"], "handover")
+        self.assertEqual(
+            transfer["attributes"]["point_id"].split("@")[0], "handover"
+        )
+        self.assertEqual(transfer["operands"], ["source", "destination"])
+
     def test_target_ir_lowerer_preserves_handover_domains_and_source_point(self):
         sys.path.insert(0, str(ROOT / "compiler"))
         try:
             from sotlas_compile.canonical_sir import load_canonical_sir
-            from sotlas_compile.target_ir import lower_sir_to_target_ir
         finally:
             sys.path.remove(str(ROOT / "compiler"))
+        lower_sir_to_target_ir = self._load_target_ir().lower_sir_to_target_ir
 
         sir = load_canonical_sir()
         source = sir.SIRValue("source", "Token")
@@ -175,14 +220,9 @@ fn caller(token: Token) -> void { inspect(&token); return; }
         self.assertEqual(transfer["attributes"]["point_id"], "handover@7:5")
 
     def test_target_ir_lowerer_rejects_unknown_sir_operations(self):
-        sys.path.insert(0, str(ROOT / "compiler"))
-        try:
-            from sotlas_compile.target_ir import (
-                TargetIRLoweringError,
-                lower_sir_to_target_ir,
-            )
-        finally:
-            sys.path.remove(str(ROOT / "compiler"))
+        target_ir = self._load_target_ir()
+        TargetIRLoweringError = target_ir.TargetIRLoweringError
+        lower_sir_to_target_ir = target_ir.lower_sir_to_target_ir
 
         class UnsupportedInstruction:
             pass
