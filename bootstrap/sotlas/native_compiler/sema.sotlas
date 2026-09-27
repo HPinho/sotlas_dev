@@ -220,6 +220,12 @@ impl Sema {
                 ) {
                 return false;
             }
+            if node.kind == AstKind::ExprCall
+                && !self.check_call_arity(
+                    nodes, node_count, node_index, source, source_len
+                ) {
+                return false;
+            }
             if node.kind == AstKind::AssignStmt {
                 let target_index: usize = node.first_child;
                 if target_index == 0 || target_index >= node_count {
@@ -386,6 +392,69 @@ impl Sema {
             declaration_count = declaration_count + 1;
         }
         return 0;
+    }
+
+    pub fn check_call_arity(
+        mut self: &mut Self,
+        nodes: *const AstNode,
+        node_count: usize,
+        call_index: usize,
+        source: *const u8,
+        source_len: usize
+    ) -> bool {
+        if nodes == null || call_index == 0 || call_index >= node_count {
+            self.error_count = self.error_count + 1;
+            return false;
+        }
+        let call: AstNode = unsafe { *(nodes + call_index) };
+        if call.kind != AstKind::ExprCall || call.first_child == 0
+            || call.first_child >= node_count {
+            self.error_count = self.error_count + 1;
+            self.error_line = call.span.line;
+            self.error_col = call.span.col;
+            return false;
+        }
+        let callee: AstNode = unsafe { *(nodes + call.first_child) };
+        if callee.kind != AstKind::ExprIdent {
+            return true; // Qualified and indirect calls remain unsupported.
+        }
+        let function_index: usize = self.find_module_function(
+            nodes, node_count, call.first_child, source, source_len
+        );
+        if function_index == 0 {
+            return true; // The name check reports the more specific error.
+        }
+        let function: AstNode = unsafe { *(nodes + function_index) };
+        let mut expected: usize = 0;
+        let mut child: usize = function.first_child;
+        while child != 0 {
+            if child >= node_count {
+                self.error_count = self.error_count + 1;
+                return false;
+            }
+            let parameter: AstNode = unsafe { *(nodes + child) };
+            if parameter.kind == AstKind::ParamDecl {
+                expected = expected + 1;
+            }
+            child = parameter.next_sibling;
+        }
+        let mut actual: usize = 0;
+        child = callee.next_sibling;
+        while child != 0 {
+            if child >= node_count {
+                self.error_count = self.error_count + 1;
+                return false;
+            }
+            actual = actual + 1;
+            child = unsafe { (*(nodes + child)).next_sibling };
+        }
+        if actual != expected {
+            self.error_count = self.error_count + 1;
+            self.error_line = call.span.line;
+            self.error_col = call.span.col;
+            return false;
+        }
+        return true;
     }
 
     pub fn find_visible_binding(
