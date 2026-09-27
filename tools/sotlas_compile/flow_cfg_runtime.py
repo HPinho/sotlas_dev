@@ -135,9 +135,14 @@ def execute_serial_flow_cfg(
 
     actions = {}
     for stage_name, function, argument_stages in runtime_calls:
-        def invoke(values, *, function=function, argument_stages=argument_stages):
+        def invoke(
+            values, cancellation_token, *,
+            function=function, argument_stages=argument_stages,
+        ):
             arguments = tuple(values[producer] for producer in argument_stages)
-            return _interpret_function(function, arguments)
+            return _interpret_function(
+                function, arguments, cancellation_token=cancellation_token
+            )
 
         actions[stage_name] = invoke
 
@@ -146,6 +151,7 @@ def execute_serial_flow_cfg(
         actions,
         max_workers=1,
         cancel_event=cancel_event,
+        cooperative=True,
     )
 
 

@@ -3986,8 +3986,9 @@ ranges, and rejects overflow before returning a Flow result. This checked
 interpreter behavior does not define signed overflow for generated C11. The
 serial SIR interpreter also executes scalar stage CFGs with conditional
 branches, loop-carried `phi` joins, and backedges after Target IR validation;
-execution stops after one million block visits, and unreachable blocks,
-unsupported operations, and unsupported types fail closed. Ownership payloads,
+cooperative cancellation is checked on each block entry and execution stops
+after one million block visits. Unreachable blocks, unsupported operations, and
+unsupported types fail closed. Ownership payloads,
 verified stage failure semantics, and built-in GPU/NPU dispatch remain open. The bounded
 contract and rejections are documented in
 `docs/sotlas_1_0_phase6_flow_scope.md`.

@@ -185,6 +185,43 @@ flow Looping {
         with self.assertRaisesRegex(ValueError, r"block-visit limit \(4\)"):
             interpreter._interpret_function(looping, (), max_block_visits=4)
 
+    def test_flow_cancellation_interrupts_a_running_scalar_loop_stage(self):
+        source = """
+module test::flow_cfg_cancel_loop;
+fn seed() -> i32 { return 4i32; }
+fn spin(limit: i32) -> i32 { return limit; }
+flow Spinning {
+    stage bound = seed;
+    stage result = spin after bound;
+}
+"""
+        checked = package.analyze_source_phase1(source)
+        checked_sir, _ = package.build_canonical_checked_ownership_sir(checked)
+        canonical_sir = importlib.import_module(
+            "sotlas_flow_cfg_runtime_test_package.canonical_sir"
+        )
+        sir = canonical_sir.load_canonical_sir()
+        function = next(
+            item for item in checked_sir.module.functions if item.name == "spin"
+        )
+        function.blocks.clear()
+        function.add_block("entry").add(sir.BranchInst("spin"))
+        function.add_block("spin").add(sir.BranchInst("spin"))
+        cfg = package.lower_serial_flow_to_cfg(checked_sir.module, "Spinning")
+
+        class CancelAfterReads:
+            def __init__(self):
+                self.reads = 0
+
+            def is_set(self):
+                self.reads += 1
+                return self.reads >= 12
+
+        with self.assertRaises(package.FlowCancelledError):
+            package.execute_serial_flow_cfg(
+                checked_sir.module, cfg, cancel_event=CancelAfterReads()
+            )
+
     def test_revalidates_call_cfg_before_any_stage_execution(self):
         sir_module = self._module()
         cfg = package.lower_serial_flow_to_cfg(sir_module, "Serial")

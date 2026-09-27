@@ -62,6 +62,7 @@ def _interpret_function(
     arguments: tuple[object, ...],
     *,
     max_block_visits: int = _MAX_BLOCK_VISITS,
+    cancellation_token=None,
 ) -> object:
     parameters = tuple(getattr(function, "parameters", ()) or ())
     blocks = tuple(getattr(function, "blocks", ()) or ())
@@ -72,6 +73,10 @@ def _interpret_function(
         )
     if not isinstance(max_block_visits, int) or isinstance(max_block_visits, bool) or max_block_visits < 1:
         raise ValueError("SIR Flow interpreter block-visit limit must be positive")
+    if cancellation_token is not None and not callable(
+        getattr(cancellation_token, "raise_if_cancelled", None)
+    ):
+        raise TypeError("SIR Flow cancellation token must provide raise_if_cancelled()")
     if not blocks:
         raise ValueError(f"SIR Flow interpreter requires blocks in {function.name!r}")
 
@@ -111,6 +116,8 @@ def _interpret_function(
     predecessor = None
     visited_blocks = 0
     while True:
+        if cancellation_token is not None:
+            cancellation_token.raise_if_cancelled()
         visited_blocks += 1
         if visited_blocks > max_block_visits:
             raise ValueError(
@@ -345,11 +352,15 @@ def execute_interpreted_sir_flow(
         function = functions[stage.function]
         arguments = tuple(stage.arguments)
 
-        def invoke(values, *, function=function, arguments=arguments):
+        def invoke(
+            values, cancellation_token, *, function=function, arguments=arguments
+        ):
             inputs = tuple(
                 values[item.value.producer_stage] for item in arguments
             )
-            return _interpret_function(function, inputs)
+            return _interpret_function(
+                function, inputs, cancellation_token=cancellation_token
+            )
 
         actions[stage.name] = invoke
     return execute_flow(
@@ -357,6 +368,7 @@ def execute_interpreted_sir_flow(
         actions,
         max_workers=max_workers,
         cancel_event=cancel_event,
+        cooperative=True,
     )
 
 

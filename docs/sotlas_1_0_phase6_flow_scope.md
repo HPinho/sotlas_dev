@@ -27,8 +27,9 @@ source and verify stage outputs. The SIR interpreter supports straight-line
 integer and boolean bodies plus scalar branches, comparisons, `phi` joins, and
 loop backedges. It validates the CFG through Target IR before execution and
 rejects unreachable blocks, unsupported instructions, and unsupported types.
-Interpretation stops after one million block visits to bound non-terminating
-cycles. Its signed arithmetic rejects values outside the declared type range;
+Interpretation checks cooperative cancellation at every block entry and stops
+after one million block visits to bound non-terminating cycles. Its signed
+arithmetic rejects values outside the declared type range;
 the language-wide signed overflow contract remains open.
 
 For plans whose stage functions are proven pure and use signed or unsigned
@@ -91,7 +92,8 @@ not add parallel scheduling or asynchronous execution.
   the scheduler, and verify outputs and fail-closed behavior for parallel CFG,
   effectful functions and ownership-bearing values. Source-derived stage tests
   verify branch selection and scalar `phi` joins; a loop-carried `phi` test
-  executes through the scheduler, and a non-terminating CFG hits its visit cap.
+  executes through the scheduler. Cancellation interrupts an executing loop
+  stage at a block boundary, and a non-terminating CFG hits its visit cap.
 - Native C11 entrypoint execution is tested with C and Sotlas callers; positive
   tests include independent stages in a DAG. Negative tests check unsupported
   types and global access before emission. The separate executable SIR CFG
