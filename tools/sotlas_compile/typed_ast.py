@@ -6207,7 +6207,14 @@ def _validate_quarantine_alias_lifetimes(
                         "Unsafe": ("body",), "Defer": ("body",),
                     }.get(kind, ())
                     for attr in nested:
-                        record_paths(getattr(statement, attr, ()) or (), path)
+                        nested_path = (
+                            path + ((id(statement), 0),)
+                            if kind in ("While", "For", "Loop", "Defer")
+                            else path
+                        )
+                        record_paths(
+                            getattr(statement, attr, ()) or (), nested_path
+                        )
 
         record_paths(parsed_function.body)
         invalidated_at: dict[str, tuple[tuple[int, int], ...]] = {}
@@ -6229,9 +6236,17 @@ def _validate_quarantine_alias_lifetimes(
 
         for statement in statements:
             kind = type(statement).__name__
+            read_expressions = statement_expressions(statement)
+            if (
+                kind == "Assign"
+                and type(getattr(statement, "target", None)).__name__ == "Name"
+            ):
+                # Rebinding a local alias overwrites the stale reference; it
+                # does not read or dereference the old value.
+                read_expressions = (getattr(statement, "value", None),)
             source_names = set().union(
-                *(names_in_expr(expr) for expr in statement_expressions(statement))
-            ) if statement_expressions(statement) else set()
+                *(names_in_expr(expr) for expr in read_expressions)
+            ) if read_expressions else set()
             for name in source_names.intersection(invalid_aliases):
                 if paths_are_disjoint(
                     invalidated_at.get(name, ()),
@@ -6281,6 +6296,12 @@ def _validate_quarantine_alias_lifetimes(
                         aliases[target_name] = related
                     else:
                         aliases.pop(target_name, None)
+                    if (
+                        target_name in invalid_aliases
+                        and not branch_paths.get(id(statement), ())
+                    ):
+                        invalid_aliases.pop(target_name, None)
+                        invalidated_at.pop(target_name, None)
                 continue
 
             if kind == "Quarantine":

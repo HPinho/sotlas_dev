@@ -931,6 +931,34 @@ fn isolate(token: Token) -> void {
             source, filename="<phase1-quarantine-dead-alias>"
         )
 
+    def test_quarantine_allows_unconditionally_rebinding_invalidated_alias(self):
+        source = """module test::phase1_quarantine_rebind_alias;
+sole struct Token { value: u32; }
+fn isolate(token: Token, other: Token) -> u32 {
+    let mut alias = &token;
+    quarantine token;
+    alias = &other;
+    unsafe { return alias.value; }
+}
+"""
+        sotlas_compile.analyze_source_phase1(
+            source, filename="<phase1-quarantine-rebind-alias>"
+        )
+
+    def test_quarantine_allows_unconditional_rebind_after_conditional_invalidation(self):
+        source = """module test::phase1_quarantine_join_rebind_alias;
+sole struct Token { value: u32; }
+fn isolate(token: Token, other: Token, flag: bool) -> u32 {
+    let mut alias = &token;
+    if flag { quarantine token; return 0u32; }
+    alias = &other;
+    unsafe { return alias.value; }
+}
+"""
+        sotlas_compile.analyze_source_phase1(
+            source, filename="<phase1-quarantine-join-rebind-alias>"
+        )
+
     def test_quarantine_in_one_branch_does_not_invalidate_sibling_branch_alias(self):
         source = """module test::quarantine_disjoint_branches;
 sole struct Token { value: u32; }
