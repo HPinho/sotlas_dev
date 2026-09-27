@@ -66,7 +66,7 @@ performance advantages over established systems languages.
 | Flow on C11 | Pure scalar plans, including graphs with independent stages, expose a generated C entrypoint; C11 currently evaluates stages in deterministic dependency order. Stateful and ownership-bearing plans are rejected |
 | Flow CPU reference runner | `sotlas flow-run FILE --flow NAME` interprets checked pure scalar stages, schedules independent stages concurrently, and reports stage outputs; this is a reference runtime, not native parallel code |
 | LLVM output | Checked direct-lowering subset; unsupported forms are rejected |
-| Hardware domains and runtime | Preview or planned; do not assume hardware execution support |
+| Hardware domains and runtime | Experimental OpenCL C11 interop runs one f32 vector-add kernel on an available GPU; Flow GPU lowering and NPU execution remain unavailable |
 | VS Code | Syntax, outline, hover, local structural hints, compiler commands, and source-located compiler diagnostics; extension install/use smoke test runs in CI |
 | Installation | Python prerelease package; clean-install smoke tests run on Linux, Windows, and macOS in CI |
 
@@ -89,6 +89,12 @@ deterministic JSON with the result of each stage. Ownership-bearing values,
 effects, unsupported SIR instructions, device execution, and native parallel
 scheduling remain outside this runner's contract. See the [Flow CPU preview
 contract](docs/flow_cpu_preview.md) for the exact boundary.
+
+Sotlas can also call an experimental OpenCL runtime through an explicit C ABI.
+The [GPU vector-add example](examples/13_opencl_vector_add/README.md) compiles a
+Sotlas wrapper, copies f32 arrays to the first available OpenCL GPU, dispatches
+a kernel, and checks the returned values. Flow graphs are not lowered to GPU
+kernels yet; see the [OpenCL preview contract](docs/opencl_gpu_preview.md).
 
 For phase-by-phase test evidence and explicit boundaries, see the [generated phase gate matrix](docs/phase_gate_matrix.md), the [standard-library API contracts](stdlib/core/README.md), and the [high-level language and self-hosting roadmap](docs/high_level_and_self_hosting_roadmap.md).
 

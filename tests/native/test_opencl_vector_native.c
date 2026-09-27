@@ -1,0 +1,37 @@
+#include "opencl_vector.h"
+
+#include <stdint.h>
+#include <stddef.h>
+
+int main(void) {
+    const float left[] = {1.0f, -2.0f, 0.5f, 4.0f, 8.0f, -7.0f};
+    const float right[] = {2.0f, 3.0f, -0.5f, 6.0f, -3.0f, 7.0f};
+    const float expected[] = {3.0f, 1.0f, 0.0f, 10.0f, 5.0f, 0.0f};
+    float output[] = {-99.0f, -99.0f, -99.0f, -99.0f, -99.0f, -99.0f};
+    const size_t count = sizeof(left) / sizeof(left[0]);
+    size_t index;
+    sotlas_opencl_status_t status;
+
+    status = sotlas_opencl_vector_add_f32(left, right, output, count);
+    if (status == SOTLAS_OPENCL_NO_GPU ||
+        status == SOTLAS_OPENCL_RUNTIME_UNAVAILABLE) return 77;
+    if (status != SOTLAS_OPENCL_OK) return 1;
+    for (index = 0; index < count; ++index) {
+        const float cpu_reference = left[index] + right[index];
+        if (output[index] != cpu_reference || output[index] != expected[index]) return 2;
+    }
+
+    if (sotlas_opencl_vector_add_f32(NULL, right, output, count) !=
+            SOTLAS_OPENCL_INVALID_ARGUMENT) return 3;
+    if (sotlas_opencl_vector_add_f32(left, right, NULL, count) !=
+            SOTLAS_OPENCL_INVALID_ARGUMENT) return 4;
+    if (sotlas_opencl_vector_add_f32(NULL, NULL, NULL, 0) !=
+            SOTLAS_OPENCL_OK) return 5;
+    if (sotlas_opencl_vector_add_f32(
+            (const float *)(uintptr_t)1u,
+            (const float *)(uintptr_t)2u,
+            (float *)(uintptr_t)3u,
+            SIZE_MAX / sizeof(float) + 1u
+        ) != SOTLAS_OPENCL_SIZE_OVERFLOW) return 6;
+    return 0;
+}

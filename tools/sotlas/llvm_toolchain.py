@@ -608,7 +608,6 @@ class LLVMToolchain:
 
         from sotlas.codegen_llvm import CodegenLLVM
         production_frontend = canonical_llvm_frontend()
-        from sotlas import compile_source
 
         if emit_type == "llvm":
             ast = production_frontend.parse(source_text, filename=source_name)
@@ -652,7 +651,13 @@ class LLVMToolchain:
                     return self.link_native_binary([tmp_obj], out)
         else:
             # Backend c11 com Clang nativo
-            c_code = compile_source(source_text, source_name)
+            # Use the compiler-owned frontend selected above for both native
+            # backends. Importing ``sotlas.compile_source`` can resolve a stale
+            # tools mirror when both source trees are on sys.path, sending
+            # C11 through a different grammar and ownership contract.
+            c_code = production_frontend.compile_source(
+                source_text, filename=source_name
+            )
             if emit_type == "obj":
                 return self.compile_c_to_obj(
                     c_code,

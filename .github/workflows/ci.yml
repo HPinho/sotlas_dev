@@ -189,6 +189,7 @@ jobs:
 
     - name: Verify Phase 8 DEVICE reference source-to-C11 lifecycle
       run: |
+        python -m unittest discover -s tests -p "test_sotlas_opencl_gpu_runtime.py" -v
         python -m unittest discover -s tests -p "test_sotlas_device_reference_runtime.py" -v
         python -m unittest discover -s tests -p "test_sotlas_device_checked_c11_pipeline.py" -v
         python -m unittest discover -s tests -p "test_sotlas_device_reference_abi_link.py" -v

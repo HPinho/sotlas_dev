@@ -1,0 +1,17 @@
+module examples::opencl_vector_add;
+
+@extern(C) fn sotlas_opencl_vector_add_f32(
+    left: *const f32,
+    right: *const f32,
+    output: *mut f32,
+    count: usize
+) -> i32;
+
+@system @export fn run_gpu_add(
+    left: *const f32,
+    right: *const f32,
+    output: *mut f32,
+    count: usize
+) -> i32 {
+    return sotlas_opencl_vector_add_f32(left, right, output, count);
+}

@@ -79,6 +79,12 @@
       "entry": "examples/12_sotlas_by_example",
       "status": "EXPERIMENTAL",
       "backend_contract": false
+    },
+    {
+      "id": "13_opencl_vector_add",
+      "entry": "examples/13_opencl_vector_add/main.sotlas",
+      "status": "EXPERIMENTAL",
+      "backend_contract": true
     }
   ]
 }
