@@ -301,29 +301,73 @@ class _RegionMethodEscapeChecker:
                     else:
                         aliases.pop(target, None)
 
-            nested = {
-                b.If: ("then_body", "else_body"),
-                b.While: ("body",),
-                b.For: ("body",),
-                b.Loop: ("body",),
-                b.Unsafe: ("body",),
-                b.Defer: ("body",),
-            }.get(type(item), ())
-            for attr in nested:
-                self._check_statements(
-                    getattr(item, attr, ()) or (),
-                    dict(scope),
-                    set(region_owners),
-                    {name: set(owners) for name, owners in aliases.items()},
+            nested_bodies = None
+            may_skip = False
+            if isinstance(item, b.If):
+                nested_bodies = (
+                    getattr(item, "then_body", ()) or (),
+                    getattr(item, "else_body", ()) or (),
                 )
-            if type(item).__name__ == "Discern":
-                for case in item.cases:
+                may_skip = True
+            elif isinstance(item, (b.While, b.For, b.Loop)):
+                nested_bodies = (getattr(item, "body", ()) or (),)
+                may_skip = True
+            elif isinstance(item, b.Unsafe):
+                nested_bodies = (getattr(item, "body", ()) or (),)
+            elif isinstance(item, b.Defer):
+                # Deferred bodies execute at scope exit; checking them must not
+                # make their later assignments appear to happen immediately.
+                nested_bodies = (getattr(item, "body", ()) or (),)
+                may_skip = True
+            elif type(item).__name__ == "Discern":
+                nested_bodies = tuple(case.body for case in item.cases)
+                # Unless exhaustiveness is proven at this stage, preserve the
+                # incoming alias state as an additional possible path.
+                may_skip = True
+
+            if nested_bodies is not None:
+                outer_names = set(scope)
+                incoming_aliases = {
+                    name: set(owners) for name, owners in aliases.items()
+                }
+                branch_aliases = []
+                branch_local_names = []
+                for statements_in_branch in nested_bodies:
+                    branch_scope = dict(scope)
+                    branch_state = {
+                        name: set(owners)
+                        for name, owners in incoming_aliases.items()
+                    }
                     self._check_statements(
-                        case.body,
-                        dict(scope),
+                        statements_in_branch,
+                        branch_scope,
                         set(region_owners),
-                        {name: set(owners) for name, owners in aliases.items()},
+                        branch_state,
                     )
+                    branch_aliases.append(branch_state)
+                    branch_local_names.append({
+                        statement.name
+                        for statement in statements_in_branch
+                        if isinstance(statement, b.Let)
+                    })
+                if may_skip:
+                    branch_aliases.append(incoming_aliases)
+
+                # Carry aliases assigned on any path to a later use. The union
+                # is intentionally conservative: a later opaque call must be
+                # safe for every possible source, including REGION owners.
+                for name in outer_names:
+                    sources = set().union(*(
+                        branch.get(name, set())
+                        for branch, local_names in zip(
+                            branch_aliases, branch_local_names
+                        )
+                        if name not in local_names
+                    )) if branch_aliases else set()
+                    if sources:
+                        aliases[name] = sources
+                    else:
+                        aliases.pop(name, None)
 
     def _functions_to_check(self):
         result = []

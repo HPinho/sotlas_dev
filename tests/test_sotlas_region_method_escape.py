@@ -85,6 +85,98 @@ fn run(inspector: Inspector, token: region Token) -> void {
         ):
             bootstrap.check(module)
 
+    def test_region_alias_assigned_in_branch_cannot_hide_method_escape(self):
+        source = """module app::region_method_branch_alias_escape;
+sole struct Token { value: u32; }
+sole struct Inspector {
+    value: u32;
+    fn capture(&self, token: &Token) -> void { return; }
+}
+fn run(inspector: Inspector, token: region Token, other: Token, flag: bool) -> void {
+    let mut alias: &Token = &other;
+    if flag { alias = &token; }
+    inspector.capture(alias);
+    return;
+}
+"""
+        module = bootstrap.parse(
+            source,
+            filename="<region-method-branch-alias-escape>",
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"cannot escape through method .*capture.*direct or whisper",
+        ):
+            bootstrap.check(module)
+
+    def test_region_alias_in_either_if_arm_cannot_hide_method_escape(self):
+        source = """module app::region_method_either_arm_alias_escape;
+sole struct Token { value: u32; }
+sole struct Inspector {
+    value: u32;
+    fn capture(&self, token: &Token) -> void { return; }
+}
+fn run(inspector: Inspector, token: region Token, other: Token, flag: bool) -> void {
+    let mut alias: &Token = &other;
+    if flag { alias = &token; } else { alias = &token; }
+    inspector.capture(alias);
+    return;
+}
+"""
+        module = bootstrap.parse(
+            source,
+            filename="<region-method-either-arm-alias-escape>",
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"cannot escape through method .*capture.*direct or whisper",
+        ):
+            bootstrap.check(module)
+
+    def test_branch_local_shadow_does_not_replace_outer_alias(self):
+        source = """module app::region_method_shadowed_branch_alias;
+sole struct Token { value: u32; }
+sole struct Inspector {
+    value: u32;
+    fn capture(&self, token: &Token) -> void { return; }
+}
+fn run(inspector: Inspector, token: region Token, other: Token, flag: bool) -> void {
+    let alias: &Token = &other;
+    if flag { let alias: &Token = &token; }
+    inspector.capture(alias);
+    return;
+}
+"""
+        module = bootstrap.parse(
+            source,
+            filename="<region-method-shadowed-branch-alias>",
+        )
+        bootstrap.check(module)
+
+    def test_region_alias_assigned_in_loop_cannot_hide_method_escape(self):
+        source = """module app::region_method_loop_alias_escape;
+sole struct Token { value: u32; }
+sole struct Inspector {
+    value: u32;
+    fn capture(&self, token: &Token) -> void { return; }
+}
+fn run(inspector: Inspector, token: region Token, other: Token, flag: bool) -> void {
+    let mut alias: &Token = &other;
+    while flag { alias = &token; break; }
+    inspector.capture(alias);
+    return;
+}
+"""
+        module = bootstrap.parse(
+            source,
+            filename="<region-method-loop-alias-escape>",
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"cannot escape through method .*capture.*direct or whisper",
+        ):
+            bootstrap.check(module)
+
 
 if __name__ == "__main__":
     unittest.main()
