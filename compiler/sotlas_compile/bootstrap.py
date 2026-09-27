@@ -7,6 +7,7 @@ arrays fixos [T; N], ponteiros unsafe, casts ('as'), expressões, fluxo e mangli
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+from difflib import get_close_matches
 import importlib
 import importlib.util
 from pathlib import Path
@@ -1834,8 +1835,18 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
                     fn_params=tuple(param_type for _, param_type in function_value.params),
                     fn_ret=function_value.result,
                 )
+            candidates = tuple(dict.fromkeys(
+                (*scope.keys(), *global_map.keys(), *functions.keys())
+            ))
+            suggestion = get_close_matches(
+                expr.value, candidates, n=1, cutoff=0.84
+            )
+            hint = (
+                f" (você quis dizer '{suggestion[0]}'?)"
+                if suggestion else ""
+            )
             raise SotlasBootstrapError(
-                f"símbolo não declarado: {expr.value}", expr.token.line,
+                f"símbolo não declarado: {expr.value}{hint}", expr.token.line,
                 expr.token.column, filename, source,
             )
         if isinstance(expr, EnumAccess):

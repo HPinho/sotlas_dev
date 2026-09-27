@@ -61,6 +61,18 @@ CallInst, DestroyInst, ReleaseInst, ReturnInst, ShareInst = (
 
 
 class SotlasPhase1PipelineTests(unittest.TestCase):
+    def test_unknown_symbol_suggests_close_visible_name_at_source_location(self):
+        source = "module test::diagnostic_typo;\nfn read(result: u32) -> u32 { return reslt; }"
+        with self.assertRaises(sotlas_compile.SotlasBootstrapError) as raised:
+            sotlas_compile.bootstrap.check(
+                sotlas_compile.bootstrap.parse(source, filename="typo.sotlas")
+            )
+
+        error = raised.exception
+        self.assertEqual((error.file, error.line), ("typo.sotlas", 2))
+        self.assertIn("símbolo não declarado: reslt", error.message)
+        self.assertIn("você quis dizer 'result'?", error.message)
+
     def test_nested_cfg_places_direct_and_whisper_borrows_per_branch(self):
         source = """module test::phase1_direct_branch_borrow;
 sole struct Token { value: u32; }
