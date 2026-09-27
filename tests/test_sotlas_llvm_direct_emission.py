@@ -101,6 +101,22 @@ class TestSotlasLLVMDirectEmission(unittest.TestCase):
             self.toolchain.compile_llvm_ir_to_obj(local_ir, local_object)
             self.assertGreater(local_object.stat().st_size, 0)
 
+        comparison = self.tmp_path / "local_comparison.ll"
+        self.toolchain.compile_source_to_native(
+            "module test::llvm_local_comparison; "
+            "fn is_less(left: u32, right: u32) -> bool { "
+            "let result: bool = left < right; return result; }",
+            "test::llvm_local_comparison",
+            comparison,
+            emit_type="llvm",
+            backend="llvm",
+        )
+        comparison_ir = comparison.read_text(encoding="utf-8")
+        self.assertIn("icmp ult i32 %left, %right", comparison_ir)
+        comparison_object = self.tmp_path / "local_comparison.obj"
+        self.toolchain.compile_llvm_ir_to_obj(comparison_ir, comparison_object)
+        self.assertGreater(comparison_object.stat().st_size, 0)
+
         cases = (
             (
                 "module test::llvm_unlowered_value; "

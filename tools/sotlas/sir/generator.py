@@ -2007,9 +2007,30 @@ class SIRGenerator:
     ) -> bool:
         """Lower one direct comparison of same-typed scalar parameters."""
         body = list(getattr(fn, "body", ()) or ())
-        if len(body) != 1 or type(body[0]).__name__ not in ("Return", "ReturnNode"):
+        if len(body) == 1 and type(body[0]).__name__ in ("Return", "ReturnNode"):
+            return_statement = body[0]
+            expression = getattr(return_statement, "value", None)
+        elif (
+            len(body) == 2
+            and type(body[0]).__name__ == "Let"
+            and type(body[1]).__name__ == "Return"
+        ):
+            binding, return_statement = body
+            if (
+                getattr(binding, "is_mut", False)
+                or getattr(binding, "is_static", False)
+                or self._type_name(getattr(binding, "type", None)) != "bool"
+            ):
+                return False
+            returned_name = getattr(getattr(return_statement, "value", None), "value", None)
+            if (
+                type(getattr(return_statement, "value", None)).__name__ != "Name"
+                or returned_name != getattr(binding, "name", None)
+            ):
+                return False
+            expression = getattr(binding, "value", None)
+        else:
             return False
-        expression = getattr(body[0], "value", None)
         if type(expression).__name__ not in ("Binary", "BinaryExprNode"):
             return False
         if return_type not in {"bool", "Bool"}:
@@ -2046,9 +2067,10 @@ class SIRGenerator:
             return False
         result = self._next_val("cmp", "bool")
         entry_block.add(CompareInst(operation, left, right, result))
-        entry_block.add(
-            ReturnInst(value=result, point_id=self._terminal_return_point_id(fn))
-        )
+        entry_block.add(ReturnInst(
+            value=result,
+            point_id=self._terminal_return_point_id(fn),
+        ))
         return True
 
     def _try_lower_float_arithmetic_return(

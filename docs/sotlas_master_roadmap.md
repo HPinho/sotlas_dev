@@ -4178,9 +4178,9 @@ reconciliação. As chamadas ainda não estão nos CFGs executáveis.
 O SIR também representa retornos diretos de literais inteiros explicitamente
 tipados como `ConstantIntInst`, retornos e locais imutáveis booleanos, imutáveis
 inteiros inicializados por literais e alias locais escalares imutáveis de um
-parâmetro de mesmo tipo; o LLVM valida intervalos e emite booleanos como `i1`.
-Comparações diretas entre
-parâmetros inteiros do mesmo tipo chegam ao
+parâmetro de mesmo tipo; comparações podem retornar diretamente ou através de
+um local booleano imutável. O LLVM valida intervalos e emite booleanos como
+`i1`. Comparações diretas entre parâmetros inteiros do mesmo tipo chegam ao
 SIR como `CompareInst`; comparações signed e unsigned são emitidas pelo LLVM. A
 comparação signed fonte→objeto→caller C passou execução nativa para os dois
 sentidos de `<`. Aritmética assinada continua bloqueada até a linguagem definir
