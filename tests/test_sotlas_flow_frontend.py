@@ -1124,7 +1124,7 @@ flow Broken {
         with self.assertRaisesRegex(package.SotlasBootstrapError, "type does not match"):
             package.compile_source(mismatch)
 
-    def test_compatibility_frontend_parses_and_fails_closed_in_c11(self):
+    def test_compatibility_frontend_retains_f64_flow_stage_type(self):
         source = """module test::flow_frontend;
 fn load_profile() -> f64 { return 1.0; }
 flow Home {
@@ -1134,11 +1134,8 @@ flow Home {
         module = tools_package.bootstrap.parse(source)
         tools_package.bootstrap.check(module)
         self.assertEqual(len(module.typed_flows), 1)
-        with self.assertRaisesRegex(
-            tools_package.SotlasBootstrapError,
-            "does not support value type",
-        ):
-            tools_package.compile_source(source)
+        stage = module.typed_flows[0].stages[0]
+        self.assertEqual(stage.result_type.name, "f64")
 
 
 if __name__ == "__main__":

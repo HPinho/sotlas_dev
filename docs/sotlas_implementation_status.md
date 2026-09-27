@@ -53,7 +53,8 @@ Escopos concluídos: `docs/phase0_reality_audit.md`, contratos 1.0 das fases 5�
 - The SIR Flow interpreter now accepts checked boolean parameters and parameter forwarding; the new Flow case runs a comparison result through a second stage.
 - C11 and direct LLVM are compared by compiling the same unsigned arithmetic function and running both artifacts with the same native C caller and inputs.
 - Standard-library ownership, mutability, allocator lifetime, cleanup, and failure contracts are documented in `stdlib/core/README.md`.
-- Flow now emits a C-callable C11 entrypoint for serial pure signed/unsigned integer and bool plans; C and Sotlas `@system` callers can invoke it through an exact `@extern(C)` declaration. Native callers receive the final stage result. The gate rejects parallel plans, unsupported types, contracts, global access, method calls, and system/foreign stage functions. A dedicated Flow invocation syntax, parallel native scheduling, error/cancellation propagation, ownership payloads, and GPU/NPU providers remain open. Production compiler self-hosting also remains open: Sotlas-lite does not replace the Python compiler.
+- Flow emits a C-callable C11 entrypoint for serial pure signed/unsigned integer, `f32`/`f64`, and bool plans; C and Sotlas `@system` callers can invoke it through an exact `@extern(C)` declaration. Native callers receive the final stage result. The gate rejects parallel plans, unsupported types, contracts, global access, method calls, and system/foreign stage functions. A dedicated Flow invocation syntax, parallel native scheduling, error/cancellation propagation, ownership payloads, and GPU/NPU providers remain open. Production compiler self-hosting also remains open: Sotlas-lite does not replace the Python compiler.
+- SIR Flow execution now accepts signed integer stage signatures and direct parameter forwarding; arithmetic results are range-checked, while native signed-overflow behavior remains outside the language contract.
 - `tests/test_sotlas_flow_native.py` compiles and executes the generated entrypoint with the same C toolchain used by the native preview gates.
 
 ## Fase 0 — Reality Reset
@@ -344,7 +345,7 @@ Escopo e limites pós-1.0: `docs/sotlas_1_0_phase5_effects_scope.md`.
 - [x] `flow-report` serializa em JSON determinístico o cronograma, assinaturas, efeitos e provenance de cada plano validado no SIR;
 - [x] planos estritamente seriais de tipos escalares baixam a `CallInst` em CFG SIR certificado e validado contra plano, assinaturas, dependências e provenance;
 - [x] scheduler executa o CFG certificado interpretando os corpos SIR puros e revalida efeitos antes da execução;
-- [x] entrypoint C11 nativo para Flow estritamente serial, puro e escalar (`i8/i16/i32/i64/isize/u8/u16/u32/u64/usize/bool`), chamado e verificado por um caller C;
+- [x] entrypoint C11 nativo para Flow estritamente serial, puro e escalar (`i8/i16/i32/i64/isize/u8/u16/u32/u64/usize/f32/f64/bool`), chamado e verificado por um caller C;
 - [x] Flow C11 falha fechado para planos paralelos, efeitos, acesso global direto/transitivo, chamadas de método, contratos, funções foreign/system e tipos fora do subset;
 - [x] teste end-to-end parte de fonte Sotlas, constrói SIR/CFG e confirma resultados no scheduler;
 - [x] formas fora do contrato (CFG paralelo executável, efeitos em stages, tipos com ownership/lifetime) falham fechadas antes de executar.

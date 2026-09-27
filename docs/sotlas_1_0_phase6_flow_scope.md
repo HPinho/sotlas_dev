@@ -23,11 +23,14 @@ serial plans with copy-safe scalar values into certified SIR `CallInst`s.
 `execute_serial_flow_cfg` revalidates that CFG, function signatures, effects,
 call provenance, and serial schedule before interpreting stage bodies and
 dispatching them through the scheduler. End-to-end tests start from Sotlas Flow
-source and verify stage outputs. Pure integer and boolean stage bodies are the
-supported executable subset.
+source and verify stage outputs. The SIR interpreter supports straight-line
+integer and boolean stage bodies. Its signed arithmetic rejects values outside
+the declared type range; the language-wide signed overflow contract remains
+open.
 
 For serial plans whose stage functions are proven pure and use signed or
-unsigned integer scalars or `bool`, the C11 backend emits a C-callable entrypoint named
+unsigned integer scalars, `f32`, `f64`, or `bool`, the C11 backend emits a
+C-callable entrypoint named
 `sotlas_flow_<module>_<flow>`. It calls stages in certified dependency order and
 returns the final stage result. Native C and Sotlas callers execute this
 entrypoint in tests. Sotlas callers declare the exact generated symbol with

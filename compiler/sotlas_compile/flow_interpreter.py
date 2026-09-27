@@ -11,7 +11,10 @@ from .flow_runtime import FlowExecutionResult, execute_flow
 _INTEGER_WIDTHS = {
     "u8": 8, "u16": 16, "u32": 32, "u64": 64, "usize": 64,
 }
-_SCALAR_TYPES = frozenset((*_INTEGER_WIDTHS, "bool"))
+_SIGNED_WIDTHS = {
+    "i8": 8, "i16": 16, "i32": 32, "i64": 64, "isize": 64,
+}
+_SCALAR_TYPES = frozenset((*_INTEGER_WIDTHS, *_SIGNED_WIDTHS, "bool"))
 _BINARY_OPERATIONS = {"add": lambda left, right: left + right,
                       "sub": lambda left, right: left - right,
                       "mul": lambda left, right: left * right}
@@ -29,6 +32,27 @@ def _checked_unsigned(value, type_name: str, context: str) -> int:
     if not 0 <= value <= maximum:
         raise ValueError(f"{context} is outside the range of {type_name}")
     return value
+
+
+def _checked_signed(value, type_name: str, context: str) -> int:
+    width = _SIGNED_WIDTHS.get(type_name)
+    if width is None:
+        raise ValueError(
+            f"SIR Flow interpreter supports signed integer values, got {type_name!r}"
+        )
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise TypeError(f"{context} must be an integer value")
+    minimum = -(1 << (width - 1))
+    maximum = (1 << (width - 1)) - 1
+    if not minimum <= value <= maximum:
+        raise ValueError(f"{context} is outside the range of {type_name}")
+    return value
+
+
+def _checked_integer(value, type_name: str, context: str) -> int:
+    if type_name in _SIGNED_WIDTHS:
+        return _checked_signed(value, type_name, context)
+    return _checked_unsigned(value, type_name, context)
 
 
 def _interpret_function(function, arguments: tuple[object, ...]) -> object:
@@ -55,7 +79,7 @@ def _interpret_function(function, arguments: tuple[object, ...]) -> object:
                 raise TypeError(f"argument {name!r} to {function.name!r} must be bool")
             values[name] = argument
         else:
-            values[name] = _checked_unsigned(
+            values[name] = _checked_integer(
                 argument, type_name, f"argument {name!r} to {function.name!r}"
             )
 
@@ -71,9 +95,9 @@ def _interpret_function(function, arguments: tuple[object, ...]) -> object:
             if not isinstance(result, bool):
                 raise ValueError(f"{context} is not a bool value")
             return result
-        if type_name not in _INTEGER_WIDTHS:
+        if type_name not in (*_INTEGER_WIDTHS, *_SIGNED_WIDTHS):
             raise ValueError(f"{context} uses unsupported type {type_name!r}")
-        return _checked_unsigned(values[name], type_name, context)
+        return _checked_integer(values[name], type_name, context)
 
     instructions = tuple(getattr(blocks[0], "instructions", ()) or ())
     returned = False
@@ -93,7 +117,7 @@ def _interpret_function(function, arguments: tuple[object, ...]) -> object:
                 raise ValueError(
                     f"SIR function {function.name!r} has an invalid SSA result"
                 )
-            values[name] = _checked_unsigned(
+            values[name] = _checked_integer(
                 instruction.value, type_name,
                 f"constant in SIR function {function.name!r}",
             )
@@ -121,6 +145,12 @@ def _interpret_function(function, arguments: tuple[object, ...]) -> object:
                 )
             left = read(left_value, f"left operand in {function.name!r}")
             right = read(right_value, f"right operand in {function.name!r}")
+            if type_name in _SIGNED_WIDTHS:
+                values[target_name] = _checked_signed(
+                    calculate(left, right), type_name,
+                    f"arithmetic result in {function.name!r}",
+                )
+                continue
             width = _INTEGER_WIDTHS.get(type_name)
             if width is None:
                 raise ValueError(f"SIR arithmetic uses unsupported type {type_name!r}")
@@ -132,7 +162,7 @@ def _interpret_function(function, arguments: tuple[object, ...]) -> object:
             operand_type = getattr(instruction.left, "type_name", None)
             if (
                 getattr(target, "type_name", None) != "bool"
-                or operand_type not in _INTEGER_WIDTHS
+                or operand_type not in (*_INTEGER_WIDTHS, *_SIGNED_WIDTHS)
                 or getattr(instruction.right, "type_name", None) != operand_type
                 or operation not in {"EQ", "NEQ", "LT", "LTE", "GT", "GTE"}
                 or not isinstance(name, str) or not name or name in values
@@ -218,7 +248,7 @@ def execute_interpreted_sir_flow(
             for parameter in function.parameters
         ):
             raise FlowSIRError(
-                f"SIR interpreter supports unsigned scalar stage signatures only: "
+                f"SIR interpreter supports integer and boolean stage signatures only: "
                 f"{stage.function!r}"
             )
         for argument in stage.arguments:
@@ -311,9 +341,9 @@ def _validate_function_shape(function) -> None:
             type_name = getattr(target, "type_name", None)
             if not isinstance(name, str) or name in definitions:
                 raise ValueError(f"SIR function {function.name!r} repeats an SSA name")
-            if type_name not in _INTEGER_WIDTHS:
+            if type_name not in (*_INTEGER_WIDTHS, *_SIGNED_WIDTHS):
                 raise ValueError(f"SIR constant has unsupported type {type_name!r}")
-            _checked_unsigned(instruction.value, type_name, "SIR constant")
+            _checked_integer(instruction.value, type_name, "SIR constant")
             definitions.add(name)
         elif kind == "BinaryOpInst":
             target = getattr(instruction, "result", None)
@@ -347,7 +377,7 @@ def _validate_function_shape(function) -> None:
                 or getattr(target, "type_name", None) != "bool"
                 or getattr(instruction, "operation", None)
                 not in {"EQ", "NEQ", "LT", "LTE", "GT", "GTE"}
-                or operand_type not in _INTEGER_WIDTHS
+                or operand_type not in (*_INTEGER_WIDTHS, *_SIGNED_WIDTHS)
                 or getattr(instruction.right, "type_name", None) != operand_type
                 or instruction.left.name not in definitions
                 or instruction.right.name not in definitions

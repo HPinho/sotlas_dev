@@ -23,6 +23,54 @@ bootstrap = canonical_llvm_frontend()
 
 
 class SotlasFlowNativeTests(unittest.TestCase):
+    def test_serial_pure_float_flow_executes_through_generated_c_entrypoint(self):
+        compiler = default_toolchain.find_tool("clang") or shutil.which("gcc")
+        if compiler is None:
+            self.skipTest("Clang or GCC is required for native Flow execution")
+
+        source = """module test::native_float_flow;
+fn first() -> f64 { return 1.25f64; }
+fn add(value: f64) -> f64 { return value + 2.25f64; }
+fn first_single() -> f32 { return 1.5f32; }
+fn add_single(value: f32) -> f32 { return value + 2.25f32; }
+flow Sum {
+    stage input = first;
+    stage result = add after input;
+}
+flow Single { stage input = first_single; stage result = add_single after input; }
+        """
+        c_source = bootstrap.compile_source(source, "native_float_flow.sotlas")
+        entrypoint = "sotlas_flow_test__native_float_flow_Sum"
+        self.assertIn(f"double {entrypoint}(void)", c_source)
+        single_entrypoint = "sotlas_flow_test__native_float_flow_Single"
+        self.assertIn(f"float {single_entrypoint}(void)", c_source)
+
+        with tempfile.TemporaryDirectory(prefix="sotlas-flow-float-") as tmpdir:
+            root = Path(tmpdir)
+            generated = root / "flow.c"
+            caller = root / "caller.c"
+            executable = root / ("caller.exe" if os.name == "nt" else "caller")
+            generated.write_text(c_source, encoding="utf-8")
+            caller.write_text(
+                f"extern double {entrypoint}(void);\n"
+                f"extern float {single_entrypoint}(void);\n"
+                f"int main(void) {{ return {entrypoint}() == 3.5 && "
+                f"{single_entrypoint}() == 3.75f ? 0 : 1; }}\n",
+                encoding="utf-8",
+            )
+            compiled = subprocess.run(
+                [str(compiler), "-std=c11", "-Wall", "-Wextra", str(generated),
+                 str(caller), "-o", str(executable)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            executed = subprocess.run(
+                [str(executable)], capture_output=True, text=True, check=False
+            )
+            self.assertEqual(executed.returncode, 0, executed.stderr)
+
     def test_serial_pure_scalar_flow_executes_through_generated_c_entrypoint(self):
         compiler = default_toolchain.find_tool("clang") or shutil.which("gcc")
         if compiler is None:
@@ -86,12 +134,19 @@ flow Ready { stage value = ready; }
 
         source = """module test::native_signed_flow;
 fn first() -> i32 { return 40i32; }
-fn add_one(value: i32) -> i32 { return value + 1i32; }
+fn identity(value: i32) -> i32 { return value; }
 flow Count {
     stage first = first;
-    stage final = add_one after first;
+    stage final = identity after first;
 }
 """
+        package = importlib.import_module(bootstrap.__package__)
+        checked = package.analyze_source_phase1(source)
+        checked_sir, _ = package.build_canonical_checked_ownership_sir(checked)
+        interpreted = package.execute_interpreted_sir_flow(
+            checked_sir.module, "Count"
+        ).output("final")
+        self.assertEqual(interpreted, 40)
         c_source = bootstrap.compile_source(source, "native_signed_flow.sotlas")
         entrypoint = "sotlas_flow_test__native_signed_flow_Count"
         self.assertIn(f"int32_t {entrypoint}(void)", c_source)
@@ -105,7 +160,7 @@ flow Count {
             caller.write_text(
                 "#include <stdint.h>\n"
                 f"extern int32_t {entrypoint}(void);\n"
-                f"int main(void) {{ return {entrypoint}() == 41 ? 0 : 1; }}\n",
+                f"int main(void) {{ return {entrypoint}() == {interpreted} ? 0 : 1; }}\n",
                 encoding="utf-8",
             )
             compiled = subprocess.run(

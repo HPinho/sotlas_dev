@@ -1718,7 +1718,10 @@ class SIRGenerator:
         return_type: str,
     ) -> bool:
         """Lower a direct return of one same-typed scalar parameter."""
-        if return_type not in {"u8", "u16", "u32", "u64", "usize", "bool"}:
+        if return_type not in {
+            "u8", "u16", "u32", "u64", "usize", "bool",
+            "i8", "i16", "i32", "i64", "isize",
+        }:
             return False
         body = list(getattr(fn, "body", ()) or ())
         if len(body) != 1 or type(body[0]).__name__ not in ("Return", "ReturnNode"):
