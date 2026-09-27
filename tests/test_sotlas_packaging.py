@@ -1,8 +1,10 @@
 """Testes do sistema de empacotamento, distribuição e instalação oficial do Sotlas."""
+import json
 import subprocess
 import sys
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -70,6 +72,21 @@ class TestSotlasPackaging(unittest.TestCase):
             self.assertTrue(
                 (dist_dir / "SHA256SUMS.txt").is_file(),
                 "SHA256SUMS.txt deve ser gerado",
+            )
+            bundle_zip = next(dist_dir.glob("*.zip"))
+            with zipfile.ZipFile(bundle_zip) as archive:
+                entries = archive.namelist()
+            self.assertFalse(
+                any("/web/node_modules/" in entry.replace("\\", "/") for entry in entries),
+                "Development dependencies must not be copied into release bundles",
+            )
+            windows_bundle = next(dist_dir.glob("sotlas-v*-windows-x64"))
+            manifest_path = windows_bundle / "sotlas-toolchain.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            self.assertEqual(manifest["release"], "preview")
+            self.assertEqual(
+                manifest["components"],
+                ["python-compiler", "cli", "standard-library", "web-source"],
             )
 
 if __name__ == "__main__":

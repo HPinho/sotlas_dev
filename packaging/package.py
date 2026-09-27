@@ -20,6 +20,15 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
+
+def ignore_development_artifacts(directory: str, names: list[str]) -> set[str]:
+    """Keep source bundles free of local dependencies, caches, and VCS data."""
+    ignored = {"__pycache__", ".git", "node_modules", ".vscode-test", "coverage", ".vite"}
+    return {
+        name for name in names
+        if name in ignored or name.endswith((".pyc", ".pyo")) or name.startswith(".tmp")
+    }
+
 def get_version() -> str:
     init_py = ROOT / "compiler" / "sotlas" / "__init__.py"
     if init_py.is_file():
@@ -125,26 +134,26 @@ def assemble_bundle(bundle_dir: Path, version: str):
     # 2. compiler/
     comp_src = ROOT / "compiler" / "sotlas"
     comp_dst = bundle_dir / "compiler" / "sotlas"
-    shutil.copytree(comp_src, comp_dst, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    shutil.copytree(comp_src, comp_dst, ignore=ignore_development_artifacts)
 
     # 3. tools/
     tools_src1 = ROOT / "tools" / "sotlas"
     tools_dst1 = bundle_dir / "tools" / "sotlas"
-    shutil.copytree(tools_src1, tools_dst1, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    shutil.copytree(tools_src1, tools_dst1, ignore=ignore_development_artifacts)
 
     tools_src2 = ROOT / "tools" / "sotlas_compile"
     tools_dst2 = bundle_dir / "tools" / "sotlas_compile"
-    shutil.copytree(tools_src2, tools_dst2, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    shutil.copytree(tools_src2, tools_dst2, ignore=ignore_development_artifacts)
 
     # 4. stdlib/
     stdlib_src = ROOT / "stdlib"
     stdlib_dst = bundle_dir / "stdlib"
-    shutil.copytree(stdlib_src, stdlib_dst, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    shutil.copytree(stdlib_src, stdlib_dst, ignore=ignore_development_artifacts)
 
     # 5. web/
     web_src = ROOT / "web"
     web_dst = bundle_dir / "web"
-    shutil.copytree(web_src, web_dst, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    shutil.copytree(web_src, web_dst, ignore=ignore_development_artifacts)
 
     # 6. include/
     include_dst = bundle_dir / "include"
@@ -168,7 +177,7 @@ def assemble_bundle(bundle_dir: Path, version: str):
     # 9. Manifesto do Toolchain
     manifest = bundle_dir / "sotlas-toolchain.json"
     manifest.write_text(
-        f'{{\n  "name": "sotlas",\n  "version": "{version}",\n  "release": "production",\n  "components": ["compiler", "stdlib", "studio", "repl", "wasm-backend", "lsp"]\n}}\n',
+        f'{{\n  "name": "sotlas",\n  "version": "{version}",\n  "release": "preview",\n  "components": ["python-compiler", "cli", "standard-library", "web-source"]\n}}\n',
         encoding="utf-8"
     )
 
