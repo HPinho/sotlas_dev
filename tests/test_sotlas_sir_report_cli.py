@@ -105,6 +105,35 @@ pub fn sum(left: u32, right: u32) -> u32 { return left + right; }
         self.assertIn("return", operations)
         self.assertTrue(report["limitations"])
 
+    def test_target_ir_report_preserves_region_call_source_points_across_join(self):
+        source = """module test::target_ir_region_source_map;
+sole struct Token { value: u32; }
+fn consume(token: region Token) -> void { return; }
+fn run(flag: bool, source: region Token, destination: region Token) -> void {
+    consume(move destination);
+    if flag {
+        handover source to destination;
+    } else {
+        handover source to destination;
+    }
+    consume(move destination);
+    return;
+}
+"""
+        result = self._run_report(source, "target-ir-report")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)
+        function = next(
+            item for item in report["functions"] if item["name"] == "run"
+        )
+        call_points = tuple(
+            instruction["attributes"].get("source_point_id")
+            for block in function["blocks"]
+            for instruction in block["instructions"]
+            if instruction["op"] == "call"
+        )
+        self.assertEqual(call_points, ("call@5:5", "call@11:5"))
+
     def test_target_ir_report_preserves_structured_control_flow_and_phi_values(self):
         result = self._run_report(
             """module test::target_ir_cfg;

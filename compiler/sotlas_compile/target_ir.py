@@ -205,6 +205,8 @@ def _lower_instruction(instruction: Any, *, function: str) -> dict[str, Any]:
             "attributes": {
                 "callee": instruction.callee,
                 "system": bool(instruction.is_system),
+                "source_point_id": getattr(instruction, "source_point_id", None),
+                "defer_point_id": getattr(instruction, "defer_point_id", None),
             },
         }
     if kind == "BranchInst":

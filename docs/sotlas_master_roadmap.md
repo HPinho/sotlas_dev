@@ -4271,7 +4271,7 @@ nativo permanece aberta.
 Inclui também tooling específico do backend nativo:
 
 - [x] inspeção source-stable do subset canônico via `sir-report` e `dump-sir`;
-- [x] inspeção JSON do Target IR v1 pre-selection para o subset canônico validado; source mapping e inspeção do lowering físico permanecem pendentes;
+- [x] inspeção JSON do Target IR v1 pre-selection para o subset canônico validado, com source-stable IDs de chamada preservados; mapeamento de instrução física e inspeção do lowering permanecem pendentes;
 - [x] `target-ir-liveness-report` computes CFG live-in/live-out sets and SSA interference, including `phi` edge uses; target register classes, coalescing, and emitted spill code remain pending;
 - [x] `--emit-asm` no subset inteiro explicitamente suportado pelo backend LLVM;
 - [x] `register-allocation-report` reports live intervals and virtual register/spill slots for single-block scalar functions; CFG-aware allocation and lowering remain pending;
