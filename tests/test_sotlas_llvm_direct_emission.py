@@ -253,6 +253,58 @@ pub fn add_bias(value: u32) -> u32 {
                 ).returncode
         self.assertEqual(results, {"c11": 0, "llvm": 0})
 
+    def test_c11_and_llvm_match_unsigned_sub_mul_and_wraparound(self):
+        source = """module test::backend_unsigned_arithmetic_matrix;
+pub fn add_numbers(left: u32, right: u32) -> u32 { return left + right; }
+pub fn subtract_numbers(left: u32, right: u32) -> u32 { return left - right; }
+pub fn multiply_numbers(left: u32, right: u32) -> u32 { return left * right; }
+"""
+        clang = self.toolchain.find_tool("clang")
+        if clang is None:
+            self.skipTest("Clang is required for the C11/LLVM differential test")
+
+        caller = self.tmp_path / "unsigned_matrix_caller.c"
+        caller.write_text(
+            "#include <stdint.h>\n"
+            "#include <limits.h>\n"
+            "extern uint32_t add_numbers(uint32_t, uint32_t);\n"
+            "extern uint32_t subtract_numbers(uint32_t, uint32_t);\n"
+            "extern uint32_t multiply_numbers(uint32_t, uint32_t);\n"
+            "int main(void) {\n"
+            "  if (add_numbers(40u, 2u) != 42u) return 1;\n"
+            "  if (add_numbers(UINT32_MAX, 1u) != 0u) return 2;\n"
+            "  if (subtract_numbers(40u, 2u) != 38u) return 3;\n"
+            "  if (subtract_numbers(0u, 1u) != UINT32_MAX) return 4;\n"
+            "  if (multiply_numbers(6u, 7u) != 42u) return 5;\n"
+            "  if (multiply_numbers(65536u, 65536u) != 0u) return 6;\n"
+            "  return 0;\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        results = {}
+        for backend in ("c11", "llvm"):
+            with self.subTest(backend=backend):
+                object_file = self.tmp_path / f"unsigned-matrix-{backend}.o"
+                self.toolchain.compile_source_to_native(
+                    source,
+                    "test::backend_unsigned_arithmetic_matrix",
+                    object_file,
+                    emit_type="obj",
+                    backend=backend,
+                )
+                executable = self.tmp_path / f"unsigned-matrix-{backend}.exe"
+                subprocess.run(
+                    [str(clang), str(caller), str(object_file), "-o", str(executable)],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+                results[backend] = subprocess.run(
+                    [str(executable)], capture_output=True, text=True, check=False
+                ).returncode
+
+        self.assertEqual(results, {"c11": 0, "llvm": 0})
+
     def test_c11_and_llvm_backends_agree_on_signed_comparison_inputs(self):
         source = """module test::backend_signed_compare_differential;
 pub fn less(left: i32, right: i32) -> bool {
