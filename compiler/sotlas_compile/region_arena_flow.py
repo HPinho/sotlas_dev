@@ -40,6 +40,16 @@ class RegionArenaFlowResolution:
 
 
 @dataclass(frozen=True)
+class RegionArenaFlowMerge:
+    """Alternative producers proven to cover disjoint paths to one pre epoch."""
+
+    function: str
+    binding: str
+    pre_epoch_id: str
+    producer_epoch_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class RegionArenaFlowRecurrence:
     function: str
     binding: str
@@ -73,6 +83,7 @@ class RegionArenaFlowCertificate:
     unresolved: tuple[RegionArenaFlowUnresolved, ...]
     recurrences: tuple[RegionArenaFlowRecurrence, ...] = ()
     activations: tuple[RegionArenaFlowActivation, ...] = ()
+    merges: tuple[RegionArenaFlowMerge, ...] = ()
 
     @property
     def complete(self) -> bool:
@@ -91,6 +102,14 @@ class RegionArenaFlowCertificate:
         if len(matches) != 1:
             raise RegionArenaFlowError(
                 f"REGION arena flow requires exactly one recurrence for {pre_epoch_id!r}"
+            )
+        return matches[0]
+
+    def merge_for(self, pre_epoch_id: str) -> RegionArenaFlowMerge:
+        matches = tuple(item for item in self.merges if item.pre_epoch_id == pre_epoch_id)
+        if len(matches) != 1:
+            raise RegionArenaFlowError(
+                f"REGION arena flow requires exactly one merge for {pre_epoch_id!r}"
             )
         return matches[0]
 
@@ -210,6 +229,22 @@ def _append_resolution(resolutions, pre, producer):
     )
 
 
+def _append_merge(merges, pre, producers):
+    epochs = tuple(item.epoch for item in producers)
+    if len(epochs) < 2 or any(item.type != pre.type for item in epochs):
+        raise RegionArenaFlowError(
+            f"REGION arena merge requires two or more same-typed producers at {pre.epoch_id!r}"
+        )
+    merges.append(
+        RegionArenaFlowMerge(
+            pre.function,
+            pre.binding,
+            pre.epoch_id,
+            tuple(item.epoch_id for item in epochs),
+        )
+    )
+
+
 def _append_unresolved(unresolved, pre, reason):
     unresolved.append(RegionArenaFlowUnresolved(pre.function, pre.binding, pre.epoch_id, reason))
 
@@ -324,6 +359,7 @@ def certify_region_arena_flow(
     resolutions = []
     recurrences = []
     activations = []
+    merges = []
     unresolved = []
 
     for slot in arena.slots:
@@ -379,7 +415,21 @@ def certify_region_arena_flow(
             if len(maximal) == 1:
                 _append_resolution(resolutions, pre, maximal[0].epoch)
             elif len(maximal) > 1:
-                _append_unresolved(unresolved, pre, "ambiguous_merge")
+                all_reach = all(
+                    _reachable(successors, producer.location.block, pre_location.block)
+                    or producer.location.block == pre_location.block
+                    for producer in maximal
+                )
+                pairwise_disjoint = all(
+                    not _reachable(successors, first.location.block, second.location.block)
+                    and not _reachable(successors, second.location.block, first.location.block)
+                    for index, first in enumerate(maximal)
+                    for second in maximal[index + 1:]
+                )
+                if all_reach and pairwise_disjoint and len(maximal) == len(producers):
+                    _append_merge(merges, pre, maximal)
+                else:
+                    _append_unresolved(unresolved, pre, "ambiguous_merge")
             elif ambiguous:
                 _append_unresolved(unresolved, pre, "cyclic_reachability")
             else:
@@ -389,6 +439,7 @@ def certify_region_arena_flow(
         {item.pre_epoch_id for item in resolutions},
         {item.pre_epoch_id for item in recurrences},
         {item.pre_epoch_id for item in activations},
+        {item.pre_epoch_id for item in merges},
         {item.pre_epoch_id for item in unresolved},
     ]
     for index, first in enumerate(classified):
@@ -404,12 +455,14 @@ def certify_region_arena_flow(
         unresolved=tuple(unresolved),
         recurrences=tuple(recurrences),
         activations=tuple(activations),
+        merges=tuple(merges),
     )
 
 
 __all__ = [
     "RegionArenaFlowError",
     "RegionArenaFlowResolution",
+    "RegionArenaFlowMerge",
     "RegionArenaFlowRecurrence",
     "RegionArenaFlowActivation",
     "RegionArenaFlowUnresolved",

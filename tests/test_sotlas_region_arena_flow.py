@@ -122,6 +122,64 @@ class SotlasRegionArenaFlowTests(unittest.TestCase):
         ):
             flow.resolution_for("pre@missing")
 
+    def test_cfg_branch_merge_accepts_complete_disjoint_producers(self):
+        def point(block, index):
+            return arena_flow._PointLocation(
+                block=block, instruction_index=index, iteration_id=None
+            )
+        pre = type("Epoch", (), {
+            "epoch_id": "pre@join", "function": "run", "binding": "owner",
+            "type": "Token", "phase": "pre", "point_id": "call@join",
+        })()
+        a = type("Epoch", (), {
+            "epoch_id": "post@then", "function": "run", "binding": "owner",
+            "type": "Token", "phase": "post", "point_id": "handover@then",
+        })()
+        b = type("Epoch", (), {
+            "epoch_id": "post@else", "function": "run", "binding": "owner",
+            "type": "Token", "phase": "post", "point_id": "handover@else",
+        })()
+        location = {
+            "handover@then": point("then", 0),
+            "handover@else": point("else", 0),
+        }
+        successors = {
+            "entry": ("then", "else"),
+            "then": ("join",),
+            "else": ("join",),
+            "join": (),
+        }
+        producers = (
+            arena_flow._Producer(a, location["handover@then"]),
+            arena_flow._Producer(b, location["handover@else"]),
+        )
+        maximal, ambiguous = arena_flow._maximal_reaching(
+            producers, point("join", 0), successors
+        )
+        self.assertFalse(ambiguous)
+        self.assertEqual(
+            {item.epoch.epoch_id for item in maximal},
+            {"post@then", "post@else"},
+        )
+        merges = []
+        arena_flow._append_merge(merges, pre, maximal)
+        self.assertEqual(
+            merges[0].producer_epoch_ids,
+            ("post@then", "post@else"),
+        )
+
+    def test_cfg_merge_rejects_type_mismatch(self):
+        pre = type(
+            "Epoch",
+            (),
+            {"epoch_id": "pre", "function": "f", "binding": "x", "type": "Token"},
+        )()
+        producers = (
+            arena_flow._Producer(type("Epoch", (), {"epoch_id": "a", "type": "Token"})(), None),
+            arena_flow._Producer(type("Epoch", (), {"epoch_id": "b", "type": "Other"})(), None),
+        )
+        with self.assertRaisesRegex(arena_flow.RegionArenaFlowError, "same-typed"):
+            arena_flow._append_merge([], pre, producers)
 
 if __name__ == "__main__":
     unittest.main()
