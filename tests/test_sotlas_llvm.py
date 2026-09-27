@@ -143,11 +143,17 @@ fn sum_to(limit: u32) -> u32 {
         parsed = source_bootstrap.parse(source)
         source_bootstrap.check(parsed)
         sir = SIRGenerator().generate_from_ast(parsed)
-        from sotlas_compile.target_ir import (
-            allocate_target_ir_registers,
-            analyze_target_ir_liveness,
-            lower_sir_to_target_ir,
+        target_ir_path = ROOT / "compiler" / "sotlas_compile" / "target_ir.py"
+        target_ir_spec = importlib.util.spec_from_file_location(
+            "sotlas_llvm_test_target_ir", target_ir_path
         )
+        self.assertIsNotNone(target_ir_spec)
+        self.assertIsNotNone(target_ir_spec.loader)
+        target_ir = importlib.util.module_from_spec(target_ir_spec)
+        target_ir_spec.loader.exec_module(target_ir)
+        allocate_target_ir_registers = target_ir.allocate_target_ir_registers
+        analyze_target_ir_liveness = target_ir.analyze_target_ir_liveness
+        lower_sir_to_target_ir = target_ir.lower_sir_to_target_ir
 
         target_ir = lower_sir_to_target_ir(sir)
         target_function = target_ir["functions"][0]
