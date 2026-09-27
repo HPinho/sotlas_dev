@@ -28,8 +28,8 @@ integer and boolean stage bodies. Its signed arithmetic rejects values outside
 the declared type range; the language-wide signed overflow contract remains
 open.
 
-For serial plans whose stage functions are proven pure and use signed or
-unsigned integer scalars, `f32`, `f64`, or `bool`, the C11 backend emits a
+For plans whose stage functions are proven pure and use signed or unsigned
+integer scalars, `f32`, `f64`, or `bool`, the C11 backend emits a
 C-callable entrypoint named
 `sotlas_flow_<module>_<flow>`. It calls stages in certified dependency order and
 returns the final stage result. Native C and Sotlas callers execute this
@@ -37,11 +37,12 @@ entrypoint in tests. Sotlas callers declare the exact generated symbol with
 `@extern(C)` and call it from an `@system` function. A dedicated Flow invocation
 syntax is not available yet.
 
-This initial native path rejects parallel plans, unsupported types, contracts,
-system/foreign functions, method calls, and global access (including access
-through directly called helpers). The source effect pass does not yet classify
-global reads and writes, so the C11 gate checks that case syntactically and
-conservatively. The host scheduler remains the only path with structured
+This initial native path serializes accepted DAGs in deterministic dependency
+order, including plans with independent stages. It rejects unsupported types,
+contracts, system/foreign functions, method calls, and global access (including
+access through directly called helpers). The source effect pass does not yet
+classify global reads and writes, so the C11 gate checks that case syntactically
+and conservatively. The host scheduler remains the only path with structured
 failure/cancellation propagation.
 
 ## Verification
@@ -54,8 +55,11 @@ failure/cancellation propagation.
 - Tests lower source-derived SIR plans into actual call CFGs, execute them via
   the scheduler, and verify outputs and fail-closed behavior for parallel CFG,
   effectful functions, and ownership-bearing values.
-- Native C11 entrypoint execution is tested with a C caller; negative tests
-  check parallel plans, unsupported types, and global access before emission.
+- Native C11 entrypoint execution is tested with C and Sotlas callers; positive
+  tests include independent stages in a DAG. Negative tests check unsupported
+  types and global access before emission. The separate executable SIR CFG
+  subset rejects parallel plans because that interpreter currently lowers only
+  serial plans.
 - The full suite includes dedicated source, SIR, CFG, runtime, and C11 boundary
   tests.
 

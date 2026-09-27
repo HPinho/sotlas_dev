@@ -23,13 +23,17 @@ LLVM is not the same as Sotlas owning an assembly language or code generator.
 
 Flow has a canonical typed plan, SIR plan, a host reference scheduler, and an
 interpreter for pure scalar stages. The checked subset forwards boolean results
-between stages. Serial pure signed/unsigned integer and bool Flow plans can emit
-a C-callable C11 entrypoint that returns the last stage result. Sotlas source can
-call it through a matching `@extern(C)` declaration from an `@system` function;
-a dedicated Flow invocation syntax is not available yet. Parallel native
-scheduling, Flow error and
-cancellation propagation, physical device providers, GPU/NPU dispatch, and
-hardware synchronization remain unsupported.
+between stages. Pure signed/unsigned integer, floating-point, and bool Flow
+DAGs can emit a C-callable C11 entrypoint that returns the last stage result.
+Sotlas source can call it through a matching `@extern(C)` declaration from an
+`@system` function;
+a dedicated Flow invocation syntax is not available yet. The reference CPU
+scheduler runs independent stages concurrently and propagates stage failures
+and cooperative cancellation. The C11 backend accepts pure scalar DAGs,
+including independent stages, but evaluates them in deterministic serial order
+and returns only the final stage value. It has no native parallel scheduler or
+structured failure/cancellation result ABI. Physical Flow device providers,
+GPU/NPU dispatch, and hardware synchronization remain unsupported.
 
 Intent planning can also associate required provider names with candidate Flows
 and select a fallback from a caller-supplied available-provider set. This is a

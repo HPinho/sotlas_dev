@@ -67,7 +67,8 @@ impl CEmitter {
         if len > self.source_len - offset {
             return false;
         }
-        return self.write_str(self.source + offset, len);
+        let slice: *const u8 = unsafe { self.source + offset };
+        return self.write_str(slice, len);
     }
 
     pub fn valid_node(self: &Self, index: usize) -> bool {

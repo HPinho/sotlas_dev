@@ -1,5 +1,8 @@
 """Testes unitários para o novo compilador nativo auto-hospedado (Sotlas in Sotlas)."""
 from pathlib import Path
+import os
+import subprocess
+import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -8,9 +11,80 @@ sys.path.insert(0, str(ROOT / "compiler"))
 sys.path.insert(0, str(ROOT / "tools"))
 
 from sotlas import compile_source
+from sotlas.llvm_toolchain import default_toolchain
+from sotlas_compile.bootstrap import PREAMBLE, compile_module, emit_c, parse
 
 
 class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
+    def test_native_compiler_parses_rejects_and_emits_executable_c(self):
+        module_dir = ROOT / "bootstrap" / "sotlas" / "native_compiler"
+        order = ("token", "ast", "lexer", "parser", "sema", "emitter_c", "main")
+        modules = {
+            path.stem: parse(path.read_text(encoding="utf-8"), filename=str(path))
+            for path in module_dir.glob("*.sotlas")
+        }
+        self.assertEqual(set(modules), set(order))
+
+        fragments = [PREAMBLE]
+        for name in order:
+            compile_module(
+                modules[name],
+                [modules[dependency] for dependency in order if dependency != name],
+            )
+            fragments.append(emit_c(
+                modules[name], mangle=False, include_preamble=False
+            ))
+
+        with tempfile.TemporaryDirectory(prefix="sotlas-native-compiler-") as tmp:
+            root = Path(tmp)
+            compiler_c = root / "native_compiler.c"
+            compiler_obj = root / "native_compiler.obj"
+            driver_c = root / "driver.c"
+            driver_obj = root / "driver.obj"
+            compiler_exe = root / ("native_compiler.exe" if os.name == "nt" else "native_compiler")
+            generated_c = root / "generated.c"
+            app_obj = root / "generated.obj"
+            app_exe = root / ("generated.exe" if os.name == "nt" else "generated")
+            compiler_c.write_text("\n".join(fragments), encoding="utf-8")
+            driver_c.write_text(
+                "#include <stdint.h>\n#include <stddef.h>\n#include <stdio.h>\n"
+                "extern size_t sotlas_native_compile_diagnostic(const uint8_t *, size_t, "
+                "uint8_t *, size_t, uint32_t *, uint32_t *);\n"
+                "int main(int argc, char **argv) {\n"
+                "  static const uint8_t bad[] = \"module test::bad;\\nfn (\";\n"
+                "  static const uint8_t good[] = \"module test::good;\\n"
+                "pub fn main() -> i32 { return 0; }\\n\";\n"
+                "  uint8_t output[65536]; uint32_t line = 0, col = 0;\n"
+                "  size_t size = sotlas_native_compile_diagnostic(bad, sizeof(bad)-1, "
+                "output, sizeof(output), &line, &col);\n"
+                "  if (size != 0 || line != 2 || col != 4) return 1;\n"
+                "  size = sotlas_native_compile_diagnostic(good, sizeof(good)-1, "
+                "output, sizeof(output), &line, &col);\n"
+                "  if (size == 0 || line != 0 || col != 0 || argc != 2) return 2;\n"
+                "  FILE *file = fopen(argv[1], \"wb\"); if (!file) return 3;\n"
+                "  size_t written = fwrite(output, 1, size, file); fclose(file);\n"
+                "  return written == size ? 0 : 4;\n}\n",
+                encoding="utf-8",
+            )
+            default_toolchain.compile_c_to_obj(compiler_c, compiler_obj, opt_level=0)
+            default_toolchain.compile_c_to_obj(driver_c, driver_obj, opt_level=0)
+            default_toolchain.link_native_binary([compiler_obj, driver_obj], compiler_exe)
+            run_compiler = subprocess.run(
+                [str(compiler_exe), str(generated_c)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(run_compiler.returncode, 0, run_compiler.stderr)
+            self.assertTrue(generated_c.is_file())
+
+            default_toolchain.compile_c_to_obj(generated_c, app_obj, opt_level=0)
+            default_toolchain.link_native_binary([app_obj], app_exe)
+            run_app = subprocess.run(
+                [str(app_exe)], capture_output=True, text=True, check=False
+            )
+            self.assertEqual(run_app.returncode, 0, run_app.stderr)
+
     def test_native_token_module_compiles(self):
         token_file = ROOT / "bootstrap" / "sotlas" / "native_compiler" / "token.sotlas"
         self.assertTrue(token_file.is_file())
@@ -747,10 +821,24 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         text = main_file.read_text(encoding="utf-8")
         c_code = compile_source(text, str(main_file))
         self.assertIn("sotlas_native_compile", c_code)
+        self.assertIn("sotlas_native_compile_diagnostic", c_code)
         self.assertIn("g_token_buffer", c_code)
         self.assertIn("g_ast_node_buffer", c_code)
         self.assertIn("AST_NODE_BUFFER_CAPACITY", c_code)
+        self.assertIn("if !lex.is_at_end()", text)
         self.assertIn("CEmitter", c_code)
+
+    def test_native_compiler_exposes_parser_error_line_and_column(self):
+        main_file = ROOT / "bootstrap" / "sotlas" / "native_compiler" / "main.sotlas"
+        text = main_file.read_text(encoding="utf-8")
+        c_code = compile_source(text, str(main_file))
+        self.assertIn("pub fn sotlas_native_compile_diagnostic(", text)
+        self.assertIn("error_line: *mut u32", text)
+        self.assertIn("error_col: *mut u32", text)
+        self.assertIn("*error_line = p.error_line", text)
+        self.assertIn("*error_col = p.error_col", text)
+        self.assertIn("sotlas_native_compile_diagnostic(", c_code)
+        self.assertIn("sotlas_native_compile(", text)
 
 
 if __name__ == "__main__":
