@@ -19,8 +19,10 @@ The experimental Sotlas-written compiler frontend resolves direct calls only
 against functions declared in the same module, checks argument counts, and
 compares arguments with explicit local/parameter types, and reports source
 locations for unknown callees, arity errors, and known type mismatches. Literal
-and expression inference, imported and foreign symbol resolution, and general
-type checking are still absent.
+inference and coercions, comparison results, aggregate inference, imported and
+foreign symbol resolution, and general type checking are still absent. Simple
+arithmetic arguments propagate a type only when the operands have the same
+explicit local/parameter type.
 
 LLVM currently supplies instruction selection, register allocation, ABI
 lowering, and object emission on the direct LLVM route. Sotlas does not yet have

@@ -511,6 +511,92 @@ impl Sema {
         return type_index;
     }
 
+    pub fn infer_expression_type_ref(
+        mut self: &mut Self,
+        nodes: *const AstNode,
+        node_count: usize,
+        expression_index: usize,
+        source: *const u8,
+        source_len: usize
+    ) -> usize {
+        if nodes == null || expression_index == 0
+            || expression_index >= node_count {
+            return 0;
+        }
+        let expression: AstNode = unsafe { *(nodes + expression_index) };
+        if expression.kind == AstKind::ExprIdent {
+            let binding: usize = self.find_visible_binding(
+                nodes, node_count, expression_index, source, source_len
+            );
+            return self.binding_type_ref(nodes, node_count, binding);
+        }
+        if expression.kind == AstKind::ExprUnary {
+            if expression.int_value == 98 {
+                return 0; // Boolean result inference is not represented yet.
+            }
+            return self.infer_expression_type_ref(
+                nodes, node_count, expression.first_child, source, source_len
+            );
+        }
+        if expression.kind == AstKind::ExprBinary {
+            let left_index: usize = expression.first_child;
+            if left_index == 0 || left_index >= node_count {
+                return 0;
+            }
+            let left_node: AstNode = unsafe { *(nodes + left_index) };
+            let right_index: usize = left_node.next_sibling;
+            let left_type: usize = self.infer_expression_type_ref(
+                nodes, node_count, left_index, source, source_len
+            );
+            let right_type: usize = self.infer_expression_type_ref(
+                nodes, node_count, right_index, source, source_len
+            );
+            if left_type != 0 && right_type != 0 {
+                let left: AstNode = unsafe { *(nodes + left_type) };
+                let right: AstNode = unsafe { *(nodes + right_type) };
+                if !self.same_source_text(source, source_len, left, right) {
+                    self.error_count = self.error_count + 1;
+                    self.error_line = expression.span.line;
+                    self.error_col = expression.span.col;
+                    return 0;
+                }
+                if expression.int_value >= 86 && expression.int_value <= 91 {
+                    return 0; // Comparison results require a native bool type.
+                }
+                return left_type;
+            }
+            if left_type != 0 { return left_type; }
+            return right_type;
+        }
+        if expression.kind == AstKind::ExprCall {
+            if expression.first_child == 0
+                || expression.first_child >= node_count {
+                return 0;
+            }
+            let callee: AstNode = unsafe { *(nodes + expression.first_child) };
+            if callee.kind != AstKind::ExprIdent {
+                return 0;
+            }
+            let function_index: usize = self.find_module_function(
+                nodes, node_count, expression.first_child, source, source_len
+            );
+            if function_index == 0 {
+                return 0;
+            }
+            let function: AstNode = unsafe { *(nodes + function_index) };
+            let mut child: usize = function.first_child;
+            while child != 0 {
+                if child >= node_count { return 0; }
+                let current: AstNode = unsafe { *(nodes + child) };
+                if current.kind == AstKind::TypeRef {
+                    return child;
+                }
+                child = current.next_sibling;
+            }
+        }
+        return 0;
+    }
+
     pub fn check_call_argument_types(
         mut self: &mut Self,
         nodes: *const AstNode,
@@ -548,17 +634,17 @@ impl Sema {
             }
             let parameter: AstNode = unsafe { *(nodes + parameter_index) };
             let argument: AstNode = unsafe { *(nodes + argument_index) };
-            if parameter.kind == AstKind::ParamDecl
-                && argument.kind == AstKind::ExprIdent {
-                let actual_binding: usize = self.find_visible_binding(
-                    nodes, node_count, argument_index, source, source_len
-                );
+            if parameter.kind == AstKind::ParamDecl {
                 let expected_type: usize = self.binding_type_ref(
                     nodes, node_count, parameter_index
                 );
-                let actual_type: usize = self.binding_type_ref(
-                    nodes, node_count, actual_binding
+                let errors_before: usize = self.error_count;
+                let actual_type: usize = self.infer_expression_type_ref(
+                    nodes, node_count, argument_index, source, source_len
                 );
+                if self.error_count != errors_before {
+                    return false;
+                }
                 if expected_type != 0 && actual_type != 0 {
                     let expected: AstNode = unsafe { *(nodes + expected_type) };
                     let actual: AstNode = unsafe { *(nodes + actual_type) };
