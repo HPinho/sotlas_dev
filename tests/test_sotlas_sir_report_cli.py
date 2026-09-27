@@ -267,6 +267,68 @@ fn quarantine_source(source: Token, temporary: Token) -> void {
         ):
             lower_sir_to_target_ir(module)
 
+    def test_target_ir_lowerer_rejects_invalid_phi_predecessors_and_types(self):
+        target_ir = self._load_target_ir()
+        lower = target_ir.lower_sir_to_target_ir
+        value = lambda name, type_name: SimpleNamespace(
+            name=name, type_name=type_name
+        )
+        instruction = lambda kind, **attributes: type(
+            kind, (), attributes
+        )()
+
+        def module_with_phi(incoming, right_type="u32"):
+            condition = value("condition", "bool")
+            left_value = value("left_value", "u32")
+            right_value = value("right_value", right_type)
+            result = value("joined", "u32")
+            blocks = [
+                SimpleNamespace(label="entry", instructions=[
+                    instruction(
+                        "CondBranchInst", condition=condition,
+                        true_block="left", false_block="right",
+                    ),
+                ]),
+                SimpleNamespace(label="left", instructions=[
+                    instruction(
+                        "ConstantIntInst", result=left_value, value=1,
+                    ),
+                    instruction("BranchInst", target_block="merge"),
+                ]),
+                SimpleNamespace(label="right", instructions=[
+                    instruction(
+                        "ConstantIntInst", result=right_value, value=2,
+                    ),
+                    instruction("BranchInst", target_block="merge"),
+                ]),
+                SimpleNamespace(label="merge", instructions=[
+                    instruction(
+                        "PhiInst", result=result, incoming=incoming(
+                            left_value, right_value
+                        ),
+                    ),
+                    instruction("ReturnInst", value=result),
+                ]),
+            ]
+            function = SimpleNamespace(
+                name="choose", parameters=[condition], return_type="u32",
+                blocks=blocks,
+            )
+            return SimpleNamespace(name="test", functions=[function])
+
+        with self.assertRaisesRegex(
+            target_ir.TargetIRLoweringError, "do not match CFG predecessors"
+        ):
+            lower(module_with_phi(lambda left, right: [(left, "left")]))
+
+        with self.assertRaisesRegex(
+            target_ir.TargetIRLoweringError, "different type"
+        ):
+            lower(module_with_phi(
+                lambda left, right: [(left, "left"), (right, "right")],
+                right_type="u64",
+            ))
+
 
 if __name__ == "__main__":
     unittest.main()

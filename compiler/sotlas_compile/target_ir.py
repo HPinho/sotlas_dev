@@ -12,6 +12,50 @@ class TargetIRLoweringError(ValueError):
     """Raised when checked SIR contains an operation outside Target IR v1."""
 
 
+def _validate_phi_edges(
+    function_name: str,
+    blocks: list[dict[str, Any]],
+    value_types: dict[str, str | None],
+) -> None:
+    predecessors = {block["label"]: set() for block in blocks}
+    for block in blocks:
+        terminator = block["instructions"][-1]
+        for target in terminator.get("targets", ()):
+            predecessors[target].add(block["label"])
+
+    for block in blocks:
+        seen_non_phi = False
+        for instruction in block["instructions"]:
+            if instruction["op"] != "phi":
+                seen_non_phi = True
+                continue
+            if seen_non_phi:
+                raise TargetIRLoweringError(
+                    f"phi in {function_name!r}:{block['label']!r} must precede non-phi instructions"
+                )
+            incoming = instruction["incoming"]
+            incoming_blocks = [item["block"] for item in incoming]
+            if len(incoming_blocks) != len(set(incoming_blocks)):
+                raise TargetIRLoweringError(
+                    f"phi in {function_name!r}:{block['label']!r} has duplicate predecessor inputs"
+                )
+            if set(incoming_blocks) != predecessors[block["label"]]:
+                raise TargetIRLoweringError(
+                    f"phi in {function_name!r}:{block['label']!r} inputs do not match CFG predecessors"
+                )
+            result_type = instruction.get("type")
+            for item in incoming:
+                value_type = value_types.get(item["value"])
+                if (
+                    result_type is not None
+                    and value_type is not None
+                    and value_type != result_type
+                ):
+                    raise TargetIRLoweringError(
+                        f"phi in {function_name!r}:{block['label']!r} has an input with a different type"
+                    )
+
+
 def _value_name(value: Any, *, context: str) -> str:
     name = getattr(value, "name", None)
     if not isinstance(name, str) or not name:
@@ -242,6 +286,11 @@ def lower_sir_to_target_ir(module: Any) -> dict[str, Any]:
             _value_name(parameter, context=f"{name}: parameter")
             for parameter in parameters
         }
+        value_types = {
+            _value_name(parameter, context=f"{name}: parameter"):
+                getattr(parameter, "type_name", None)
+            for parameter in parameters
+        }
         references: list[str] = []
         for block in lowered_blocks:
             instructions = block["instructions"]
@@ -261,6 +310,7 @@ def lower_sir_to_target_ir(module: Any) -> dict[str, Any]:
                             f"SIR function {name!r} defines {result!r} more than once"
                         )
                     definitions.add(result)
+                    value_types[result] = instruction.get("type")
                 references.extend(instruction.get("operands", ()))
                 references.extend(
                     incoming["value"]
@@ -272,6 +322,7 @@ def lower_sir_to_target_ir(module: Any) -> dict[str, Any]:
                 f"SIR function {name!r} uses undefined values: "
                 + ", ".join(missing_values)
             )
+        _validate_phi_edges(name, lowered_blocks, value_types)
         functions.append({
             "name": name,
             "parameters": [
