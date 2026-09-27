@@ -44,6 +44,27 @@ class TestSotlasPackaging(unittest.TestCase):
         source = path.read_text(encoding="utf-8")
         self.assertIn("raise RuntimeError", source)
 
+    def test_windows_launchers_do_not_retry_failed_cli_commands(self):
+        from importlib.util import module_from_spec, spec_from_file_location
+
+        path = ROOT / "packaging" / "package.py"
+        spec = spec_from_file_location("sotlas_launcher_packager", path)
+        self.assertIsNotNone(spec)
+        module = module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        with tempfile.TemporaryDirectory(prefix="sotlas-launchers-") as temporary:
+            bin_dir = Path(temporary) / "bin"
+            bin_dir.mkdir()
+            module.create_windows_launchers(bin_dir)
+            for name in ("sotlas.cmd", "sotlas-lsp.cmd"):
+                with self.subTest(launcher=name):
+                    text = (bin_dir / name).read_text(encoding="utf-8").lower()
+                    self.assertIn("where py", text)
+                    self.assertIn("if errorlevel 1 goto use_python", text)
+                    self.assertIn("endlocal & exit /b %sotlas_exit%", text)
+                    self.assertNotIn("if errorlevel 1 (", text)
+
     def test_inno_setup_script_exists(self):
         iss_file = ROOT / "packaging" / "windows" / "sotlas.iss"
         self.assertTrue(iss_file.is_file(), "packaging/windows/sotlas.iss deve existir")

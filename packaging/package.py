@@ -52,11 +52,15 @@ def create_windows_launchers(bin_dir: Path):
         "setlocal\r\n"
         "set \"SOTLAS_HOME=%~dp0..\"\r\n"
         "set \"PYTHONPATH=%SOTLAS_HOME%\\compiler;%SOTLAS_HOME%\\tools;%PYTHONPATH%\"\r\n"
+        "where py >nul 2>nul\r\n"
+        "if errorlevel 1 goto use_python\r\n"
         "py -3 -m sotlas.cli %*\r\n"
-        "if errorlevel 1 (\r\n"
-        "    python -m sotlas.cli %*\r\n"
-        ")\r\n"
-        "endlocal\r\n",
+        "goto finish\r\n"
+        ":use_python\r\n"
+        "python -m sotlas.cli %*\r\n"
+        ":finish\r\n"
+        "set \"SOTLAS_EXIT=%errorlevel%\"\r\n"
+        "endlocal & exit /b %SOTLAS_EXIT%\r\n",
         encoding="utf-8"
     )
 
@@ -75,11 +79,15 @@ def create_windows_launchers(bin_dir: Path):
         "setlocal\r\n"
         "set \"SOTLAS_HOME=%~dp0..\"\r\n"
         "set \"PYTHONPATH=%SOTLAS_HOME%\\compiler;%SOTLAS_HOME%\\tools;%PYTHONPATH%\"\r\n"
+        "where py >nul 2>nul\r\n"
+        "if errorlevel 1 goto use_python\r\n"
         "py -3 -m sotlas.cli lsp %*\r\n"
-        "if errorlevel 1 (\r\n"
-        "    python -m sotlas.cli lsp %*\r\n"
-        ")\r\n"
-        "endlocal\r\n",
+        "goto finish\r\n"
+        ":use_python\r\n"
+        "python -m sotlas.cli lsp %*\r\n"
+        ":finish\r\n"
+        "set \"SOTLAS_EXIT=%errorlevel%\"\r\n"
+        "endlocal & exit /b %SOTLAS_EXIT%\r\n",
         encoding="utf-8"
     )
 
