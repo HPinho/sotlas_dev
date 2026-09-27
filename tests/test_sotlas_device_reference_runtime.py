@@ -367,6 +367,54 @@ int main(void) {
         executed = _compile_and_run(source)
         self.assertEqual(executed.returncode, 0, executed.stderr or executed.stdout)
 
+    def test_reference_runtime_capacity_and_invalid_outputs_fail_closed(self):
+        source = r'''#include "device_reference.h"
+
+int main(void) {
+    uintptr_t device_address = (uintptr_t)0xaaaa;
+    size_t device_extent = (size_t)0xbbbb;
+    size_t index;
+
+    sotlas_device_reference_reset();
+    if (sotlas_device_submit((sotlas_device_queue_t)0u,
+            (uintptr_t)0x1000u, (size_t)8u,
+            &device_address, &device_extent) != 0) return 1;
+    if (sotlas_device_reference_last_status() !=
+            SOTLAS_DEVICE_REFERENCE_INVALID_ARGUMENT) return 2;
+    if (device_address != (uintptr_t)0xaaaau ||
+            device_extent != (size_t)0xbbbbu) return 3;
+
+    if (sotlas_device_submit((sotlas_device_queue_t)1u,
+            (uintptr_t)0x1000u, (size_t)8u, NULL, &device_extent) != 0) return 4;
+    if (sotlas_device_reference_last_status() !=
+            SOTLAS_DEVICE_REFERENCE_INVALID_ARGUMENT) return 5;
+    if (device_extent != (size_t)0xbbbbu) return 6;
+
+    for (index = 0; index < (size_t)64u; ++index) {
+        device_address = (uintptr_t)0xaaaa;
+        device_extent = (size_t)0xbbbb;
+        if (sotlas_device_submit((sotlas_device_queue_t)1u,
+                (uintptr_t)(0x1000u + index), (size_t)8u,
+                &device_address, &device_extent) == 0) return 7;
+        if (device_address != (uintptr_t)(0x1000u + index) ||
+                device_extent != (size_t)8u) return 8;
+    }
+
+    device_address = (uintptr_t)0xcccc;
+    device_extent = (size_t)0xdddd;
+    if (sotlas_device_submit((sotlas_device_queue_t)1u,
+            (uintptr_t)0x2000u, (size_t)16u,
+            &device_address, &device_extent) != 0) return 9;
+    if (sotlas_device_reference_last_status() !=
+            SOTLAS_DEVICE_REFERENCE_CAPACITY_EXHAUSTED) return 10;
+    if (device_address != (uintptr_t)0xccccu ||
+            device_extent != (size_t)0xddddu) return 11;
+    return 0;
+}
+'''
+        executed = _compile_and_run(source)
+        self.assertEqual(executed.returncode, 0, executed.stderr or executed.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
