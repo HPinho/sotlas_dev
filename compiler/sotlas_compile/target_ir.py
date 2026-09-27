@@ -56,6 +56,67 @@ def _validate_phi_edges(
                     )
 
 
+def _validate_ssa_dominance(
+    function_name: str,
+    blocks: list[dict[str, Any]],
+    value_definitions: dict[str, tuple[str, int] | None],
+) -> None:
+    labels = [block["label"] for block in blocks]
+    predecessors = {label: set() for label in labels}
+    for block in blocks:
+        for target in block["instructions"][-1].get("targets", ()):
+            predecessors[target].add(block["label"])
+
+    entry = labels[0]
+    dominators = {
+        label: ({label} if label == entry else set(labels))
+        for label in labels
+    }
+    changed = True
+    while changed:
+        changed = False
+        for label in labels[1:]:
+            incoming = predecessors[label]
+            common = (
+                set.intersection(*(dominators[item] for item in incoming))
+                if incoming else set()
+            )
+            updated = {label} | common
+            if updated != dominators[label]:
+                dominators[label] = updated
+                changed = True
+
+    def require_available(value: str, use_block: str, use_index: int) -> None:
+        definition = value_definitions.get(value)
+        if definition is None:
+            return
+        definition_block, definition_index = definition
+        if definition_block == use_block:
+            if definition_index >= use_index:
+                raise TargetIRLoweringError(
+                    f"SIR function {function_name!r} uses {value!r} before its definition"
+                )
+        elif definition_block not in dominators[use_block]:
+            raise TargetIRLoweringError(
+                f"SIR function {function_name!r} uses {value!r} outside its defining block's dominance"
+            )
+
+    for block in blocks:
+        label = block["label"]
+        for index, instruction in enumerate(block["instructions"]):
+            if instruction["op"] == "phi":
+                for item in instruction["incoming"]:
+                    predecessor = item["block"]
+                    require_available(
+                        item["value"], predecessor,
+                        len(next(candidate for candidate in blocks
+                                 if candidate["label"] == predecessor)["instructions"]) - 1,
+                    )
+                continue
+            for value in instruction.get("operands", ()):
+                require_available(value, label, index)
+
+
 def _value_name(value: Any, *, context: str) -> str:
     name = getattr(value, "name", None)
     if not isinstance(name, str) or not name:
@@ -291,6 +352,10 @@ def lower_sir_to_target_ir(module: Any) -> dict[str, Any]:
                 getattr(parameter, "type_name", None)
             for parameter in parameters
         }
+        value_definitions = {
+            _value_name(parameter, context=f"{name}: parameter"): None
+            for parameter in parameters
+        }
         references: list[str] = []
         for block in lowered_blocks:
             instructions = block["instructions"]
@@ -302,7 +367,7 @@ def lower_sir_to_target_ir(module: Any) -> dict[str, Any]:
                 raise TargetIRLoweringError(
                     f"SIR block {block['label']!r} in {name!r} must end in one terminator"
                 )
-            for instruction in instructions:
+            for index, instruction in enumerate(instructions):
                 result = instruction.get("result")
                 if result is not None:
                     if result in definitions:
@@ -311,6 +376,7 @@ def lower_sir_to_target_ir(module: Any) -> dict[str, Any]:
                         )
                     definitions.add(result)
                     value_types[result] = instruction.get("type")
+                    value_definitions[result] = (block["label"], index)
                 references.extend(instruction.get("operands", ()))
                 references.extend(
                     incoming["value"]
@@ -323,6 +389,7 @@ def lower_sir_to_target_ir(module: Any) -> dict[str, Any]:
                 + ", ".join(missing_values)
             )
         _validate_phi_edges(name, lowered_blocks, value_types)
+        _validate_ssa_dominance(name, lowered_blocks, value_definitions)
         functions.append({
             "name": name,
             "parameters": [

@@ -329,6 +329,36 @@ fn quarantine_source(source: Token, temporary: Token) -> void {
                 right_type="u64",
             ))
 
+        condition = value("condition", "bool")
+        branch_value = value("branch_value", "u32")
+        escaping_use = SimpleNamespace(
+            name="escape", return_type="u32", parameters=[condition],
+            blocks=[
+                SimpleNamespace(label="entry", instructions=[
+                    instruction(
+                        "CondBranchInst", condition=condition,
+                        true_block="left", false_block="right",
+                    ),
+                ]),
+                SimpleNamespace(label="left", instructions=[
+                    instruction(
+                        "ConstantIntInst", result=branch_value, value=1,
+                    ),
+                    instruction("BranchInst", target_block="merge"),
+                ]),
+                SimpleNamespace(label="right", instructions=[
+                    instruction("BranchInst", target_block="merge"),
+                ]),
+                SimpleNamespace(label="merge", instructions=[
+                    instruction("ReturnInst", value=branch_value),
+                ]),
+            ],
+        )
+        with self.assertRaisesRegex(
+            target_ir.TargetIRLoweringError, "dominance"
+        ):
+            lower(SimpleNamespace(name="test", functions=[escaping_use]))
+
 
 if __name__ == "__main__":
     unittest.main()
