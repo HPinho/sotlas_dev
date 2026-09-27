@@ -115,9 +115,12 @@ not add parallel scheduling or asynchronous execution.
 - Native C11 parallel scheduling and dedicated source syntax for Flow invocation
   (the explicit ABI declaration path is supported).
 - Ownership, cleanup, and non-scalar/lifetime-bearing values in executable CFG.
-- Verified source-stage failure semantics, ownership, cleanup, and general
-  effects in native Flow execution. `_dispatch` propagates callback failures but
-  does not verify that an external callback matches the checked source body.
+- Source-verified stage failure semantics, ownership, cleanup, and general
+  effects in native Flow execution. `_dispatch` propagates callback failures,
+  reports the stopped stage, and publishes no partial outputs, but it does not
+  verify that an external callback matches the checked source body. Direct native
+  calls to source stages remain pure scalar calls without a source-level failure
+  result.
 - Backpressure, retries, distributed scheduling, timeouts, and forced
   interruption of running synchronous functions.
 - Arbitrary CFG semantics beyond the validated scalar instruction subset,

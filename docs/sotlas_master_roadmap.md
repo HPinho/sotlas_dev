@@ -3992,8 +3992,13 @@ also executes scalar stage CFGs with conditional
 branches, loop-carried `phi` joins, and backedges after Target IR validation;
 cooperative cancellation is checked on each block entry and execution stops
 after one million block visits. Unreachable blocks, unsupported operations, and
-unsupported types fail closed. Ownership payloads,
-verified stage failure semantics, and built-in GPU/NPU dispatch remain open. The bounded
+unsupported types fail closed. The native `_dispatch` status channel,
+cooperative cancellation, stopped-stage reporting, and all-or-nothing output
+publication are covered by C integration tests. Direct source stages remain
+pure scalar calls with no source-level failure result, and a caller-supplied
+dispatch callback is not proven equivalent to its checked source body.
+Ownership-bearing payloads, source-verified stage failures, and built-in
+GPU/NPU dispatch remain open. The bounded
 contract and rejections are documented in
 `docs/sotlas_1_0_phase6_flow_scope.md`.
 
