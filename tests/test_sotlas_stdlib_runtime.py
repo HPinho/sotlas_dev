@@ -158,6 +158,39 @@ class SotlasStdlibRuntimeTests(unittest.TestCase):
             executed = subprocess.run([str(executable)], capture_output=True, text=True)
             self.assertEqual(executed.returncode, 0, executed.stderr)
 
+    def test_ring_buffer_native_contract_rejects_invalid_state(self):
+        compiler = default_toolchain.find_tool("clang") or shutil.which("gcc")
+        if compiler is None:
+            self.skipTest("GCC or Clang is required for the native standard-library check")
+
+        with tempfile.TemporaryDirectory(prefix="sotlas-stdlib-ring-buffer-") as temporary:
+            project = Path(temporary)
+            (project / "core").mkdir()
+            library = (ROOT / "stdlib" / "core" / "ring_buffer.sotlas").read_text(encoding="utf-8")
+            native_checks = (ROOT / "tests" / "native" / "test_ring_buffer_native.sotlas").read_text(encoding="utf-8")
+            native_checks = native_checks.replace(
+                "module test_ring_buffer_native;\nimport core::ring_buffer::*;", ""
+            )
+            (project / "main.sotlas").write_text(library + "\n" + native_checks, encoding="utf-8")
+
+            executable = project / ("ring_buffer_test.exe" if os.name == "nt" else "ring_buffer_test")
+            env = os.environ.copy()
+            env["PYTHONPATH"] = os.pathsep.join((str(ROOT / "compiler"), str(ROOT / "tools")))
+            compiled = subprocess.run(
+                [
+                    sys.executable, "-m", "sotlas.cli", "compile",
+                    str(project / "main.sotlas"), "--backend", "c11", "-o", str(executable),
+                    "--cc", compiler,
+                ],
+                cwd=project,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            executed = subprocess.run([str(executable)], cwd=project, capture_output=True, text=True)
+            self.assertEqual(executed.returncode, 0, executed.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

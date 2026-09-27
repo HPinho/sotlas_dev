@@ -4,54 +4,65 @@ import core::ring_buffer::*;
 static mut g_raw_buf: [u8; 8] = 0; // Small 8-byte buffer to test wraparounds aggressively
 
 pub fn main() -> i32 {
-    let mut rb: RingBuffer = 0;
     unsafe {
-        ring_init(&mut rb, g_raw_buf as *mut u8, 8);
+    // Invalid reinitialization clears stale metadata and leaves a safe empty state.
+    let mut rb: RingBuffer = 0;
+    rb.data = g_raw_buf as *mut u8;
+    rb.capacity = 8;
+    rb.head = 7;
+    rb.tail = 4;
+    rb.count = 3;
+    ring_init((&mut rb) as *mut RingBuffer, null, 8);
+    if !ring_is_empty((&rb) as *const RingBuffer) { return 1; }
+    if ring_push((&mut rb) as *mut RingBuffer, 99) { return 2; }
+
+    unsafe {
+        ring_init((&mut rb) as *mut RingBuffer, g_raw_buf as *mut u8, 8);
     }
 
-    if !ring_is_empty(&rb) { return 1; }
-    if ring_is_full(&rb) { return 2; }
-    if ring_available(&rb) != 0 { return 3; }
-    if ring_free_space(&rb) != 8 { return 4; }
+    if !ring_is_empty((&rb) as *const RingBuffer) { return 1; }
+    if ring_is_full((&rb) as *const RingBuffer) { return 2; }
+    if ring_available((&rb) as *const RingBuffer) != 0 { return 3; }
+    if ring_free_space((&rb) as *const RingBuffer) != 8 { return 4; }
 
     // 1. Push 5 bytes
-    ring_push(&mut rb, 10);
-    ring_push(&mut rb, 20);
-    ring_push(&mut rb, 30);
-    ring_push(&mut rb, 40);
-    ring_push(&mut rb, 50);
+    ring_push((&mut rb) as *mut RingBuffer, 10);
+    ring_push((&mut rb) as *mut RingBuffer, 20);
+    ring_push((&mut rb) as *mut RingBuffer, 30);
+    ring_push((&mut rb) as *mut RingBuffer, 40);
+    ring_push((&mut rb) as *mut RingBuffer, 50);
 
-    if ring_available(&rb) != 5 { return 10; }
-    if ring_free_space(&rb) != 3 { return 11; }
+    if ring_available((&rb) as *const RingBuffer) != 5 { return 10; }
+    if ring_free_space((&rb) as *const RingBuffer) != 3 { return 11; }
 
     // Peek without consuming
     let mut peeked: u8 = 0;
-    if !ring_peek(&rb, &mut peeked) { return 12; }
+    if !ring_peek((&rb) as *const RingBuffer, (&mut peeked) as *mut u8) { return 12; }
     if peeked != 10 { return 13; }
 
     // Pop 2 bytes
     let mut out: u8 = 0;
-    if !ring_pop(&mut rb, &mut out) { return 14; }
+    if !ring_pop((&mut rb) as *mut RingBuffer, (&mut out) as *mut u8) { return 14; }
     if out != 10 { return 15; }
-    if !ring_pop(&mut rb, &mut out) { return 16; }
+    if !ring_pop((&mut rb) as *mut RingBuffer, (&mut out) as *mut u8) { return 16; }
     if out != 20 { return 17; }
 
     // Remaining in buffer: 30, 40, 50 (count = 3)
-    if ring_available(&rb) != 3 { return 18; }
+    if ring_available((&rb) as *const RingBuffer) != 3 { return 18; }
 
     // 2. Push 5 more bytes to cause circular wrap around index 8
-    ring_push(&mut rb, 60);
-    ring_push(&mut rb, 70);
-    ring_push(&mut rb, 80);
-    ring_push(&mut rb, 90);
-    ring_push(&mut rb, 100);
+    ring_push((&mut rb) as *mut RingBuffer, 60);
+    ring_push((&mut rb) as *mut RingBuffer, 70);
+    ring_push((&mut rb) as *mut RingBuffer, 80);
+    ring_push((&mut rb) as *mut RingBuffer, 90);
+    ring_push((&mut rb) as *mut RingBuffer, 100);
 
     // Buffer is now exactly full (8 bytes: 30, 40, 50, 60, 70, 80, 90, 100)
-    if !ring_is_full(&rb) { return 20; }
-    if ring_free_space(&rb) != 0 { return 21; }
+    if !ring_is_full((&rb) as *const RingBuffer) { return 20; }
+    if ring_free_space((&rb) as *const RingBuffer) != 0 { return 21; }
 
     // Pushing to full buffer must fail
-    if ring_push(&mut rb, 255) { return 22; }
+    if ring_push((&mut rb) as *mut RingBuffer, 255) { return 22; }
 
     // 3. Verify FIFO drainage across the wrap boundary
     let mut expected: [u8; 8] = 0;
@@ -65,18 +76,29 @@ pub fn main() -> i32 {
     expected[7] = 100;
 
     let mut drained: [u8; 8] = 0;
-    let read_count: usize = ring_read(&mut rb, drained as *mut u8, 8);
+    let read_count: usize = ring_read((&mut rb) as *mut RingBuffer, drained as *mut u8, 8);
     if read_count != 8 { return 30; }
 
     let mut i: usize = 0;
     while i < 8 {
-        if drained[i] != expected[i] { return 31 + (i as i32); }
+        if drained[i] != expected[i] { return 31; }
         i = i + 1;
     }
 
     // Now buffer must be empty
-    if !ring_is_empty(&rb) { return 40; }
-    if ring_pop(&mut rb, &mut out) { return 41; }
+    if !ring_is_empty((&rb) as *const RingBuffer) { return 40; }
+    if ring_pop((&mut rb) as *mut RingBuffer, (&mut out) as *mut u8) { return 41; }
+
+    // Corrupted public metadata is rejected before indexing or modulo.
+    rb.count = 9;
+    if ring_available((&rb) as *const RingBuffer) != 0 { return 42; }
+    if ring_push((&mut rb) as *mut RingBuffer, 1) { return 43; }
+    if ring_pop((&mut rb) as *mut RingBuffer, (&mut out) as *mut u8) { return 44; }
+    rb.count = 1;
+    rb.head = 8;
+    if ring_push((&mut rb) as *mut RingBuffer, 1) { return 45; }
+    if ring_pop((&mut rb) as *mut RingBuffer, (&mut out) as *mut u8) { return 46; }
 
     return 0;
+    }
 }

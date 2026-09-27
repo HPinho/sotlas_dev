@@ -1,16 +1,15 @@
 module core::ring_buffer;
 
 // ----------------------------------------------------------------------------
-// core::ring_buffer — Lock-Free Circular Stream for Interrupts & IPC
+// core::ring_buffer — Caller-Owned Circular Byte FIFO
 // ----------------------------------------------------------------------------
 //
-// Single-producer single-consumer circular byte FIFO.
-// Zero dynamic allocations; runs anywhere from 16-bit real-mode staging to
-// SMP interrupt dispatch (UART / PS2 keyboards / IPC mailboxes).
+// Single-threaded circular byte FIFO with caller-owned storage.
+// Zero dynamic allocations. This type is not synchronized and must not be
+// accessed concurrently or from an interrupt without external synchronization.
 //
-// Dev note:
-// Keep your IRQ handlers lean: push byte here, issue EOI, let userspace or the
-// DPC thread drain it. Don't block inside a hardware interrupt handler. Ever.
+// Callers that need cross-thread or interrupt communication must add a
+// synchronization layer before sharing this structure.
 // ----------------------------------------------------------------------------
 
 pub struct RingBuffer {
@@ -22,10 +21,18 @@ pub struct RingBuffer {
 }
 
 pub fn ring_init(rb: *mut RingBuffer, storage: *mut u8, cap: usize) {
-    if rb == null || storage == null || cap == 0 {
+    if rb == null {
         return;
     }
     unsafe {
+        (*rb).data = null;
+        (*rb).capacity = 0;
+        (*rb).head = 0;
+        (*rb).tail = 0;
+        (*rb).count = 0;
+        if storage == null || cap == 0 {
+            return;
+        }
         (*rb).data = storage;
         (*rb).capacity = cap;
         (*rb).head = 0;
@@ -68,6 +75,11 @@ pub fn ring_available(rb: *const RingBuffer) -> usize {
         return 0;
     }
     unsafe {
+        if (*rb).data == null || (*rb).capacity == 0 ||
+            (*rb).head >= (*rb).capacity || (*rb).tail >= (*rb).capacity ||
+            (*rb).count > (*rb).capacity {
+            return 0;
+        }
         return (*rb).count;
     }
 }
@@ -89,7 +101,9 @@ pub fn ring_push(rb: *mut RingBuffer, val: u8) -> bool {
         return false;
     }
     unsafe {
-        if (*rb).data == null || (*rb).count >= (*rb).capacity {
+        if (*rb).data == null || (*rb).capacity == 0 ||
+            (*rb).head >= (*rb).capacity || (*rb).tail >= (*rb).capacity ||
+            (*rb).count > (*rb).capacity || (*rb).count == (*rb).capacity {
             return false;
         }
         (*rb).data[(*rb).head] = val;
@@ -104,10 +118,13 @@ pub fn ring_pop(rb: *mut RingBuffer, out_val: *mut u8) -> bool {
         return false;
     }
     unsafe {
-        if (*rb).data == null || (*rb).count == 0 {
+        if (*rb).data == null || (*rb).capacity == 0 ||
+            (*rb).head >= (*rb).capacity || (*rb).tail >= (*rb).capacity ||
+            (*rb).count == 0 || (*rb).count > (*rb).capacity {
             return false;
         }
-        *out_val = (*rb).data[(*rb).tail];
+        let value: u8 = (*rb).data[(*rb).tail];
+        *out_val = value;
         (*rb).tail = ((*rb).tail + 1) % (*rb).capacity;
         (*rb).count = (*rb).count - 1;
         return true;
@@ -119,10 +136,13 @@ pub fn ring_peek(rb: *const RingBuffer, out_val: *mut u8) -> bool {
         return false;
     }
     unsafe {
-        if (*rb).data == null || (*rb).count == 0 {
+        if (*rb).data == null || (*rb).capacity == 0 ||
+            (*rb).head >= (*rb).capacity || (*rb).tail >= (*rb).capacity ||
+            (*rb).count == 0 || (*rb).count > (*rb).capacity {
             return false;
         }
-        *out_val = (*rb).data[(*rb).tail];
+        let value: u8 = (*rb).data[(*rb).tail];
+        *out_val = value;
         return true;
     }
 }
@@ -153,7 +173,7 @@ pub fn ring_read(rb: *mut RingBuffer, dst: *mut u8, max_len: usize) -> usize {
     unsafe {
         while read_count < max_len {
             let mut byte: u8 = 0;
-            if !ring_pop(rb, &mut byte) {
+            if !ring_pop(rb, (&mut byte) as *mut u8) {
                 break;
             }
             dst[read_count] = byte;

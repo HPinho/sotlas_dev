@@ -46,6 +46,18 @@ zero-capacity buffer cannot accept appends and a one-byte buffer can only hold
 the terminator. Append operations return `false` when no payload byte fits. The
 API is byte-oriented and does not validate UTF-8.
 
+## Ring buffer
+
+`core::ring_buffer::RingBuffer` is a single-threaded FIFO over caller-owned
+storage. The storage must remain writable and live for the entire initialized
+lifetime. `ring_init` resets the struct before validating its inputs, so a null
+storage pointer or zero capacity leaves a safe empty state. Push, pop, peek,
+and batch operations reject zero capacity, out-of-range indices, and counts
+larger than capacity before indexing storage or applying modulo. The fields are
+public, so callers must not mutate them while using the API. The type uses no
+atomics or locks; concurrent and interrupt access requires external
+synchronization and is outside this contract.
+
 ## Verification scope
 
 `tests/native/test_string_native.sotlas` exercises empty and malformed slices,
@@ -55,3 +67,7 @@ checks exhaustion and address wraparound; `test_string_buf_native.sotlas` checks
 zero, one, and two-byte capacities in native execution. These tests do not
 dereference arbitrary invalid non-null addresses, because that is undefined
 behavior in the C11 runtime.
+
+`tests/native/test_ring_buffer_native.sotlas` executes wraparound, FIFO ordering,
+full and empty behavior, invalid reinitialization, and corrupted public index and
+count rejection through the canonical C11 compiler.

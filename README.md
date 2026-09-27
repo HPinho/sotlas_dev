@@ -169,11 +169,12 @@ The `stdlib/` tree contains Sotlas modules and a separate C runtime. Its modules
 - **`stdlib/core/arc.sotlas`**: Automatic Reference Counting primitives (`ArcHeader`, `SharedCounter`).
 - **`stdlib/core/slice.sotlas`**: Byte-slice helpers (`ByteSlice`, `MutByteSlice`); verify each operation's bounds and mutability contract.
 - **`stdlib/core/string.sotlas`**: Byte-oriented `StringSlice` and buffer helpers. UTF-8 validation and Unicode character operations are not promised.
+- **`stdlib/core/ring_buffer.sotlas`**: Single-threaded FIFO over caller-owned storage. It is not thread-safe or interrupt-safe without external synchronization.
 - **`stdlib/core/panic.sotlas`**: Panic interfaces whose behavior depends on the selected runtime.
 - **`stdlib/system/intrinsics.sotlas`**: Typed hardware CPU instructions with `@system` effect (`inb`, `outb`, `cli`, `sti`, `hlt`).
 - **`stdlib/runtime/`**: Freestanding C11 runtime (`runtime.h`, `runtime.c`) with zero libc dependencies.
 
-The suite parses, type-checks, and emits selected standard-library modules. Native runtime tests execute the string fixture when GCC or Clang is available; other modules need their own end-to-end evidence before their behavior is treated as a preview contract.
+The suite parses, type-checks, and emits selected standard-library modules. Native runtime tests execute the string and ring-buffer fixtures through C11 when GCC or Clang is available; other modules need their own end-to-end evidence before their behavior is treated as a preview contract. See the [core standard-library contracts](stdlib/core/README.md) for ownership, failure, and synchronization boundaries.
 
 ---
 
