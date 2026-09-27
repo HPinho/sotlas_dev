@@ -1,0 +1,33 @@
+static mut storage: [u8; 16] = 0;
+
+pub fn main() -> i32 {
+    let mut arena: ArenaAllocator = arena_new(storage as *mut u8, 8);
+    let arena_ptr: *mut ArenaAllocator = unsafe { (&mut arena) as *mut ArenaAllocator };
+    let first: *mut u8 = arena_alloc(arena_ptr, 3, 4);
+    if first == null {
+        return 1;
+    }
+    if arena_alloc(arena_ptr, 8, 1) != null {
+        return 2;
+    }
+
+    let mut invalid: ArenaAllocator = arena_new(storage as *mut u8, 8);
+    unsafe {
+        invalid.offset = 9;
+    }
+    let invalid_ptr: *mut ArenaAllocator = unsafe { (&mut invalid) as *mut ArenaAllocator };
+    if arena_alloc(invalid_ptr, 1, 1) != null {
+        return 3;
+    }
+
+    let near_max: usize = 18446744073709551612usize;
+    let mut wrapping: ArenaAllocator = arena_new(
+        unsafe { near_max as *mut u8 },
+        18446744073709551615usize
+    );
+    let wrapping_ptr: *mut ArenaAllocator = unsafe { (&mut wrapping) as *mut ArenaAllocator };
+    if arena_alloc(wrapping_ptr, 1, 8) != null {
+        return 4;
+    }
+    return 0;
+}

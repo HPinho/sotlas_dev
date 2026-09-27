@@ -24,6 +24,33 @@ SPEC.loader.exec_module(bootstrap)
 
 
 class SotlasStdlibRuntimeTests(unittest.TestCase):
+    def test_arena_allocation_rejects_exhaustion_and_address_overflow(self):
+        compiler = default_toolchain.find_tool("clang") or shutil.which("gcc")
+        if compiler is None:
+            self.skipTest("GCC or Clang is required for the native standard-library check")
+
+        with tempfile.TemporaryDirectory(prefix="sotlas-stdlib-arena-") as temporary:
+            project = Path(temporary)
+            (project / "core").mkdir()
+            library = (ROOT / "stdlib" / "foundation" / "alloc.sotlas").read_text(encoding="utf-8")
+            native_checks = (ROOT / "tests" / "native" / "test_arena_overflow_native.sotlas").read_text(encoding="utf-8")
+            (project / "main.sotlas").write_text(
+                library + "\n" + native_checks, encoding="utf-8"
+            )
+
+            generated = project / "arena_test.c"
+            executable = project / ("arena_test.exe" if os.name == "nt" else "arena_test")
+            bootstrap.emit_c_project(project / "main.sotlas", generated)
+            compiled = subprocess.run(
+                [compiler, "-std=c11", "-Wall", "-Wextra", str(generated), "-o", str(executable)],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+
+            executed = subprocess.run([str(executable)], capture_output=True, text=True)
+            self.assertEqual(executed.returncode, 0, executed.stderr)
+
     def test_string_native_contract_executes(self):
         compiler = default_toolchain.find_tool("clang") or shutil.which("gcc")
         if compiler is None:

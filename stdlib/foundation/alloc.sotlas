@@ -50,14 +50,26 @@ pub fn arena_alloc(arena: *mut ArenaAllocator, size: usize, align: usize) -> *mu
             alignment = 8;
         }
 
-        let current: usize = ((*arena).buffer as usize) + (*arena).offset;
+        if (*arena).offset > (*arena).capacity {
+            return null;
+        }
+        let base: usize = (*arena).buffer as usize;
+        let current: usize = base + (*arena).offset;
+        if current < base {
+            return null;
+        }
         let remainder: usize = current % alignment;
         let mut padding: usize = 0;
         if remainder != 0 {
             padding = alignment - remainder;
         }
 
-        if (*arena).offset + padding + size > (*arena).capacity {
+        let remaining: usize = (*arena).capacity - (*arena).offset;
+        if padding > remaining {
+            return null; // Arena is exhausted
+        }
+        let remaining_after_padding: usize = remaining - padding;
+        if size > remaining_after_padding {
             return null; // Arena is exhausted
         }
 
