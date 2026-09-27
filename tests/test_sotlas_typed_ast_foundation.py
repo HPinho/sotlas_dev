@@ -9941,7 +9941,7 @@ fn main() -> void { return; }
 
     def test_non_scalar_payload_enum_c11_remains_fail_closed(self):
         source = """module test::payload_enum_sole_gate;
-sole struct Handle { fd: u32; }
+struct Handle { fd: u32; }
 enum Message { Value(Handle), }
 fn main() -> void { return; }
 """
@@ -9952,6 +9952,147 @@ fn main() -> void { return; }
             "non-scalar payload 'Handle'",
         ):
             bootstrap.emit_c(parsed)
+
+    def test_sole_payload_enum_c11_drops_only_the_active_owned_payload(self):
+        source = """module test::owned_payload_enum;
+pub sole struct Handle { fd: u32; }
+pub enum Message { Empty = 4, Owned(Handle), }
+pub static mut drops: u32 = 0u32;
+fn Handle_deinit(self: &mut Handle) -> void {
+    drops = drops + 1u32;
+    return;
+}
+pub fn make_and_drop() -> void {
+    let handle: Handle = Handle { fd: 9u32 };
+    let message = Message::Owned(handle);
+    consume(message);
+    return;
+}
+pub fn consume(message: Message) -> void { return; }
+"""
+        parsed = bootstrap.parse(source, filename="<owned-payload-enum>")
+        generated = bootstrap.compile_module(parsed)
+        header = bootstrap.emit_header(parsed)
+        self.assertIn("Handle *Owned;", generated)
+        self.assertIn("__sotlas_enum_drop_Message((&message))", generated)
+        self.assertIn("free(value->payload.Owned)", generated)
+
+        compiler = shutil.which(os.environ.get("CC", "")) or next(
+            (path for name in ("clang", "cc", "gcc")
+             if (path := shutil.which(name))),
+            None,
+        )
+        if compiler is None and os.name == "nt":
+            bundled_clang = Path(r"C:\Program Files\LLVM\bin\clang.exe")
+            if bundled_clang.is_file():
+                compiler = str(bundled_clang)
+        if compiler is None:
+            self.skipTest("C11 compiler unavailable")
+        harness = """
+int main(void) {
+    Message empty = Message_Empty;
+    consume(empty);
+    if (drops != 0) return 1;
+    make_and_drop();
+    if (drops != 1) return 2;
+    Message owned = Message_Owned((Handle){.fd = 17u});
+    consume(owned);
+    return drops == 2 ? 0 : 3;
+}
+"""
+        with tempfile.TemporaryDirectory(prefix="sotlas_owned_enum_") as temp:
+            c_file = Path(temp) / "owned_enum.c"
+            executable = Path(temp) / (
+                "owned_enum.exe" if os.name == "nt" else "owned_enum"
+            )
+            c_file.write_text(generated + "\n" + harness, encoding="utf-8")
+            compiled = subprocess.run(
+                [compiler, "-std=c11", "-Wall", "-Wextra", "-Werror",
+                 str(c_file), "-o", str(executable)],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            header_file = Path(temp) / "owned_enum.h"
+            header_source = Path(temp) / "header_check.c"
+            header_file.write_text(header, encoding="utf-8")
+            header_source.write_text(
+                '#include "owned_enum.h"\n'
+                "int main(void) { Message value = Message_Empty; "
+                "return (int)value.tag; }\n",
+                encoding="utf-8",
+            )
+            header_check = subprocess.run(
+                [compiler, "-std=c11", "-Wall", "-Wextra", "-Werror",
+                 "-fsyntax-only", "-I", str(Path(temp)), str(header_source)],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(header_check.returncode, 0, header_check.stderr)
+            executed = subprocess.run(
+                [str(executable)], capture_output=True, text=True, check=False
+            )
+            self.assertEqual(executed.returncode, 0, executed.stderr)
+
+    def test_sole_enum_payload_with_nested_owner_fails_closed(self):
+        source = """module test::owned_enum_nested_payload;
+sole struct Child { value: u32; }
+sole struct Parent { child: Child; }
+enum Message { Owned(Parent), }
+fn main() -> void { return; }
+"""
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            "requires a sole struct with scalar or fixed-array primitive fields",
+        ):
+            bootstrap.compile_source(source)
+
+    def test_sole_enum_payload_unsupported_storage_and_mutation_fail_closed(self):
+        cases = (
+            (
+                "global storage",
+                "static mut current: Message = Message::Empty;",
+                "local bindings and function parameters only",
+            ),
+            (
+                "struct field storage",
+                "struct Holder { current: Message; }",
+                "local bindings and function parameters only",
+            ),
+            (
+                "return transfer",
+                "fn make(handle: Handle) -> Message { return Message::Owned(handle); }",
+                "enum sole payload returns are not supported yet",
+            ),
+            (
+                "mutable binding",
+                "fn make(handle: Handle) -> void { "
+                "let mut current: Message = Message::Owned(handle); return; }",
+                "enum sole payload bindings must be immutable",
+            ),
+        )
+        for label, unsupported, message in cases:
+            source = (
+                "module test::owned_enum_rejects_" + label.replace(" ", "_") + ";\n"
+                "sole struct Handle { value: u32; }\n"
+                "enum Message { Empty, Owned(Handle), }\n"
+                + unsupported + "\n"
+            )
+            with self.subTest(label=label), self.assertRaisesRegex(
+                bootstrap.SotlasBootstrapError, message
+            ):
+                bootstrap.compile_source(source)
+
+    def test_public_owned_enum_header_rejects_private_payload_type(self):
+        parsed = bootstrap.parse("""module test::public_enum_private_payload;
+sole struct Handle { value: u32; }
+pub enum Message { Owned(Handle), }
+pub fn consume(message: Message) -> void { return; }
+""")
+        bootstrap.check(parsed)
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            "public enum constructors require a public sole payload type",
+        ):
+            bootstrap.emit_header(parsed)
 
     def test_payload_enum_c11_rejects_duplicate_and_out_of_range_tags(self):
         duplicate = bootstrap.parse("""module test::dup;

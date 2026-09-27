@@ -3826,11 +3826,11 @@ Extensões construídas sobre a fundação, mas que **não promovem a linguagem 
 - [x] normalização canônica dos discriminantes de enum;
 - [x] layout lógico `tag_only` vs `tagged_union`;
 - [x] plano backend-neutral separado de `tag_storage` e `payload_storage`;
-- [ ] ABI física final de tagged union;
-- [ ] lowering C11 completo de enum com payload;
-- [ ] cleanup/destruição de payload `sole` armazenado em enum;
-- [ ] teste end-to-end de enum com payload até backend/binário.
-- [x] teste end-to-end do subconjunto escalar de enum com payload a partir de fixture `.sotlas`, emitindo C11 e executando binário; payloads não escalares e cleanup `sole` seguem pendentes.
+- [ ] final tagged-union ABI, including stable layout/alignment guarantees;
+- [x] C11 tagged-union lowering for scalar payloads and direct `sole` struct payloads stored behind an owned pointer; public headers compile matching constructors when the payload type is public, and allocation failure aborts;
+- [x] local and by-value parameter cleanup switches on the active tag, calls the payload destructor once, and frees the owned allocation; moving a payload into an enum suppresses the source cleanup;
+- [x] native end-to-end C11 test covers the active owned variant, nullary variant, local cleanup, parameter cleanup, and header compilation;
+- [ ] nested owned fields, non-sole aggregate payloads, enum globals/fields/arrays, mutable enum bindings, enum returns, FFI transfer, ABI stability, and arbitrary enum payloads remain fail-closed or unimplemented.
 
 **Nota de certificação:** esta fase está certificada como núcleo semântico isolado. Isso não equivale a afirmar que todo o compilador, SIR, backend, stdlib e todas as features documentadas estão `SUPPORTED`.
 

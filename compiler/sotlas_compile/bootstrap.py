@@ -2998,8 +2998,11 @@ def _c_struct_attributes(attributes: list[str]) -> str:
     return ""
 
 
-def _emit_c_enum(enum_obj: Enum) -> list[str]:
-    """C11 representation for scalar tagged unions; ownership needs separate lowering."""
+def _emit_c_enum(
+    enum_obj: Enum,
+    sole_type_names: set[str] | frozenset[str] = frozenset(),
+) -> list[str]:
+    """Emit scalar tagged unions and uniquely owned sole payload variants."""
     payloads = [v for v in enum_obj.variants if v.payload_type is not None]
     if not payloads:
         result = [f"typedef enum {enum_obj.name} {{"]
@@ -3009,15 +3012,26 @@ def _emit_c_enum(enum_obj: Enum) -> list[str]:
         return result + [f"}} {enum_obj.name};"]
     for variant in payloads:
         typ = variant.payload_type
-        if (typ.name not in PRIMITIVES or typ.name == "void" or typ.is_array
-                or typ.is_fn_ptr or typ.pointer or typ.is_reference):
+        owned_sole_payload = (
+            typ.name in sole_type_names
+            and not typ.is_array and not typ.is_fn_ptr
+            and not typ.pointer and not typ.is_reference
+        )
+        if not owned_sole_payload and (
+            typ.name not in PRIMITIVES or typ.name == "void" or typ.is_array
+            or typ.is_fn_ptr or typ.pointer or typ.is_reference
+        ):
             raise SotlasBootstrapError(
                 f"C11 backend does not lower payload enum {enum_obj.name!r} "
                 f"with non-scalar payload {typ.name!r} yet"
             )
     result = [f"typedef struct {enum_obj.name} {{", "    uint64_t tag;", "    union {"]
     for variant in payloads:
-        result.append(f"        {variant.payload_type.c_decl(variant.name)};")
+        typ = variant.payload_type
+        if typ.name in sole_type_names:
+            result.append(f"        {typ.name} *{variant.name};")
+        else:
+            result.append(f"        {typ.c_decl(variant.name)};")
     result += ["    } payload;", f"}} {enum_obj.name};"]
     tag = 0
     seen_tags: set[int] = set()
@@ -3040,9 +3054,17 @@ def _emit_c_enum(enum_obj: Enum) -> list[str]:
                 f"(({enum_obj.name}){{.tag = UINT64_C({tag})}})"
             )
         else:
+            typ = variant.payload_type
+            if typ.name in sole_type_names:
+                result.append(
+                    f"static inline {enum_obj.name} {enum_obj.name}_{variant.name}"
+                    f"({typ.c_decl('value')});"
+                )
+                tag += 1
+                continue
             result += [
                 f"static inline {enum_obj.name} {enum_obj.name}_{variant.name}"
-                f"({variant.payload_type.c_decl('value')}) {{",
+                f"({typ.c_decl('value')}) {{",
                 f"    return ({enum_obj.name}){{.tag = UINT64_C({tag}), "
                 f".payload.{variant.name} = value}};",
                 "}",
@@ -3050,8 +3072,195 @@ def _emit_c_enum(enum_obj: Enum) -> list[str]:
         tag += 1
     return result
 
+
+def _emit_c_owned_enum_constructors(
+    enum_obj: Enum,
+    sole_type_names: set[str] | frozenset[str],
+) -> list[str]:
+    result: list[str] = []
+    tag = 0
+    for variant in enum_obj.variants:
+        if variant.value is not None:
+            tag = variant.value
+        typ = variant.payload_type
+        if typ is not None and typ.name in sole_type_names:
+            result += [
+                f"static inline {enum_obj.name} {enum_obj.name}_{variant.name}"
+                f"({typ.c_decl('value')}) {{",
+                f"    {typ.name} *owned = ({typ.name} *)malloc(sizeof(*owned));",
+                "    if (owned == NULL) abort();",
+                "    *owned = value;",
+                f"    return ({enum_obj.name}){{.tag = UINT64_C({tag}), "
+                f".payload.{variant.name} = owned}};",
+                "}",
+                "",
+            ]
+        tag += 1
+    return result
+
 def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
            include_import_headers: bool = False) -> str:
+    sole_type_names = {
+        item.name for item in module.structs if item.is_sole and not item.is_register
+    }
+    enum_owned_payloads = {
+        enum.name: tuple(
+            variant for variant in enum.variants
+            if variant.payload_type is not None
+            and variant.payload_type.name in sole_type_names
+            and not variant.payload_type.pointer
+            and not variant.payload_type.is_array
+            and not variant.payload_type.is_reference
+            and not variant.payload_type.is_fn_ptr
+        )
+        for enum in module.enums
+    }
+    enum_owned_payloads = {
+        name: variants for name, variants in enum_owned_payloads.items() if variants
+    }
+
+    def owned_enum_constructor_type(expression: Expr | None) -> Type | None:
+        if not isinstance(expression, Call):
+            return None
+        for enum_obj in module.enums:
+            if enum_obj.name not in enum_owned_payloads:
+                continue
+            if any(
+                expression.callee in {
+                    f"{enum_obj.name}::{variant.name}",
+                    f"{enum_obj.name}_{variant.name}",
+                }
+                for variant in enum_owned_payloads[enum_obj.name]
+            ):
+                return Type(enum_obj.name)
+        return None
+    sole_struct_by_name = {
+        item.name: item for item in module.structs if item.name in sole_type_names
+    }
+
+    def enum_owned_payload_is_pod(struct_name: str) -> bool:
+        struct = sole_struct_by_name.get(struct_name)
+        if struct is None:
+            return False
+        for field in struct.fields:
+            field_type = field.type
+            while field_type.is_array and field_type.elem_type is not None:
+                field_type = field_type.elem_type
+            if (
+                field_type.name not in PRIMITIVES
+                or field_type.name == "void"
+                or field_type.pointer or field_type.is_reference
+                or field_type.is_fn_ptr
+            ):
+                return False
+        return True
+
+    for variants in enum_owned_payloads.values():
+        for variant in variants:
+            if not enum_owned_payload_is_pod(variant.payload_type.name):
+                raise SotlasBootstrapError(
+                    "C11 enum sole payload cleanup currently requires a sole "
+                    "struct with scalar or fixed-array primitive fields",
+                    1, 1, module.filename, module.source,
+                )
+
+    def is_owned_enum_value(type_obj: Type | None) -> bool:
+        if type_obj is None or type_obj.pointer or type_obj.is_reference:
+            return False
+        if type_obj.is_array:
+            return bool(
+                type_obj.elem_type
+                and is_owned_enum_value(type_obj.elem_type)
+            )
+        if type_obj.name in enum_owned_payloads:
+            return True
+        return False
+
+    if any(
+        is_owned_enum_value(field.type)
+        for struct in module.structs for field in struct.fields
+    ) or any(
+        is_owned_enum_value(field.type)
+        for class_decl in module.classes for field in class_decl.fields
+    ) or any(
+        is_owned_enum_value(global_.type) for global_ in module.globals
+    ):
+        raise SotlasBootstrapError(
+            "C11 enum sole payload cleanup currently supports local bindings "
+            "and function parameters only",
+            1, 1, module.filename, module.source,
+        )
+    if any(
+        is_owned_enum_value(function.result)
+        for function in module.functions
+    ):
+        raise SotlasBootstrapError(
+            "C11 enum sole payload returns are not supported yet",
+            1, 1, module.filename, module.source,
+        )
+    if any(
+        "@extern(C)" in function.attributes
+        and any(is_owned_enum_value(param_type) for _, param_type in function.params)
+        for function in module.functions
+    ):
+        raise SotlasBootstrapError(
+            "C11 enum sole payloads cannot cross an extern(C) boundary yet",
+            1, 1, module.filename, module.source,
+        )
+    if any(
+        param_type.is_array and is_owned_enum_value(param_type)
+        for function in module.functions
+        for _, param_type in function.params
+    ):
+        raise SotlasBootstrapError(
+            "C11 enum sole payload arrays are not supported yet",
+            1, 1, module.filename, module.source,
+        )
+
+    def reject_mutable_owned_enum_locals(statements) -> None:
+        for statement in statements or ():
+            initializer = getattr(statement, "value", None)
+            inferred_owned_enum = (
+                isinstance(initializer, Call)
+                and initializer.callee in {
+                    f"{enum.name}_{variant.name}"
+                    for enum in module.enums
+                    for variant in enum.variants
+                    if variant.payload_type is not None
+                    and variant.payload_type.name in sole_type_names
+                }
+            )
+            if (
+                isinstance(statement, Let)
+                and statement.type is not None
+                and statement.type.is_array
+                and is_owned_enum_value(statement.type)
+            ):
+                raise SotlasBootstrapError(
+                    "C11 enum sole payload arrays are not supported yet",
+                    statement.token.line, statement.token.column,
+                    module.filename, module.source,
+                )
+            if (
+                isinstance(statement, Let)
+                and statement.is_mut
+                and (is_owned_enum_value(statement.type) or inferred_owned_enum)
+            ):
+                raise SotlasBootstrapError(
+                    "C11 enum sole payload bindings must be immutable",
+                    statement.token.line, statement.token.column,
+                    module.filename, module.source,
+                )
+            for attribute in ("body", "then_body", "else_body"):
+                nested = getattr(statement, attribute, None)
+                if nested:
+                    reject_mutable_owned_enum_locals(nested)
+            if isinstance(statement, Discern):
+                for case in statement.cases:
+                    reject_mutable_owned_enum_locals(case.body)
+
+    for function in module.functions:
+        reject_mutable_owned_enum_locals(function.body)
     functions_for_defer = {function.name: function for function in module.functions}
 
     def _deferred_expression(statement: Defer) -> Expr | None:
@@ -4207,7 +4416,7 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
         if hook in fn_names:
             guards.append(f"#define SOTLAS_OVERRIDE_{hook.upper()} 1")
     lines = guards + ([PREAMBLE] if include_preamble else [])
-    if shared_functions or any(
+    if enum_owned_payloads or shared_functions or any(
         getattr(function, "requires", None) is not None
         or getattr(function, "ensures", None) is not None
         for function in module.functions
@@ -4226,9 +4435,17 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
     if any(g.is_const and not g.type.is_array for g in module.globals):
         lines.append("")
 
+    for struct in module.structs:
+        if getattr(struct, "is_register", False):
+            lines.append(f"typedef union {struct.name} {struct.name};")
+        else:
+            lines.append(f"typedef struct {struct.name} {struct.name};")
+    if module.structs:
+        lines.append("")
+
     # Enums
     for enum_obj in module.enums:
-        lines.extend(_emit_c_enum(enum_obj))
+        lines.extend(_emit_c_enum(enum_obj, sole_type_names))
         lines.append("")
 
     # Forward typedefs das structs para suportar ponteiros de função autorreferenciais e vtables
@@ -4275,6 +4492,46 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
         lines.append(f"{inline_attr}{extra_attrs}{function.result.c()} {fname}({parameters});")
     if module.functions:
         lines.append("")
+
+    for enum_obj in module.enums:
+        lines.extend(_emit_c_owned_enum_constructors(enum_obj, sole_type_names))
+
+    for enum_name, variants in enum_owned_payloads.items():
+        enum_obj = next(item for item in module.enums if item.name == enum_name)
+        lines.append(
+            f"static inline void __sotlas_enum_drop_{enum_name}"
+            f"({enum_name} *value) {{"
+        )
+        lines.append("    if (value == NULL) return;")
+        lines.append("    switch (value->tag) {")
+        tag = 0
+        owned_names = {variant.name for variant in variants}
+        for variant in enum_obj.variants:
+            if variant.value is not None:
+                tag = variant.value
+            if variant.name in owned_names:
+                payload_type = variant.payload_type.name
+                deinit = next((
+                    function for function in module.functions
+                    if function.name == f"{payload_type}_deinit"
+                    and function.params
+                ), None)
+                lines.append(f"    case UINT64_C({tag}):")
+                lines.append(
+                    f"        if (value->payload.{variant.name} != NULL) {{"
+                )
+                if deinit is not None:
+                    argument = (
+                        f"value->payload.{variant.name}"
+                        if deinit.params[0][1].pointer
+                        else f"*value->payload.{variant.name}"
+                    )
+                    lines.append(f"            {payload_type}_deinit({argument});")
+                lines.append(f"            free(value->payload.{variant.name});")
+                lines.append("        }")
+                lines.append("        break;")
+            tag += 1
+        lines.extend(["    default:", "        break;", "    }", "}", ""])
 
     if shared_functions:
         shared_drop_type_names: set[str] = set()
@@ -4585,6 +4842,25 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
         names: set[str] = set()
 
         if isinstance(expr, Call):
+            for enum_obj in module.enums:
+                for variant in enum_obj.variants:
+                    if (
+                        expr.callee not in {
+                            f"{enum_obj.name}::{variant.name}",
+                            f"{enum_obj.name}_{variant.name}",
+                        }
+                        or variant.payload_type is None
+                        or variant.payload_type.name not in sole_types
+                    ):
+                        continue
+                    for argument in expr.args:
+                        moved_argument = (
+                            argument.value
+                            if isinstance(argument, MoveExpr) else argument
+                        )
+                        if isinstance(moved_argument, Name):
+                            names.add(moved_argument.value)
+                    return names
             callee = function_by_name.get(expr.callee)
             if expr.callee == "transition" and expr.args:
                 moved = expr.args[0]
@@ -4601,7 +4877,10 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                     expr.args, callee.params
                 ):
                     if (
-                        parameter_type.name in sole_types
+                        (
+                            parameter_type.name in sole_types
+                            or parameter_type.name in enum_owned_payloads
+                        )
                         and not parameter_type.pointer
                         and getattr(parameter_type, "ownership_domain", None)
                             != "whisper"
@@ -4628,7 +4907,10 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
             if callee is not None and callee.params:
                 self_type = callee.params[0][1]
                 if (
-                    self_type.name in sole_types
+                    (
+                        self_type.name in sole_types
+                        or self_type.name in enum_owned_payloads
+                    )
                     and not self_type.pointer
                 ):
                     moved_receiver = (
@@ -4641,7 +4923,10 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
             user_params = callee.params[1:] if callee is not None else ()
             for argument, (_, parameter_type) in zip(expr.args, user_params):
                 if (
-                    parameter_type.name in sole_types
+                    (
+                        parameter_type.name in sole_types
+                        or parameter_type.name in enum_owned_payloads
+                    )
                     and not parameter_type.pointer
                 ):
                     moved_argument = (
@@ -4794,6 +5079,8 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
             local_type = statement.type
             if local_type is None and isinstance(statement.value, StructLit):
                 local_type = Type(statement.value.struct_name)
+            if local_type is None:
+                local_type = owned_enum_constructor_type(statement.value)
             if (
                 local_type is not None
                 and local_type.name in sole_types
@@ -4880,6 +5167,17 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                             auto_cleanup_name=param_name,
                         )
                     )
+                if param_type.name in enum_owned_payloads and not param_type.pointer:
+                    token = Token("IDENT", param_name, 0, 0)
+                    defer_scopes[-1].append(Defer(
+                        token,
+                        value=Call(
+                            token,
+                            f"__sotlas_enum_drop_{param_type.name}",
+                            [Unary(token, "&", Name(token, param_name))],
+                        ),
+                        auto_cleanup_name=param_name,
+                    ))
 
         for item in items:
             if isinstance(item, Let):
@@ -4920,8 +5218,8 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                     defer_scopes,
                     _sole_transfer_names(item.value),
                 )
-                if item.type is not None:
-                    typ = item.type
+                typ = item.type or owned_enum_constructor_type(item.value)
+                if typ is not None:
                     shared_local_types[item.name] = typ
                     if typ.name in sole_types and not typ.pointer:
                         moved_value = (
@@ -4944,6 +5242,16 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                         out.append(f"{pad}{prefix_spec}{decl} = {_emit_expr(item.value, prefix)};")
                     else:
                         out.append(f"{pad}{typ.c_decl(item.name)} = {_emit_expr(item.value, prefix, shared_boxes)};")
+                    if typ.name in enum_owned_payloads and not typ.pointer:
+                        defer_scopes[-1].append(Defer(
+                            item.token,
+                            value=Call(
+                                item.token,
+                                f"__sotlas_enum_drop_{typ.name}",
+                                [Unary(item.token, "&", Name(item.token, item.name))],
+                            ),
+                            auto_cleanup_name=item.name,
+                        ))
                     region_cleanup = region_cleanup_for(
                         typ, item.name, item.token
                     )
@@ -5557,15 +5865,48 @@ def emit_header(module: Module) -> str:
         "#include <stddef.h>",
         "#include <stdbool.h>",
     ]
+    header_sole_types = {
+        item.name for item in module.structs if item.is_sole and not item.is_register
+    }
+    public_struct_names = {
+        item.name for item in module.structs if item.public
+    }
+    if any(
+        enum_obj.public
+        and variant.payload_type is not None
+        and variant.payload_type.name in header_sole_types
+        and variant.payload_type.name not in public_struct_names
+        for enum_obj in module.enums for variant in enum_obj.variants
+    ):
+        raise SotlasBootstrapError(
+            "C11 public enum constructors require a public sole payload type",
+            1, 1, module.filename, module.source,
+        )
+    if any(
+        variant.payload_type is not None
+        and variant.payload_type.name in header_sole_types
+        for enum in module.enums for variant in enum.variants
+    ):
+        lines.append("#include <stdlib.h>")
     lines.extend(f'#include "{_c_ident(name)}.h"' for name in module.imports)
 
     for global_ in module.globals:
         if global_.public and global_.is_const and not global_.type.is_array:
             lines.append(f"#define {global_.name} (({global_.type.c()})({_emit_expr(global_.value)}))")
 
+    for struct in module.structs:
+        if not struct.public:
+            continue
+        if getattr(struct, "is_register", False):
+            lines.append(f"typedef union {struct.name} {struct.name};")
+        else:
+            lines.append(f"typedef struct {struct.name} {struct.name};")
+    if any(struct.public for struct in module.structs):
+        lines.append("")
+
     for enum_obj in module.enums:
         if enum_obj.public:
-            lines.extend(_emit_c_enum(enum_obj))
+            lines.extend(_emit_c_enum(enum_obj, header_sole_types))
 
     for struct in module.structs:
         if struct.public:
@@ -5594,6 +5935,12 @@ def emit_header(module: Module) -> str:
             lines.append(f"typedef struct{pack_attr} {struct.name} {{")
             lines.extend(f"    {field.type.c_decl(field.name)}{(' : ' + str(field.bit_width)) if getattr(field, 'bit_width', None) else ''};" for field in struct.fields)
             lines.append(f"}} {struct.name};")
+
+    for enum_obj in module.enums:
+        if enum_obj.public:
+            lines.extend(_emit_c_owned_enum_constructors(
+                enum_obj, header_sole_types
+            ))
 
     for function in module.functions:
         if not function.public and "@export" not in function.attributes:
