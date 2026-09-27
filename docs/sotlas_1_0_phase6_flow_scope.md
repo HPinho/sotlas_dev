@@ -40,15 +40,27 @@ stages. Sotlas callers declare the exact generated symbol with
 `@extern(C)` and call it from an `@system` function. A dedicated Flow invocation
 syntax is not available yet.
 
+The backend also emits
+`sotlas_flow_<module>_<flow>_cancelable`. It accepts an optional host callback,
+context pointer, optional cancelled-stage output, and the same stage-output
+pointers. It returns `0` on success, `1` for a null output pointer, and `2` when
+the callback requests cancellation. The callback is polled immediately before
+each stage in certified topological order; the reported stage index is
+zero-based. Stage outputs are copied to caller memory only after every stage
+completes, so cancellation leaves those outputs unchanged. A native C caller
+test covers cancellation between stages and the success path.
+
 This initial native path serializes accepted DAGs in deterministic dependency
 order, including plans with independent stages. It rejects unsupported types,
 contracts, system/foreign functions, method calls, and global access (including
 access through directly called helpers). The source effect pass does not yet
 classify global reads and writes, so the C11 gate checks that case syntactically
 and conservatively. The host scheduler remains the only path with structured
-failure/cancellation propagation. The outputs entrypoint exposes all computed
-values but does not add native scheduling, asynchronous execution, or structured
-stage failures.
+stage-failure and cooperative cancellation propagation. Native Flow functions
+are restricted to proven-pure scalar-returning stages and cannot report stage
+failures through this ABI. Cancellation is cooperative between stages and
+cannot interrupt a running stage. The native entrypoints do not add parallel
+scheduling or asynchronous execution.
 
 ## Verification
 

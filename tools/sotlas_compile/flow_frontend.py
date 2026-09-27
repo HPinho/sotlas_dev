@@ -77,6 +77,7 @@ def _emit_c11_flow_entrypoints(module, bootstrap) -> str:
             f"sotlas_flow_{module.name}_{plan.name}"
         )
         outputs_name = f"{entry_name}_outputs"
+        cancelable_name = f"{entry_name}_cancelable"
         if entry_name in generated_names:
             raise FlowFrontendError(
                 f"multiple Flow plans map to generated C11 symbol {entry_name!r}"
@@ -88,6 +89,12 @@ def _emit_c11_flow_entrypoints(module, bootstrap) -> str:
                 "with a function or another Flow plan"
             )
         generated_names.add(outputs_name)
+        if cancelable_name in generated_names or cancelable_name in used_names:
+            raise FlowFrontendError(
+                f"generated C11 Flow cancellation symbol {cancelable_name!r} "
+                "collides with a function or another Flow plan"
+            )
+        generated_names.add(cancelable_name)
         declaration = functions.get(entry_name)
         if declaration is not None:
             if (
@@ -111,7 +118,9 @@ def _emit_c11_flow_entrypoints(module, bootstrap) -> str:
         output_parameters = []
         body = []
         outputs_body = []
-        for stage_name in order:
+        cancelable_body = []
+        cancelable_publish = []
+        for stage_index, stage_name in enumerate(order):
             stage = stages[stage_name]
             function = functions.get(stage.function)
             if function is None:
@@ -178,6 +187,15 @@ def _emit_c11_flow_entrypoints(module, bootstrap) -> str:
                 f"sotlas_flow_value_{plan.name}_{stage.name}"
             )
             call = f"{bootstrap._c_ident(stage.function)}({', '.join(arguments)})"
+            cancelable_body.extend([
+                "    if (is_cancelled != 0 && is_cancelled(context)) {",
+                f"        if (cancelled_stage != 0) *cancelled_stage = {stage_index};",
+                "        return 2;",
+                "    }",
+            ])
+            cancelable_body.append(
+                f"    {stage.result_type.c()} {value_name} = {call};"
+            )
             body.append(
                 f"    {stage.result_type.c()} {value_name} = {call};"
             )
@@ -188,11 +206,32 @@ def _emit_c11_flow_entrypoints(module, bootstrap) -> str:
             output_parameter = f"out_{bootstrap._c_ident(stage.name)}"
             output_parameters.append((stage.result_type.c(), output_parameter))
             outputs_body.append(f"    *{output_parameter} = {value_name};")
+            cancelable_publish.append(f"    *{output_parameter} = {value_name};")
 
         outputs_signature = ", ".join(
             f"{kind} *{name}" for kind, name in output_parameters
         )
+        cancelable_signature = ", ".join([
+            "int32_t (*is_cancelled)(void *)",
+            "void *context",
+            "int32_t *cancelled_stage",
+            *(
+                f"{kind} *{name}"
+                for kind, name in output_parameters
+            ),
+        ])
         emitted.extend([
+            f"int32_t {cancelable_name}({cancelable_signature}) {{",
+            *[
+                f"    if ({name} == 0) return 1;"
+                for _, name in output_parameters
+            ],
+            "    if (cancelled_stage != 0) *cancelled_stage = -1;",
+            *cancelable_body,
+            *cancelable_publish,
+            "    return 0;",
+            "}",
+            "",
             f"int32_t {outputs_name}({outputs_signature}) {{",
             *[
                 f"    if ({name} == 0) return 0;"

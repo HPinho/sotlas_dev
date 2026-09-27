@@ -126,6 +126,10 @@ flow Home {
         self.assertEqual(authority_sir.module.flow_plans, checked_sir.module.flow_plans)
         c_source = package.compile_source(source)
         self.assertIn("sotlas_flow_test__flow_frontend_Home(void)", c_source)
+        self.assertIn(
+            "sotlas_flow_test__flow_frontend_Home_cancelable(", c_source
+        )
+        self.assertIn("int32_t *cancelled_stage", c_source)
 
     def test_typed_source_flow_executes_checked_stages_in_dependency_order(self):
         checked = package.analyze_source_phase1(self._source("""

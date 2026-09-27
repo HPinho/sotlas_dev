@@ -23,6 +23,67 @@ bootstrap = canonical_llvm_frontend()
 
 
 class SotlasFlowNativeTests(unittest.TestCase):
+    def test_c11_flow_cancel_abi_stops_between_stages_without_partial_outputs(self):
+        compiler = default_toolchain.find_tool("clang") or shutil.which("gcc")
+        if compiler is None:
+            self.skipTest("Clang or GCC is required for native Flow execution")
+        source = """module test::native_cancel_flow;
+fn seed() -> u32 { return 4u32; }
+fn increment(value: u32) -> u32 { return value + 1u32; }
+fn twice(value: u32) -> u32 { return value * 2u32; }
+flow Compute {
+    stage first = seed;
+    stage second = increment after first;
+    stage third = twice after second;
+}
+"""
+        c_source = bootstrap.compile_source(source, "native_cancel_flow.sotlas")
+        entrypoint = "sotlas_flow_test__native_cancel_flow_Compute_cancelable"
+        self.assertIn(f"int32_t {entrypoint}(", c_source)
+
+        with tempfile.TemporaryDirectory(prefix="sotlas-flow-cancel-c11-") as tmpdir:
+            root = Path(tmpdir)
+            generated = root / "flow.c"
+            caller = root / "caller.c"
+            executable = root / ("caller.exe" if os.name == "nt" else "caller")
+            generated.write_text(c_source, encoding="utf-8")
+            caller.write_text(
+                "#include <stdint.h>\n"
+                f"extern int32_t {entrypoint}(int32_t (*)(void *), void *, "
+                "int32_t *, uint32_t *, uint32_t *, uint32_t *);\n"
+                "static int32_t cancel_before_second(void *context) {\n"
+                "  int32_t *checks = (int32_t *)context;\n"
+                "  return (*checks)++ == 1;\n"
+                "}\n"
+                "static int32_t keep_running(void *context) { (void)context; return 0; }\n"
+                "int main(void) {\n"
+                "  int32_t checks = 0, cancelled_stage = -9;\n"
+                "  uint32_t first = 91, second = 92, third = 93;\n"
+                f"  if ({entrypoint}(cancel_before_second, &checks, &cancelled_stage, "
+                "&first, &second, &third) != 2) return 1;\n"
+                "  if (cancelled_stage != 1 || first != 91 || second != 92 || "
+                "third != 93) return 2;\n"
+                "  cancelled_stage = -9;\n"
+                f"  if ({entrypoint}(keep_running, 0, &cancelled_stage, "
+                "&first, &second, &third) != 0) return 3;\n"
+                "  return cancelled_stage == -1 && first == 4 && second == 5 && "
+                "third == 10 ? 0 : 4;\n"
+                "}\n",
+                encoding="utf-8",
+            )
+            compiled = subprocess.run(
+                [str(compiler), "-std=c11", "-Wall", "-Wextra", str(generated),
+                 str(caller), "-o", str(executable)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            executed = subprocess.run(
+                [str(executable)], capture_output=True, text=True, check=False
+            )
+            self.assertEqual(executed.returncode, 0, executed.stderr)
+
     def test_parallel_pure_flow_uses_c11_serial_fallback_with_matching_result(self):
         compiler = default_toolchain.find_tool("clang") or shutil.which("gcc")
         if compiler is None:

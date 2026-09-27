@@ -3965,13 +3965,20 @@ Effect inference e restrições contextuais.
 
 ### 6. Flow
 
-**Sotlas 1.0: COMPLETE dentro do contrato delimitado.** Flow serial escalar baixa
-para CFG SIR certificado e executa pelo scheduler local; limites e rejeições do
-backend estão em `docs/sotlas_1_0_phase6_flow_scope.md`.
+**Sotlas 1.0 bounded contract: COMPLETE.** The canonical frontend checks named
+Flow stages and dependencies. The host graph scheduler executes independent
+stages with structured failure and cooperative cancellation. The native C11
+subset compiles pure scalar stages in deterministic dependency order and
+supports structured stage branches and early returns.
 
-O grafo local também suporta estágios paralelos. O CFG executável 1.0 é serial e
-escalar; parallel CFG, ownership integrado e scheduler nativo C11 ficam
-pós-1.0. O contrato está em `docs/sotlas_1_0_phase6_flow_scope.md`.
+The C11 backend now also emits an optional `_cancelable` ABI. A host callback is
+polled between stages; cancellation returns a status and zero-based stage index,
+and stage outputs are copied to caller memory only after successful completion.
+Because accepted native stages are proven-pure scalar functions, this ABI does
+not report stage failures and cannot interrupt an executing stage. Native
+execution remains serial. Parallel SIR CFG, ownership payloads, a native stage
+failure channel, and GPU/NPU dispatch remain open. The bounded contract and
+rejections are documented in `docs/sotlas_1_0_phase6_flow_scope.md`.
 
 ### 7. Execution Domains
 
