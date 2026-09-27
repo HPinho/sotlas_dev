@@ -208,6 +208,9 @@ def _emit_c11_flow_entrypoints(module, bootstrap) -> str:
             dispatch_inputs_name = bootstrap._c_ident(
                 f"sotlas_flow_inputs_{plan.name}_{stage.name}"
             )
+            dispatch_input_types_name = bootstrap._c_ident(
+                f"sotlas_flow_input_types_{plan.name}_{stage.name}"
+            )
             if dispatch_arguments:
                 dispatch_body.append(
                     f"    const void *{dispatch_inputs_name}[] = {{ "
@@ -216,9 +219,18 @@ def _emit_c11_flow_entrypoints(module, bootstrap) -> str:
                     )
                     + " };"
                 )
+                dispatch_body.append(
+                    f"    const char *{dispatch_input_types_name}[] = {{ "
+                    + ", ".join(
+                        f'\"{item.name}\"' for item in stage.input_types
+                    )
+                    + " };"
+                )
                 dispatch_inputs = dispatch_inputs_name
+                dispatch_input_types = dispatch_input_types_name
             else:
                 dispatch_inputs = "0"
+                dispatch_input_types = "0"
             dispatch_value = bootstrap._c_ident(
                 f"sotlas_flow_dispatch_value_{plan.name}_{stage.name}"
             )
@@ -232,7 +244,8 @@ def _emit_c11_flow_entrypoints(module, bootstrap) -> str:
                 "    }",
                 f"    {stage.result_type.c()} {dispatch_value};",
                 f"    int32_t {dispatch_status} = dispatch_stage(context, "
-                f"{stage_index}u, \"{stage.name}\", {dispatch_inputs}, "
+                f"{stage_index}u, \"{stage.name}\", \"{stage.result_type.name}\", "
+                f"{dispatch_input_types}, {dispatch_inputs}, "
                 f"{len(dispatch_arguments)}u, "
                 f"(void *)&{dispatch_value});",
                 f"    if ({dispatch_status} != 0) {{",
@@ -277,7 +290,8 @@ def _emit_c11_flow_entrypoints(module, bootstrap) -> str:
         ])
         dispatch_signature = ", ".join([
             "int32_t (*dispatch_stage)(void *, uint32_t, "
-            "const char *, const void *const *, uint32_t, void *)",
+            "const char *, const char *, const char *const *, "
+            "const void *const *, uint32_t, void *)",
             "void *context",
             "int32_t (*is_cancelled)(void *)",
             "int32_t *stopped_stage",
