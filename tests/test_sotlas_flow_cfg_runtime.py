@@ -55,6 +55,26 @@ flow Serial {
         self.assertEqual(result.output("doubled"), 14)
         self.assertEqual(result.output("final"), 14)
 
+    def test_executes_signed_integer_passthrough_stages(self):
+        source = """
+module test::flow_cfg_signed;
+fn seed() -> i32 { return 7i32; }
+fn pass(value: i32) -> i32 { return value; }
+fn finish(value: i32) -> i32 { return value; }
+flow SignedSerial {
+    stage raw = seed;
+    stage copied = pass after raw;
+    stage final = finish after copied;
+}
+"""
+        checked = package.analyze_source_phase1(source)
+        checked_sir, _ = package.build_canonical_checked_ownership_sir(checked)
+        cfg = package.lower_serial_flow_to_cfg(checked_sir.module, "SignedSerial")
+        result = package.execute_serial_flow_cfg(checked_sir.module, cfg)
+        self.assertEqual(result.output("raw"), 7)
+        self.assertEqual(result.output("copied"), 7)
+        self.assertEqual(result.output("final"), 7)
+
     def test_revalidates_call_cfg_before_any_stage_execution(self):
         sir_module = self._module()
         cfg = package.lower_serial_flow_to_cfg(sir_module, "Serial")
