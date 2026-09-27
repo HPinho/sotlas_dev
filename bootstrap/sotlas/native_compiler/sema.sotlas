@@ -314,7 +314,15 @@ impl Sema {
         if parent_index != 0 && parent_index < node_count {
             let parent: AstNode = unsafe { *(nodes + parent_index) };
             if parent.kind == AstKind::ExprCall && parent.first_child == expression_index {
-                return true;
+                if self.find_module_function(
+                    nodes, node_count, expression_index, source, source_len
+                ) != 0 {
+                    return true;
+                }
+                self.error_count = self.error_count + 1;
+                self.error_line = expression.span.line;
+                self.error_col = expression.span.col;
+                return false;
             }
         }
         if self.find_visible_binding(
@@ -326,6 +334,58 @@ impl Sema {
         self.error_line = expression.span.line;
         self.error_col = expression.span.col;
         return false;
+    }
+
+    pub fn find_module_function(
+        self: &Self,
+        nodes: *const AstNode,
+        node_count: usize,
+        expression_index: usize,
+        source: *const u8,
+        source_len: usize
+    ) -> usize {
+        if nodes == null || expression_index == 0 || expression_index >= node_count {
+            return 0;
+        }
+        let expression: AstNode = unsafe { *(nodes + expression_index) };
+        let mut parent_index: usize = expression.parent;
+        let mut traversed: usize = 0;
+        let mut module_index: usize = 0;
+        while parent_index != 0 {
+            if parent_index >= node_count || traversed >= node_count {
+                return 0;
+            }
+            let parent: AstNode = unsafe { *(nodes + parent_index) };
+            if parent.kind == AstKind::Module {
+                module_index = parent_index;
+                break;
+            }
+            parent_index = parent.parent;
+            traversed = traversed + 1;
+        }
+        if module_index == 0 {
+            return 0;
+        }
+
+        let module_node: AstNode = unsafe { *(nodes + module_index) };
+        let mut declaration_index: usize = module_node.first_child;
+        let mut declaration_count: usize = 0;
+        while declaration_index != 0 {
+            if declaration_index >= node_count || declaration_count >= MAX_SYMBOLS {
+                return 0;
+            }
+            let declaration: AstNode = unsafe { *(nodes + declaration_index) };
+            if (declaration.kind == AstKind::FnDecl
+                || declaration.kind == AstKind::TrapfnDecl)
+                && self.same_declaration_name(
+                    source, source_len, declaration, expression
+                ) {
+                return declaration_index;
+            }
+            declaration_index = declaration.next_sibling;
+            declaration_count = declaration_count + 1;
+        }
+        return 0;
     }
 
     pub fn find_visible_binding(

@@ -15,6 +15,9 @@ checked SIR and direct LLVM backend cover smaller, separately gated subsets.
 `sotlas bootstrap` builds and checks the existing Sotlas-lite compiler project,
 but it does not rebuild the production compiler from its own source. Python is
 therefore still required by the production compiler and package tooling.
+The experimental Sotlas-written compiler frontend resolves direct calls only
+against functions declared in the same module and reports the source location
+of an unknown callee. Imported and foreign symbol resolution are still absent.
 
 LLVM currently supplies instruction selection, register allocation, ABI
 lowering, and object emission on the direct LLVM route. Sotlas does not yet have
