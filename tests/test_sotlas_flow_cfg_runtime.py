@@ -93,6 +93,55 @@ flow SignedOverflow {
         ):
             package.execute_serial_flow_cfg(checked_sir.module, cfg)
 
+    def test_executes_acyclic_stage_branches_and_phi_joins(self):
+        source = """
+module test::flow_cfg_branch;
+fn seed() -> i32 { return 5i32; }
+fn scale(value: i32) -> i32 { return value + value; }
+fn equal(left: i32, right: i32) -> bool { return left == right; }
+fn choose(flag: bool, yes: i32, no: i32) -> i32 {
+    return if flag { yes } else { no };
+}
+flow Branching {
+    stage base = seed;
+    stage scaled = scale after base;
+    stage same = equal after scaled, base;
+    stage selected = choose after same, base, scaled;
+}
+"""
+        checked = package.analyze_source_phase1(source)
+        checked_sir, _ = package.build_canonical_checked_ownership_sir(checked)
+        cfg = package.lower_serial_flow_to_cfg(checked_sir.module, "Branching")
+        result = package.execute_serial_flow_cfg(checked_sir.module, cfg)
+        self.assertEqual(result.output("base"), 5)
+        self.assertEqual(result.output("scaled"), 10)
+        self.assertFalse(result.output("same"))
+        self.assertEqual(result.output("selected"), 10)
+
+    def test_rejects_cyclic_stage_cfg_before_execution(self):
+        source = """
+module test::flow_cfg_loop;
+fn choose(flag: bool, yes: i32, no: i32) -> i32 {
+    return if flag { yes } else { no };
+}
+"""
+        checked = package.analyze_source_phase1(source)
+        checked_sir, _ = package.build_canonical_checked_ownership_sir(checked)
+        canonical_sir = importlib.import_module(
+            "sotlas_flow_cfg_runtime_test_package.canonical_sir"
+        )
+        sir = canonical_sir.load_canonical_sir()
+        loop_function = sir.SIRFunction("looping", [], "i32")
+        entry = loop_function.add_block("entry")
+        loop = loop_function.add_block("loop")
+        entry.add(sir.BranchInst(loop.label))
+        loop.add(sir.BranchInst(loop.label))
+        with self.assertRaisesRegex(ValueError, "rejects cyclic CFG"):
+            interpreter = importlib.import_module(
+                "sotlas_flow_cfg_runtime_test_package.flow_interpreter"
+            )
+            interpreter._validate_function_shape(loop_function)
+
     def test_revalidates_call_cfg_before_any_stage_execution(self):
         sir_module = self._module()
         cfg = package.lower_serial_flow_to_cfg(sir_module, "Serial")

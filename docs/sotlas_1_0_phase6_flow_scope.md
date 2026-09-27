@@ -24,9 +24,11 @@ serial plans with copy-safe scalar values into certified SIR `CallInst`s.
 call provenance, and serial schedule before interpreting stage bodies and
 dispatching them through the scheduler. End-to-end tests start from Sotlas Flow
 source and verify stage outputs. The SIR interpreter supports straight-line
-integer and boolean stage bodies. Its signed arithmetic rejects values outside
-the declared type range; the language-wide signed overflow contract remains
-open.
+integer and boolean bodies plus acyclic scalar branches, comparisons, and `phi`
+joins. It validates the branched CFG through Target IR before execution and
+rejects cycles, unreachable blocks, unsupported instructions, and unsupported
+types. Its signed arithmetic rejects values outside the declared type range;
+the language-wide signed overflow contract remains open.
 
 For plans whose stage functions are proven pure and use signed or unsigned
 integer scalars, `f32`, `f64`, or `bool`, the C11 backend emits a
@@ -86,7 +88,9 @@ not add parallel scheduling or asynchronous execution.
   rejection, and flow-report serialization are covered.
 - Tests lower source-derived SIR plans into actual call CFGs, execute them via
   the scheduler, and verify outputs and fail-closed behavior for parallel CFG,
-  effectful functions, and ownership-bearing values.
+  effectful functions, ownership-bearing values, and cyclic stage CFGs. A
+  source-level branch test verifies both boolean selection and scalar `phi`
+  joins through the executable scheduler.
 - Native C11 entrypoint execution is tested with C and Sotlas callers; positive
   tests include independent stages in a DAG. Negative tests check unsupported
   types and global access before emission. The separate executable SIR CFG
@@ -109,7 +113,8 @@ not add parallel scheduling or asynchronous execution.
   does not verify that an external callback matches the checked source body.
 - Backpressure, retries, distributed scheduling, timeouts, and forced
   interruption of running synchronous functions.
-- Arbitrary source CFG and general Flow unwind/defer integration.
+- Cyclic CFG execution, arbitrary ownership-bearing source CFG, and general
+  Flow unwind/defer integration.
 
 These restrictions are validated fail-closed and define the supported 1.0
 subset.

@@ -3983,9 +3983,11 @@ bodies, and the interface does not provide device buffers or transfers. Native
 execution remains serial. The executable serial SIR CFG runtime lowers fixed-
 width signed add/subtract/multiply return expressions, checks input and result
 ranges, and rejects overflow before returning a Flow result. This checked
-interpreter behavior does not define signed overflow for generated C11. Parallel SIR
-CFG, ownership payloads, verified stage failure semantics, and built-in GPU/NPU
-dispatch remain open. The bounded
+interpreter behavior does not define signed overflow for generated C11. The
+serial SIR interpreter also executes acyclic scalar stage CFGs with conditional
+branches and `phi` joins after Target IR validation; cycles, unreachable blocks,
+unsupported operations, and unsupported types fail closed. Ownership payloads,
+verified stage failure semantics, and built-in GPU/NPU dispatch remain open. The bounded
 contract and rejections are documented in
 `docs/sotlas_1_0_phase6_flow_scope.md`.
 

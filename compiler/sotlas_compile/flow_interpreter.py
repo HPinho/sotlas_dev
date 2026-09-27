@@ -1,6 +1,7 @@
-"""Fail-closed interpreter for the straight-line integer Flow SIR subset."""
+"""Fail-closed interpreter for an acyclic scalar Flow SIR subset."""
 from __future__ import annotations
 
+from types import SimpleNamespace
 from threading import Event
 from typing import Mapping
 
@@ -63,10 +64,8 @@ def _interpret_function(function, arguments: tuple[object, ...]) -> object:
         raise ValueError(
             f"SIR function {function.name!r} received the wrong argument count"
         )
-    if len(blocks) != 1:
-        raise ValueError(
-            f"SIR Flow interpreter requires one straight-line block in {function.name!r}"
-        )
+    if not blocks:
+        raise ValueError(f"SIR Flow interpreter requires blocks in {function.name!r}")
 
     values: dict[str, int | bool] = {}
     for parameter, argument in zip(parameters, arguments):
@@ -99,103 +98,157 @@ def _interpret_function(function, arguments: tuple[object, ...]) -> object:
             raise ValueError(f"{context} uses unsupported type {type_name!r}")
         return _checked_integer(values[name], type_name, context)
 
-    instructions = tuple(getattr(blocks[0], "instructions", ()) or ())
-    returned = False
-    result = None
-    for index, instruction in enumerate(instructions):
-        kind = type(instruction).__name__
-        if kind in {"AllocStackInst", "StoreInst"}:
-            # The current frontend materializes scalar parameters in local
-            # slots even when the expression uses their SSA parameter values.
-            # Accept only the inert allocation + matching initialization pair.
-            continue
-        elif kind == "ConstantIntInst":
-            target = getattr(instruction, "result", None)
-            name = getattr(target, "name", None)
-            type_name = getattr(target, "type_name", None)
-            if not isinstance(name, str) or not name or name in values:
-                raise ValueError(
-                    f"SIR function {function.name!r} has an invalid SSA result"
-                )
-            values[name] = _checked_integer(
-                instruction.value, type_name,
-                f"constant in SIR function {function.name!r}",
+    blocks_by_label = {block.label: block for block in blocks}
+    current_label = blocks[0].label
+    predecessor = None
+    visited_blocks = 0
+    while True:
+        block = blocks_by_label.get(current_label)
+        if block is None:
+            raise ValueError(
+                f"SIR function {function.name!r} branches to missing block {current_label!r}"
             )
-        elif kind == "BinaryOpInst":
-            target = getattr(instruction, "result", None)
-            target_name = getattr(target, "name", None)
-            type_name = getattr(target, "type_name", None)
-            operation = getattr(instruction, "operation", None)
-            calculate = _BINARY_OPERATIONS.get(operation)
-            left_value = getattr(instruction, "left", None)
-            right_value = getattr(instruction, "right", None)
-            if calculate is None:
-                raise ValueError(
-                    f"SIR Flow interpreter does not support operation {operation!r}"
+        next_label = None
+        instructions = tuple(getattr(block, "instructions", ()) or ())
+        for instruction in instructions:
+            kind = type(instruction).__name__
+            if kind == "PhiInst":
+                result_value = getattr(instruction, "result", None)
+                result_name = getattr(result_value, "name", None)
+                incoming = tuple(getattr(instruction, "incoming", ()) or ())
+                selected = tuple(
+                    value for value, label in incoming if label == predecessor
                 )
-            if (
-                not isinstance(target_name, str)
-                or not target_name
-                or target_name in values
-                or getattr(left_value, "type_name", None) != type_name
-                or getattr(right_value, "type_name", None) != type_name
-            ):
-                raise ValueError(
-                    f"SIR function {function.name!r} has inconsistent arithmetic types"
-                )
-            left = read(left_value, f"left operand in {function.name!r}")
-            right = read(right_value, f"right operand in {function.name!r}")
-            if type_name in _SIGNED_WIDTHS:
-                values[target_name] = _checked_signed(
-                    calculate(left, right), type_name,
-                    f"arithmetic result in {function.name!r}",
+                if (
+                    not isinstance(result_name, str) or not result_name
+                    or result_name in values or len(selected) != 1
+                    or getattr(result_value, "type_name", None) not in _SCALAR_TYPES
+                ):
+                    raise ValueError(f"SIR function {function.name!r} has invalid phi facts")
+                values[result_name] = read(
+                    selected[0], f"phi input in {function.name!r}"
                 )
                 continue
-            width = _INTEGER_WIDTHS.get(type_name)
-            if width is None:
-                raise ValueError(f"SIR arithmetic uses unsupported type {type_name!r}")
-            values[target_name] = calculate(left, right) & ((1 << width) - 1)
-        elif kind == "CompareInst":
-            target = getattr(instruction, "result", None)
-            name = getattr(target, "name", None)
-            operation = getattr(instruction, "operation", None)
-            operand_type = getattr(instruction.left, "type_name", None)
-            if (
-                getattr(target, "type_name", None) != "bool"
-                or operand_type not in (*_INTEGER_WIDTHS, *_SIGNED_WIDTHS)
-                or getattr(instruction.right, "type_name", None) != operand_type
-                or operation not in {"EQ", "NEQ", "LT", "LTE", "GT", "GTE"}
-                or not isinstance(name, str) or not name or name in values
-            ):
-                raise ValueError(f"SIR function {function.name!r} has an unsupported comparison")
-            left = read(instruction.left, f"left comparison operand in {function.name!r}")
-            right = read(instruction.right, f"right comparison operand in {function.name!r}")
-            values[name] = {
-                "EQ": left == right, "NEQ": left != right,
-                "LT": left < right, "LTE": left <= right,
-                "GT": left > right, "GTE": left >= right,
-            }[operation]
-        elif kind == "ReturnInst":
-            if returned or index != len(instructions) - 1:
-                raise ValueError(
-                    f"SIR function {function.name!r} has a non-terminal return"
+            if kind == "BranchInst":
+                next_label = getattr(instruction, "target_block", None)
+                break
+            if kind == "CondBranchInst":
+                condition = read(
+                    getattr(instruction, "condition", None),
+                    f"branch condition in {function.name!r}",
                 )
-            value = getattr(instruction, "value", None)
-            if value is None or getattr(value, "type_name", None) != result_type:
-                raise ValueError(
-                    f"SIR function {function.name!r} has an unsupported return"
+                if not isinstance(condition, bool):
+                    raise ValueError(
+                        f"SIR function {function.name!r} branches on a non-bool value"
+                    )
+                next_label = (
+                    getattr(instruction, "true_block", None)
+                    if condition else getattr(instruction, "false_block", None)
                 )
-            result = read(value, f"return value from {function.name!r}")
-            if result_type == "bool" and not isinstance(result, bool):
-                raise ValueError(f"SIR function {function.name!r} returns non-bool")
-            returned = True
-        else:
+                break
+            if kind == "ReturnInst":
+                value = getattr(instruction, "value", None)
+                if value is None or getattr(value, "type_name", None) != result_type:
+                    raise ValueError(
+                        f"SIR function {function.name!r} has an unsupported return"
+                    )
+                result = read(value, f"return value from {function.name!r}")
+                if result_type == "bool" and not isinstance(result, bool):
+                    raise ValueError(f"SIR function {function.name!r} returns non-bool")
+                return result
+            if kind in {"AllocStackInst", "StoreInst"}:
+                # The frontend materializes scalar parameters in local slots.
+                continue
+            if kind == "ConstantIntInst":
+                target = getattr(instruction, "result", None)
+                name = getattr(target, "name", None)
+                type_name = getattr(target, "type_name", None)
+                if not isinstance(name, str) or not name or name in values:
+                    raise ValueError(
+                        f"SIR function {function.name!r} has an invalid SSA result"
+                    )
+                values[name] = _checked_integer(
+                    instruction.value, type_name,
+                    f"constant in SIR function {function.name!r}",
+                )
+                continue
+            if kind == "BinaryOpInst":
+                target = getattr(instruction, "result", None)
+                target_name = getattr(target, "name", None)
+                type_name = getattr(target, "type_name", None)
+                operation = getattr(instruction, "operation", None)
+                calculate = _BINARY_OPERATIONS.get(operation)
+                left_value = getattr(instruction, "left", None)
+                right_value = getattr(instruction, "right", None)
+                if calculate is None:
+                    raise ValueError(
+                        f"SIR Flow interpreter does not support operation {operation!r}"
+                    )
+                if (
+                    not isinstance(target_name, str) or not target_name
+                    or target_name in values or type_name not in _SCALAR_TYPES
+                    or getattr(left_value, "type_name", None) != type_name
+                    or getattr(right_value, "type_name", None) != type_name
+                ):
+                    raise ValueError(
+                        f"SIR function {function.name!r} has inconsistent arithmetic types"
+                    )
+                left = read(left_value, f"left operand in {function.name!r}")
+                right = read(right_value, f"right operand in {function.name!r}")
+                if type_name in _SIGNED_WIDTHS:
+                    values[target_name] = _checked_signed(
+                        calculate(left, right), type_name,
+                        f"arithmetic result in {function.name!r}",
+                    )
+                elif type_name in _INTEGER_WIDTHS:
+                    width = _INTEGER_WIDTHS[type_name]
+                    values[target_name] = calculate(left, right) & ((1 << width) - 1)
+                else:
+                    raise ValueError(
+                        f"SIR arithmetic uses unsupported type {type_name!r}"
+                    )
+                continue
+            if kind == "CompareInst":
+                target = getattr(instruction, "result", None)
+                name = getattr(target, "name", None)
+                operation = getattr(instruction, "operation", None)
+                operand_type = getattr(instruction.left, "type_name", None)
+                if (
+                    getattr(target, "type_name", None) != "bool"
+                    or operand_type not in (*_INTEGER_WIDTHS, *_SIGNED_WIDTHS)
+                    or getattr(instruction.right, "type_name", None) != operand_type
+                    or operation not in {"EQ", "NEQ", "LT", "LTE", "GT", "GTE"}
+                    or not isinstance(name, str) or not name or name in values
+                ):
+                    raise ValueError(
+                        f"SIR function {function.name!r} has an unsupported comparison"
+                    )
+                left = read(
+                    instruction.left, f"left comparison operand in {function.name!r}"
+                )
+                right = read(
+                    instruction.right, f"right comparison operand in {function.name!r}"
+                )
+                values[name] = {
+                    "EQ": left == right, "NEQ": left != right,
+                    "LT": left < right, "LTE": left <= right,
+                    "GT": left > right, "GTE": left >= right,
+                }[operation]
+                continue
             raise ValueError(
                 f"SIR Flow interpreter does not support {kind} in {function.name!r}"
             )
-    if not returned:
-        raise ValueError(f"SIR function {function.name!r} has no supported return")
-    return result
+        if next_label is None:
+            raise ValueError(
+                f"SIR block {current_label!r} in {function.name!r} has no terminator"
+            )
+        predecessor = current_label
+        current_label = next_label
+        visited_blocks += 1
+        if visited_blocks > len(blocks):
+            raise ValueError(
+                f"SIR function {function.name!r} exceeded its acyclic CFG block limit"
+            )
 
 
 def execute_interpreted_sir_flow(
@@ -207,10 +260,10 @@ def execute_interpreted_sir_flow(
 ) -> FlowExecutionResult:
     """Interpret pure scalar stage bodies from one verified SIR Flow.
 
-    This intentionally supports a much smaller subset than a native backend:
-    stage functions must consist of one block with unsigned integer arithmetic,
-    integer comparisons returning bool, and a direct return. Calls, effects and
-    control flow fail before the scheduler starts any stage.
+    This intentionally supports a smaller subset than a native backend:
+    stage functions may contain straight-line scalar operations or an acyclic
+    branched CFG with scalar phi joins. Calls, effects, cycles, and unsupported
+    instructions fail before the scheduler starts any stage.
     """
     from .flow_sir import FlowSIRError, validate_sir_flow_plans
     from .canonical_sir import load_canonical_sir
@@ -292,10 +345,80 @@ def execute_interpreted_sir_flow(
 
 def _validate_function_shape(function) -> None:
     blocks = tuple(getattr(function, "blocks", ()) or ())
-    if len(blocks) != 1:
+    if not blocks:
         raise ValueError(
-            f"SIR Flow interpreter requires one straight-line block in {function.name!r}"
+            f"SIR Flow interpreter requires one straight-line block or an acyclic "
+            f"branched CFG in {function.name!r}"
         )
+    if len(blocks) > 1:
+        if function.return_type not in _SCALAR_TYPES or any(
+            getattr(parameter, "type_name", None) not in _SCALAR_TYPES
+            for parameter in function.parameters
+        ):
+            raise ValueError(
+                f"SIR function {function.name!r} has unsupported branched scalar types"
+            )
+        from .target_ir import lower_sir_to_target_ir
+
+        try:
+            report = lower_sir_to_target_ir(SimpleNamespace(
+                name=f"flow_validate::{function.name}", functions=(function,)
+            ))
+        except (TypeError, ValueError, KeyError, AttributeError) as error:
+            raise ValueError(
+                f"SIR function {function.name!r} has invalid branched CFG: {error}"
+            ) from error
+        lowered = report["functions"][0]
+        supported_ops = {
+            "alloc_stack", "store", "const_int", "add", "sub", "mul",
+            "compare", "phi", "branch", "cond_branch", "return",
+        }
+        successors: dict[str, set[str]] = {}
+        for block in lowered["blocks"]:
+            label = block["label"]
+            successors[label] = set(block["instructions"][-1].get("targets", ()))
+            for instruction in block["instructions"]:
+                if instruction["op"] not in supported_ops:
+                    raise ValueError(
+                        f"SIR Flow interpreter does not support {instruction['op']!r} "
+                        f"in {function.name!r}"
+                    )
+                type_name = instruction.get("type")
+                if type_name is not None and type_name not in _SCALAR_TYPES:
+                    raise ValueError(
+                        f"SIR Flow interpreter does not support type {type_name!r}"
+                    )
+        entry = lowered["blocks"][0]["label"]
+        reachable: set[str] = set()
+        pending = [entry]
+        while pending:
+            label = pending.pop()
+            if label in reachable:
+                continue
+            reachable.add(label)
+            pending.extend(successors[label] - reachable)
+        if reachable != set(successors):
+            raise ValueError(
+                f"SIR function {function.name!r} has unreachable CFG blocks"
+            )
+        indegree = {label: 0 for label in successors}
+        for targets in successors.values():
+            for target in targets:
+                indegree[target] += 1
+        ready = [label for label, count in indegree.items() if count == 0]
+        visited = 0
+        while ready:
+            label = ready.pop()
+            visited += 1
+            for target in successors[label]:
+                indegree[target] -= 1
+                if indegree[target] == 0:
+                    ready.append(target)
+        if visited != len(successors):
+            raise ValueError(
+                f"SIR Flow interpreter currently rejects cyclic CFG in {function.name!r}"
+            )
+        return
     instructions = tuple(getattr(blocks[0], "instructions", ()) or ())
     definitions = {parameter.name for parameter in function.parameters}
     parameter_types = {parameter.name: parameter.type_name for parameter in function.parameters}

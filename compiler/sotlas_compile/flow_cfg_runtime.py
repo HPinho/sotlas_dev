@@ -88,9 +88,9 @@ def execute_serial_flow_cfg(
             raise FlowCFGExecutionError(
                 f"Flow CFG execution does not execute @system function {instruction.callee!r}"
             )
-        integer_types = (*_INTEGER_WIDTHS, *_SIGNED_WIDTHS)
-        if function.return_type not in (*integer_types, "bool") or any(
-            getattr(parameter, "type_name", None) not in integer_types
+        scalar_types = (*_INTEGER_WIDTHS, *_SIGNED_WIDTHS, "bool")
+        if function.return_type not in scalar_types or any(
+            getattr(parameter, "type_name", None) not in scalar_types
             for parameter in function.parameters
         ):
             raise FlowCFGExecutionError(
