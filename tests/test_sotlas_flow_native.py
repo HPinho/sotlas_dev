@@ -31,11 +31,13 @@ class SotlasFlowNativeTests(unittest.TestCase):
         source = """module test::native_flow;
 fn first() -> u32 { return 40u32; }
 fn add_one(value: u32) -> u32 { return value + 1u32; }
+fn ready() -> bool { return true; }
 flow Count {
     stage first = first;
     stage second = add_one after first;
     stage final = add_one after second;
 }
+flow Ready { stage value = ready; }
 """
         package = importlib.import_module(bootstrap.__package__)
         checked = package.analyze_source_phase1(source)
@@ -46,6 +48,8 @@ flow Count {
         c_source = bootstrap.compile_source(source, "native_flow.sotlas")
         entrypoint = "sotlas_flow_test__native_flow_Count"
         self.assertIn(f"uint32_t {entrypoint}(void)", c_source)
+        bool_entrypoint = "sotlas_flow_test__native_flow_Ready"
+        self.assertIn(f"_Bool {bool_entrypoint}(void)", c_source)
 
         with tempfile.TemporaryDirectory(prefix="sotlas-flow-native-") as tmpdir:
             root = Path(tmpdir)
@@ -55,8 +59,11 @@ flow Count {
             generated.write_text(c_source, encoding="utf-8")
             caller.write_text(
                 "#include <stdint.h>\n"
+                "#include <stdbool.h>\n"
                 f"extern uint32_t {entrypoint}(void);\n"
-                f"int main(void) {{ return {entrypoint}() == {interpreted}u ? 0 : 1; }}\n",
+                f"extern _Bool {bool_entrypoint}(void);\n"
+                f"int main(void) {{ return {entrypoint}() == {interpreted}u && "
+                f"{bool_entrypoint}() ? 0 : 1; }}\n",
                 encoding="utf-8",
             )
             compiled = subprocess.run(
