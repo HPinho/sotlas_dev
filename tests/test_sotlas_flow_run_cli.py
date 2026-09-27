@@ -68,6 +68,93 @@ flow Compute {
             {"seed": 4, "left": 8, "right": 5, "final": 13},
         )
 
+    def test_runs_flow_through_compiled_c11_backend(self):
+        result = self._run(
+            """module test::flow_run_native;
+fn load() -> u32 { return 7u32; }
+fn twice(value: u32) -> u32 { return value * 2u32; }
+fn ready(value: u32) -> bool { return value == 7u32; }
+pub fn main() -> i32 { return 0i32; }
+flow Compute {
+    stage seed = load;
+    stage doubled = twice after seed;
+    stage is_ready = ready after seed;
+}
+""",
+            "--flow",
+            "Compute",
+            "--backend",
+            "c11",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)
+        self.assertEqual(report["schema"], "sotlas.flow-result.v1")
+        self.assertEqual(report["backend"], "c11")
+        self.assertEqual(
+            report["outputs"],
+            {"seed": 7, "doubled": 14, "is_ready": True},
+        )
+
+    def test_c11_flow_runner_reports_f32_and_f64_outputs(self):
+        result = self._run(
+            """module test::flow_run_native_float;
+fn first64() -> f64 { return 1.25f64; }
+fn add64(value: f64) -> f64 { return value + 2.25f64; }
+fn first32() -> f32 { return 1.5f32; }
+fn add32(value: f32) -> f32 { return value + 2.25f32; }
+flow DoublePrecision {
+    stage seed = first64;
+    stage result = add64 after seed;
+}
+flow SinglePrecision {
+    stage seed = first32;
+    stage result = add32 after seed;
+}
+""",
+            "--flow",
+            "DoublePrecision",
+            "--backend",
+            "c11",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)
+        self.assertEqual(report["backend"], "c11")
+        self.assertEqual(report["outputs"], {"seed": 1.25, "result": 3.5})
+
+        single = self._run(
+            """module test::flow_run_native_float32;
+fn first() -> f32 { return 1.5f32; }
+fn add(value: f32) -> f32 { return value + 2.25f32; }
+flow SinglePrecision { stage seed = first; stage result = add after seed; }
+""",
+            "--flow",
+            "SinglePrecision",
+            "--backend",
+            "c11",
+        )
+        self.assertEqual(single.returncode, 0, single.stderr)
+        self.assertEqual(
+            json.loads(single.stdout)["outputs"],
+            {"seed": 1.5, "result": 3.75},
+        )
+
+    def test_published_cpu_example_matches_reference_and_c11(self):
+        source_path = ROOT / "examples" / "12_sotlas_by_example" / "04_flow_cpu.sotlas"
+        source = source_path.read_text(encoding="utf-8")
+        reference = self._run(source, "--flow", "Compute")
+        native = self._run(
+            source, "--flow", "Compute", "--backend", "c11"
+        )
+
+        self.assertEqual(reference.returncode, 0, reference.stderr)
+        self.assertEqual(native.returncode, 0, native.stderr)
+        self.assertEqual(
+            json.loads(reference.stdout)["outputs"],
+            json.loads(native.stdout)["outputs"],
+        )
+
     def test_reports_unknown_plan_without_success_json(self):
         result = self._run(
             """module test::flow_run_missing;
@@ -97,6 +184,24 @@ flow Compute { stage seed = load; }
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(result.stdout, "")
         self.assertIn("max_workers must be a positive integer", result.stderr)
+
+    def test_rejects_workers_for_serial_c11_backend(self):
+        result = self._run(
+            """module test::flow_run_native_workers;
+fn load() -> u32 { return 4u32; }
+flow Compute { stage seed = load; }
+""",
+            "--flow",
+            "Compute",
+            "--workers",
+            "2",
+            "--backend",
+            "c11",
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("C11 Flow runs in deterministic serial order", result.stderr)
 
 
 if __name__ == "__main__":

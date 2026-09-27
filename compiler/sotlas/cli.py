@@ -163,6 +163,10 @@ def main() -> int:
         "--workers", type=int, default=None,
         help="Maximum concurrent independent stages (default: runtime setting)",
     )
+    flow_run.add_argument(
+        "--backend", choices=("reference", "c11"), default="reference",
+        help="Execution backend: reference scheduler or a compiled native C11 runner",
+    )
 
     sir_report = sub.add_parser(
         "sir-report",
@@ -270,7 +274,7 @@ def main() -> int:
     if args.cmd == "flow-report":
         return _run_flow_report(args.source)
     if args.cmd == "flow-run":
-        return _run_flow_run(args.source, args.flow, args.workers)
+        return _run_flow_run(args.source, args.flow, args.workers, args.backend)
     if args.cmd == "sir-report":
         return _run_sir_report(args.source)
     if args.cmd == "target-report":
@@ -477,30 +481,49 @@ def _run_flow_report(source_path: str) -> int:
     return 0
 
 
-def _run_flow_run(source_path: str, flow_name: str, workers: int | None) -> int:
+def _run_flow_run(
+    source_path: str,
+    flow_name: str,
+    workers: int | None,
+    backend: str = "reference",
+) -> int:
     loaded = _read_source(source_path)
     if loaded is None:
         return 1
     _, text = loaded
     try:
-        from sotlas_compile import (
-            analyze_source_phase1,
-            build_canonical_checked_ownership_sir,
-            execute_interpreted_sir_flow,
-        )
+        if backend == "c11":
+            if workers is not None:
+                raise ValueError(
+                    "--workers applies to the reference backend; C11 Flow runs "
+                    "in deterministic serial order"
+                )
+            from sotlas_compile.flow_native_runner import run_c11_flow
 
-        checked = analyze_source_phase1(text, filename=source_path)
-        checked_sir, _ = build_canonical_checked_ownership_sir(checked)
-        result = execute_interpreted_sir_flow(
-            checked_sir.module,
-            flow_name,
-            max_workers=workers,
-        )
+            outputs = run_c11_flow(text, source_path, flow_name)
+        else:
+            from sotlas_compile import (
+                analyze_source_phase1,
+                build_canonical_checked_ownership_sir,
+                execute_interpreted_sir_flow,
+            )
+
+            checked = analyze_source_phase1(text, filename=source_path)
+            checked_sir, _ = build_canonical_checked_ownership_sir(checked)
+            result = execute_interpreted_sir_flow(
+                checked_sir.module,
+                flow_name,
+                max_workers=workers,
+            )
+            outputs = dict(result.outputs)
         report = {
             "schema": "sotlas.flow-result.v1",
-            "module": checked_sir.module.name,
+            "module": production_frontend.parse(
+                text, filename=source_path
+            ).name,
             "flow": flow_name,
-            "outputs": dict(result.outputs),
+            "backend": backend,
+            "outputs": outputs,
         }
         print(json.dumps(report, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
     except Exception as error:

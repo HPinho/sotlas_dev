@@ -4,7 +4,7 @@ fn load() -> u32 {
     return 4u32;
 }
 
-fn double(value: u32) -> u32 {
+fn twice(value: u32) -> u32 {
     return value * 2u32;
 }
 
@@ -18,7 +18,7 @@ fn combine(left: u32, right: u32) -> u32 {
 
 flow Compute {
     stage seed = load;
-    stage doubled = double after seed;
+    stage doubled = twice after seed;
     stage incremented = increment after seed;
     stage result = combine after doubled, incremented;
 }

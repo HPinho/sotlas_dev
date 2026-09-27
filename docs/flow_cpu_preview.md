@@ -1,8 +1,9 @@
 # Flow CPU Preview Contract
 
-The `flow-run` command executes a checked Flow plan through Sotlas's reference
-interpreter and CPU scheduler. It is intended for experiments and validation;
-it does not emit native parallel code.
+The `flow-run` command executes a checked Flow plan through the reference
+interpreter or compiles it to a temporary native C11 program. The reference
+backend can schedule independent stages concurrently. C11 executes the same
+checked scalar plan in deterministic serial order.
 
 ## Run a plan
 
@@ -12,13 +13,27 @@ sotlas flow-run examples/12_sotlas_by_example/04_flow_cpu.sotlas \
 ```
 
 The command runs the canonical frontend and checked SIR validation before any
-stage starts. Its JSON result contains the module name, plan name, and each
-stage output. Object keys are sorted so the report is stable across runs.
+stage starts. Its JSON result contains the module name, plan name, selected
+backend, and each stage output. Object keys are sorted so the report is stable
+across runs.
+
+To compile and run the plan through C11, install Clang or GCC and use:
+
+```sh
+sotlas flow-run examples/12_sotlas_by_example/04_flow_cpu.sotlas \
+  --flow Compute --backend c11
+```
+
+The C11 runner checks the source, compiles the generated C plus a temporary
+caller, executes it, and collects every stage output through the generated C
+ABI. `--workers` applies to the reference backend; C11 remains serial.
 
 ## Supported subset
 
 - Stages have pure, non-system function bodies.
-- Stage parameters and return values are integer or boolean scalars.
+- Stage parameters and return values are scalars. The reference interpreter
+  currently handles integer and boolean SIR; C11 also accepts pure `f32` and
+  `f64` plans.
 - Function bodies use the straight-line instructions accepted by the Flow SIR
   interpreter.
 - Dependency layers are derived from the checked plan. Independent stages in a
@@ -30,9 +45,8 @@ stage output. Object keys are sorted so the report is stable across runs.
 
 Effects, arbitrary control flow, ownership-bearing payloads, host/device memory
 transfers, physical GPU/NPU dispatch, and native parallel scheduling remain
-unsupported. C11 accepts pure scalar graphs with independent stages and evaluates
-them in deterministic dependency order as a serial fallback. The reference
-runner may schedule independent stages concurrently.
+unsupported. C11 accepts pure scalar graphs, including `f32` and `f64`, and
+evaluates independent stages in deterministic dependency order.
 
 ## Exit behavior
 
