@@ -178,7 +178,7 @@ class SotlasRealityGateTests(unittest.TestCase):
         generator = (
             ROOT / "compiler" / "sotlas" / "sir" / "generator.py"
         ).read_text(encoding="utf-8")
-        self.assertIn("Emite retorno padrão", generator)
+        self.assertIn("unlowered_functions.append(fn_name)", generator)
         self.assertNotIn("production lowering", generator.lower())
 
     def test_public_production_entrypoint_is_bootstrap_not_sir(self):
