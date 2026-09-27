@@ -124,6 +124,80 @@ def _lower_instruction(instruction: Any, *, function: str) -> dict[str, Any]:
             "operands": [_value_name(value, context=context)] if value else [],
             "attributes": {"point_id": getattr(instruction, "point_id", None)},
         }
+    if kind in {"DirectAccessInst", "WhisperBorrowInst"}:
+        return {
+            "op": "semantic.direct_borrow" if kind == "DirectAccessInst"
+            else "semantic.whisper_borrow",
+            "operands": [_value_name(instruction.source, context=context)],
+            "semantic_only": True,
+            "attributes": {
+                "callee": instruction.callee,
+                "parameter": instruction.parameter,
+                "source_domain": instruction.source_domain,
+                "point_id": instruction.point_id,
+            },
+        }
+    if kind == "OwnershipDomainTransferInst":
+        destination = getattr(instruction, "destination", None)
+        return {
+            "op": "semantic.ownership_transfer",
+            "operands": [
+                _value_name(instruction.source, context=context),
+                *([_value_name(destination, context=context)] if destination else []),
+            ],
+            "semantic_only": True,
+            "attributes": {
+                "operation": instruction.operation,
+                "source_domain": instruction.source_domain,
+                "target_domain": instruction.target_domain,
+                "point_id": instruction.point_id,
+            },
+        }
+    if kind in {"ShareInst", "RetainInst", "ReleaseInst", "DestroyInst"}:
+        value = getattr(instruction, "value", None)
+        return {
+            "op": "semantic." + {
+                "ShareInst": "share", "RetainInst": "retain",
+                "ReleaseInst": "release", "DestroyInst": "destroy",
+            }[kind],
+            "operands": [_value_name(value, context=context)],
+            "semantic_only": True,
+        }
+    if kind in {"OwnershipDomainPointInst", "SharedOwnershipPointInst"}:
+        return {
+            "op": "semantic.ownership_point" if kind == "OwnershipDomainPointInst"
+            else "semantic.shared_ownership_point",
+            "semantic_only": True,
+            "attributes": {
+                key: getattr(instruction, key)
+                for key in (
+                    ("operation", "source_name", "destination_name", "point_id")
+                    if kind == "OwnershipDomainPointInst"
+                    else ("source_name", "alias_name", "point_id")
+                )
+            },
+        }
+    if kind == "DeferUseInst":
+        return {
+            "op": "semantic.defer_use",
+            "operands": [_value_name(instruction.value, context=context)],
+            "semantic_only": True,
+            "attributes": {"point_id": instruction.defer_point_id},
+        }
+    if kind == "StateTransitionInst":
+        return {
+            "op": "semantic.state_transition",
+            "result": _value_name(instruction.result, context=context),
+            "type": getattr(instruction.result, "type_name", None),
+            "operands": [_value_name(instruction.source, context=context)],
+            "semantic_only": True,
+            "attributes": {
+                "space": instruction.space_name,
+                "source_state": instruction.source_state,
+                "target_state": instruction.target_state,
+                "point_id": instruction.point_id,
+            },
+        }
     raise TargetIRLoweringError(
         f"Target IR v1 does not lower {kind} in function {function!r}"
     )
@@ -218,6 +292,7 @@ def lower_sir_to_target_ir(module: Any) -> dict[str, Any]:
         "limitations": [
             "No target instruction selection or register allocation is performed.",
             "Native code emission still uses the selected existing backend.",
+            "Semantic ownership and state operations are annotations, not runtime lowering.",
         ],
     }
 

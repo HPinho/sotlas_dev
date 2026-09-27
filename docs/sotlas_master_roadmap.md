@@ -4194,7 +4194,7 @@ Primeiro alvo recomendado: um backend nativo completo para uma arquitetura/ABI d
 
 Checklist:
 
-- [x] Target IR v1 tipado e target-neutral após o SIR canônico, com blocks, valores virtuais, operações escalares, chamadas e terminadores para o subset validado; seleção de instruções e lowering por target permanecem pendentes;
+- [x] Target IR v1 tipado e target-neutral após o SIR canônico, com blocks, valores virtuais, operações escalares, chamadas, terminadores e anotações explícitas de ownership/state para o subset validado; seleção de instruções e lowering por target permanecem pendentes;
 - [ ] definição de calling convention e ABI lowering;
 - [ ] lowering de parâmetros, retornos, aggregates e tagged unions;
 - [ ] stack-frame layout;

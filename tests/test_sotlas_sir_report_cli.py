@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -91,7 +92,7 @@ pub fn sum(left: u32, right: u32) -> u32 { return left + right; }
         self.assertIn("return", operations)
         self.assertTrue(report["limitations"])
 
-    def test_target_ir_report_fails_closed_for_unlowered_sir_operations(self):
+    def test_target_ir_report_preserves_verified_direct_borrow_facts(self):
         result = self._run_report(
             """module test::target_ir_bad;
 sole struct Token { value: u32; }
@@ -100,9 +101,83 @@ fn caller(token: Token) -> void { inspect(&token); return; }
 """,
             "target-ir-report",
         )
-        self.assertNotEqual(result.returncode, 0)
-        self.assertEqual(result.stdout, "")
-        self.assertIn("Target IR v1 does not lower", result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)
+        operations = [
+            instruction
+            for function in report["functions"]
+            for block in function["blocks"]
+            for instruction in block["instructions"]
+        ]
+        borrow = next(item for item in operations if item["op"] == "semantic.direct_borrow")
+        self.assertTrue(borrow["semantic_only"])
+        self.assertEqual(borrow["attributes"]["callee"], "inspect")
+
+    def test_target_ir_lowerer_preserves_handover_domains_and_source_point(self):
+        sys.path.insert(0, str(ROOT / "compiler"))
+        try:
+            from sotlas_compile.canonical_sir import load_canonical_sir
+            from sotlas_compile.target_ir import lower_sir_to_target_ir
+        finally:
+            sys.path.remove(str(ROOT / "compiler"))
+
+        sir = load_canonical_sir()
+        source = sir.SIRValue("source", "Token")
+        destination = sir.SIRValue("destination", "Token")
+        module = sir.SIRModule("test::target_ir_handover")
+        function = sir.SIRFunction(
+            "transfer", [source, destination], "void"
+        )
+        block = function.add_block("entry")
+        block.add(sir.OwnershipDomainTransferInst(
+            operation="handover",
+            source=source,
+            source_domain="exclusive",
+            target_domain="exclusive",
+            destination=destination,
+            point_id="handover@7:5",
+        ))
+        block.add(sir.ReturnInst())
+        module.add_function(function)
+
+        report = lower_sir_to_target_ir(module)
+        transfer = report["functions"][0]["blocks"][0]["instructions"][0]
+        self.assertEqual(transfer["op"], "semantic.ownership_transfer")
+        self.assertTrue(transfer["semantic_only"])
+        self.assertEqual(transfer["operands"], ["source", "destination"])
+        self.assertEqual(transfer["attributes"]["source_domain"], "exclusive")
+        self.assertEqual(transfer["attributes"]["target_domain"], "exclusive")
+        self.assertEqual(transfer["attributes"]["point_id"], "handover@7:5")
+
+    def test_target_ir_lowerer_rejects_unknown_sir_operations(self):
+        sys.path.insert(0, str(ROOT / "compiler"))
+        try:
+            from sotlas_compile.target_ir import (
+                TargetIRLoweringError,
+                lower_sir_to_target_ir,
+            )
+        finally:
+            sys.path.remove(str(ROOT / "compiler"))
+
+        class UnsupportedInstruction:
+            pass
+
+        module = SimpleNamespace(
+            name="invalid",
+            functions=[SimpleNamespace(
+                name="function",
+                parameters=[],
+                return_type="void",
+                blocks=[SimpleNamespace(
+                    label="entry",
+                    instructions=[UnsupportedInstruction()],
+                )],
+            )],
+        )
+        with self.assertRaisesRegex(
+            TargetIRLoweringError, "does not lower UnsupportedInstruction"
+        ):
+            lower_sir_to_target_ir(module)
 
 
 if __name__ == "__main__":
