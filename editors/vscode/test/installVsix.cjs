@@ -2,7 +2,32 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 const { downloadAndUnzipVSCode, runTests, runVSCodeCommand } = require('@vscode/test-electron');
+
+function runInstalledCodeCommand(cliPath, args) {
+  const cliScript = process.env.SOTLAS_VSCODE_CLI_SCRIPT;
+  assert.ok(
+    process.platform !== 'win32' || cliScript,
+    'set SOTLAS_VSCODE_CLI_SCRIPT to VS Code resources/app/out/cli.js on Windows',
+  );
+  const result = spawnSync(cliPath, [
+    ...(cliScript ? [cliScript] : []),
+    ...args,
+  ], {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      ...(cliScript ? { ELECTRON_RUN_AS_NODE: '1', VSCODE_DEV: '' } : {}),
+    },
+    shell: false,
+    timeout: 60000,
+    windowsHide: true,
+  });
+  if (result.error) throw result.error;
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  return result.stdout || '';
+}
 
 async function main() {
   const extensionRoot = path.resolve(__dirname, '..');
@@ -16,18 +41,42 @@ async function main() {
   const workspaceDir = path.join(temporary, 'workspace');
   try {
     const isolatedProfile = [`--user-data-dir=${userDataDir}`, `--extensions-dir=${extensionsDir}`];
-    await runVSCodeCommand([
-      ...isolatedProfile,
-      '--install-extension', vsixPath,
-      '--force',
-    ], { version: 'stable' });
-    const listing = await runVSCodeCommand([
-      ...isolatedProfile,
-      '--list-extensions',
-    ], { version: 'stable' });
-    assert.match(listing.stdout.toLowerCase(), /sotlas-lang\.vscode-sotlas/);
+    const localCli = process.env.SOTLAS_VSCODE_CLI;
+    const localExecutable = process.env.SOTLAS_VSCODE_EXECUTABLE;
+    assert.equal(
+      Boolean(localCli), Boolean(localExecutable),
+      'set both SOTLAS_VSCODE_CLI and SOTLAS_VSCODE_EXECUTABLE to use an installed VS Code',
+    );
+    let listing;
+    if (localCli && localExecutable) {
+      runInstalledCodeCommand(localCli, [
+        ...isolatedProfile,
+        '--disable-gpu',
+        '--install-extension', vsixPath,
+        '--force',
+      ]);
+      listing = runInstalledCodeCommand(localCli, [
+        ...isolatedProfile,
+        '--disable-gpu',
+        '--list-extensions',
+      ]);
+    } else {
+      await runVSCodeCommand([
+        ...isolatedProfile,
+        '--disable-gpu',
+        '--install-extension', vsixPath,
+        '--force',
+      ], { version: 'stable' });
+      const result = await runVSCodeCommand([
+        ...isolatedProfile,
+        '--disable-gpu',
+        '--list-extensions',
+      ], { version: 'stable' });
+      listing = result.stdout;
+    }
+    assert.match(String(listing).toLowerCase(), /sotlas-lang\.vscode-sotlas/);
 
-    const executable = await downloadAndUnzipVSCode('stable');
+    const executable = localExecutable || await downloadAndUnzipVSCode('stable');
 
     const installedExtension = fs.readdirSync(extensionsDir)
       .map(name => path.join(extensionsDir, name))
@@ -55,7 +104,7 @@ async function main() {
       vscodeExecutablePath: executable,
       extensionDevelopmentPath: installedExtension,
       extensionTestsPath: path.join(__dirname, 'vscodeSmokeSuite.cjs'),
-      launchArgs: [workspaceDir, `--user-data-dir=${userDataDir}`, `--extensions-dir=${testExtensionsDir}`],
+      launchArgs: [workspaceDir, '--disable-gpu', `--user-data-dir=${userDataDir}`, `--extensions-dir=${testExtensionsDir}`],
       extensionTestsEnv: { SOTLAS_SMOKE_SOURCE: sourcePath },
     });
     assert.equal(testExitCode, 0, 'the installed VSIX activates and publishes compiler diagnostics');

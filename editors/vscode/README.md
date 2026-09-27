@@ -76,7 +76,24 @@ npm run compile
 npx @vscode/vsce package
 ```
 
-Install the generated `.vsix` from the VS Code Extensions menu using **Install from VSIX...**. Marketplace installation will be documented when a preview package is published.
+Install the generated `.vsix` from the VS Code Extensions menu using **Install from VSIX...**.
+
+### Validate the installed package
+
+Before sharing a preview build, run the extension unit tests and the isolated VSIX smoke test:
+
+```sh
+npm test
+npm run test:vsix
+```
+
+The smoke test installs the VSIX into a temporary VS Code profile, activates it
+against a small Sotlas workspace, and checks that compiler diagnostics appear
+with their source location. By default it downloads the stable VS Code test
+runtime. To run it offline on Windows with an existing VS Code installation,
+set `SOTLAS_VSCODE_CLI`, `SOTLAS_VSCODE_EXECUTABLE`, and
+`SOTLAS_VSCODE_CLI_SCRIPT` to the installed `Code.exe` and its
+`resources/app/out/cli.js`, then run `npm run test:vsix`.
 
 ---
 
