@@ -15,9 +15,12 @@ import shutil
 import subprocess
 import sys
 import unittest
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_DIR = ROOT / "compiler" / "sotlas_compile"
+sys.path.insert(0, str(ROOT / "compiler"))
+from sotlas.llvm_toolchain import default_toolchain  # noqa: E402
 
 
 def _load_package():
@@ -67,7 +70,8 @@ fn main() -> i32 {
 
 
 def _host_c_compiler() -> Path:
-    resolved = shutil.which("gcc") or shutil.which("clang")
+    bundled = default_toolchain.find_tool("clang")
+    resolved = (str(bundled) if bundled is not None else None) or shutil.which("gcc") or shutil.which("clang")
     if resolved is None:
         raise unittest.SkipTest("host GCC/Clang not available")
     return Path(resolved)
@@ -114,6 +118,23 @@ class SotlasPhase2V1BorrowReleaseGateTests(unittest.TestCase):
         self.assertEqual(executed.returncode, 0, executed.stderr)
         return generated
 
+    def _compile_and_run_canonical_c11(self, source_text: str, stem: str) -> None:
+        if not default_toolchain.is_available() and not shutil.which("gcc"):
+            self.skipTest("Clang or GCC is required for canonical ownership execution")
+        with tempfile.TemporaryDirectory(prefix=f"{stem}-canonical-") as temp:
+            executable = Path(temp) / (f"{stem}.exe" if os.name == "nt" else stem)
+            default_toolchain.compile_source_to_native(
+                source_text,
+                f"app::{stem}",
+                executable,
+                emit_type="exe",
+                backend="c11",
+            )
+            executed = subprocess.run(
+                [str(executable)], capture_output=True, text=True, check=False
+            )
+            self.assertEqual(executed.returncode, 0, executed.stderr or executed.stdout)
+
     def test_direct_v1_subset_runs_as_call_scoped_zero_bookkeeping_access(self):
         generated = self._compile_and_run(
             DIRECT_SOURCE,
@@ -128,6 +149,18 @@ class SotlasPhase2V1BorrowReleaseGateTests(unittest.TestCase):
         )
         self.assertIn("const Token * token", generated)
         self.assertIn("token->value", generated)
+
+    def test_direct_v1_subset_executes_through_canonical_frontend_and_c11(self):
+        self._compile_and_run_canonical_c11(
+            DIRECT_SOURCE,
+            "phase2_v1_direct_canonical",
+        )
+
+    def test_whisper_v1_subset_executes_through_canonical_frontend_and_c11(self):
+        self._compile_and_run_canonical_c11(
+            WHISPER_SOURCE,
+            "phase2_v1_whisper_canonical",
+        )
 
 
 if __name__ == "__main__":
