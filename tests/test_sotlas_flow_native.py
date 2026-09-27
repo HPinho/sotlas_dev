@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import importlib
 from pathlib import Path
 import shutil
 import subprocess
@@ -36,6 +37,12 @@ flow Count {
     stage final = add_one after second;
 }
 """
+        package = importlib.import_module(bootstrap.__package__)
+        checked = package.analyze_source_phase1(source)
+        checked_sir, _ = package.build_canonical_checked_ownership_sir(checked)
+        interpreted = package.execute_interpreted_sir_flow(
+            checked_sir.module, "Count"
+        ).output("final")
         c_source = bootstrap.compile_source(source, "native_flow.sotlas")
         entrypoint = "sotlas_flow_test__native_flow_Count"
         self.assertIn(f"uint32_t {entrypoint}(void)", c_source)
@@ -49,7 +56,7 @@ flow Count {
             caller.write_text(
                 "#include <stdint.h>\n"
                 f"extern uint32_t {entrypoint}(void);\n"
-                f"int main(void) {{ return {entrypoint}() == 42u ? 0 : 1; }}\n",
+                f"int main(void) {{ return {entrypoint}() == {interpreted}u ? 0 : 1; }}\n",
                 encoding="utf-8",
             )
             compiled = subprocess.run(
