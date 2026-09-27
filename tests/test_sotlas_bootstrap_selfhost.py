@@ -49,8 +49,10 @@ typedef enum {
     TokenKind_Identifier = 1,
     TokenKind_NumberLiteral = 2,
     TokenKind_StringLiteral = 3,
+    TokenKind_KwFn = 6,
     TokenKind_Arrow = 34,
-    TokenKind_Error = 42
+    TokenKind_Error = 42,
+    TokenKind_KwSole = 46
 } TokenKind;
 typedef struct { uint32_t line, col; size_t offset, length; } Span;
 typedef struct { TokenKind kind; Span span; } Token;
@@ -64,36 +66,44 @@ SotlasLexer SotlasLexer_new(const uint8_t *source, size_t length);
 Token SotlasLexer_next_token(SotlasLexer *lexer);
 
 int main(void) {
-    static const uint8_t source[] = "// first line\nname -> 42\n\"hi\\\"x\"";
+    static const uint8_t source[] = "// first line\nfn name sole -> 42\n\"hi\\\"x\"";
     SotlasLexer lexer = SotlasLexer_new(source, sizeof(source) - 1);
     Token token = SotlasLexer_next_token(&lexer);
-    if (token.kind != TokenKind_Identifier || token.span.line != 2 ||
-        token.span.col != 1 || token.span.offset != 14 || token.span.length != 4)
+    if (token.kind != TokenKind_KwFn || token.span.line != 2 ||
+        token.span.col != 1 || token.span.offset != 14 || token.span.length != 2)
         return 1;
     token = SotlasLexer_next_token(&lexer);
-    if (token.kind != TokenKind_Arrow || token.span.offset != 19 ||
-        token.span.length != 2)
+    if (token.kind != TokenKind_Identifier || token.span.offset != 17 ||
+        token.span.length != 4)
         return 2;
     token = SotlasLexer_next_token(&lexer);
-    if (token.kind != TokenKind_NumberLiteral || token.span.offset != 22 ||
-        token.span.length != 2)
+    if (token.kind != TokenKind_KwSole || token.span.offset != 22 ||
+        token.span.length != 4)
         return 3;
     token = SotlasLexer_next_token(&lexer);
-    if (token.kind != TokenKind_StringLiteral || token.span.line != 3 ||
-        token.span.col != 1 || token.span.offset != 25 || token.span.length != 7)
+    if (token.kind != TokenKind_Arrow || token.span.offset != 27 ||
+        token.span.length != 2)
         return 4;
     token = SotlasLexer_next_token(&lexer);
-    if (token.kind != TokenKind_Eof) return 5;
+    if (token.kind != TokenKind_NumberLiteral || token.span.offset != 30 ||
+        token.span.length != 2)
+        return 5;
+    token = SotlasLexer_next_token(&lexer);
+    if (token.kind != TokenKind_StringLiteral || token.span.line != 3 ||
+        token.span.col != 1 || token.span.offset != 33 || token.span.length != 7)
+        return 6;
+    token = SotlasLexer_next_token(&lexer);
+    if (token.kind != TokenKind_Eof) return 7;
 
     static const uint8_t malformed[] = {'"', 'x', '\\'};
     lexer = SotlasLexer_new(malformed, sizeof(malformed));
     token = SotlasLexer_next_token(&lexer);
     if (token.kind != TokenKind_Error || token.span.length != sizeof(malformed))
-        return 6;
+        return 8;
 
     lexer = SotlasLexer_new(NULL, 4);
     token = SotlasLexer_next_token(&lexer);
-    return token.kind == TokenKind_Eof ? 0 : 7;
+    return token.kind == TokenKind_Eof ? 0 : 9;
 }
 """,
                 encoding="utf-8",

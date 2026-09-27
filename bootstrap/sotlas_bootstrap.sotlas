@@ -50,7 +50,24 @@ pub enum TokenKind {
     CloseBrace,
     OpenBracket,
     CloseBracket,
-    Error
+    Error,
+    KwFor,
+    KwBreak,
+    KwContinue,
+    KwSole,
+    KwShared,
+    KwRegion,
+    KwDevice,
+    KwExternal,
+    KwIsland,
+    KwQuarantine,
+    KwHandover,
+    KwExclusive,
+    KwWhisper,
+    KwDirect,
+    KwMove,
+    KwDefer,
+    KwFlow
 }
 
 // Representação de posição geográfica no código fonte
@@ -126,6 +143,27 @@ pub class SotlasLexer {
             }
             return ch;
         }
+    }
+
+    fn matches_word(
+        self: *const SotlasLexer,
+        span: Span,
+        expected: *const u8,
+        expected_length: usize
+    ) -> bool {
+        if self == null || expected == null || span.length != expected_length {
+            return false;
+        }
+        let mut index: usize = 0;
+        unsafe {
+            while index < expected_length {
+                if *(self.source + span.offset + index) != *(expected + index) {
+                    return false;
+                }
+                index = index + 1;
+            }
+        }
+        return true;
     }
 
     pub fn skip_whitespace(self: *mut SotlasLexer) {
@@ -255,6 +293,46 @@ pub class SotlasLexer {
                     }
                 }
                 span.length = self.cursor - start_offset;
+
+                if self.matches_word(span, "let" as *const u8, 3) { return Token { kind: TokenKind::KwLet, span: span }; }
+                if self.matches_word(span, "var" as *const u8, 3) { return Token { kind: TokenKind::KwVar, span: span }; }
+                if self.matches_word(span, "fn" as *const u8, 2) { return Token { kind: TokenKind::KwFn, span: span }; }
+                if self.matches_word(span, "pub" as *const u8, 3) { return Token { kind: TokenKind::KwPub, span: span }; }
+                if self.matches_word(span, "unsafe" as *const u8, 6) { return Token { kind: TokenKind::KwUnsafe, span: span }; }
+                if self.matches_word(span, "return" as *const u8, 6) { return Token { kind: TokenKind::KwReturn, span: span }; }
+                if self.matches_word(span, "class" as *const u8, 5) { return Token { kind: TokenKind::KwClass, span: span }; }
+                if self.matches_word(span, "struct" as *const u8, 6) { return Token { kind: TokenKind::KwStruct, span: span }; }
+                if self.matches_word(span, "module" as *const u8, 6) { return Token { kind: TokenKind::KwModule, span: span }; }
+                if self.matches_word(span, "import" as *const u8, 6) { return Token { kind: TokenKind::KwImport, span: span }; }
+                if self.matches_word(span, "if" as *const u8, 2) { return Token { kind: TokenKind::KwIf, span: span }; }
+                if self.matches_word(span, "else" as *const u8, 4) { return Token { kind: TokenKind::KwElse, span: span }; }
+                if self.matches_word(span, "while" as *const u8, 5) { return Token { kind: TokenKind::KwWhile, span: span }; }
+                if self.matches_word(span, "system" as *const u8, 6) { return Token { kind: TokenKind::KwSystem, span: span }; }
+                if self.matches_word(span, "discern" as *const u8, 7) { return Token { kind: TokenKind::KwDiscern, span: span }; }
+                if self.matches_word(span, "forge" as *const u8, 5) { return Token { kind: TokenKind::KwForge, span: span }; }
+                if self.matches_word(span, "enclave" as *const u8, 7) { return Token { kind: TokenKind::KwEnclave, span: span }; }
+                if self.matches_word(span, "probe" as *const u8, 5) { return Token { kind: TokenKind::KwProbe, span: span }; }
+                if self.matches_word(span, "pulse" as *const u8, 5) { return Token { kind: TokenKind::KwPulse, span: span }; }
+                if self.matches_word(span, "comptime" as *const u8, 8) { return Token { kind: TokenKind::KwComptime, span: span }; }
+                if self.matches_word(span, "asm" as *const u8, 3) { return Token { kind: TokenKind::KwAsm, span: span }; }
+                if self.matches_word(span, "volatile" as *const u8, 8) { return Token { kind: TokenKind::KwVolatile, span: span }; }
+                if self.matches_word(span, "for" as *const u8, 3) { return Token { kind: TokenKind::KwFor, span: span }; }
+                if self.matches_word(span, "break" as *const u8, 5) { return Token { kind: TokenKind::KwBreak, span: span }; }
+                if self.matches_word(span, "continue" as *const u8, 8) { return Token { kind: TokenKind::KwContinue, span: span }; }
+                if self.matches_word(span, "sole" as *const u8, 4) { return Token { kind: TokenKind::KwSole, span: span }; }
+                if self.matches_word(span, "shared" as *const u8, 6) { return Token { kind: TokenKind::KwShared, span: span }; }
+                if self.matches_word(span, "region" as *const u8, 6) { return Token { kind: TokenKind::KwRegion, span: span }; }
+                if self.matches_word(span, "device" as *const u8, 6) { return Token { kind: TokenKind::KwDevice, span: span }; }
+                if self.matches_word(span, "external" as *const u8, 8) { return Token { kind: TokenKind::KwExternal, span: span }; }
+                if self.matches_word(span, "island" as *const u8, 6) { return Token { kind: TokenKind::KwIsland, span: span }; }
+                if self.matches_word(span, "quarantine" as *const u8, 10) { return Token { kind: TokenKind::KwQuarantine, span: span }; }
+                if self.matches_word(span, "handover" as *const u8, 8) { return Token { kind: TokenKind::KwHandover, span: span }; }
+                if self.matches_word(span, "exclusive" as *const u8, 9) { return Token { kind: TokenKind::KwExclusive, span: span }; }
+                if self.matches_word(span, "whisper" as *const u8, 7) { return Token { kind: TokenKind::KwWhisper, span: span }; }
+                if self.matches_word(span, "direct" as *const u8, 6) { return Token { kind: TokenKind::KwDirect, span: span }; }
+                if self.matches_word(span, "move" as *const u8, 4) { return Token { kind: TokenKind::KwMove, span: span }; }
+                if self.matches_word(span, "defer" as *const u8, 5) { return Token { kind: TokenKind::KwDefer, span: span }; }
+                if self.matches_word(span, "flow" as *const u8, 4) { return Token { kind: TokenKind::KwFlow, span: span }; }
                 return Token { kind: TokenKind::Identifier, span: span };
             }
 
