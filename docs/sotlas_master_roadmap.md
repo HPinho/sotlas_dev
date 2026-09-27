@@ -4124,6 +4124,11 @@ stages. Stage failure's own external effects, atomicity, verified inverses,
 snapshots, crash recovery, and concurrent journals remain future work. See
 `docs/sotlas_1_0_phases_13_17_scope.md`.
 
+The source SIR generator now lowers one explicit unsigned counter/accumulator
+loop form to loop-carried `phi` values and a CFG backedge. The LLVM gate compiles
+that result to an object and executes it through a native C caller. General
+mutable loop bodies and ownership cleanup in generated loop CFG remain open.
+
 A auditoria exige que cada handler compensatório aceite o valor de saída
 tipado da stage que poderá compensar (ou zero argumentos quando a stage retorna
 `void`). A incompatibilidade é rejeitada antes que qualquer stage seja executada.

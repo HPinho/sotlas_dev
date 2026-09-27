@@ -581,6 +581,177 @@ class SIRGenerator:
         )
         return True
 
+    def _try_lower_unsigned_accumulation_loop(
+        self,
+        fn: Any,
+        sir_fn: SIRFunction,
+        entry_block: SIRBasicBlock,
+        sir_params: list[SIRValue],
+        return_type: str,
+    ) -> bool:
+        """Lower one source-level unsigned counter/sum loop into SSA CFG.
+
+        The narrow accepted form has two zero-initialized mutable locals, a
+        parameter bound, an accumulator update, and a unit counter increment.
+        Other mutable loop bodies remain outside this SIR generator subset.
+        """
+        widths = {"u8": 8, "u16": 16, "u32": 32, "u64": 64}
+        if return_type not in widths:
+            return False
+        body = list(getattr(fn, "body", ()) or ())
+        if (
+            len(body) != 4
+            or [type(item).__name__ for item in body]
+            not in [["Let", "Let", "While", "Return"],
+                    ["Let", "Let", "WhileNode", "ReturnNode"]]
+        ):
+            return False
+        counter, accumulator, loop, return_statement = body
+        counter_name = getattr(counter, "name", None)
+        accumulator_name = getattr(accumulator, "name", None)
+        if (
+            not isinstance(counter_name, str) or not counter_name
+            or not isinstance(accumulator_name, str) or not accumulator_name
+            or counter_name == accumulator_name
+            or not getattr(counter, "is_mut", False)
+            or not getattr(accumulator, "is_mut", False)
+            or self._type_name(getattr(counter, "type", None), "any") != return_type
+            or self._type_name(getattr(accumulator, "type", None), "any") != return_type
+            or counter_name in {item.name for item in sir_params}
+            or accumulator_name in {item.name for item in sir_params}
+        ):
+            return False
+
+        def integer_literal(expression):
+            if type(expression).__name__ not in ("Number", "LiteralNode"):
+                return None
+            raw = getattr(expression, "value", None)
+            if not isinstance(raw, str):
+                return None
+            match = re.fullmatch(r"(.+?)(u8|u16|u32|u64)?", raw)
+            if match is None:
+                return None
+            digits, suffix = match.groups()
+            if suffix is not None and suffix != return_type:
+                return None
+            try:
+                value = int(digits.replace("_", ""), 0)
+            except ValueError:
+                return None
+            if not 0 <= value <= (1 << widths[return_type]) - 1:
+                return None
+            return value
+
+        if (
+            integer_literal(getattr(counter, "value", None)) != 0
+            or integer_literal(getattr(accumulator, "value", None)) != 0
+        ):
+            return False
+
+        condition = getattr(loop, "condition", None)
+        if (
+            type(condition).__name__ != "Binary"
+            or getattr(condition, "op", None) != "<"
+            or type(getattr(condition, "left", None)).__name__ != "Name"
+            or getattr(condition.left, "value", None) != counter_name
+            or type(getattr(condition, "right", None)).__name__ != "Name"
+        ):
+            return False
+        bound_name = getattr(condition.right, "value", None)
+        bound = next((item for item in sir_params if item.name == bound_name), None)
+        if bound is None or bound.type_name != return_type:
+            return False
+        returned = getattr(return_statement, "value", None)
+        if (
+            type(returned).__name__ != "Name"
+            or getattr(returned, "value", None) != accumulator_name
+        ):
+            return False
+
+        loop_body = list(getattr(loop, "body", ()) or ())
+        if len(loop_body) != 2 or any(
+            type(statement).__name__ != "Assign" for statement in loop_body
+        ):
+            return False
+        total_update, counter_update = loop_body
+
+        def is_name(expression, expected):
+            return (
+                type(expression).__name__ == "Name"
+                and getattr(expression, "value", None) == expected
+            )
+
+        total_target = getattr(total_update, "target", None)
+        total_expression = getattr(total_update, "value", None)
+        counter_target = getattr(counter_update, "target", None)
+        counter_expression = getattr(counter_update, "value", None)
+        if (
+            not is_name(total_target, accumulator_name)
+            or type(total_expression).__name__ != "Binary"
+            or getattr(total_expression, "op", None) != "+"
+            or not is_name(total_expression.left, accumulator_name)
+            or not is_name(total_expression.right, counter_name)
+            or not is_name(counter_target, counter_name)
+            or type(counter_expression).__name__ != "Binary"
+            or getattr(counter_expression, "op", None) != "+"
+            or not is_name(counter_expression.left, counter_name)
+            or integer_literal(counter_expression.right) != 1
+        ):
+            return False
+
+        location = getattr(loop, "token", None)
+        line = getattr(location, "line", 0)
+        column = getattr(location, "column", 0)
+        prefix = f"while_{line}_{column}"
+        entry_label = entry_block.label
+        header_label = f"{prefix}_head"
+        body_label = f"{prefix}_body"
+        exit_label = f"{prefix}_exit"
+        labels = {entry_label, header_label, body_label, exit_label}
+        if len(labels) != 4 or any(
+            block.label in labels - {entry_label} for block in sir_fn.blocks
+        ):
+            return False
+
+        counter_initial = self._next_val(f"{counter_name}_init", return_type)
+        total_initial = self._next_val(f"{accumulator_name}_init", return_type)
+        entry_block.add(ConstantIntInst(0, counter_initial))
+        entry_block.add(ConstantIntInst(0, total_initial))
+        entry_block.add(BranchInst(header_label))
+
+        header = sir_fn.add_block(header_label)
+        counter_phi = self._next_val(counter_name, return_type)
+        total_phi = self._next_val(accumulator_name, return_type)
+        counter_next = self._next_val(f"{counter_name}_next", return_type)
+        total_next = self._next_val(f"{accumulator_name}_next", return_type)
+        header.add(PhiInst(
+            counter_phi, [(counter_initial, entry_label), (counter_next, body_label)]
+        ))
+        header.add(PhiInst(
+            total_phi, [(total_initial, entry_label), (total_next, body_label)]
+        ))
+        condition_value = self._next_val("loop_test", "bool")
+        header.add(CompareInst("LT", counter_phi, bound, condition_value))
+        header.add(CondBranchInst(condition_value, body_label, exit_label))
+
+        loop_block = sir_fn.add_block(body_label)
+        increment = self._next_val("loop_increment", return_type)
+        loop_block.add(ConstantIntInst(1, increment))
+        loop_block.add(BinaryOpInst("add", total_phi, counter_phi, total_next))
+        loop_block.add(BinaryOpInst("add", counter_phi, increment, counter_next))
+        loop_block.add(BranchInst(
+            header_label,
+            point_id=self._statement_point_id(loop, "while_backedge"),
+            control_kind="backedge",
+        ))
+
+        exit_block = sir_fn.add_block(exit_label)
+        exit_block.add(ReturnInst(
+            total_phi,
+            point_id=self._statement_point_id(return_statement, "return"),
+        ))
+        return True
+
     def _try_lower_linear_ownership_points(
         self,
         fn: Any,
@@ -1672,6 +1843,11 @@ class SIRGenerator:
             return sir_fn
 
         if self._try_lower_simple_loop_control(
+            fn, sir_fn, entry_block, sir_params, ret_str
+        ):
+            return sir_fn
+
+        if self._try_lower_unsigned_accumulation_loop(
             fn, sir_fn, entry_block, sir_params, ret_str
         ):
             return sir_fn

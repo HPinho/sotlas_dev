@@ -55,14 +55,16 @@ The certified scalar and structured-control subset lowers from source through
 SIR directly to LLVM IR, then to host assembly, relocatable objects, or native
 executables without C as an intermediate language. Covered cases include
 direct scalar returns, selected integer arithmetic/comparisons, conditional
-branches/phi values, and verified native caller interoperability. Unsupported
+branches/phi values, one unsigned counter/accumulator loop lowered with
+loop-carried `phi` nodes, and verified native caller interoperability. The loop
+is compiled to an object and executed through a native C caller. Unsupported
 instructions/domains fail before artifact emission.
 
 LLVM supplies instruction selection, register allocation, ABI lowering, and
 object emission for this 1.0 path. Sotlas does not yet provide its own machine
-backend. Complete ABI lowering, a Sotlas register allocator, broad CFG and
-aggregate support, unwind metadata, and execution coverage for every target
-remain future milestones.
+backend. Complete ABI lowering, a Sotlas register allocator, general mutable
+loop-body CFG and aggregate support, unwind metadata, and execution coverage
+for every target remain future milestones.
 
 ## Phase 17 — Tooling
 

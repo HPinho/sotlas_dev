@@ -172,6 +172,58 @@ pub fn add_numbers(left: u32, right: u32) -> u32 {
         run_result = subprocess.run([str(executable)])
         self.assertEqual(run_result.returncode, 0)
 
+    def test_llvm_lowers_and_executes_source_unsigned_accumulation_loop(self):
+        source = """module test::llvm_loop_native;
+pub fn sum_to(limit: u32) -> u32 {
+    let mut index: u32 = 0u32;
+    let mut total: u32 = 0u32;
+    while index < limit {
+        total = total + index;
+        index = index + 1u32;
+    }
+    return total;
+}
+"""
+        llvm_file = self.tmp_path / "llvm_loop_native.ll"
+        self.toolchain.compile_source_to_native(
+            source,
+            "test::llvm_loop_native",
+            llvm_file,
+            emit_type="llvm",
+            backend="llvm",
+        )
+        llvm_ir = llvm_file.read_text(encoding="utf-8")
+        self.assertIn("phi i32", llvm_ir)
+        self.assertIn("br label %bbwhile_", llvm_ir)
+
+        object_file = self.tmp_path / "llvm_loop_native.obj"
+        self.toolchain.compile_source_to_native(
+            source,
+            "test::llvm_loop_native",
+            object_file,
+            emit_type="obj",
+            backend="llvm",
+        )
+        caller_file = self.tmp_path / "llvm_loop_caller.c"
+        caller_file.write_text(
+            "#include <stdint.h>\n"
+            "extern uint32_t sum_to(uint32_t);\n"
+            "int main(void) { return sum_to(4u) == 6u && "
+            "sum_to(1u) == 0u && sum_to(0u) == 0u ? 0 : 1; }\n",
+            encoding="utf-8",
+        )
+        compiler = self.toolchain.find_tool("clang")
+        self.assertIsNotNone(compiler)
+        executable = self.tmp_path / "llvm_loop_native.exe"
+        subprocess.run(
+            [str(compiler), str(caller_file), str(object_file), "-o", str(executable)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        result = subprocess.run([str(executable)], check=False)
+        self.assertEqual(result.returncode, 0)
+
     def test_c11_and_llvm_backends_agree_on_shared_unsigned_arithmetic_input(self):
         source = """module test::backend_differential;
 pub fn add_numbers(left: u32, right: u32) -> u32 {
