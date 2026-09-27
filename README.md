@@ -70,6 +70,8 @@ performance advantages over established systems languages.
 
 These are Sotlas's current contracts, not a feature comparison with other languages. The release scope links the exact supported forms and known gaps.
 
+For phase-by-phase test evidence and explicit boundaries, see the [generated phase gate matrix](docs/phase_gate_matrix.md), the [standard-library API contracts](stdlib/core/README.md), and the [high-level language and self-hosting roadmap](docs/high_level_and_self_hosting_roadmap.md).
+
 ---
 
 ## 🌐 Interoperability direction

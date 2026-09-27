@@ -1682,7 +1682,7 @@ class SIRGenerator:
         if self._try_lower_integer_comparison_return(fn, entry_block, sir_params, ret_str):
             return sir_fn
 
-        if self._try_lower_unsigned_parameter_return(
+        if self._try_lower_scalar_parameter_return(
             fn, entry_block, sir_params, ret_str
         ):
             return sir_fn
@@ -1710,15 +1710,15 @@ class SIRGenerator:
         )
         return sir_fn
 
-    def _try_lower_unsigned_parameter_return(
+    def _try_lower_scalar_parameter_return(
         self,
         fn: Any,
         entry_block: SIRBasicBlock,
         params: list[SIRValue],
         return_type: str,
     ) -> bool:
-        """Lower a direct return of one same-typed unsigned parameter."""
-        if return_type not in {"u8", "u16", "u32", "u64", "usize"}:
+        """Lower a direct return of one same-typed scalar parameter."""
+        if return_type not in {"u8", "u16", "u32", "u64", "usize", "bool"}:
             return False
         body = list(getattr(fn, "body", ()) or ())
         if len(body) != 1 or type(body[0]).__name__ not in ("Return", "ReturnNode"):

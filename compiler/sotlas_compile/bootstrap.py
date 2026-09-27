@@ -481,7 +481,13 @@ class Parser:
     def expect(self, kind: str) -> Token:
         token = self.accept(kind)
         if token: return token
-        raise SotlasBootstrapError(f"esperado {kind}, encontrado {self.current.kind}",
+        message = f"esperado {kind}, encontrado {self.current.kind}"
+        if kind == "IDENT" and self.current.kind == "->":
+            message += (
+                "; pode estar faltando um parâmetro no formato nome: Tipo "
+                "antes do tipo de retorno"
+            )
+        raise SotlasBootstrapError(message,
                         self.current.line, self.current.column, self.filename, self.source)
 
     def _accept_ident_or_contextual(self) -> bool:

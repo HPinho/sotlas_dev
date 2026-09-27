@@ -45,6 +45,16 @@ Os percentuais medem o escopo necessário para o Sotlas 1.0. Generalizações p�
 
 Escopos concluídos: `docs/phase0_reality_audit.md`, contratos 1.0 das fases 5–10 e `docs/sotlas_1_0_phases_13_17_scope.md`.
 
+## Preview hardening update — 2026-09-26
+
+- The reviewed evidence map for phases 0–17 is generated from `phase_gate_matrix.json`; its test verifies phase coverage, gate-file existence, and generated-document freshness.
+- CI now runs explicit gates for phases 0–3 and 11–12, in addition to the existing phase-specific gates and the complete test suite.
+- `check`, `compile --emit-c`, and `run` have a shared negative acceptance test that compares the exact diagnostic, source location, caret, and safe parser hint.
+- The SIR Flow interpreter now accepts checked boolean parameters and parameter forwarding; the new Flow case runs a comparison result through a second stage.
+- C11 and direct LLVM are compared by compiling the same unsigned arithmetic function and running both artifacts with the same native C caller and inputs.
+- Standard-library ownership, mutability, allocator lifetime, cleanup, and failure contracts are documented in `stdlib/core/README.md`.
+- Flow native C11 lowering, physical GPU/NPU providers, arbitrary CFG lowering, and production compiler self-hosting remain open. The new `high_level_and_self_hosting_roadmap.md` defines promotion gates; the existing Sotlas-lite bootstrap does not replace the Python production compiler.
+
 ## Fase 0 — Reality Reset
 
 **Status 1.0: 100% do contrato de realidade — COMPLETE**

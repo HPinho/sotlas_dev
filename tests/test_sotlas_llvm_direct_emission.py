@@ -172,6 +172,47 @@ pub fn add_numbers(left: u32, right: u32) -> u32 {
         run_result = subprocess.run([str(executable)])
         self.assertEqual(run_result.returncode, 0)
 
+    def test_c11_and_llvm_backends_agree_on_shared_unsigned_arithmetic_input(self):
+        source = """module test::backend_differential;
+pub fn add_numbers(left: u32, right: u32) -> u32 {
+    return left + right;
+}
+"""
+        clang = self.toolchain.find_tool("clang")
+        if clang is None:
+            self.skipTest("Clang is required for the C11/LLVM differential test")
+
+        caller = self.tmp_path / "backend_caller.c"
+        caller.write_text(
+            "#include <stdint.h>\n"
+            "extern uint32_t add_numbers(uint32_t, uint32_t);\n"
+            "int main(void) { return add_numbers(40u, 2u) == 42u ? 0 : 1; }\n",
+            encoding="utf-8",
+        )
+        results = {}
+        for backend in ("c11", "llvm"):
+            with self.subTest(backend=backend):
+                object_file = self.tmp_path / f"{backend}.o"
+                self.toolchain.compile_source_to_native(
+                    source,
+                    "test::backend_differential",
+                    object_file,
+                    emit_type="obj",
+                    backend=backend,
+                )
+                executable = self.tmp_path / f"{backend}-caller.exe"
+                subprocess.run(
+                    [str(clang), str(caller), str(object_file), "-o", str(executable)],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+                results[backend] = subprocess.run(
+                    [str(executable)], capture_output=True, text=True, check=False
+                ).returncode
+
+        self.assertEqual(results, {"c11": 0, "llvm": 0})
+
     def test_llvm_signed_parameter_comparison_executes_from_native_caller(self):
         source = """module test::llvm_signed_native_compare;
 pub fn less(left: i32, right: i32) -> bool {

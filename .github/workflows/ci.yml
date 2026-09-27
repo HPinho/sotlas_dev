@@ -150,6 +150,21 @@ PY
           echo "::endgroup::"
         done < build/check-contract/backend-contract.txt
 
+    - name: Verify Phases 0-3 reality, typed core, ownership, and authority gates
+      run: |
+        python scripts/generate_phase_gate_matrix.py --check
+        python -m unittest discover -s tests -p "test_sotlas_phase_gate_audit.py" -v
+        python -m unittest discover -s tests -p "test_sotlas_reality_gate.py" -v
+        python -m unittest discover -s tests -p "test_sotlas_phase1_pipeline.py" -v
+        python -m unittest discover -s tests -p "test_sotlas_typed_ast_foundation.py" -v
+        python -m unittest discover -s tests -p "test_phase2_regression_guard.py" -v
+        python -m unittest discover -s tests -p "test_sotlas_phase2_v1_*_release_gate.py" -v
+        python -m unittest discover -s tests -p "test_sotlas_sole_ownership.py" -v
+        python -m unittest discover -s tests -p "test_sotlas_ownership_soundness.py" -v
+        python -m unittest discover -s tests -p "test_sotlas_authority_phase1.py" -v
+        python -m unittest discover -s tests -p "test_sotlas_authority_checked_sir.py" -v
+        python -m unittest discover -s tests -p "test_sotlas_authority_sir_abi.py" -v
+
     - name: Verify Phase 4 State Space release subset
       run: |
         python -m unittest discover -s tests -p "test_sotlas_state_frontend.py" -v
@@ -185,6 +200,10 @@ PY
       run: |
         python -m unittest discover -s tests -p "test_sotlas_contract_frontend.py" -v
         python -m unittest discover -s tests -p "test_sotlas_contract_report_cli.py" -v
+
+    - name: Verify Phases 11-12 causality and counterfactual subsets
+      run: |
+        python -m unittest discover -s tests -p "test_sotlas_flow_frontend.py" -v
 
     - name: Verify Phases 13-15 Transactions, Intent, and canonical SIR
       run: |

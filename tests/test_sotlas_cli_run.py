@@ -1,13 +1,51 @@
+from contextlib import redirect_stderr
+import io
 import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from sotlas import cli
+from sotlas import cli, llvm_toolchain
 
 
 class SotlasCliRunTests(unittest.TestCase):
+    def test_check_compile_and_run_share_canonical_rejection(self):
+        with tempfile.TemporaryDirectory(prefix="sotlas-cli-parity-") as tmpdir:
+            root = Path(tmpdir)
+            source = root / "invalid.sotlas"
+            source.write_text(
+                "module test::cli_parity;\npub fn broken( -> u32 { return 1u32; }\n",
+                encoding="utf-8",
+            )
+            output = root / "invalid.c"
+            diagnostics = []
+            toolchain = llvm_toolchain.default_toolchain
+
+            for command in (
+                ["check", str(source)],
+                ["compile", str(source), "--backend", "c11", "--emit-c", "-o", str(output)],
+                ["run", str(source)],
+            ):
+                stderr = io.StringIO()
+                with (
+                    patch.object(toolchain, "is_available", return_value=False),
+                    patch.object(sys, "argv", ["sotlas", *command]),
+                    redirect_stderr(stderr),
+                ):
+                    self.assertEqual(cli.main(), 1, command[0])
+                diagnostics.append(stderr.getvalue())
+
+            self.assertEqual(diagnostics[0], diagnostics[1])
+            self.assertEqual(diagnostics[1], diagnostics[2])
+            self.assertIn(str(source), diagnostics[0])
+            self.assertRegex(diagnostics[0], r"invalid\.sotlas:2:\d+:")
+            self.assertIn("pode estar faltando um parâmetro", diagnostics[0])
+            self.assertIn("^", diagnostics[0])
+            self.assertFalse(output.exists())
+
     def test_run_uses_isolated_temporary_executable(self):
         source = Path(__file__).resolve().parents[1] / "examples/07_cli_tool/main.sotlas"
 

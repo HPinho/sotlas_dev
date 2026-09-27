@@ -11,6 +11,7 @@ from .flow_runtime import FlowExecutionResult, execute_flow
 _INTEGER_WIDTHS = {
     "u8": 8, "u16": 16, "u32": 32, "u64": 64, "usize": 64,
 }
+_SCALAR_TYPES = frozenset((*_INTEGER_WIDTHS, "bool"))
 _BINARY_OPERATIONS = {"add": lambda left, right: left + right,
                       "sub": lambda left, right: left - right,
                       "mul": lambda left, right: left * right}
@@ -212,8 +213,8 @@ def execute_interpreted_sir_flow(
             raise FlowSIRError(
                 f"SIR interpreter does not execute @system function {stage.function!r}"
             )
-        if function.return_type not in (*_INTEGER_WIDTHS, "bool") or any(
-            getattr(parameter, "type_name", None) not in _INTEGER_WIDTHS
+        if function.return_type not in _SCALAR_TYPES or any(
+            getattr(parameter, "type_name", None) not in _SCALAR_TYPES
             for parameter in function.parameters
         ):
             raise FlowSIRError(
@@ -284,7 +285,7 @@ def _validate_function_shape(function) -> None:
                 or variable not in parameter_types
                 or parameter_types[variable] != type_name
                 or getattr(result, "type_name", None) != type_name
-                or type_name not in _INTEGER_WIDTHS
+                or type_name not in _SCALAR_TYPES
             ):
                 raise ValueError(f"SIR function {function.name!r} has an unsupported stack allocation")
             slots[slot_name] = (variable, type_name)
@@ -326,7 +327,7 @@ def _validate_function_shape(function) -> None:
             if (
                 not isinstance(name, str)
                 or name in definitions
-                or type_name not in _INTEGER_WIDTHS
+                or type_name not in _SCALAR_TYPES
                 or getattr(instruction.left, "type_name", None) != type_name
                 or getattr(instruction.right, "type_name", None) != type_name
                 or instruction.left.name not in definitions
