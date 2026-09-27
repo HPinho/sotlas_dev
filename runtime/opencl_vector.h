@@ -15,7 +15,8 @@ typedef enum sotlas_opencl_status {
     SOTLAS_OPENCL_SIZE_OVERFLOW = 2,
     SOTLAS_OPENCL_RUNTIME_UNAVAILABLE = 3,
     SOTLAS_OPENCL_NO_GPU = 4,
-    SOTLAS_OPENCL_BACKEND_ERROR = 5
+    SOTLAS_OPENCL_BACKEND_ERROR = 5,
+    SOTLAS_OPENCL_DEVICE_NOT_FOUND = 6
 } sotlas_opencl_status_t;
 
 typedef enum sotlas_compute_policy {
@@ -55,6 +56,25 @@ sotlas_opencl_status_t sotlas_opencl_vector_add_f32_profiled(
     const float *right,
     float *output,
     size_t count,
+    sotlas_opencl_profile_t *profile
+);
+
+/* GPU indices follow the order reported by OpenCL platform enumeration and
+ * are not stable identifiers across driver or system changes. */
+sotlas_opencl_status_t sotlas_opencl_get_gpu_count(size_t *count);
+sotlas_opencl_status_t sotlas_opencl_vector_add_f32_on_gpu(
+    const float *left,
+    const float *right,
+    float *output,
+    size_t count,
+    size_t gpu_index
+);
+sotlas_opencl_status_t sotlas_opencl_vector_add_f32_profiled_on_gpu(
+    const float *left,
+    const float *right,
+    float *output,
+    size_t count,
+    size_t gpu_index,
     sotlas_opencl_profile_t *profile
 );
 

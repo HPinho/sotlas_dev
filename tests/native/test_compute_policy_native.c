@@ -10,7 +10,15 @@ int main(void) {
     const size_t count = sizeof(left) / sizeof(left[0]);
     sotlas_compute_backend_t backend = SOTLAS_COMPUTE_BACKEND_OPENCL_GPU;
     sotlas_opencl_status_t status;
+    size_t gpu_count = 0;
     size_t index;
+
+    status = sotlas_opencl_get_gpu_count(&gpu_count);
+    if (status != SOTLAS_OPENCL_OK && status != SOTLAS_OPENCL_NO_GPU &&
+        status != SOTLAS_OPENCL_RUNTIME_UNAVAILABLE) return 10;
+    if ((status == SOTLAS_OPENCL_OK && gpu_count == 0) ||
+        (status != SOTLAS_OPENCL_OK && gpu_count != 0)) return 11;
+    if (sotlas_opencl_get_gpu_count(NULL) != SOTLAS_OPENCL_INVALID_ARGUMENT) return 12;
 
     status = sotlas_vector_add_f32_with_policy(
         left, right, output, count, SOTLAS_COMPUTE_CPU_ONLY, &backend

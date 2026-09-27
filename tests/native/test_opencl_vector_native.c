@@ -10,14 +10,17 @@ int main(void) {
     float output[] = {-99.0f, -99.0f, -99.0f, -99.0f, -99.0f, -99.0f};
     const size_t count = sizeof(left) / sizeof(left[0]);
     size_t index;
+    size_t gpu_count = 0;
     sotlas_opencl_status_t status;
     sotlas_opencl_profile_t profile;
 
-    status = sotlas_opencl_vector_add_f32_profiled(
-        left, right, output, count, &profile
-    );
+    status = sotlas_opencl_get_gpu_count(&gpu_count);
     if (status == SOTLAS_OPENCL_NO_GPU ||
         status == SOTLAS_OPENCL_RUNTIME_UNAVAILABLE) return 77;
+    if (status != SOTLAS_OPENCL_OK || gpu_count == 0) return 10;
+    status = sotlas_opencl_vector_add_f32_profiled_on_gpu(
+        left, right, output, count, 0, &profile
+    );
     if (status != SOTLAS_OPENCL_OK) return 1;
     for (index = 0; index < count; ++index) {
         const float cpu_reference = left[index] + right[index];
@@ -29,6 +32,10 @@ int main(void) {
     if (sotlas_opencl_vector_add_f32_profiled(
             left, right, output, count, NULL
         ) != SOTLAS_OPENCL_INVALID_ARGUMENT) return 8;
+    output[0] = -99.0f;
+    if (sotlas_opencl_vector_add_f32_on_gpu(
+            left, right, output, count, gpu_count
+        ) != SOTLAS_OPENCL_DEVICE_NOT_FOUND || output[0] != -99.0f) return 11;
 
     if (sotlas_opencl_vector_add_f32(NULL, right, output, count) !=
             SOTLAS_OPENCL_INVALID_ARGUMENT) return 3;

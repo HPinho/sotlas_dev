@@ -30,8 +30,9 @@ system OpenCL framework. A machine without an OpenCL GPU returns the explicit
 
 - Input and output are contiguous arrays of 32-bit floats with an explicit
   element count.
-- The first GPU returned by the OpenCL platform enumeration is selected; there
-  is no stable device identifier or caller-selected GPU yet.
+- The default call selects the first GPU returned by OpenCL. Callers can query
+  the GPU count and select an enumeration index; indices can change when drivers
+  or hardware change and are not persistent device identifiers.
 - Input is copied to device-owned buffers; host arrays remain owned by the
   caller. Output is copied back only after kernel execution and readback succeed.
 - Empty input succeeds without loading the driver. Null pointers and size

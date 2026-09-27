@@ -150,15 +150,19 @@ static int sotlas_opencl_load(sotlas_opencl_api_t *api) {
 
 #undef SOTLAS_LOAD_OPENCL
 
-static cl_device_id sotlas_opencl_first_gpu(
+static cl_device_id sotlas_opencl_gpu_at(
     sotlas_opencl_api_t *api,
+    size_t target_index,
+    size_t *gpu_count_out,
     sotlas_opencl_status_t *status
 ) {
     cl_uint platform_count = 0;
     cl_platform_id *platforms = NULL;
     cl_device_id selected = NULL;
+    size_t gpu_count = 0;
     cl_uint index;
 
+    if (gpu_count_out) *gpu_count_out = 0;
     if (api->get_platform_ids(0, NULL, &platform_count) != CL_SUCCESS || platform_count == 0) {
         *status = SOTLAS_OPENCL_NO_GPU;
         return NULL;
@@ -198,10 +202,18 @@ static cl_device_id sotlas_opencl_first_gpu(
             platforms[index], CL_DEVICE_TYPE_GPU, device_count, devices, NULL
         );
         if (result == CL_SUCCESS) {
-            selected = devices[0];
-            *status = SOTLAS_OPENCL_OK;
+            if (gpu_count <= target_index &&
+                target_index - gpu_count < (size_t)device_count) {
+                selected = devices[target_index - gpu_count];
+            }
+            if ((size_t)device_count > SIZE_MAX - gpu_count) {
+                free(devices);
+                *status = SOTLAS_OPENCL_BACKEND_ERROR;
+                goto done;
+            }
+            gpu_count += (size_t)device_count;
             free(devices);
-            goto done;
+            continue;
         }
         free(devices);
         *status = SOTLAS_OPENCL_BACKEND_ERROR;
@@ -209,6 +221,16 @@ static cl_device_id sotlas_opencl_first_gpu(
     }
 
 done:
+    if (gpu_count_out) *gpu_count_out = gpu_count;
+    if (*status != SOTLAS_OPENCL_BACKEND_ERROR) {
+        if (gpu_count == 0) {
+            *status = SOTLAS_OPENCL_NO_GPU;
+        } else if (target_index == SIZE_MAX || selected) {
+            *status = SOTLAS_OPENCL_OK;
+        } else {
+            *status = SOTLAS_OPENCL_DEVICE_NOT_FOUND;
+        }
+    }
     free(platforms);
     return selected;
 }
@@ -239,7 +261,8 @@ static sotlas_opencl_status_t sotlas_opencl_vector_add_f32_impl(
     const float *right,
     float *output,
     size_t count,
-    sotlas_opencl_profile_t *profile
+    sotlas_opencl_profile_t *profile,
+    size_t gpu_index
 ) {
     static const char kernel_source[] =
         "__kernel void vector_add_f32(__global const float *left, "
@@ -285,7 +308,7 @@ static sotlas_opencl_status_t sotlas_opencl_vector_add_f32_impl(
         return SOTLAS_OPENCL_RUNTIME_UNAVAILABLE;
     }
 
-    device = sotlas_opencl_first_gpu(&api, &status);
+    device = sotlas_opencl_gpu_at(&api, gpu_index, NULL, &status);
     if (!device) goto cleanup;
     context = api.create_context(NULL, 1, &device, NULL, NULL, &result);
     if (!context || result != CL_SUCCESS) goto cleanup;
@@ -383,7 +406,9 @@ sotlas_opencl_status_t sotlas_opencl_vector_add_f32(
     float *output,
     size_t count
 ) {
-    return sotlas_opencl_vector_add_f32_impl(left, right, output, count, NULL);
+    return sotlas_opencl_vector_add_f32_impl(
+        left, right, output, count, NULL, 0
+    );
 }
 
 sotlas_opencl_status_t sotlas_opencl_vector_add_f32_profiled(
@@ -395,7 +420,44 @@ sotlas_opencl_status_t sotlas_opencl_vector_add_f32_profiled(
 ) {
     if (!profile) return SOTLAS_OPENCL_INVALID_ARGUMENT;
     return sotlas_opencl_vector_add_f32_impl(
-        left, right, output, count, profile
+        left, right, output, count, profile, 0
+    );
+}
+
+sotlas_opencl_status_t sotlas_opencl_get_gpu_count(size_t *count) {
+    sotlas_opencl_api_t api;
+    sotlas_opencl_status_t status = SOTLAS_OPENCL_BACKEND_ERROR;
+    if (!count) return SOTLAS_OPENCL_INVALID_ARGUMENT;
+    *count = 0;
+    if (!sotlas_opencl_load(&api)) return SOTLAS_OPENCL_RUNTIME_UNAVAILABLE;
+    (void)sotlas_opencl_gpu_at(&api, SIZE_MAX, count, &status);
+    sotlas_opencl_close_library(api.library);
+    return status;
+}
+
+sotlas_opencl_status_t sotlas_opencl_vector_add_f32_on_gpu(
+    const float *left,
+    const float *right,
+    float *output,
+    size_t count,
+    size_t gpu_index
+) {
+    return sotlas_opencl_vector_add_f32_impl(
+        left, right, output, count, NULL, gpu_index
+    );
+}
+
+sotlas_opencl_status_t sotlas_opencl_vector_add_f32_profiled_on_gpu(
+    const float *left,
+    const float *right,
+    float *output,
+    size_t count,
+    size_t gpu_index,
+    sotlas_opencl_profile_t *profile
+) {
+    if (!profile) return SOTLAS_OPENCL_INVALID_ARGUMENT;
+    return sotlas_opencl_vector_add_f32_impl(
+        left, right, output, count, profile, gpu_index
     );
 }
 
