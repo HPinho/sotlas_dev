@@ -44,7 +44,8 @@ flow Compute {
         checked_sir, _ = package.build_canonical_checked_ownership_sir(checked)
         interpreted = package.execute_interpreted_sir_flow(
             checked_sir.module, "Compute", max_workers=2
-        ).output("result")
+        )
+        expected_outputs = dict(interpreted.outputs)
         c_source = bootstrap.compile_source(source, "native_parallel_flow.sotlas")
         entrypoint = "sotlas_flow_test__native_parallel_flow_Compute"
         self.assertIn(f"uint32_t {entrypoint}(void)", c_source)
@@ -65,9 +66,12 @@ flow Compute {
                 "int main(void) {\n"
                 "  uint32_t seed = 0, doubled = 0, incremented = 0, result = 0;\n"
                 f"  if (!{outputs_entrypoint}(&seed, &doubled, &incremented, &result)) return 2;\n"
-                "  if (seed != 4u || doubled != 8u || incremented != 5u || result != 13u) return 3;\n"
+                f"  if (seed != {expected_outputs['seed']}u || "
+                f"doubled != {expected_outputs['doubled']}u || "
+                f"incremented != {expected_outputs['incremented']}u || "
+                f"result != {expected_outputs['result']}u) return 3;\n"
                 f"  if ({outputs_entrypoint}(0, &doubled, &incremented, &result)) return 4;\n"
-                f"  return {entrypoint}() == {interpreted}u ? 0 : 1;\n"
+                f"  return {entrypoint}() == {expected_outputs['result']}u ? 0 : 1;\n"
                 "}\n",
                 encoding="utf-8",
             )
