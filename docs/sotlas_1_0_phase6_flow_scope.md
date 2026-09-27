@@ -52,8 +52,9 @@ test covers cancellation between stages and the success path.
 
 An additional `_dispatch` ABI lets a C host provide one executor callback for
 the checked stage schedule. Each callback receives the zero-based stage index,
-dependency values as read-only pointers, the input count, and a pointer to the
-stage's scalar output. Callback status `0` means success; any nonzero value is
+the stable stage name, dependency values as read-only pointers, the input count,
+and a pointer to the stage's scalar output. Callback status `0` means success;
+any nonzero value is
 reported as wrapper status `3`, with the original callback value written to
 `stage_status` and the stage index written to `stopped_stage`. Wrapper status
 `1` means an output pointer is null, `2` means cancellation, and `4` means no

@@ -232,7 +232,7 @@ def _emit_c11_flow_entrypoints(module, bootstrap) -> str:
                 "    }",
                 f"    {stage.result_type.c()} {dispatch_value};",
                 f"    int32_t {dispatch_status} = dispatch_stage(context, "
-                f"{stage_index}u, {dispatch_inputs}, "
+                f"{stage_index}u, \"{stage.name}\", {dispatch_inputs}, "
                 f"{len(dispatch_arguments)}u, "
                 f"(void *)&{dispatch_value});",
                 f"    if ({dispatch_status} != 0) {{",
@@ -277,7 +277,7 @@ def _emit_c11_flow_entrypoints(module, bootstrap) -> str:
         ])
         dispatch_signature = ", ".join([
             "int32_t (*dispatch_stage)(void *, uint32_t, "
-            "const void *const *, uint32_t, void *)",
+            "const char *, const void *const *, uint32_t, void *)",
             "void *context",
             "int32_t (*is_cancelled)(void *)",
             "int32_t *stopped_stage",

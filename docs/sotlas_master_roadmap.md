@@ -3973,9 +3973,10 @@ supports structured stage branches and early returns.
 
 The C11 backend also emits optional `_cancelable` and `_dispatch` ABIs. The first
 polls a host cancellation callback between direct calls to pure scalar stages.
-The second accepts a caller-supplied scalar stage executor and propagates its
-failure status; both report the stopped stage and publish outputs only after
-success. Dispatch callbacks are not verified equivalent to the Sotlas stage
+The second accepts a caller-supplied scalar stage executor, passing the checked
+topological index and stable stage name, and propagates its failure status; both
+report the stopped stage and publish outputs only after success. Dispatch
+callbacks are not verified equivalent to the Sotlas stage
 bodies, and the interface does not provide device buffers or transfers. Native
 execution remains serial. Parallel SIR CFG, ownership payloads, verified stage
 failure semantics, and built-in GPU/NPU dispatch remain open. The bounded
