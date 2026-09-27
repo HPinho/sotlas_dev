@@ -28,7 +28,9 @@
   of truth. Of 86 paired Python modules, 82 are byte-identical and four reviewed
   files differ: `sotlas/__init__.py`, `sotlas_compile/__init__.py`,
   `sotlas_compile/bootstrap.py`, and `sotlas_compile/language_safety.py`.
-  There are 23 compiler-only and three tools-only modules. The reality gate
+  There are 24 compiler-only and three tools-only modules. The new
+  `flow_native_runner.py` is a production CLI runtime helper; it runs checked
+  scalar Flow plans through the generated C11 entrypoint. The reality gate
   checks the exact reviewed difference set and current unique-module counts.
   Consolidating compatibility imports is deferred until the old tools clients
   and tests are migrated; no claim is made that duplicate files were deleted.
