@@ -26,8 +26,8 @@ explicit local/parameter type. Return values are compared with the declared
 result type when the expression type is known and rejects a bare `return;` in a
 typed function. It also rejects a represented typed function that can fall
 through after sequential statements or an `if/else`, while accepting the case
-where both branches return. Loops and arbitrary CFG are not part of this return
-proof yet.
+where both branches return or the return is nested in an `unsafe` block. Loops
+and arbitrary CFG are not part of this return proof yet.
 
 LLVM currently supplies instruction selection, register allocation, ABI
 lowering, and object emission on the direct LLVM route. Sotlas does not yet have

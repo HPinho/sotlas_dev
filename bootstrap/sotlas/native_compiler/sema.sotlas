@@ -789,6 +789,12 @@ impl Sema {
             if statement.kind == AstKind::ReturnStmt {
                 return true;
             }
+            if statement.kind == AstKind::IfStmt
+                || statement.kind == AstKind::UnsafeBlock {
+                if self.statement_returns_value(nodes, node_count, statement_index) {
+                    return true;
+                }
+            }
             if statement.kind == AstKind::IfStmt {
                 let condition: usize = statement.first_child;
                 if condition == 0 || condition >= node_count {
@@ -835,6 +841,13 @@ impl Sema {
         let statement: AstNode = unsafe { *(nodes + statement_index) };
         if statement.kind == AstKind::ReturnStmt {
             return true;
+        }
+        if statement.kind == AstKind::UnsafeBlock {
+            let body_index: usize = statement.first_child;
+            if body_index == 0 || body_index >= node_count {
+                return false;
+            }
+            return self.block_returns_value(nodes, node_count, body_index);
         }
         if statement.kind != AstKind::IfStmt {
             return false;
