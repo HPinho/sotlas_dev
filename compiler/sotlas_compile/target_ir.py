@@ -718,8 +718,83 @@ def analyze_target_ir_liveness(target_ir: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def map_target_ir_source_points(target_ir: dict[str, Any]) -> dict[str, Any]:
+    """Index the source-stable point IDs already carried by Target IR.
+
+    This is deliberately a partial mapping: ordinary arithmetic instructions
+    do not yet carry source spans, so each function reports mapping coverage.
+    """
+    if not isinstance(target_ir, dict) or target_ir.get("schema") != "sotlas.target-ir.v1":
+        raise TargetIRLoweringError("source mapping requires Target IR v1")
+
+    functions = []
+    total_instructions = 0
+    mapped_instructions = 0
+    for function in target_ir.get("functions", ()):
+        mappings = []
+        instruction_count = 0
+        for block in function.get("blocks", ()):
+            for index, instruction in enumerate(block.get("instructions", ())):
+                instruction_count += 1
+                attributes = instruction.get("attributes", {})
+                point_id = next((
+                    attributes.get(key)
+                    for key in ("source_point_id", "point_id", "defer_point_id")
+                    if isinstance(attributes.get(key), str)
+                    and attributes.get(key)
+                ), None)
+                if point_id is None:
+                    continue
+                source_kind, separator, location = point_id.rpartition("@")
+                line = column = None
+                if separator:
+                    line_text, colon, column_text = location.partition(":")
+                    if colon:
+                        try:
+                            line, column = int(line_text), int(column_text)
+                        except ValueError:
+                            line = column = None
+                mappings.append({
+                    "source_id": point_id,
+                    "source_kind": source_kind if separator else None,
+                    "line": line,
+                    "column": column,
+                    "block": block.get("label"),
+                    "instruction_index": index,
+                    "operation": instruction.get("op"),
+                    "result": instruction.get("result"),
+                    "operands": instruction.get("operands", []),
+                })
+        total_instructions += instruction_count
+        mapped_instructions += len(mappings)
+        functions.append({
+            "name": function.get("name"),
+            "instruction_count": instruction_count,
+            "mapped_instruction_count": len(mappings),
+            "coverage": (
+                len(mappings) / instruction_count if instruction_count else 1.0
+            ),
+            "mappings": mappings,
+        })
+    return {
+        "schema": "sotlas.target-ir-source-map.v1",
+        "representation": "source_stable_point_ids",
+        "instruction_count": total_instructions,
+        "mapped_instruction_count": mapped_instructions,
+        "coverage": (
+            mapped_instructions / total_instructions
+            if total_instructions else 1.0
+        ),
+        "functions": functions,
+        "limitations": [
+            "Only instructions with source-stable point IDs are mapped; arithmetic and other ordinary instructions do not yet carry source spans.",
+            "Mappings describe pre-selection Target IR positions and do not identify emitted machine instructions.",
+        ],
+    }
+
+
 __all__ = [
     "TargetIRLoweringError", "allocate_target_ir_registers",
-    "analyze_target_ir_liveness",
+    "analyze_target_ir_liveness", "map_target_ir_source_points",
     "layout_target_ir_stack", "lower_sir_to_target_ir",
 ]

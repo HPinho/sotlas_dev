@@ -50,6 +50,42 @@ class SotlasSIRReportCliTests(unittest.TestCase):
         spec.loader.exec_module(module)
         return module
 
+    def test_target_ir_source_map_reports_exact_points_and_partial_coverage(self):
+        target_ir = {
+            "schema": "sotlas.target-ir.v1",
+            "functions": [{
+                "name": "work",
+                "blocks": [{
+                    "label": "entry",
+                    "instructions": [
+                        {"op": "call", "result": "v1", "operands": ["arg"],
+                         "attributes": {"source_point_id": "call@8:13"}},
+                        {"op": "add", "result": "v2", "operands": ["v1", "arg"]},
+                        {"op": "return", "operands": ["v2"],
+                         "attributes": {"point_id": "return@9:5"}},
+                    ],
+                }],
+            }],
+        }
+        report = self._load_target_ir().map_target_ir_source_points(target_ir)
+        self.assertEqual(report["schema"], "sotlas.target-ir-source-map.v1")
+        self.assertEqual(report["instruction_count"], 3)
+        self.assertEqual(report["mapped_instruction_count"], 2)
+        self.assertAlmostEqual(report["coverage"], 2 / 3)
+        mappings = report["functions"][0]["mappings"]
+        self.assertEqual(mappings[0]["line"], 8)
+        self.assertEqual(mappings[0]["column"], 13)
+        self.assertEqual(mappings[1]["source_kind"], "return")
+
+        cli_result = self._run_report(
+            "module test::source_map_cli; "
+            "pub fn value(input: u32) -> u32 { return input; }",
+            "target-ir-source-map-report",
+        )
+        self.assertEqual(cli_result.returncode, 0, cli_result.stderr)
+        cli_report = json.loads(cli_result.stdout)
+        self.assertEqual(cli_report["schema"], "sotlas.target-ir-source-map.v1")
+
     def test_sir_report_is_deterministic_and_summarizes_checked_module(self):
         source = """module test::sir_report;
 fn load() -> u32 { return 4u32; }
