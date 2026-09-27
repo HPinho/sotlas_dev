@@ -4,23 +4,23 @@ import { ArrowRight, Cpu, ShieldCheck, Binary } from "lucide-react";
 const pillars = [
   {
     icon: Cpu,
-    eyebrow: "Hardware",
-    title: "Types that understand the machine",
-    description: "Physical pointers, MMIO, DMA, and processor ports are represented in the type system — not obscured behind conventions.",
+    eyebrow: "Systems",
+    title: "Explicit low-level direction",
+    description: "Sotlas has syntax for topology-aware pointers and hardware operations. Real device access still requires backend and target validation.",
     link: "/docs/pointers",
   },
   {
     icon: ShieldCheck,
     eyebrow: "Memory",
     title: "Determinism without a garbage collector",
-    description: "The Scoped Reference Graph validates ownership, transfer, and isolation at compile time, ensuring predictable zero-cost destruction.",
+    description: "The compiler checks ownership and cleanup for documented subsets. The roadmap records broader combinations still in progress.",
     link: "/docs/memory",
   },
   {
     icon: Binary,
     eyebrow: "Performance",
     title: "Native, low-level primitives",
-    description: "Bits, registers, interrupts, and critical sections have dedicated syntax and compile to direct instructions without runtime bloat.",
+    description: "The language explores dedicated syntax for bits, registers, interrupts, and critical sections. Lowering guarantees vary by backend.",
     link: "/docs/hardware",
   },
 ];
@@ -35,7 +35,7 @@ export function TechnicalPillars() {
             <h2 className="mt-3 text-3xl font-black tracking-tight text-foreground md:text-5xl">Safety down to the silicon.</h2>
           </div>
           <p className="max-w-2xl text-base leading-7 text-muted-foreground md:text-lg">
-            Low-level control should never mean fragile code. Sotlas makes explicit the critical decisions that C and C++ leave to chance.
+            Sotlas explores explicit ownership and systems concepts. The current preview scope and support matrix show which parts are implemented and tested.
           </p>
         </div>
 

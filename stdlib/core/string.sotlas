@@ -528,6 +528,9 @@ pub fn string_append_slice_owned(
 
         let available: usize = (*s).capacity - (*s).length;
         if slice.length > available {
+            if slice.length > (~0usize - (*s).length) {
+                return false;
+            }
             let required: usize = (*s).length + slice.length;
             let target_capacity: usize =
                 string_growth_capacity((*s).capacity, required);
@@ -597,6 +600,9 @@ pub fn string_append_slice_in_arena(
 
         let available: usize = (*s).capacity - (*s).length;
         if slice.length > available {
+            if slice.length > (~0usize - (*s).length) {
+                return false;
+            }
             let required: usize = (*s).length + slice.length;
             if !string_reserve_in_arena(s, arena, required) {
                 return false;

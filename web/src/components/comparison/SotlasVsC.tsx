@@ -6,38 +6,38 @@ import WaveText from "@/components/ui/wave-text";
 const comparisonItems = [
   {
     title: "Memory Model & Ownership",
-    sotlas: "Deterministic SRG graph (sole, co-owned, island) with handover and quarantine built directly into the type system.",
-    cLang: "Unchecked static, stack, and manual heap allocation (malloc/free prone to memory leaks and double-frees).",
+    sotlas: "An ownership system with a documented and tested preview subset; wider domain combinations remain in the roadmap.",
+    cLang: "C provides explicit control over storage and lifetime; correctness depends on program structure and library contracts.",
     sotlasAdvantage: true,
   },
   {
     title: "Topology Pointers",
-    sotlas: "Physiographic typing (*rawphys, *virtmap, *portwire, *dmazone). The compiler prevents mixing incompatible hardware buses.",
-    cLang: "Generic raw pointers (T* and void*). Any pointer accepts arbitrary addresses without physical validation.",
+    sotlas: "Topology pointer forms are part of the language design; validated hardware bus checking is not claimed for the current preview.",
+    cLang: "C represents addresses with pointer types; platform-specific code supplies mapping and device rules.",
     sotlasAdvantage: true,
   },
   {
     title: "Bounded Types",
-    sotlas: "Native PrimitiveType.bound[min..max] syntax. Range violations are rejected at compile time.",
-    cLang: "Nonexistent. Requires manual runtime bounds-checks susceptible to overflow and cast truncation errors.",
+    sotlas: "Bounded types have implementation-specific accepted forms; consult the release scope for current checks.",
+    cLang: "C programs commonly express ranges through integer types and explicit checks.",
     sotlasAdvantage: true,
   },
   {
     title: "Critical Sections & Hardware",
-    sotlas: "Structured clinch/revert instructions with guaranteed atomic interrupt state restoration and quench cleanup.",
-    cLang: "Relies on fragile macros and loose inline assembly (cli/sti) without stack unwinding or restoration guarantees.",
+    sotlas: "Critical-section and persistence syntax is part of the design; processor state restoration and durable I/O are not general preview guarantees.",
+    cLang: "Critical sections and persistence are implemented with platform libraries, atomics, or target-specific code.",
     sotlasAdvantage: true,
   },
   {
     title: "Native Bit Manipulation",
-    sotlas: "Dedicated .slit[lo..hi], .notch[n], and .strand operators (native single-instruction bswap).",
-    cLang: "Manual binary masks and bitwise shifts prone to operator precedence and signedness bugs.",
+    sotlas: "Operators such as .slit, .notch, and .strand express bit operations; emitted instructions depend on the backend and target.",
+    cLang: "C provides bitwise operators; named helpers and masks are common ways to express fields.",
     sotlasAdvantage: true,
   },
   {
     title: "API Contracts",
-    sotlas: "spec and adopts statically validated in the AST. Zero header files (.h or .hpp) required.",
-    cLang: "Fragile .h/.c split relying on blind textual preprocessor file inclusion (#include).",
+    sotlas: "The language includes spec/adopts contracts. Interop and header requirements depend on the toolchain boundary.",
+    cLang: "C commonly uses headers and source files, with modules and packaging varying by toolchain.",
     sotlasAdvantage: true,
   },
 ];
@@ -50,13 +50,13 @@ export function SotlasVsC() {
         <div className="text-center mb-10">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-xs font-mono text-emerald-400 mb-3">
             <ShieldCheck className="w-3.5 h-3.5" />
-            <span>Fundamental Semantic Differences</span>
+            <span>Language design choices</span>
           </div>
           <h2 className="text-2xl md:text-3xl font-bold text-foreground mb-3">
-            <WaveText text="Sotlas is not merely C with alternative syntax" />
+            <WaveText text="Sotlas and C make different trade-offs" />
           </h2>
           <p className="text-muted-foreground text-sm md:text-base max-w-2xl mx-auto">
-            While the initial bootstrap compiler generates freestanding C11 as a portable backend, Sotlas's safety guarantees and type system impose strict invariants that C completely lacks.
+            Sotlas adds ownership and domain concepts to its source model. The preview implements a limited subset; C remains a mature option when broad platform coverage is the priority.
           </p>
         </div>
 
@@ -82,7 +82,7 @@ export function SotlasVsC() {
                 <h3 className="font-semibold text-sm text-foreground mb-3 flex items-center justify-between">
                   <span>{item.title}</span>
                   <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-muted text-muted-foreground border border-border">
-                    Sotlas vs C
+                    Design comparison
                   </span>
                 </h3>
 

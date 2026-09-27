@@ -20,7 +20,7 @@ interface LegacyLanguage {
 const languages: LegacyLanguage[] = [
   {
     name: "C",
-    subtitle: "Critical gaps persisting for over 50 years",
+    subtitle: "Trade-offs in established systems languages",
     accentColor: "text-red-500 dark:text-red-400",
     badgeBg: "bg-red-500/10 text-red-700 dark:text-red-300 border-red-500/25",
     borderColor: "border-red-500/20 hover:border-red-500/40",
@@ -42,14 +42,14 @@ const languages: LegacyLanguage[] = [
       },
       {
         icon: XCircle,
-        title: "No Privilege Separation",
-        description: "Hardware port/register access is indistinguishable from standard local stack variable manipulation.",
+        title: "Explicit low-level boundaries",
+        description: "Sotlas explores syntax for describing system boundaries; validated physical hardware access remains future work.",
       },
     ],
   },
   {
     name: "C++",
-    subtitle: "Complexity expanding with every language revision",
+    subtitle: "Different language designs make different trade-offs",
     accentColor: "text-blue-500 dark:text-blue-400",
     badgeBg: "bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/25",
     borderColor: "border-blue-500/20 hover:border-blue-500/40",
@@ -61,8 +61,8 @@ const languages: LegacyLanguage[] = [
       },
       {
         icon: Skull,
-        title: "Bare-Metal Incompatibility",
-        description: "Exceptions, RTTI, and non-deterministic destructors impose an invisible runtime unfit for kernels.",
+        title: "Runtime and target choices",
+        description: "C++ supports many deployment models. Sotlas is exploring a narrower systems programming model in its current preview.",
       },
       {
         icon: AlertTriangle,
@@ -73,7 +73,7 @@ const languages: LegacyLanguage[] = [
   },
   {
     name: "Objective-C",
-    subtitle: "Costly dynamic dispatch and silent failure patterns",
+    subtitle: "A different runtime and object model",
     accentColor: "text-orange-500 dark:text-orange-400",
     badgeBg: "bg-orange-500/10 text-orange-700 dark:text-orange-300 border-orange-500/25",
     borderColor: "border-orange-500/20 hover:border-orange-500/40",
@@ -90,8 +90,8 @@ const languages: LegacyLanguage[] = [
       },
       {
         icon: XCircle,
-        title: "Lack of Zero-Cost Abstractions",
-        description: "Pure low-level structs and value semantics are second-class citizens compared to dynamic objects.",
+        title: "Different interoperability model",
+        description: "Objective-C has a mature dynamic runtime. Sotlas focuses on statically checked source and a limited C ABI subset.",
       },
     ],
   },
@@ -114,7 +114,7 @@ export function WhySotlas() {
             <WaveText text="Why Sotlas?" />
           </h2>
           <p className="text-muted-foreground text-base md:text-lg max-w-3xl mx-auto leading-relaxed">
-            For decades, systems engineering has remained tied to legacy languages that accumulated critical gaps in safety, modularity, and hardware control.
+            Systems languages make different trade-offs in safety, runtime behavior, interoperability, and target support.
           </p>
         </div>
 
@@ -180,7 +180,7 @@ export function WhySotlas() {
           className="mt-10 text-center"
         >
           <p className="text-sm text-muted-foreground max-w-2xl mx-auto">
-            Sotlas was designed from first principles to resolve <strong className="text-foreground">each of these critical gaps</strong> without compromising performance or low-level hardware control.
+            Sotlas is an experimental language exploring explicit ownership and systems-oriented syntax. The current release scope describes what the compiler can validate today.
           </p>
         </motion.div>
       </div>

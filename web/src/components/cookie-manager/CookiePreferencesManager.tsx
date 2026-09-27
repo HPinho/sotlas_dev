@@ -148,7 +148,7 @@ export function CookiePreferencesManager() {
               </span>
             </div>
             <p className="text-xs text-muted-foreground leading-relaxed">
-              Used to remember your choices across pages, such as playground code buffer persistence, code editor split view states, and preferred terminal installation tab (e.g. `sotlas pkg` vs `curl`).
+              Used only for browser preferences implemented by this site. The current preview does not save playground source or terminal choices through this preference category.
             </p>
           </div>
           <div className="flex items-center">
@@ -181,7 +181,7 @@ export function CookiePreferencesManager() {
               </span>
             </div>
             <p className="text-xs text-muted-foreground leading-relaxed">
-              Enables anonymous measurement of website load speeds, playground compiler compilation response times, and error rate telemetry. No personal identities or IP addresses are retained.
+              This preference is reserved for future optional analytics. The current website does not load analytics or compiler telemetry, regardless of this setting.
             </p>
           </div>
           <div className="flex items-center">
@@ -258,25 +258,25 @@ export function CookiePreferencesManager() {
                 <td className="p-3">Stores your consent choices and privacy preferences.</td>
               </tr>
               <tr>
-                <td className="p-3 font-semibold text-foreground">sotlas_playground_code</td>
+                <td className="p-3 font-semibold text-foreground">sotlas_feedback_&lt;page&gt;</td>
                 <td className="p-3 text-cyan-400">Functional</td>
                 <td className="p-3">localStorage</td>
                 <td className="p-3">Persistent</td>
-                <td className="p-3">Saves in-progress code edits in the interactive web playground.</td>
+                <td className="p-3">Stores whether a documentation page was marked helpful.</td>
               </tr>
               <tr>
-                <td className="p-3 font-semibold text-foreground">sotlas_session_nav</td>
+                <td className="p-3 font-semibold text-foreground">sidebar:state</td>
                 <td className="p-3 text-emerald-400">Strictly Necessary</td>
-                <td className="p-3">sessionStorage</td>
+                <td className="p-3">Cookie</td>
                 <td className="p-3">Session</td>
-                <td className="p-3">Maintains scroll position and documentation search history.</td>
+                <td className="p-3">Remembers whether the documentation sidebar is open.</td>
               </tr>
               <tr>
-                <td className="p-3 font-semibold text-foreground">sotlas_perf_metrics</td>
-                <td className="p-3 text-amber-400">Performance</td>
-                <td className="p-3">sessionStorage</td>
-                <td className="p-3">Session</td>
-                <td className="p-3">Anonymous WebAssembly compiler runtime benchmarking data.</td>
+                <td className="p-3 font-semibold text-foreground">No analytics storage</td>
+                <td className="p-3 text-muted-foreground">Not used</td>
+                <td className="p-3">—</td>
+                <td className="p-3">—</td>
+                <td className="p-3">The preview does not collect analytics or compiler measurements.</td>
               </tr>
             </tbody>
           </table>

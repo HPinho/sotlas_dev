@@ -76,6 +76,61 @@ class SotlasStdlibRuntimeTests(unittest.TestCase):
             executed = subprocess.run([str(executable)], capture_output=True, text=True)
             self.assertEqual(executed.returncode, 0, executed.stderr)
 
+    def test_core_arena_and_bump_allocators_reject_usize_overflow(self):
+        compiler = default_toolchain.find_tool("clang") or shutil.which("gcc")
+        if compiler is None:
+            self.skipTest("GCC or Clang is required for the native standard-library check")
+
+        with tempfile.TemporaryDirectory(prefix="sotlas-core-alloc-overflow-") as temporary:
+            project = Path(temporary)
+            (project / "core").mkdir()
+            shutil.copy2(ROOT / "stdlib" / "core" / "alloc.sotlas", project / "core" / "alloc.sotlas")
+            shutil.copy2(
+                ROOT / "tests" / "native" / "test_core_alloc_overflow_native.sotlas",
+                project / "main.sotlas",
+            )
+
+            generated = project / "alloc_overflow.c"
+            executable = project / ("alloc_overflow.exe" if os.name == "nt" else "alloc_overflow")
+            bootstrap.emit_c_project(project / "main.sotlas", generated)
+            compiled = subprocess.run(
+                [compiler, "-std=c11", "-Wall", "-Wextra", str(generated), "-o", str(executable)],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+
+            executed = subprocess.run([str(executable)], capture_output=True, text=True)
+            self.assertEqual(executed.returncode, 0, executed.stderr)
+
+    def test_owned_string_growth_rejects_usize_overflow(self):
+        compiler = default_toolchain.find_tool("clang") or shutil.which("gcc")
+        if compiler is None:
+            self.skipTest("GCC or Clang is required for the native standard-library check")
+
+        with tempfile.TemporaryDirectory(prefix="sotlas-string-overflow-") as temporary:
+            project = Path(temporary)
+            (project / "core").mkdir()
+            for module in ("alloc", "string"):
+                shutil.copy2(ROOT / "stdlib" / "core" / f"{module}.sotlas", project / "core" / f"{module}.sotlas")
+            shutil.copy2(
+                ROOT / "tests" / "native" / "test_core_string_overflow_native.sotlas",
+                project / "main.sotlas",
+            )
+
+            generated = project / "string_overflow.c"
+            executable = project / ("string_overflow.exe" if os.name == "nt" else "string_overflow")
+            bootstrap.emit_c_project(project / "main.sotlas", generated)
+            compiled = subprocess.run(
+                [compiler, "-std=c11", "-Wall", "-Wextra", str(generated), "-o", str(executable)],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+
+            executed = subprocess.run([str(executable)], capture_output=True, text=True)
+            self.assertEqual(executed.returncode, 0, executed.stderr)
+
     def test_string_buf_zero_and_minimum_capacity_are_memory_safe(self):
         compiler = default_toolchain.find_tool("clang") or shutil.which("gcc")
         if compiler is None:

@@ -10,14 +10,14 @@ const targetProfiles = [
     icon: HardDrive,
     tag: "Chip & Freestanding",
     tagColor: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/25 dark:bg-emerald-950/50 dark:border-emerald-800/60",
-    headline: "Kernels, Firmware & Embedded",
+    headline: "Freestanding profile",
     description:
-      "Freestanding mode dedicated to developing kernels, drivers, bootloaders, and ultra-constrained embedded systems, operating with predictable static overhead and zero dependency on runtimes or external OS libraries.",
+      "The language includes a freestanding profile. The current preview does not validate kernels, firmware, bootloaders, or specific embedded boards.",
     features: [
-      "Zero libc or OS dependency",
-      "Topology Pointers (*rawphys, *portwire)",
-      "Interrupt handlers with trapfn",
-      "Deterministic static memory & SRG",
+      "Target runtime requirements depend on the toolchain",
+      "Hardware pointer syntax is not proof of MMIO support",
+      "No validated interrupt ABI is claimed",
+      "Ownership checks cover documented subsets",
     ],
     codeSnippet: `target barecore;
 
@@ -34,20 +34,20 @@ trapfn timer_handler() {
     icon: Monitor,
     tag: "Desktop & Servers",
     tagColor: "bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/25 dark:bg-blue-950/50 dark:border-blue-800/60",
-    headline: "Services, Tools & Userland Apps",
+    headline: "Hosted profile",
     description:
-      "Focused on backend services, CLI utilities, and userland applications taking advantage of dynamic data types, native multithreading, and high-level abstractions.",
+      "The hosted profile is intended for programs that use a host toolchain. Standard library and operating-system coverage remain limited; consult the examples and release scope.",
     features: [
-      "High-speed runtime with zero GC pauses",
-      "Isolated concurrency with island",
-      "Async I/O and standard collections",
-      "Native C binary ABI compatibility",
+      "No general-purpose runtime guarantee",
+      "Concurrency support is limited to tested forms",
+      "Library API coverage varies by module",
+      "C ABI support is limited to documented signatures",
     ],
     codeSnippet: `target native;
 
 island Worker {
   fn process(data: Buffer) {
-    // Isolated execution without data races
+    // Illustrative domain syntax; this profile example is not compiler output.
   }
 }`,
   },
@@ -57,14 +57,14 @@ island Worker {
     icon: Globe,
     tag: "Browsers & Edge",
     tagColor: "bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/25 dark:bg-amber-950/50 dark:border-amber-800/60",
-    headline: "Web Ecosystem & WebAssembly",
+    headline: "Web profile design",
     description:
-      "Deploy core business logic and computational kernels directly to the web ecosystem from the same codebase, compiling to high-performance WebAssembly modules.",
+      "A web-oriented profile is present in the language design. WebAssembly output and browser integration are not part of the current preview contract.",
     features: [
-      "Direct compilation to WebAssembly",
-      "Single shared codebase across targets",
-      "Browser sandbox execution",
-      "Zero-overhead JS/TypeScript bindings",
+      "WebAssembly output is not part of the current preview contract",
+      "Target support varies by compiler backend",
+      "Browser integration is future work",
+      "No JavaScript binding guarantee is made",
     ],
     codeSnippet: `target web;
 
@@ -84,7 +84,7 @@ export function TargetProfiles() {
             <WaveText text="Versatility via Target Profiles" />
           </h2>
           <p className="text-muted-foreground text-base md:text-lg max-w-2xl mx-auto leading-relaxed">
-            Seamlessly adapts from bare silicon to modern desktops while preserving unified syntax and strict safety guarantees.
+            The language design spans several target profiles. Each backend and target still needs its own implementation and validation.
           </p>
         </div>
 

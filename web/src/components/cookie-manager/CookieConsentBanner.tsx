@@ -67,7 +67,7 @@ export function CookieConsentBanner() {
         </div>
 
         <p className="text-xs text-muted-foreground leading-relaxed">
-          We use cookies and local storage to preserve developer settings, maintain security, and optimize compilation performance. We never sell data or use third-party tracking. Learn more in our{" "}
+          This site stores a small number of browser preferences, such as the selected theme and documentation feedback. The compiler runs locally; this site does not collect analytics or compiler telemetry. Learn more in our{" "}
           <Link to="/privacy#cookies" className="text-primary hover:underline font-medium">
             Cookies Policy
           </Link>

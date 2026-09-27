@@ -28,15 +28,15 @@ const rows: ComparisonRow[] = [
     objc: { status: "no", detail: "Mixed" },
   },
   {
-    feature: "Value Semantics (Zero-Cost)",
+    feature: "Value Types",
     sotlas: { status: "yes", detail: "Value struct" },
     c: { status: "yes", detail: "Basic struct" },
     cpp: { status: "partial", detail: "Manual copy/move" },
     objc: { status: "no", detail: "Heap objects mostly" },
   },
   {
-    feature: "Reference Counting (ARC)",
-    sotlas: { status: "yes", detail: "Native & predictable" },
+    feature: "Shared Ownership (ARC)",
+    sotlas: { status: "partial", detail: "Supported subset with backend-specific cleanup" },
     c: { status: "no", detail: "Manual" },
     cpp: { status: "partial", detail: "Heavy shared_ptr" },
     objc: { status: "partial", detail: "ARC + dynamic runtime" },
@@ -64,7 +64,7 @@ const rows: ComparisonRow[] = [
   },
   {
     feature: "Bare-Metal Target",
-    sotlas: { status: "yes", detail: "1st-class citizen" },
+    sotlas: { status: "partial", detail: "Profile syntax; hardware target support is limited" },
     c: { status: "yes", detail: "Native" },
     cpp: { status: "partial", detail: "Hard without runtime" },
     objc: { status: "no", detail: "Incompatible without runtime" },
@@ -77,8 +77,8 @@ const rows: ComparisonRow[] = [
     objc: { status: "no", detail: "None" },
   },
   {
-    feature: "Stable Bidirectional C ABI",
-    sotlas: { status: "yes", detail: "100% guaranteed" },
+    feature: "C ABI Interoperability",
+    sotlas: { status: "partial", detail: "Documented signatures and toolchain-dependent subset" },
     c: { status: "yes", detail: "Native" },
     cpp: { status: "partial", detail: "Partial extern \"C\"" },
     objc: { status: "partial", detail: "Fragile outside Apple" },
@@ -116,10 +116,10 @@ export function ComparisonTable() {
             <span>Comparison Matrix</span>
           </div>
           <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-foreground tracking-tight mb-4">
-            <WaveText text="Detailed Technical Comparison" />
+            <WaveText text="A comparison of language features" />
           </h2>
           <p className="text-muted-foreground text-base md:text-lg max-w-2xl mx-auto leading-relaxed">
-            Sotlas versus legacy systems languages across every critical engineering dimension.
+            Feature names describe language models. Sotlas statuses reflect the current preview subset, not a claim that it replaces established toolchains.
           </p>
         </div>
 

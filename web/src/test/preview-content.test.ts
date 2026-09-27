@@ -52,6 +52,9 @@ describe("preview documentation", () => {
     expect(privacyPage).toContain("sotlas_feedback_<page>");
     expect(privacyPage).not.toContain("TasteTrack");
     expect(privacyPage).not.toContain("compile latency telemetry");
+    const cookieSettings = readFileSync(resolve(process.cwd(), "src/components/cookie-manager/CookiePreferencesManager.tsx"), "utf8");
+    expect(cookieSettings).toContain("does not load analytics or compiler telemetry");
+    expect(cookieSettings).not.toContain("WebAssembly compiler runtime benchmarking data");
   });
 
   it("loads website examples from the files exercised by CI", () => {
@@ -66,5 +69,37 @@ describe("preview documentation", () => {
     expect(studio).toContain("does not provide a browser compiler");
     expect(studio).not.toContain("/api/compile");
     expect(studio).not.toContain("function runCode()");
+  });
+
+  it("keeps high-visibility marketing claims within the documented preview contract", () => {
+    const publicCopyFiles = [
+      "src/data/keywords.ts",
+      "src/components/hero/Hero.tsx",
+      "src/components/hero/InteractiveCodeHero.tsx",
+      "src/components/project-stats/ProjectStats.tsx",
+      "src/components/compiler-pipeline/CompilerPipeline.tsx",
+      "src/components/code-showcase/codeShowcaseData.ts",
+      "src/components/code-showcase/CodeShowcase.tsx",
+      "src/components/keywords-glossary/KeywordsGlossary.tsx",
+      "src/components/comparison/SotlasVsC.tsx",
+      "src/components/comparison-table/ComparisonTable.tsx",
+      "src/components/interop-diagram/InteropDiagram.tsx",
+      "src/components/pillars/TechnicalPillars.tsx",
+    ].map((path) => readFileSync(resolve(process.cwd(), path), "utf8").toLowerCase()).join("\n");
+
+    for (const unsupportedClaim of [
+      "mathematically impossible",
+      "data races impossible",
+      "100% guaranteed",
+      "zero-cost destruction",
+      "uefi gop framebuffer",
+      "interrupt flags atomically masked",
+      "freestanding compilation succeeded",
+      "used in the baken os kernel",
+    ]) {
+      expect(publicCopyFiles).not.toContain(unsupportedClaim);
+    }
+    expect(publicCopyFiles).toContain("simulated output");
+    expect(publicCopyFiles).toContain("do not compile or run");
   });
 });

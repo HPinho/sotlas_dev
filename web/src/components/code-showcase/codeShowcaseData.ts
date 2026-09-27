@@ -27,8 +27,8 @@ export const codeScenarios: CodeScenario[] = [
   {
     id: "barecore",
     title: "Low-Level & Hardware",
-    subtitle: "MMIO control, atomic critical sections, and hardware bus-aligned registers.",
-    levelBadge: "Bare-Metal / Kernel",
+    subtitle: "Hardware-oriented syntax shown as a design example; no device access is performed here.",
+    levelBadge: "Illustrative syntax",
     profile: "target barecore;",
     filename: "drivers/dma_controller.sot",
     code: `target barecore;
@@ -43,7 +43,7 @@ mesh DmaChannelRegisters {
 }
 
 pub fn transfer_packet(channel: *rawphys mut DmaChannelRegisters, data: *dmazone UInt8, len: UInt32) -> Void {
-    // Critical section with guaranteed atomic restoration of interrupt flags
+    // Illustrative syntax; this sample does not mask or restore interrupts.
     clinch {
         // Native bit-slicing for channel extraction and flags
         let burst_mode = channel.control_flags.slit[0..3];
@@ -58,32 +58,32 @@ pub fn transfer_packet(channel: *rawphys mut DmaChannelRegisters, data: *dmazone
             gate(channel.transfer_len > 0) { return; }
         }
     } revert {
-        // Guarantee CPU flags restoration if aborted or interrupted
+        // A target backend must implement any required state restoration.
         rebound;
     }
 }`,
     metrics: [
-      { label: "Runtime Overhead", value: "0.00 ns", badge: "Zero-Cost" },
-      { label: "Memory Model", value: "MMIO Direct", badge: "*rawphys" },
-      { label: "Section Guarantee", value: "Atomic CLI/STI", badge: "clinch" },
-      { label: "Allocator / GC", value: "0 B (No Runtime)", badge: "Freestanding" },
+      { label: "Execution", value: "Not run", badge: "Example" },
+      { label: "Hardware access", value: "Not validated", badge: "Preview" },
+      { label: "Backend support", value: "Target dependent", badge: "Check docs" },
+      { label: "Status", value: "Illustrative", badge: "Design" },
     ],
     logs: [
-      { timeMs: 40, type: "hw", message: "Initializing MMIO mapping at address 0xFD002000 (*rawphys)" },
-      { timeMs: 120, type: "cycle", message: "[clinch] Critical section entered. Interrupt flags atomically masked." },
-      { timeMs: 210, type: "srg", message: "DMA Zone aligned: 4096 bytes mapped via *dmazone zero-copy." },
-      { timeMs: 330, type: "hw", message: ".slit[0..3] operation: burst mode field extracted (0x02) in 1 cycle." },
-      { timeMs: 450, type: "hw", message: ".strand operation: endianness swapped instantly via bswap instruction." },
-      { timeMs: 560, type: "cycle", message: "[quench] Memory persistence barrier synchronized successfully." },
-      { timeMs: 690, type: "ok", message: "[revert] Block finalized with state integrity guaranteed." },
-      { timeMs: 820, type: "sys", message: "DMA transfer completed in 0.14 µs. 0 dynamic allocations." },
+      { timeMs: 40, type: "hw", message: "Example source declares a *rawphys pointer." },
+      { timeMs: 120, type: "cycle", message: "This panel does not invoke the compiler or mask interrupts." },
+      { timeMs: 210, type: "srg", message: "DMA allocation and cache synchronization are not demonstrated." },
+      { timeMs: 330, type: "hw", message: "Instruction selection depends on backend and target." },
+      { timeMs: 450, type: "hw", message: "No processor instruction or timing is measured here." },
+      { timeMs: 560, type: "cycle", message: "Persistence barriers require target-specific implementation." },
+      { timeMs: 690, type: "ok", message: "See the release scope for supported source forms." },
+      { timeMs: 820, type: "sys", message: "Illustrative output only; no hardware was accessed." },
     ],
   },
   {
     id: "native-srg",
     title: "High-Level & SRG Memory",
-    subtitle: "Spec contracts, deterministic management without GC, and Island concurrency.",
-    levelBadge: "Systems & Apps",
+    subtitle: "Ownership and contract syntax with the limits of this illustrative example.",
+    levelBadge: "Illustrative syntax",
     profile: "target native;",
     filename: "services/event_dispatcher.sot",
     code: `target native;
@@ -103,7 +103,7 @@ pub class MessageServer adopts EventProcessor {
     }
 
     pub async fn route_packet(buffer: sole [UInt8; 512]) -> Void {
-        // Isolates data for concurrent execution guaranteeing zero data races
+        // This syntax does not establish general data-race freedom.
         quarantine buffer;
         
         // Dispatches to asynchronous queue consuming the 'island' region
@@ -114,28 +114,28 @@ pub class MessageServer adopts EventProcessor {
     }
 
     pub fn process(event_id: UInt64) -> Bool => event_id != 0;
-    pub async fn dispatch(data: island [UInt8; 512]) -> Void { /* Async I/O */ }
+    pub async fn dispatch(data: island [UInt8; 512]) -> Void { /* illustrative */ }
 }`,
     metrics: [
-      { label: "Memory Manager", value: "AST Scope Graph", badge: "SRG" },
-      { label: "Data Race Safety", value: "Statically Proven", badge: "island" },
-      { label: "GC Pauses", value: "0.0 ms (Deterministic)", badge: "No GC" },
-      { label: "Bounded Type", value: "1024..65535", badge: "Verified" },
+      { label: "Execution", value: "Not run", badge: "Example" },
+      { label: "Ownership", value: "Subset only", badge: "SRG" },
+      { label: "Concurrency", value: "Not proven here", badge: "Limits apply" },
+      { label: "Type checks", value: "Backend dependent", badge: "Check docs" },
     ],
     logs: [
-      { timeMs: 50, type: "sys", message: "Starting MessageServer on port 8080 (BoundedType verified)." },
-      { timeMs: 140, type: "srg", message: "[sole] Exclusive buffer [512 B] allocation registered in lexical scope." },
-      { timeMs: 250, type: "cycle", message: "[quarantine] Buffer successfully isolated in 'island' region. Data races impossible." },
-      { timeMs: 380, type: "sys", message: "[async/await] Non-blocking dispatch on native runtime worker." },
-      { timeMs: 510, type: "srg", message: "[handover] Static ownership transferred to receiver; zero copies in memory." },
-      { timeMs: 650, type: "ok", message: "Spec 'EventProcessor' satisfied with 100% contract compliance." },
-      { timeMs: 780, type: "sys", message: "Scope cycle closed: memory reclaimed deterministically via AST." },
+      { timeMs: 50, type: "sys", message: "Example source is displayed for discussion." },
+      { timeMs: 140, type: "srg", message: "Ownership acceptance depends on the source form and compiler gate." },
+      { timeMs: 250, type: "cycle", message: "This example does not prove general race freedom." },
+      { timeMs: 380, type: "sys", message: "No async runtime is started by this page." },
+      { timeMs: 510, type: "srg", message: "Transfer behavior is covered only for documented domain transitions." },
+      { timeMs: 650, type: "ok", message: "Contracts are checked only for implemented forms." },
+      { timeMs: 780, type: "sys", message: "Consult the release scope for tested cleanup paths." },
     ],
   },
   {
     id: "bit-slicing",
     title: "Bits, Endianness & Bounded",
-    subtitle: "Binary packet slicing without manual bit-shifts and compile-time bounds checking.",
+    subtitle: "An illustrative parsing example; compiler acceptance and code generation are not evaluated here.",
     levelBadge: "Protocols & Network",
     profile: "target native;",
     filename: "network/ipv4_parser.sot",
@@ -171,19 +171,19 @@ pub fn decode_header(raw: *virtmap UInt32) -> IpHeader? {
     };
 }`,
     metrics: [
-      { label: "Bit-Slice Cost", value: "0 Extra Cycles", badge: ".slit" },
-      { label: "Endian Conversion", value: "1 Opcode (bswap)", badge: ".strand" },
-      { label: "Type Safety", value: "UInt8.bound", badge: "Compile-time" },
-      { label: "Null Safety", value: "Type? with nil", badge: "No NULL" },
+      { label: "Execution", value: "Not run", badge: "Example" },
+      { label: "Instruction cost", value: "Not measured", badge: "Backend" },
+      { label: "Range checks", value: "Subset dependent", badge: "See gates" },
+      { label: "Status", value: "Illustrative", badge: "Design" },
     ],
     logs: [
-      { timeMs: 60, type: "hw", message: "Reading raw DWORD from *virtmap virtual address space (0x7FFF8000)." },
-      { timeMs: 160, type: "cycle", message: "Executing .slit[28..31]: IPv4 Version = 4 extracted directly." },
-      { timeMs: 270, type: "cycle", message: "Executing .slit[24..27]: IHL = 5 (20 header bytes) validated." },
-      { timeMs: 400, type: "hw", message: "Executing .notch[14]: DF (Don't Fragment) flag detected active." },
-      { timeMs: 530, type: "cycle", message: "Executing .strand: Total length converted to target host endianness." },
-      { timeMs: 670, type: "ok", message: "IpHeader struct instantiated with valid BoundedTypes." },
-      { timeMs: 800, type: "sys", message: "Decoding finished in 12 CPU instructions (6.2 ns latency)." },
+      { timeMs: 60, type: "hw", message: "No memory is read by this illustrative panel." },
+      { timeMs: 160, type: "cycle", message: "The example shows a bit-slice expression." },
+      { timeMs: 270, type: "cycle", message: "Range acceptance depends on the active compiler gate." },
+      { timeMs: 400, type: "hw", message: "No device or mapped address is accessed." },
+      { timeMs: 530, type: "cycle", message: "Endian lowering depends on backend and target." },
+      { timeMs: 670, type: "ok", message: "Use the repository examples to validate compiler behavior." },
+      { timeMs: 800, type: "sys", message: "No runtime or performance measurement is performed." },
     ],
   },
 ];

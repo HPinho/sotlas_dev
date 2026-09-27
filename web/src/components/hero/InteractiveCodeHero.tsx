@@ -20,12 +20,12 @@ const examples: CodeExample[] = [
   {
     id: "firmware",
     filename: "uart_driver.sot",
-    title: "Direct Hardware Access",
+    title: "Hardware-oriented syntax",
     badge: "target barecore",
     icon: Cpu,
     code: `target barecore;
 
-// Physical pointer validated by the compiler
+// Illustrative syntax. Hardware access is not validated by this page.
 let uart_base: *rawphys UInt32 = 0x1000_0000;
 
 pub fn write_byte(byte: UInt8) {
@@ -39,16 +39,15 @@ pub fn write_byte(byte: UInt8) {
 }
 
 trapfn uart_isr() {
-  // Prologue/Epilogue guaranteed by compiler
+  // Illustrative handler syntax; the preview has no validated interrupt ABI.
   rebound;
 }`,
     simulatedOutput: {
-      status: "Freestanding Compilation Succeeded",
+      status: "Illustrative example",
       details: [
-        "Physical bus verification (*rawphys): OK",
-        ".slit[5..5] operator optimized to BEXTR/LSR instruction",
-        "clinch critical section converted to atomic interrupt mask",
-        "Freestanding binary size: 148 bytes",
+        "The page does not compile or execute this source",
+        "No physical bus or processor instruction is validated here",
+        "Check the release scope for supported backend forms",
       ],
     },
   },
@@ -66,7 +65,7 @@ struct Packet {
 }
 
 pub fn process_stream(source: &Stream) {
-  // Zero-cost exclusive ownership (sole)
+  // Exclusive ownership example (sole)
   sole packet = Packet.create(id: 101);
 
   // Deterministic scope transfer
@@ -76,23 +75,23 @@ pub fn process_stream(source: &Stream) {
   // packet.id; -> Compile Error: resource moved via handover
 }`,
     simulatedOutput: {
-      status: "SRG Graph Validated",
+      status: "Illustrative ownership example",
       details: [
-        "Scope graph: zero orphan references or dangling pointers",
-        "Static handover verified: runtime cost = 0 ns",
-        "Deterministic deallocation with zero Garbage Collector pauses",
+        "The page does not compile or execute this source",
+        "Ownership behavior depends on the supported source form",
+        "Cleanup is covered by the documented tests and backend gates",
       ],
     },
   },
   {
     id: "concurrency",
     filename: "island_tasks.sot",
-    title: "Race-Free Concurrency",
+    title: "Ownership domain syntax",
     badge: "island model",
     icon: Layers,
     code: `target native;
 
-// Island guarantees isolated memory against data races
+// General data-race freedom is not claimed for island in this preview.
 island TelemetryCollector {
   var sample_count: UInt64 = 0;
 
@@ -110,11 +109,11 @@ pub async fn main() {
   await collector.push_metric(42.5);
 }`,
     simulatedOutput: {
-      status: "Memory Isolation Verified",
+      status: "Illustrative domain example",
       details: [
-        "Island internal memory cannot be shared directly",
-        "Communication via immutable message passing",
-        "Compile-time formal prevention against race conditions",
+        "This output is simulated and does not invoke the compiler",
+        "Island support is bounded by the release scope",
+        "This example does not guarantee general race freedom",
       ],
     },
   },
@@ -231,7 +230,7 @@ export function InteractiveCodeHero() {
           </pre>
         </div>
 
-        {/* Live Simulation Output Panel */}
+        {/* Explanatory output; this panel does not invoke the compiler. */}
         <AnimatePresence>
           {showOutput && (
             <motion.div
@@ -257,7 +256,7 @@ export function InteractiveCodeHero() {
               </div>
 
               <div className="pt-3 border-t border-border text-[11px] text-muted-foreground flex items-center justify-between">
-                <span>Static Determinism: 100%</span>
+                  <span>Simulated output · not compiled</span>
                 <span className="text-emerald-600 dark:text-emerald-400 font-semibold">0 memory leaks</span>
               </div>
             </motion.div>

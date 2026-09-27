@@ -23,13 +23,13 @@ export function KeywordsGlossary() {
             </div>
             <div>
               <p className="text-sm font-semibold text-foreground flex items-center gap-2">
-                <span>Proven Systems Engineering: Baken OS</span>
+                <span>Experimental systems language</span>
                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 font-mono">
-                  Bare-Metal
+                  Preview
                 </span>
               </p>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Used in the Baken OS kernel for direct hardware control, UEFI GOP Framebuffer, ACPI tables, and freestanding drivers.
+                The compiler and examples are evolving. See the release scope for tested features and known limits.
               </p>
             </div>
           </div>

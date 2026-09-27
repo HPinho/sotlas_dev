@@ -15,7 +15,7 @@ interface LayerData {
 const layers: LayerData[] = [
   {
     name: "Sotlas Safe Layer",
-    subtitle: "Completely safe with zero raw pointers",
+    subtitle: "Checked source forms in the current preview",
     items: ["Objects", "Arrays", "Optionals", "UI"],
     icon: Shield,
     gradient: "from-emerald-500/10 via-emerald-500/5 to-transparent",
@@ -24,7 +24,7 @@ const layers: LayerData[] = [
   },
   {
     name: "Sotlas Systems Layer (@system)",
-    subtitle: "Memory and hardware control without hidden bloat",
+    subtitle: "Explicit system boundary; hardware support is limited",
     items: ["*rawphys", "*portwire", "clinch", "Topology"],
     icon: Cpu,
     gradient: "from-amber-500/10 via-amber-500/5 to-transparent",
@@ -32,8 +32,8 @@ const layers: LayerData[] = [
     iconBg: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
   },
   {
-    name: "Foreign FFI Layer (C / C++ / Obj-C)",
-    subtitle: "Direct bidirectional C ABI call convention",
+    name: "Foreign Function Interface (C)",
+    subtitle: "A limited C ABI subset",
     items: ["Legacy C", "C++ Symbols", "Drivers", "POSIX libc"],
     icon: Shield,
     gradient: "from-blue-500/10 via-blue-500/5 to-transparent",
@@ -56,18 +56,18 @@ const transitions = [
 const keyPoints = [
   {
     icon: Lock,
-    title: "Rust-Style Guardrails",
-    description: "Raw pointer dereferencing (*ptr) and unverified bus accesses are strictly rejected outside unsafe { ... } blocks.",
+    title: "Explicit safety boundary",
+    description: "The frontend applies implemented safety rules to supported source forms; hardware access still requires a validated target runtime.",
   },
   {
     icon: ShieldCheck,
     title: "Explicit FFI Boundary",
-    description: "extern \"C\" bindings with raw pointers carry explicit caller risk and must be consumed inside unsafe blocks.",
+    description: "The documented extern C subset makes foreign declarations explicit. Check the interop guide for supported signatures and limitations.",
   },
   {
     icon: Zap,
-    title: "Zero Kernel Overhead",
-    description: "No nil-messaging runtime or dynamic selector lookups. Interoperates via direct, zero-cost C ABI calling conventions.",
+    title: "Backend-specific output",
+    description: "C ABI behavior is limited to tested signatures and the selected toolchain; no universal zero-cost or bidirectional guarantee is implied.",
   },
 ];
 
@@ -150,7 +150,7 @@ export function InteropDiagram() {
           transition={{ duration: 0.5, delay: 0.3 }}
           className="mb-10 p-4 rounded-2xl bg-muted/30 border border-border font-mono text-xs text-center text-foreground/70 overflow-x-auto"
         >
-          <span className="text-red-500">C / C++ / Obj-C</span>
+          <span className="text-red-500">C ABI subset</span>
           <span className="mx-2">──►</span>
           <span className="text-amber-500">[Unsafe Boundary]</span>
           <span className="mx-2">──►</span>

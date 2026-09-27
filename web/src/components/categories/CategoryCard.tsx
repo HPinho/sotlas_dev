@@ -56,7 +56,7 @@ export const CategoryCard = ({
           <div className="relative z-10 my-auto py-2 text-[11px] leading-relaxed">
             {type === "docs" && (
               <div className="space-y-1.5">
-                <div className="text-muted-foreground">// Zero-cost static ownership</div>
+                <div className="text-muted-foreground">// Ownership checks vary by supported form</div>
                 <div className="text-foreground">
                   <span className="text-violet-600 dark:text-violet-400 font-bold">sole</span>{" "}
                   buf = Buffer.alloc(4096);
@@ -70,7 +70,7 @@ export const CategoryCard = ({
 
             {(type === "interop" || type === "grammar") && (
               <div className="space-y-1.5">
-                <div className="text-muted-foreground">// Direct Clang C++ Module Ingestion</div>
+                <div className="text-muted-foreground">// Documented C ABI subset</div>
                 <div className="text-foreground">
                   <span className="text-cyan-600 dark:text-cyan-400 font-semibold">import</span> CxxStdlib;
                 </div>

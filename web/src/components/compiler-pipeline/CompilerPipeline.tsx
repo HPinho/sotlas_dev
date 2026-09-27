@@ -17,10 +17,10 @@ const stages: PipelineStage[] = [
   {
     step: "01",
     title: "Sotlas Frontend",
-    badge: ".sot Source",
+    badge: ".sotlas source",
     icon: FileCode,
-    description: "Deterministic lexing and parsing with zero header files and no obscure preprocessor macros.",
-    outputPreview: "Typed AST with 'spec' and 'adopts' contracts",
+    description: "The canonical frontend parses source and applies the type, safety, and ownership checks implemented for this preview.",
+    outputPreview: "Typed source for the selected backend",
     color: "text-amber-500 border-amber-500/30 bg-amber-500/10",
   },
   {
@@ -28,26 +28,26 @@ const stages: PipelineStage[] = [
     title: "SRG & Topology Engine",
     badge: "Static Verification",
     icon: ShieldCheck,
-    description: "The Scoped Reference Graph (SRG) proves zero leaks and validates physical machine buses (*rawphys).",
-    outputPreview: "Validated acyclic static ownership graph (0 runtime cost)",
+    description: "Ownership analysis checks supported moves, domains, and cleanup paths. Hardware bus validation is not currently claimed.",
+    outputPreview: "Ownership and control-flow diagnostics",
     color: "text-emerald-500 border-emerald-500/30 bg-emerald-500/10",
   },
   {
     step: "03",
     title: "Optimization & Emission",
-    badge: "C99 / LLVM IR",
+    badge: "C11 / LLVM subset",
     icon: Cpu,
-    description: "Emits portable freestanding C99 compatible with any microcontroller or outputs native LLVM IR.",
-    outputPreview: "Optimized bitwise instructions (.slit -> BEXTR)",
+    description: "The C11 backend and LLVM backend lower different subsets. Unsupported source forms produce diagnostics.",
+    outputPreview: "Generated C or selected LLVM IR",
     color: "text-cyan-500 border-cyan-500/30 bg-cyan-500/10",
   },
   {
     step: "04",
     title: "Final Artifact",
-    badge: "Bare-Metal / Native",
+    badge: "Native subset",
     icon: Binary,
-    description: "Lean final binary with no heavy runtime, no garbage collector, ready for bootloaders, firmware, or desktop.",
-    outputPreview: "ELF, UEFI BOOTX64.EFI, WASM, or OS Binary",
+    description: "The backend emits an intermediate artifact for a host toolchain. Firmware, bootloader, and device support need target-specific work.",
+    outputPreview: "Artifact for the configured toolchain",
     color: "text-violet-500 border-violet-500/30 bg-violet-500/10",
   },
 ];
@@ -68,7 +68,7 @@ export function CompilerPipeline() {
             <WaveText text="How Sotlas Compiles" />
           </h2>
           <p className="text-muted-foreground text-sm md:text-base max-w-2xl mx-auto">
-            Mathematical ownership proofs and hardware bus validation before emitting a single byte of machine code.
+            The canonical frontend checks source and ownership rules before a selected backend lowers its supported subset.
           </p>
         </div>
 
@@ -130,10 +130,10 @@ export function CompilerPipeline() {
             </div>
             <div>
               <h4 className="text-sm font-semibold text-foreground">
-                Complete Freestanding Compatibility
+                Backend support
               </h4>
               <p className="text-xs text-muted-foreground mt-0.5">
-                The compilation backend emits strict C99 with zero libc dependencies, targeting x86_64, AArch64, RISC-V, and ARM Cortex-M.
+                C11 and LLVM support different subsets. Hardware targets, boot formats, and freestanding runtime integration require separate validation.
               </p>
             </div>
           </div>

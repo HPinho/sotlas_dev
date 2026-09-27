@@ -126,13 +126,13 @@ export function CodeShowcase({ embedded = false }: CodeShowcaseProps) {
           <div className="text-center mb-10">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-xs font-mono text-primary mb-3">
               <Sparkles className="w-3.5 h-3.5" />
-              <span>Sotlas Unified Engine — Live Demonstration</span>
+              <span>Language examples — illustrative walkthrough</span>
             </div>
             <h2 className="text-2xl md:text-4xl font-bold text-foreground tracking-tight mb-3">
               <WaveText text="From Low-Level Hardware to High-Level Expressiveness" />
             </h2>
             <p className="text-muted-foreground text-sm md:text-base max-w-2xl mx-auto">
-              See Sotlas syntax in continuous execution. Switch between low-level hardware profiles and high-level services with SRG memory safety.
+              These panels show example syntax and explanatory notes. They do not compile or run the displayed programs; use the linked repository examples to try the compiler.
             </p>
           </div>
         )}

@@ -213,24 +213,36 @@ pub fn arena_alloc_aligned(arena: *mut ArenaAllocator, size: usize, alignment: u
             return null;
         }
 
-        // Calcula o endereço atual e o padding de alinhamento
-        let current_addr: usize = ((*arena).buffer as usize) + (*arena).offset;
+        // Validate before adding so hostile capacities cannot wrap usize.
+        if (*arena).offset > (*arena).capacity {
+            return null;
+        }
+        let base_addr: usize = (*arena).buffer as usize;
+        let max_addr: usize = ~0usize;
+        if (*arena).offset > max_addr - base_addr {
+            return null;
+        }
+        let current_addr: usize = base_addr + (*arena).offset;
         let remainder: usize = current_addr % align;
         let mut padding: usize = 0;
         if remainder != 0 {
             padding = align - remainder;
         }
 
-        let needed: usize = padding + size;
-        if (*arena).offset + needed > (*arena).capacity {
+        let remaining: usize = (*arena).capacity - (*arena).offset;
+        if padding > remaining {
             // Out of memory nesta arena — falha elegante sem quebrar o processo
+            return null;
+        }
+        let remaining_after_padding: usize = remaining - padding;
+        if size > remaining_after_padding {
             return null;
         }
 
         let alloc_offset: usize = (*arena).offset + padding;
         let result_ptr: *mut u8 = (*arena).buffer + alloc_offset;
 
-        (*arena).offset = (*arena).offset + needed;
+        (*arena).offset = alloc_offset + size;
         (*arena).allocation_count = (*arena).allocation_count + 1;
 
         if (*arena).offset > (*arena).high_water_mark {
@@ -302,7 +314,15 @@ pub fn bump_alloc(b: *mut BumpAllocator, size: usize) -> *mut u8 {
         return null;
     }
     unsafe {
-        if (*b).buffer == null || (*b).offset + size > (*b).capacity {
+        if (*b).buffer == null || (*b).offset > (*b).capacity {
+            return null;
+        }
+        let base_addr: usize = (*b).buffer as usize;
+        let max_addr: usize = ~0usize;
+        if (*b).offset > max_addr - base_addr {
+            return null;
+        }
+        if size > (*b).capacity - (*b).offset {
             return null;
         }
         let ptr: *mut u8 = (*b).buffer + (*b).offset;

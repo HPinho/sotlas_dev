@@ -1,0 +1,55 @@
+module test::core_alloc_overflow;
+
+import core::alloc::*;
+
+static mut storage: [u8; 16] = 0;
+
+pub fn main() -> i32 {
+    let max_value: usize = ~0usize;
+
+    let mut offset_wrap: ArenaAllocator = arena_new(storage as *mut u8, max_value);
+    unsafe { offset_wrap.offset = 1; }
+    let offset_wrap_ptr: *mut ArenaAllocator = unsafe { (&mut offset_wrap) as *mut ArenaAllocator };
+    if arena_alloc_aligned(offset_wrap_ptr, max_value, 1) != null {
+        return 1;
+    }
+    if arena_used(offset_wrap_ptr) != 1 {
+        return 2;
+    }
+
+    let mut padding_wrap: ArenaAllocator = arena_new(storage as *mut u8, max_value);
+    let padding_wrap_ptr: *mut ArenaAllocator = unsafe { (&mut padding_wrap) as *mut ArenaAllocator };
+    if arena_alloc_aligned(padding_wrap_ptr, max_value, max_value) != null {
+        return 3;
+    }
+    if arena_used(padding_wrap_ptr) != 0 {
+        return 4;
+    }
+
+    let near_max: usize = max_value - 3;
+    let mut address_wrap: ArenaAllocator = arena_new(unsafe { near_max as *mut u8 }, max_value);
+    unsafe { address_wrap.offset = 8; }
+    let address_wrap_ptr: *mut ArenaAllocator = unsafe { (&mut address_wrap) as *mut ArenaAllocator };
+    if arena_alloc_aligned(address_wrap_ptr, 1, 1) != null {
+        return 5;
+    }
+
+    let mut bump_wrap: BumpAllocator = bump_new(storage as *mut u8, max_value);
+    unsafe { bump_wrap.offset = 1; }
+    let bump_wrap_ptr: *mut BumpAllocator = unsafe { (&mut bump_wrap) as *mut BumpAllocator };
+    if bump_alloc(bump_wrap_ptr, max_value) != null {
+        return 6;
+    }
+    if bump_wrap.offset != 1 {
+        return 7;
+    }
+
+    let mut bump_address_wrap: BumpAllocator = bump_new(unsafe { near_max as *mut u8 }, max_value);
+    unsafe { bump_address_wrap.offset = 8; }
+    let bump_address_wrap_ptr: *mut BumpAllocator = unsafe { (&mut bump_address_wrap) as *mut BumpAllocator };
+    if bump_alloc(bump_address_wrap_ptr, 1) != null {
+        return 8;
+    }
+
+    return 0;
+}

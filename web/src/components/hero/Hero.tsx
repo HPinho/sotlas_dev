@@ -5,9 +5,9 @@ import InteractiveCodeHero from "./InteractiveCodeHero";
 import { SotlasFlowBackground } from "@/components/home/SotlasFlowBackground";
 
 const benefits = [
-  { icon: ShieldCheck, title: "Safe memory", detail: "Deterministic SRG" },
-  { icon: Cpu, title: "Bare metal", detail: "Zero runtime bloat" },
-  { icon: Zap, title: "Zero-cost", detail: "C11 and LLVM" },
+  { icon: ShieldCheck, title: "Ownership checks", detail: "A tested SRG subset" },
+  { icon: Cpu, title: "Native output", detail: "C11 and selected LLVM forms" },
+  { icon: Zap, title: "Explicit limits", detail: "Unsupported forms fail closed" },
 ];
 
 const Hero = () => (
@@ -20,14 +20,14 @@ const Hero = () => (
           <span className="rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-sm font-semibold text-primary">v0.5 preview</span>
         </div>
         <h1 className="max-w-3xl text-4xl font-black tracking-[-0.045em] text-foreground sm:text-5xl lg:text-6xl">
-          Control the hardware.<br /><span className="text-primary">Without sacrificing safety.</span>
+          Build systems software.<br /><span className="text-primary">With ownership in view.</span>
         </h1>
         <p className="mt-6 max-w-xl text-base leading-7 text-muted-foreground md:text-lg md:leading-8">
-          Sotlas is a systems language for firmware, kernels, and native software, featuring deterministic memory management and compiler-validated hardware access.
+          Sotlas is an experimental systems language with a canonical compiler, statically checked ownership, and a growing native code path. Hardware and device support remain under development.
         </p>
         <div className="mt-8 flex flex-col gap-3 sm:flex-row">
           <Link to="/docs/installation" className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg bg-primary px-5 py-3 font-bold text-primary-foreground shadow-[0_12px_35px_-14px_hsl(var(--primary))] transition hover:-translate-y-0.5 hover:brightness-105">Install Sotlas <ArrowRight className="h-4 w-4" /></Link>
-          <a href="https://github.com/Sotlas/sotlas" target="_blank" rel="noopener noreferrer" className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border border-border bg-card px-5 py-3 font-semibold text-foreground transition hover:border-primary/40 hover:bg-primary/5"><Github className="h-4 w-4" /> View on GitHub</a>
+          <a href="https://github.com/HPinho/sotlas_dev" target="_blank" rel="noopener noreferrer" className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border border-border bg-card px-5 py-3 font-semibold text-foreground transition hover:border-primary/40 hover:bg-primary/5"><Github className="h-4 w-4" /> View on GitHub</a>
         </div>
         <div className="mt-9 grid max-w-xl grid-cols-1 gap-3 sm:grid-cols-3">
           {benefits.map(({ icon: Icon, title, detail }) => (

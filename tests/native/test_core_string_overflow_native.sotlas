@@ -1,0 +1,43 @@
+module test::core_string_overflow;
+
+import core::alloc::*;
+import core::string::*;
+
+static mut storage: [u8; 16] = 0;
+
+pub fn main() -> i32 {
+    let max_value: usize = ~0usize;
+    let mut arena: ArenaAllocator = arena_new(storage as *mut u8, 16);
+    let arena_ptr: *mut ArenaAllocator = unsafe { (&mut arena) as *mut ArenaAllocator };
+    let source: StringSlice = string_from_raw(storage as *const u8, 2);
+
+    let mut char_owned: String = string_new(storage as *mut u8, max_value);
+    char_owned.length = max_value;
+    let char_owned_ptr: *mut String = unsafe { (&mut char_owned) as *mut String };
+    if string_append_char_owned(char_owned_ptr, 1) {
+        return 1;
+    }
+
+    let mut slice_owned: String = string_new(storage as *mut u8, max_value);
+    slice_owned.length = max_value - 1;
+    let slice_owned_ptr: *mut String = unsafe { (&mut slice_owned) as *mut String };
+    if string_append_slice_owned(slice_owned_ptr, source) {
+        return 2;
+    }
+
+    let mut char_arena: String = string_new(storage as *mut u8, max_value);
+    char_arena.length = max_value;
+    let char_arena_ptr: *mut String = unsafe { (&mut char_arena) as *mut String };
+    if string_append_char_in_arena(char_arena_ptr, arena_ptr, 1) {
+        return 3;
+    }
+
+    let mut slice_arena: String = string_new(storage as *mut u8, max_value);
+    slice_arena.length = max_value - 1;
+    let slice_arena_ptr: *mut String = unsafe { (&mut slice_arena) as *mut String };
+    if string_append_slice_in_arena(slice_arena_ptr, arena_ptr, source) {
+        return 4;
+    }
+
+    return 0;
+}

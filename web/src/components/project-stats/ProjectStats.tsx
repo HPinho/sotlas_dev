@@ -16,55 +16,55 @@ interface StatCard {
 const stats: StatCard[] = [
   {
     icon: FlaskConical,
-    value: 298,
+    value: 1,
     suffix: "",
-    label: "Unit Tests",
-    detail: "Complete coverage: Lexer, Parser, Sema, SIR, Codegen, and Stdlib",
+    label: "Canonical frontend",
+    detail: "One compiler frontend supplies the checked source accepted by the CLI.",
     color: "text-emerald-600 dark:text-emerald-400",
     iconBg: "bg-emerald-500/10 border-emerald-500/20",
   },
   {
     icon: BookOpen,
-    value: 5,
+    value: 2,
     suffix: "",
-    label: "Official Examples",
-    detail: "Hello Systems, Safe Structures, Intrinsics, Raw Memory, and C/C++ Interop",
+    label: "Code generation backends",
+    detail: "C11 and a smaller LLVM subset with different support boundaries.",
     color: "text-blue-600 dark:text-blue-400",
     iconBg: "bg-blue-500/10 border-blue-500/20",
   },
   {
     icon: Package,
-    value: 12,
-    suffix: "+",
-    label: "Stdlib Modules",
-    detail: "Implemented entirely in Sotlas: primitives, option, result, mem, arc, slice, string",
+    value: 17,
+    suffix: "",
+    label: "Roadmap phases",
+    detail: "The roadmap tracks planned work; phase numbers do not imply completion.",
     color: "text-violet-600 dark:text-violet-400",
     iconBg: "bg-violet-500/10 border-violet-500/20",
   },
   {
     icon: Shield,
-    value: 3,
+    value: 1,
     suffix: "",
-    label: "Safety Layers",
-    detail: "Orthogonal model: Safe Layer, @system Layer, and unsafe Boundary",
+    label: "Ownership model",
+    detail: "The preview checks a documented subset of ownership and cleanup forms.",
     color: "text-amber-600 dark:text-amber-400",
     iconBg: "bg-amber-500/10 border-amber-500/20",
   },
   {
     icon: Scale,
-    value: 100,
-    suffix: "%",
-    label: "C ABI Compatible",
-    detail: "Guaranteed bidirectional interoperability with C, C++, and Objective-C",
+    value: 1,
+    suffix: "",
+    label: "C interoperability",
+    detail: "The documented C ABI subset is under active development; C++ and Objective-C bridging are not claimed.",
     color: "text-cyan-600 dark:text-cyan-400",
     iconBg: "bg-cyan-500/10 border-cyan-500/20",
   },
   {
     icon: Cpu,
-    value: 4,
+    value: 2,
     suffix: "",
-    label: "Native Targets",
-    detail: "x86_64, AArch64, RISC-V, and ARM Cortex-M via freestanding C11 backend",
+    label: "Compiler backends",
+    detail: "C11 and a smaller LLVM subset; this does not imply validated support for specific hardware targets.",
     color: "text-orange-600 dark:text-orange-400",
     iconBg: "bg-orange-500/10 border-orange-500/20",
   },
@@ -124,7 +124,7 @@ export function ProjectStats() {
             <span>Project Numbers</span>
           </div>
           <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-foreground tracking-tight mb-4">
-            <WaveText text="Metrics & Guarantees" />
+            <WaveText text="Compiler Preview" />
           </h2>
           <p className="text-muted-foreground text-base md:text-lg max-w-2xl mx-auto leading-relaxed">
             Every aspect of the Sotlas compiler is validated by continuous testing to ensure zero regressions.
@@ -133,13 +133,11 @@ export function ProjectStats() {
 
         {/* GitHub Badges */}
         <div className="flex flex-wrap items-center justify-center gap-2 mb-10">
-          <a href="https://github.com/Sotlas/sotlas/actions" target="_blank" rel="noopener noreferrer" className="hover:opacity-85 transition-opacity">
-            <img src="https://github.com/Sotlas/sotlas/actions/workflows/ci.yml/badge.svg" alt="CI" className="h-5" />
-          </a>
+          <a href="https://github.com/HPinho/sotlas_dev/actions" target="_blank" rel="noopener noreferrer" className="hover:opacity-85 transition-opacity text-xs font-mono text-muted-foreground">Development CI</a>
           <a href="https://github.com/HPinho" target="_blank" rel="noopener noreferrer" className="hover:opacity-85 transition-opacity">
             <img src="https://img.shields.io/badge/Author-Hiago%20Pinho-8b5cf6.svg" alt="Author: Hiago Pinho" className="h-5" />
           </a>
-          <a href="https://github.com/Sotlas/sotlas/blob/main/LICENSE" target="_blank" rel="noopener noreferrer" className="hover:opacity-85 transition-opacity">
+          <a href="https://github.com/HPinho/sotlas_dev/blob/main/LICENSE" target="_blank" rel="noopener noreferrer" className="hover:opacity-85 transition-opacity">
             <img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="Apache 2.0 License" className="h-5" />
           </a>
           <img src="https://img.shields.io/badge/target-x86__64--freestanding-orange.svg" alt="Target" className="h-5" />
