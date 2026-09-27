@@ -1076,6 +1076,17 @@ flow Local { stage value = local; }
         )
         self.assertEqual(executed.selected_flow, "Accelerated")
         self.assertEqual(executed.execution.output("value"), 3)
+        with self.assertRaisesRegex(package.IntentError, "does not match Sotlas type 'i32'"):
+            package.execute_sir_intent(
+                checked,
+                sir.module,
+                intent,
+                {"value": lambda: 1},
+                provider_executors={
+                    "gpu.opencl": lambda *_args, **_kwargs:
+                        package.FlowExecutionResult({"value": True})
+                },
+            )
 
     def test_bound_sir_intent_uses_provider_executor_and_checks_stage_outputs(self):
         source = """
@@ -1115,6 +1126,54 @@ flow Accelerated { stage value = accelerated; }
                         package.FlowExecutionResult({"wrong": 5})
                 },
             )
+        with self.assertRaisesRegex(package.IntentError, "does not match Sotlas type 'i32'"):
+            package.execute_bound_sir_intent(
+                sir.module,
+                intent,
+                {"accelerated": lambda: 1},
+                provider_executors={
+                    "gpu.opencl": lambda *_args, **_kwargs:
+                        package.FlowExecutionResult({"value": True})
+                },
+            )
+
+    def test_provider_scalar_output_validation_checks_numeric_ranges(self):
+        source = """module test::provider_u8;
+fn accelerated() -> u8 { return 1u8; }
+flow Accelerated { stage value = accelerated; }
+"""
+        checked = package.analyze_source_phase1(source)
+        sir, _ = package.build_canonical_checked_ownership_sir(checked)
+        intent = package.plan_sir_intent(
+            sir.module,
+            "LoadValue",
+            prefer=("Accelerated",),
+            required_providers={"Accelerated": ("gpu.provider",)},
+            available_providers=("gpu.provider",),
+        )
+        with self.assertRaisesRegex(package.IntentError, "does not match Sotlas type 'u8'"):
+            package.execute_bound_sir_intent(
+                sir.module,
+                intent,
+                {"accelerated": lambda: 1},
+                provider_executors={
+                    "gpu.provider": lambda *_args, **_kwargs:
+                        package.FlowExecutionResult({"value": 256})
+                },
+            )
+
+        intent_module = importlib.import_module(f"{PACKAGE_NAME}.intent")
+        tagged_buffer = SimpleNamespace(sotlas_type_name="DeviceBuffer<f32>")
+        self.assertTrue(
+            intent_module._provider_value_matches(
+                tagged_buffer, "DeviceBuffer<f32>"
+            )
+        )
+        self.assertFalse(
+            intent_module._provider_value_matches(
+                object(), "DeviceBuffer<f32>"
+            )
+        )
 
     def test_typed_flow_runtime_rejects_dependency_tampering_before_execution(self):
         checked = package.analyze_source_phase1(self._source("""

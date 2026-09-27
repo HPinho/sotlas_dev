@@ -184,6 +184,7 @@ API: `validate_sir_flow_plans(module)` em `sotlas_compile.flow_sir`.
 - [x] constraints iniciais verificam ausência de efeitos proibidos e disponibilidade das stages escolhidas;
 - [x] execução chama apenas a Flow selecionada depois de revalidar o plano Intent e reconciliar stages, tipos, dependências e efeitos entre Typed Flow e SIR;
 - [x] execução alternativa consome bindings por símbolo de função e agenda o plano SIR reconciliado, revalidando preferência, fallback, efeitos proibidos e stages indisponíveis;
+- [x] provider outputs are checked against selected stage names and scalar Sotlas result types/ranges; aggregate provider values require a matching `sotlas_type_name` or `type_name` tag;
 - [x] sintaxe declarativa `intent`, goals, guarantees tipadas e integração de Ownership estão explicitamente pós-1.0; planos API desconhecidos/adulterados falham fechado.
 
 API adicional: `execute_bound_sir_intent(module, plan, function_bindings)`.

@@ -4135,6 +4135,10 @@ disponibilidade antes de agendar a estratégia selecionada. A API de execução
 SIR recebe bindings por símbolo de função e deriva chamadas e argumentos do
 plano canônico validado. Sintaxe declarativa `intent`, objetivos funcionais,
 guarantees tipadas e integração com Ownership permanecem abertos.
+Bound provider results are checked against selected stage names and scalar
+Sotlas result types, including integer ranges, before they reach Flow consumers.
+Aggregate provider values must expose a matching `sotlas_type_name` or
+`type_name` attribute; physical device buffers and transfers remain open work.
 
 ### 15. SIR completo
 

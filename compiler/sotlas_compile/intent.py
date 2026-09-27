@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import struct
 from typing import Mapping
 
 from .flow_sir import FlowSIRError, _source_type_name, validate_sir_flow_plans
@@ -67,15 +68,49 @@ def _execution_provider(intent: IntentPlan) -> str | None:
     return requirements[0]
 
 
-def _validate_provider_result(result, stage_names, provider: str):
+def _provider_value_matches(value, type_name: str) -> bool:
+    if type_name == "bool":
+        return isinstance(value, bool)
+    widths = {
+        "i8": 8, "i16": 16, "i32": 32, "i64": 64,
+        "u8": 8, "u16": 16, "u32": 32, "u64": 64,
+        "isize": struct.calcsize("P") * 8,
+        "usize": struct.calcsize("P") * 8,
+    }
+    width = widths.get(type_name)
+    if width is not None:
+        if not isinstance(value, int) or isinstance(value, bool):
+            return False
+        lower = -(1 << (width - 1)) if type_name.startswith("i") else 0
+        upper = (1 << (width - (1 if type_name.startswith("i") else 0))) - 1
+        return lower <= value <= upper
+    if type_name in {"f32", "f64"}:
+        return isinstance(value, float)
+    # Aggregate/provider-specific values must carry their canonical Sotlas
+    # type identity instead of relying on Python's incidental runtime class.
+    value_type = getattr(value, "sotlas_type_name", None)
+    if value_type is None:
+        value_type = getattr(value, "type_name", None)
+    return value_type == type_name
+
+
+def _validate_provider_result(result, stage_types, provider: str):
     if not isinstance(result, FlowExecutionResult):
         raise IntentError(
             f"provider {provider!r} must return a FlowExecutionResult"
         )
-    if set(result.outputs) != set(stage_names):
+    if set(result.outputs) != set(stage_types):
         raise IntentError(
             f"provider {provider!r} returned outputs that do not match the Flow stages"
         )
+    for stage_name, type_name in stage_types.items():
+        if not _provider_value_matches(
+            result.outputs[stage_name], type_name
+        ):
+            raise IntentError(
+                f"provider {provider!r} returned an output for stage "
+                f"{stage_name!r} that does not match Sotlas type {type_name!r}"
+            )
     return result
 
 
@@ -299,7 +334,12 @@ def execute_sir_intent(
         except Exception as error:
             raise IntentError(f"provider {provider!r} failed: {error}") from error
         execution = _validate_provider_result(
-            execution, tuple(stage.name for stage in typed_plan.stages), provider
+            execution,
+            {
+                stage.name: _source_type_name(stage.result_type)
+                for stage in typed_plan.stages
+            },
+            provider,
         )
     return IntentExecutionResult(intent.name, intent.selected_flow, execution)
 
@@ -370,7 +410,9 @@ def execute_bound_sir_intent(
                 cancel_event=cancel_event,
             )
             execution = _validate_provider_result(
-                execution, tuple(stage.name for stage in sir_plan.stages), provider
+                execution,
+                {stage.name: stage.result_type for stage in sir_plan.stages},
+                provider,
             )
     except IntentError:
         raise
