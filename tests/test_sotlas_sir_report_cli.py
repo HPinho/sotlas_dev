@@ -92,6 +92,31 @@ pub fn sum(left: u32, right: u32) -> u32 { return left + right; }
         self.assertIn("return", operations)
         self.assertTrue(report["limitations"])
 
+    def test_target_ir_report_preserves_structured_control_flow_and_phi_values(self):
+        result = self._run_report(
+            """module test::target_ir_cfg;
+pub fn choose(flag: bool, yes: u32, no: u32) -> u32 {
+    return if flag { yes } else { no };
+}
+""",
+            "target-ir-report",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)
+        blocks = report["functions"][0]["blocks"]
+        operations = [
+            instruction
+            for block in blocks
+            for instruction in block["instructions"]
+        ]
+        self.assertIn("cond_branch", [item["op"] for item in operations])
+        phi = next(item for item in operations if item["op"] == "phi")
+        self.assertEqual(phi["type"], "u32")
+        self.assertEqual(len(phi["incoming"]), 2)
+        incoming_blocks = {item["block"] for item in phi["incoming"]}
+        self.assertEqual(len(incoming_blocks), 2)
+        self.assertTrue(incoming_blocks.issubset({block["label"] for block in blocks}))
+
     def test_target_ir_report_preserves_verified_direct_borrow_facts(self):
         result = self._run_report(
             """module test::target_ir_bad;

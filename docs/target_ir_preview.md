@@ -15,6 +15,8 @@ allocation, loads and stores, integer constants, arithmetic, comparisons,
 calls, branches, phi nodes, and returns. Checked ownership and state facts are
 preserved as explicitly marked semantic annotations, including their domains
 and source points. An operation without a defined lowering is rejected.
+The canonical `return if ... else ...` form is tested through conditional
+branches and typed phi inputs; this does not imply support for arbitrary CFGs.
 
 This preview does not select machine instructions, allocate registers, lay out
 stack frames, emit object files, or replace the LLVM backend. Source locations
