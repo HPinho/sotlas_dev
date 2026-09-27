@@ -4894,32 +4894,34 @@ def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
                 for field_name, value in expr.fields:
                     field = field_map.get(field_name)
                     if field is not None:
-                        field_type = field.type
-                        while (
-                            field_type.is_array
-                            and field_type.elem_type is not None
-                        ):
-                            field_type = field_type.elem_type
-                        if (
-                            field_type.name in sole_types
-                            and not field_type.pointer
-                            and not field_type.is_reference
-                            and not field_type.is_fn_ptr
-                        ):
-                            source_values = (
-                                value.elements
-                                if isinstance(value, ArrayLit)
-                                and not value.is_repeat
-                                else (value,)
-                            )
-                            for source_value in source_values:
+                        def collect_field_sources(
+                            field_type: Type, field_value: Expr
+                        ) -> None:
+                            if field_type.is_array and field_type.elem_type:
+                                if isinstance(field_value, ArrayLit):
+                                    if not field_value.is_repeat:
+                                        for element in field_value.elements:
+                                            collect_field_sources(
+                                                field_type.elem_type, element
+                                            )
+                                elif isinstance(field_value, Name):
+                                    names.add(field_value.value)
+                                return
+                            if (
+                                field_type.name in sole_types
+                                and not field_type.pointer
+                                and not field_type.is_reference
+                                and not field_type.is_fn_ptr
+                            ):
                                 moved_value = (
-                                    source_value.value
-                                    if isinstance(source_value, MoveExpr)
-                                    else source_value
+                                    field_value.value
+                                    if isinstance(field_value, MoveExpr)
+                                    else field_value
                                 )
                                 if isinstance(moved_value, Name):
                                     names.add(moved_value.value)
+
+                        collect_field_sources(field.type, value)
 
                     names.update(_sole_struct_transfer_names(value))
             return names

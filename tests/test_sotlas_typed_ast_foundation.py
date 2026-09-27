@@ -10035,7 +10035,7 @@ int main(void) {
     def test_c11_sole_struct_cleanup_is_recursive_and_reverse_ordered(self):
         source = """module test::sole_recursive_drop;
 pub sole struct Child { value: u32; }
-pub sole struct Parent { first: Child; children: [Child; 2]; second: Child; }
+pub sole struct Parent { first: Child; children: [[Child; 2]; 2]; second: Child; }
 pub static mut drops: u32 = 0u32;
 fn Child_deinit(self: &mut Child) -> void {
     drops = drops * 10u32 + 1u32;
@@ -10050,7 +10050,9 @@ pub fn make_and_drop() -> void {
     let second: Child = Child { value: 2u32 };
     let third: Child = Child { value: 3u32 };
     let fourth: Child = Child { value: 4u32 };
-    let parent: Parent = Parent { first: first, children: [third, fourth], second: second };
+    let fifth: Child = Child { value: 5u32 };
+    let sixth: Child = Child { value: 6u32 };
+    let parent: Parent = Parent { first: first, children: [[third, fourth], [fifth, sixth]], second: second };
     return;
 }
 pub fn consume(parent: Parent) -> void { return; }
@@ -10059,7 +10061,9 @@ pub fn move_and_drop() -> void {
     let second: Child = Child { value: 4u32 };
     let third: Child = Child { value: 5u32 };
     let fourth: Child = Child { value: 6u32 };
-    let parent: Parent = Parent { first: first, children: [third, fourth], second: second };
+    let fifth: Child = Child { value: 7u32 };
+    let sixth: Child = Child { value: 8u32 };
+    let parent: Parent = Parent { first: first, children: [[third, fourth], [fifth, sixth]], second: second };
     let moved: Parent = parent;
     consume(moved);
     return;
@@ -10085,10 +10089,10 @@ pub fn move_and_drop() -> void {
         harness = """
 int main(void) {
     make_and_drop();
-    if (drops != 21111u) return 1;
+    if (drops != 2111111u) return 1;
     drops = 0u;
     move_and_drop();
-    return drops == 21111u ? 0 : 2;
+    return drops == 2111111u ? 0 : 2;
 }
 """
         with tempfile.TemporaryDirectory(prefix="sotlas_sole_drop_") as temp:
