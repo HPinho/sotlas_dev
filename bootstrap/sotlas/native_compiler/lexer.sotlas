@@ -247,6 +247,7 @@ impl Lexer {
             if self.matches_str(offset, 4, "mesh") { return TokenKind::KwMesh; }
             if self.matches_str(offset, 4, "spec") { return TokenKind::KwSpec; }
             if self.matches_str(offset, 4, "enum") { return TokenKind::KwEnum; }
+            if self.matches_str(offset, 4, "impl") { return TokenKind::KwImpl; }
             if self.matches_str(offset, 4, "gate") { return TokenKind::KwGate; }
             if self.matches_str(offset, 4, "emit") { return TokenKind::KwEmit; }
         } else if len == 5 {
