@@ -29,6 +29,7 @@ jobs:
         python-version: "3.12"
 
     - name: Verify requested release version
+      id: release_version
       shell: pwsh
       run: |
         $runtimeVersion = python -c "import sys; sys.path.insert(0, 'compiler'); import sotlas; print(sotlas.SOTLAS_VERSION)"
@@ -43,6 +44,7 @@ jobs:
         if ($requestedVersion -ne $runtimeVersion) {
           throw "Release version mismatch: requested=$requestedVersion runtime=$runtimeVersion"
         }
+        "version=$runtimeVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
         "RELEASE_VERSION=$runtimeVersion" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
         Write-Host "Validated Sotlas preview version $runtimeVersion"
 
@@ -108,7 +110,8 @@ jobs:
     - name: Create GitHub Preview Release
       uses: softprops/action-gh-release@v2
       with:
-        name: "Sotlas v${{ env.RELEASE_VERSION }} Preview"
+        tag_name: "v${{ steps.release_version.outputs.version }}"
+        name: "Sotlas v${{ steps.release_version.outputs.version }} Preview"
         files: |
           dist/*.zip
           dist/*.tar.gz
