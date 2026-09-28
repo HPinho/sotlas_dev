@@ -956,10 +956,12 @@ impl Parser {
         }
 
         if tok.kind == TokenKind::Ident {
-            let mut callee_node: usize = self.alloc_text_node(AstKind::ExprIdent, tok);
-            if callee_node == 0 {
-                return 0;
-            }
+            // Do not allocate an ExprIdent until the parser knows this is an
+            // unqualified identifier.  The previous eager allocation left a
+            // detached `Counter` node behind for `Counter::add(...)`; the Sema
+            // correctly treated that ghost node as an unresolved local before
+            // the real ExprPath could reach qualified-call resolution.
+            let mut callee_node: usize = 0;
 
             if self.match_token(TokenKind::DColon) {
                 let mut path_end: Token = tok;
@@ -980,6 +982,11 @@ impl Parser {
                     return 0;
                 }
                 callee_node = path_node;
+            } else {
+                callee_node = self.alloc_text_node(AstKind::ExprIdent, tok);
+                if callee_node == 0 {
+                    return 0;
+                }
             }
 
             if !self.match_token(TokenKind::OpenParen) {
