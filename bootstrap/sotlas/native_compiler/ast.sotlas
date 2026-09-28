@@ -34,7 +34,8 @@ pub enum AstKind {
     ContinueStmt = 29,
     TryExpr = 30,
     ExprPath = 31,
-    EnumVariant = 32
+    EnumVariant = 32,
+    ImplDecl = 33
 }
 
 pub struct AstNode {
