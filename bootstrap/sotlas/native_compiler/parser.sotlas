@@ -1159,16 +1159,32 @@ impl Parser {
             return 0;
         }
 
-        while self.match_token(TokenKind::Qmark) {
-            let qmark: Token = self.advance();
-            let try_node: usize = self.alloc_node(AstKind::TryExpr, qmark.span);
-            if try_node == 0 {
-                return 0;
+        while self.match_token(TokenKind::Dot)
+            || self.match_token(TokenKind::Qmark) {
+            if self.match_token(TokenKind::Dot) {
+                self.advance();
+                let field: Token = self.current();
+                if field.kind != TokenKind::Ident {
+                    self.reject_current();
+                    return 0;
+                }
+                self.advance();
+                let member_node: usize = self.alloc_text_node(AstKind::ExprMember, field);
+                if member_node == 0 || !self.append_child(member_node, expr) {
+                    return 0;
+                }
+                expr = member_node;
+            } else {
+                let qmark: Token = self.advance();
+                let try_node: usize = self.alloc_node(AstKind::TryExpr, qmark.span);
+                if try_node == 0 {
+                    return 0;
+                }
+                if !self.append_child(try_node, expr) {
+                    return 0;
+                }
+                expr = try_node;
             }
-            if !self.append_child(try_node, expr) {
-                return 0;
-            }
-            expr = try_node;
         }
         return expr;
     }
