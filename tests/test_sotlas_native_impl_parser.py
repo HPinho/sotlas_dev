@@ -56,6 +56,7 @@ int main(int argc, char **argv) {
         "struct Counter { value: i32; }\n"
         "impl Counter {\n"
         " pub fn zero() -> i32 { return 0; }\n"
+        " pub fn add(left: i32, right: i32) -> i32 { return left + right; }\n"
         "}\n";
     static const uint8_t unsupported_member[] =
         "module test::unsupported_member;\n"
@@ -68,6 +69,18 @@ int main(int argc, char **argv) {
         "struct Counter { value: i32; }\n"
         "impl Counter {\n"
         " pub fn read(self: Counter) -> i32 { return 0; }\n"
+        "}\n";
+    static const uint8_t unsupported_target[] =
+        "module test::unsupported_target;\n"
+        "impl Ghost {\n"
+        " pub fn zero() -> i32 { return 0; }\n"
+        "}\n";
+    static const uint8_t duplicate_method[] =
+        "module test::duplicate_method;\n"
+        "struct Counter { value: i32; }\n"
+        "impl Counter {\n"
+        " pub fn zero() -> i32 { return 0; }\n"
+        " pub fn zero() -> i32 { return 0; }\n"
         "}\n";
     uint8_t output[65536];
     uint32_t line = 999;
@@ -83,7 +96,8 @@ int main(int argc, char **argv) {
         return 1;
     }
     output[size] = 0;
-    if (strstr((const char *)output, "int32_t Counter_zero(") == NULL) {
+    if (strstr((const char *)output, "int32_t Counter_zero(") == NULL
+        || strstr((const char *)output, "int32_t Counter_add(") == NULL) {
         fprintf(stderr, "missing namespaced static method\n");
         return 2;
     }
@@ -115,6 +129,28 @@ int main(int argc, char **argv) {
         fprintf(stderr, "unsupported receiver: size=%zu line=%u col=%u\n", size, line, col);
         return 6;
     }
+
+    line = 999;
+    col = 999;
+    size = sotlas_native_compile_diagnostic(
+        unsupported_target, sizeof(unsupported_target) - 1,
+        output, sizeof(output) - 1, &line, &col
+    );
+    if (size != 0 || line != 0 || col != 0) {
+        fprintf(stderr, "unsupported impl target: size=%zu line=%u col=%u\n", size, line, col);
+        return 7;
+    }
+
+    line = 999;
+    col = 999;
+    size = sotlas_native_compile_diagnostic(
+        duplicate_method, sizeof(duplicate_method) - 1,
+        output, sizeof(output) - 1, &line, &col
+    );
+    if (size != 0 || line != 0 || col != 0) {
+        fprintf(stderr, "duplicate impl method: size=%zu line=%u col=%u\n", size, line, col);
+        return 8;
+    }
     return 0;
 }
 '''
@@ -122,7 +158,11 @@ int main(int argc, char **argv) {
         consumer = r'''
 #include <stdint.h>
 int32_t Counter_zero(void);
-int main(void) { return Counter_zero(); }
+int32_t Counter_add(int32_t left, int32_t right);
+int main(void) {
+    if (Counter_zero() != 0) return 1;
+    return Counter_add(20, 22) == 42 ? 0 : 2;
+}
 '''
 
         with tempfile.TemporaryDirectory(prefix="sotlas-native-impl-parser-") as tmp:
