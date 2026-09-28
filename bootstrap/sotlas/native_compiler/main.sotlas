@@ -18,7 +18,7 @@ static mut g_ast_node_buffer: [AstNode; 65536] = 0;
 // unchanged.  When an impl is present, this adapter keeps the same strict
 // top-level dispatch and adds only static methods with namespaced C symbols.
 pub fn emit_native_static_impl_function(
-    mut emitter: &mut CEmitter,
+    emitter: &mut CEmitter,
     impl_index: usize,
     fn_index: usize
 ) -> bool {
@@ -101,7 +101,7 @@ pub fn emit_native_static_impl_function(
 }
 
 pub fn emit_native_impl(
-    mut emitter: &mut CEmitter,
+    emitter: &mut CEmitter,
     impl_index: usize
 ) -> bool {
     if !emitter.valid_node(impl_index) {
@@ -134,7 +134,7 @@ pub fn emit_native_impl(
 }
 
 pub fn emit_native_module(
-    mut emitter: &mut CEmitter,
+    emitter: &mut CEmitter,
     module_index: usize
 ) -> bool {
     if !emitter.valid_node(module_index) {
@@ -143,23 +143,6 @@ pub fn emit_native_module(
     let module_node: AstNode = unsafe { *(emitter.nodes + module_index) };
     if module_node.kind != AstKind::Module {
         return false;
-    }
-
-    let mut has_impl: bool = false;
-    let mut scan: usize = module_node.first_child;
-    while scan != 0 {
-        if !emitter.valid_node(scan) {
-            return false;
-        }
-        let scan_node: AstNode = unsafe { *(emitter.nodes + scan) };
-        if scan_node.kind == AstKind::ImplDecl {
-            has_impl = true;
-        }
-        scan = scan_node.next_sibling;
-    }
-
-    if !has_impl {
-        return emitter.emit_module(module_index);
     }
 
     let mut child: usize = module_node.first_child;
@@ -194,6 +177,33 @@ pub fn emit_native_module(
         child = node.next_sibling;
     }
     return true;
+}
+
+pub fn native_module_has_impl(
+    nodes: *const AstNode,
+    node_count: usize,
+    module_index: usize
+) -> bool {
+    if nodes == null || module_index == 0 || module_index >= node_count {
+        return false;
+    }
+    let module_node: AstNode = unsafe { *(nodes + module_index) };
+    if module_node.kind != AstKind::Module {
+        return false;
+    }
+
+    let mut child: usize = module_node.first_child;
+    while child != 0 {
+        if child >= node_count {
+            return false;
+        }
+        let node: AstNode = unsafe { *(nodes + child) };
+        if node.kind == AstKind::ImplDecl {
+            return true;
+        }
+        child = node.next_sibling;
+    }
+    return false;
 }
 
 @export
@@ -279,7 +289,8 @@ pub fn sotlas_native_compile_diagnostic(
         return 0;
     }
 
-    // 4. Inicializa o Emissor C11 em Sotlas puro
+    // 4. Inicializa o Emissor C11 em Sotlas puro. Preserve the canonical
+    // emitter for every module that does not need the bounded impl adapter.
     let mut emitter: CEmitter = CEmitter::new(
         out_buf,
         max_out,
@@ -291,8 +302,14 @@ pub fn sotlas_native_compile_diagnostic(
     if !emitter.emit_header() {
         return 0;
     }
-    if !emit_native_module(&mut emitter, module_node) {
-        return 0;
+    if native_module_has_impl(node_ptr, p.node_count, module_node) {
+        if !emit_native_module(&mut emitter, module_node) {
+            return 0;
+        }
+    } else {
+        if !emitter.emit_module(module_node) {
+            return 0;
+        }
     }
 
     return emitter.cursor;
