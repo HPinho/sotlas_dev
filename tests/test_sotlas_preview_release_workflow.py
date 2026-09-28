@@ -23,6 +23,15 @@ class SotlasPreviewReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("prerelease: true", text)
         self.assertNotIn("prerelease: false", text)
 
+    def test_manual_release_requires_main_and_full_test_suite(self):
+        text = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn('"${{ github.ref }}" -ne "refs/heads/main"', text)
+        self.assertIn("Manual preview releases must be dispatched from main", text)
+        self.assertIn("Run full release test suite", text)
+        self.assertIn('python -m pip install -e .', text)
+        self.assertIn('python -m unittest discover -s tests -p "test_*.py"', text)
+        self.assertIn("Full Sotlas release test suite failed", text)
+
     def test_release_requires_cross_platform_portable_artifacts(self):
         text = RELEASE_WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("windows-x64.zip", text)
