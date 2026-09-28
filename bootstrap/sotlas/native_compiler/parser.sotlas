@@ -66,6 +66,23 @@ impl Parser {
         return self.current().kind == kind;
     }
 
+    pub fn starts_struct_literal(self: &Self) -> bool {
+        if self.tokens == null || !self.match_token(TokenKind::OpenBrace) {
+            return false;
+        }
+        // First bounded subset requires at least one explicit `field: value`
+        // pair.  Besides keeping empty literals fail-closed, this makes the
+        // expression unambiguous with control-flow blocks such as `if cond {`.
+        let field_index: usize = self.cursor + 1;
+        let colon_index: usize = self.cursor + 2;
+        if colon_index >= self.token_count {
+            return false;
+        }
+        let field: Token = unsafe { *(self.tokens + field_index) };
+        let colon: Token = unsafe { *(self.tokens + colon_index) };
+        return field.kind == TokenKind::Ident && colon.kind == TokenKind::Colon;
+    }
+
     pub fn expect(mut self: &mut Self, kind: TokenKind) -> Token {
         let tok: Token = self.current();
         if tok.kind == kind {
@@ -955,12 +972,86 @@ impl Parser {
             return self.alloc_text_node(AstKind::ExprLiteral, tok);
         }
 
+        if tok.kind == TokenKind::OpenBracket {
+            let repeat_node: usize = self.alloc_node(AstKind::ExprArrayRepeat, tok.span);
+            if repeat_node == 0 || self.match_token(TokenKind::CloseBracket) {
+                return 0;
+            }
+            let value_node: usize = self.parse_expression();
+            if value_node == 0 || !self.match_token(TokenKind::SemiColon) {
+                return 0;
+            }
+            self.advance();
+            let count_tok: Token = self.current();
+            if count_tok.kind != TokenKind::IntLit {
+                self.reject_current();
+                return 0;
+            }
+            self.advance();
+            let count_node: usize = self.alloc_text_node(AstKind::ExprLiteral, count_tok);
+            if count_node == 0 || !self.match_token(TokenKind::CloseBracket) {
+                return 0;
+            }
+            self.advance();
+            if !self.append_child(repeat_node, value_node)
+                || !self.append_child(repeat_node, count_node) {
+                return 0;
+            }
+            return repeat_node;
+        }
+
         if tok.kind == TokenKind::Ident {
+            // A bounded struct literal is recognized only when the opening
+            // brace begins with an explicit named field.  This avoids stealing
+            // `{` from `if cond { ... }` / `while cond { ... }`.
+            if self.starts_struct_literal() {
+                let literal_node: usize = self.alloc_node(AstKind::ExprStructLiteral, tok.span);
+                if literal_node == 0 || !self.set_node_text(literal_node, tok) {
+                    return 0;
+                }
+                self.advance(); // {
+
+                while !self.is_at_end() && !self.match_token(TokenKind::CloseBrace) {
+                    let field_tok: Token = self.current();
+                    if field_tok.kind != TokenKind::Ident {
+                        self.reject_current();
+                        return 0;
+                    }
+                    self.advance();
+                    let field_node: usize = self.alloc_node(AstKind::StructFieldInit, field_tok.span);
+                    if field_node == 0 || !self.set_node_text(field_node, field_tok) {
+                        return 0;
+                    }
+                    if !self.match_token(TokenKind::Colon) {
+                        self.reject_current();
+                        return 0;
+                    }
+                    self.advance();
+
+                    let value_node: usize = self.parse_expression();
+                    if value_node == 0 || !self.append_child(field_node, value_node)
+                        || !self.append_child(literal_node, field_node) {
+                        return 0;
+                    }
+
+                    if self.match_token(TokenKind::Comma) {
+                        self.advance();
+                    } else if !self.match_token(TokenKind::CloseBrace) {
+                        self.reject_current();
+                        return 0;
+                    }
+                }
+                if !self.match_token(TokenKind::CloseBrace) {
+                    self.reject_current();
+                    return 0;
+                }
+                self.advance();
+                return literal_node;
+            }
+
             // Do not allocate an ExprIdent until the parser knows this is an
-            // unqualified identifier.  The previous eager allocation left a
-            // detached `Counter` node behind for `Counter::add(...)`; the Sema
-            // correctly treated that ghost node as an unresolved local before
-            // the real ExprPath could reach qualified-call resolution.
+            // unqualified identifier.  Eager allocation would leave a detached
+            // prefix node behind for qualified paths such as `Counter::add`.
             let mut callee_node: usize = 0;
 
             if self.match_token(TokenKind::DColon) {
