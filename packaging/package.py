@@ -139,12 +139,23 @@ def assemble_bundle(bundle_dir: Path, version: str):
     create_windows_launchers(bin_dir)
     create_unix_launchers(bin_dir)
 
-    # 2. compiler/
+    # 2. compiler/ — installed source of truth.  Keep both top-level packages
+    # together so portable bundles use the canonical frontend exactly like the
+    # wheel/editable installation instead of falling back to tools/ mirrors.
     comp_src = ROOT / "compiler" / "sotlas"
     comp_dst = bundle_dir / "compiler" / "sotlas"
     shutil.copytree(comp_src, comp_dst, ignore=ignore_development_artifacts)
 
-    # 3. tools/
+    canonical_frontend_src = ROOT / "compiler" / "sotlas_compile"
+    canonical_frontend_dst = bundle_dir / "compiler" / "sotlas_compile"
+    shutil.copytree(
+        canonical_frontend_src,
+        canonical_frontend_dst,
+        ignore=ignore_development_artifacts,
+    )
+
+    # 3. tools/ — historical compatibility tree retained after compiler/ in
+    # PYTHONPATH.  It must never replace compiler/sotlas_compile in a bundle.
     tools_src1 = ROOT / "tools" / "sotlas"
     tools_dst1 = bundle_dir / "tools" / "sotlas"
     shutil.copytree(tools_src1, tools_dst1, ignore=ignore_development_artifacts)
@@ -189,6 +200,15 @@ def assemble_bundle(bundle_dir: Path, version: str):
         encoding="utf-8"
     )
 
+def _archive_tar(dist_dir: Path, bundle_dir: Path, pkg_name: str) -> tuple[Path, str]:
+    tar_file = dist_dir / f"{pkg_name}.tar.gz"
+    print(f"-> Compactando {tar_file.name}...")
+    with tarfile.open(tar_file, "w:gz") as tf:
+        tf.add(bundle_dir, arcname=pkg_name)
+    sha = compute_sha256(tar_file)
+    print(f"   SHA-256: {sha}")
+    return tar_file, sha
+
 def main():
     parser = argparse.ArgumentParser(description="Empacotador oficial da Linguagem Sotlas")
     parser.add_argument("--version", default=get_version(), help="Versão do pacote (padrão: detectada)")
@@ -219,7 +239,7 @@ def main():
                     full_p = Path(root_path) / f
                     rel_p = full_p.relative_to(dist_dir)
                     zf.write(full_p, rel_p)
-        
+
         sha = compute_sha256(zip_file)
         checksums.append(f"{sha}  {zip_file.name}")
         print(f"   SHA-256: {sha}")
@@ -230,15 +250,18 @@ def main():
         bundle_dir = dist_dir / pkg_name
         print(f"-> Montando bundle: {pkg_name}...")
         assemble_bundle(bundle_dir, version)
-
-        tar_file = dist_dir / f"{pkg_name}.tar.gz"
-        print(f"-> Compactando {tar_file.name}...")
-        with tarfile.open(tar_file, "w:gz") as tf:
-            tf.add(bundle_dir, arcname=pkg_name)
-        
-        sha = compute_sha256(tar_file)
+        tar_file, sha = _archive_tar(dist_dir, bundle_dir, pkg_name)
         checksums.append(f"{sha}  {tar_file.name}")
-        print(f"   SHA-256: {sha}")
+
+    # macOS x64 preview bundle.  The current build farm validates the Intel
+    # package path; Apple Silicon remains an explicitly separate target.
+    if args.target in ("all", "darwin"):
+        pkg_name = f"sotlas-v{version}-macos-x64"
+        bundle_dir = dist_dir / pkg_name
+        print(f"-> Montando bundle: {pkg_name}...")
+        assemble_bundle(bundle_dir, version)
+        tar_file, sha = _archive_tar(dist_dir, bundle_dir, pkg_name)
+        checksums.append(f"{sha}  {tar_file.name}")
 
     # Escrever SHA256SUMS.txt
     sha_file = dist_dir / "SHA256SUMS.txt"
