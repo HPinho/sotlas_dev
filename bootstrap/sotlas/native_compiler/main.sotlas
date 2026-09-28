@@ -17,6 +17,128 @@ static mut g_ast_node_buffer: [AstNode; 65536] = 0;
 // Existing modules without `impl` continue through CEmitter::emit_module
 // unchanged.  When an impl is present, this adapter keeps the same strict
 // top-level dispatch and adds only static methods with namespaced C symbols.
+pub fn native_source_slices_equal(
+    emitter: &CEmitter,
+    left_offset: usize,
+    left_len: usize,
+    right_offset: usize,
+    right_len: usize
+) -> bool {
+    if emitter.source == null || left_len != right_len
+        || left_offset > emitter.source_len || right_offset > emitter.source_len
+        || left_len > emitter.source_len - left_offset
+        || right_len > emitter.source_len - right_offset {
+        return false;
+    }
+
+    let mut index: usize = 0;
+    while index < left_len {
+        let left: u8 = unsafe { *(emitter.source + left_offset + index) };
+        let right: u8 = unsafe { *(emitter.source + right_offset + index) };
+        if left != right {
+            return false;
+        }
+        index = index + 1;
+    }
+    return true;
+}
+
+pub fn native_impl_target_is_declared(
+    emitter: &CEmitter,
+    module_index: usize,
+    impl_index: usize
+) -> bool {
+    if !emitter.valid_node(module_index) || !emitter.valid_node(impl_index) {
+        return false;
+    }
+    let module_node: AstNode = unsafe { *(emitter.nodes + module_index) };
+    let impl_node: AstNode = unsafe { *(emitter.nodes + impl_index) };
+    if module_node.kind != AstKind::Module || impl_node.kind != AstKind::ImplDecl
+        || impl_node.str_len == 0 {
+        return false;
+    }
+
+    let mut child: usize = module_node.first_child;
+    while child != 0 {
+        if !emitter.valid_node(child) {
+            return false;
+        }
+        let candidate: AstNode = unsafe { *(emitter.nodes + child) };
+        if (candidate.kind == AstKind::StructDecl || candidate.kind == AstKind::EnumDecl)
+            && candidate.str_len != 0
+            && native_source_slices_equal(
+                emitter,
+                candidate.str_offset,
+                candidate.str_len,
+                impl_node.str_offset,
+                impl_node.str_len
+            ) {
+            return true;
+        }
+        child = candidate.next_sibling;
+    }
+    return false;
+}
+
+pub fn native_static_method_is_unique(
+    emitter: &CEmitter,
+    module_index: usize,
+    impl_index: usize,
+    method_index: usize
+) -> bool {
+    if !emitter.valid_node(module_index) || !emitter.valid_node(impl_index)
+        || !emitter.valid_node(method_index) {
+        return false;
+    }
+    let module_node: AstNode = unsafe { *(emitter.nodes + module_index) };
+    let impl_node: AstNode = unsafe { *(emitter.nodes + impl_index) };
+    let method: AstNode = unsafe { *(emitter.nodes + method_index) };
+    if module_node.kind != AstKind::Module || impl_node.kind != AstKind::ImplDecl
+        || method.kind != AstKind::FnDecl || method.parent != impl_index
+        || impl_node.str_len == 0 || method.str_len == 0 {
+        return false;
+    }
+
+    let mut declaration_index: usize = module_node.first_child;
+    while declaration_index != 0 {
+        if !emitter.valid_node(declaration_index) {
+            return false;
+        }
+        let declaration: AstNode = unsafe { *(emitter.nodes + declaration_index) };
+        if declaration.kind == AstKind::ImplDecl && declaration.str_len != 0
+            && native_source_slices_equal(
+                emitter,
+                declaration.str_offset,
+                declaration.str_len,
+                impl_node.str_offset,
+                impl_node.str_len
+            ) {
+            let mut candidate_index: usize = declaration.first_child;
+            while candidate_index != 0 {
+                if !emitter.valid_node(candidate_index) {
+                    return false;
+                }
+                let candidate: AstNode = unsafe { *(emitter.nodes + candidate_index) };
+                if candidate_index != method_index
+                    && candidate.kind == AstKind::FnDecl
+                    && candidate.str_len != 0
+                    && native_source_slices_equal(
+                        emitter,
+                        candidate.str_offset,
+                        candidate.str_len,
+                        method.str_offset,
+                        method.str_len
+                    ) {
+                    return false;
+                }
+                candidate_index = candidate.next_sibling;
+            }
+        }
+        declaration_index = declaration.next_sibling;
+    }
+    return true;
+}
+
 pub fn emit_native_static_impl_function(
     emitter: &mut CEmitter,
     impl_index: usize,
@@ -102,9 +224,11 @@ pub fn emit_native_static_impl_function(
 
 pub fn emit_native_impl(
     emitter: &mut CEmitter,
+    module_index: usize,
     impl_index: usize
 ) -> bool {
-    if !emitter.valid_node(impl_index) {
+    if !emitter.valid_node(impl_index)
+        || !native_impl_target_is_declared(emitter, module_index, impl_index) {
         return false;
     }
     let impl_node: AstNode = unsafe { *(emitter.nodes + impl_index) };
@@ -119,7 +243,10 @@ pub fn emit_native_impl(
             return false;
         }
         let method: AstNode = unsafe { *(emitter.nodes + method_index) };
-        if method.kind != AstKind::FnDecl || method.parent != impl_index {
+        if method.kind != AstKind::FnDecl || method.parent != impl_index
+            || !native_static_method_is_unique(
+                emitter, module_index, impl_index, method_index
+            ) {
             return false;
         }
         if !emit_native_static_impl_function(emitter, impl_index, method_index) {
@@ -167,7 +294,7 @@ pub fn emit_native_module(
                 return false;
             }
         } else if node.kind == AstKind::ImplDecl {
-            if !emit_native_impl(emitter, child) {
+            if !emit_native_impl(emitter, module_index, child) {
                 return false;
             }
         } else {
