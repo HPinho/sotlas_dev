@@ -163,77 +163,95 @@ pub fn native_path_matches_static_method(
         return false;
     }
 
-    let mut path_pos: usize = 0;
-    while path_pos < path.str_len {
-        let ch: u8 = unsafe { *(emitter.source + path.str_offset + path_pos) };
+    // Split the source-backed path into exactly two canonical slices instead
+    // of comparing while advancing through the declaration names.  This keeps
+    // the resolver independent from declaration lengths and makes whitespace
+    // around `::` explicit and bounded.
+    let mut first: usize = 0;
+    while first < path.str_len {
+        let ch: u8 = unsafe { *(emitter.source + path.str_offset + first) };
         if ch == 32 || ch == 9 || ch == 10 || ch == 13 {
-            path_pos = path_pos + 1;
+            first = first + 1;
         } else {
             break;
         }
     }
 
-    let mut name_pos: usize = 0;
-    while name_pos < impl_node.str_len {
-        if path_pos >= path.str_len {
-            return false;
-        }
-        let have: u8 = unsafe { *(emitter.source + path.str_offset + path_pos) };
-        let want: u8 = unsafe { *(emitter.source + impl_node.str_offset + name_pos) };
-        if have != want {
-            return false;
-        }
-        path_pos = path_pos + 1;
-        name_pos = name_pos + 1;
-    }
-
-    while path_pos < path.str_len {
-        let ch: u8 = unsafe { *(emitter.source + path.str_offset + path_pos) };
-        if ch == 32 || ch == 9 || ch == 10 || ch == 13 {
-            path_pos = path_pos + 1;
-        } else {
+    let mut separator: usize = first;
+    let mut found_separator: bool = false;
+    while separator + 1 < path.str_len {
+        let left: u8 = unsafe { *(emitter.source + path.str_offset + separator) };
+        let right: u8 = unsafe { *(emitter.source + path.str_offset + separator + 1) };
+        if left == 58 && right == 58 {
+            found_separator = true;
             break;
         }
+        separator = separator + 1;
     }
-    if path_pos + 1 >= path.str_len
-        || unsafe { *(emitter.source + path.str_offset + path_pos) } != 58
-        || unsafe { *(emitter.source + path.str_offset + path_pos + 1) } != 58 {
+    if !found_separator || separator <= first {
         return false;
     }
-    path_pos = path_pos + 2;
 
-    while path_pos < path.str_len {
-        let ch: u8 = unsafe { *(emitter.source + path.str_offset + path_pos) };
+    let mut target_end: usize = separator;
+    while target_end > first {
+        let ch: u8 = unsafe { *(emitter.source + path.str_offset + target_end - 1) };
         if ch == 32 || ch == 9 || ch == 10 || ch == 13 {
-            path_pos = path_pos + 1;
+            target_end = target_end - 1;
+        } else {
+            break;
+        }
+    }
+    if target_end <= first {
+        return false;
+    }
+
+    let mut method_start: usize = separator + 2;
+    while method_start < path.str_len {
+        let ch: u8 = unsafe { *(emitter.source + path.str_offset + method_start) };
+        if ch == 32 || ch == 9 || ch == 10 || ch == 13 {
+            method_start = method_start + 1;
         } else {
             break;
         }
     }
 
-    name_pos = 0;
-    while name_pos < method.str_len {
-        if path_pos >= path.str_len {
-            return false;
+    let mut method_end: usize = path.str_len;
+    while method_end > method_start {
+        let ch: u8 = unsafe { *(emitter.source + path.str_offset + method_end - 1) };
+        if ch == 32 || ch == 9 || ch == 10 || ch == 13 {
+            method_end = method_end - 1;
+        } else {
+            break;
         }
-        let have: u8 = unsafe { *(emitter.source + path.str_offset + path_pos) };
-        let want: u8 = unsafe { *(emitter.source + method.str_offset + name_pos) };
-        if have != want {
-            return false;
-        }
-        path_pos = path_pos + 1;
-        name_pos = name_pos + 1;
+    }
+    if method_end <= method_start {
+        return false;
     }
 
-    while path_pos < path.str_len {
-        let ch: u8 = unsafe { *(emitter.source + path.str_offset + path_pos) };
-        if ch == 32 || ch == 9 || ch == 10 || ch == 13 {
-            path_pos = path_pos + 1;
-        } else {
+    // A second path separator is outside the bounded Type::method subset.
+    let mut scan: usize = method_start;
+    while scan + 1 < method_end {
+        let left: u8 = unsafe { *(emitter.source + path.str_offset + scan) };
+        let right: u8 = unsafe { *(emitter.source + path.str_offset + scan + 1) };
+        if left == 58 && right == 58 {
             return false;
         }
+        scan = scan + 1;
     }
-    return true;
+
+    return native_source_slices_equal(
+        emitter,
+        path.str_offset + first,
+        target_end - first,
+        impl_node.str_offset,
+        impl_node.str_len
+    ) && native_source_slices_equal(
+        emitter,
+        path.str_offset + method_start,
+        method_end - method_start,
+        method.str_offset,
+        method.str_len
+    );
 }
 
 pub fn native_find_static_impl_method_for_path(
