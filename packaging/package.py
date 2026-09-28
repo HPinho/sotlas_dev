@@ -174,29 +174,36 @@ def assemble_bundle(bundle_dir: Path, version: str):
     web_dst = bundle_dir / "web"
     shutil.copytree(web_src, web_dst, ignore=ignore_development_artifacts)
 
-    # 6. include/
+    # 6. Public examples and documentation referenced by the packaged README
+    # and installer completion messages.
+    for tree_name in ("examples", "docs"):
+        source = ROOT / tree_name
+        destination = bundle_dir / tree_name
+        shutil.copytree(source, destination, ignore=ignore_development_artifacts)
+
+    # 7. include/
     include_dst = bundle_dir / "include"
     include_dst.mkdir()
     runtime_h = ROOT / "stdlib" / "runtime" / "runtime.h"
     if runtime_h.is_file():
         shutil.copy(runtime_h, include_dst / "runtime.h")
 
-    # 7. assets/
+    # 8. assets/
     assets_src = ROOT / "assets"
     if assets_src.is_dir():
         assets_dst = bundle_dir / "assets"
         shutil.copytree(assets_src, assets_dst)
 
-    # 8. Documentos
-    for doc in ["LICENSE", "README.md", "Icone Sotlas.svg", "Logo Sotlas.svg"]:
+    # 9. Top-level documents
+    for doc in ["LICENSE", "README.md", "README.pt-BR.md", "CHANGELOG.md", "Icone Sotlas.svg", "Logo Sotlas.svg"]:
         p = ROOT / doc
         if p.is_file():
             shutil.copy(p, bundle_dir / doc)
 
-    # 9. Manifesto do Toolchain
+    # 10. Toolchain manifest
     manifest = bundle_dir / "sotlas-toolchain.json"
     manifest.write_text(
-        f'{{\n  "name": "sotlas",\n  "version": "{version}",\n  "release": "preview",\n  "components": ["python-compiler", "cli", "standard-library", "web-source"]\n}}\n',
+        f'{{\n  "name": "sotlas",\n  "version": "{version}",\n  "release": "preview",\n  "components": ["python-compiler", "cli", "standard-library", "web-source", "examples", "documentation"]\n}}\n',
         encoding="utf-8"
     )
 
