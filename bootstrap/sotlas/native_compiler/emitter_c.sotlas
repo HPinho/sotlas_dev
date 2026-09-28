@@ -472,6 +472,16 @@ impl CEmitter {
         if node.kind == AstKind::ExprStructLiteral {
             return self.emit_struct_literal(index);
         }
+        if node.kind == AstKind::ExprMember {
+            if !self.valid_node(node.first_child) || node.str_len == 0 {
+                return false;
+            }
+            if !self.emit_expression(node.first_child)
+                || !self.write_byte(46) {
+                return false;
+            }
+            return self.write_source_slice(node.str_offset, node.str_len);
+        }
         if node.kind == AstKind::ExprArrayRepeat {
             // Array repeat requires a declared target type so count and element
             // semantics cannot be invented by the backend.
