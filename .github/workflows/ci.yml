@@ -40,7 +40,15 @@ jobs:
         python -m unittest discover -s tests -p "test_*.py"
 
     - name: Verify CLI tools & Subcommands
+      shell: bash
       run: |
+        set -euo pipefail
+        mkdir -p build/cli-smoke
+        cat > build/cli-smoke/llvm_supported.sotlas <<'SOTLAS'
+        module ci::llvm_smoke;
+        pub fn main() -> i32 { return 0; }
+        SOTLAS
+
         sotlas version
         sotlas check examples/01_hello_systems/main.sotlas
         sotlas check examples/02_safe_structures/main.sotlas
@@ -49,10 +57,15 @@ jobs:
         sotlas dump-ast examples/01_hello_systems/main.sotlas
         sotlas dump-sir examples/01_hello_systems/main.sotlas
         sotlas sir-report examples/01_hello_systems/main.sotlas
-        sotlas dump-llvm examples/01_hello_systems/main.sotlas --debug
+        sotlas dump-llvm build/cli-smoke/llvm_supported.sotlas --debug
+        if sotlas dump-llvm examples/01_hello_systems/main.sotlas --debug > build/cli-smoke/prototype-llvm.txt 2>&1; then
+          echo "prototype SIR unexpectedly passed dump-llvm" >&2
+          exit 1
+        fi
+        grep -q "prototype SIR" build/cli-smoke/prototype-llvm.txt
         sotlas fmt examples/01_hello_systems/main.sotlas --check
         sotlas lint examples/01_hello_systems/main.sotlas
-        sotlas doc examples/01_hello_systems/main.sotlas -o examples/01_hello_systems/DOCS.md
+        sotlas doc examples/01_hello_systems/main.sotlas -o build/cli-smoke/DOCS.md
 
 
   backend-contract:
