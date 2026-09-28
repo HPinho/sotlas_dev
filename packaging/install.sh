@@ -45,7 +45,7 @@ echo ""
 echo "-> Install directory: $INSTALL_DIR"
 mkdir -p "$INSTALL_DIR"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}\")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 ARCH="$(uname -m)"
