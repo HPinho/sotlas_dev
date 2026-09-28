@@ -45,7 +45,7 @@ echo ""
 echo "-> Install directory: $INSTALL_DIR"
 mkdir -p "$INSTALL_DIR"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}\")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 ARCH="$(uname -m)"
@@ -80,6 +80,11 @@ elif command -v python >/dev/null 2>&1; then
     PYTHON_BIN="python"
 else
     echo "Python 3.10 or newer is required to install the Sotlas preview." >&2
+    exit 3
+fi
+if ! "$PYTHON_BIN" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)'; then
+    PYTHON_VERSION="$($PYTHON_BIN -c 'import sys; print(".".join(map(str, sys.version_info[:3])))' 2>/dev/null || echo unknown)"
+    echo "Python 3.10 or newer is required; found $PYTHON_VERSION via $PYTHON_BIN." >&2
     exit 3
 fi
 
