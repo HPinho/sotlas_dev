@@ -1,6 +1,7 @@
 """Testes do sistema de empacotamento, distribuição e instalação oficial do Sotlas."""
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -30,7 +31,9 @@ class TestSotlasPackaging(unittest.TestCase):
         text = install_sh.read_text(encoding="utf-8")
         self.assertIn("SOTLAS_HOME", text)
         self.assertIn("sotlas", text)
-        self.assertIn('sotlas-v${VERSION}-linux-x64', text)
+        self.assertIn('sotlas-v${VERSION}-${PACKAGE_SUFFIX}', text)
+        self.assertIn('PACKAGE_SUFFIX="linux-x64"', text)
+        self.assertIn('PACKAGE_SUFFIX="macos-x64"', text)
         self.assertNotIn("sotlas-v0.2.0", text)
 
     def test_packager_uses_current_runtime_version_and_fails_closed(self):
@@ -85,7 +88,8 @@ class TestSotlasPackaging(unittest.TestCase):
         # O teste deve ser hermético: gera seu próprio bundle em vez de assumir
         # que outro job/etapa já criou ROOT/dist.
         with tempfile.TemporaryDirectory(prefix="sotlas_packaging_") as tmp:
-            dist_dir = Path(tmp) / "dist"
+            tmp_root = Path(tmp)
+            dist_dir = tmp_root / "dist"
             result = subprocess.run(
                 [
                     sys.executable,
@@ -166,6 +170,55 @@ class TestSotlasPackaging(unittest.TestCase):
             resolved = probe.stdout.strip().replace("\\", "/")
             self.assertIn("/compiler/sotlas_compile/bootstrap.py", resolved)
             self.assertNotIn("/tools/sotlas_compile/bootstrap.py", resolved)
+
+            # Reuse the real archive produced above to prove the release-facing
+            # Unix installer, with no checkout PYTHONPATH fallback.
+            suffix = None
+            if sys.platform.startswith("linux"):
+                suffix = "linux-x64"
+            elif sys.platform == "darwin":
+                suffix = "macos-x64"
+            if suffix is not None and shutil.which("bash"):
+                release_archive = next(dist_dir.glob(f"sotlas-v*-{suffix}.tar.gz"))
+                install_dir = tmp_root / "installed-preview"
+                fake_home = tmp_root / "home"
+                fake_home.mkdir()
+                installer_env = os.environ.copy()
+                installer_env["HOME"] = str(fake_home)
+                installer_env["SOTLAS_INSTALL_DIR"] = str(install_dir)
+                installer_env.pop("PYTHONPATH", None)
+                install = subprocess.run(
+                    [
+                        "bash",
+                        str(ROOT / "packaging" / "install.sh"),
+                        "--source-archive",
+                        str(release_archive),
+                    ],
+                    cwd=tmp_root,
+                    env=installer_env,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(
+                    install.returncode,
+                    0,
+                    f"archive installer falhou:\n{install.stdout}\n{install.stderr}",
+                )
+                self.assertTrue((install_dir / "bin" / "sotlas").is_file())
+                self.assertTrue(
+                    (install_dir / "compiler" / "sotlas_compile" / "bootstrap.py").is_file()
+                )
+                launcher = subprocess.run(
+                    [str(install_dir / "bin" / "sotlas"), "version"],
+                    cwd=tmp_root,
+                    env=installer_env,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(launcher.returncode, 0, launcher.stdout + launcher.stderr)
+                self.assertIn("Sotlas 1.0.0rc1", launcher.stdout)
 
 if __name__ == "__main__":
     unittest.main()
