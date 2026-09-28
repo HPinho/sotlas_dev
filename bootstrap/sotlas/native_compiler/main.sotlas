@@ -163,10 +163,6 @@ pub fn native_path_matches_static_method(
         return false;
     }
 
-    // Split the source-backed path into exactly two canonical slices instead
-    // of comparing while advancing through the declaration names.  This keeps
-    // the resolver independent from declaration lengths and makes whitespace
-    // around `::` explicit and bounded.
     let mut first: usize = 0;
     while first < path.str_len {
         let ch: u8 = unsafe { *(emitter.source + path.str_offset + first) };
@@ -228,7 +224,6 @@ pub fn native_path_matches_static_method(
         return false;
     }
 
-    // A second path separator is outside the bounded Type::method subset.
     let mut scan: usize = method_start;
     while scan + 1 < method_end {
         let left: u8 = unsafe { *(emitter.source + path.str_offset + scan) };
@@ -387,7 +382,6 @@ pub fn native_validate_static_impl_calls(
         if node.kind == AstKind::ExprCall && emitter.valid_node(node.first_child) {
             let callee: AstNode = unsafe { *(emitter.nodes + node.first_child) };
             if callee.kind == AstKind::ExprPath {
-                // Result constructors have a dedicated native ABI/lowering.
                 if emitter.result_constructor_kind(node_index) == 0 {
                     let method_index: usize = native_find_static_impl_method_for_path(
                         emitter, module_index, node.first_child
@@ -520,6 +514,389 @@ pub fn lower_native_static_impl_calls_to_c_symbols(
     return lowered_len;
 }
 
+pub fn native_find_struct_decl_for_literal(
+    emitter: &CEmitter,
+    literal_index: usize
+) -> usize {
+    if !emitter.valid_node(literal_index) {
+        return 0;
+    }
+    let literal: AstNode = unsafe { *(emitter.nodes + literal_index) };
+    if literal.kind != AstKind::ExprStructLiteral || literal.str_len == 0 {
+        return 0;
+    }
+    let module_index: usize = emitter.find_enclosing_module(literal_index);
+    if !emitter.valid_node(module_index) {
+        return 0;
+    }
+    let module_node: AstNode = unsafe { *(emitter.nodes + module_index) };
+    let mut child: usize = module_node.first_child;
+    while child != 0 {
+        if !emitter.valid_node(child) {
+            return 0;
+        }
+        let candidate: AstNode = unsafe { *(emitter.nodes + child) };
+        if candidate.kind == AstKind::StructDecl && candidate.str_len != 0
+            && native_source_slices_equal(
+                emitter,
+                candidate.str_offset,
+                candidate.str_len,
+                literal.str_offset,
+                literal.str_len
+            ) {
+            return child;
+        }
+        child = candidate.next_sibling;
+    }
+    return 0;
+}
+
+pub fn native_find_struct_field_decl(
+    emitter: &CEmitter,
+    struct_index: usize,
+    init_index: usize
+) -> usize {
+    if !emitter.valid_node(struct_index) || !emitter.valid_node(init_index) {
+        return 0;
+    }
+    let decl: AstNode = unsafe { *(emitter.nodes + struct_index) };
+    let init: AstNode = unsafe { *(emitter.nodes + init_index) };
+    if decl.kind != AstKind::StructDecl || init.kind != AstKind::StructFieldInit
+        || init.str_len == 0 {
+        return 0;
+    }
+    let mut field_index: usize = decl.first_child;
+    while field_index != 0 {
+        if !emitter.valid_node(field_index) {
+            return 0;
+        }
+        let field: AstNode = unsafe { *(emitter.nodes + field_index) };
+        if field.kind == AstKind::FieldDecl && field.str_len != 0
+            && native_source_slices_equal(
+                emitter,
+                field.str_offset,
+                field.str_len,
+                init.str_offset,
+                init.str_len
+            ) {
+            return field_index;
+        }
+        field_index = field.next_sibling;
+    }
+    return 0;
+}
+
+pub fn native_struct_literal_shape_valid(
+    emitter: &CEmitter,
+    literal_index: usize
+) -> bool {
+    let struct_index: usize = native_find_struct_decl_for_literal(emitter, literal_index);
+    if struct_index == 0 || !emitter.valid_node(literal_index) {
+        return false;
+    }
+    let decl: AstNode = unsafe { *(emitter.nodes + struct_index) };
+    let literal: AstNode = unsafe { *(emitter.nodes + literal_index) };
+
+    let mut declared_count: usize = 0;
+    let mut field_index: usize = decl.first_child;
+    while field_index != 0 {
+        if !emitter.valid_node(field_index) {
+            return false;
+        }
+        let field: AstNode = unsafe { *(emitter.nodes + field_index) };
+        if field.kind != AstKind::FieldDecl || field.str_len == 0
+            || !emitter.valid_node(field.first_child) {
+            return false;
+        }
+        let typ: AstNode = unsafe { *(emitter.nodes + field.first_child) };
+        if typ.kind != AstKind::TypeRef || typ.next_sibling != 0 {
+            return false;
+        }
+        declared_count = declared_count + 1;
+        field_index = field.next_sibling;
+    }
+
+    let mut init_count: usize = 0;
+    let mut init_index: usize = literal.first_child;
+    while init_index != 0 {
+        if !emitter.valid_node(init_index) {
+            return false;
+        }
+        let init: AstNode = unsafe { *(emitter.nodes + init_index) };
+        if init.kind != AstKind::StructFieldInit || init.str_len == 0
+            || !emitter.valid_node(init.first_child)
+            || native_find_struct_field_decl(emitter, struct_index, init_index) == 0 {
+            return false;
+        }
+        let value: AstNode = unsafe { *(emitter.nodes + init.first_child) };
+        if value.next_sibling != 0 {
+            return false;
+        }
+
+        let mut previous: usize = literal.first_child;
+        while previous != init_index {
+            if previous == 0 || !emitter.valid_node(previous) {
+                return false;
+            }
+            let previous_init: AstNode = unsafe { *(emitter.nodes + previous) };
+            if previous_init.kind != AstKind::StructFieldInit {
+                return false;
+            }
+            if native_source_slices_equal(
+                emitter,
+                previous_init.str_offset,
+                previous_init.str_len,
+                init.str_offset,
+                init.str_len
+            ) {
+                return false;
+            }
+            previous = previous_init.next_sibling;
+        }
+
+        init_count = init_count + 1;
+        init_index = init.next_sibling;
+    }
+
+    return declared_count != 0 && declared_count == init_count;
+}
+
+pub fn native_fixed_array_type_matches_zero_repeat(
+    emitter: &CEmitter,
+    type_index: usize,
+    repeat_index: usize
+) -> bool {
+    if !emitter.valid_node(type_index) || !emitter.valid_node(repeat_index)
+        || emitter.source == null {
+        return false;
+    }
+    let typ: AstNode = unsafe { *(emitter.nodes + type_index) };
+    let repeat: AstNode = unsafe { *(emitter.nodes + repeat_index) };
+    if typ.kind != AstKind::TypeRef || typ.str_len < 5
+        || repeat.kind != AstKind::ExprArrayRepeat
+        || !emitter.valid_node(repeat.first_child) {
+        return false;
+    }
+    let value_index: usize = repeat.first_child;
+    let value: AstNode = unsafe { *(emitter.nodes + value_index) };
+    let count_index: usize = value.next_sibling;
+    if value.kind != AstKind::ExprLiteral
+        || !emitter.source_slice_equals(value.str_offset, value.str_len, "0", 1)
+        || !emitter.valid_node(count_index) {
+        return false;
+    }
+    let count: AstNode = unsafe { *(emitter.nodes + count_index) };
+    if count.kind != AstKind::ExprLiteral || count.str_len == 0
+        || count.next_sibling != 0 {
+        return false;
+    }
+
+    let mut i: usize = 0;
+    while i < typ.str_len {
+        let ch: u8 = unsafe { *(emitter.source + typ.str_offset + i) };
+        if ch == 32 || ch == 9 || ch == 10 || ch == 13 { i = i + 1; }
+        else { break; }
+    }
+    if i >= typ.str_len || unsafe { *(emitter.source + typ.str_offset + i) } != 91 {
+        return false;
+    }
+    i = i + 1;
+    while i < typ.str_len {
+        let ch: u8 = unsafe { *(emitter.source + typ.str_offset + i) };
+        if ch == 32 || ch == 9 || ch == 10 || ch == 13 { i = i + 1; }
+        else { break; }
+    }
+    let element_start: usize = i;
+    while i < typ.str_len {
+        let ch: u8 = unsafe { *(emitter.source + typ.str_offset + i) };
+        let alpha: bool = (ch >= 65 && ch <= 90) || (ch >= 97 && ch <= 122);
+        let digit: bool = ch >= 48 && ch <= 57;
+        if alpha || digit || ch == 95 { i = i + 1; }
+        else { break; }
+    }
+    if i == element_start {
+        return false;
+    }
+    while i < typ.str_len {
+        let ch: u8 = unsafe { *(emitter.source + typ.str_offset + i) };
+        if ch == 32 || ch == 9 || ch == 10 || ch == 13 { i = i + 1; }
+        else { break; }
+    }
+    if i >= typ.str_len || unsafe { *(emitter.source + typ.str_offset + i) } != 59 {
+        return false;
+    }
+    i = i + 1;
+    while i < typ.str_len {
+        let ch: u8 = unsafe { *(emitter.source + typ.str_offset + i) };
+        if ch == 32 || ch == 9 || ch == 10 || ch == 13 { i = i + 1; }
+        else { break; }
+    }
+    let count_start: usize = i;
+    let mut nonzero: bool = false;
+    while i < typ.str_len {
+        let ch: u8 = unsafe { *(emitter.source + typ.str_offset + i) };
+        if ch >= 48 && ch <= 57 {
+            if ch != 48 { nonzero = true; }
+            i = i + 1;
+        } else {
+            break;
+        }
+    }
+    let type_count_len: usize = i - count_start;
+    if type_count_len == 0 || !nonzero {
+        return false;
+    }
+    while i < typ.str_len {
+        let ch: u8 = unsafe { *(emitter.source + typ.str_offset + i) };
+        if ch == 32 || ch == 9 || ch == 10 || ch == 13 { i = i + 1; }
+        else { break; }
+    }
+    if i >= typ.str_len || unsafe { *(emitter.source + typ.str_offset + i) } != 93 {
+        return false;
+    }
+    i = i + 1;
+    while i < typ.str_len {
+        let ch: u8 = unsafe { *(emitter.source + typ.str_offset + i) };
+        if ch == 32 || ch == 9 || ch == 10 || ch == 13 { i = i + 1; }
+        else { return false; }
+    }
+
+    return native_source_slices_equal(
+        emitter,
+        typ.str_offset + count_start,
+        type_count_len,
+        count.str_offset,
+        count.str_len
+    );
+}
+
+pub fn native_type_ref_matches_struct_literal(
+    emitter: &CEmitter,
+    type_index: usize,
+    literal_index: usize
+) -> bool {
+    if !emitter.valid_node(type_index) || !emitter.valid_node(literal_index) {
+        return false;
+    }
+    let typ: AstNode = unsafe { *(emitter.nodes + type_index) };
+    let literal: AstNode = unsafe { *(emitter.nodes + literal_index) };
+    if typ.kind != AstKind::TypeRef || literal.kind != AstKind::ExprStructLiteral
+        || typ.str_len == 0 || literal.str_len == 0 {
+        return false;
+    }
+    return native_source_slices_equal(
+        emitter,
+        typ.str_offset,
+        typ.str_len,
+        literal.str_offset,
+        literal.str_len
+    );
+}
+
+pub fn emit_native_struct_literal(
+    emitter: &mut CEmitter,
+    literal_index: usize
+) -> bool {
+    if !native_struct_literal_shape_valid(emitter, literal_index) {
+        return false;
+    }
+    let literal: AstNode = unsafe { *(emitter.nodes + literal_index) };
+    let struct_index: usize = native_find_struct_decl_for_literal(emitter, literal_index);
+    if struct_index == 0 {
+        return false;
+    }
+
+    if !emitter.write_byte(40)
+        || !emitter.write_source_slice(literal.str_offset, literal.str_len)
+        || !emitter.write_str("){ ", 3) {
+        return false;
+    }
+
+    let mut init_index: usize = literal.first_child;
+    let mut first: bool = true;
+    while init_index != 0 {
+        if !emitter.valid_node(init_index) {
+            return false;
+        }
+        let init: AstNode = unsafe { *(emitter.nodes + init_index) };
+        let field_index: usize = native_find_struct_field_decl(
+            emitter, struct_index, init_index
+        );
+        if field_index == 0 || !emitter.valid_node(init.first_child) {
+            return false;
+        }
+        let field: AstNode = unsafe { *(emitter.nodes + field_index) };
+        let type_index: usize = field.first_child;
+        let value_index: usize = init.first_child;
+        let value: AstNode = unsafe { *(emitter.nodes + value_index) };
+
+        if !first && !emitter.write_str(", ", 2) {
+            return false;
+        }
+        if !emitter.write_byte(46)
+            || !emitter.write_source_slice(init.str_offset, init.str_len)
+            || !emitter.write_str(" = ", 3) {
+            return false;
+        }
+
+        if value.kind == AstKind::ExprStructLiteral {
+            if !native_type_ref_matches_struct_literal(emitter, type_index, value_index)
+                || !emit_native_struct_literal(emitter, value_index) {
+                return false;
+            }
+        } else if value.kind == AstKind::ExprArrayRepeat {
+            if !native_fixed_array_type_matches_zero_repeat(
+                emitter, type_index, value_index
+            ) || !emitter.write_str("{0}", 3) {
+                return false;
+            }
+        } else if !emitter.emit_expression(value_index) {
+            return false;
+        }
+
+        first = false;
+        init_index = init.next_sibling;
+    }
+    return emitter.write_str(" }", 2);
+}
+
+pub fn emit_native_static_struct_constructor_body(
+    emitter: &mut CEmitter,
+    fn_index: usize,
+    body_index: usize
+) -> bool {
+    if !emitter.valid_node(fn_index) || !emitter.valid_node(body_index) {
+        return false;
+    }
+    let body: AstNode = unsafe { *(emitter.nodes + body_index) };
+    if body.kind != AstKind::Block || !emitter.valid_node(body.first_child) {
+        return false;
+    }
+    let ret_index: usize = body.first_child;
+    let ret: AstNode = unsafe { *(emitter.nodes + ret_index) };
+    if ret.kind != AstKind::ReturnStmt || ret.next_sibling != 0
+        || !emitter.valid_node(ret.first_child) {
+        return false;
+    }
+    let literal_index: usize = ret.first_child;
+    let literal: AstNode = unsafe { *(emitter.nodes + literal_index) };
+    if literal.kind != AstKind::ExprStructLiteral || literal.next_sibling != 0 {
+        return false;
+    }
+    let return_type: usize = emitter.find_function_return_type(fn_index);
+    if return_type == 0
+        || !native_type_ref_matches_struct_literal(emitter, return_type, literal_index)
+        || !native_struct_literal_shape_valid(emitter, literal_index) {
+        return false;
+    }
+
+    if !emitter.write_str("{\nreturn ", 9)
+        || !emit_native_struct_literal(emitter, literal_index) {
+        return false;
+    }
+    return emitter.write_str(";\n}\n", 4);
+}
+
 pub fn emit_native_static_impl_function(
     emitter: &mut CEmitter,
     impl_index: usize,
@@ -548,19 +925,11 @@ pub fn emit_native_static_impl_function(
         return false;
     }
 
-    if !emitter.write_byte(32) {
-        return false;
-    }
-    if !emitter.write_source_slice(impl_node.str_offset, impl_node.str_len) {
-        return false;
-    }
-    if !emitter.write_byte(95) {
-        return false;
-    }
-    if !emitter.write_source_slice(function_node.str_offset, function_node.str_len) {
-        return false;
-    }
-    if !emitter.write_byte(40) {
+    if !emitter.write_byte(32)
+        || !emitter.write_source_slice(impl_node.str_offset, impl_node.str_len)
+        || !emitter.write_byte(95)
+        || !emitter.write_source_slice(function_node.str_offset, function_node.str_len)
+        || !emitter.write_byte(40) {
         return false;
     }
 
@@ -572,15 +941,11 @@ pub fn emit_native_static_impl_function(
         }
         let node: AstNode = unsafe { *(emitter.nodes + child) };
         if node.kind == AstKind::ParamDecl {
-            // Receivers need a real object/reference ABI.  Do not disguise
-            // them as ordinary C parameters in the static-method subset.
             if emitter.source_slice_equals(node.str_offset, node.str_len, "self", 4) {
                 return false;
             }
-            if !first_param {
-                if !emitter.write_str(", ", 2) {
-                    return false;
-                }
+            if !first_param && !emitter.write_str(", ", 2) {
+                return false;
             }
             if !emitter.emit_parameter(child) {
                 return false;
@@ -593,12 +958,23 @@ pub fn emit_native_static_impl_function(
     }
 
     let body_index: usize = emitter.find_function_body(fn_index);
-    if body_index == 0 {
-        // Declaration-only methods are not part of this bounded subset.
+    if body_index == 0 || !emitter.write_str(") ", 2) {
         return false;
     }
-    if !emitter.write_str(") ", 2) {
-        return false;
+
+    let body: AstNode = unsafe { *(emitter.nodes + body_index) };
+    if emitter.valid_node(body.first_child) {
+        let first_stmt: AstNode = unsafe { *(emitter.nodes + body.first_child) };
+        if first_stmt.kind == AstKind::ReturnStmt
+            && first_stmt.next_sibling == 0
+            && emitter.valid_node(first_stmt.first_child) {
+            let returned: AstNode = unsafe { *(emitter.nodes + first_stmt.first_child) };
+            if returned.kind == AstKind::ExprStructLiteral {
+                return emit_native_static_struct_constructor_body(
+                    emitter, fn_index, body_index
+                );
+            }
+        }
     }
     return emitter.emit_braced_block(body_index);
 }
@@ -661,7 +1037,6 @@ pub fn emit_native_module(
         let node: AstNode = unsafe { *(emitter.nodes + child) };
 
         if node.kind == AstKind::Import {
-            // Imports are resolved by the compiler/module graph.
         } else if node.kind == AstKind::EnumDecl {
             if !emitter.emit_enum(child) || !emitter.write_byte(10) {
                 return false;
@@ -734,10 +1109,8 @@ pub fn sotlas_native_compile_diagnostic(
         return 0;
     }
 
-    // 1. Inicializa o Lexer em Sotlas puro
     let mut lex: Lexer = Lexer::new(source, len);
     let mut tok_count: usize = 0;
-
     while !lex.is_at_end() && tok_count < TOKEN_BUFFER_CAPACITY {
         let tok: Token = lex.next_token();
         unsafe {
@@ -748,12 +1121,10 @@ pub fn sotlas_native_compile_diagnostic(
             break;
         }
     }
-    // Never parse a truncated token stream when the fixed bootstrap buffer fills.
     if !lex.is_at_end() {
         return 0;
     }
 
-    // 2. Inicializa o Parser em Sotlas puro
     let mut tok_ptr: *const Token = null;
     unsafe {
         tok_ptr = g_token_buffer as *const Token;
@@ -781,7 +1152,6 @@ pub fn sotlas_native_compile_diagnostic(
         return 0;
     }
 
-    // 3. Inicializa o Sema em Sotlas puro
     let mut sem: Sema = Sema::new();
     sem.enter_system();
     let _is_safe: bool = sem.check_system_privilege();
@@ -797,8 +1167,6 @@ pub fn sotlas_native_compile_diagnostic(
         return 0;
     }
 
-    // 4. Resolve bounded static impl calls against the original Sotlas source
-    // before any backend-specific AST rewriting occurs.
     let semantic_emitter: CEmitter = CEmitter::new(
         out_buf,
         max_out,
@@ -817,10 +1185,6 @@ pub fn sotlas_native_compile_diagnostic(
         return 0;
     }
 
-    // 5. Lower only semantically validated Type::method callees.  The source
-    // prefix is copied byte-for-byte, preserving every existing AST offset;
-    // synthesized C symbols are appended after it and only the validated path
-    // nodes are rewritten to ExprIdent. Result::Ok/Err paths remain untouched.
     let lowered_len: usize = lower_native_static_impl_calls_to_c_symbols(
         node_ptr, p.node_count, module_node, source, len
     );
@@ -832,8 +1196,6 @@ pub fn sotlas_native_compile_diagnostic(
         lowered_source = g_lowered_source_buffer as *const u8;
     }
 
-    // 6. Inicializa o Emissor C11 em Sotlas puro. Preserve the canonical
-    // emitter for every module that does not need the bounded impl adapter.
     let mut emitter: CEmitter = CEmitter::new(
         out_buf,
         max_out,
@@ -849,10 +1211,8 @@ pub fn sotlas_native_compile_diagnostic(
         if !emit_native_module(&mut emitter, module_node) {
             return 0;
         }
-    } else {
-        if !emitter.emit_module(module_node) {
-            return 0;
-        }
+    } else if !emitter.emit_module(module_node) {
+        return 0;
     }
 
     return emitter.cursor;
