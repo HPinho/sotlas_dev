@@ -26,6 +26,20 @@ class SotlasPreviewInstallerTests(unittest.TestCase):
         self.assertIn('-m sotlas.doctor', source)
         self.assertNotIn('BUNDLE_PATH="$REPO_ROOT/dist/sotlas-v${VERSION}-linux-x64"', source)
 
+    def test_unix_release_archive_path_is_bounded_and_host_specific(self):
+        source = (ROOT / "packaging" / "install.sh").read_text(encoding="utf-8")
+
+        self.assertIn('--source-archive', source)
+        self.assertIn('Source archive does not exist', source)
+        self.assertIn('Archive does not match this host ($PACKAGE_SUFFIX)', source)
+        self.assertIn('tar -tzf "$archive"', source)
+        self.assertIn('Unsafe path in preview archive', source)
+        self.assertIn('tar -xzf "$archive" -C "$extract_root"', source)
+        self.assertIn('payload_count', source)
+        self.assertIn('Portable archive must contain exactly one Sotlas toolchain root', source)
+        self.assertIn('Source checkout not found. Use --source-archive', source)
+        self.assertIn('PYTHONPATH="$INSTALL_PYTHONPATH" "$PYTHON_BIN" -m sotlas.doctor', source)
+
     def test_windows_archive_install_normalizes_the_payload_root(self):
         path = ROOT / "packaging" / "install.ps1"
         source = path.read_text(encoding="utf-8")
@@ -40,6 +54,13 @@ class SotlasPreviewInstallerTests(unittest.TestCase):
         self.assertIn('$env:PYTHONPATH = "$InstallDir\\compiler;$InstallDir\\tools;$OldPythonPath"', source)
         self.assertIn('-m sotlas.doctor', source)
         self.assertNotIn('Expand-Archive -Path $SourceZip -DestinationPath $InstallDir', source)
+
+    def test_release_workflow_smokes_the_packaged_doctor(self):
+        source = (ROOT / ".github" / "workflows" / "release.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('python -m sotlas.doctor --json', source)
+        self.assertIn('prerelease: true', source)
 
     @unittest.skipUnless(shutil.which("bash"), "bash unavailable")
     def test_unix_installer_has_valid_shell_syntax(self):
