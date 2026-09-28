@@ -831,12 +831,58 @@ impl Parser {
             }
             if self.match_token(TokenKind::OpenBrace) {
                 self.advance();
+                while !self.is_at_end() && !self.match_token(TokenKind::CloseBrace) {
+                    let variant_name: Token = self.current();
+                    if variant_name.kind != TokenKind::Ident {
+                        self.reject_current();
+                        return 0;
+                    }
+                    self.advance();
+
+                    let variant_node: usize = self.alloc_node(AstKind::EnumVariant, variant_name.span);
+                    if variant_node == 0 || !self.set_node_text(variant_node, variant_name) {
+                        return 0;
+                    }
+
+                    // The first native enum subset is deliberately explicit:
+                    // every variant must carry a source integer discriminant.
+                    // Keep the diagnostic anchored on the variant so the old
+                    // implicit-variant rejection contract remains stable.
+                    if !self.match_token(TokenKind::Equal) {
+                        if self.error_count == 0 {
+                            self.error_line = variant_name.span.line;
+                            self.error_col = variant_name.span.col;
+                        }
+                        self.error_count = self.error_count + 1;
+                        return 0;
+                    }
+                    self.advance();
+
+                    let value_tok: Token = self.current();
+                    if value_tok.kind != TokenKind::IntLit {
+                        self.reject_current();
+                        return 0;
+                    }
+                    self.advance();
+                    let value_node: usize = self.alloc_text_node(AstKind::ExprLiteral, value_tok);
+                    if value_node == 0 || !self.append_child(variant_node, value_node) {
+                        return 0;
+                    }
+                    if !self.append_child(enum_node, variant_node) {
+                        return 0;
+                    }
+
+                    if self.match_token(TokenKind::Comma) {
+                        self.advance();
+                    } else if !self.match_token(TokenKind::CloseBrace) {
+                        self.reject_current();
+                        return 0;
+                    }
+                }
                 if !self.match_token(TokenKind::CloseBrace) {
-                    // Enum variants are not represented by the bootstrap AST yet.
-                    self.reject_current();
                     return 0;
                 }
-                self.expect(TokenKind::CloseBrace);
+                self.advance();
             }
             return enum_node;
         } else if inner.kind == TokenKind::KwImport {
