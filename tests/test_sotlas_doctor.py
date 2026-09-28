@@ -1,14 +1,24 @@
 """Tests for the preview installation/toolchain doctor."""
 from __future__ import annotations
 
+import importlib
 import io
 import json
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
+import sys
 import unittest
 from unittest.mock import Mock, patch
 
-from sotlas import doctor
+
+ROOT = Path(__file__).resolve().parents[1]
+CANONICAL_PACKAGE = "_sotlas_doctor_canonical"
+package = ModuleType(CANONICAL_PACKAGE)
+package.__path__ = [str(ROOT / "compiler" / "sotlas")]
+package.SOTLAS_VERSION = "1.0.0rc1"
+package.SOTLAS_LANG_VERSION = "1.0.0"
+sys.modules[CANONICAL_PACKAGE] = package
+doctor = importlib.import_module(f"{CANONICAL_PACKAGE}.doctor")
 
 
 class SotlasDoctorTests(unittest.TestCase):
@@ -102,9 +112,7 @@ class SotlasDoctorTests(unittest.TestCase):
             self.assertEqual(doctor.main(["--require-llvm"]), 3)
 
     def test_pyproject_exposes_doctor_console_script(self):
-        pyproject = (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(
-            encoding="utf-8"
-        )
+        pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
         self.assertIn('sotlas-doctor = "sotlas.doctor:main"', pyproject)
 
 
