@@ -2,11 +2,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
 RELEASE_WORKFLOW = ROOT / ".github" / "workflows" / "release.yml"
+INNO_SCRIPT = ROOT / "packaging" / "windows" / "sotlas.iss"
+RUNTIME_PACKAGE = ROOT / "compiler" / "sotlas" / "__init__.py"
 
 
 class SotlasPreviewReleaseWorkflowTests(unittest.TestCase):
@@ -31,9 +34,25 @@ class SotlasPreviewReleaseWorkflowTests(unittest.TestCase):
         text = RELEASE_WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("python -m build . --outdir dist", text)
         self.assertIn("python -m sotlas.cli version", text)
+        self.assertIn("python -m sotlas.doctor --json", text)
         self.assertIn("python -m sotlas.cli check examples/01_hello_systems/main.sotlas", text)
         self.assertIn("dist/*.whl", text)
         self.assertIn("dist/SHA256SUMS.txt", text)
+
+    def test_inno_installer_matches_runtime_preview_version_and_repository(self):
+        package = RUNTIME_PACKAGE.read_text(encoding="utf-8")
+        match = re.search(r'^SOTLAS_VERSION = "([^"]+)"$', package, re.MULTILINE)
+        self.assertIsNotNone(match)
+        version = match.group(1)
+
+        installer = INNO_SCRIPT.read_text(encoding="utf-8")
+        self.assertIn(f'#define MyAppVersion "{version}"', installer)
+        self.assertIn(f'Sotlas-Setup-v{version}.exe', installer)
+        self.assertIn('https://github.com/HPinho/sotlas_dev', installer)
+        self.assertIn('dist\\sotlas-v{#MyAppVersion}-windows-x64\\*', installer)
+        self.assertNotIn('0.2.0', installer)
+        self.assertNotIn('github.com/Sotlas/sotlas', installer)
+        self.assertNotIn('assets\\icon.ico', installer)
 
 
 if __name__ == "__main__":
