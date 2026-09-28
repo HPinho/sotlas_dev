@@ -1,0 +1,30 @@
+name: Apply native hardening test contract refresh
+
+on:
+  push:
+    branches:
+      - work/post-preview-compiler-hardening
+    paths:
+      - .tmp_refresh_native_hardening_tests.py
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: work/post-preview-compiler-hardening
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python .tmp_refresh_native_hardening_tests.py
+      - run: |
+          git config user.name "sotlas-hardening-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add tests/test_sotlas_native_compiler_selfhost.py tests/test_sotlas_native_token_constructor_parser.py
+          git diff --cached --check
+          git commit -m "test(selfhost): align invariants with typed literal lowering"
+          git push origin HEAD:work/post-preview-compiler-hardening
