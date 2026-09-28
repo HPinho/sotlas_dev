@@ -26,6 +26,7 @@ pub enum TokenKind {
     KwFn = 21,
     KwTrapfn = 22,
     KwTypealias = 23,
+    KwImpl = 24,
 
     // Variáveis e posse
     KwLet = 30,
