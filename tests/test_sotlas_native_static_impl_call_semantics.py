@@ -51,6 +51,13 @@ extern size_t sotlas_native_compile_diagnostic(
 );
 
 int main(int argc, char **argv) {
+    static const uint8_t valid_zero[] =
+        "module test::zero;\n"
+        "struct Counter { value: i32; }\n"
+        "impl Counter {\n"
+        " pub fn zero() -> i32 { return 0; }\n"
+        "}\n"
+        "pub fn answer_zero() -> i32 { return Counter::zero(); }\n";
     static const uint8_t valid[] =
         "module test::valid;\n"
         "struct Counter { value: i32; }\n"
@@ -78,7 +85,23 @@ int main(int argc, char **argv) {
     uint32_t col = 999;
 
     if (argc != 2) return 10;
+
     size_t size = sotlas_native_compile_diagnostic(
+        valid_zero, sizeof(valid_zero) - 1, output, sizeof(output) - 1, &line, &col
+    );
+    if (size == 0 || line != 0 || col != 0) {
+        fprintf(stderr, "valid zero-arity qualified call: size=%zu line=%u col=%u\n", size, line, col);
+        return 11;
+    }
+    output[size] = 0;
+    if (strstr((const char *)output, "Counter_zero(") == NULL) {
+        fprintf(stderr, "missing lowered Counter_zero call\n");
+        return 12;
+    }
+
+    line = 999;
+    col = 999;
+    size = sotlas_native_compile_diagnostic(
         valid, sizeof(valid) - 1, output, sizeof(output) - 1, &line, &col
     );
     if (size == 0 || line != 0 || col != 0) {
