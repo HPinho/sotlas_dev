@@ -13,8 +13,10 @@ class SotlasPreviewReleaseWorkflowTests(unittest.TestCase):
     def test_preview_release_is_version_checked_and_marked_prerelease(self):
         text = RELEASE_WORKFLOW.read_text(encoding="utf-8")
         self.assertIn('default: "1.0.0rc1"', text)
+        self.assertIn("id: release_version", text)
         self.assertIn("Release version mismatch", text)
         self.assertIn("SOTLAS_VERSION", text)
+        self.assertIn('tag_name: "v${{ steps.release_version.outputs.version }}"', text)
         self.assertIn("prerelease: true", text)
         self.assertNotIn("prerelease: false", text)
 
