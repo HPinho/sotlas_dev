@@ -9,9 +9,11 @@ import sotlas::compiler::emitter_c::*;
 
 pub const TOKEN_BUFFER_CAPACITY: usize = 32768;
 pub const AST_NODE_BUFFER_CAPACITY: usize = 65536;
+pub const LOWERED_SOURCE_BUFFER_CAPACITY: usize = 1048576;
 
 static mut g_token_buffer: [Token; 32768] = 0;
 static mut g_ast_node_buffer: [AstNode; 65536] = 0;
+static mut g_lowered_source_buffer: [u8; 1048576] = 0;
 
 // Bootstrap-only adapter for the first bounded `impl` lowering subset.
 // Existing modules without `impl` continue through CEmitter::emit_module
@@ -390,6 +392,116 @@ pub fn native_validate_static_impl_calls(
     return true;
 }
 
+pub fn lower_native_static_impl_calls_to_c_symbols(
+    nodes: *mut AstNode,
+    node_count: usize,
+    module_index: usize,
+    source: *const u8,
+    source_len: usize
+) -> usize {
+    if nodes == null || source == null || source_len == 0
+        || source_len > LOWERED_SOURCE_BUFFER_CAPACITY {
+        return 0;
+    }
+
+    let mut lowered_source: *mut u8 = null;
+    unsafe {
+        lowered_source = g_lowered_source_buffer as *mut u8;
+    }
+    let mut copy_index: usize = 0;
+    while copy_index < source_len {
+        let ch: u8 = unsafe { *(source + copy_index) };
+        unsafe {
+            *(lowered_source + copy_index) = ch;
+        }
+        copy_index = copy_index + 1;
+    }
+
+    let resolver: CEmitter = CEmitter::new(
+        null,
+        0,
+        source,
+        source_len,
+        nodes as *const AstNode,
+        node_count
+    );
+    if !resolver.valid_node(module_index) {
+        return 0;
+    }
+
+    let mut lowered_len: usize = source_len;
+    let mut node_index: usize = 1;
+    while node_index < node_count {
+        let node: AstNode = unsafe { *(nodes + node_index) };
+        if node.kind == AstKind::ExprCall && resolver.valid_node(node.first_child) {
+            let callee: AstNode = unsafe { *(nodes + node.first_child) };
+            if callee.kind == AstKind::ExprPath
+                && resolver.result_constructor_kind(node_index) == 0 {
+                let method_index: usize = native_find_static_impl_method_for_path(
+                    &resolver, module_index, node.first_child
+                );
+                if method_index == 0 || !resolver.valid_node(method_index) {
+                    return 0;
+                }
+                let method: AstNode = unsafe { *(nodes + method_index) };
+                let impl_index: usize = method.parent;
+                if !resolver.valid_node(impl_index) {
+                    return 0;
+                }
+                let impl_node: AstNode = unsafe { *(nodes + impl_index) };
+                if impl_node.kind != AstKind::ImplDecl || impl_node.str_len == 0
+                    || method.kind != AstKind::FnDecl || method.str_len == 0
+                    || impl_node.str_offset > source_len
+                    || impl_node.str_len > source_len - impl_node.str_offset
+                    || method.str_offset > source_len
+                    || method.str_len > source_len - method.str_offset {
+                    return 0;
+                }
+
+                let symbol_len: usize = impl_node.str_len + 1 + method.str_len;
+                if symbol_len > LOWERED_SOURCE_BUFFER_CAPACITY - lowered_len {
+                    return 0;
+                }
+                let symbol_offset: usize = lowered_len;
+
+                let mut name_index: usize = 0;
+                while name_index < impl_node.str_len {
+                    let ch: u8 = unsafe { *(source + impl_node.str_offset + name_index) };
+                    unsafe {
+                        *(lowered_source + lowered_len) = ch;
+                    }
+                    lowered_len = lowered_len + 1;
+                    name_index = name_index + 1;
+                }
+                unsafe {
+                    *(lowered_source + lowered_len) = 95;
+                }
+                lowered_len = lowered_len + 1;
+
+                name_index = 0;
+                while name_index < method.str_len {
+                    let ch: u8 = unsafe { *(source + method.str_offset + name_index) };
+                    unsafe {
+                        *(lowered_source + lowered_len) = ch;
+                    }
+                    lowered_len = lowered_len + 1;
+                    name_index = name_index + 1;
+                }
+
+                let mut lowered_path: AstNode = callee;
+                lowered_path.kind = AstKind::ExprIdent;
+                lowered_path.str_offset = symbol_offset;
+                lowered_path.str_len = symbol_len;
+                unsafe {
+                    *(nodes + node.first_child) = lowered_path;
+                }
+            }
+        }
+        node_index = node_index + 1;
+    }
+    return lowered_len;
+}
+
 pub fn emit_native_static_impl_function(
     emitter: &mut CEmitter,
     impl_index: usize,
@@ -667,9 +779,9 @@ pub fn sotlas_native_compile_diagnostic(
         return 0;
     }
 
-    // 4. Inicializa o Emissor C11 em Sotlas puro. Preserve the canonical
-    // emitter for every module that does not need the bounded impl adapter.
-    let mut emitter: CEmitter = CEmitter::new(
+    // 4. Resolve bounded static impl calls against the original Sotlas source
+    // before any backend-specific AST rewriting occurs.
+    let semantic_emitter: CEmitter = CEmitter::new(
         out_buf,
         max_out,
         source,
@@ -677,12 +789,7 @@ pub fn sotlas_native_compile_diagnostic(
         node_ptr,
         p.node_count
     );
-
-    // The bounded static-impl call contract is checked before any C output is
-    // emitted.  This keeps path resolution semantic: a qualified call must
-    // resolve to one declared type, one impl method, no receiver, and exact
-    // arity.  Result::Ok/Err remains on its dedicated ABI path.
-    if !native_validate_static_impl_calls(&mut sem, &emitter, module_node) {
+    if !native_validate_static_impl_calls(&mut sem, &semantic_emitter, module_node) {
         if error_line != null {
             unsafe { *error_line = sem.error_line; }
         }
@@ -692,6 +799,31 @@ pub fn sotlas_native_compile_diagnostic(
         return 0;
     }
 
+    // 5. Lower only semantically validated Type::method callees.  The source
+    // prefix is copied byte-for-byte, preserving every existing AST offset;
+    // synthesized C symbols are appended after it and only the validated path
+    // nodes are rewritten to ExprIdent. Result::Ok/Err paths remain untouched.
+    let lowered_len: usize = lower_native_static_impl_calls_to_c_symbols(
+        node_ptr, p.node_count, module_node, source, len
+    );
+    if lowered_len == 0 {
+        return 0;
+    }
+    let mut lowered_source: *const u8 = null;
+    unsafe {
+        lowered_source = g_lowered_source_buffer as *const u8;
+    }
+
+    // 6. Inicializa o Emissor C11 em Sotlas puro. Preserve the canonical
+    // emitter for every module that does not need the bounded impl adapter.
+    let mut emitter: CEmitter = CEmitter::new(
+        out_buf,
+        max_out,
+        lowered_source,
+        lowered_len,
+        node_ptr,
+        p.node_count
+    );
     if !emitter.emit_header() {
         return 0;
     }
