@@ -1,8 +1,8 @@
 # Sotlas — Implementation Status
 
-**Atualizado em:** 2026-09-26
-**Último baseline verde certificado antes do candidato 1.0:** `ea527ea`
-**CI de referência:** Sotlas CI & Toolchain Build Farm #653 — workflow `success` nessa baseline. O commit de release precisa ter execução própria verde.
+**Atualizado em:** 2026-09-28
+**Último baseline verde certificado antes do hardening atual:** `b63b6ba`
+**CI de referência:** Sotlas CI & Toolchain Build Farm #874 — workflow `success` nessa baseline. Todo hardening posterior precisa ter execução própria verde antes de substituir essa referência.
 **Fonte arquitetural:** `SOTLAS — ESPECIFICAÇÃO MESTRA`
 
 > Este é o índice operacional atual. O snapshot detalhado anterior, com o histórico extenso das microentregas da Fase 2, permanece preservado em `docs/archive/sotlas_implementation_status_2026-09-23.md`.
@@ -47,6 +47,7 @@ Escopos concluídos: `docs/phase0_reality_audit.md`, contratos 1.0 das fases 5�
 
 ## Preview hardening update — 2026-09-26
 
+- Native self-host hardening moves typed `ExprStructLiteral` and contextual zero `ExprArrayRepeat` lowering into the canonical C emitter; top-level functions, locals and static impl methods therefore share the same backend path instead of a bootstrap-only constructor adapter. Shape/type/count mismatches remain fail-closed and semantically diagnosed before emission.
 - The reviewed evidence map for phases 0–17 is generated from `phase_gate_matrix.json`; its test verifies phase coverage, gate-file existence, and generated-document freshness.
 - CI now runs explicit gates for phases 0–3 and 11–12, in addition to the existing phase-specific gates and the complete test suite.
 - `check`, `compile --emit-c`, and `run` have a shared negative acceptance test that compares the exact diagnostic, source location, caret, and safe parser hint.
