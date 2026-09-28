@@ -828,6 +828,181 @@ impl CEmitter {
         return true;
     }
 
+    pub fn emit_plain_c_type_slice(
+        mut self: &mut Self,
+        offset: usize,
+        len: usize
+    ) -> bool {
+        if self.source == null || len == 0 || offset > self.source_len
+            || len > self.source_len - offset {
+            return false;
+        }
+        if self.source_slice_equals(offset, len, "void", 4) {
+            return false;
+        }
+        if self.source_slice_equals(offset, len, "i8", 2) {
+            return self.write_str("int8_t", 6);
+        }
+        if self.source_slice_equals(offset, len, "i16", 3) {
+            return self.write_str("int16_t", 7);
+        }
+        if self.source_slice_equals(offset, len, "i32", 3) {
+            return self.write_str("int32_t", 7);
+        }
+        if self.source_slice_equals(offset, len, "i64", 3) {
+            return self.write_str("int64_t", 7);
+        }
+        if self.source_slice_equals(offset, len, "u8", 2) {
+            return self.write_str("uint8_t", 7);
+        }
+        if self.source_slice_equals(offset, len, "u16", 3) {
+            return self.write_str("uint16_t", 8);
+        }
+        if self.source_slice_equals(offset, len, "u32", 3) {
+            return self.write_str("uint32_t", 8);
+        }
+        if self.source_slice_equals(offset, len, "u64", 3) {
+            return self.write_str("uint64_t", 8);
+        }
+        if self.source_slice_equals(offset, len, "usize", 5) {
+            return self.write_str("size_t", 6);
+        }
+        if self.source_slice_equals(offset, len, "isize", 5) {
+            return self.write_str("intptr_t", 8);
+        }
+        if self.source_slice_equals(offset, len, "bool", 4) {
+            return self.write_str("bool", 4);
+        }
+        return self.write_source_slice(offset, len);
+    }
+
+    pub fn emit_fixed_array_field(
+        mut self: &mut Self,
+        field_index: usize,
+        type_index: usize
+    ) -> bool {
+        if !self.valid_node(field_index) || !self.valid_node(type_index)
+            || self.source == null {
+            return false;
+        }
+        let field: AstNode = unsafe { *(self.nodes + field_index) };
+        let typ: AstNode = unsafe { *(self.nodes + type_index) };
+        if field.kind != AstKind::FieldDecl || field.str_len == 0
+            || typ.kind != AstKind::TypeRef || typ.str_len < 5
+            || typ.str_offset > self.source_len
+            || typ.str_len > self.source_len - typ.str_offset {
+            return false;
+        }
+
+        let mut i: usize = 0;
+        while i < typ.str_len {
+            let ch: u8 = unsafe { *(self.source + typ.str_offset + i) };
+            if ch == 32 || ch == 9 || ch == 10 || ch == 13 {
+                i = i + 1;
+            } else {
+                break;
+            }
+        }
+        if i >= typ.str_len || unsafe { *(self.source + typ.str_offset + i) } != 91 {
+            return false;
+        }
+        i = i + 1;
+        while i < typ.str_len {
+            let ch: u8 = unsafe { *(self.source + typ.str_offset + i) };
+            if ch == 32 || ch == 9 || ch == 10 || ch == 13 {
+                i = i + 1;
+            } else {
+                break;
+            }
+        }
+
+        let element_start: usize = i;
+        while i < typ.str_len {
+            let ch: u8 = unsafe { *(self.source + typ.str_offset + i) };
+            let alpha: bool = (ch >= 65 && ch <= 90) || (ch >= 97 && ch <= 122);
+            let digit: bool = ch >= 48 && ch <= 57;
+            if alpha || digit || ch == 95 {
+                i = i + 1;
+            } else {
+                break;
+            }
+        }
+        let element_len: usize = i - element_start;
+        if element_len == 0 {
+            return false;
+        }
+
+        while i < typ.str_len {
+            let ch: u8 = unsafe { *(self.source + typ.str_offset + i) };
+            if ch == 32 || ch == 9 || ch == 10 || ch == 13 {
+                i = i + 1;
+            } else {
+                break;
+            }
+        }
+        if i >= typ.str_len || unsafe { *(self.source + typ.str_offset + i) } != 59 {
+            return false;
+        }
+        i = i + 1;
+        while i < typ.str_len {
+            let ch: u8 = unsafe { *(self.source + typ.str_offset + i) };
+            if ch == 32 || ch == 9 || ch == 10 || ch == 13 {
+                i = i + 1;
+            } else {
+                break;
+            }
+        }
+
+        let count_start: usize = i;
+        let mut nonzero: bool = false;
+        while i < typ.str_len {
+            let ch: u8 = unsafe { *(self.source + typ.str_offset + i) };
+            if ch >= 48 && ch <= 57 {
+                if ch != 48 {
+                    nonzero = true;
+                }
+                i = i + 1;
+            } else {
+                break;
+            }
+        }
+        let count_len: usize = i - count_start;
+        if count_len == 0 || !nonzero {
+            return false;
+        }
+
+        while i < typ.str_len {
+            let ch: u8 = unsafe { *(self.source + typ.str_offset + i) };
+            if ch == 32 || ch == 9 || ch == 10 || ch == 13 {
+                i = i + 1;
+            } else {
+                break;
+            }
+        }
+        if i >= typ.str_len || unsafe { *(self.source + typ.str_offset + i) } != 93 {
+            return false;
+        }
+        i = i + 1;
+        while i < typ.str_len {
+            let ch: u8 = unsafe { *(self.source + typ.str_offset + i) };
+            if ch == 32 || ch == 9 || ch == 10 || ch == 13 {
+                i = i + 1;
+            } else {
+                return false;
+            }
+        }
+
+        if !self.emit_plain_c_type_slice(typ.str_offset + element_start, element_len)
+            || !self.write_byte(32)
+            || !self.write_source_slice(field.str_offset, field.str_len)
+            || !self.write_byte(91)
+            || !self.write_source_slice(typ.str_offset + count_start, count_len)
+            || !self.write_str("];\n", 3) {
+            return false;
+        }
+        return true;
+    }
+
     pub fn emit_c_type(mut self: &mut Self, type_index: usize) -> bool {
         if !self.valid_node(type_index) {
             return false;
@@ -1142,17 +1317,21 @@ impl CEmitter {
             }
             let type_index: usize = field.first_child;
             let typ: AstNode = unsafe { *(self.nodes + type_index) };
-            if typ.kind != AstKind::TypeRef || typ.next_sibling != 0
-                || !self.type_ref_is_plain_field_type(type_index) {
+            if typ.kind != AstKind::TypeRef || typ.next_sibling != 0 {
                 return false;
             }
-            if !self.emit_c_type(type_index) || !self.write_byte(32) {
-                return false;
-            }
-            if !self.write_source_slice(field.str_offset, field.str_len) {
-                return false;
-            }
-            if !self.write_str(";\n", 2) {
+
+            if self.type_ref_is_plain_field_type(type_index) {
+                if !self.emit_c_type(type_index) || !self.write_byte(32) {
+                    return false;
+                }
+                if !self.write_source_slice(field.str_offset, field.str_len) {
+                    return false;
+                }
+                if !self.write_str(";\n", 2) {
+                    return false;
+                }
+            } else if !self.emit_fixed_array_field(field_index, type_index) {
                 return false;
             }
             field_index = field.next_sibling;
