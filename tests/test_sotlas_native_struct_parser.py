@@ -1,4 +1,4 @@
-"""Exercise the bounded native parser/emitter struct-field subset."""
+"""Exercise the bounded native aggregate parser/emitter subset."""
 from __future__ import annotations
 
 import os
@@ -21,9 +21,9 @@ from sotlas.llvm_toolchain import default_toolchain
 from sotlas_compile.bootstrap import PREAMBLE, compile_module, emit_c, parse
 
 
-class SotlasNativeStructParserTests(unittest.TestCase):
+class SotlasNativeAggregateParserTests(unittest.TestCase):
     @unittest.skipUnless(default_toolchain.is_available(), "native C toolchain unavailable")
-    def test_semicolon_fields_lower_to_c11_while_comma_fields_fail_in_parser(self):
+    def test_explicit_enum_and_semicolon_struct_fields_lower_to_c11(self):
         module_dir = ROOT / "bootstrap" / "sotlas" / "native_compiler"
         order = ("token", "ast", "lexer", "parser", "sema", "emitter_c", "main")
         modules = {
@@ -55,7 +55,12 @@ extern size_t sotlas_native_compile_diagnostic(
 int main(int argc, char **argv) {
     static const uint8_t represented[] =
         "module test::represented;\n"
+        "enum Choice {\n"
+        " Ready = 7,\n"
+        " Done = 11,\n"
+        "}\n"
         "struct Item {\n"
+        " state: Choice;\n"
         " value: i32;\n"
         " next: u32;\n"
         "}\n";
@@ -63,6 +68,11 @@ int main(int argc, char **argv) {
         "module test::comma_member;\n"
         "struct Item {\n"
         " value: i32,\n"
+        "}\n";
+    static const uint8_t implicit_variant[] =
+        "module test::implicit_variant;\n"
+        "enum Choice {\n"
+        " Ready,\n"
         "}\n";
     uint8_t output[65536];
     uint32_t line = 999;
@@ -74,15 +84,20 @@ int main(int argc, char **argv) {
         output, sizeof(output) - 1, &line, &col
     );
     if (size == 0 || line != 0 || col != 0) {
-        fprintf(stderr, "represented fields: size=%zu line=%u col=%u\n", size, line, col);
+        fprintf(stderr, "represented aggregates: size=%zu line=%u col=%u\n", size, line, col);
         return 1;
     }
     output[size] = 0;
-    if (strstr((const char *)output, "typedef struct Item {") == NULL
+    if (strstr((const char *)output, "typedef enum Choice {") == NULL
+        || strstr((const char *)output, "Choice_Ready = 7") == NULL
+        || strstr((const char *)output, "Choice_Done = 11") == NULL
+        || strstr((const char *)output, "} Choice;") == NULL
+        || strstr((const char *)output, "typedef struct Item {") == NULL
+        || strstr((const char *)output, "Choice state;") == NULL
         || strstr((const char *)output, "int32_t value;") == NULL
         || strstr((const char *)output, "uint32_t next;") == NULL
         || strstr((const char *)output, "} Item;") == NULL) {
-        fprintf(stderr, "generated struct declaration is incomplete\n");
+        fprintf(stderr, "generated aggregate declarations are incomplete\n");
         return 2;
     }
 
@@ -102,17 +117,28 @@ int main(int argc, char **argv) {
         fprintf(stderr, "comma member: size=%zu line=%u col=%u\n", size, line, col);
         return 5;
     }
+
+    line = 999;
+    col = 999;
+    size = sotlas_native_compile_diagnostic(
+        implicit_variant, sizeof(implicit_variant) - 1,
+        output, sizeof(output) - 1, &line, &col
+    );
+    if (size != 0 || line != 3 || col != 2) {
+        fprintf(stderr, "implicit enum: size=%zu line=%u col=%u\n", size, line, col);
+        return 6;
+    }
     return 0;
 }
 '''
 
-        with tempfile.TemporaryDirectory(prefix="sotlas-native-struct-parser-") as tmp:
+        with tempfile.TemporaryDirectory(prefix="sotlas-native-aggregate-parser-") as tmp:
             root = Path(tmp)
             compiler_c = root / "native_compiler.c"
             driver_c = root / "driver.c"
             compiler_obj = root / "native_compiler.obj"
             driver_obj = root / "driver.obj"
-            exe = root / ("struct_parser.exe" if os.name == "nt" else "struct_parser")
+            exe = root / ("aggregate_parser.exe" if os.name == "nt" else "aggregate_parser")
             generated_c = root / "represented.c"
             generated_obj = root / "represented.obj"
 
