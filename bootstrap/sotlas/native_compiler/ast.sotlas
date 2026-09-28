@@ -33,7 +33,8 @@ pub enum AstKind {
     BreakStmt = 28,
     ContinueStmt = 29,
     TryExpr = 30,
-    ExprPath = 31
+    ExprPath = 31,
+    EnumVariant = 32
 }
 
 pub struct AstNode {
