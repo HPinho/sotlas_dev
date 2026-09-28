@@ -4,12 +4,37 @@
 # ==============================================================================
 # Usage from a source checkout:
 #   bash packaging/install.sh
+# Or with a downloaded release archive:
+#   bash install.sh --source-archive ./sotlas-v1.0.0rc1-linux-x64.tar.gz
 # ==============================================================================
 
 set -euo pipefail
 
 INSTALL_DIR="${SOTLAS_INSTALL_DIR:-$HOME/.sotlas}"
 BIN_DIR="$INSTALL_DIR/bin"
+SOURCE_ARCHIVE=""
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --source-archive)
+            if [ "$#" -lt 2 ] || [ -z "$2" ]; then
+                echo "--source-archive requires a .tar.gz path." >&2
+                exit 2
+            fi
+            SOURCE_ARCHIVE="$2"
+            shift 2
+            ;;
+        -h|--help)
+            echo "Usage: $0 [--source-archive PATH]"
+            echo "Without --source-archive, the installer builds from the current source checkout."
+            exit 0
+            ;;
+        *)
+            echo "Unknown installer argument: $1" >&2
+            exit 2
+            ;;
+    esac
+done
 
 echo ""
 echo "==================================================================="
@@ -58,26 +83,103 @@ else
     exit 3
 fi
 
-VERSION="$(sed -n 's/^SOTLAS_VERSION = "\(.*\)"$/\1/p' "$REPO_ROOT/compiler/sotlas/__init__.py")"
-if [ -z "$VERSION" ]; then
-    echo "Unable to determine the current Sotlas version." >&2
+install_archive() {
+    archive="$1"
+    if [ ! -f "$archive" ]; then
+        echo "Source archive does not exist: $archive" >&2
+        exit 2
+    fi
+    case "$(basename "$archive")" in
+        *-"$PACKAGE_SUFFIX".tar.gz)
+            ;;
+        *)
+            echo "Archive does not match this host ($PACKAGE_SUFFIX): $archive" >&2
+            exit 2
+            ;;
+    esac
+
+    extract_root="$(mktemp -d "${TMPDIR:-/tmp}/sotlas-preview.XXXXXX")"
+    trap 'rm -rf "$extract_root"' EXIT
+
+    # Reject absolute and parent-traversal archive entries before extraction.
+    while IFS= read -r entry; do
+        case "$entry" in
+            /*|../*|*/../*|*/..)
+                echo "Unsafe path in preview archive: $entry" >&2
+                exit 2
+                ;;
+        esac
+    done < <(tar -tzf "$archive")
+
+    tar -xzf "$archive" -C "$extract_root"
+
+    payload_root=""
+    payload_count=0
+    if [ -f "$extract_root/bin/sotlas" ] && [ -d "$extract_root/compiler" ]; then
+        payload_root="$extract_root"
+        payload_count=1
+    fi
+    for candidate in "$extract_root"/*; do
+        [ -d "$candidate" ] || continue
+        if [ -f "$candidate/bin/sotlas" ] && [ -d "$candidate/compiler" ]; then
+            payload_root="$candidate"
+            payload_count=$((payload_count + 1))
+        fi
+    done
+
+    if [ "$payload_count" -ne 1 ]; then
+        echo "Portable archive must contain exactly one Sotlas toolchain root; found $payload_count." >&2
+        exit 2
+    fi
+
+    echo "-> Installing release archive $archive..."
+    cp -R "$payload_root/"* "$INSTALL_DIR/"
+    rm -rf "$extract_root"
+    trap - EXIT
+}
+
+if [ -n "$SOURCE_ARCHIVE" ]; then
+    install_archive "$SOURCE_ARCHIVE"
+else
+    VERSION_FILE="$REPO_ROOT/compiler/sotlas/__init__.py"
+    if [ ! -f "$VERSION_FILE" ]; then
+        echo "Source checkout not found. Use --source-archive when running install.sh from a GitHub Release." >&2
+        exit 1
+    fi
+
+    VERSION="$(sed -n 's/^SOTLAS_VERSION = "\(.*\)"$/\1/p' "$VERSION_FILE")"
+    if [ -z "$VERSION" ]; then
+        echo "Unable to determine the current Sotlas version." >&2
+        exit 1
+    fi
+
+    BUNDLE_PATH="$REPO_ROOT/dist/sotlas-v${VERSION}-${PACKAGE_SUFFIX}"
+    if [ ! -d "$BUNDLE_PATH" ]; then
+        echo "-> Building the current local ${PACKAGE_SUFFIX} preview bundle..."
+        "$PYTHON_BIN" "$SCRIPT_DIR/package.py" --target "$PACKAGE_TARGET" --dist-dir "$REPO_ROOT/dist"
+    fi
+    if [ ! -d "$BUNDLE_PATH" ]; then
+        echo "The packager did not produce the expected bundle for version $VERSION: $BUNDLE_PATH" >&2
+        exit 1
+    fi
+
+    echo "-> Installing $BUNDLE_PATH..."
+    cp -R "$BUNDLE_PATH/"* "$INSTALL_DIR/"
+fi
+
+if [ ! -f "$BIN_DIR/sotlas" ]; then
+    echo "Installation is incomplete: missing $BIN_DIR/sotlas" >&2
     exit 1
 fi
-
-BUNDLE_PATH="$REPO_ROOT/dist/sotlas-v${VERSION}-${PACKAGE_SUFFIX}"
-if [ ! -d "$BUNDLE_PATH" ]; then
-    echo "-> Building the current local ${PACKAGE_SUFFIX} preview bundle..."
-    "$PYTHON_BIN" "$SCRIPT_DIR/package.py" --target "$PACKAGE_TARGET" --dist-dir "$REPO_ROOT/dist"
-fi
-if [ ! -d "$BUNDLE_PATH" ]; then
-    echo "The packager did not produce the expected bundle for version $VERSION: $BUNDLE_PATH" >&2
-    exit 1
-fi
-
-echo "-> Installing $BUNDLE_PATH..."
-cp -R "$BUNDLE_PATH/"* "$INSTALL_DIR/"
-
 chmod +x "$BIN_DIR"/* 2>/dev/null || true
+
+# Verify the canonical installed frontend before mutating shell startup files.
+INSTALL_PYTHONPATH="$INSTALL_DIR/compiler:$INSTALL_DIR/tools"
+if [ -n "${PYTHONPATH:-}" ]; then
+    INSTALL_PYTHONPATH="$INSTALL_PYTHONPATH:$PYTHONPATH"
+fi
+echo "-> Running Sotlas preview doctor..."
+PYTHONPATH="$INSTALL_PYTHONPATH" "$PYTHON_BIN" -m sotlas.doctor
 
 # Configurar PATH em ~/.bashrc e ~/.zshrc
 PATH_LINE="export PATH=\"$BIN_DIR:\$PATH\""
