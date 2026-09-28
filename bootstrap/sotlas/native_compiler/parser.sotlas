@@ -885,6 +885,58 @@ impl Parser {
                 self.advance();
             }
             return enum_node;
+        } else if inner.kind == TokenKind::KwImpl {
+            self.advance();
+            let impl_node: usize = self.alloc_node(AstKind::ImplDecl, inner.span);
+            if impl_node == 0 {
+                return 0;
+            }
+
+            let target_tok: Token = self.current();
+            if target_tok.kind != TokenKind::Ident {
+                self.reject_current();
+                return 0;
+            }
+            self.advance();
+            if !self.set_node_text(impl_node, target_tok) {
+                return 0;
+            }
+
+            if !self.match_token(TokenKind::OpenBrace) {
+                self.reject_current();
+                return 0;
+            }
+            self.advance();
+
+            while !self.is_at_end() && !self.match_token(TokenKind::CloseBrace) {
+                let before: usize = self.cursor;
+                let member_index: usize = self.parse_declaration();
+                if member_index == 0 || member_index >= self.node_count {
+                    return 0;
+                }
+                let member: AstNode = unsafe { *(self.nodes + member_index) };
+                if member.kind != AstKind::FnDecl {
+                    if self.error_count == 0 {
+                        self.error_line = member.span.line;
+                        self.error_col = member.span.col;
+                    }
+                    self.error_count = self.error_count + 1;
+                    return 0;
+                }
+                if !self.append_child(impl_node, member_index) {
+                    return 0;
+                }
+                if self.cursor <= before {
+                    return 0;
+                }
+            }
+
+            if !self.match_token(TokenKind::CloseBrace) {
+                self.reject_current();
+                return 0;
+            }
+            self.advance();
+            return impl_node;
         } else if inner.kind == TokenKind::KwImport {
             self.advance();
             let imp_node: usize = self.alloc_node(AstKind::Import, inner.span);
