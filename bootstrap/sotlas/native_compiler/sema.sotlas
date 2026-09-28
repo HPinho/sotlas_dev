@@ -277,23 +277,33 @@ impl Sema {
                     return false;
                 }
                 let target: AstNode = unsafe { *(nodes + target_index) };
-                if target.kind != AstKind::ExprIdent {
-                    self.error_count = self.error_count + 1;
-                    self.error_line = target.span.line;
-                    self.error_col = target.span.col;
-                    return false;
-                }
-                let binding_index: usize = self.find_visible_binding(
-                    nodes, node_count, target_index, source, source_len
-                );
-                if binding_index == 0 || binding_index >= node_count {
-                    self.error_count = self.error_count + 1;
-                    self.error_line = target.span.line;
-                    self.error_col = target.span.col;
-                    return false;
-                }
-                let binding: AstNode = unsafe { *(nodes + binding_index) };
-                if binding.int_value != 1 {
+                if target.kind == AstKind::ExprMember {
+                    if !self.member_base_is_mutable_self(
+                        nodes, node_count, target_index, source, source_len
+                    ) {
+                        self.error_count = self.error_count + 1;
+                        self.error_line = target.span.line;
+                        self.error_col = target.span.col;
+                        return false;
+                    }
+                } else if target.kind == AstKind::ExprIdent {
+                    let binding_index: usize = self.find_visible_binding(
+                        nodes, node_count, target_index, source, source_len
+                    );
+                    if binding_index == 0 || binding_index >= node_count {
+                        self.error_count = self.error_count + 1;
+                        self.error_line = target.span.line;
+                        self.error_col = target.span.col;
+                        return false;
+                    }
+                    let binding: AstNode = unsafe { *(nodes + binding_index) };
+                    if binding.int_value != 1 {
+                        self.error_count = self.error_count + 1;
+                        self.error_line = target.span.line;
+                        self.error_col = target.span.col;
+                        return false;
+                    }
+                } else {
                     self.error_count = self.error_count + 1;
                     self.error_line = target.span.line;
                     self.error_col = target.span.col;
@@ -986,6 +996,178 @@ impl Sema {
         return type_index;
     }
 
+    pub fn source_node_compact_equals(
+        self: &Self,
+        source: *const u8,
+        source_len: usize,
+        node: AstNode,
+        expected: *const u8,
+        expected_len: usize
+    ) -> bool {
+        if source == null || expected == null || node.str_len == 0
+            || node.str_offset > source_len
+            || node.str_len > source_len - node.str_offset {
+            return false;
+        }
+        let mut source_i: usize = 0;
+        let mut expected_i: usize = 0;
+        while source_i < node.str_len {
+            let ch: u8 = unsafe { *(source + node.str_offset + source_i) };
+            source_i = source_i + 1;
+            if ch == 32 || ch == 9 || ch == 10 || ch == 13 {
+                continue;
+            }
+            if expected_i >= expected_len {
+                return false;
+            }
+            let want: u8 = unsafe { *(expected + expected_i) };
+            if ch != want {
+                return false;
+            }
+            expected_i = expected_i + 1;
+        }
+        return expected_i == expected_len;
+    }
+
+    pub fn find_enclosing_impl(
+        self: &Self,
+        nodes: *const AstNode,
+        node_count: usize,
+        index: usize
+    ) -> usize {
+        if nodes == null || index == 0 || index >= node_count {
+            return 0;
+        }
+        let mut current: usize = index;
+        let mut traversed: usize = 0;
+        while current != 0 && traversed < node_count {
+            if current >= node_count {
+                return 0;
+            }
+            let node: AstNode = unsafe { *(nodes + current) };
+            if node.kind == AstKind::ImplDecl {
+                return current;
+            }
+            current = node.parent;
+            traversed = traversed + 1;
+        }
+        return 0;
+    }
+
+    pub fn receiver_struct_for_member(
+        mut self: &mut Self,
+        nodes: *const AstNode,
+        node_count: usize,
+        member_index: usize,
+        source: *const u8,
+        source_len: usize
+    ) -> usize {
+        if nodes == null || member_index == 0 || member_index >= node_count {
+            return 0;
+        }
+        let member: AstNode = unsafe { *(nodes + member_index) };
+        if member.kind != AstKind::ExprMember || member.first_child == 0
+            || member.first_child >= node_count {
+            return 0;
+        }
+        let base: AstNode = unsafe { *(nodes + member.first_child) };
+        if base.kind != AstKind::ExprIdent
+            || !self.source_node_compact_equals(
+                source, source_len, base, "self", 4
+            ) {
+            return 0;
+        }
+        let binding_index: usize = self.find_visible_binding(
+            nodes, node_count, member.first_child, source, source_len
+        );
+        if binding_index == 0 || binding_index >= node_count {
+            return 0;
+        }
+        let binding: AstNode = unsafe { *(nodes + binding_index) };
+        if binding.kind != AstKind::ParamDecl
+            || !self.source_node_compact_equals(
+                source, source_len, binding, "self", 4
+            ) {
+            return 0;
+        }
+        let type_index: usize = self.binding_type_ref(
+            nodes, node_count, binding_index
+        );
+        if type_index == 0 || type_index >= node_count {
+            return 0;
+        }
+        let typ: AstNode = unsafe { *(nodes + type_index) };
+        if !self.source_node_compact_equals(
+                source, source_len, typ, "&Self", 5
+            ) && !self.source_node_compact_equals(
+                source, source_len, typ, "&mutSelf", 8
+            ) {
+            return 0;
+        }
+        let impl_index: usize = self.find_enclosing_impl(
+            nodes, node_count, member_index
+        );
+        if impl_index == 0 || impl_index >= node_count {
+            return 0;
+        }
+        let impl_node: AstNode = unsafe { *(nodes + impl_index) };
+        let module_index: usize = self.find_enclosing_module(
+            nodes, node_count, member_index
+        );
+        if module_index == 0 || module_index >= node_count {
+            return 0;
+        }
+        let module_node: AstNode = unsafe { *(nodes + module_index) };
+        let mut declaration_index: usize = module_node.first_child;
+        while declaration_index != 0 {
+            if declaration_index >= node_count {
+                return 0;
+            }
+            let declaration: AstNode = unsafe { *(nodes + declaration_index) };
+            if declaration.kind == AstKind::StructDecl
+                && self.same_declaration_name(
+                    source, source_len, declaration, impl_node
+                ) {
+                return declaration_index;
+            }
+            declaration_index = declaration.next_sibling;
+        }
+        return 0;
+    }
+
+    pub fn member_base_is_mutable_self(
+        mut self: &mut Self,
+        nodes: *const AstNode,
+        node_count: usize,
+        member_index: usize,
+        source: *const u8,
+        source_len: usize
+    ) -> bool {
+        if self.receiver_struct_for_member(
+            nodes, node_count, member_index, source, source_len
+        ) == 0 {
+            return false;
+        }
+        let member: AstNode = unsafe { *(nodes + member_index) };
+        let binding_index: usize = self.find_visible_binding(
+            nodes, node_count, member.first_child, source, source_len
+        );
+        if binding_index == 0 || binding_index >= node_count {
+            return false;
+        }
+        let binding: AstNode = unsafe { *(nodes + binding_index) };
+        let type_index: usize = self.binding_type_ref(
+            nodes, node_count, binding_index
+        );
+        if type_index == 0 || type_index >= node_count {
+            return false;
+        }
+        let typ: AstNode = unsafe { *(nodes + type_index) };
+        return binding.int_value == 1 && self.source_node_compact_equals(
+            source, source_len, typ, "&mutSelf", 8
+        );
+    }
+
     pub fn find_struct_for_type_ref(
         self: &Self,
         nodes: *const AstNode,
@@ -1082,6 +1264,15 @@ impl Sema {
             || member.first_child >= node_count {
             return 0;
         }
+        let receiver_struct: usize = self.receiver_struct_for_member(
+            nodes, node_count, member_index, source, source_len
+        );
+        if receiver_struct != 0 {
+            return self.find_struct_field_for_member(
+                nodes, node_count, receiver_struct, member_index, source, source_len
+            );
+        }
+
         let errors_before: usize = self.error_count;
         let base_type: usize = self.infer_expression_type_ref(
             nodes, node_count, member.first_child, source, source_len
