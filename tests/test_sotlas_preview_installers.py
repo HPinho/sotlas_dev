@@ -23,6 +23,7 @@ class SotlasPreviewInstallerTests(unittest.TestCase):
         self.assertIn('PACKAGE_SUFFIX="macos-x64"', source)
         self.assertIn('Unsupported preview architecture', source)
         self.assertIn('--target "$PACKAGE_TARGET"', source)
+        self.assertIn("sys.version_info >= (3, 10)", source)
         self.assertIn('-m sotlas.doctor', source)
         self.assertNotIn('BUNDLE_PATH="$REPO_ROOT/dist/sotlas-v${VERSION}-linux-x64"', source)
 
@@ -51,6 +52,7 @@ class SotlasPreviewInstallerTests(unittest.TestCase):
         self.assertIn('$PayloadRoot = $PayloadRoots[0].FullName', source)
         self.assertIn('Copy-Item -Path (Join-Path $PayloadRoot "*")', source)
         self.assertIn('missing $SotlasLauncher', source)
+        self.assertIn('sys.version_info >= (3, 10)', source)
         self.assertIn('$env:PYTHONPATH = "$InstallDir\\compiler;$InstallDir\\tools;$OldPythonPath"', source)
         self.assertIn('-m sotlas.doctor', source)
         self.assertNotIn('Expand-Archive -Path $SourceZip -DestinationPath $InstallDir', source)
