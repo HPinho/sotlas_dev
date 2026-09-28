@@ -1,4 +1,4 @@
-"""Require the native semantic layer to diagnose malformed struct constructors."""
+"""Require native struct semantics without widening the certified lowering surface."""
 from __future__ import annotations
 
 import os
@@ -23,7 +23,7 @@ from sotlas_compile.bootstrap import PREAMBLE, compile_module, emit_c, parse
 
 class SotlasNativeStructLiteralSemaTests(unittest.TestCase):
     @unittest.skipUnless(default_toolchain.is_available(), "native C toolchain unavailable")
-    def test_malformed_struct_literals_fail_with_source_diagnostics(self):
+    def test_struct_semantics_stay_strict_and_lowering_stays_bounded(self):
         module_dir = ROOT / "bootstrap" / "sotlas" / "native_compiler"
         order = ("token", "ast", "lexer", "parser", "sema", "emitter_c", "main")
         modules = {
@@ -65,6 +65,21 @@ static int expect_success(const char *name, const char *source) {
     return 0;
 }
 
+static int expect_emitter_boundary(const char *name, const char *source) {
+    uint8_t output[65536];
+    uint32_t line = 999;
+    uint32_t col = 999;
+    size_t size = sotlas_native_compile_diagnostic(
+        (const uint8_t *)source, strlen(source), output, sizeof(output), &line, &col
+    );
+    if (size != 0 || line != 0 || col != 0) {
+        fprintf(stderr, "%s: expected bounded emitter refusal, size=%zu line=%u col=%u\n",
+                name, size, line, col);
+        return 1;
+    }
+    return 0;
+}
+
 static int expect_semantic_failure(const char *name, const char *source) {
     uint8_t output[65536];
     uint32_t line = 999;
@@ -81,12 +96,17 @@ static int expect_semantic_failure(const char *name, const char *source) {
 }
 
 int main(void) {
-    static const char valid[] =
-        "module test::valid;\n"
+    static const char valid_impl[] =
+        "module test::valid_impl;\n"
         "struct Pair { a: i32; b: i32; }\n"
         "impl Pair {\n"
         " pub fn make() -> Pair { return Pair { a: 0, b: 1 }; }\n"
         "}\n";
+
+    static const char valid_top_level_shape[] =
+        "module test::valid_top_level_shape;\n"
+        "struct Pair { a: i32; b: i32; }\n"
+        "pub fn make() -> Pair { return Pair { a: 0, b: 1 }; }\n";
 
     static const char unknown_field[] =
         "module test::unknown_field;\n"
@@ -126,14 +146,15 @@ int main(void) {
         "struct Other { a: i32; b: i32; }\n"
         "pub fn make() -> Other { return Pair { a: 0, b: 1 }; }\n";
 
-    if (expect_success("valid", valid) != 0) return 1;
-    if (expect_semantic_failure("unknown_field", unknown_field) != 0) return 2;
-    if (expect_semantic_failure("duplicate_field", duplicate_field) != 0) return 3;
-    if (expect_semantic_failure("missing_field", missing_field) != 0) return 4;
-    if (expect_semantic_failure("nested_type_mismatch", nested_type_mismatch) != 0) return 5;
-    if (expect_semantic_failure("array_count_mismatch", array_count_mismatch) != 0) return 6;
-    if (expect_semantic_failure("array_nonzero_repeat", array_nonzero_repeat) != 0) return 7;
-    if (expect_semantic_failure("return_type_mismatch", return_type_mismatch) != 0) return 8;
+    if (expect_success("valid_impl", valid_impl) != 0) return 1;
+    if (expect_emitter_boundary("valid_top_level_shape", valid_top_level_shape) != 0) return 2;
+    if (expect_semantic_failure("unknown_field", unknown_field) != 0) return 3;
+    if (expect_semantic_failure("duplicate_field", duplicate_field) != 0) return 4;
+    if (expect_semantic_failure("missing_field", missing_field) != 0) return 5;
+    if (expect_semantic_failure("nested_type_mismatch", nested_type_mismatch) != 0) return 6;
+    if (expect_semantic_failure("array_count_mismatch", array_count_mismatch) != 0) return 7;
+    if (expect_semantic_failure("array_nonzero_repeat", array_nonzero_repeat) != 0) return 8;
+    if (expect_semantic_failure("return_type_mismatch", return_type_mismatch) != 0) return 9;
     return 0;
 }
 '''
