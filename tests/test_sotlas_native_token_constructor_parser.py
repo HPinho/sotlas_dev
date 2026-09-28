@@ -1,4 +1,4 @@
-"""Exercise the real native Token::new constructor through parser and Sema."""
+"""Exercise the real native Token::new constructor through executable C11 lowering."""
 from __future__ import annotations
 
 import os
@@ -23,7 +23,7 @@ from sotlas_compile.bootstrap import PREAMBLE, compile_module, emit_c, parse
 
 class SotlasNativeTokenConstructorParserTests(unittest.TestCase):
     @unittest.skipUnless(default_toolchain.is_available(), "native C toolchain unavailable")
-    def test_real_token_constructor_reaches_the_emitter_boundary(self):
+    def test_real_token_constructor_lowers_to_valid_c11(self):
         module_dir = ROOT / "bootstrap" / "sotlas" / "native_compiler"
         token_source = module_dir / "token.sotlas"
         source_text = token_source.read_text(encoding="utf-8")
@@ -57,7 +57,7 @@ extern size_t sotlas_native_compile_diagnostic(
 );
 
 int main(int argc, char **argv) {
-    if (argc != 2) return 10;
+    if (argc != 3) return 10;
     FILE *file = fopen(argv[1], "rb");
     if (file == NULL) return 11;
     if (fseek(file, 0, SEEK_END) != 0) { fclose(file); return 12; }
@@ -80,13 +80,16 @@ int main(int argc, char **argv) {
     );
     free(source);
 
-    /* Struct/array literal lowering is deliberately not implemented in this
-       commit. A zero diagnostic proves the real nested Token literal and
-       [0; 128] passed lexer, parser and Sema and stopped at the emitter. */
-    if (size != 0 || line != 0 || col != 0) {
+    if (size == 0 || line != 0 || col != 0) {
         fprintf(stderr, "real Token::new: size=%zu line=%u col=%u\n", size, line, col);
         return 1;
     }
+
+    FILE *lowered = fopen(argv[2], "wb");
+    if (lowered == NULL) return 17;
+    size_t written = fwrite(output, 1, size, lowered);
+    fclose(lowered);
+    if (written != size) return 18;
     return 0;
 }
 '''
@@ -95,8 +98,10 @@ int main(int argc, char **argv) {
             root = Path(tmp)
             compiler_c = root / "native_compiler.c"
             driver_c = root / "driver.c"
+            lowered_c = root / "token_lowered.c"
             compiler_obj = root / "native_compiler.obj"
             driver_obj = root / "driver.obj"
+            lowered_obj = root / "token_lowered.obj"
             exe = root / ("token_constructor.exe" if os.name == "nt" else "token_constructor")
 
             compiler_c.write_text("\n".join(fragments), encoding="utf-8")
@@ -106,9 +111,22 @@ int main(int argc, char **argv) {
             default_toolchain.link_native_binary([compiler_obj, driver_obj], exe)
 
             result = subprocess.run(
-                [str(exe), str(token_source)], capture_output=True, text=True, check=False
+                [str(exe), str(token_source), str(lowered_c)],
+                capture_output=True,
+                text=True,
+                check=False,
             )
             self.assertEqual(result.returncode, 0, result.stderr)
+
+            lowered_text = lowered_c.read_text(encoding="utf-8")
+            self.assertIn("Token Token_new(", lowered_text)
+            self.assertIn("return (Token){ ", lowered_text)
+            self.assertIn(".span = (Span){ ", lowered_text)
+            self.assertIn(".text = {0}", lowered_text)
+
+            # The native compiler must not merely print plausible C.  Its
+            # generated constructor has to satisfy the real C11 toolchain.
+            default_toolchain.compile_c_to_obj(lowered_c, lowered_obj, opt_level=0)
 
 
 if __name__ == "__main__":
