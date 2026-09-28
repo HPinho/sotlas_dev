@@ -1,0 +1,30 @@
+name: Apply isolated native member access
+
+on:
+  push:
+    branches:
+      - work/native-member-access
+    paths:
+      - .tmp_apply_native_member_access.py
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: work/native-member-access
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python .tmp_apply_native_member_access.py
+      - run: |
+          git config user.name "sotlas-hardening-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add bootstrap/sotlas/native_compiler/ast.sotlas bootstrap/sotlas/native_compiler/parser.sotlas bootstrap/sotlas/native_compiler/sema.sotlas bootstrap/sotlas/native_compiler/emitter_c.sotlas
+          git diff --cached --check
+          git commit -m "feat(selfhost): add typed native member access"
+          git push origin HEAD:work/native-member-access
