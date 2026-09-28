@@ -1,12 +1,12 @@
 ; =====================================================================
-; Script Inno Setup: Instalador Oficial da Linguagem Sotlas para Windows
-; Produz o executavel: Sotlas-Setup-v0.2.0.exe
+; Script Inno Setup: instalador do preview Sotlas para Windows x64
+; Produz o executavel: Sotlas-Setup-v1.0.0rc1.exe
 ; =====================================================================
 
 #define MyAppName "Sotlas Programming Language"
-#define MyAppVersion "0.2.0"
-#define MyAppPublisher "Equipe Sotlas"
-#define MyAppURL "https://github.com/Sotlas/sotlas"
+#define MyAppVersion "1.0.0rc1"
+#define MyAppPublisher "Hiago Pinho"
+#define MyAppURL "https://github.com/HPinho/sotlas_dev"
 #define MyAppExeName "sotlas.cmd"
 
 [Setup]
@@ -53,7 +53,6 @@ Root: HKLM; Subkey: "SYSTEM\CurrentControlSet\Control\Session Manager\Environmen
 ; Associacao de extensao .sotlas
 Root: HKLM; Subkey: "Software\Classes\.sotlas"; ValueType: string; ValueName: ""; ValueData: "SotlasSourceFile"; Flags: uninsdeletevalue; Tasks: assocfiles
 Root: HKLM; Subkey: "Software\Classes\SotlasSourceFile"; ValueType: string; ValueName: ""; ValueData: "Sotlas Source Code File"; Flags: uninsdeletekey; Tasks: assocfiles
-Root: HKLM; Subkey: "Software\Classes\SotlasSourceFile\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\assets\icon.ico,0"; Tasks: assocfiles
 Root: HKLM; Subkey: "Software\Classes\SotlasSourceFile\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\bin\sotlas.cmd"" run ""%1"""; Tasks: assocfiles
 
 [Code]
