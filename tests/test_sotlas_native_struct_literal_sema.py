@@ -80,16 +80,21 @@ static int expect_emitter_boundary(const char *name, const char *source) {
     return 0;
 }
 
-static int expect_semantic_failure(const char *name, const char *source) {
+static int expect_semantic_failure_at(
+    const char *name,
+    const char *source,
+    uint32_t expected_line
+) {
     uint8_t output[65536];
     uint32_t line = 999;
     uint32_t col = 999;
     size_t size = sotlas_native_compile_diagnostic(
         (const uint8_t *)source, strlen(source), output, sizeof(output), &line, &col
     );
-    if (size != 0 || line == 0 || col == 0) {
-        fprintf(stderr, "%s: expected semantic failure, size=%zu line=%u col=%u\n",
-                name, size, line, col);
+    if (size != 0 || line != expected_line || col == 0) {
+        fprintf(stderr,
+                "%s: expected semantic failure at line=%u, size=%zu line=%u col=%u\n",
+                name, expected_line, size, line, col);
         return 1;
     }
     return 0;
@@ -107,6 +112,10 @@ int main(void) {
         "module test::valid_top_level_shape;\n"
         "struct Pair { a: i32; b: i32; }\n"
         "pub fn make() -> Pair { return Pair { a: 0, b: 1 }; }\n";
+
+    static const char unknown_struct[] =
+        "module test::unknown_struct;\n"
+        "pub fn make() -> Missing { return Missing { value: 0 }; }\n";
 
     static const char unknown_field[] =
         "module test::unknown_field;\n"
@@ -148,13 +157,14 @@ int main(void) {
 
     if (expect_success("valid_impl", valid_impl) != 0) return 1;
     if (expect_emitter_boundary("valid_top_level_shape", valid_top_level_shape) != 0) return 2;
-    if (expect_semantic_failure("unknown_field", unknown_field) != 0) return 3;
-    if (expect_semantic_failure("duplicate_field", duplicate_field) != 0) return 4;
-    if (expect_semantic_failure("missing_field", missing_field) != 0) return 5;
-    if (expect_semantic_failure("nested_type_mismatch", nested_type_mismatch) != 0) return 6;
-    if (expect_semantic_failure("array_count_mismatch", array_count_mismatch) != 0) return 7;
-    if (expect_semantic_failure("array_nonzero_repeat", array_nonzero_repeat) != 0) return 8;
-    if (expect_semantic_failure("return_type_mismatch", return_type_mismatch) != 0) return 9;
+    if (expect_semantic_failure_at("unknown_struct", unknown_struct, 2) != 0) return 3;
+    if (expect_semantic_failure_at("unknown_field", unknown_field, 3) != 0) return 4;
+    if (expect_semantic_failure_at("duplicate_field", duplicate_field, 3) != 0) return 5;
+    if (expect_semantic_failure_at("missing_field", missing_field, 3) != 0) return 6;
+    if (expect_semantic_failure_at("nested_type_mismatch", nested_type_mismatch, 5) != 0) return 7;
+    if (expect_semantic_failure_at("array_count_mismatch", array_count_mismatch, 3) != 0) return 8;
+    if (expect_semantic_failure_at("array_nonzero_repeat", array_nonzero_repeat, 3) != 0) return 9;
+    if (expect_semantic_failure_at("return_type_mismatch", return_type_mismatch, 4) != 0) return 10;
     return 0;
 }
 '''
