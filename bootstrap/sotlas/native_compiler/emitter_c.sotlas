@@ -476,8 +476,16 @@ impl CEmitter {
             if !self.valid_node(node.first_child) || node.str_len == 0 {
                 return false;
             }
-            if !self.emit_expression(node.first_child)
-                || !self.write_byte(46) {
+            let base: AstNode = unsafe { *(self.nodes + node.first_child) };
+            if !self.emit_expression(node.first_child) {
+                return false;
+            }
+            if base.kind == AstKind::ExprIdent
+                && self.source_slice_equals(base.str_offset, base.str_len, "self", 4) {
+                if !self.write_str("->", 2) {
+                    return false;
+                }
+            } else if !self.write_byte(46) {
                 return false;
             }
             return self.write_source_slice(node.str_offset, node.str_len);

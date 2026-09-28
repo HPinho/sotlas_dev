@@ -558,13 +558,38 @@ pub fn emit_native_static_impl_function(
         }
         let node: AstNode = unsafe { *(emitter.nodes + child) };
         if node.kind == AstKind::ParamDecl {
-            if emitter.source_slice_equals(node.str_offset, node.str_len, "self", 4) {
-                return false;
-            }
             if !first_param && !emitter.write_str(", ", 2) {
                 return false;
             }
-            if !emitter.emit_parameter(child) {
+            if emitter.source_slice_equals(node.str_offset, node.str_len, "self", 4) {
+                if !first_param || !emitter.valid_node(node.first_child) {
+                    return false;
+                }
+                let receiver_type: AstNode = unsafe { *(emitter.nodes + node.first_child) };
+                if receiver_type.kind != AstKind::TypeRef {
+                    return false;
+                }
+                if node.int_value == 1
+                    && emitter.source_slice_equals_compact(
+                        receiver_type.str_offset, receiver_type.str_len, "&mutSelf", 8
+                    ) {
+                    if !emitter.write_source_slice(impl_node.str_offset, impl_node.str_len)
+                        || !emitter.write_str(" *self", 6) {
+                        return false;
+                    }
+                } else if node.int_value == 0
+                    && emitter.source_slice_equals_compact(
+                        receiver_type.str_offset, receiver_type.str_len, "&Self", 5
+                    ) {
+                    if !emitter.write_str("const ", 6)
+                        || !emitter.write_source_slice(impl_node.str_offset, impl_node.str_len)
+                        || !emitter.write_str(" *self", 6) {
+                        return false;
+                    }
+                } else {
+                    return false;
+                }
+            } else if !emitter.emit_parameter(child) {
                 return false;
             }
             first_param = false;
