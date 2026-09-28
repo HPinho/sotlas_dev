@@ -620,10 +620,10 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         self.assertIn("pub fn emit_c_type", text)
         self.assertIn("pub fn emit_return_statement", text)
         self.assertIn('" __sotlas_return_value = "', text)
-        self.assertIn("self.emit_expression(ret.first_child)", text)
+        self.assertIn("self.emit_expression_for_type(ret.first_child, type_index)", text)
         self.assertIn("self.emit_return_scope_defers(return_index)", text)
         self.assertIn('"return __sotlas_return_value;', text)
-        capture_at = text.index("self.emit_expression(ret.first_child)")
+        capture_at = text.index("self.emit_expression_for_type(ret.first_child, type_index)")
         cleanup_at = text.index(
             "self.emit_return_scope_defers(return_index)",
             capture_at,
@@ -759,7 +759,7 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         self.assertIn("self.emit_c_type(type_index)", text)
         self.assertIn("self.write_source_slice(node.str_offset, node.str_len)", text)
         self.assertIn("let init_index: usize = type_node.next_sibling;", text)
-        self.assertIn("self.emit_expression(init_index)", text)
+        self.assertIn("self.emit_expression_for_type(init_index, type_index)", text)
         self.assertIn("return self.emit_let_statement(index);", text)
 
     def test_native_emitter_lowers_while_body_as_lexical_scope(self):

@@ -120,7 +120,8 @@ int main(int argc, char **argv) {
 
             lowered_text = lowered_c.read_text(encoding="utf-8")
             self.assertIn("Token Token_new(", lowered_text)
-            self.assertIn("return (Token){ ", lowered_text)
+            self.assertIn("Token __sotlas_return_value = (Token){ ", lowered_text)
+            self.assertIn("return __sotlas_return_value;", lowered_text)
             self.assertIn(".span = (Span){ ", lowered_text)
             self.assertIn(".text = {0}", lowered_text)
 

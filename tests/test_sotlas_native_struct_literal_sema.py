@@ -1,4 +1,4 @@
-"""Require native struct semantics without widening the certified lowering surface."""
+"""Require strict native struct semantics through the canonical C emitter."""
 from __future__ import annotations
 
 import os
@@ -113,6 +113,12 @@ int main(void) {
         "struct Pair { a: i32; b: i32; }\n"
         "pub fn make() -> Pair { return Pair { a: 0, b: 1 }; }\n";
 
+    static const char valid_nested_array[] =
+        "module test::valid_nested_array;\n"
+        "struct Span { line: u32; }\n"
+        "struct Packet { span: Span; bytes: [u8; 4]; }\n"
+        "pub fn make() -> Packet { return Packet { span: Span { line: 1 }, bytes: [0; 4] }; }\n";
+
     static const char unknown_struct[] =
         "module test::unknown_struct;\n"
         "pub fn make() -> Missing { return Missing { value: 0 }; }\n";
@@ -156,15 +162,16 @@ int main(void) {
         "pub fn make() -> Other { return Pair { a: 0, b: 1 }; }\n";
 
     if (expect_success("valid_impl", valid_impl) != 0) return 1;
-    if (expect_emitter_boundary("valid_top_level_shape", valid_top_level_shape) != 0) return 2;
-    if (expect_semantic_failure_at("unknown_struct", unknown_struct, 2) != 0) return 3;
-    if (expect_semantic_failure_at("unknown_field", unknown_field, 3) != 0) return 4;
-    if (expect_semantic_failure_at("duplicate_field", duplicate_field, 3) != 0) return 5;
-    if (expect_semantic_failure_at("missing_field", missing_field, 3) != 0) return 6;
-    if (expect_semantic_failure_at("nested_type_mismatch", nested_type_mismatch, 5) != 0) return 7;
-    if (expect_semantic_failure_at("array_count_mismatch", array_count_mismatch, 3) != 0) return 8;
-    if (expect_semantic_failure_at("array_nonzero_repeat", array_nonzero_repeat, 3) != 0) return 9;
-    if (expect_semantic_failure_at("return_type_mismatch", return_type_mismatch, 4) != 0) return 10;
+    if (expect_success("valid_top_level_shape", valid_top_level_shape) != 0) return 2;
+    if (expect_success("valid_nested_array", valid_nested_array) != 0) return 3;
+    if (expect_semantic_failure_at("unknown_struct", unknown_struct, 2) != 0) return 4;
+    if (expect_semantic_failure_at("unknown_field", unknown_field, 3) != 0) return 5;
+    if (expect_semantic_failure_at("duplicate_field", duplicate_field, 3) != 0) return 6;
+    if (expect_semantic_failure_at("missing_field", missing_field, 3) != 0) return 7;
+    if (expect_semantic_failure_at("nested_type_mismatch", nested_type_mismatch, 5) != 0) return 8;
+    if (expect_semantic_failure_at("array_count_mismatch", array_count_mismatch, 3) != 0) return 9;
+    if (expect_semantic_failure_at("array_nonzero_repeat", array_nonzero_repeat, 3) != 0) return 10;
+    if (expect_semantic_failure_at("return_type_mismatch", return_type_mismatch, 4) != 0) return 11;
     return 0;
 }
 '''
