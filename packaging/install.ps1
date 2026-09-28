@@ -33,6 +33,11 @@ if (Get-Command py -ErrorAction SilentlyContinue) {
 } else {
     throw "Python 3.10 or newer is required to install the Sotlas preview."
 }
+& $PythonCommand @PythonPrefix -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)"
+if ($LASTEXITCODE -ne 0) {
+    $DetectedPython = & $PythonCommand @PythonPrefix -c "import sys; print('.'.join(map(str, sys.version_info[:3])))"
+    throw "Python 3.10 or newer is required; found $DetectedPython via $PythonCommand."
+}
 
 # 1. Definir diretorio de instalacao
 Write-Host "-> Install directory: $InstallDir" -ForegroundColor Yellow
