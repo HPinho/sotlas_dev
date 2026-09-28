@@ -1,6 +1,7 @@
 """Release gates for the Windows/Linux/macOS preview installer scripts."""
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -64,7 +65,10 @@ class SotlasPreviewInstallerTests(unittest.TestCase):
         self.assertIn('python -m sotlas.doctor --json', source)
         self.assertIn('prerelease: true', source)
 
-    @unittest.skipUnless(shutil.which("bash"), "bash unavailable")
+    @unittest.skipUnless(
+        os.name != "nt" and shutil.which("bash"),
+        "Unix Bash syntax gate runs on Linux/macOS; Windows uses the PowerShell gate",
+    )
     def test_unix_installer_has_valid_shell_syntax(self):
         result = subprocess.run(
             ["bash", "-n", str(ROOT / "packaging" / "install.sh")],
