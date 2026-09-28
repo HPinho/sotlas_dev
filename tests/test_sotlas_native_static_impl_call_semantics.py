@@ -1,4 +1,4 @@
-"""Guard semantic resolution for the bounded native static-impl call subset."""
+"""Guard and execute the bounded native static-impl call subset."""
 from __future__ import annotations
 
 import os
@@ -23,7 +23,7 @@ from sotlas_compile.bootstrap import PREAMBLE, compile_module, emit_c, parse
 
 class SotlasNativeStaticImplCallSemanticsTests(unittest.TestCase):
     @unittest.skipUnless(default_toolchain.is_available(), "native C toolchain unavailable")
-    def test_qualified_static_calls_resolve_before_lowering(self):
+    def test_qualified_static_calls_resolve_lower_and_execute(self):
         module_dir = ROOT / "bootstrap" / "sotlas" / "native_compiler"
         order = ("token", "ast", "lexer", "parser", "sema", "emitter_c", "main")
         modules = {
@@ -44,12 +44,13 @@ class SotlasNativeStaticImplCallSemanticsTests(unittest.TestCase):
 #include <stdint.h>
 #include <stddef.h>
 #include <stdio.h>
+#include <string.h>
 
 extern size_t sotlas_native_compile_diagnostic(
     const uint8_t *, size_t, uint8_t *, size_t, uint32_t *, uint32_t *
 );
 
-int main(void) {
+int main(int argc, char **argv) {
     static const uint8_t valid[] =
         "module test::valid;\n"
         "struct Counter { value: i32; }\n"
@@ -76,55 +77,88 @@ int main(void) {
     uint32_t line = 999;
     uint32_t col = 999;
 
+    if (argc != 2) return 10;
     size_t size = sotlas_native_compile_diagnostic(
-        valid, sizeof(valid) - 1, output, sizeof(output), &line, &col
+        valid, sizeof(valid) - 1, output, sizeof(output) - 1, &line, &col
     );
-    /* Semantic resolution succeeds, but ExprPath lowering is deliberately
-       still fail-closed in this commit. */
-    if (size != 0 || line != 0 || col != 0) {
+    if (size == 0 || line != 0 || col != 0) {
         fprintf(stderr, "valid qualified call: size=%zu line=%u col=%u\n", size, line, col);
         return 1;
     }
+    output[size] = 0;
+    if (strstr((const char *)output, "Counter_add(") == NULL) {
+        fprintf(stderr, "missing lowered Counter_add call\n");
+        return 2;
+    }
+
+    FILE *file = fopen(argv[1], "wb");
+    if (file == NULL) return 3;
+    size_t written = fwrite(output, 1, size, file);
+    fclose(file);
+    if (written != size) return 4;
 
     line = 999;
     col = 999;
     size = sotlas_native_compile_diagnostic(
-        missing, sizeof(missing) - 1, output, sizeof(output), &line, &col
+        missing, sizeof(missing) - 1, output, sizeof(output) - 1, &line, &col
     );
     if (size != 0 || line == 0 || col == 0) {
         fprintf(stderr, "missing method: size=%zu line=%u col=%u\n", size, line, col);
-        return 2;
+        return 5;
     }
 
     line = 999;
     col = 999;
     size = sotlas_native_compile_diagnostic(
-        wrong_arity, sizeof(wrong_arity) - 1, output, sizeof(output), &line, &col
+        wrong_arity, sizeof(wrong_arity) - 1, output, sizeof(output) - 1, &line, &col
     );
     if (size != 0 || line == 0 || col == 0) {
         fprintf(stderr, "wrong arity: size=%zu line=%u col=%u\n", size, line, col);
-        return 3;
+        return 6;
     }
     return 0;
 }
 '''
 
-        with tempfile.TemporaryDirectory(prefix="sotlas-static-impl-call-sema-") as tmp:
+        consumer = r'''
+#include <stdint.h>
+int32_t answer(void);
+int main(void) { return answer() == 42 ? 0 : 1; }
+'''
+
+        with tempfile.TemporaryDirectory(prefix="sotlas-static-impl-call-") as tmp:
             root = Path(tmp)
             compiler_c = root / "native_compiler.c"
             driver_c = root / "driver.c"
             compiler_obj = root / "native_compiler.obj"
             driver_obj = root / "driver.obj"
-            exe = root / ("impl_call_sema.exe" if os.name == "nt" else "impl_call_sema")
+            exe = root / ("impl_call.exe" if os.name == "nt" else "impl_call")
+            generated_c = root / "qualified_call.c"
+            generated_obj = root / "qualified_call.obj"
+            consumer_c = root / "consumer.c"
+            consumer_obj = root / "consumer.obj"
+            consumer_exe = root / ("qualified_call_consumer.exe" if os.name == "nt" else "qualified_call_consumer")
 
             compiler_c.write_text("\n".join(fragments), encoding="utf-8")
             driver_c.write_text(driver, encoding="utf-8")
+            consumer_c.write_text(consumer, encoding="utf-8")
             default_toolchain.compile_c_to_obj(compiler_c, compiler_obj, opt_level=0)
             default_toolchain.compile_c_to_obj(driver_c, driver_obj, opt_level=0)
             default_toolchain.link_native_binary([compiler_obj, driver_obj], exe)
 
-            result = subprocess.run([str(exe)], capture_output=True, text=True, check=False)
+            result = subprocess.run(
+                [str(exe), str(generated_c)], capture_output=True, text=True, check=False
+            )
             self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(generated_c.is_file())
+
+            default_toolchain.compile_c_to_obj(generated_c, generated_obj, opt_level=0)
+            default_toolchain.compile_c_to_obj(consumer_c, consumer_obj, opt_level=0)
+            default_toolchain.link_native_binary([generated_obj, consumer_obj], consumer_exe)
+            run_consumer = subprocess.run(
+                [str(consumer_exe)], capture_output=True, text=True, check=False
+            )
+            self.assertEqual(run_consumer.returncode, 0, run_consumer.stderr)
 
 
 if __name__ == "__main__":
