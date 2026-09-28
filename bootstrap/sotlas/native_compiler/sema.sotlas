@@ -132,6 +132,13 @@ impl Sema {
         return true;
     }
 
+    pub fn reject_node(mut self: &mut Self, node: AstNode) -> bool {
+        self.error_count = self.error_count + 1;
+        self.error_line = node.span.line;
+        self.error_col = node.span.col;
+        return false;
+    }
+
     pub fn check_top_level_declarations(
         mut self: &mut Self,
         nodes: *const AstNode,
@@ -211,6 +218,18 @@ impl Sema {
                 if !self.check_block_locals(nodes, node_count, node_index, source, source_len) {
                     return false;
                 }
+            }
+            if node.kind == AstKind::ExprStructLiteral
+                && !self.check_struct_literal(
+                    nodes, node_count, node_index, source, source_len
+                ) {
+                return false;
+            }
+            if node.kind == AstKind::ExprArrayRepeat
+                && !self.check_array_repeat_context(
+                    nodes, node_count, node_index, source, source_len
+                ) {
+                return false;
             }
             if node.kind == AstKind::BreakStmt
                 || node.kind == AstKind::ContinueStmt
@@ -501,6 +520,445 @@ impl Sema {
         return true;
     }
 
+    pub fn find_enclosing_module(
+        self: &Self,
+        nodes: *const AstNode,
+        node_count: usize,
+        node_index: usize
+    ) -> usize {
+        if nodes == null || node_index == 0 || node_index >= node_count {
+            return 0;
+        }
+        let mut current_index: usize = node_index;
+        let mut traversed: usize = 0;
+        while current_index != 0 {
+            if current_index >= node_count || traversed >= node_count {
+                return 0;
+            }
+            let current: AstNode = unsafe { *(nodes + current_index) };
+            if current.kind == AstKind::Module {
+                return current_index;
+            }
+            current_index = current.parent;
+            traversed = traversed + 1;
+        }
+        return 0;
+    }
+
+    pub fn find_module_struct(
+        self: &Self,
+        nodes: *const AstNode,
+        node_count: usize,
+        expression_index: usize,
+        source: *const u8,
+        source_len: usize
+    ) -> usize {
+        if nodes == null || source == null || expression_index == 0
+            || expression_index >= node_count {
+            return 0;
+        }
+        let expression: AstNode = unsafe { *(nodes + expression_index) };
+        if expression.kind != AstKind::ExprStructLiteral || expression.str_len == 0 {
+            return 0;
+        }
+        let module_index: usize = self.find_enclosing_module(
+            nodes, node_count, expression_index
+        );
+        if module_index == 0 {
+            return 0;
+        }
+        let module_node: AstNode = unsafe { *(nodes + module_index) };
+        let mut declaration_index: usize = module_node.first_child;
+        let mut traversed: usize = 0;
+        while declaration_index != 0 {
+            if declaration_index >= node_count || traversed >= MAX_SYMBOLS {
+                return 0;
+            }
+            let declaration: AstNode = unsafe { *(nodes + declaration_index) };
+            if declaration.kind == AstKind::StructDecl
+                && declaration.str_len != 0
+                && self.same_declaration_name(
+                    source, source_len, declaration, expression
+                ) {
+                return declaration_index;
+            }
+            declaration_index = declaration.next_sibling;
+            traversed = traversed + 1;
+        }
+        return 0;
+    }
+
+    pub fn find_struct_field_for_init(
+        self: &Self,
+        nodes: *const AstNode,
+        node_count: usize,
+        struct_index: usize,
+        init_index: usize,
+        source: *const u8,
+        source_len: usize
+    ) -> usize {
+        if nodes == null || struct_index == 0 || init_index == 0
+            || struct_index >= node_count || init_index >= node_count {
+            return 0;
+        }
+        let declaration: AstNode = unsafe { *(nodes + struct_index) };
+        let init: AstNode = unsafe { *(nodes + init_index) };
+        if declaration.kind != AstKind::StructDecl
+            || init.kind != AstKind::StructFieldInit
+            || init.str_len == 0 {
+            return 0;
+        }
+        let mut field_index: usize = declaration.first_child;
+        let mut traversed: usize = 0;
+        while field_index != 0 {
+            if field_index >= node_count || traversed >= MAX_SYMBOLS {
+                return 0;
+            }
+            let field: AstNode = unsafe { *(nodes + field_index) };
+            if field.kind == AstKind::FieldDecl
+                && field.str_len != 0
+                && self.same_declaration_name(
+                    source, source_len, field, init
+                ) {
+                return field_index;
+            }
+            field_index = field.next_sibling;
+            traversed = traversed + 1;
+        }
+        return 0;
+    }
+
+    pub fn type_ref_matches_struct_literal(
+        self: &Self,
+        nodes: *const AstNode,
+        node_count: usize,
+        type_index: usize,
+        literal_index: usize,
+        source: *const u8,
+        source_len: usize
+    ) -> bool {
+        if nodes == null || type_index == 0 || literal_index == 0
+            || type_index >= node_count || literal_index >= node_count {
+            return false;
+        }
+        let typ: AstNode = unsafe { *(nodes + type_index) };
+        let literal: AstNode = unsafe { *(nodes + literal_index) };
+        if typ.kind != AstKind::TypeRef
+            || literal.kind != AstKind::ExprStructLiteral
+            || typ.str_len == 0 || literal.str_len == 0 {
+            return false;
+        }
+        return self.same_source_text(source, source_len, typ, literal);
+    }
+
+    pub fn fixed_array_type_matches_zero_repeat(
+        self: &Self,
+        nodes: *const AstNode,
+        node_count: usize,
+        type_index: usize,
+        repeat_index: usize,
+        source: *const u8,
+        source_len: usize
+    ) -> bool {
+        if nodes == null || source == null || type_index == 0 || repeat_index == 0
+            || type_index >= node_count || repeat_index >= node_count {
+            return false;
+        }
+        let typ: AstNode = unsafe { *(nodes + type_index) };
+        let repeat: AstNode = unsafe { *(nodes + repeat_index) };
+        if typ.kind != AstKind::TypeRef || repeat.kind != AstKind::ExprArrayRepeat
+            || typ.str_offset > source_len || typ.str_len > source_len - typ.str_offset
+            || repeat.first_child == 0 || repeat.first_child >= node_count {
+            return false;
+        }
+        let value_index: usize = repeat.first_child;
+        let value: AstNode = unsafe { *(nodes + value_index) };
+        let count_index: usize = value.next_sibling;
+        if value.kind != AstKind::ExprLiteral
+            || value.str_offset > source_len || value.str_len != 1
+            || value.str_len > source_len - value.str_offset
+            || unsafe { *(source + value.str_offset) } != 48
+            || count_index == 0 || count_index >= node_count {
+            return false;
+        }
+        let count: AstNode = unsafe { *(nodes + count_index) };
+        if count.kind != AstKind::ExprLiteral || count.str_len == 0
+            || count.str_offset > source_len
+            || count.str_len > source_len - count.str_offset
+            || count.next_sibling != 0 {
+            return false;
+        }
+
+        let mut i: usize = 0;
+        while i < typ.str_len {
+            let ch: u8 = unsafe { *(source + typ.str_offset + i) };
+            if ch == 32 || ch == 9 || ch == 10 || ch == 13 {
+                i = i + 1;
+            } else {
+                break;
+            }
+        }
+        if i >= typ.str_len || unsafe { *(source + typ.str_offset + i) } != 91 {
+            return false;
+        }
+        i = i + 1;
+        while i < typ.str_len {
+            let ch: u8 = unsafe { *(source + typ.str_offset + i) };
+            if ch == 32 || ch == 9 || ch == 10 || ch == 13 {
+                i = i + 1;
+            } else {
+                break;
+            }
+        }
+        let element_start: usize = i;
+        while i < typ.str_len {
+            let ch: u8 = unsafe { *(source + typ.str_offset + i) };
+            let alpha: bool = (ch >= 65 && ch <= 90) || (ch >= 97 && ch <= 122);
+            let digit: bool = ch >= 48 && ch <= 57;
+            if alpha || digit || ch == 95 {
+                i = i + 1;
+            } else {
+                break;
+            }
+        }
+        if i == element_start {
+            return false;
+        }
+        while i < typ.str_len {
+            let ch: u8 = unsafe { *(source + typ.str_offset + i) };
+            if ch == 32 || ch == 9 || ch == 10 || ch == 13 {
+                i = i + 1;
+            } else {
+                break;
+            }
+        }
+        if i >= typ.str_len || unsafe { *(source + typ.str_offset + i) } != 59 {
+            return false;
+        }
+        i = i + 1;
+        while i < typ.str_len {
+            let ch: u8 = unsafe { *(source + typ.str_offset + i) };
+            if ch == 32 || ch == 9 || ch == 10 || ch == 13 {
+                i = i + 1;
+            } else {
+                break;
+            }
+        }
+        let count_start: usize = i;
+        let mut nonzero: bool = false;
+        while i < typ.str_len {
+            let ch: u8 = unsafe { *(source + typ.str_offset + i) };
+            if ch >= 48 && ch <= 57 {
+                if ch != 48 {
+                    nonzero = true;
+                }
+                i = i + 1;
+            } else {
+                break;
+            }
+        }
+        let type_count_len: usize = i - count_start;
+        if type_count_len == 0 || !nonzero {
+            return false;
+        }
+        while i < typ.str_len {
+            let ch: u8 = unsafe { *(source + typ.str_offset + i) };
+            if ch == 32 || ch == 9 || ch == 10 || ch == 13 {
+                i = i + 1;
+            } else {
+                break;
+            }
+        }
+        if i >= typ.str_len || unsafe { *(source + typ.str_offset + i) } != 93 {
+            return false;
+        }
+        i = i + 1;
+        while i < typ.str_len {
+            let ch: u8 = unsafe { *(source + typ.str_offset + i) };
+            if ch == 32 || ch == 9 || ch == 10 || ch == 13 {
+                i = i + 1;
+            } else {
+                return false;
+            }
+        }
+
+        if type_count_len != count.str_len {
+            return false;
+        }
+        let mut digit_index: usize = 0;
+        while digit_index < type_count_len {
+            if unsafe { *(source + typ.str_offset + count_start + digit_index) }
+                != unsafe { *(source + count.str_offset + digit_index) } {
+                return false;
+            }
+            digit_index = digit_index + 1;
+        }
+        return true;
+    }
+
+    pub fn check_array_repeat_context(
+        mut self: &mut Self,
+        nodes: *const AstNode,
+        node_count: usize,
+        repeat_index: usize,
+        source: *const u8,
+        source_len: usize
+    ) -> bool {
+        if nodes == null || repeat_index == 0 || repeat_index >= node_count {
+            self.error_count = self.error_count + 1;
+            return false;
+        }
+        let repeat: AstNode = unsafe { *(nodes + repeat_index) };
+        if repeat.kind != AstKind::ExprArrayRepeat
+            || repeat.parent == 0 || repeat.parent >= node_count {
+            return self.reject_node(repeat);
+        }
+        let init_index: usize = repeat.parent;
+        let init: AstNode = unsafe { *(nodes + init_index) };
+        if init.kind != AstKind::StructFieldInit
+            || init.parent == 0 || init.parent >= node_count {
+            return self.reject_node(repeat);
+        }
+        let literal_index: usize = init.parent;
+        let literal: AstNode = unsafe { *(nodes + literal_index) };
+        if literal.kind != AstKind::ExprStructLiteral {
+            return self.reject_node(repeat);
+        }
+        let struct_index: usize = self.find_module_struct(
+            nodes, node_count, literal_index, source, source_len
+        );
+        let field_index: usize = self.find_struct_field_for_init(
+            nodes, node_count, struct_index, init_index, source, source_len
+        );
+        if field_index == 0 || field_index >= node_count {
+            return self.reject_node(repeat);
+        }
+        let field: AstNode = unsafe { *(nodes + field_index) };
+        if field.first_child == 0 || field.first_child >= node_count
+            || !self.fixed_array_type_matches_zero_repeat(
+                nodes, node_count, field.first_child, repeat_index, source, source_len
+            ) {
+            return self.reject_node(repeat);
+        }
+        return true;
+    }
+
+    pub fn check_struct_literal(
+        mut self: &mut Self,
+        nodes: *const AstNode,
+        node_count: usize,
+        literal_index: usize,
+        source: *const u8,
+        source_len: usize
+    ) -> bool {
+        if nodes == null || literal_index == 0 || literal_index >= node_count {
+            self.error_count = self.error_count + 1;
+            return false;
+        }
+        let literal: AstNode = unsafe { *(nodes + literal_index) };
+        if literal.kind != AstKind::ExprStructLiteral || literal.str_len == 0 {
+            return self.reject_node(literal);
+        }
+        let struct_index: usize = self.find_module_struct(
+            nodes, node_count, literal_index, source, source_len
+        );
+        if struct_index == 0 || struct_index >= node_count {
+            return self.reject_node(literal);
+        }
+        let declaration: AstNode = unsafe { *(nodes + struct_index) };
+
+        let mut declared_count: usize = 0;
+        let mut field_index: usize = declaration.first_child;
+        while field_index != 0 {
+            if field_index >= node_count || declared_count >= MAX_SYMBOLS {
+                return self.reject_node(literal);
+            }
+            let field: AstNode = unsafe { *(nodes + field_index) };
+            if field.kind != AstKind::FieldDecl || field.str_len == 0
+                || field.first_child == 0 || field.first_child >= node_count {
+                return self.reject_node(field);
+            }
+            let typ: AstNode = unsafe { *(nodes + field.first_child) };
+            if typ.kind != AstKind::TypeRef || typ.next_sibling != 0 {
+                return self.reject_node(field);
+            }
+            declared_count = declared_count + 1;
+            field_index = field.next_sibling;
+        }
+        if declared_count == 0 {
+            return self.reject_node(literal);
+        }
+
+        let mut init_count: usize = 0;
+        let mut init_index: usize = literal.first_child;
+        while init_index != 0 {
+            if init_index >= node_count || init_count >= MAX_SYMBOLS {
+                return self.reject_node(literal);
+            }
+            let init: AstNode = unsafe { *(nodes + init_index) };
+            if init.kind != AstKind::StructFieldInit || init.str_len == 0
+                || init.first_child == 0 || init.first_child >= node_count {
+                return self.reject_node(init);
+            }
+            let matched_field: usize = self.find_struct_field_for_init(
+                nodes, node_count, struct_index, init_index, source, source_len
+            );
+            if matched_field == 0 || matched_field >= node_count {
+                return self.reject_node(init);
+            }
+
+            let mut previous_index: usize = literal.first_child;
+            while previous_index != init_index {
+                if previous_index == 0 || previous_index >= node_count {
+                    return self.reject_node(init);
+                }
+                let previous: AstNode = unsafe { *(nodes + previous_index) };
+                if previous.kind != AstKind::StructFieldInit {
+                    return self.reject_node(previous);
+                }
+                if self.same_declaration_name(
+                    source, source_len, previous, init
+                ) {
+                    return self.reject_node(init);
+                }
+                previous_index = previous.next_sibling;
+            }
+
+            let field: AstNode = unsafe { *(nodes + matched_field) };
+            let type_index: usize = field.first_child;
+            let value_index: usize = init.first_child;
+            let value: AstNode = unsafe { *(nodes + value_index) };
+            if value.next_sibling != 0 {
+                return self.reject_node(value);
+            }
+            if value.kind == AstKind::ExprStructLiteral {
+                if !self.type_ref_matches_struct_literal(
+                    nodes, node_count, type_index, value_index, source, source_len
+                ) {
+                    return self.reject_node(value);
+                }
+                if !self.check_struct_literal(
+                    nodes, node_count, value_index, source, source_len
+                ) {
+                    return false;
+                }
+            } else if value.kind == AstKind::ExprArrayRepeat {
+                if !self.fixed_array_type_matches_zero_repeat(
+                    nodes, node_count, type_index, value_index, source, source_len
+                ) {
+                    return self.reject_node(value);
+                }
+            }
+
+            init_count = init_count + 1;
+            init_index = init.next_sibling;
+        }
+        if init_count != declared_count {
+            return self.reject_node(literal);
+        }
+        return true;
+    }
+
     pub fn binding_type_ref(
         self: &Self,
         nodes: *const AstNode,
@@ -540,6 +998,14 @@ impl Sema {
                 nodes, node_count, expression_index, source, source_len
             );
             return self.binding_type_ref(nodes, node_count, binding);
+        }
+        if expression.kind == AstKind::ExprStructLiteral {
+            if !self.check_struct_literal(
+                nodes, node_count, expression_index, source, source_len
+            ) {
+                return 0;
+            }
+            return expression_index;
         }
         if expression.kind == AstKind::ExprUnary {
             if expression.int_value == 98 {
