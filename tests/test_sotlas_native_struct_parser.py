@@ -1,4 +1,4 @@
-"""Exercise the bounded native parser's first represented struct-field subset."""
+"""Exercise the bounded native parser/emitter struct-field subset."""
 from __future__ import annotations
 
 import os
@@ -23,7 +23,7 @@ from sotlas_compile.bootstrap import PREAMBLE, compile_module, emit_c, parse
 
 class SotlasNativeStructParserTests(unittest.TestCase):
     @unittest.skipUnless(default_toolchain.is_available(), "native C toolchain unavailable")
-    def test_semicolon_fields_reach_emitter_while_comma_fields_fail_in_parser(self):
+    def test_semicolon_fields_lower_to_c11_while_comma_fields_fail_in_parser(self):
         module_dir = ROOT / "bootstrap" / "sotlas" / "native_compiler"
         order = ("token", "ast", "lexer", "parser", "sema", "emitter_c", "main")
         modules = {
@@ -46,12 +46,13 @@ class SotlasNativeStructParserTests(unittest.TestCase):
 #include <stdint.h>
 #include <stddef.h>
 #include <stdio.h>
+#include <string.h>
 
 extern size_t sotlas_native_compile_diagnostic(
     const uint8_t *, size_t, uint8_t *, size_t, uint32_t *, uint32_t *
 );
 
-int main(void) {
+int main(int argc, char **argv) {
     static const uint8_t represented[] =
         "module test::represented;\n"
         "struct Item {\n"
@@ -67,25 +68,39 @@ int main(void) {
     uint32_t line = 999;
     uint32_t col = 999;
 
+    if (argc != 2) return 10;
     size_t size = sotlas_native_compile_diagnostic(
-        represented, sizeof(represented) - 1, output, sizeof(output), &line, &col
+        represented, sizeof(represented) - 1,
+        output, sizeof(output) - 1, &line, &col
     );
-    /* Struct emission is deliberately still fail-closed in this commit.  A
-       zero diagnostic proves the parser/sema accepted the represented fields
-       and the refusal happened at the later emitter boundary. */
-    if (size != 0 || line != 0 || col != 0) {
+    if (size == 0 || line != 0 || col != 0) {
         fprintf(stderr, "represented fields: size=%zu line=%u col=%u\n", size, line, col);
         return 1;
     }
+    output[size] = 0;
+    if (strstr((const char *)output, "typedef struct Item {") == NULL
+        || strstr((const char *)output, "int32_t value;") == NULL
+        || strstr((const char *)output, "uint32_t next;") == NULL
+        || strstr((const char *)output, "} Item;") == NULL) {
+        fprintf(stderr, "generated struct declaration is incomplete\n");
+        return 2;
+    }
+
+    FILE *file = fopen(argv[1], "wb");
+    if (file == NULL) return 3;
+    size_t written = fwrite(output, 1, size, file);
+    fclose(file);
+    if (written != size) return 4;
 
     line = 999;
     col = 999;
     size = sotlas_native_compile_diagnostic(
-        comma_member, sizeof(comma_member) - 1, output, sizeof(output), &line, &col
+        comma_member, sizeof(comma_member) - 1,
+        output, sizeof(output) - 1, &line, &col
     );
     if (size != 0 || line != 3 || col != 2) {
         fprintf(stderr, "comma member: size=%zu line=%u col=%u\n", size, line, col);
-        return 2;
+        return 5;
     }
     return 0;
 }
@@ -98,6 +113,8 @@ int main(void) {
             compiler_obj = root / "native_compiler.obj"
             driver_obj = root / "driver.obj"
             exe = root / ("struct_parser.exe" if os.name == "nt" else "struct_parser")
+            generated_c = root / "represented.c"
+            generated_obj = root / "represented.obj"
 
             compiler_c.write_text("\n".join(fragments), encoding="utf-8")
             driver_c.write_text(driver, encoding="utf-8")
@@ -106,9 +123,15 @@ int main(void) {
             default_toolchain.link_native_binary([compiler_obj, driver_obj], exe)
 
             result = subprocess.run(
-                [str(exe)], capture_output=True, text=True, check=False
+                [str(exe), str(generated_c)],
+                capture_output=True,
+                text=True,
+                check=False,
             )
             self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(generated_c.is_file())
+            default_toolchain.compile_c_to_obj(generated_c, generated_obj, opt_level=0)
+            self.assertTrue(generated_obj.is_file())
 
 
 if __name__ == "__main__":
