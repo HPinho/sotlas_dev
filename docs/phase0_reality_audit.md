@@ -1,6 +1,6 @@
 # Phase 0 Reality Audit
 
-**Updated:** 2026-09-26
+**Updated:** 2026-09-28
 **Authority:** [Implementation Status](sotlas_implementation_status.md) and
 [Master Roadmap](sotlas_master_roadmap.md).
 
@@ -25,17 +25,21 @@
   Historical audits and progress snapshots are labeled as such.
 - The `compiler/` and `tools/` trees are intentionally retained for compatibility
   with existing developer tools and tests. `compiler/` is the installed source
-  of truth. Of 86 paired Python modules, 82 are byte-identical and four reviewed
-  files differ: `sotlas/__init__.py`, `sotlas_compile/__init__.py`,
-  `sotlas_compile/bootstrap.py`, and `sotlas_compile/language_safety.py`.
-  There are 25 compiler-only and three tools-only modules. The new
+  of truth. Of 86 paired Python modules, 81 are byte-identical and five reviewed
+  files differ: `sotlas/__init__.py`, `sotlas/cli.py`,
+  `sotlas_compile/__init__.py`, `sotlas_compile/bootstrap.py`, and
+  `sotlas_compile/language_safety.py`.
+  There are 26 compiler-only and three tools-only modules. The new
+  `sotlas/doctor.py` is intentionally compiler-only because it diagnoses the
+  installed preview package and its host toolchain; mirroring it into the
+  historical `tools/` tree would create a second public diagnostic surface.
   `flow_native_runner.py` is a production CLI runtime helper; it runs checked
   scalar Flow plans through the generated C11 entrypoint. `target_ir.py`
   defines the fail-closed pre-selection Target IR v1 for checked SIR reports.
-  The reality gate
-  checks the exact reviewed difference set and current unique-module counts.
-  Consolidating compatibility imports is deferred until the old tools clients
-  and tests are migrated; no claim is made that duplicate files were deleted.
+  The reality gate checks the exact reviewed difference set and current
+  unique-module counts. Consolidating compatibility imports is deferred until
+  the old tools clients and tests are migrated; no claim is made that duplicate
+  files were deleted.
 
 ## Verified public guide boundary
 
@@ -62,6 +66,8 @@ must update their reviewed inventories in the same change.
 The canonical `compiler/sotlas/cli.py` now contains release reports that are
 not mirrored by the historical `tools/sotlas/cli.py`; the CLI difference is
 reviewed and intentional while the `tools/` compatibility tree is retained.
+The packaged `compiler/sotlas/doctor.py` follows the same source-of-truth rule
+and is not mirrored into `tools/`.
 
 Phase 0's Sotlas 1.0 contract is complete. Physical consolidation of the
 historical compatibility tree and per-snippet promotion beyond the single
