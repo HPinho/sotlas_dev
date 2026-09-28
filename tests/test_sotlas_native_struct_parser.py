@@ -23,7 +23,7 @@ from sotlas_compile.bootstrap import PREAMBLE, compile_module, emit_c, parse
 
 class SotlasNativeAggregateParserTests(unittest.TestCase):
     @unittest.skipUnless(default_toolchain.is_available(), "native C toolchain unavailable")
-    def test_explicit_enum_and_semicolon_struct_fields_lower_to_c11(self):
+    def test_explicit_enum_struct_and_fixed_array_lower_to_c11(self):
         module_dir = ROOT / "bootstrap" / "sotlas" / "native_compiler"
         order = ("token", "ast", "lexer", "parser", "sema", "emitter_c", "main")
         modules = {
@@ -63,6 +63,7 @@ int main(int argc, char **argv) {
         " state: Choice;\n"
         " value: i32;\n"
         " next: u32;\n"
+        " bytes: [u8; 16];\n"
         "}\n";
     static const uint8_t comma_member[] =
         "module test::comma_member;\n"
@@ -96,6 +97,7 @@ int main(int argc, char **argv) {
         || strstr((const char *)output, "Choice state;") == NULL
         || strstr((const char *)output, "int32_t value;") == NULL
         || strstr((const char *)output, "uint32_t next;") == NULL
+        || strstr((const char *)output, "uint8_t bytes[16];") == NULL
         || strstr((const char *)output, "} Item;") == NULL) {
         fprintf(stderr, "generated aggregate declarations are incomplete\n");
         return 2;
