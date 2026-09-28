@@ -84,7 +84,9 @@ int main(void) {
     static const char valid[] =
         "module test::valid;\n"
         "struct Pair { a: i32; b: i32; }\n"
-        "pub fn make() -> Pair { return Pair { a: 0, b: 1 }; }\n";
+        "impl Pair {\n"
+        " pub fn make() -> Pair { return Pair { a: 0, b: 1 }; }\n"
+        "}\n";
 
     static const char unknown_field[] =
         "module test::unknown_field;\n"
