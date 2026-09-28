@@ -803,6 +803,31 @@ impl CEmitter {
         return self.type_ref_is_result(type_index);
     }
 
+    pub fn type_ref_is_plain_field_type(self: &Self, type_index: usize) -> bool {
+        if !self.valid_node(type_index) || self.source == null {
+            return false;
+        }
+        let typ: AstNode = unsafe { *(self.nodes + type_index) };
+        if typ.kind != AstKind::TypeRef || typ.str_len == 0 {
+            return false;
+        }
+        if typ.str_offset > self.source_len || typ.str_len > self.source_len - typ.str_offset {
+            return false;
+        }
+
+        let mut i: usize = 0;
+        while i < typ.str_len {
+            let ch: u8 = unsafe { *(self.source + typ.str_offset + i) };
+            let alpha: bool = (ch >= 65 && ch <= 90) || (ch >= 97 && ch <= 122);
+            let digit: bool = ch >= 48 && ch <= 57;
+            if !alpha && !digit && ch != 95 {
+                return false;
+            }
+            i = i + 1;
+        }
+        return true;
+    }
+
     pub fn emit_c_type(mut self: &mut Self, type_index: usize) -> bool {
         if !self.valid_node(type_index) {
             return false;
@@ -966,7 +991,6 @@ impl CEmitter {
         return self.write_str("return __sotlas_return_value;\n}\n", 32);
     }
 
-
     pub fn find_function_body(self: &Self, fn_index: usize) -> usize {
         if !self.valid_node(fn_index) {
             return 0;
@@ -1015,6 +1039,62 @@ impl CEmitter {
             return false;
         }
         return self.write_source_slice(param.str_offset, param.str_len);
+    }
+
+    pub fn emit_struct(mut self: &mut Self, struct_index: usize) -> bool {
+        if !self.valid_node(struct_index) {
+            return false;
+        }
+        let decl: AstNode = unsafe { *(self.nodes + struct_index) };
+        if decl.kind != AstKind::StructDecl || decl.str_len == 0 || decl.first_child == 0 {
+            return false;
+        }
+
+        if !self.write_str("typedef struct ", 15) {
+            return false;
+        }
+        if !self.write_source_slice(decl.str_offset, decl.str_len) {
+            return false;
+        }
+        if !self.write_str(" {\n", 3) {
+            return false;
+        }
+
+        let mut field_index: usize = decl.first_child;
+        while field_index != 0 {
+            if !self.valid_node(field_index) {
+                return false;
+            }
+            let field: AstNode = unsafe { *(self.nodes + field_index) };
+            if field.kind != AstKind::FieldDecl || field.str_len == 0
+                || !self.valid_node(field.first_child) {
+                return false;
+            }
+            let type_index: usize = field.first_child;
+            let typ: AstNode = unsafe { *(self.nodes + type_index) };
+            if typ.kind != AstKind::TypeRef || typ.next_sibling != 0
+                || !self.type_ref_is_plain_field_type(type_index) {
+                return false;
+            }
+            if !self.emit_c_type(type_index) || !self.write_byte(32) {
+                return false;
+            }
+            if !self.write_source_slice(field.str_offset, field.str_len) {
+                return false;
+            }
+            if !self.write_str(";\n", 2) {
+                return false;
+            }
+            field_index = field.next_sibling;
+        }
+
+        if !self.write_str("} ", 2) {
+            return false;
+        }
+        if !self.write_source_slice(decl.str_offset, decl.str_len) {
+            return false;
+        }
+        return self.write_str(";\n", 2);
     }
 
     pub fn emit_function(mut self: &mut Self, fn_index: usize) -> bool {
@@ -1482,6 +1562,13 @@ impl CEmitter {
             if node.kind == AstKind::Import {
                 // Native imports are resolved by the compiler/module graph;
                 // they do not become textual C preprocessor includes here.
+            } else if node.kind == AstKind::StructDecl {
+                if !self.emit_struct(child) {
+                    return false;
+                }
+                if !self.write_byte(10) {
+                    return false;
+                }
             } else if node.kind == AstKind::FnDecl {
                 if !self.emit_function(child) {
                     return false;
