@@ -139,6 +139,257 @@ pub fn native_static_method_is_unique(
     return true;
 }
 
+pub fn native_path_matches_static_method(
+    emitter: &CEmitter,
+    path_index: usize,
+    impl_index: usize,
+    method_index: usize
+) -> bool {
+    if !emitter.valid_node(path_index) || !emitter.valid_node(impl_index)
+        || !emitter.valid_node(method_index) || emitter.source == null {
+        return false;
+    }
+    let path: AstNode = unsafe { *(emitter.nodes + path_index) };
+    let impl_node: AstNode = unsafe { *(emitter.nodes + impl_index) };
+    let method: AstNode = unsafe { *(emitter.nodes + method_index) };
+    if path.kind != AstKind::ExprPath || path.str_len == 0
+        || impl_node.kind != AstKind::ImplDecl || impl_node.str_len == 0
+        || method.kind != AstKind::FnDecl || method.str_len == 0
+        || method.parent != impl_index
+        || path.str_offset > emitter.source_len
+        || path.str_len > emitter.source_len - path.str_offset {
+        return false;
+    }
+
+    let mut path_pos: usize = 0;
+    while path_pos < path.str_len {
+        let ch: u8 = unsafe { *(emitter.source + path.str_offset + path_pos) };
+        if ch == 32 || ch == 9 || ch == 10 || ch == 13 {
+            path_pos = path_pos + 1;
+        } else {
+            break;
+        }
+    }
+
+    let mut name_pos: usize = 0;
+    while name_pos < impl_node.str_len {
+        if path_pos >= path.str_len {
+            return false;
+        }
+        let have: u8 = unsafe { *(emitter.source + path.str_offset + path_pos) };
+        let want: u8 = unsafe { *(emitter.source + impl_node.str_offset + name_pos) };
+        if have != want {
+            return false;
+        }
+        path_pos = path_pos + 1;
+        name_pos = name_pos + 1;
+    }
+
+    while path_pos < path.str_len {
+        let ch: u8 = unsafe { *(emitter.source + path.str_offset + path_pos) };
+        if ch == 32 || ch == 9 || ch == 10 || ch == 13 {
+            path_pos = path_pos + 1;
+        } else {
+            break;
+        }
+    }
+    if path_pos + 1 >= path.str_len
+        || unsafe { *(emitter.source + path.str_offset + path_pos) } != 58
+        || unsafe { *(emitter.source + path.str_offset + path_pos + 1) } != 58 {
+        return false;
+    }
+    path_pos = path_pos + 2;
+
+    while path_pos < path.str_len {
+        let ch: u8 = unsafe { *(emitter.source + path.str_offset + path_pos) };
+        if ch == 32 || ch == 9 || ch == 10 || ch == 13 {
+            path_pos = path_pos + 1;
+        } else {
+            break;
+        }
+    }
+
+    name_pos = 0;
+    while name_pos < method.str_len {
+        if path_pos >= path.str_len {
+            return false;
+        }
+        let have: u8 = unsafe { *(emitter.source + path.str_offset + path_pos) };
+        let want: u8 = unsafe { *(emitter.source + method.str_offset + name_pos) };
+        if have != want {
+            return false;
+        }
+        path_pos = path_pos + 1;
+        name_pos = name_pos + 1;
+    }
+
+    while path_pos < path.str_len {
+        let ch: u8 = unsafe { *(emitter.source + path.str_offset + path_pos) };
+        if ch == 32 || ch == 9 || ch == 10 || ch == 13 {
+            path_pos = path_pos + 1;
+        } else {
+            return false;
+        }
+    }
+    return true;
+}
+
+pub fn native_find_static_impl_method_for_path(
+    emitter: &CEmitter,
+    module_index: usize,
+    path_index: usize
+) -> usize {
+    if !emitter.valid_node(module_index) || !emitter.valid_node(path_index) {
+        return 0;
+    }
+    let module_node: AstNode = unsafe { *(emitter.nodes + module_index) };
+    if module_node.kind != AstKind::Module {
+        return 0;
+    }
+
+    let mut found: usize = 0;
+    let mut declaration_index: usize = module_node.first_child;
+    while declaration_index != 0 {
+        if !emitter.valid_node(declaration_index) {
+            return 0;
+        }
+        let declaration: AstNode = unsafe { *(emitter.nodes + declaration_index) };
+        if declaration.kind == AstKind::ImplDecl
+            && native_impl_target_is_declared(emitter, module_index, declaration_index) {
+            let mut method_index: usize = declaration.first_child;
+            while method_index != 0 {
+                if !emitter.valid_node(method_index) {
+                    return 0;
+                }
+                let method: AstNode = unsafe { *(emitter.nodes + method_index) };
+                if method.kind == AstKind::FnDecl
+                    && native_path_matches_static_method(
+                        emitter, path_index, declaration_index, method_index
+                    ) {
+                    if found != 0 {
+                        return 0;
+                    }
+                    found = method_index;
+                }
+                method_index = method.next_sibling;
+            }
+        }
+        declaration_index = declaration.next_sibling;
+    }
+    return found;
+}
+
+pub fn native_static_impl_method_has_receiver(
+    emitter: &CEmitter,
+    method_index: usize
+) -> bool {
+    if !emitter.valid_node(method_index) {
+        return true;
+    }
+    let method: AstNode = unsafe { *(emitter.nodes + method_index) };
+    if method.kind != AstKind::FnDecl {
+        return true;
+    }
+    let mut child: usize = method.first_child;
+    while child != 0 {
+        if !emitter.valid_node(child) {
+            return true;
+        }
+        let node: AstNode = unsafe { *(emitter.nodes + child) };
+        if node.kind == AstKind::ParamDecl
+            && emitter.source_slice_equals(node.str_offset, node.str_len, "self", 4) {
+            return true;
+        }
+        child = node.next_sibling;
+    }
+    return false;
+}
+
+pub fn native_static_impl_call_arity_matches(
+    emitter: &CEmitter,
+    call_index: usize,
+    method_index: usize
+) -> bool {
+    if !emitter.valid_node(call_index) || !emitter.valid_node(method_index) {
+        return false;
+    }
+    let call: AstNode = unsafe { *(emitter.nodes + call_index) };
+    let method: AstNode = unsafe { *(emitter.nodes + method_index) };
+    if call.kind != AstKind::ExprCall || !emitter.valid_node(call.first_child)
+        || method.kind != AstKind::FnDecl {
+        return false;
+    }
+
+    let callee: AstNode = unsafe { *(emitter.nodes + call.first_child) };
+    if callee.kind != AstKind::ExprPath {
+        return false;
+    }
+
+    let mut expected: usize = 0;
+    let mut child: usize = method.first_child;
+    while child != 0 {
+        if !emitter.valid_node(child) {
+            return false;
+        }
+        let node: AstNode = unsafe { *(emitter.nodes + child) };
+        if node.kind == AstKind::ParamDecl {
+            expected = expected + 1;
+        }
+        child = node.next_sibling;
+    }
+
+    let mut actual: usize = 0;
+    child = callee.next_sibling;
+    while child != 0 {
+        if !emitter.valid_node(child) {
+            return false;
+        }
+        let node: AstNode = unsafe { *(emitter.nodes + child) };
+        actual = actual + 1;
+        child = node.next_sibling;
+    }
+    return actual == expected;
+}
+
+pub fn native_validate_static_impl_calls(
+    sem: &mut Sema,
+    emitter: &CEmitter,
+    module_index: usize
+) -> bool {
+    if !emitter.valid_node(module_index) {
+        sem.error_count = sem.error_count + 1;
+        return false;
+    }
+
+    let mut node_index: usize = 1;
+    while node_index < emitter.node_count {
+        let node: AstNode = unsafe { *(emitter.nodes + node_index) };
+        if node.kind == AstKind::ExprCall && emitter.valid_node(node.first_child) {
+            let callee: AstNode = unsafe { *(emitter.nodes + node.first_child) };
+            if callee.kind == AstKind::ExprPath {
+                // Result constructors have a dedicated native ABI/lowering.
+                if emitter.result_constructor_kind(node_index) == 0 {
+                    let method_index: usize = native_find_static_impl_method_for_path(
+                        emitter, module_index, node.first_child
+                    );
+                    if method_index == 0
+                        || native_static_impl_method_has_receiver(emitter, method_index)
+                        || !native_static_impl_call_arity_matches(
+                            emitter, node_index, method_index
+                        ) {
+                        sem.error_count = sem.error_count + 1;
+                        sem.error_line = callee.span.line;
+                        sem.error_col = callee.span.col;
+                        return false;
+                    }
+                }
+            }
+        }
+        node_index = node_index + 1;
+    }
+    return true;
+}
+
 pub fn emit_native_static_impl_function(
     emitter: &mut CEmitter,
     impl_index: usize,
@@ -426,6 +677,21 @@ pub fn sotlas_native_compile_diagnostic(
         node_ptr,
         p.node_count
     );
+
+    // The bounded static-impl call contract is checked before any C output is
+    // emitted.  This keeps path resolution semantic: a qualified call must
+    // resolve to one declared type, one impl method, no receiver, and exact
+    // arity.  Result::Ok/Err remains on its dedicated ABI path.
+    if !native_validate_static_impl_calls(&mut sem, &emitter, module_node) {
+        if error_line != null {
+            unsafe { *error_line = sem.error_line; }
+        }
+        if error_col != null {
+            unsafe { *error_col = sem.error_col; }
+        }
+        return 0;
+    }
+
     if !emitter.emit_header() {
         return 0;
     }
