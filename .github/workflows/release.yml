@@ -69,6 +69,7 @@ jobs:
         $oldPythonPath = $env:PYTHONPATH
         $env:PYTHONPATH = $target
         python -m sotlas.cli version
+        python -m sotlas.doctor --json
         python -m sotlas.cli check examples/01_hello_systems/main.sotlas
         if ($LASTEXITCODE -ne 0) { throw "Wheel smoke test failed" }
         $env:PYTHONPATH = $oldPythonPath
