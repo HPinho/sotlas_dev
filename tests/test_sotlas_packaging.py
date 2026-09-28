@@ -1,5 +1,6 @@
 """Testes do sistema de empacotamento, distribuição e instalação oficial do Sotlas."""
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -107,9 +108,14 @@ class TestSotlasPackaging(unittest.TestCase):
             self.assertTrue(any(dist_dir.glob("*.zip")), "Arquivo .zip deve ser gerado")
             self.assertTrue(any(dist_dir.glob("*.tar.gz")), "Arquivo .tar.gz deve ser gerado")
             self.assertTrue(
-                (dist_dir / "SHA256SUMS.txt").is_file(),
-                "SHA256SUMS.txt deve ser gerado",
+                any(dist_dir.glob("sotlas-v*-macos-x64.tar.gz")),
+                "Bundle macOS x64 do preview deve ser gerado",
             )
+            checksum_path = dist_dir / "SHA256SUMS.txt"
+            self.assertTrue(checksum_path.is_file(), "SHA256SUMS.txt deve ser gerado")
+            checksums = checksum_path.read_text(encoding="utf-8")
+            self.assertIn("macos-x64.tar.gz", checksums)
+
             bundle_zip = next(dist_dir.glob("*.zip"))
             with zipfile.ZipFile(bundle_zip) as archive:
                 entries = archive.namelist()
@@ -117,6 +123,7 @@ class TestSotlasPackaging(unittest.TestCase):
                 any("/web/node_modules/" in entry.replace("\\", "/") for entry in entries),
                 "Development dependencies must not be copied into release bundles",
             )
+
             windows_bundle = next(dist_dir.glob("sotlas-v*-windows-x64"))
             manifest_path = windows_bundle / "sotlas-toolchain.json"
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -125,6 +132,40 @@ class TestSotlasPackaging(unittest.TestCase):
                 manifest["components"],
                 ["python-compiler", "cli", "standard-library", "web-source"],
             )
+
+            canonical = windows_bundle / "compiler" / "sotlas_compile" / "bootstrap.py"
+            historical = windows_bundle / "tools" / "sotlas_compile" / "bootstrap.py"
+            self.assertTrue(canonical.is_file(), "bundle deve conter frontend canônico")
+            self.assertTrue(historical.is_file(), "espelho histórico deve permanecer compatível")
+            self.assertEqual(
+                canonical.read_bytes(),
+                (ROOT / "compiler" / "sotlas_compile" / "bootstrap.py").read_bytes(),
+            )
+
+            env = os.environ.copy()
+            env["PYTHONPATH"] = os.pathsep.join(
+                [str(windows_bundle / "compiler"), str(windows_bundle / "tools")]
+            )
+            probe = subprocess.run(
+                [
+                    sys.executable,
+                    "-c",
+                    (
+                        "from pathlib import Path; "
+                        "from sotlas.llvm_toolchain import canonical_llvm_frontend; "
+                        "m=canonical_llvm_frontend(); print(Path(m.__file__).resolve())"
+                    ),
+                ],
+                cwd=windows_bundle,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(probe.returncode, 0, probe.stdout + probe.stderr)
+            resolved = probe.stdout.strip().replace("\\", "/")
+            self.assertIn("/compiler/sotlas_compile/bootstrap.py", resolved)
+            self.assertNotIn("/tools/sotlas_compile/bootstrap.py", resolved)
 
 if __name__ == "__main__":
     unittest.main()
