@@ -108,8 +108,9 @@ class SotlasDoctorTests(unittest.TestCase):
             decoded = json.loads(stdout.getvalue())
             self.assertEqual(decoded["sotlas_version"], "1.0.0rc1")
             self.assertTrue(decoded["core_ready"])
-            self.assertEqual(doctor.main(["--require-native"]), 2)
-            self.assertEqual(doctor.main(["--require-llvm"]), 3)
+            with patch("sys.stdout", io.StringIO()):
+                self.assertEqual(doctor.main(["--json", "--require-native"]), 2)
+                self.assertEqual(doctor.main(["--json", "--require-llvm"]), 3)
 
     def test_pyproject_exposes_doctor_console_script(self):
         pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
