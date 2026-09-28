@@ -1041,6 +1041,76 @@ impl CEmitter {
         return self.write_source_slice(param.str_offset, param.str_len);
     }
 
+    pub fn emit_enum(mut self: &mut Self, enum_index: usize) -> bool {
+        if !self.valid_node(enum_index) {
+            return false;
+        }
+        let decl: AstNode = unsafe { *(self.nodes + enum_index) };
+        if decl.kind != AstKind::EnumDecl || decl.str_len == 0 || decl.first_child == 0 {
+            return false;
+        }
+
+        if !self.write_str("typedef enum ", 13) {
+            return false;
+        }
+        if !self.write_source_slice(decl.str_offset, decl.str_len) {
+            return false;
+        }
+        if !self.write_str(" {\n", 3) {
+            return false;
+        }
+
+        let mut variant_index: usize = decl.first_child;
+        while variant_index != 0 {
+            if !self.valid_node(variant_index) {
+                return false;
+            }
+            let variant: AstNode = unsafe { *(self.nodes + variant_index) };
+            if variant.kind != AstKind::EnumVariant || variant.str_len == 0
+                || !self.valid_node(variant.first_child) {
+                return false;
+            }
+            let value_index: usize = variant.first_child;
+            let value: AstNode = unsafe { *(self.nodes + value_index) };
+            if value.kind != AstKind::ExprLiteral || value.next_sibling != 0 {
+                return false;
+            }
+
+            if !self.write_source_slice(decl.str_offset, decl.str_len) {
+                return false;
+            }
+            if !self.write_byte(95) {
+                return false;
+            }
+            if !self.write_source_slice(variant.str_offset, variant.str_len) {
+                return false;
+            }
+            if !self.write_str(" = ", 3) {
+                return false;
+            }
+            if !self.emit_expression(value_index) {
+                return false;
+            }
+
+            variant_index = variant.next_sibling;
+            if variant_index != 0 {
+                if !self.write_str(",\n", 2) {
+                    return false;
+                }
+            } else if !self.write_byte(10) {
+                return false;
+            }
+        }
+
+        if !self.write_str("} ", 2) {
+            return false;
+        }
+        if !self.write_source_slice(decl.str_offset, decl.str_len) {
+            return false;
+        }
+        return self.write_str(";\n", 2);
+    }
+
     pub fn emit_struct(mut self: &mut Self, struct_index: usize) -> bool {
         if !self.valid_node(struct_index) {
             return false;
@@ -1562,6 +1632,13 @@ impl CEmitter {
             if node.kind == AstKind::Import {
                 // Native imports are resolved by the compiler/module graph;
                 // they do not become textual C preprocessor includes here.
+            } else if node.kind == AstKind::EnumDecl {
+                if !self.emit_enum(child) {
+                    return false;
+                }
+                if !self.write_byte(10) {
+                    return false;
+                }
             } else if node.kind == AstKind::StructDecl {
                 if !self.emit_struct(child) {
                     return false;
