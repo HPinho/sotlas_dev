@@ -160,12 +160,13 @@ impl Parser {
         let type_start: Token = self.current();
         let mut type_end: Token = type_start;
         let mut angle_depth: i64 = 0;
+        let mut bracket_depth: i64 = 0;
         let mut consumed: bool = false;
 
         while !self.is_at_end() {
             let kind: TokenKind = self.current().kind;
 
-            if angle_depth == 0 {
+            if angle_depth == 0 && bracket_depth == 0 {
                 if context == 1
                     && (kind == TokenKind::Equal || kind == TokenKind::SemiColon) {
                     break;
@@ -176,6 +177,10 @@ impl Parser {
                 }
                 if context == 3
                     && (kind == TokenKind::OpenBrace || kind == TokenKind::SemiColon) {
+                    break;
+                }
+                if context == 4
+                    && (kind == TokenKind::SemiColon || kind == TokenKind::Comma || kind == TokenKind::CloseBrace) {
                     break;
                 }
             }
@@ -192,13 +197,20 @@ impl Parser {
                     return 0;
                 }
                 angle_depth = angle_depth - 2;
+            } else if kind == TokenKind::OpenBracket {
+                bracket_depth = bracket_depth + 1;
+            } else if kind == TokenKind::CloseBracket {
+                if bracket_depth == 0 {
+                    return 0;
+                }
+                bracket_depth = bracket_depth - 1;
             }
 
             type_end = self.advance();
             consumed = true;
         }
 
-        if !consumed || angle_depth != 0 {
+        if !consumed || angle_depth != 0 || bracket_depth != 0 {
             return 0;
         }
 
@@ -616,7 +628,6 @@ impl Parser {
             if defer_node == 0 {
                 return 0;
             }
-
             let mut payload_node: usize = 0;
             if self.match_token(TokenKind::OpenBrace) {
                 payload_node = self.parse_block();
@@ -748,12 +759,64 @@ impl Parser {
             }
             if self.match_token(TokenKind::OpenBrace) {
                 self.advance();
-                if !self.match_token(TokenKind::CloseBrace) {
-                    // Aggregate members are not represented by the bootstrap AST.
-                    self.reject_current();
-                    return 0;
+                if inner.kind == TokenKind::KwStruct {
+                    while !self.is_at_end() && !self.match_token(TokenKind::CloseBrace) {
+                        if self.match_token(TokenKind::KwPub) {
+                            self.advance();
+                        }
+                        let field_name: Token = self.current();
+                        if field_name.kind != TokenKind::Ident {
+                            self.reject_current();
+                            return 0;
+                        }
+                        self.advance();
+
+                        let field_node: usize = self.alloc_node(AstKind::FieldDecl, field_name.span);
+                        if field_node == 0 || !self.set_node_text(field_node, field_name) {
+                            return 0;
+                        }
+                        if !self.match_token(TokenKind::Colon) {
+                            self.reject_current();
+                            return 0;
+                        }
+                        self.advance();
+                        if self.is_at_end()
+                            || self.match_token(TokenKind::SemiColon)
+                            || self.match_token(TokenKind::Comma)
+                            || self.match_token(TokenKind::CloseBrace) {
+                            self.reject_current();
+                            return 0;
+                        }
+
+                        let field_type: usize = self.parse_type_ref(4);
+                        if field_type == 0 || !self.append_child(field_node, field_type) {
+                            return 0;
+                        }
+                        if !self.match_token(TokenKind::SemiColon) {
+                            if self.error_count == 0 {
+                                self.error_line = field_name.span.line;
+                                self.error_col = field_name.span.col;
+                            }
+                            self.error_count = self.error_count + 1;
+                            return 0;
+                        }
+                        self.advance();
+                        if !self.append_child(struct_node, field_node) {
+                            return 0;
+                        }
+                    }
+                    if !self.match_token(TokenKind::CloseBrace) {
+                        return 0;
+                    }
+                    self.advance();
+                } else {
+                    if !self.match_token(TokenKind::CloseBrace) {
+                        // Mesh/spec members remain outside this native subset.
+                        self.reject_current();
+                        return 0;
+                    }
+                    self.advance();
                 }
-                self.expect(TokenKind::CloseBrace);
             }
             return struct_node;
         } else if inner.kind == TokenKind::KwEnum {
@@ -769,7 +832,7 @@ impl Parser {
             if self.match_token(TokenKind::OpenBrace) {
                 self.advance();
                 if !self.match_token(TokenKind::CloseBrace) {
-                    // Enum variants are not represented by the bootstrap AST.
+                    // Enum variants are not represented by the bootstrap AST yet.
                     self.reject_current();
                     return 0;
                 }
