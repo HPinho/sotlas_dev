@@ -31,6 +31,7 @@ dependencies = []
 sotlas = "sotlas.cli:main"
 sotlasc = "sotlas.cli:main"
 sotlas-lsp = "sotlas_compile.lsp:main"
+sotlas-doctor = "sotlas.doctor:main"
 
 [tool.setuptools]
 package-dir = {"" = "compiler"}
