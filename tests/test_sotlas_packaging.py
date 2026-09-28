@@ -134,8 +134,25 @@ class TestSotlasPackaging(unittest.TestCase):
             self.assertEqual(manifest["release"], "preview")
             self.assertEqual(
                 manifest["components"],
-                ["python-compiler", "cli", "standard-library", "web-source"],
+                [
+                    "python-compiler",
+                    "cli",
+                    "standard-library",
+                    "web-source",
+                    "examples",
+                    "documentation",
+                ],
             )
+            self.assertTrue(
+                (windows_bundle / "examples" / "01_hello_systems" / "main.sotlas").is_file(),
+                "bundle deve conter o quickstart público",
+            )
+            self.assertTrue(
+                (windows_bundle / "docs" / "sotlas_1_0_release_scope.md").is_file(),
+                "bundle deve conter documentação do escopo do preview",
+            )
+            self.assertTrue((windows_bundle / "README.pt-BR.md").is_file())
+            self.assertTrue((windows_bundle / "CHANGELOG.md").is_file())
 
             canonical = windows_bundle / "compiler" / "sotlas_compile" / "bootstrap.py"
             historical = windows_bundle / "tools" / "sotlas_compile" / "bootstrap.py"
@@ -209,9 +226,12 @@ class TestSotlasPackaging(unittest.TestCase):
                 self.assertTrue(
                     (install_dir / "compiler" / "sotlas_compile" / "bootstrap.py").is_file()
                 )
+                self.assertTrue(
+                    (install_dir / "examples" / "01_hello_systems" / "main.sotlas").is_file()
+                )
                 launcher = subprocess.run(
                     [str(install_dir / "bin" / "sotlas"), "version"],
-                    cwd=tmp_root,
+                    cwd=install_dir,
                     env=installer_env,
                     capture_output=True,
                     text=True,
@@ -219,6 +239,24 @@ class TestSotlasPackaging(unittest.TestCase):
                 )
                 self.assertEqual(launcher.returncode, 0, launcher.stdout + launcher.stderr)
                 self.assertIn("Sotlas 1.0.0rc1", launcher.stdout)
+
+                quickstart = subprocess.run(
+                    [
+                        str(install_dir / "bin" / "sotlas"),
+                        "check",
+                        "examples/01_hello_systems/main.sotlas",
+                    ],
+                    cwd=install_dir,
+                    env=installer_env,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(
+                    quickstart.returncode,
+                    0,
+                    f"quickstart empacotado falhou:\n{quickstart.stdout}\n{quickstart.stderr}",
+                )
 
 if __name__ == "__main__":
     unittest.main()
