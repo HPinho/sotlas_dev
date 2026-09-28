@@ -7,16 +7,16 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Versão do Release (ex: 0.2.0)"
+        description: "Versão do preview (ex: 1.0.0rc1)"
         required: true
-        default: "0.2.0"
+        default: "1.0.0rc1"
 
 permissions:
   contents: write
 
 jobs:
   build-packages:
-    name: Build Toolchain Packages
+    name: Build Preview Toolchain Packages
     runs-on: windows-latest
 
     steps:
@@ -28,9 +28,63 @@ jobs:
       with:
         python-version: "3.12"
 
-    - name: Run packaging script
+    - name: Verify requested release version
+      shell: pwsh
       run: |
-        python packaging/package.py --target all
+        $runtimeVersion = python -c "import sys; sys.path.insert(0, 'compiler'); import sotlas; print(sotlas.SOTLAS_VERSION)"
+        if ("${{ github.event_name }}" -eq "push") {
+          $requestedVersion = "${{ github.ref_name }}"
+          if ($requestedVersion.StartsWith("v")) {
+            $requestedVersion = $requestedVersion.Substring(1)
+          }
+        } else {
+          $requestedVersion = "${{ inputs.version }}"
+        }
+        if ($requestedVersion -ne $runtimeVersion) {
+          throw "Release version mismatch: requested=$requestedVersion runtime=$runtimeVersion"
+        }
+        "RELEASE_VERSION=$runtimeVersion" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+        Write-Host "Validated Sotlas preview version $runtimeVersion"
+
+    - name: Run packaging script
+      shell: pwsh
+      run: |
+        python packaging/package.py --target all --version "$env:RELEASE_VERSION"
+
+    - name: Build Python wheel and source archive
+      shell: pwsh
+      run: |
+        python -m pip install --upgrade build
+        python -m build . --outdir dist
+
+    - name: Smoke-test built Python wheel
+      shell: pwsh
+      run: |
+        $wheel = Get-ChildItem dist\sotlas-*.whl | Select-Object -First 1
+        if (-not $wheel) { throw "Python wheel was not produced" }
+        $target = Join-Path $env:RUNNER_TEMP "sotlas-wheel-smoke"
+        python -m pip install --no-deps --target $target $wheel.FullName
+        $oldPythonPath = $env:PYTHONPATH
+        $env:PYTHONPATH = $target
+        python -m sotlas.cli version
+        python -m sotlas.cli check examples/01_hello_systems/main.sotlas
+        if ($LASTEXITCODE -ne 0) { throw "Wheel smoke test failed" }
+        $env:PYTHONPATH = $oldPythonPath
+
+    - name: Verify portable preview artifact set
+      shell: pwsh
+      run: |
+        $required = @(
+          "sotlas-v$env:RELEASE_VERSION-windows-x64.zip",
+          "sotlas-v$env:RELEASE_VERSION-linux-x64.tar.gz",
+          "sotlas-v$env:RELEASE_VERSION-macos-x64.tar.gz"
+        )
+        foreach ($name in $required) {
+          $path = Join-Path "dist" $name
+          if (-not (Test-Path $path)) {
+            throw "Missing required preview artifact: $name"
+          }
+        }
 
     - name: Compile Inno Setup Windows Installer
       uses: Min-Feng/action-innosetup@v1
@@ -38,24 +92,31 @@ jobs:
         iss: packaging/windows/sotlas.iss
       continue-on-error: true
 
-    - name: Update Checksums with Inno Setup installer
+    - name: Rebuild release checksums
       shell: pwsh
       run: |
-        Get-ChildItem dist\*.exe, dist\*.zip, dist\*.tar.gz | ForEach-Object {
+        $patterns = @("dist\*.exe", "dist\*.zip", "dist\*.tar.gz", "dist\*.whl")
+        $files = foreach ($pattern in $patterns) {
+          Get-ChildItem $pattern -ErrorAction SilentlyContinue
+        }
+        if (-not $files) { throw "No release artifacts found for checksums" }
+        $files | Sort-Object Name -Unique | ForEach-Object {
           $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
           "$hash  $($_.Name)"
         } | Out-File -Encoding utf8 dist\SHA256SUMS.txt
 
-    - name: Create GitHub Release
+    - name: Create GitHub Preview Release
       uses: softprops/action-gh-release@v2
       with:
+        name: "Sotlas v${{ env.RELEASE_VERSION }} Preview"
         files: |
           dist/*.zip
           dist/*.tar.gz
+          dist/*.whl
           dist/*.exe
           dist/SHA256SUMS.txt
           packaging/install.ps1
           packaging/install.sh
         draft: false
-        prerelease: false
+        prerelease: true
         generate_release_notes: true
