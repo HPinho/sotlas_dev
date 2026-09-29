@@ -13,6 +13,57 @@ pub const AST_NODE_BUFFER_CAPACITY: usize = 65536;
 static mut g_token_buffer: [Token; 32768] = 0;
 static mut g_ast_node_buffer: [AstNode; 65536] = 0;
 
+pub fn backfill_decimal_float_literal_slices(
+    nodes: *mut AstNode,
+    node_count: usize,
+    source: *const u8,
+    source_len: usize
+) -> bool {
+    if nodes == null || source == null {
+        return false;
+    }
+    let mut node_index: usize = 1;
+    while node_index < node_count {
+        let mut node: AstNode = unsafe { *(nodes + node_index) };
+        if node.kind == AstKind::ExprLiteral && node.str_len == 0
+            && node.span.length >= 3
+            && node.span.offset <= source_len
+            && node.span.length <= source_len - node.span.offset {
+            let mut i: usize = 0;
+            let mut saw_dot: bool = false;
+            let mut digit_before_dot: bool = false;
+            let mut digit_after_dot: bool = false;
+            let mut valid: bool = true;
+            while i < node.span.length {
+                let ch: u8 = unsafe { *(source + node.span.offset + i) };
+                if ch >= 48 && ch <= 57 {
+                    if !saw_dot {
+                        digit_before_dot = true;
+                    } else {
+                        digit_after_dot = true;
+                    }
+                } else if ch == 95 {
+                    // Numeric separator; CEmitter canonicalizes it for C11.
+                } else if ch == 46 && !saw_dot {
+                    saw_dot = true;
+                } else {
+                    valid = false;
+                }
+                i = i + 1;
+            }
+            if valid && saw_dot && digit_before_dot && digit_after_dot {
+                node.str_offset = node.span.offset;
+                node.str_len = node.span.length;
+                unsafe {
+                    *(nodes + node_index) = node;
+                }
+            }
+        }
+        node_index = node_index + 1;
+    }
+    return true;
+}
+
 pub fn native_numeric_literal_kind(
     nodes: *const AstNode,
     node_count: usize,
@@ -430,6 +481,11 @@ pub fn sotlas_native_compile_diagnostic(
                 unsafe { *error_col = p.error_col; }
             }
         }
+        return 0;
+    }
+    if !backfill_decimal_float_literal_slices(
+        node_ptr, p.node_count, source, len
+    ) {
         return 0;
     }
 
