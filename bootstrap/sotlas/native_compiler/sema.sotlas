@@ -1098,6 +1098,68 @@ impl Sema {
         return true;
     }
 
+    pub fn check_static_impl_call_argument_types(
+        mut self: &mut Self,
+        nodes: *const AstNode,
+        node_count: usize,
+        call_index: usize,
+        method_index: usize,
+        source: *const u8,
+        source_len: usize
+    ) -> bool {
+        if nodes == null || call_index == 0 || method_index == 0
+            || call_index >= node_count || method_index >= node_count {
+            self.error_count = self.error_count + 1;
+            return false;
+        }
+        let call: AstNode = unsafe { *(nodes + call_index) };
+        let method: AstNode = unsafe { *(nodes + method_index) };
+        if call.kind != AstKind::ExprCall || call.first_child == 0
+            || call.first_child >= node_count || method.kind != AstKind::FnDecl {
+            return false;
+        }
+        let callee: AstNode = unsafe { *(nodes + call.first_child) };
+        if callee.kind != AstKind::ExprPath {
+            return false;
+        }
+
+        let mut parameter_index: usize = method.first_child;
+        let mut argument_index: usize = callee.next_sibling;
+        while parameter_index != 0 {
+            if parameter_index >= node_count {
+                self.error_count = self.error_count + 1;
+                return false;
+            }
+            let parameter: AstNode = unsafe { *(nodes + parameter_index) };
+            if parameter.kind == AstKind::ParamDecl {
+                if argument_index == 0 || argument_index >= node_count {
+                    return true; // Arity is owned by the qualified-call check.
+                }
+                let argument: AstNode = unsafe { *(nodes + argument_index) };
+                let expected_type: usize = self.binding_type_ref(
+                    nodes, node_count, parameter_index
+                );
+                let errors_before: usize = self.error_count;
+                let actual_type: usize = self.infer_expression_type_ref(
+                    nodes, node_count, argument_index, source, source_len
+                );
+                if self.error_count != errors_before {
+                    return false;
+                }
+                if expected_type != 0 && actual_type != 0 {
+                    let expected: AstNode = unsafe { *(nodes + expected_type) };
+                    let actual: AstNode = unsafe { *(nodes + actual_type) };
+                    if !self.same_source_text(source, source_len, expected, actual) {
+                        return self.reject_node(argument);
+                    }
+                }
+                argument_index = argument.next_sibling;
+            }
+            parameter_index = parameter.next_sibling;
+        }
+        return true;
+    }
+
     pub fn check_qualified_static_call(
         mut self: &mut Self,
         nodes: *const AstNode,
@@ -1144,6 +1206,16 @@ impl Sema {
                 nodes, node_count, call_index, method_index
             ) {
             return self.reject_node(callee);
+        }
+        if !self.check_static_impl_call_argument_types(
+            nodes,
+            node_count,
+            call_index,
+            method_index,
+            source,
+            source_len
+        ) {
+            return false;
         }
         return true;
     }
@@ -1679,12 +1751,34 @@ impl Sema {
                 return 0;
             }
             let callee: AstNode = unsafe { *(nodes + expression.first_child) };
-            if callee.kind != AstKind::ExprIdent {
+            let mut function_index: usize = 0;
+            if callee.kind == AstKind::ExprIdent {
+                function_index = self.find_module_function(
+                    nodes, node_count, expression.first_child, source, source_len
+                );
+            } else if callee.kind == AstKind::ExprPath {
+                if self.result_constructor_kind(
+                    nodes, node_count, expression_index, source, source_len
+                ) != 0 {
+                    return 0;
+                }
+                let module_index: usize = self.find_enclosing_module(
+                    nodes, node_count, expression_index
+                );
+                if module_index == 0 {
+                    return 0;
+                }
+                function_index = self.find_static_impl_method_for_path(
+                    nodes,
+                    node_count,
+                    module_index,
+                    expression.first_child,
+                    source,
+                    source_len
+                );
+            } else {
                 return 0;
             }
-            let function_index: usize = self.find_module_function(
-                nodes, node_count, expression.first_child, source, source_len
-            );
             if function_index == 0 {
                 return 0;
             }
