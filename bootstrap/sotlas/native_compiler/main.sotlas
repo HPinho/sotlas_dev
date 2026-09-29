@@ -309,7 +309,7 @@ pub fn native_numeric_expected_type(
 }
 
 pub fn check_native_contextual_numeric_literals(
-    mut sem: &mut Sema,
+    sem: &mut Sema,
     nodes: *const AstNode,
     node_count: usize,
     source: *const u8,
