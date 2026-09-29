@@ -25,6 +25,28 @@ class SotlasNativeStaticImplCallSemanticsTests(unittest.TestCase):
     @unittest.skipUnless(default_toolchain.is_available(), "native C toolchain unavailable")
     def test_qualified_static_calls_resolve_lower_and_execute(self):
         module_dir = ROOT / "bootstrap" / "sotlas" / "native_compiler"
+        main_text = (module_dir / "main.sotlas").read_text(encoding="utf-8")
+        emitter_text = (module_dir / "emitter_c.sotlas").read_text(encoding="utf-8")
+
+        # Static impl lowering belongs to the canonical emitter. The bootstrap
+        # entrypoint may still keep the bounded semantic guard until that
+        # resolver moves into Sema, but it must not rewrite source/AST or own a
+        # parallel emitter path again.
+        self.assertNotIn("LOWERED_SOURCE_BUFFER_CAPACITY", main_text)
+        self.assertNotIn("g_lowered_source_buffer", main_text)
+        self.assertNotIn("lower_native_static_impl_calls_to_c_symbols", main_text)
+        self.assertNotIn("emit_native_static_impl_function", main_text)
+        self.assertNotIn("emit_native_impl", main_text)
+        self.assertNotIn("emit_native_module", main_text)
+        self.assertNotIn("native_module_has_impl", main_text)
+        self.assertIn("pub fn native_validate_static_impl_calls", main_text)
+        self.assertIn("pub fn find_static_impl_method_for_path", emitter_text)
+        self.assertIn("pub fn emit_static_impl_symbol", emitter_text)
+        self.assertIn("pub fn emit_impl", emitter_text)
+        self.assertIn("self.find_static_impl_method_for_path(callee)", emitter_text)
+        self.assertIn("self.emit_static_impl_symbol(method_index)", emitter_text)
+        self.assertIn("self.emit_impl(child)", emitter_text)
+
         order = ("token", "ast", "lexer", "parser", "sema", "emitter_c", "main")
         modules = {
             path.stem: parse(path.read_text(encoding="utf-8"), filename=str(path))
@@ -63,8 +85,9 @@ int main(int argc, char **argv) {
         "struct Counter { value: i32; }\n"
         "impl Counter {\n"
         " pub fn add(left: i32, right: i32) -> i32 { return left + right; }\n"
+        " pub fn forty_two() -> i32 { return Counter::add(20, 22); }\n"
         "}\n"
-        "pub fn answer() -> i32 { return Counter::add(20, 22); }\n";
+        "pub fn answer() -> i32 { return Counter::forty_two(); }\n";
     static const uint8_t missing[] =
         "module test::missing;\n"
         "struct Counter { value: i32; }\n"
@@ -109,8 +132,9 @@ int main(int argc, char **argv) {
         return 1;
     }
     output[size] = 0;
-    if (strstr((const char *)output, "Counter_add(") == NULL) {
-        fprintf(stderr, "missing lowered Counter_add call\n");
+    if (strstr((const char *)output, "Counter_add(") == NULL
+        || strstr((const char *)output, "Counter_forty_two(") == NULL) {
+        fprintf(stderr, "missing canonical namespaced static calls\n");
         return 2;
     }
 
