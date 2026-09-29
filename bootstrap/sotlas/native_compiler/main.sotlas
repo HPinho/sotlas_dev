@@ -105,6 +105,34 @@ pub fn backfill_boolean_literal_slices(
     return true;
 }
 
+pub fn backfill_char_literal_slices(
+    nodes: *mut AstNode,
+    node_count: usize,
+    source: *const u8,
+    source_len: usize
+) -> bool {
+    if nodes == null || source == null {
+        return false;
+    }
+    let mut node_index: usize = 1;
+    while node_index < node_count {
+        let mut node: AstNode = unsafe { *(nodes + node_index) };
+        if node.kind == AstKind::ExprLiteral && node.str_len == 0
+            && node.span.length != 0
+            && node.span.offset <= source_len
+            && node.span.length <= source_len - node.span.offset
+            && unsafe { *(source + node.span.offset) } == 39 {
+            node.str_offset = node.span.offset;
+            node.str_len = node.span.length;
+            unsafe {
+                *(nodes + node_index) = node;
+            }
+        }
+        node_index = node_index + 1;
+    }
+    return true;
+}
+
 pub fn native_numeric_literal_kind(
     nodes: *const AstNode,
     node_count: usize,
@@ -201,6 +229,39 @@ pub fn native_numeric_literal_kind(
     return 1; // integer literal
 }
 
+pub fn native_char_literal_status(
+    nodes: *const AstNode,
+    node_count: usize,
+    expression_index: usize,
+    source: *const u8,
+    source_len: usize
+) -> i64 {
+    if nodes == null || source == null || expression_index == 0
+        || expression_index >= node_count {
+        return 0;
+    }
+    let expression: AstNode = unsafe { *(nodes + expression_index) };
+    if expression.kind != AstKind::ExprLiteral || expression.str_len == 0
+        || expression.str_offset > source_len
+        || expression.str_len > source_len - expression.str_offset {
+        return 0;
+    }
+    if unsafe { *(source + expression.str_offset) } != 39 {
+        return 0;
+    }
+    if expression.str_len != 3
+        || unsafe { *(source + expression.str_offset + 2) } != 39 {
+        return -1;
+    }
+    let value: u8 = unsafe { *(source + expression.str_offset + 1) };
+    // Bounded 1.0 subset: one plain byte. Escape decoding is intentionally
+    // not guessed here; quote, backslash and line breaks remain fail-closed.
+    if value == 0 || value == 10 || value == 13 || value == 39 || value == 92 {
+        return -1;
+    }
+    return 1;
+}
+
 pub fn native_numeric_type_domain(
     sem: &Sema,
     nodes: *const AstNode,
@@ -234,6 +295,26 @@ pub fn native_numeric_type_domain(
         return 3;
     }
     return 0;
+}
+
+pub fn native_type_is_u8(
+    sem: &Sema,
+    nodes: *const AstNode,
+    node_count: usize,
+    type_index: usize,
+    source: *const u8,
+    source_len: usize
+) -> bool {
+    if nodes == null || type_index == 0 || type_index >= node_count {
+        return false;
+    }
+    let typ: AstNode = unsafe { *(nodes + type_index) };
+    if typ.kind != AstKind::TypeRef || typ.str_len == 0 {
+        return false;
+    }
+    return sem.source_slice_equals(
+        source, source_len, typ.str_offset, typ.str_len, "u8", 2
+    );
 }
 
 pub fn native_function_return_type(
@@ -483,6 +564,47 @@ pub fn check_native_contextual_numeric_literals(
     return true;
 }
 
+pub fn check_native_contextual_char_literals(
+    sem: &mut Sema,
+    nodes: *const AstNode,
+    node_count: usize,
+    source: *const u8,
+    source_len: usize
+) -> bool {
+    if nodes == null || source == null {
+        return false;
+    }
+    let mut index: usize = 1;
+    while index < node_count {
+        let node: AstNode = unsafe { *(nodes + index) };
+        if node.kind == AstKind::ExprLiteral {
+            let status: i64 = native_char_literal_status(
+                nodes, node_count, index, source, source_len
+            );
+            if status < 0 {
+                return sem.reject_node(node);
+            }
+            if status > 0 {
+                let expected_type: usize = native_numeric_expected_type(
+                    sem, nodes, node_count, index, source, source_len
+                );
+                if expected_type == 0 || !native_type_is_u8(
+                    sem,
+                    nodes,
+                    node_count,
+                    expected_type,
+                    source,
+                    source_len
+                ) {
+                    return sem.reject_node(node);
+                }
+            }
+        }
+        index = index + 1;
+    }
+    return true;
+}
+
 @export
 @system
 pub fn sotlas_native_compile_diagnostic(
@@ -549,6 +671,8 @@ pub fn sotlas_native_compile_diagnostic(
         node_ptr, p.node_count, source, len
     ) || !backfill_boolean_literal_slices(
         node_ptr, p.node_count, source, len
+    ) || !backfill_char_literal_slices(
+        node_ptr, p.node_count, source, len
     ) {
         return 0;
     }
@@ -557,6 +681,8 @@ pub fn sotlas_native_compile_diagnostic(
     sem.enter_system();
     let _is_safe: bool = sem.check_system_privilege();
     if !check_native_contextual_numeric_literals(
+        &mut sem, node_ptr, p.node_count, source, len
+    ) || !check_native_contextual_char_literals(
         &mut sem, node_ptr, p.node_count, source, len
     ) || !sem.check_top_level_declarations(
         node_ptr, p.node_count, module_node, source, len

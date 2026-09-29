@@ -192,6 +192,22 @@ impl Lexer {
             return tok;
         }
 
+        // Literais de caractere do subset nativo. A validação estrutural fica
+        // no passe semântico para que formas malformadas sejam rejeitadas com
+        // linha/coluna exatas, em vez de serem reinterpretadas como Ident.
+        if ch == 39 { // '\''
+            while !self.is_at_end() && self.peek() != 39
+                && self.peek() != 10 && self.peek() != 13 {
+                self.advance();
+            }
+            if !self.is_at_end() && self.peek() == 39 {
+                self.advance();
+            }
+            return self.token_from_span(
+                TokenKind::CharLit, start_line, start_col, start_offset
+            );
+        }
+
         // Operadores compostos e pontuação
         if ch == 61 { // '='
             if self.peek() == 61 { self.advance(); return self.token_from_span(TokenKind::EqEq, start_line, start_col, start_offset); }
