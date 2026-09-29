@@ -54,17 +54,12 @@ pub struct AstNode {
 
 impl AstNode {
     pub fn new(kind: AstKind, span: Span) -> AstNode {
-        // Literal nodes are source-backed by definition. Initializing their
-        // text slice from the token span gives every literal class the same
-        // AST invariant; alloc_text_node may set the same values explicitly.
-        let literal_offset: usize = if kind == AstKind::ExprLiteral { span.offset } else { 0 };
-        let literal_len: usize = if kind == AstKind::ExprLiteral { span.length } else { 0 };
         return AstNode {
             kind: kind,
             span: span,
             int_value: 0,
-            str_offset: literal_offset,
-            str_len: literal_len,
+            str_offset: 0,
+            str_len: 0,
             first_child: 0,
             next_sibling: 0,
             parent: 0
