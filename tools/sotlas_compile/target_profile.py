@@ -1,7 +1,7 @@
-"""Canonical Sotlas target-profile frontend contract.
+"""Canonical Sotlas target-profile frontend and backend contract.
 
 This extension gives the production bootstrap frontend an explicit execution
-profile without creating a second parser.  It recognizes the grammar-level
+profile without creating a second parser. It recognizes the grammar-level
 ``target <profile>;`` declaration plus the transitional ``barecore;`` spelling,
 attaches one immutable profile plan to the parsed module, and keeps unsupported
 backend/profile combinations fail-closed.
@@ -12,6 +12,24 @@ from dataclasses import dataclass
 
 
 SUPPORTED_TARGET_PROFILES = frozenset({"barecore", "native", "web"})
+
+# Freestanding C may use the standard freestanding headers already emitted by
+# the bootstrap preamble, compiler intrinsics and user-provided extern symbols.
+# It must not silently acquire a hosted libc/process/thread dependency.
+_BARECORE_FORBIDDEN_C_RUNTIME = (
+    "#include <stdlib.h>",
+    "malloc(",
+    "calloc(",
+    "realloc(",
+    "free(",
+    "abort(",
+    "printf(",
+    "fprintf(",
+    "fopen(",
+    "pthread_",
+    "exit(",
+)
+_BARECORE_C_MARKER = "/* SOTLAS_TARGET_BARECORE_FREESTANDING */"
 
 
 @dataclass(frozen=True)
@@ -155,10 +173,10 @@ def plan_target_profile(module) -> TargetProfilePlan:
 
 
 def require_backend_profile(module, backend: str, bootstrap=None) -> TargetProfilePlan:
-    """Fail closed until a backend has an explicit profile contract."""
+    """Require an explicitly supported backend/profile pair."""
 
     plan = plan_target_profile(module)
-    if backend == "c11" and plan.profile == "native":
+    if backend == "c11" and plan.profile in ("native", "barecore"):
         return plan
 
     if bootstrap is None:
@@ -172,6 +190,31 @@ def require_backend_profile(module, backend: str, bootstrap=None) -> TargetProfi
         getattr(module, "filename", None),
         getattr(module, "source", None),
     )
+
+
+def _validate_barecore_c11_output(bootstrap, module, code: str) -> str:
+    """Prove that generated barecore C does not depend on a hosted runtime."""
+
+    plan = plan_target_profile(module)
+    if not plan.is_barecore:
+        return code
+
+    for marker in _BARECORE_FORBIDDEN_C_RUNTIME:
+        if marker in code:
+            raise bootstrap.SotlasBootstrapError(
+                "barecore C11 requires freestanding runtime semantics; "
+                f"generated hosted dependency {marker!r}",
+                plan.line,
+                plan.column,
+                getattr(module, "filename", None),
+                getattr(module, "source", None),
+            )
+
+    # This marker is consumed by tests/build tooling and makes the selected
+    # contract visible in generated artifacts without altering program ABI.
+    if not code.startswith(_BARECORE_C_MARKER):
+        code = _BARECORE_C_MARKER + "\n" + code
+    return code
 
 
 def install(bootstrap) -> None:
@@ -189,7 +232,7 @@ def install(bootstrap) -> None:
         )
         module = original_parse(parser_source, filename=filename)
         # Parser offsets remain correct because the directive is masked without
-        # changing source length or line breaks.  Restore the original source so
+        # changing source length or line breaks. Restore the original source so
         # diagnostics quote what the programmer actually wrote.
         module.source = source
         module.target_profile_plan = plan
@@ -199,8 +242,11 @@ def install(bootstrap) -> None:
         return module
 
     def emit_c_with_target_profile(module, *args, **kwargs):
-        require_backend_profile(module, "c11", bootstrap=bootstrap)
-        return original_emit_c(module, *args, **kwargs)
+        plan = require_backend_profile(module, "c11", bootstrap=bootstrap)
+        code = original_emit_c(module, *args, **kwargs)
+        if plan.is_barecore:
+            code = _validate_barecore_c11_output(bootstrap, module, code)
+        return code
 
     bootstrap.parse = parse_with_target_profile
     bootstrap.emit_c = emit_c_with_target_profile
@@ -208,4 +254,6 @@ def install(bootstrap) -> None:
     bootstrap.SUPPORTED_TARGET_PROFILES = SUPPORTED_TARGET_PROFILES
     bootstrap.plan_target_profile = plan_target_profile
     bootstrap.require_backend_profile = require_backend_profile
+    bootstrap.validate_barecore_c11_output = _validate_barecore_c11_output
+    bootstrap.BARECORE_C_MARKER = _BARECORE_C_MARKER
     bootstrap._TARGET_PROFILE_FRONTEND_INSTALLED = True
