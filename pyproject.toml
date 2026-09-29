@@ -28,8 +28,8 @@ requires-python = ">=3.10"
 dependencies = []
 
 [project.scripts]
-sotlas = "sotlas.cli:main"
-sotlasc = "sotlas.cli:main"
+sotlas = "sotlas.driver:main"
+sotlasc = "sotlas.driver:main"
 sotlas-lsp = "sotlas_compile.lsp:main"
 sotlas-doctor = "sotlas.doctor:main"
 

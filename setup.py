@@ -10,8 +10,8 @@ setup(
     packages=find_packages(where="compiler"),
     entry_points={
         "console_scripts": [
-            "sotlas=sotlas.cli:main",
-            "sotlasc=sotlas.cli:main",
+            "sotlas=sotlas.driver:main",
+            "sotlasc=sotlas.driver:main",
             "sotlas-lsp=sotlas_compile.lsp:main",
         ],
     },
