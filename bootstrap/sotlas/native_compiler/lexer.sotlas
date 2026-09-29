@@ -109,7 +109,7 @@ impl Lexer {
         let start_offset: usize = self.cursor;
         let ch: u8 = self.advance();
 
-        // Identificadores e palavras-chave
+        // Identificadores, palavras-chave e literais booleanos reservados.
         if (ch >= 65 && ch <= 90) || (ch >= 97 && ch <= 122) || ch == 95 { // A-Z, a-z, _
             while !self.is_at_end() {
                 let p: u8 = self.peek();
@@ -124,7 +124,7 @@ impl Lexer {
             tok.span.offset = start_offset;
             tok.span.length = length;
             tok.text_len = length;
-            // Classifica palavra-chave
+            // Classifica palavra-chave ou literal reservado.
             tok.kind = self.classify_keyword(start_offset, length);
             return tok;
         }
@@ -244,7 +244,7 @@ impl Lexer {
     }
 
     pub fn classify_keyword(self: &Self, offset: usize, len: usize) -> TokenKind {
-        // Comparador eficiente de palavras-chave estáticas em Sotlas
+        // Comparador eficiente de palavras-chave e literais estáticos em Sotlas
         if len == 2 {
             if self.matches_str(offset, 2, "fn") { return TokenKind::KwFn; }
             if self.matches_str(offset, 2, "if") { return TokenKind::KwIf; }
@@ -257,6 +257,7 @@ impl Lexer {
             if self.matches_str(offset, 3, "mut") { return TokenKind::KwMut; }
             if self.matches_str(offset, 3, "asm") { return TokenKind::KwAsm; }
         } else if len == 4 {
+            if self.matches_str(offset, 4, "true") { return TokenKind::BoolLit; }
             if self.matches_str(offset, 4, "else") { return TokenKind::KwElse; }
             if self.matches_str(offset, 4, "loop") { return TokenKind::KwLoop; }
             if self.matches_str(offset, 4, "sole") { return TokenKind::KwSole; }
@@ -267,6 +268,7 @@ impl Lexer {
             if self.matches_str(offset, 4, "gate") { return TokenKind::KwGate; }
             if self.matches_str(offset, 4, "emit") { return TokenKind::KwEmit; }
         } else if len == 5 {
+            if self.matches_str(offset, 5, "false") { return TokenKind::BoolLit; }
             if self.matches_str(offset, 5, "while") { return TokenKind::KwWhile; }
             if self.matches_str(offset, 5, "const") { return TokenKind::KwConst; }
             if self.matches_str(offset, 5, "class") { return TokenKind::KwClass; }
