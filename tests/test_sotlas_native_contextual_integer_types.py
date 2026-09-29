@@ -95,6 +95,11 @@ int main(int argc, char **argv) {
         "impl Box { fn make(value: u8) -> u8 { return value; } }\n"
         "fn bad() -> u8 { return Box::make(300); }\n";
 
+    static const uint8_t bad_field[] =
+        "module test::bad_field;\n"
+        "struct Box { value: u8; }\n"
+        "fn bad() -> Box { return Box { value: 256 }; }\n";
+
     static const uint8_t bad_return[] =
         "module test::bad_return;\n"
         "fn bad() -> i8 { return 128; }\n";
@@ -153,41 +158,47 @@ int main(int argc, char **argv) {
     if (rejected != 0) return rejected;
 
     rejected = expect_rejection(
+        bad_field, sizeof(bad_field) - 1, output, sizeof(output) - 1,
+        3, 39, "u8 field overflow", 6
+    );
+    if (rejected != 0) return rejected;
+
+    rejected = expect_rejection(
         bad_return, sizeof(bad_return) - 1, output, sizeof(output) - 1,
-        2, 25, "i8 positive overflow", 6
+        2, 25, "i8 positive overflow", 7
     );
     if (rejected != 0) return rejected;
 
     rejected = expect_rejection(
         bad_unsigned_negative, sizeof(bad_unsigned_negative) - 1,
         output, sizeof(output) - 1,
-        2, 25, "negative unsigned literal", 7
+        2, 25, "negative unsigned literal", 8
     );
     if (rejected != 0) return rejected;
 
     rejected = expect_rejection(
         bad_signed_negative, sizeof(bad_signed_negative) - 1,
         output, sizeof(output) - 1,
-        2, 25, "i8 negative overflow", 8
+        2, 25, "i8 negative overflow", 9
     );
     if (rejected != 0) return rejected;
 
     rejected = expect_rejection(
         bad_hex, sizeof(bad_hex) - 1, output, sizeof(output) - 1,
-        2, 25, "hex overflow", 9
+        2, 25, "hex overflow", 10
     );
     if (rejected != 0) return rejected;
 
     rejected = expect_rejection(
         bad_underscore, sizeof(bad_underscore) - 1,
         output, sizeof(output) - 1,
-        2, 25, "underscore overflow", 10
+        2, 25, "underscore overflow", 11
     );
     if (rejected != 0) return rejected;
 
     rejected = expect_rejection(
         bad_u64, sizeof(bad_u64) - 1, output, sizeof(output) - 1,
-        2, 26, "u64 overflow", 11
+        2, 26, "u64 overflow", 12
     );
     if (rejected != 0) return rejected;
 
