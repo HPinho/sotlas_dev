@@ -4,7 +4,10 @@
 # política de segurança/FFI. Ferramentas podem expor ASTs auxiliares, mas não
 # podem possuir um segundo lowering ou uma segunda semântica executável.
 from . import bootstrap as bootstrap
-from .target_profile import install as _install_target_profile
+from .target_profile import (
+    install as _install_target_profile,
+    install_c11_backend as _install_target_profile_c11,
+)
 from .frontend_extensions import install as _install_frontend_extensions
 from .language_safety import install as _install_language_safety
 from .authority_frontend_safety import install as _install_authority_frontend_safety
@@ -120,6 +123,8 @@ from .contracts_frontend import (
     install as _install_contracts_frontend,
 )
 _install_contracts_frontend(bootstrap)
+# tools/ mirrors the canonical C11 target contract for bootstrap/developer paths.
+_install_target_profile_c11(bootstrap)
 
 SotlasBootstrapError = bootstrap.SotlasBootstrapError
 compile_source = bootstrap.compile_source

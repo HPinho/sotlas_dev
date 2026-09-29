@@ -4,7 +4,10 @@
 # política de segurança/FFI. Ferramentas podem expor ASTs auxiliares, mas não
 # podem possuir um segundo lowering ou uma segunda semântica executável.
 from . import bootstrap as bootstrap
-from .target_profile import install as _install_target_profile
+from .target_profile import (
+    install as _install_target_profile,
+    install_c11_backend as _install_target_profile_c11,
+)
 from .frontend_extensions import install as _install_frontend_extensions
 from .language_safety import install as _install_language_safety
 from .authority_frontend_safety import install as _install_authority_frontend_safety
@@ -130,6 +133,9 @@ from .contracts_frontend import (
 )
 _install_contracts_frontend(bootstrap)
 _install_c11_backend_effect_contract(bootstrap)
+# Target enforcement is intentionally the outermost C11 boundary. It sees the
+# complete generated unit after every semantic/backend extension has run.
+_install_target_profile_c11(bootstrap)
 from .phase1_pipeline import (
     Phase1CheckedModule,
     analyze_module_phase1,
