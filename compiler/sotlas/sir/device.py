@@ -87,6 +87,19 @@ def _require_sir_type(value: SIRValue, semantic: Any, *, role: str) -> None:
         )
 
 
+def _require_device_binding(value: SIRValue, semantic: Any, *, role: str) -> None:
+    expected = getattr(semantic, "device_binding", None)
+    if not isinstance(expected, str) or not expected:
+        raise DeviceSIRLoweringError(
+            f"{role} semantic fact is missing its canonical DEVICE binding"
+        )
+    if value.name != expected:
+        raise DeviceSIRLoweringError(
+            f"{role} SIR value is %{value.name}, expected canonical "
+            f"DEVICE owner %{expected}"
+        )
+
+
 def lower_device_completion(token: Any, source: SIRValue) -> DeviceCompletionInst:
     """Lower a COMPLETED/REACQUIRED token to a SIR completion proof."""
     state = _enum_value(getattr(token, "state", None))
@@ -95,6 +108,7 @@ def lower_device_completion(token: Any, source: SIRValue) -> DeviceCompletionIns
             f"DEVICE completion lowering requires COMPLETED state, got {state!r}"
         )
     _require_sir_type(source, token, role="DEVICE completion source")
+    _require_device_binding(source, token, role="DEVICE completion source")
     submission = _required_text(
         getattr(token, "submission_point_id", None),
         label="DEVICE submission",
@@ -134,6 +148,7 @@ def lower_device_reacquisition(
             "DEVICE reacquisition SIR requires device->exclusive device_reacquire"
         )
     _require_sir_type(source, plan, role="DEVICE reacquisition source")
+    _require_device_binding(source, plan, role="DEVICE reacquisition source")
     _require_sir_type(destination, plan, role="DEVICE reacquisition destination")
     submission = _required_text(
         getattr(plan, "submission_point_id", None),
@@ -174,6 +189,10 @@ def lower_device_lifecycle(
     if state != "reacquired":
         raise DeviceSIRLoweringError(
             f"DEVICE lifecycle lowering requires REACQUIRED state, got {state!r}"
+        )
+    if getattr(token, "device_binding", None) != getattr(plan, "device_binding", None):
+        raise DeviceSIRLoweringError(
+            "DEVICE lifecycle token and plan name different device owners"
         )
     token_reacquisition = _required_text(
         getattr(token, "reacquisition_point_id", None),
