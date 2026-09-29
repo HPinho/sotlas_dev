@@ -622,6 +622,334 @@ impl Sema {
         return expected_index == expected_len;
     }
 
+    pub fn fixed_integer_type_tag(
+        self: &Self,
+        nodes: *const AstNode,
+        node_count: usize,
+        type_index: usize,
+        source: *const u8,
+        source_len: usize
+    ) -> i64 {
+        if nodes == null || source == null || type_index == 0
+            || type_index >= node_count {
+            return 0;
+        }
+        let typ: AstNode = unsafe { *(nodes + type_index) };
+        if typ.kind != AstKind::TypeRef || typ.str_len == 0 {
+            return 0;
+        }
+        if self.source_slice_equals(source, source_len, typ.str_offset, typ.str_len, "i8", 2) {
+            return 1;
+        }
+        if self.source_slice_equals(source, source_len, typ.str_offset, typ.str_len, "i16", 3) {
+            return 2;
+        }
+        if self.source_slice_equals(source, source_len, typ.str_offset, typ.str_len, "i32", 3) {
+            return 3;
+        }
+        if self.source_slice_equals(source, source_len, typ.str_offset, typ.str_len, "i64", 3) {
+            return 4;
+        }
+        if self.source_slice_equals(source, source_len, typ.str_offset, typ.str_len, "u8", 2) {
+            return 5;
+        }
+        if self.source_slice_equals(source, source_len, typ.str_offset, typ.str_len, "u16", 3) {
+            return 6;
+        }
+        if self.source_slice_equals(source, source_len, typ.str_offset, typ.str_len, "u32", 3) {
+            return 7;
+        }
+        if self.source_slice_equals(source, source_len, typ.str_offset, typ.str_len, "u64", 3) {
+            return 8;
+        }
+        return 0;
+    }
+
+    pub fn integer_digit_value(self: &Self, ch: u8, is_hex: bool) -> i64 {
+        if ch >= 48 && ch <= 57 {
+            return (ch - 48) as i64;
+        }
+        if is_hex && ch >= 65 && ch <= 70 {
+            return (ch - 65 + 10) as i64;
+        }
+        if is_hex && ch >= 97 && ch <= 102 {
+            return (ch - 97 + 10) as i64;
+        }
+        return -1;
+    }
+
+    pub fn expression_is_integer_literal(
+        self: &Self,
+        nodes: *const AstNode,
+        node_count: usize,
+        expression_index: usize,
+        source: *const u8,
+        source_len: usize
+    ) -> bool {
+        if nodes == null || source == null || expression_index == 0
+            || expression_index >= node_count {
+            return false;
+        }
+        let expression: AstNode = unsafe { *(nodes + expression_index) };
+        if expression.kind != AstKind::ExprLiteral || expression.str_len == 0
+            || expression.str_offset > source_len
+            || expression.str_len > source_len - expression.str_offset {
+            return false;
+        }
+        let first: u8 = unsafe { *(source + expression.str_offset) };
+        return first >= 48 && first <= 57;
+    }
+
+    pub fn integer_literal_fits_limit(
+        self: &Self,
+        nodes: *const AstNode,
+        node_count: usize,
+        literal_index: usize,
+        source: *const u8,
+        source_len: usize,
+        is_hex: bool,
+        limit: *const u8,
+        limit_len: usize
+    ) -> bool {
+        if !self.expression_is_integer_literal(
+            nodes, node_count, literal_index, source, source_len
+        ) || limit == null || limit_len == 0 {
+            return false;
+        }
+        let literal: AstNode = unsafe { *(nodes + literal_index) };
+        let mut index: usize = 0;
+        if is_hex {
+            if literal.str_len < 3
+                || unsafe { *(source + literal.str_offset) } != 48 {
+                return false;
+            }
+            let marker: u8 = unsafe { *(source + literal.str_offset + 1) };
+            if marker != 120 && marker != 88 {
+                return false;
+            }
+            index = 2;
+        }
+
+        let mut saw_digit: bool = false;
+        let mut started: bool = false;
+        let mut significant_count: usize = 0;
+        while index < literal.str_len {
+            let ch: u8 = unsafe { *(source + literal.str_offset + index) };
+            if ch == 95 {
+                index = index + 1;
+                continue;
+            }
+            let digit: i64 = self.integer_digit_value(ch, is_hex);
+            if digit < 0 || (!is_hex && digit > 9) {
+                return false;
+            }
+            saw_digit = true;
+            if digit != 0 || started {
+                started = true;
+                significant_count = significant_count + 1;
+            }
+            index = index + 1;
+        }
+        if !saw_digit {
+            return false;
+        }
+        if significant_count == 0 {
+            return true;
+        }
+        if significant_count < limit_len {
+            return true;
+        }
+        if significant_count > limit_len {
+            return false;
+        }
+
+        index = if is_hex { 2 } else { 0 };
+        started = false;
+        let mut limit_index: usize = 0;
+        while index < literal.str_len {
+            let ch: u8 = unsafe { *(source + literal.str_offset + index) };
+            if ch == 95 {
+                index = index + 1;
+                continue;
+            }
+            let digit: i64 = self.integer_digit_value(ch, is_hex);
+            if !started && digit == 0 {
+                index = index + 1;
+                continue;
+            }
+            started = true;
+            if limit_index >= limit_len {
+                return false;
+            }
+            let limit_ch: u8 = unsafe { *(limit + limit_index) };
+            let limit_digit: i64 = self.integer_digit_value(limit_ch, is_hex);
+            if limit_digit < 0 {
+                return false;
+            }
+            if digit < limit_digit {
+                return true;
+            }
+            if digit > limit_digit {
+                return false;
+            }
+            limit_index = limit_index + 1;
+            index = index + 1;
+        }
+        return limit_index == limit_len;
+    }
+
+    pub fn integer_literal_fits_type(
+        self: &Self,
+        nodes: *const AstNode,
+        node_count: usize,
+        type_index: usize,
+        literal_index: usize,
+        negative: bool,
+        source: *const u8,
+        source_len: usize
+    ) -> bool {
+        let tag: i64 = self.fixed_integer_type_tag(
+            nodes, node_count, type_index, source, source_len
+        );
+        if tag == 0 {
+            return true;
+        }
+        if negative && tag >= 5 {
+            return false;
+        }
+        if !self.expression_is_integer_literal(
+            nodes, node_count, literal_index, source, source_len
+        ) {
+            return true;
+        }
+        let literal: AstNode = unsafe { *(nodes + literal_index) };
+        let is_hex: bool = literal.str_len >= 2
+            && unsafe { *(source + literal.str_offset) } == 48
+            && (unsafe { *(source + literal.str_offset + 1) } == 120
+                || unsafe { *(source + literal.str_offset + 1) } == 88);
+
+        if tag == 1 {
+            if is_hex {
+                return self.integer_literal_fits_limit(
+                    nodes, node_count, literal_index, source, source_len,
+                    true, if negative { "80" } else { "7f" }, 2
+                );
+            }
+            return self.integer_literal_fits_limit(
+                nodes, node_count, literal_index, source, source_len,
+                false, if negative { "128" } else { "127" }, 3
+            );
+        }
+        if tag == 2 {
+            if is_hex {
+                return self.integer_literal_fits_limit(
+                    nodes, node_count, literal_index, source, source_len,
+                    true, if negative { "8000" } else { "7fff" }, 4
+                );
+            }
+            return self.integer_literal_fits_limit(
+                nodes, node_count, literal_index, source, source_len,
+                false, if negative { "32768" } else { "32767" }, 5
+            );
+        }
+        if tag == 3 {
+            if is_hex {
+                return self.integer_literal_fits_limit(
+                    nodes, node_count, literal_index, source, source_len,
+                    true, if negative { "80000000" } else { "7fffffff" }, 8
+                );
+            }
+            return self.integer_literal_fits_limit(
+                nodes, node_count, literal_index, source, source_len,
+                false, if negative { "2147483648" } else { "2147483647" }, 10
+            );
+        }
+        if tag == 4 {
+            if is_hex {
+                return self.integer_literal_fits_limit(
+                    nodes, node_count, literal_index, source, source_len,
+                    true,
+                    if negative { "8000000000000000" } else { "7fffffffffffffff" },
+                    16
+                );
+            }
+            return self.integer_literal_fits_limit(
+                nodes, node_count, literal_index, source, source_len,
+                false,
+                if negative { "9223372036854775808" } else { "9223372036854775807" },
+                19
+            );
+        }
+        if tag == 5 {
+            return self.integer_literal_fits_limit(
+                nodes, node_count, literal_index, source, source_len,
+                is_hex, if is_hex { "ff" } else { "255" }, if is_hex { 2 } else { 3 }
+            );
+        }
+        if tag == 6 {
+            return self.integer_literal_fits_limit(
+                nodes, node_count, literal_index, source, source_len,
+                is_hex, if is_hex { "ffff" } else { "65535" }, if is_hex { 4 } else { 5 }
+            );
+        }
+        if tag == 7 {
+            return self.integer_literal_fits_limit(
+                nodes, node_count, literal_index, source, source_len,
+                is_hex,
+                if is_hex { "ffffffff" } else { "4294967295" },
+                if is_hex { 8 } else { 10 }
+            );
+        }
+        return self.integer_literal_fits_limit(
+            nodes, node_count, literal_index, source, source_len,
+            is_hex,
+            if is_hex { "ffffffffffffffff" } else { "18446744073709551615" },
+            if is_hex { 16 } else { 20 }
+        );
+    }
+
+    pub fn contextual_integer_expression_fits(
+        self: &Self,
+        nodes: *const AstNode,
+        node_count: usize,
+        type_index: usize,
+        expression_index: usize,
+        source: *const u8,
+        source_len: usize
+    ) -> bool {
+        if self.fixed_integer_type_tag(
+            nodes, node_count, type_index, source, source_len
+        ) == 0 || nodes == null || expression_index == 0
+            || expression_index >= node_count {
+            return true;
+        }
+        let expression: AstNode = unsafe { *(nodes + expression_index) };
+        if expression.kind == AstKind::ExprLiteral {
+            if !self.expression_is_integer_literal(
+                nodes, node_count, expression_index, source, source_len
+            ) {
+                return true;
+            }
+            return self.integer_literal_fits_type(
+                nodes, node_count, type_index, expression_index,
+                false, source, source_len
+            );
+        }
+        if expression.kind == AstKind::ExprUnary
+            && (expression.int_value == 80 || expression.int_value == 81)
+            && expression.first_child != 0
+            && expression.first_child < node_count
+            && self.expression_is_integer_literal(
+                nodes, node_count, expression.first_child, source, source_len
+            ) {
+            return self.integer_literal_fits_type(
+                nodes, node_count, type_index, expression.first_child,
+                expression.int_value == 81, source, source_len
+            );
+        }
+        return true;
+    }
+
     pub fn result_constructor_kind(
         self: &Self,
         nodes: *const AstNode,
@@ -1139,6 +1467,12 @@ impl Sema {
                 let expected_type: usize = self.binding_type_ref(
                     nodes, node_count, parameter_index
                 );
+                if expected_type != 0
+                    && !self.contextual_integer_expression_fits(
+                        nodes, node_count, expected_type, argument_index, source, source_len
+                    ) {
+                    return self.reject_node(argument);
+                }
                 let errors_before: usize = self.error_count;
                 let actual_type: usize = self.infer_expression_type_ref(
                     nodes, node_count, argument_index, source, source_len
@@ -1648,6 +1982,10 @@ impl Sema {
                 ) {
                     return self.reject_node(value);
                 }
+            } else if !self.contextual_integer_expression_fits(
+                nodes, node_count, type_index, value_index, source, source_len
+            ) {
+                return self.reject_node(value);
             }
 
             init_count = init_count + 1;
@@ -1837,6 +2175,12 @@ impl Sema {
                 let expected_type: usize = self.binding_type_ref(
                     nodes, node_count, parameter_index
                 );
+                if expected_type != 0
+                    && !self.contextual_integer_expression_fits(
+                        nodes, node_count, expected_type, argument_index, source, source_len
+                    ) {
+                    return self.reject_node(argument);
+                }
                 let errors_before: usize = self.error_count;
                 let actual_type: usize = self.infer_expression_type_ref(
                     nodes, node_count, argument_index, source, source_len
@@ -1933,6 +2277,12 @@ impl Sema {
             self.error_col = return_node.span.col;
             return false;
         }
+        let expression: AstNode = unsafe { *(nodes + expression_index) };
+        if !self.contextual_integer_expression_fits(
+            nodes, node_count, expected_type, expression_index, source, source_len
+        ) {
+            return self.reject_node(expression);
+        }
         let errors_before: usize = self.error_count;
         let actual_type: usize = self.infer_expression_type_ref(
             nodes, node_count, expression_index, source, source_len
@@ -1944,7 +2294,6 @@ impl Sema {
             let expected: AstNode = unsafe { *(nodes + expected_type) };
             let actual: AstNode = unsafe { *(nodes + actual_type) };
             if !self.same_source_text(source, source_len, expected, actual) {
-                let expression: AstNode = unsafe { *(nodes + expression_index) };
                 self.error_count = self.error_count + 1;
                 self.error_line = expression.span.line;
                 self.error_col = expression.span.col;
