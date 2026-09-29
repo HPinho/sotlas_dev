@@ -193,8 +193,10 @@ int main(void) {
             self.assertTrue(generated_c.is_file())
 
             generated_text = generated_c.read_text(encoding="utf-8")
-            self.assertIn("float answer()", generated_text)
-            self.assertIn("double wide()", generated_text)
+            self.assertIn("typedef float f32;", generated_text)
+            self.assertIn("typedef double f64;", generated_text)
+            self.assertIn("f32 answer()", generated_text)
+            self.assertIn("f64 wide()", generated_text)
 
             default_toolchain.compile_c_to_obj(generated_c, generated_obj, opt_level=0)
             default_toolchain.compile_c_to_obj(consumer_c, consumer_obj, opt_level=0)
