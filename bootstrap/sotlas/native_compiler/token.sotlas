@@ -10,6 +10,7 @@ pub enum TokenKind {
     ByteStrLit = 5,
     RawStrLit = 6,
     CharLit = 7,
+    BoolLit = 8,
 
     // Palavras-chave estruturais
     KwModule = 10,

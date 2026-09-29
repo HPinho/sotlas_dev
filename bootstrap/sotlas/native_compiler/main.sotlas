@@ -64,6 +64,47 @@ pub fn backfill_decimal_float_literal_slices(
     return true;
 }
 
+pub fn backfill_boolean_literal_slices(
+    nodes: *mut AstNode,
+    node_count: usize,
+    source: *const u8,
+    source_len: usize
+) -> bool {
+    if nodes == null || source == null {
+        return false;
+    }
+    let mut node_index: usize = 1;
+    while node_index < node_count {
+        let mut node: AstNode = unsafe { *(nodes + node_index) };
+        if node.kind == AstKind::ExprLiteral && node.str_len == 0
+            && node.span.offset <= source_len
+            && node.span.length <= source_len - node.span.offset {
+            let mut is_boolean: bool = false;
+            if node.span.length == 4 {
+                is_boolean = unsafe { *(source + node.span.offset) } == 116
+                    && unsafe { *(source + node.span.offset + 1) } == 114
+                    && unsafe { *(source + node.span.offset + 2) } == 117
+                    && unsafe { *(source + node.span.offset + 3) } == 101;
+            } else if node.span.length == 5 {
+                is_boolean = unsafe { *(source + node.span.offset) } == 102
+                    && unsafe { *(source + node.span.offset + 1) } == 97
+                    && unsafe { *(source + node.span.offset + 2) } == 108
+                    && unsafe { *(source + node.span.offset + 3) } == 115
+                    && unsafe { *(source + node.span.offset + 4) } == 101;
+            }
+            if is_boolean {
+                node.str_offset = node.span.offset;
+                node.str_len = node.span.length;
+                unsafe {
+                    *(nodes + node_index) = node;
+                }
+            }
+        }
+        node_index = node_index + 1;
+    }
+    return true;
+}
+
 pub fn native_numeric_literal_kind(
     nodes: *const AstNode,
     node_count: usize,
@@ -88,6 +129,22 @@ pub fn native_numeric_literal_kind(
         || expression.str_offset > source_len
         || expression.str_len > source_len - expression.str_offset {
         return 0;
+    }
+
+    if expression.str_len == 4
+        && unsafe { *(source + expression.str_offset) } == 116
+        && unsafe { *(source + expression.str_offset + 1) } == 114
+        && unsafe { *(source + expression.str_offset + 2) } == 117
+        && unsafe { *(source + expression.str_offset + 3) } == 101 {
+        return 3; // true
+    }
+    if expression.str_len == 5
+        && unsafe { *(source + expression.str_offset) } == 102
+        && unsafe { *(source + expression.str_offset + 1) } == 97
+        && unsafe { *(source + expression.str_offset + 2) } == 108
+        && unsafe { *(source + expression.str_offset + 3) } == 115
+        && unsafe { *(source + expression.str_offset + 4) } == 101 {
+        return 3; // false
     }
 
     let first: u8 = unsafe { *(source + expression.str_offset) };
@@ -170,6 +227,11 @@ pub fn native_numeric_type_domain(
         source, source_len, typ.str_offset, typ.str_len, "f64", 3
     ) {
         return 2;
+    }
+    if sem.source_slice_equals(
+        source, source_len, typ.str_offset, typ.str_len, "bool", 4
+    ) {
+        return 3;
     }
     return 0;
 }
@@ -484,6 +546,8 @@ pub fn sotlas_native_compile_diagnostic(
         return 0;
     }
     if !backfill_decimal_float_literal_slices(
+        node_ptr, p.node_count, source, len
+    ) || !backfill_boolean_literal_slices(
         node_ptr, p.node_count, source, len
     ) {
         return 0;
