@@ -1,4 +1,4 @@
-"""Guard and execute the bounded native static-impl call subset."""
+"""Guard and execute the bounded native static-impl semantic subset."""
 from __future__ import annotations
 
 import os
@@ -26,12 +26,11 @@ class SotlasNativeStaticImplCallSemanticsTests(unittest.TestCase):
     def test_qualified_static_calls_resolve_lower_and_execute(self):
         module_dir = ROOT / "bootstrap" / "sotlas" / "native_compiler"
         main_text = (module_dir / "main.sotlas").read_text(encoding="utf-8")
+        sema_text = (module_dir / "sema.sotlas").read_text(encoding="utf-8")
         emitter_text = (module_dir / "emitter_c.sotlas").read_text(encoding="utf-8")
 
-        # Static impl lowering belongs to the canonical emitter. The bootstrap
-        # entrypoint may still keep the bounded semantic guard until that
-        # resolver moves into Sema, but it must not rewrite source/AST or own a
-        # parallel emitter path again.
+        # main.sotlas is orchestration only: the semantic ownership of bounded
+        # static impls belongs to Sema, while lowering belongs to CEmitter.
         self.assertNotIn("LOWERED_SOURCE_BUFFER_CAPACITY", main_text)
         self.assertNotIn("g_lowered_source_buffer", main_text)
         self.assertNotIn("lower_native_static_impl_calls_to_c_symbols", main_text)
@@ -39,7 +38,17 @@ class SotlasNativeStaticImplCallSemanticsTests(unittest.TestCase):
         self.assertNotIn("emit_native_impl", main_text)
         self.assertNotIn("emit_native_module", main_text)
         self.assertNotIn("native_module_has_impl", main_text)
-        self.assertIn("pub fn native_validate_static_impl_calls", main_text)
+        self.assertNotIn("native_validate_static_impl_calls", main_text)
+        self.assertNotIn("semantic_emitter", main_text)
+        self.assertEqual(main_text.count("CEmitter::new("), 1)
+
+        self.assertIn("pub fn check_impl_declaration", sema_text)
+        self.assertIn("pub fn check_qualified_static_call", sema_text)
+        self.assertIn("pub fn find_static_impl_method_for_path", sema_text)
+        self.assertIn("pub fn path_matches_static_method", sema_text)
+        self.assertIn("self.check_impl_declaration(", sema_text)
+        self.assertIn("self.check_qualified_static_call(", sema_text)
+
         self.assertIn("pub fn find_static_impl_method_for_path", emitter_text)
         self.assertIn("pub fn emit_static_impl_symbol", emitter_text)
         self.assertIn("pub fn emit_impl", emitter_text)
@@ -72,6 +81,26 @@ extern size_t sotlas_native_compile_diagnostic(
     const uint8_t *, size_t, uint8_t *, size_t, uint32_t *, uint32_t *
 );
 
+static int expect_semantic_rejection(
+    const uint8_t *source,
+    size_t source_len,
+    uint8_t *output,
+    size_t output_len,
+    const char *label,
+    int code
+) {
+    uint32_t line = 999;
+    uint32_t col = 999;
+    size_t size = sotlas_native_compile_diagnostic(
+        source, source_len, output, output_len, &line, &col
+    );
+    if (size != 0 || line == 0 || col == 0) {
+        fprintf(stderr, "%s: size=%zu line=%u col=%u\n", label, size, line, col);
+        return code;
+    }
+    return 0;
+}
+
 int main(int argc, char **argv) {
     static const uint8_t valid_zero[] =
         "module test::zero;\n"
@@ -102,6 +131,22 @@ int main(int argc, char **argv) {
         " pub fn add(left: i32, right: i32) -> i32 { return left + right; }\n"
         "}\n"
         "pub fn answer() -> i32 { return Counter::add(20); }\n";
+    static const uint8_t unknown_target[] =
+        "module test::unknown_target;\n"
+        "impl Missing {\n"
+        " pub fn zero() -> i32 { return 0; }\n"
+        "}\n";
+    static const uint8_t duplicate_method[] =
+        "module test::duplicate_method;\n"
+        "struct Counter { value: i32; }\n"
+        "impl Counter { pub fn zero() -> i32 { return 0; } }\n"
+        "impl Counter { pub fn zero() -> i32 { return 1; } }\n";
+    static const uint8_t receiver[] =
+        "module test::receiver;\n"
+        "struct Counter { value: i32; }\n"
+        "impl Counter {\n"
+        " pub fn read(self: Counter) -> i32 { return 0; }\n"
+        "}\n";
 
     uint8_t output[65536];
     uint32_t line = 999;
@@ -144,25 +189,26 @@ int main(int argc, char **argv) {
     fclose(file);
     if (written != size) return 4;
 
-    line = 999;
-    col = 999;
-    size = sotlas_native_compile_diagnostic(
-        missing, sizeof(missing) - 1, output, sizeof(output) - 1, &line, &col
+    int rejected = expect_semantic_rejection(
+        missing, sizeof(missing) - 1, output, sizeof(output) - 1, "missing method", 5
     );
-    if (size != 0 || line == 0 || col == 0) {
-        fprintf(stderr, "missing method: size=%zu line=%u col=%u\n", size, line, col);
-        return 5;
-    }
-
-    line = 999;
-    col = 999;
-    size = sotlas_native_compile_diagnostic(
-        wrong_arity, sizeof(wrong_arity) - 1, output, sizeof(output) - 1, &line, &col
+    if (rejected != 0) return rejected;
+    rejected = expect_semantic_rejection(
+        wrong_arity, sizeof(wrong_arity) - 1, output, sizeof(output) - 1, "wrong arity", 6
     );
-    if (size != 0 || line == 0 || col == 0) {
-        fprintf(stderr, "wrong arity: size=%zu line=%u col=%u\n", size, line, col);
-        return 6;
-    }
+    if (rejected != 0) return rejected;
+    rejected = expect_semantic_rejection(
+        unknown_target, sizeof(unknown_target) - 1, output, sizeof(output) - 1, "unknown impl target", 7
+    );
+    if (rejected != 0) return rejected;
+    rejected = expect_semantic_rejection(
+        duplicate_method, sizeof(duplicate_method) - 1, output, sizeof(output) - 1, "duplicate static method", 8
+    );
+    if (rejected != 0) return rejected;
+    rejected = expect_semantic_rejection(
+        receiver, sizeof(receiver) - 1, output, sizeof(output) - 1, "unsupported receiver", 9
+    );
+    if (rejected != 0) return rejected;
     return 0;
 }
 '''

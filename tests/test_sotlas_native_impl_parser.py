@@ -125,7 +125,7 @@ int main(int argc, char **argv) {
         unsupported_receiver, sizeof(unsupported_receiver) - 1,
         output, sizeof(output) - 1, &line, &col
     );
-    if (size != 0 || line != 0 || col != 0) {
+    if (size != 0 || line == 0 || col == 0) {
         fprintf(stderr, "unsupported receiver: size=%zu line=%u col=%u\n", size, line, col);
         return 6;
     }
@@ -136,7 +136,7 @@ int main(int argc, char **argv) {
         unsupported_target, sizeof(unsupported_target) - 1,
         output, sizeof(output) - 1, &line, &col
     );
-    if (size != 0 || line != 0 || col != 0) {
+    if (size != 0 || line == 0 || col == 0) {
         fprintf(stderr, "unsupported impl target: size=%zu line=%u col=%u\n", size, line, col);
         return 7;
     }
@@ -147,7 +147,7 @@ int main(int argc, char **argv) {
         duplicate_method, sizeof(duplicate_method) - 1,
         output, sizeof(output) - 1, &line, &col
     );
-    if (size != 0 || line != 0 || col != 0) {
+    if (size != 0 || line == 0 || col == 0) {
         fprintf(stderr, "duplicate impl method: size=%zu line=%u col=%u\n", size, line, col);
         return 8;
     }
