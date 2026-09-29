@@ -1,4 +1,5 @@
 """Tests for IRQ nesting safety and irq_restore correctness."""
+import importlib.util
 import sys
 import unittest
 from pathlib import Path
@@ -6,15 +7,23 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "compiler"))
 
-from sotlas_compile import bootstrap, frontend_extensions, x86_intrinsics
+from sotlas_compile import frontend_extensions, x86_intrinsics
 
 
 def _backend():
-    import importlib
-    importlib.reload(bootstrap)
-    frontend_extensions.install(bootstrap)
-    x86_intrinsics.install(bootstrap)
-    return bootstrap
+    """Build an isolated backend without reloading the canonical singleton."""
+    module_name = "sotlas_compile._irq_nesting_test_bootstrap"
+    spec = importlib.util.spec_from_file_location(
+        module_name,
+        ROOT / "compiler" / "sotlas_compile" / "bootstrap.py",
+    )
+    assert spec is not None and spec.loader is not None
+    backend = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = backend
+    spec.loader.exec_module(backend)
+    frontend_extensions.install(backend)
+    x86_intrinsics.install(backend)
+    return backend
 
 
 class TestIrqRestore(unittest.TestCase):

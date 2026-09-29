@@ -1,4 +1,5 @@
 """Tests for atomic SpinLock and barrier specialization in system::sync."""
+import importlib.util
 import sys
 import os
 import unittest
@@ -8,16 +9,29 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "compiler"))
 
-from sotlas_compile import bootstrap, frontend_extensions, x86_intrinsics
+from sotlas_compile import frontend_extensions, x86_intrinsics
 
 
 def _backend():
-    """Return a clean backend with extensions and x86 intrinsics loaded."""
-    import importlib
-    importlib.reload(bootstrap)
-    frontend_extensions.install(bootstrap)
-    x86_intrinsics.install(bootstrap)
-    return bootstrap
+    """Return a clean isolated backend with extensions and x86 intrinsics loaded.
+
+    Do not reload ``sotlas_compile.bootstrap`` in place: that module is the
+    process-wide canonical frontend singleton and mutating it leaks raw parser
+    functions into unrelated tests and tools. A package-scoped isolated module
+    preserves relative imports without corrupting the canonical frontend.
+    """
+    module_name = "sotlas_compile._atomic_spinlock_test_bootstrap"
+    spec = importlib.util.spec_from_file_location(
+        module_name,
+        ROOT / "compiler" / "sotlas_compile" / "bootstrap.py",
+    )
+    assert spec is not None and spec.loader is not None
+    backend = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = backend
+    spec.loader.exec_module(backend)
+    frontend_extensions.install(backend)
+    x86_intrinsics.install(backend)
+    return backend
 
 
 class TestAtomicSpinLock(unittest.TestCase):

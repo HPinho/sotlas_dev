@@ -179,12 +179,13 @@ def require_backend_profile(module, backend: str, bootstrap=None) -> TargetProfi
     if backend == "c11" and plan.profile in ("native", "barecore"):
         return plan
 
+    backend_label = "C11" if backend == "c11" else backend
     if bootstrap is None:
         raise ValueError(
-            f"{backend} backend does not lower target {plan.profile} yet"
+            f"{backend_label} backend does not lower target {plan.profile} yet"
         )
     raise bootstrap.SotlasBootstrapError(
-        f"{backend} backend does not lower target {plan.profile} yet",
+        f"{backend_label} backend does not lower target {plan.profile} yet",
         plan.line,
         plan.column,
         getattr(module, "filename", None),
@@ -218,9 +219,21 @@ def _validate_barecore_c11_output(bootstrap, module, code: str) -> str:
 
 
 def install(bootstrap) -> None:
-    """Install target-profile parsing into the one canonical bootstrap route."""
+    """Install target-profile parsing into the one canonical bootstrap route.
 
-    if getattr(bootstrap, "_TARGET_PROFILE_FRONTEND_INSTALLED", False):
+    The installer is reload-safe. ``importlib.reload`` re-executes bootstrap in
+    the existing module object, so extension sentinel attributes can survive
+    while ``parse`` and ``emit_c`` have already been reset to their raw
+    definitions. We therefore validate the installed wrapper identity instead
+    of trusting a stale boolean alone.
+    """
+
+    installed_parse = getattr(bootstrap, "_TARGET_PROFILE_PARSE_WRAPPER", None)
+    if (
+        getattr(bootstrap, "_TARGET_PROFILE_FRONTEND_INSTALLED", False)
+        and installed_parse is not None
+        and bootstrap.parse is installed_parse
+    ):
         return
 
     original_parse = bootstrap.parse
@@ -256,4 +269,5 @@ def install(bootstrap) -> None:
     bootstrap.require_backend_profile = require_backend_profile
     bootstrap.validate_barecore_c11_output = _validate_barecore_c11_output
     bootstrap.BARECORE_C_MARKER = _BARECORE_C_MARKER
+    bootstrap._TARGET_PROFILE_PARSE_WRAPPER = parse_with_target_profile
     bootstrap._TARGET_PROFILE_FRONTEND_INSTALLED = True

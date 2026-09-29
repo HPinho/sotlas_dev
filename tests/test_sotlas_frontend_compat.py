@@ -13,6 +13,21 @@ bootstrap = importlib.util.module_from_spec(SPEC)
 sys.modules["bootstrap"] = bootstrap
 SPEC.loader.exec_module(bootstrap)
 
+# The standalone bootstrap harness deliberately loads bootstrap.py without the
+# package initializer. Install the same official target-profile extension that
+# production entrypoints use so project compilation exercises the real kernel
+# grammar rather than a weaker pre-target parser.
+TARGET_PROFILE_SPEC = importlib.util.spec_from_file_location(
+    "_sotlas_frontend_compat_target_profile",
+    ROOT / "tools" / "sotlas_compile" / "target_profile.py",
+)
+assert TARGET_PROFILE_SPEC is not None and TARGET_PROFILE_SPEC.loader is not None
+target_profile = importlib.util.module_from_spec(TARGET_PROFILE_SPEC)
+sys.modules[TARGET_PROFILE_SPEC.name] = target_profile
+TARGET_PROFILE_SPEC.loader.exec_module(target_profile)
+target_profile.install(bootstrap)
+
+
 def _host_c_compiler() -> Path:
     resolved = shutil.which("gcc") or shutil.which("clang")
     if resolved is None:
