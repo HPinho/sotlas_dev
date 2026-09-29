@@ -8,6 +8,7 @@ consume that fact instead of re-reading source text.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -81,6 +82,55 @@ def target_profile_of(module) -> TargetProfile:
         raise ValueError(f"unknown Sotlas target profile: {name!r}") from error
 
 
+def _assign_profile(module, profile: TargetProfile, *, explicit: bool) -> None:
+    module.target_profile = profile.name
+    module.target_profile_facts = profile
+    module.target_profile_explicit = explicit
+    module.is_barecore = profile.freestanding
+
+
+def _propagate_project_target(bootstrap, entry, modules):
+    if not modules:
+        return modules
+    try:
+        entry_path = entry.resolve()
+    except AttributeError:
+        entry_path = entry
+    root = None
+    for module in modules:
+        filename = getattr(module, "filename", None)
+        if not filename:
+            continue
+        try:
+            candidate = Path(filename).resolve()
+        except (OSError, RuntimeError):
+            continue
+        if candidate == entry_path:
+            root = module
+            break
+    if root is None:
+        root = modules[-1]
+
+    root_profile = target_profile_of(root)
+    for module in modules:
+        if module is root:
+            continue
+        profile = target_profile_of(module)
+        if getattr(module, "target_profile_explicit", False):
+            if profile.name != root_profile.name:
+                raise bootstrap.SotlasBootstrapError(
+                    f"target profile mismatch: project {root_profile.name!r} "
+                    f"cannot import explicit {profile.name!r} module {module.name!r}",
+                    1,
+                    1,
+                    module.filename,
+                    module.source,
+                )
+            continue
+        _assign_profile(module, root_profile, explicit=False)
+    return modules
+
+
 def install(bootstrap) -> None:
     """Install target-header parsing into the one canonical frontend."""
     if getattr(bootstrap, "_TARGET_PROFILE_FRONTEND_INSTALLED", False):
@@ -146,10 +196,7 @@ def install(bootstrap) -> None:
         def parse(self):
             profile, explicit = self._parse_target_profile()
             module = super().parse()
-            module.target_profile = profile.name
-            module.target_profile_facts = profile
-            module.target_profile_explicit = explicit
-            module.is_barecore = profile.freestanding
+            _assign_profile(module, profile, explicit=explicit)
             return module
 
     bootstrap.Parser = TargetProfileParser
@@ -157,6 +204,13 @@ def install(bootstrap) -> None:
     bootstrap.TARGET_NATIVE = TARGET_NATIVE
     bootstrap.TARGET_BARECORE = TARGET_BARECORE
     bootstrap.TARGET_WEB = TARGET_WEB
+    original_compile_project = bootstrap.compile_project
+
+    def target_compile_project(entry):
+        modules = original_compile_project(entry)
+        return _propagate_project_target(bootstrap, entry, modules)
+
+    bootstrap.compile_project = target_compile_project
     bootstrap.target_profile_of = target_profile_of
     bootstrap._TARGET_PROFILE_FRONTEND_INSTALLED = True
 
@@ -276,6 +330,7 @@ def install_c11_backend(bootstrap) -> None:
 
     original_emit_c = bootstrap.emit_c
     original_emit_header = bootstrap.emit_header
+    original_emit_c_project = bootstrap.emit_c_project
 
     def target_emit_c(module, *args, **kwargs):
         profile = target_profile_of(module)
@@ -323,6 +378,34 @@ def install_c11_backend(bootstrap) -> None:
         _assert_freestanding_output(bootstrap, module, header)
         return _BARECORE_TYPE_DEFS.rstrip() + "\n\n" + header.lstrip()
 
+    def target_emit_c_project(entry, output):
+        modules = bootstrap.compile_project(entry)
+        if not modules:
+            return original_emit_c_project(entry, output)
+        root = modules[-1]
+        profile = target_profile_of(root)
+        if profile.web:
+            raise bootstrap.SotlasBootstrapError(
+                "target web cannot be lowered by the C11 backend",
+                1,
+                1,
+                root.filename,
+                root.source,
+            )
+        if not profile.freestanding:
+            return original_emit_c_project(entry, output)
+
+        fragments = [_freestanding_preamble(bootstrap)]
+        for module in modules:
+            fragments.append(
+                bootstrap.emit_c(
+                    module, mangle=False, include_preamble=False
+                )
+            )
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text("\n".join(fragments), encoding="utf-8")
+
     bootstrap.emit_c = target_emit_c
     bootstrap.emit_header = target_emit_header
+    bootstrap.emit_c_project = target_emit_c_project
     bootstrap._TARGET_PROFILE_C11_INSTALLED = True
