@@ -1,3 +1,4 @@
+barecore;
 module kernel::minimal;
 import core::mem::*;
 import core::fmt::*;
@@ -71,5 +72,4 @@ pub fn kernel_main(frame: *mut BootFrame) -> u64 {
 pub fn available_memory(capacity: usize, used: usize) -> usize {
     return remaining(capacity, used);
 }
-
 
