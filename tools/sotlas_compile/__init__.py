@@ -4,6 +4,7 @@
 # política de segurança/FFI. Ferramentas podem expor ASTs auxiliares, mas não
 # podem possuir um segundo lowering ou uma segunda semântica executável.
 from . import bootstrap as bootstrap
+from .target_profile import install as _install_target_profile
 from .frontend_extensions import install as _install_frontend_extensions
 from .language_safety import install as _install_language_safety
 from .authority_frontend_safety import install as _install_authority_frontend_safety
@@ -16,6 +17,7 @@ from .state_frontend import (
     install as _install_state_space_frontend,
 )
 
+_install_target_profile(bootstrap)
 _install_frontend_extensions(bootstrap)
 _install_language_safety(bootstrap)
 _install_region_ast_compat()
