@@ -4,6 +4,10 @@
 # política de segurança/FFI. Ferramentas podem expor ASTs auxiliares, mas não
 # podem possuir um segundo lowering ou uma segunda semântica executável.
 from . import bootstrap as bootstrap
+from .target_profile import (
+    TargetProfilePlan,
+    install as _install_target_profile,
+)
 from .frontend_extensions import install as _install_frontend_extensions
 from .language_safety import install as _install_language_safety
 from .authority_frontend_safety import install as _install_authority_frontend_safety
@@ -16,6 +20,7 @@ from .state_frontend import (
     install as _install_state_space_frontend,
 )
 
+_install_target_profile(bootstrap)
 _install_frontend_extensions(bootstrap)
 _install_language_safety(bootstrap)
 _install_region_ast_compat()
@@ -27,6 +32,7 @@ _install_authority_typed_ast(bootstrap)
 # boundary rather than introducing a parallel language route.
 _install_state_space_frontend(bootstrap)
 plan_state_space_frontend = bootstrap.plan_state_space_frontend
+plan_target_profile = bootstrap.plan_target_profile
 
 from .errors import SotlasError
 from .state_typed_ast import StateSpaceTypedSnapshot
@@ -127,6 +133,7 @@ emit_c_project = bootstrap.emit_c_project
 __all__ = [
     "bootstrap", "SotlasError", "SotlasBootstrapError", "compile_source",
     "compile_project", "emit_c_project", "StateSpaceFrontendPlan",
+    "TargetProfilePlan", "plan_target_profile",
     "StateSpaceTypedSnapshot", "plan_state_space_frontend",
     "StateTransitionSIRError", "lower_typestate_transition",
     "FlowDependency", "FlowGraphError", "FlowGraphPlan", "FlowNode",
