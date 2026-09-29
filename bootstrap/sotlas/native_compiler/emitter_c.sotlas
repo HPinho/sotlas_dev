@@ -71,6 +71,36 @@ impl CEmitter {
         return self.write_str(slice, len);
     }
 
+    pub fn emit_literal(mut self: &mut Self, index: usize) -> bool {
+        if !self.valid_node(index) || self.source == null {
+            return false;
+        }
+        let node: AstNode = unsafe { *(self.nodes + index) };
+        if node.kind != AstKind::ExprLiteral || node.str_len == 0
+            || node.str_offset > self.source_len
+            || node.str_len > self.source_len - node.str_offset {
+            return false;
+        }
+
+        let first: u8 = unsafe { *(self.source + node.str_offset) };
+        if first < 48 || first > 57 {
+            // String and future non-numeric literal spellings stay byte-exact.
+            return self.write_source_slice(node.str_offset, node.str_len);
+        }
+
+        // Sotlas allows '_' as a numeric separator, while strict C11 does not.
+        // Canonicalize only numeric literal payloads; never touch identifiers.
+        let mut i: usize = 0;
+        while i < node.str_len {
+            let ch: u8 = unsafe { *(self.source + node.str_offset + i) };
+            if ch != 95 && !self.write_byte(ch) {
+                return false;
+            }
+            i = i + 1;
+        }
+        return true;
+    }
+
     pub fn valid_node(self: &Self, index: usize) -> bool {
         return self.nodes != null && index > 0 && index < self.node_count;
     }
@@ -465,8 +495,11 @@ impl CEmitter {
         }
         let node: AstNode = unsafe { *(self.nodes + index) };
 
-        if node.kind == AstKind::ExprIdent || node.kind == AstKind::ExprLiteral {
+        if node.kind == AstKind::ExprIdent {
             return self.write_source_slice(node.str_offset, node.str_len);
+        }
+        if node.kind == AstKind::ExprLiteral {
+            return self.emit_literal(index);
         }
 
         if node.kind == AstKind::ExprStructLiteral {
