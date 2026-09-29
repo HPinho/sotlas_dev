@@ -13,6 +13,363 @@ pub const AST_NODE_BUFFER_CAPACITY: usize = 65536;
 static mut g_token_buffer: [Token; 32768] = 0;
 static mut g_ast_node_buffer: [AstNode; 65536] = 0;
 
+pub fn native_numeric_literal_kind(
+    nodes: *const AstNode,
+    node_count: usize,
+    expression_index: usize,
+    source: *const u8,
+    source_len: usize
+) -> i64 {
+    if nodes == null || source == null || expression_index == 0
+        || expression_index >= node_count {
+        return 0;
+    }
+    let expression: AstNode = unsafe { *(nodes + expression_index) };
+    if expression.kind == AstKind::ExprUnary
+        && (expression.int_value == 80 || expression.int_value == 81)
+        && expression.first_child != 0
+        && expression.first_child < node_count {
+        return native_numeric_literal_kind(
+            nodes, node_count, expression.first_child, source, source_len
+        );
+    }
+    if expression.kind != AstKind::ExprLiteral || expression.str_len == 0
+        || expression.str_offset > source_len
+        || expression.str_len > source_len - expression.str_offset {
+        return 0;
+    }
+
+    let first: u8 = unsafe { *(source + expression.str_offset) };
+    if first < 48 || first > 57 {
+        return 0;
+    }
+
+    let is_hex: bool = expression.str_len >= 2 && first == 48
+        && (unsafe { *(source + expression.str_offset + 1) } == 120
+            || unsafe { *(source + expression.str_offset + 1) } == 88);
+    let mut index: usize = if is_hex { 2 } else { 0 };
+    let mut saw_digit: bool = false;
+    let mut saw_dot: bool = false;
+    let mut digit_before_dot: bool = false;
+    let mut digit_after_dot: bool = false;
+
+    while index < expression.str_len {
+        let ch: u8 = unsafe { *(source + expression.str_offset + index) };
+        if ch == 95 {
+            index = index + 1;
+            continue;
+        }
+        let decimal_digit: bool = ch >= 48 && ch <= 57;
+        let hex_digit: bool = decimal_digit
+            || (ch >= 65 && ch <= 70)
+            || (ch >= 97 && ch <= 102);
+        if (if is_hex { hex_digit } else { decimal_digit }) {
+            saw_digit = true;
+            if !saw_dot {
+                digit_before_dot = true;
+            } else {
+                digit_after_dot = true;
+            }
+            index = index + 1;
+            continue;
+        }
+        if !is_hex && ch == 46 && !saw_dot {
+            saw_dot = true;
+            index = index + 1;
+            continue;
+        }
+        return 0;
+    }
+
+    if !saw_digit {
+        return 0;
+    }
+    if saw_dot {
+        if digit_before_dot && digit_after_dot {
+            return 2; // decimal float literal
+        }
+        return 0;
+    }
+    return 1; // integer literal
+}
+
+pub fn native_numeric_type_domain(
+    sem: &Sema,
+    nodes: *const AstNode,
+    node_count: usize,
+    type_index: usize,
+    source: *const u8,
+    source_len: usize
+) -> i64 {
+    if sem.fixed_integer_type_tag(
+        nodes, node_count, type_index, source, source_len
+    ) != 0 {
+        return 1;
+    }
+    if nodes == null || type_index == 0 || type_index >= node_count {
+        return 0;
+    }
+    let typ: AstNode = unsafe { *(nodes + type_index) };
+    if typ.kind != AstKind::TypeRef || typ.str_len == 0 {
+        return 0;
+    }
+    if sem.source_slice_equals(
+        source, source_len, typ.str_offset, typ.str_len, "f32", 3
+    ) || sem.source_slice_equals(
+        source, source_len, typ.str_offset, typ.str_len, "f64", 3
+    ) {
+        return 2;
+    }
+    return 0;
+}
+
+pub fn native_function_return_type(
+    nodes: *const AstNode,
+    node_count: usize,
+    function_index: usize
+) -> usize {
+    if nodes == null || function_index == 0 || function_index >= node_count {
+        return 0;
+    }
+    let function: AstNode = unsafe { *(nodes + function_index) };
+    if function.kind != AstKind::FnDecl && function.kind != AstKind::TrapfnDecl {
+        return 0;
+    }
+    let mut child: usize = function.first_child;
+    while child != 0 {
+        if child >= node_count {
+            return 0;
+        }
+        let node: AstNode = unsafe { *(nodes + child) };
+        if node.kind == AstKind::TypeRef {
+            return child;
+        }
+        child = node.next_sibling;
+    }
+    return 0;
+}
+
+pub fn native_call_argument_expected_type(
+    sem: &Sema,
+    nodes: *const AstNode,
+    node_count: usize,
+    call_index: usize,
+    expression_index: usize,
+    source: *const u8,
+    source_len: usize
+) -> usize {
+    if nodes == null || call_index == 0 || expression_index == 0
+        || call_index >= node_count || expression_index >= node_count {
+        return 0;
+    }
+    let call: AstNode = unsafe { *(nodes + call_index) };
+    if call.kind != AstKind::ExprCall || call.first_child == 0
+        || call.first_child >= node_count {
+        return 0;
+    }
+    let callee_index: usize = call.first_child;
+    let callee: AstNode = unsafe { *(nodes + callee_index) };
+    let mut function_index: usize = 0;
+    if callee.kind == AstKind::ExprIdent {
+        function_index = sem.find_module_function(
+            nodes, node_count, callee_index, source, source_len
+        );
+    } else if callee.kind == AstKind::ExprPath {
+        let module_index: usize = sem.find_enclosing_module(
+            nodes, node_count, call_index
+        );
+        if module_index != 0 {
+            function_index = sem.find_static_impl_method_for_path(
+                nodes,
+                node_count,
+                module_index,
+                callee_index,
+                source,
+                source_len
+            );
+        }
+    }
+    if function_index == 0 || function_index >= node_count {
+        return 0;
+    }
+
+    let function: AstNode = unsafe { *(nodes + function_index) };
+    let mut argument_index: usize = callee.next_sibling;
+    let mut parameter_index: usize = function.first_child;
+    while argument_index != 0 {
+        if argument_index >= node_count {
+            return 0;
+        }
+        while parameter_index != 0 {
+            if parameter_index >= node_count {
+                return 0;
+            }
+            let parameter: AstNode = unsafe { *(nodes + parameter_index) };
+            if parameter.kind == AstKind::ParamDecl {
+                break;
+            }
+            parameter_index = parameter.next_sibling;
+        }
+        if parameter_index == 0 {
+            return 0;
+        }
+        let parameter: AstNode = unsafe { *(nodes + parameter_index) };
+        if argument_index == expression_index {
+            if parameter.first_child != 0 && parameter.first_child < node_count {
+                let typ: AstNode = unsafe { *(nodes + parameter.first_child) };
+                if typ.kind == AstKind::TypeRef {
+                    return parameter.first_child;
+                }
+            }
+            return 0;
+        }
+        let argument: AstNode = unsafe { *(nodes + argument_index) };
+        argument_index = argument.next_sibling;
+        parameter_index = parameter.next_sibling;
+    }
+    return 0;
+}
+
+pub fn native_numeric_expected_type(
+    sem: &Sema,
+    nodes: *const AstNode,
+    node_count: usize,
+    expression_index: usize,
+    source: *const u8,
+    source_len: usize
+) -> usize {
+    if nodes == null || expression_index == 0 || expression_index >= node_count {
+        return 0;
+    }
+    let expression: AstNode = unsafe { *(nodes + expression_index) };
+    let parent_index: usize = expression.parent;
+    if parent_index == 0 || parent_index >= node_count {
+        return 0;
+    }
+    let parent: AstNode = unsafe { *(nodes + parent_index) };
+
+    if parent.kind == AstKind::LetStmt {
+        if parent.first_child != 0 && parent.first_child < node_count {
+            let typ: AstNode = unsafe { *(nodes + parent.first_child) };
+            if typ.kind == AstKind::TypeRef {
+                return parent.first_child;
+            }
+        }
+        return 0;
+    }
+
+    if parent.kind == AstKind::ReturnStmt {
+        let mut ancestor: usize = parent.parent;
+        while ancestor != 0 {
+            if ancestor >= node_count {
+                return 0;
+            }
+            let node: AstNode = unsafe { *(nodes + ancestor) };
+            if node.kind == AstKind::FnDecl || node.kind == AstKind::TrapfnDecl {
+                return native_function_return_type(nodes, node_count, ancestor);
+            }
+            ancestor = node.parent;
+        }
+        return 0;
+    }
+
+    if parent.kind == AstKind::StructFieldInit {
+        let literal_index: usize = parent.parent;
+        if literal_index == 0 || literal_index >= node_count {
+            return 0;
+        }
+        let struct_index: usize = sem.find_module_struct(
+            nodes, node_count, literal_index, source, source_len
+        );
+        let field_index: usize = sem.find_struct_field_for_init(
+            nodes, node_count, struct_index, parent_index, source, source_len
+        );
+        if field_index != 0 && field_index < node_count {
+            let field: AstNode = unsafe { *(nodes + field_index) };
+            if field.first_child != 0 && field.first_child < node_count {
+                return field.first_child;
+            }
+        }
+        return 0;
+    }
+
+    if parent.kind == AstKind::ExprCall {
+        return native_call_argument_expected_type(
+            sem,
+            nodes,
+            node_count,
+            parent_index,
+            expression_index,
+            source,
+            source_len
+        );
+    }
+
+    return 0;
+}
+
+pub fn check_native_contextual_numeric_literals(
+    mut sem: &mut Sema,
+    nodes: *const AstNode,
+    node_count: usize,
+    source: *const u8,
+    source_len: usize
+) -> bool {
+    if nodes == null || source == null {
+        return false;
+    }
+    let mut index: usize = 1;
+    while index < node_count {
+        let node: AstNode = unsafe { *(nodes + index) };
+        let mut expression_index: usize = 0;
+        if node.kind == AstKind::ExprLiteral {
+            let parent_index: usize = node.parent;
+            if parent_index != 0 && parent_index < node_count {
+                let parent: AstNode = unsafe { *(nodes + parent_index) };
+                if parent.kind == AstKind::ExprUnary
+                    && (parent.int_value == 80 || parent.int_value == 81) {
+                    index = index + 1;
+                    continue;
+                }
+            }
+            expression_index = index;
+        } else if node.kind == AstKind::ExprUnary
+            && (node.int_value == 80 || node.int_value == 81) {
+            expression_index = index;
+        }
+
+        if expression_index != 0 {
+            let literal_kind: i64 = native_numeric_literal_kind(
+                nodes, node_count, expression_index, source, source_len
+            );
+            if literal_kind != 0 {
+                let expected_type: usize = native_numeric_expected_type(
+                    sem,
+                    nodes,
+                    node_count,
+                    expression_index,
+                    source,
+                    source_len
+                );
+                let expected_domain: i64 = native_numeric_type_domain(
+                    sem,
+                    nodes,
+                    node_count,
+                    expected_type,
+                    source,
+                    source_len
+                );
+                if expected_domain != 0 && expected_domain != literal_kind {
+                    let expression: AstNode = unsafe { *(nodes + expression_index) };
+                    return sem.reject_node(expression);
+                }
+            }
+        }
+        index = index + 1;
+    }
+    return true;
+}
+
 @export
 @system
 pub fn sotlas_native_compile_diagnostic(
@@ -79,7 +436,9 @@ pub fn sotlas_native_compile_diagnostic(
     let mut sem: Sema = Sema::new();
     sem.enter_system();
     let _is_safe: bool = sem.check_system_privilege();
-    if !sem.check_top_level_declarations(
+    if !check_native_contextual_numeric_literals(
+        &mut sem, node_ptr, p.node_count, source, len
+    ) || !sem.check_top_level_declarations(
         node_ptr, p.node_count, module_node, source, len
     ) {
         if error_line != null {
@@ -99,6 +458,11 @@ pub fn sotlas_native_compile_diagnostic(
         node_ptr,
         p.node_count
     );
+    // Preserve the Sotlas surface spelling in generated signatures while
+    // establishing exact C11 ABI aliases for the bounded float subset.
+    if !emitter.write_str("typedef float f32;\ntypedef double f64;\n", 39) {
+        return 0;
+    }
     if !emitter.emit_header() {
         return 0;
     }
