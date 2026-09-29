@@ -53,7 +53,7 @@ int main(void) {
     static const uint8_t wrong_argument[] =
         "module test::static_arg;\n"
         "struct Box {\n"
-        " value: u32,\n"
+        " value: u32;\n"
         "}\n"
         "impl Box {\n"
         " fn make(value: u32) -> Box { return Box { value: value }; }\n"
@@ -63,10 +63,10 @@ int main(void) {
     static const uint8_t wrong_return[] =
         "module test::static_return;\n"
         "struct Box {\n"
-        " value: u32,\n"
+        " value: u32;\n"
         "}\n"
         "struct Other {\n"
-        " value: u32,\n"
+        " value: u32;\n"
         "}\n"
         "impl Box {\n"
         " fn make(value: u32) -> Box { return Box { value: value }; }\n"
@@ -76,7 +76,7 @@ int main(void) {
     static const uint8_t good[] =
         "module test::static_good;\n"
         "struct Box {\n"
-        " value: u32,\n"
+        " value: u32;\n"
         "}\n"
         "impl Box {\n"
         " fn make(value: u32) -> Box { return Box { value: value }; }\n"
