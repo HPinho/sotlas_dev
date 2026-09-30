@@ -1,19 +1,20 @@
 """Canonical Sotlas-owned x86-64 SysV backend orchestration.
 
-The low-level emitter consumes phi-free Target IR. This public layer performs
-M16.2c SSA destruction first: leading scalar phi nodes become private
-stack-backed edge copies, then the core validates the resulting CFG.
+The public layer performs M16.2c SSA destruction first: leading scalar phi nodes
+become private stack-backed edge copies.  The machine core then proves the
+M16.2d bounded-loop subset, while the M16.3a ABI layer handles validated
+module-local direct calls with SysV register arguments, RAX returns, aligned call
+sites and explicit preservation of the backend's caller-saved value registers.
 
-M16.2d lives at that core boundary: cyclic CFG reaches allocation and instruction
-selection only when the core can prove the narrow unsigned counted-loop shape
-and prove that its induction variable cannot wrap while the condition is true.
-Arbitrary cycles remain fail-closed.
+Arbitrary cycles, recursion, indirect/foreign calls, stack-passed arguments and
+aggregate ABI lowering remain fail-closed.
 """
 from __future__ import annotations
 
 from copy import deepcopy
 from typing import Any
 
+from . import _machine_x86_64_calls as _calls
 from . import _machine_x86_64_core as _core
 from .target_ir import lower_sir_to_target_ir
 
@@ -165,13 +166,10 @@ def _lower_function_phis(function: dict[str, Any]) -> bool:
                 raise MachineBackendError(
                     f"function {name!r}: phi in block {label!r} has an invalid result"
                 )
-            try:
-                _core._require_machine_scalar(
-                    type_name,
-                    context=f"function {name!r} phi {result!r}",
-                )
-            except MachineBackendError:
-                raise
+            _core._require_machine_scalar(
+                type_name,
+                context=f"function {name!r} phi {result!r}",
+            )
             if not isinstance(incoming, list) or not incoming:
                 raise MachineBackendError(
                     f"function {name!r}: phi {result!r} has no incoming values"
@@ -286,7 +284,7 @@ def _lower_function_phis(function: dict[str, Any]) -> bool:
 
 
 def lower_phi_edge_copies(target_ir: dict[str, Any]) -> dict[str, Any]:
-    """Destroy acyclic scalar SSA phi nodes into backend-private edge copies."""
+    """Destroy scalar SSA phi nodes into backend-private edge copies."""
     if not isinstance(target_ir, dict) or target_ir.get("schema") != "sotlas.target-ir.v1":
         return target_ir
     if not any(
@@ -314,7 +312,7 @@ def lower_phi_edge_copies(target_ir: dict[str, Any]) -> dict[str, Any]:
 def plan_x86_64_sysv_allocation(
     target_ir: dict[str, Any], *, register_count: int = 2
 ) -> dict[str, Any]:
-    return _core.plan_x86_64_sysv_allocation(
+    return _calls.plan_x86_64_sysv_allocation(
         lower_phi_edge_copies(target_ir), register_count=register_count
     )
 
@@ -322,7 +320,7 @@ def plan_x86_64_sysv_allocation(
 def emit_x86_64_sysv_assembly(
     target_ir: dict[str, Any], *, register_count: int = 2
 ) -> str:
-    return _core.emit_x86_64_sysv_assembly(
+    return _calls.emit_x86_64_sysv_assembly(
         lower_phi_edge_copies(target_ir), register_count=register_count
     )
 
