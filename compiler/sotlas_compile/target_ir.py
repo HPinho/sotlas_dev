@@ -448,6 +448,17 @@ def allocate_target_ir_registers(
         "bool", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64",
         "usize", "f32", "f64",
     }
+
+    def is_allocatable_scalar(type_name: Any) -> bool:
+        if type_name in scalar_types:
+            return True
+        return (
+            isinstance(type_name, str)
+            and type_name.count("*") == 1
+            and type_name.endswith("*")
+            and type_name[:-1] in scalar_types
+        )
+
     liveness = analyze_target_ir_liveness(target_ir)
     liveness_by_name = {
         item["name"]: item for item in liveness["functions"]
@@ -465,7 +476,7 @@ def allocate_target_ir_registers(
         for parameter in function.get("parameters", ()):
             value = parameter.get("name")
             type_name = parameter.get("type")
-            if type_name not in scalar_types:
+            if not is_allocatable_scalar(type_name):
                 raise TargetIRLoweringError(
                     f"register allocation preview does not support type {type_name!r}"
                 )
@@ -479,7 +490,7 @@ def allocate_target_ir_registers(
                 ):
                     continue
                 type_name = instruction.get("type")
-                if type_name not in scalar_types:
+                if not is_allocatable_scalar(type_name):
                     raise TargetIRLoweringError(
                         f"register allocation preview does not support type {type_name!r}"
                     )
