@@ -1,18 +1,22 @@
-"""Narrow canonical SIR lowering for scalar structured-if returns.
+"""Narrow canonical SIR lowering for scalar returns and direct scalar calls.
 
 The prototype SIR generator already owns honest condition lowering for boolean
 parameters and integer comparisons, and it separately owns direct same-typed
-scalar parameter returns.  This extension composes those existing contracts for
-one deliberately small structured CFG shape without inventing values:
+scalar parameter returns. This extension composes those existing contracts for
+two deliberately small, fully checked source shapes without inventing values:
 
     if condition { return parameter_a; }
     return parameter_b;
 
-or the equivalent fully terminating if/else form.
+or the equivalent fully terminating if/else form, plus:
 
-Only direct parameter names with the function's declared scalar return type are
-accepted.  Calls, locals, arithmetic return expressions, mutations, and other
-shapes remain on the base generator's fail-closed ``unlowered_functions`` path.
+    return callee(parameter_a, parameter_b, ...);
+
+The direct-call return path is intentionally narrow: the callee must be another
+parsed module function, every argument must be a direct caller parameter with an
+exactly matching scalar type, and the callee return type must exactly match the
+caller return type. More general call expressions, locals, literals, nested calls,
+conversions and aggregate values remain fail-closed for later milestones.
 """
 from __future__ import annotations
 
@@ -59,6 +63,125 @@ def make_scalar_if_return_cfg_generator(sir):
             if value is None or value.type_name != return_type:
                 return None
             return value
+
+        @staticmethod
+        def _call_argument_name(argument: Any) -> str | None:
+            kind = type(argument).__name__
+            if kind == "Name":
+                name = getattr(argument, "value", None)
+            elif kind == "IdentNode":
+                name = getattr(argument, "name", None)
+            else:
+                return None
+            return name if isinstance(name, str) and name else None
+
+        def _parsed_parameter_type(self, parameter: Any) -> str | None:
+            if isinstance(parameter, tuple) and len(parameter) == 2:
+                type_info = parameter[1]
+            else:
+                type_info = (
+                    getattr(parameter, "type_ann", None)
+                    or getattr(parameter, "type", None)
+                )
+            try:
+                return self._type_name(type_info, "void")
+            except ValueError:
+                return None
+
+        @staticmethod
+        def _parsed_function_is_system(function: Any) -> bool:
+            if bool(getattr(function, "is_system", False)):
+                return True
+            attributes = tuple(getattr(function, "attributes", ()) or ())
+            if "@system" in attributes:
+                return True
+            directives = tuple(getattr(function, "directives", ()) or ())
+            return any(getattr(item, "name", "") == "system" for item in directives)
+
+        def _try_lower_direct_call_subset(
+            self,
+            fn: Any,
+            entry_block: Any,
+            sir_params: list[Any],
+            return_type: str,
+        ) -> bool:
+            """Lower `return callee(params...)` as one typed SSA direct call.
+
+            Existing direct/whisper ownership-call lowering remains owned by the
+            base generator and is used whenever this scalar-return shape does not
+            match exactly.
+            """
+            body = list(getattr(fn, "body", None) or ())
+            if (
+                return_type not in _SCALAR_TYPES
+                or len(body) != 1
+                or type(body[0]).__name__ not in ("Return", "ReturnNode")
+            ):
+                return super()._try_lower_direct_call_subset(
+                    fn, entry_block, sir_params, return_type
+                )
+
+            return_statement = body[0]
+            call = getattr(return_statement, "value", None)
+            if type(call).__name__ != "Call":
+                return super()._try_lower_direct_call_subset(
+                    fn, entry_block, sir_params, return_type
+                )
+
+            callee_name = getattr(call, "callee", None)
+            parsed_functions = getattr(self, "_parsed_functions", {})
+            callee = parsed_functions.get(callee_name)
+            if callee is None or callee is fn:
+                return False
+
+            callee_return = (
+                getattr(callee, "ret", None)
+                or getattr(callee, "result", None)
+                or getattr(callee, "return_type", None)
+            )
+            try:
+                callee_return_type = self._type_name(callee_return, "void")
+            except ValueError:
+                return False
+            if callee_return_type != return_type:
+                return False
+
+            parsed_parameters = tuple(getattr(callee, "params", ()) or ())
+            arguments = tuple(getattr(call, "args", ()) or ())
+            if len(parsed_parameters) != len(arguments):
+                return False
+
+            caller_values = {value.name: value for value in sir_params}
+            sir_arguments: list[Any] = []
+            for argument, target_parameter in zip(
+                arguments, parsed_parameters, strict=True
+            ):
+                source_name = self._call_argument_name(argument)
+                if source_name is None:
+                    return False
+                source_value = caller_values.get(source_name)
+                target_type = self._parsed_parameter_type(target_parameter)
+                if (
+                    source_value is None
+                    or target_type not in _SCALAR_TYPES
+                    or source_value.type_name != target_type
+                ):
+                    return False
+                sir_arguments.append(source_value)
+
+            result = self._next_val("call", return_type)
+            entry_block.add(sir.CallInst(
+                callee=callee_name,
+                arguments=sir_arguments,
+                result=result,
+                is_system=self._parsed_function_is_system(callee),
+                source_point_id=self._statement_point_id(call, "call"),
+            ))
+            entry_block.add(sir.ReturnInst(
+                value=result,
+                point_id=self._statement_point_id(return_statement, "return"),
+            ))
+            return True
 
         def _try_lower_simple_if_returns(
             self,

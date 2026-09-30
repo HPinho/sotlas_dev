@@ -1,13 +1,15 @@
 """Canonical Sotlas-owned x86-64 SysV backend orchestration.
 
 The public layer performs M16.2c SSA destruction first: leading scalar phi nodes
-become private stack-backed edge copies.  The machine core then proves the
-M16.2d bounded-loop subset, while the M16.3a ABI layer handles validated
+become private stack-backed edge copies. The machine core then proves the
+M16.2d bounded-loop subset, while the M16.3 ABI layer handles validated
 module-local direct calls with SysV register arguments, RAX returns, aligned call
 sites and explicit preservation of the backend's caller-saved value registers.
 
-Arbitrary cycles, recursion, indirect/foreign calls, stack-passed arguments and
-aggregate ABI lowering remain fail-closed.
+M16.3b also preserves typed SIR call results across the Target IR boundary so
+source-level direct scalar calls reach the native backend without machine-side
+type guessing. Arbitrary cycles, recursion, indirect/foreign calls, stack-passed
+arguments and aggregate ABI lowering remain fail-closed.
 """
 from __future__ import annotations
 
@@ -16,7 +18,7 @@ from typing import Any
 
 from . import _machine_x86_64_calls as _calls
 from . import _machine_x86_64_core as _core
-from .target_ir import lower_sir_to_target_ir
+from .target_ir_calls import lower_sir_to_typed_target_ir
 
 
 MachineBackendError = _core.MachineBackendError
@@ -343,7 +345,7 @@ def compile_source_to_x86_64_sysv_assembly(
             "x86-64 machine backend cannot lower source bodies for: "
             + ", ".join(sorted(unlowered))
         )
-    target_ir = lower_sir_to_target_ir(module)
+    target_ir = lower_sir_to_typed_target_ir(module)
     return emit_x86_64_sysv_assembly(
         target_ir, register_count=register_count
     )
