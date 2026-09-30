@@ -138,7 +138,7 @@ fn add_values(left: u32, right: u32) -> u32 {
         ):
             emit_x86_64_sysv_assembly(target_ir)
 
-    def test_cfg_and_calls_fail_closed_outside_initial_machine_slice(self):
+    def test_unconditional_branch_lowers_but_calls_stay_fail_closed(self):
         branching = {
             "schema": "sotlas.target-ir.v1",
             "stage": "pre_selection",
@@ -164,8 +164,10 @@ fn add_values(left: u32, right: u32) -> u32 {
             }],
             "limitations": [],
         }
-        with self.assertRaisesRegex(MachineBackendError, "requires one linear block"):
-            emit_x86_64_sysv_assembly(branching)
+        assembly = emit_x86_64_sysv_assembly(branching)
+        self.assertIn(".Lchoose_bb0:", assembly)
+        self.assertIn("jmp .Lchoose_bb1", assembly)
+        self.assertIn(".Lchoose_bb1:", assembly)
 
         calling = {
             "schema": "sotlas.target-ir.v1",

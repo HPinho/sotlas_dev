@@ -6,19 +6,21 @@ allocation is consumed by instruction selection and assembly emission.
 
 The current deliberately narrow fail-closed contract supports:
 - x86-64 System V ABI;
-- one linear basic block per function;
+- acyclic multi-block CFG without phi nodes or backedges;
 - up to six bool/unsigned integer parameters;
 - bool, u8, u16, u32, u64 and usize machine values;
 - canonical alloc_stack/store/load local memory;
 - integer constants and unsigned add/sub/mul;
 - unsigned EQ/NEQ/LT/LTE/GT/GTE comparisons with canonical bool results;
-- direct return (or void return);
+- unconditional and conditional branches over canonical bool conditions;
+- direct return (or void return) from any supported block;
 - two caller-saved value registers (r10/r11) plus real stack spills.
 
 Signed arithmetic remains rejected until Sotlas' checked/wrapping/saturating/
 unchecked overflow semantics are selected explicitly at the language level.
 Signed comparisons remain outside this machine slice until their target contract
-is promoted separately.
+is promoted separately. Phi edge copies and loop backedges are separate machine
+backend milestones and remain fail-closed here.
 """
 from __future__ import annotations
 
@@ -56,6 +58,7 @@ _ARG_REGISTERS = (
     {64: "r9", 32: "r9d", 16: "r9w", 8: "r9b"},
 )
 _SYMBOL_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_TERMINATORS = {"return", "branch", "cond_branch"}
 
 
 def _align(value: int, alignment: int) -> int:
@@ -80,6 +83,139 @@ def _require_machine_scalar(type_name: Any, *, context: str) -> int:
     return _require_unsigned(type_name, context=context)
 
 
+def _type_map(function: dict[str, Any]) -> dict[str, str]:
+    types: dict[str, str] = {}
+    for parameter in function.get("parameters", ()):
+        name = parameter.get("name")
+        type_name = parameter.get("type")
+        if isinstance(name, str) and isinstance(type_name, str):
+            types[name] = type_name
+    for block in function.get("blocks", ()):
+        for instruction in block.get("instructions", ()):
+            result = instruction.get("result")
+            type_name = instruction.get("type")
+            if isinstance(result, str) and isinstance(type_name, str):
+                types[result] = type_name
+    return types
+
+
+def _block_label_map(function: dict[str, Any]) -> dict[str, str]:
+    name = function["name"]
+    labels: dict[str, str] = {}
+    for index, block in enumerate(function.get("blocks", ())):
+        label = block.get("label")
+        if not isinstance(label, str) or not label:
+            raise MachineBackendError(
+                f"function {name!r}: machine CFG has an invalid block label"
+            )
+        if label in labels:
+            raise MachineBackendError(
+                f"function {name!r}: machine CFG has duplicate block label {label!r}"
+            )
+        # Never splice source/SIR labels into assembler symbols.  A deterministic
+        # index-based local label keeps arbitrary canonical labels safe.
+        labels[label] = f".L{name}_bb{index}"
+    return labels
+
+
+def _validate_function_shape(function: dict[str, Any]) -> None:
+    name = function.get("name")
+    if not isinstance(name, str) or _SYMBOL_RE.fullmatch(name) is None:
+        raise MachineBackendError(f"invalid x86-64 symbol name {name!r}")
+
+    parameters = function.get("parameters", ())
+    if len(parameters) > len(_ARG_REGISTERS):
+        raise MachineBackendError(
+            f"function {name!r} has more than six scalar parameters"
+        )
+    for parameter in parameters:
+        _require_machine_scalar(
+            parameter.get("type"),
+            context=f"function {name!r} parameter {parameter.get('name')!r}",
+        )
+
+    return_type = function.get("return_type")
+    if return_type != "void":
+        _require_machine_scalar(return_type, context=f"function {name!r} return")
+
+    blocks = function.get("blocks", ())
+    if not blocks:
+        raise MachineBackendError(f"function {name!r}: machine CFG has no blocks")
+    labels = _block_label_map(function)
+    value_types = _type_map(function)
+    successors: dict[str, tuple[str, ...]] = {}
+
+    for block in blocks:
+        label = block["label"]
+        instructions = block.get("instructions", ())
+        if not instructions:
+            raise MachineBackendError(
+                f"function {name!r}: block {label!r} is empty"
+            )
+        terminators = [
+            index
+            for index, instruction in enumerate(instructions)
+            if instruction.get("op") in _TERMINATORS
+        ]
+        if terminators != [len(instructions) - 1]:
+            raise MachineBackendError(
+                f"function {name!r}: block {label!r} must end in exactly one terminator"
+            )
+
+        for instruction in instructions:
+            if instruction.get("op") == "phi":
+                raise MachineBackendError(
+                    f"function {name!r}: phi lowering waits for the edge-copy milestone"
+                )
+
+        terminator = instructions[-1]
+        op = terminator.get("op")
+        if op == "branch":
+            targets = terminator.get("targets", ())
+            if len(targets) != 1 or targets[0] not in labels:
+                raise MachineBackendError(
+                    f"function {name!r}: branch has an invalid target"
+                )
+            successors[label] = (targets[0],)
+        elif op == "cond_branch":
+            operands = terminator.get("operands", ())
+            targets = terminator.get("targets", ())
+            if len(operands) != 1:
+                raise MachineBackendError(
+                    f"function {name!r}: cond_branch requires one condition"
+                )
+            if value_types.get(operands[0]) != "bool":
+                raise MachineBackendError(
+                    f"function {name!r}: cond_branch condition must have type 'bool'"
+                )
+            if len(targets) != 2 or any(target not in labels for target in targets):
+                raise MachineBackendError(
+                    f"function {name!r}: cond_branch has invalid targets"
+                )
+            successors[label] = tuple(targets)
+        else:
+            successors[label] = ()
+
+    visit_state = {label: 0 for label in labels}
+
+    def visit(label: str) -> None:
+        state = visit_state[label]
+        if state == 1:
+            raise MachineBackendError(
+                f"function {name!r}: CFG backedges/loops wait for the loop milestone"
+            )
+        if state == 2:
+            return
+        visit_state[label] = 1
+        for target in successors.get(label, ()):
+            visit(target)
+        visit_state[label] = 2
+
+    for label in labels:
+        if visit_state[label] == 0:
+            visit(label)
+
+
 def plan_x86_64_sysv_allocation(
     target_ir: dict[str, Any], *, register_count: int = 2
 ) -> dict[str, Any]:
@@ -94,6 +230,12 @@ def plan_x86_64_sysv_allocation(
         raise MachineBackendError(
             "x86-64 SysV machine backend supports one or two value registers"
         )
+    if not isinstance(target_ir, dict) or target_ir.get("schema") != "sotlas.target-ir.v1":
+        raise MachineBackendError("x86-64 machine backend requires Target IR v1")
+
+    for function in target_ir.get("functions", ()):
+        _validate_function_shape(function)
+
     try:
         allocation = allocate_target_ir_registers(
             target_ir, register_count=register_count
@@ -230,22 +372,6 @@ def _stack_slot_map(function_plan: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return slots
 
 
-def _type_map(function: dict[str, Any]) -> dict[str, str]:
-    types: dict[str, str] = {}
-    for parameter in function.get("parameters", ()):
-        name = parameter.get("name")
-        type_name = parameter.get("type")
-        if isinstance(name, str) and isinstance(type_name, str):
-            types[name] = type_name
-    for block in function.get("blocks", ()):
-        for instruction in block.get("instructions", ()):
-            result = instruction.get("result")
-            type_name = instruction.get("type")
-            if isinstance(result, str) and isinstance(type_name, str):
-                types[result] = type_name
-    return types
-
-
 def _load_value(
     lines: list[str],
     value: str,
@@ -304,28 +430,43 @@ def _truncate_rax(lines: list[str], bits: int) -> None:
         lines.append("    and eax, 65535")
 
 
-def _validate_function_shape(function: dict[str, Any]) -> None:
-    name = function.get("name")
-    if not isinstance(name, str) or _SYMBOL_RE.fullmatch(name) is None:
-        raise MachineBackendError(f"invalid x86-64 symbol name {name!r}")
-    parameters = function.get("parameters", ())
-    if len(parameters) > len(_ARG_REGISTERS):
-        raise MachineBackendError(
-            f"function {name!r} has more than six scalar parameters"
-        )
-    blocks = function.get("blocks", ())
-    if len(blocks) != 1:
-        raise MachineBackendError(
-            f"function {name!r}: x86-64 machine backend currently requires one linear block"
-        )
-    for parameter in parameters:
-        _require_machine_scalar(
-            parameter.get("type"),
-            context=f"function {name!r} parameter {parameter.get('name')!r}",
-        )
+def _emit_return(
+    lines: list[str],
+    *,
+    function: dict[str, Any],
+    instruction: dict[str, Any],
+    locations: dict[str, dict[str, Any]],
+    value_types: dict[str, str],
+    frame_size: int,
+) -> None:
+    name = function["name"]
+    operands = instruction.get("operands", ())
     return_type = function.get("return_type")
-    if return_type != "void":
-        _require_machine_scalar(return_type, context=f"function {name!r} return")
+    if return_type == "void":
+        if operands:
+            raise MachineBackendError(
+                f"function {name!r}: void return carries a value"
+            )
+    else:
+        if len(operands) != 1:
+            raise MachineBackendError(
+                f"function {name!r}: non-void return requires one value"
+            )
+        value = operands[0]
+        if value_types.get(value) != return_type:
+            raise MachineBackendError(
+                f"function {name!r}: return value type does not match {return_type!r}"
+            )
+        _load_value(lines, value, "rax", locations)
+        _truncate_rax(
+            lines,
+            _require_machine_scalar(
+                return_type, context=f"function {name!r} return"
+            ),
+        )
+    if frame_size:
+        lines.append(f"    add rsp, {frame_size}")
+    lines.extend(["    pop rbp", "    ret"])
 
 
 def emit_x86_64_sysv_assembly(
@@ -335,6 +476,11 @@ def emit_x86_64_sysv_assembly(
 
     if not isinstance(target_ir, dict) or target_ir.get("schema") != "sotlas.target-ir.v1":
         raise MachineBackendError("x86-64 machine backend requires Target IR v1")
+
+    # Validate CFG shape before the target-neutral allocator sees malformed manual
+    # Target IR, then consume the allocator's CFG liveness/interference result.
+    for function in target_ir.get("functions", ()):
+        _validate_function_shape(function)
     plan = plan_x86_64_sysv_allocation(
         target_ir, register_count=register_count
     )
@@ -344,7 +490,6 @@ def emit_x86_64_sysv_assembly(
 
     lines = [".intel_syntax noprefix", ".text"]
     for function in target_ir.get("functions", ()):
-        _validate_function_shape(function)
         name = function["name"]
         function_plan = plan_by_name.get(name)
         if function_plan is None:
@@ -352,6 +497,7 @@ def emit_x86_64_sysv_assembly(
         locations = _location_map(function_plan)
         stack_slots = _stack_slot_map(function_plan)
         value_types = _type_map(function)
+        block_labels = _block_label_map(function)
         frame_size = function_plan["frame_size_bytes"]
 
         lines.extend(
@@ -372,203 +518,207 @@ def emit_x86_64_sysv_assembly(
             _normalize_argument_to_rax(lines, parameter["type"], index)
             _store_value(lines, parameter_name, "rax", locations)
 
-        instructions = function["blocks"][0].get("instructions", ())
-        for instruction in instructions:
-            if instruction.get("semantic_only"):
-                raise MachineBackendError(
-                    f"function {name!r}: semantic operation {instruction.get('op')!r} "
-                    "has no machine lowering yet"
-                )
-            op = instruction.get("op")
+        for block in function.get("blocks", ()):
+            lines.append(f"{block_labels[block['label']]}:")
+            for instruction in block.get("instructions", ()):
+                if instruction.get("semantic_only"):
+                    raise MachineBackendError(
+                        f"function {name!r}: semantic operation {instruction.get('op')!r} "
+                        "has no machine lowering yet"
+                    )
+                op = instruction.get("op")
 
-            if op == "alloc_stack":
-                result = instruction.get("result")
-                slot = stack_slots.get(result)
-                if slot is None or slot.get("type") != instruction.get("type"):
-                    raise MachineBackendError(
-                        f"function {name!r}: alloc_stack has no matching local stack slot"
-                    )
-                continue
-
-            if op == "store":
-                operands = instruction.get("operands", ())
-                if len(operands) != 2:
-                    raise MachineBackendError(
-                        f"function {name!r}: store requires source and destination"
-                    )
-                source, destination = operands
-                slot = stack_slots.get(destination)
-                if slot is None:
-                    raise MachineBackendError(
-                        f"function {name!r}: store destination is not a local stack slot"
-                    )
-                type_name = slot["type"]
-                if value_types.get(source) != type_name:
-                    raise MachineBackendError(
-                        f"function {name!r}: store source type does not match {type_name!r}"
-                    )
-                _load_value(lines, source, "rax", locations)
-                _truncate_rax(
-                    lines,
-                    _require_machine_scalar(type_name, context=f"function {name!r} store"),
-                )
-                offset = -int(slot["offset_bytes"])
-                lines.append(f"    mov QWORD PTR [rbp-{offset}], rax")
-                continue
-
-            if op == "load":
-                result = instruction.get("result")
-                operands = instruction.get("operands", ())
-                if len(operands) != 1:
-                    raise MachineBackendError(
-                        f"function {name!r}: load requires one local stack slot"
-                    )
-                source = operands[0]
-                slot = stack_slots.get(source)
-                if slot is None:
-                    raise MachineBackendError(
-                        f"function {name!r}: load source is not a local stack slot"
-                    )
-                type_name = instruction.get("type")
-                if slot.get("type") != type_name:
-                    raise MachineBackendError(
-                        f"function {name!r}: load type does not match local stack slot"
-                    )
-                offset = -int(slot["offset_bytes"])
-                lines.append(f"    mov rax, QWORD PTR [rbp-{offset}]")
-                _truncate_rax(
-                    lines,
-                    _require_machine_scalar(type_name, context=f"function {name!r} load"),
-                )
-                _store_value(lines, result, "rax", locations)
-                continue
-
-            if op == "const_int":
-                result = instruction.get("result")
-                type_name = instruction.get("type")
-                bits = _require_unsigned(
-                    type_name, context=f"function {name!r} constant"
-                )
-                value = instruction.get("attributes", {}).get("value")
-                if not isinstance(value, int) or isinstance(value, bool):
-                    raise MachineBackendError(
-                        f"function {name!r}: integer constant is malformed"
-                    )
-                if value < 0 or value >= (1 << bits):
-                    raise MachineBackendError(
-                        f"function {name!r}: constant {value} is out of range for {type_name}"
-                    )
-                lines.append(f"    mov rax, {value}")
-                _truncate_rax(lines, bits)
-                _store_value(lines, result, "rax", locations)
-                continue
-
-            if op in {"add", "sub", "mul"}:
-                result = instruction.get("result")
-                operands = instruction.get("operands", ())
-                if len(operands) != 2:
-                    raise MachineBackendError(
-                        f"function {name!r}: {op} requires two operands"
-                    )
-                type_name = instruction.get("type")
-                bits = _require_unsigned(
-                    type_name, context=f"function {name!r} {op}"
-                )
-                left, right = operands
-                if (
-                    value_types.get(left) != type_name
-                    or value_types.get(right) != type_name
-                ):
-                    raise MachineBackendError(
-                        f"function {name!r}: {op} operand types do not match {type_name!r}"
-                    )
-                _load_value(lines, left, "rax", locations)
-                _load_value(lines, right, "rcx", locations)
-                mnemonic = {"add": "add", "sub": "sub", "mul": "imul"}[op]
-                if bits == 64:
-                    lines.append(f"    {mnemonic} rax, rcx")
-                else:
-                    lines.append(f"    {mnemonic} eax, ecx")
-                    _truncate_rax(lines, bits)
-                _store_value(lines, result, "rax", locations)
-                continue
-
-            if op == "compare":
-                result = instruction.get("result")
-                operands = instruction.get("operands", ())
-                if len(operands) != 2:
-                    raise MachineBackendError(
-                        f"function {name!r}: compare requires two operands"
-                    )
-                if instruction.get("type") != "bool":
-                    raise MachineBackendError(
-                        f"function {name!r}: compare result must have type 'bool'"
-                    )
-                left, right = operands
-                left_type = value_types.get(left)
-                right_type = value_types.get(right)
-                if left_type != right_type:
-                    raise MachineBackendError(
-                        f"function {name!r}: compare operand types must match"
-                    )
-                bits = _require_unsigned(
-                    left_type, context=f"function {name!r} compare"
-                )
-                predicate = instruction.get("attributes", {}).get("predicate")
-                condition = _COMPARE_CONDITIONS.get(predicate)
-                if condition is None:
-                    raise MachineBackendError(
-                        f"function {name!r}: unsupported compare predicate {predicate!r}"
-                    )
-                _load_value(lines, left, "rax", locations)
-                _load_value(lines, right, "rcx", locations)
-                if bits == 64:
-                    lines.append("    cmp rax, rcx")
-                else:
-                    lines.append("    cmp eax, ecx")
-                lines.append(f"    set{condition} al")
-                lines.append("    movzx eax, al")
-                _store_value(lines, result, "rax", locations)
-                continue
-
-            if op == "return":
-                operands = instruction.get("operands", ())
-                return_type = function.get("return_type")
-                if return_type == "void":
-                    if operands:
+                if op == "alloc_stack":
+                    result = instruction.get("result")
+                    slot = stack_slots.get(result)
+                    if slot is None or slot.get("type") != instruction.get("type"):
                         raise MachineBackendError(
-                            f"function {name!r}: void return carries a value"
+                            f"function {name!r}: alloc_stack has no matching local stack slot"
                         )
-                else:
-                    if len(operands) != 1:
+                    continue
+
+                if op == "store":
+                    operands = instruction.get("operands", ())
+                    if len(operands) != 2:
                         raise MachineBackendError(
-                            f"function {name!r}: non-void return requires one value"
+                            f"function {name!r}: store requires source and destination"
                         )
-                    value = operands[0]
-                    if value_types.get(value) != return_type:
+                    source, destination = operands
+                    slot = stack_slots.get(destination)
+                    if slot is None:
                         raise MachineBackendError(
-                            f"function {name!r}: return value type does not match {return_type!r}"
+                            f"function {name!r}: store destination is not a local stack slot"
                         )
-                    _load_value(lines, value, "rax", locations)
+                    type_name = slot["type"]
+                    if value_types.get(source) != type_name:
+                        raise MachineBackendError(
+                            f"function {name!r}: store source type does not match {type_name!r}"
+                        )
+                    _load_value(lines, source, "rax", locations)
                     _truncate_rax(
                         lines,
                         _require_machine_scalar(
-                            return_type, context=f"function {name!r} return"
+                            type_name, context=f"function {name!r} store"
                         ),
                     )
-                if frame_size:
-                    lines.append(f"    add rsp, {frame_size}")
-                lines.extend(["    pop rbp", "    ret"])
-                continue
+                    offset = -int(slot["offset_bytes"])
+                    lines.append(f"    mov QWORD PTR [rbp-{offset}], rax")
+                    continue
 
-            raise MachineBackendError(
-                f"function {name!r}: x86-64 machine backend does not lower operation {op!r}"
-            )
+                if op == "load":
+                    result = instruction.get("result")
+                    operands = instruction.get("operands", ())
+                    if len(operands) != 1:
+                        raise MachineBackendError(
+                            f"function {name!r}: load requires one local stack slot"
+                        )
+                    source = operands[0]
+                    slot = stack_slots.get(source)
+                    if slot is None:
+                        raise MachineBackendError(
+                            f"function {name!r}: load source is not a local stack slot"
+                        )
+                    type_name = instruction.get("type")
+                    if slot.get("type") != type_name:
+                        raise MachineBackendError(
+                            f"function {name!r}: load type does not match local stack slot"
+                        )
+                    offset = -int(slot["offset_bytes"])
+                    lines.append(f"    mov rax, QWORD PTR [rbp-{offset}]")
+                    _truncate_rax(
+                        lines,
+                        _require_machine_scalar(
+                            type_name, context=f"function {name!r} load"
+                        ),
+                    )
+                    _store_value(lines, result, "rax", locations)
+                    continue
 
-        if not instructions or instructions[-1].get("op") != "return":
-            raise MachineBackendError(
-                f"function {name!r}: linear machine block must end in return"
-            )
+                if op == "const_int":
+                    result = instruction.get("result")
+                    type_name = instruction.get("type")
+                    bits = _require_unsigned(
+                        type_name, context=f"function {name!r} constant"
+                    )
+                    value = instruction.get("attributes", {}).get("value")
+                    if not isinstance(value, int) or isinstance(value, bool):
+                        raise MachineBackendError(
+                            f"function {name!r}: integer constant is malformed"
+                        )
+                    if value < 0 or value >= (1 << bits):
+                        raise MachineBackendError(
+                            f"function {name!r}: constant {value} is out of range for {type_name}"
+                        )
+                    lines.append(f"    mov rax, {value}")
+                    _truncate_rax(lines, bits)
+                    _store_value(lines, result, "rax", locations)
+                    continue
+
+                if op in {"add", "sub", "mul"}:
+                    result = instruction.get("result")
+                    operands = instruction.get("operands", ())
+                    if len(operands) != 2:
+                        raise MachineBackendError(
+                            f"function {name!r}: {op} requires two operands"
+                        )
+                    type_name = instruction.get("type")
+                    bits = _require_unsigned(
+                        type_name, context=f"function {name!r} {op}"
+                    )
+                    left, right = operands
+                    if (
+                        value_types.get(left) != type_name
+                        or value_types.get(right) != type_name
+                    ):
+                        raise MachineBackendError(
+                            f"function {name!r}: {op} operand types do not match {type_name!r}"
+                        )
+                    _load_value(lines, left, "rax", locations)
+                    _load_value(lines, right, "rcx", locations)
+                    mnemonic = {"add": "add", "sub": "sub", "mul": "imul"}[op]
+                    if bits == 64:
+                        lines.append(f"    {mnemonic} rax, rcx")
+                    else:
+                        lines.append(f"    {mnemonic} eax, ecx")
+                        _truncate_rax(lines, bits)
+                    _store_value(lines, result, "rax", locations)
+                    continue
+
+                if op == "compare":
+                    result = instruction.get("result")
+                    operands = instruction.get("operands", ())
+                    if len(operands) != 2:
+                        raise MachineBackendError(
+                            f"function {name!r}: compare requires two operands"
+                        )
+                    if instruction.get("type") != "bool":
+                        raise MachineBackendError(
+                            f"function {name!r}: compare result must have type 'bool'"
+                        )
+                    left, right = operands
+                    left_type = value_types.get(left)
+                    right_type = value_types.get(right)
+                    if left_type != right_type:
+                        raise MachineBackendError(
+                            f"function {name!r}: compare operand types must match"
+                        )
+                    bits = _require_unsigned(
+                        left_type, context=f"function {name!r} compare"
+                    )
+                    predicate = instruction.get("attributes", {}).get("predicate")
+                    condition = _COMPARE_CONDITIONS.get(predicate)
+                    if condition is None:
+                        raise MachineBackendError(
+                            f"function {name!r}: unsupported compare predicate {predicate!r}"
+                        )
+                    _load_value(lines, left, "rax", locations)
+                    _load_value(lines, right, "rcx", locations)
+                    if bits == 64:
+                        lines.append("    cmp rax, rcx")
+                    else:
+                        lines.append("    cmp eax, ecx")
+                    lines.append(f"    set{condition} al")
+                    lines.append("    movzx eax, al")
+                    _store_value(lines, result, "rax", locations)
+                    continue
+
+                if op == "branch":
+                    target = instruction.get("targets", ())[0]
+                    lines.append(f"    jmp {block_labels[target]}")
+                    continue
+
+                if op == "cond_branch":
+                    condition_value = instruction.get("operands", ())[0]
+                    true_target, false_target = instruction.get("targets", ())
+                    _load_value(lines, condition_value, "rax", locations)
+                    _truncate_rax(lines, 1)
+                    lines.append("    test al, al")
+                    lines.append(f"    jne {block_labels[true_target]}")
+                    lines.append(f"    jmp {block_labels[false_target]}")
+                    continue
+
+                if op == "return":
+                    _emit_return(
+                        lines,
+                        function=function,
+                        instruction=instruction,
+                        locations=locations,
+                        value_types=value_types,
+                        frame_size=frame_size,
+                    )
+                    continue
+
+                if op == "phi":
+                    # Normally rejected during shape validation. Keep this guard so
+                    # future validation refactors cannot silently pass phi through.
+                    raise MachineBackendError(
+                        f"function {name!r}: phi lowering waits for the edge-copy milestone"
+                    )
+
+                raise MachineBackendError(
+                    f"function {name!r}: x86-64 machine backend does not lower operation {op!r}"
+                )
+
         lines.append(f".size {name}, .-{name}")
 
     lines.extend(["", '.section .note.GNU-stack,"",@progbits', ""])
