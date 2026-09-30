@@ -6,7 +6,11 @@ from typing import Any
 from . import _machine_x86_64_core as _core
 from ._machine_x86_64_call_abi import emit_direct_call
 from ._machine_x86_64_call_validation import MachineBackendError
-from ._machine_x86_64_types import require_abi_scalar, require_pointer_to
+from ._machine_x86_64_types import (
+    pointer_pointee,
+    require_abi_scalar,
+    require_pointer_to,
+)
 
 
 def _emit_indirect_scalar_load(
@@ -53,6 +57,30 @@ def emit_instruction(
             raise MachineBackendError(
                 f"function {name!r}: alloc_stack has no matching local stack slot"
             )
+        return
+
+    if op == "address_of":
+        result = instruction.get("result")
+        operands = instruction.get("operands", ())
+        if len(operands) != 1:
+            raise MachineBackendError(
+                f"function {name!r}: address_of requires one local stack slot"
+            )
+        source = operands[0]
+        slot = stack_slots.get(source)
+        if slot is None:
+            raise MachineBackendError(
+                f"function {name!r}: address_of source is not a local stack slot"
+            )
+        pointer_type = instruction.get("type")
+        pointee = pointer_pointee(pointer_type)
+        if pointee is None or pointee != slot.get("type"):
+            raise MachineBackendError(
+                f"function {name!r}: address_of result type does not match local stack slot"
+            )
+        offset = -int(slot["offset_bytes"])
+        lines.append(f"    lea rax, [rbp-{offset}]")
+        _core._store_value(lines, result, "rax", locations)
         return
 
     if op == "store":
