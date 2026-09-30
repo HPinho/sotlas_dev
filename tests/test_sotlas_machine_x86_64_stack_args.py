@@ -46,7 +46,7 @@ fn pick7(a: u64, b: u64, c: u64, d: u64, e: u64, f: u64, g: u64) -> u64 {
     return g;
 }
 
-fn call7(a: u64, b: u64, c: u64, d: u64, e: u64, f: u64, g: u64) -> u64 {
+pub fn call7(a: u64, b: u64, c: u64, d: u64, e: u64, f: u64, g: u64) -> u64 {
     return pick7(a, b, c, d, e, f, g);
 }
 
@@ -54,7 +54,7 @@ fn pick8(a: u64, b: u64, c: u64, d: u64, e: u64, f: u64, g: u64, h: u64) -> u64 
     return h;
 }
 
-fn call8(a: u64, b: u64, c: u64, d: u64, e: u64, f: u64, g: u64, h: u64) -> u64 {
+pub fn call8(a: u64, b: u64, c: u64, d: u64, e: u64, f: u64, g: u64, h: u64) -> u64 {
     return pick8(a, b, c, d, e, f, g, h);
 }
 
@@ -62,7 +62,7 @@ fn pick9(a: u64, b: u64, c: u64, d: u64, e: u64, f: u64, g: u64, h: u64, i: u64)
     return i;
 }
 
-fn call9(a: u64, b: u64, c: u64, d: u64, e: u64, f: u64, g: u64, h: u64, i: u64) -> u64 {
+pub fn call9(a: u64, b: u64, c: u64, d: u64, e: u64, f: u64, g: u64, h: u64, i: u64) -> u64 {
     return pick9(a, b, c, d, e, f, g, h, i);
 }
 
@@ -70,7 +70,7 @@ fn pick7_u16(a: u16, b: u16, c: u16, d: u16, e: u16, f: u16, g: u16) -> u16 {
     return g;
 }
 
-fn call7_u16(a: u16, b: u16, c: u16, d: u16, e: u16, f: u16, g: u16) -> u16 {
+pub fn call7_u16(a: u16, b: u16, c: u16, d: u16, e: u16, f: u16, g: u16) -> u16 {
     return pick7_u16(a, b, c, d, e, f, g);
 }
 """
@@ -91,8 +91,9 @@ class SotlasX8664StackArgumentTests(unittest.TestCase):
     def test_source_calls_preserve_seventh_eighth_and_ninth_arguments(self):
         module, target_ir = self._module_and_target_ir()
         self.assertEqual(tuple(module.unlowered_functions), ())
+        functions = {item["name"]: item for item in target_ir["functions"]}
         for name, expected_count in (("call7", 7), ("call8", 8), ("call9", 9)):
-            function = next(item for item in target_ir["functions"] if item["name"] == name)
+            function = functions[name]
             call = next(
                 instruction
                 for block in function["blocks"]
@@ -101,6 +102,12 @@ class SotlasX8664StackArgumentTests(unittest.TestCase):
             )
             self.assertEqual(len(call["operands"]), expected_count)
             self.assertEqual(call["type"], "u64")
+            self.assertEqual(function["linkage"], "external")
+        self.assertEqual(functions["pick7"]["linkage"], "internal")
+        self.assertEqual(functions["pick8"]["linkage"], "internal")
+        self.assertEqual(functions["pick9"]["linkage"], "internal")
+        self.assertEqual(functions["pick7_u16"]["linkage"], "internal")
+        self.assertEqual(functions["call7_u16"]["linkage"], "external")
 
     def test_allocation_reports_incoming_stack_argument_count(self):
         _, target_ir = self._module_and_target_ir()
@@ -115,6 +122,8 @@ class SotlasX8664StackArgumentTests(unittest.TestCase):
         assembly = _machine.compile_source_to_x86_64_sysv_assembly(
             SOURCE, "machine_stack_args.sotlas"
         )
+        self.assertIn(".local pick7", assembly)
+        self.assertIn(".globl call7", assembly)
         self.assertIn("mov rax, QWORD PTR [rbp+16]", assembly)
         self.assertIn("mov rax, QWORD PTR [rbp+24]", assembly)
         self.assertIn("mov rax, QWORD PTR [rbp+32]", assembly)
