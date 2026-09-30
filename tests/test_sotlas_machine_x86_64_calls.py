@@ -1,4 +1,4 @@
-"""M16.3a direct-call ABI coverage for the Sotlas-owned x86-64 backend."""
+"""M16.3 direct-call ABI coverage for the Sotlas-owned x86-64 backend."""
 from __future__ import annotations
 
 import importlib
@@ -135,7 +135,7 @@ class SotlasX8664DirectCallTests(unittest.TestCase):
         ):
             emit_x86_64_sysv_assembly(target_ir)
 
-    def test_recursive_call_cycle_is_fail_closed(self):
+    def test_recursive_call_cycle_uses_the_normal_direct_call_abi(self):
         target_ir = {
             "schema": "sotlas.target-ir.v1",
             "stage": "pre_selection",
@@ -157,11 +157,12 @@ class SotlasX8664DirectCallTests(unittest.TestCase):
             }],
             "limitations": [],
         }
-        with self.assertRaisesRegex(
-            MachineBackendError,
-            "recursive direct calls remain outside the M16.3a machine contract",
-        ):
-            emit_x86_64_sysv_assembly(target_ir)
+        assembly = emit_x86_64_sysv_assembly(target_ir)
+        self.assertIn(".globl again", assembly)
+        self.assertIn("call again", assembly)
+        self.assertIn("sub rsp, 16", assembly)
+        self.assertIn("mov QWORD PTR [rsp], r10", assembly)
+        self.assertIn("mov QWORD PTR [rsp+8], r11", assembly)
 
     def test_system_call_is_not_smuggled_through_direct_call_abi(self):
         target_ir = _module()
@@ -208,12 +209,17 @@ int main(void) {
             self.assertEqual(run.returncode, 0, run.stderr)
 
     def test_compiler_and_tools_call_layers_remain_identical(self):
-        compiler_path = ROOT / "compiler" / "sotlas_compile" / "_machine_x86_64_calls.py"
-        tools_path = ROOT / "tools" / "sotlas_compile" / "_machine_x86_64_calls.py"
-        self.assertEqual(
-            compiler_path.read_text(encoding="utf-8"),
-            tools_path.read_text(encoding="utf-8"),
-        )
+        for relative in (
+            "_machine_x86_64_calls.py",
+            "_machine_x86_64_call_validation.py",
+        ):
+            compiler_path = ROOT / "compiler" / "sotlas_compile" / relative
+            tools_path = ROOT / "tools" / "sotlas_compile" / relative
+            self.assertEqual(
+                compiler_path.read_text(encoding="utf-8"),
+                tools_path.read_text(encoding="utf-8"),
+                relative,
+            )
 
 
 if __name__ == "__main__":

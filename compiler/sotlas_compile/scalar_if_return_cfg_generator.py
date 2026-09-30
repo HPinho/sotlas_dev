@@ -12,11 +12,12 @@ or the equivalent fully terminating if/else form, plus:
 
     return callee(parameter_a, parameter_b, ...);
 
-The direct-call return path is intentionally narrow: the callee must be another
-parsed module function, every argument must be a direct caller parameter with an
-exactly matching scalar type, and the callee return type must exactly match the
-caller return type. More general call expressions, locals, literals, nested calls,
-conversions and aggregate values remain fail-closed for later milestones.
+The direct-call return path is intentionally narrow: the callee must be a parsed
+module function (including the current function for M16.3e self recursion), every
+argument must be a direct caller parameter with an exactly matching scalar type,
+and the callee return type must exactly match the caller return type. More general
+call expressions, locals, literals, nested calls, conversions and aggregate values
+remain fail-closed for later milestones.
 """
 from __future__ import annotations
 
@@ -109,7 +110,8 @@ def make_scalar_if_return_cfg_generator(sir):
 
             Existing direct/whisper ownership-call lowering remains owned by the
             base generator and is used whenever this scalar-return shape does not
-            match exactly.
+            match exactly. M16.3e permits the same checked shape when ``callee``
+            resolves to ``fn`` itself; no broader source-call form is introduced.
             """
             body = list(getattr(fn, "body", None) or ())
             if (
@@ -131,7 +133,7 @@ def make_scalar_if_return_cfg_generator(sir):
             callee_name = getattr(call, "callee", None)
             parsed_functions = getattr(self, "_parsed_functions", {})
             callee = parsed_functions.get(callee_name)
-            if callee is None or callee is fn:
+            if callee is None:
                 return False
 
             callee_return = (

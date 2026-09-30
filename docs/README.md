@@ -18,6 +18,7 @@ Este arquivo existe para impedir que decisões de arquitetura, implementação, 
 | [`sotlas_full_implementation_plan.md`](./sotlas_full_implementation_plan.md) | backlog técnico amplo, gaps concretos e detalhe operacional do Kernel/Barecore Track K0–K14 |
 | [`sotlas_implementation_status.md`](./sotlas_implementation_status.md) | fotografia do que está realmente COMPLETE/CERTIFIED/PREVIEW no escopo declarado |
 | [`sotlas_release_roadmap.md`](./sotlas_release_roadmap.md) | política canônica de fechamento de marcos, freeze, hardening, versionamento e releases públicos |
+| [`sotlas_m16_3_recursion_contract.md`](./sotlas_m16_3_recursion_contract.md) | contrato específico M16.3e para self/mutual recursion no ABI nativo; não substitui Master/Full Plan/Status |
 
 ---
 
@@ -49,6 +50,8 @@ Este arquivo existe para impedir que decisões de arquitetura, implementação, 
                               ▼
                      PUBLIC RELEASE
 ```
+
+Contratos técnicos específicos, como [`sotlas_m16_3_recursion_contract.md`](./sotlas_m16_3_recursion_contract.md), ficam **entre** o Full Plan e a implementação concreta: detalham uma decisão delimitada, mas continuam subordinados ao Master/Blueprint e não podem promover status sem o Implementation Status + gates.
 
 Nenhuma seta significa que o documento de baixo pode redefinir a semântica do documento de cima. Cada arquivo possui autoridade apenas sobre sua dimensão.
 
@@ -94,6 +97,18 @@ Consulte:
 3. Blueprint para dependências do ciclo;
 4. Full Plan para gaps/blockers;
 5. Master Roadmap quando houver nova semântica.
+
+## “Como funciona a recursão nativa do M16.3?”
+
+Consulte em conjunto:
+
+1. [`sotlas_m16_3_recursion_contract.md`](./sotlas_m16_3_recursion_contract.md) — contrato específico do ABI nativo;
+2. Master Roadmap — restrições semânticas/perfis que podem proibir recursão não limitada;
+3. Full Implementation Plan — posição do item dentro de M16.3;
+4. Implementation Status + gates — se o contrato já está certificado;
+5. Release Roadmap — quando esse avanço pode participar de fechamento/publicação.
+
+Regra: permitir recursão no backend de propósito geral **não** autoriza recursão não limitada em perfis realtime/kernel/determinísticos que imponham outro contrato.
 
 ## “Como funciona a criação de kernel/OS?”
 
