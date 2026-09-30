@@ -225,7 +225,8 @@ fn choose(left: u32, right: u32) -> u32 {
         assembly = compile_source_to_x86_64_sysv_assembly(
             source, "machine_cfg_source.sotlas"
         )
-        self.assertIn(".globl choose", assembly)
+        self.assertIn(".local choose", assembly)
+        self.assertNotIn(".globl choose", assembly)
         self.assertIn("cmp eax, ecx", assembly)
         self.assertIn("setb al", assembly)
         self.assertIn("test al, al", assembly)
@@ -244,7 +245,7 @@ fn choose(left: u32, right: u32) -> u32 {
 
         source = """
 module test::machine_cfg_e2e;
-fn choose(left: u32, right: u32) -> u32 {
+pub fn choose(left: u32, right: u32) -> u32 {
     if left < right { return left; }
     return right;
 }
