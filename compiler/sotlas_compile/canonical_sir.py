@@ -20,6 +20,7 @@ from .authority_call_generator import make_authority_call_generator
 from .scalar_if_return_cfg_generator import (
     make_scalar_if_return_cfg_generator,
 )
+from .symbol_linkage import attach_checked_source_symbol_linkage
 
 _CANONICAL_SIR_PACKAGE = "_sotlas_compiler_canonical_sir"
 
@@ -169,6 +170,7 @@ def build_canonical_checked_ownership_sir(checked_module: object):
         module_name=getattr(parsed_module, "name", "main")
     )
     module = generator.generate_from_ast(parsed_module)
+    attach_checked_source_symbol_linkage(checked_module, module)
     _attach_source_effect_summaries(checked_module, module)
     _attach_foreign_trust_boundaries(checked_module, module)
     _attach_checked_flow_plans(checked_module, module)
@@ -225,6 +227,7 @@ def build_canonical_checked_authority_sir(
         module_name=getattr(parsed_module, "name", "main")
     )
     module = generator.generate_from_ast(parsed_module)
+    attach_checked_source_symbol_linkage(checked_module, module)
     _attach_source_effect_summaries(checked_module, module)
     _attach_foreign_trust_boundaries(checked_module, module)
     _attach_checked_flow_plans(checked_module, module)

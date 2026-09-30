@@ -9,6 +9,41 @@ from . import _machine_x86_64_core as _core
 MachineBackendError = _core.MachineBackendError
 
 
+def function_linkage(function: dict[str, Any]) -> str:
+    """Validate one Target IR function's symbol-linkage contract.
+
+    Target IR created before M16.3d may omit linkage metadata; that historical
+    form remains externally linked until its producer migrates explicitly.
+    """
+    name = function.get("name")
+    linkage = function.get("linkage", "external")
+    if linkage not in {"internal", "external"}:
+        raise MachineBackendError(
+            f"function {name!r}: invalid symbol linkage {linkage!r}"
+        )
+
+    visibility = function.get("source_visibility")
+    if visibility is not None and visibility not in {"private", "public"}:
+        raise MachineBackendError(
+            f"function {name!r}: invalid source visibility {visibility!r}"
+        )
+    abi_export = function.get("abi_export")
+    if abi_export is not None and not isinstance(abi_export, bool):
+        raise MachineBackendError(
+            f"function {name!r}: abi_export must be boolean"
+        )
+
+    if visibility == "public" and linkage != "external":
+        raise MachineBackendError(
+            f"function {name!r}: public source visibility requires external linkage"
+        )
+    if abi_export is True and linkage != "external":
+        raise MachineBackendError(
+            f"function {name!r}: @export requires external linkage"
+        )
+    return linkage
+
+
 def module_signatures(target_ir: dict[str, Any]) -> dict[str, dict[str, Any]]:
     signatures: dict[str, dict[str, Any]] = {}
     for function in target_ir.get("functions", ()):
@@ -126,6 +161,7 @@ def validate_abi_function_shape(function: dict[str, Any]) -> None:
     name = function.get("name")
     if not isinstance(name, str) or _core._SYMBOL_RE.fullmatch(name) is None:
         raise MachineBackendError(f"invalid x86-64 symbol name {name!r}")
+    function_linkage(function)
     for parameter in function.get("parameters", ()):
         _core._require_machine_scalar(
             parameter.get("type"),
@@ -214,6 +250,7 @@ def validate_abi_function_shape(function: dict[str, Any]) -> None:
 
 __all__ = [
     "MachineBackendError",
+    "function_linkage",
     "module_signatures",
     "validate_direct_calls",
     "validate_abi_function_shape",

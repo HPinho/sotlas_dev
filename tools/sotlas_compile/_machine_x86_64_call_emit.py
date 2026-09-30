@@ -9,6 +9,7 @@ from ._machine_x86_64_call_instruction_emit import emit_instruction
 from ._machine_x86_64_call_plan import plan_x86_64_sysv_allocation
 from ._machine_x86_64_call_validation import (
     MachineBackendError,
+    function_linkage,
     module_signatures,
     validate_abi_function_shape,
     validate_direct_calls,
@@ -30,6 +31,7 @@ def emit_x86_64_sysv_assembly(
     lines = [".intel_syntax noprefix", ".text"]
     for function in target_ir.get("functions", ()):
         name = function["name"]
+        linkage = function_linkage(function)
         function_plan = plan_by_name.get(name)
         if function_plan is None:
             raise MachineBackendError(f"missing allocation plan for {name!r}")
@@ -39,9 +41,11 @@ def emit_x86_64_sysv_assembly(
         block_labels = _core._block_label_map(function)
         frame_size = function_plan["frame_size_bytes"]
 
+        lines.append("")
+        lines.append(
+            f".globl {name}" if linkage == "external" else f".local {name}"
+        )
         lines.extend([
-            "",
-            f".globl {name}",
             f".type {name}, @function",
             f"{name}:",
             "    push rbp",
