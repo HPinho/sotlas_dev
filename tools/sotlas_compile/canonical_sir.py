@@ -17,9 +17,7 @@ from pathlib import Path
 import sys
 
 from .authority_call_generator import make_authority_call_generator
-from .scalar_if_return_cfg_generator import (
-    make_scalar_if_return_cfg_generator,
-)
+from .local_addressing import make_local_addressing_generator
 from .symbol_linkage import attach_checked_source_symbol_linkage
 
 _CANONICAL_SIR_PACKAGE = "_sotlas_compiler_canonical_sir"
@@ -165,7 +163,7 @@ def build_canonical_checked_ownership_sir(checked_module: object):
     sir = load_canonical_sir()
     plan = sir.lower_ownership_module_semantics(ownership, domains)
 
-    generator_type = make_scalar_if_return_cfg_generator(sir)
+    generator_type = make_local_addressing_generator(sir)
     generator = generator_type(
         module_name=getattr(parsed_module, "name", "main")
     )
