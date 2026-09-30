@@ -1,21 +1,24 @@
-"""First executable Sotlas-owned x86-64 SysV machine backend slice.
+"""Executable Sotlas-owned x86-64 SysV machine backend slice.
 
 This backend consumes canonical Target IR and the existing CFG liveness/register
 allocation analysis. Unlike the inspection reports, the resulting physical
 allocation is consumed by instruction selection and assembly emission.
 
-The initial contract is deliberately narrow and fail-closed:
+The current deliberately narrow fail-closed contract supports:
 - x86-64 System V ABI;
 - one linear basic block per function;
-- up to six unsigned integer parameters;
-- u8/u16/u32/u64/usize values;
+- up to six bool/unsigned integer parameters;
+- bool, u8, u16, u32, u64 and usize machine values;
 - canonical alloc_stack/store/load local memory;
-- integer constants and add/sub/mul;
+- integer constants and unsigned add/sub/mul;
+- unsigned EQ/NEQ/LT/LTE/GT/GTE comparisons with canonical bool results;
 - direct return (or void return);
 - two caller-saved value registers (r10/r11) plus real stack spills.
 
 Signed arithmetic remains rejected until Sotlas' checked/wrapping/saturating/
 unchecked overflow semantics are selected explicitly at the language level.
+Signed comparisons remain outside this machine slice until their target contract
+is promoted separately.
 """
 from __future__ import annotations
 
@@ -35,6 +38,15 @@ class MachineBackendError(ValueError):
 
 _VALUE_REGISTERS = ("r10", "r11")
 _UNSIGNED_TYPES = {"u8": 8, "u16": 16, "u32": 32, "u64": 64, "usize": 64}
+_BOOL_TYPES = {"bool"}
+_COMPARE_CONDITIONS = {
+    "EQ": "e",
+    "NEQ": "ne",
+    "LT": "b",
+    "LTE": "be",
+    "GT": "a",
+    "GTE": "ae",
+}
 _ARG_REGISTERS = (
     {64: "rdi", 32: "edi", 16: "di", 8: "dil"},
     {64: "rsi", 32: "esi", 16: "si", 8: "sil"},
@@ -60,6 +72,12 @@ def _require_unsigned(type_name: Any, *, context: str) -> int:
     raise MachineBackendError(
         f"{context}: x86-64 machine backend does not lower type {type_name!r}"
     )
+
+
+def _require_machine_scalar(type_name: Any, *, context: str) -> int:
+    if type_name in _BOOL_TYPES:
+        return 1
+    return _require_unsigned(type_name, context=context)
 
 
 def plan_x86_64_sysv_allocation(
@@ -155,7 +173,7 @@ def plan_x86_64_sysv_allocation(
                     raise MachineBackendError(
                         f"function {function_name!r}: invalid or duplicate alloc_stack result"
                     )
-                _require_unsigned(
+                _require_machine_scalar(
                     type_name,
                     context=f"function {function_name!r} local {value_name!r}",
                 )
@@ -263,7 +281,7 @@ def _store_value(
 
 
 def _normalize_argument_to_rax(lines: list[str], type_name: str, index: int) -> None:
-    bits = _require_unsigned(type_name, context=f"parameter {index + 1}")
+    bits = _require_machine_scalar(type_name, context=f"parameter {index + 1}")
     registers = _ARG_REGISTERS[index]
     if bits == 64:
         lines.append(f"    mov rax, {registers[64]}")
@@ -273,10 +291,14 @@ def _normalize_argument_to_rax(lines: list[str], type_name: str, index: int) -> 
         lines.append(f"    movzx eax, {registers[16]}")
     else:
         lines.append(f"    movzx eax, {registers[8]}")
+        if bits == 1:
+            lines.append("    and eax, 1")
 
 
 def _truncate_rax(lines: list[str], bits: int) -> None:
-    if bits == 8:
+    if bits == 1:
+        lines.append("    and eax, 1")
+    elif bits == 8:
         lines.append("    and eax, 255")
     elif bits == 16:
         lines.append("    and eax, 65535")
@@ -289,7 +311,7 @@ def _validate_function_shape(function: dict[str, Any]) -> None:
     parameters = function.get("parameters", ())
     if len(parameters) > len(_ARG_REGISTERS):
         raise MachineBackendError(
-            f"function {name!r} has more than six integer parameters"
+            f"function {name!r} has more than six scalar parameters"
         )
     blocks = function.get("blocks", ())
     if len(blocks) != 1:
@@ -297,13 +319,13 @@ def _validate_function_shape(function: dict[str, Any]) -> None:
             f"function {name!r}: x86-64 machine backend currently requires one linear block"
         )
     for parameter in parameters:
-        _require_unsigned(
+        _require_machine_scalar(
             parameter.get("type"),
             context=f"function {name!r} parameter {parameter.get('name')!r}",
         )
     return_type = function.get("return_type")
     if return_type != "void":
-        _require_unsigned(return_type, context=f"function {name!r} return")
+        _require_machine_scalar(return_type, context=f"function {name!r} return")
 
 
 def emit_x86_64_sysv_assembly(
@@ -388,7 +410,7 @@ def emit_x86_64_sysv_assembly(
                 _load_value(lines, source, "rax", locations)
                 _truncate_rax(
                     lines,
-                    _require_unsigned(type_name, context=f"function {name!r} store"),
+                    _require_machine_scalar(type_name, context=f"function {name!r} store"),
                 )
                 offset = -int(slot["offset_bytes"])
                 lines.append(f"    mov QWORD PTR [rbp-{offset}], rax")
@@ -416,7 +438,7 @@ def emit_x86_64_sysv_assembly(
                 lines.append(f"    mov rax, QWORD PTR [rbp-{offset}]")
                 _truncate_rax(
                     lines,
-                    _require_unsigned(type_name, context=f"function {name!r} load"),
+                    _require_machine_scalar(type_name, context=f"function {name!r} load"),
                 )
                 _store_value(lines, result, "rax", locations)
                 continue
@@ -471,6 +493,44 @@ def emit_x86_64_sysv_assembly(
                 _store_value(lines, result, "rax", locations)
                 continue
 
+            if op == "compare":
+                result = instruction.get("result")
+                operands = instruction.get("operands", ())
+                if len(operands) != 2:
+                    raise MachineBackendError(
+                        f"function {name!r}: compare requires two operands"
+                    )
+                if instruction.get("type") != "bool":
+                    raise MachineBackendError(
+                        f"function {name!r}: compare result must have type 'bool'"
+                    )
+                left, right = operands
+                left_type = value_types.get(left)
+                right_type = value_types.get(right)
+                if left_type != right_type:
+                    raise MachineBackendError(
+                        f"function {name!r}: compare operand types must match"
+                    )
+                bits = _require_unsigned(
+                    left_type, context=f"function {name!r} compare"
+                )
+                predicate = instruction.get("attributes", {}).get("predicate")
+                condition = _COMPARE_CONDITIONS.get(predicate)
+                if condition is None:
+                    raise MachineBackendError(
+                        f"function {name!r}: unsupported compare predicate {predicate!r}"
+                    )
+                _load_value(lines, left, "rax", locations)
+                _load_value(lines, right, "rcx", locations)
+                if bits == 64:
+                    lines.append("    cmp rax, rcx")
+                else:
+                    lines.append("    cmp eax, ecx")
+                lines.append(f"    set{condition} al")
+                lines.append("    movzx eax, al")
+                _store_value(lines, result, "rax", locations)
+                continue
+
             if op == "return":
                 operands = instruction.get("operands", ())
                 return_type = function.get("return_type")
@@ -492,7 +552,7 @@ def emit_x86_64_sysv_assembly(
                     _load_value(lines, value, "rax", locations)
                     _truncate_rax(
                         lines,
-                        _require_unsigned(
+                        _require_machine_scalar(
                             return_type, context=f"function {name!r} return"
                         ),
                     )
