@@ -3,13 +3,13 @@
 The public layer performs M16.2c SSA destruction first: leading scalar phi nodes
 become private stack-backed edge copies. The machine core then proves the
 M16.2d bounded-loop subset, while the M16.3 ABI layer handles validated
-module-local direct calls with SysV register arguments, RAX returns, aligned call
-sites and explicit preservation of the backend's caller-saved value registers.
+module-local direct calls with SysV register/stack arguments, RAX returns,
+aligned call sites and explicit preservation of caller-saved value registers.
 
-M16.3b also preserves typed SIR call results across the Target IR boundary so
-source-level direct scalar calls reach the native backend without machine-side
-type guessing. Arbitrary cycles, recursion, indirect/foreign calls, stack-passed
-arguments and aggregate ABI lowering remain fail-closed.
+M16.3b preserves typed SIR call results across the Target IR boundary, M16.3d
+preserves source linkage, and M16.3e admits self/mutual recursion through the
+same ordinary direct-call ABI. Indirect/foreign calls and aggregate ABI lowering
+remain fail-closed.
 """
 from __future__ import annotations
 
