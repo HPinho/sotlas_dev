@@ -6,6 +6,24 @@ from typing import Any
 from . import _machine_x86_64_core as _core
 from ._machine_x86_64_call_abi import emit_direct_call
 from ._machine_x86_64_call_validation import MachineBackendError
+from ._machine_x86_64_types import require_abi_scalar, require_pointer_to
+
+
+def _emit_indirect_scalar_load(
+    lines: list[str], *, bits: int, address_register: str = "rcx"
+) -> None:
+    if bits == 1 or bits == 8:
+        lines.append(f"    movzx eax, BYTE PTR [{address_register}]")
+        if bits == 1:
+            lines.append("    and eax, 1")
+    elif bits == 16:
+        lines.append(f"    movzx eax, WORD PTR [{address_register}]")
+    elif bits == 32:
+        lines.append(f"    mov eax, DWORD PTR [{address_register}]")
+    elif bits == 64:
+        lines.append(f"    mov rax, QWORD PTR [{address_register}]")
+    else:
+        raise MachineBackendError(f"unsupported indirect scalar width {bits}")
 
 
 def emit_instruction(
@@ -57,7 +75,7 @@ def emit_instruction(
         _core._load_value(lines, source, "rax", locations)
         _core._truncate_rax(
             lines,
-            _core._require_machine_scalar(
+            require_abi_scalar(
                 type_name, context=f"function {name!r} store"
             ),
         )
@@ -73,24 +91,32 @@ def emit_instruction(
                 f"function {name!r}: load requires one local stack slot"
             )
         source = operands[0]
-        slot = stack_slots.get(source)
-        if slot is None:
-            raise MachineBackendError(
-                f"function {name!r}: load source is not a local stack slot"
-            )
         type_name = instruction.get("type")
-        if slot.get("type") != type_name:
-            raise MachineBackendError(
-                f"function {name!r}: load type does not match local stack slot"
+        slot = stack_slots.get(source)
+        if slot is not None:
+            if slot.get("type") != type_name:
+                raise MachineBackendError(
+                    f"function {name!r}: load type does not match local stack slot"
+                )
+            offset = -int(slot["offset_bytes"])
+            lines.append(f"    mov rax, QWORD PTR [rbp-{offset}]")
+            _core._truncate_rax(
+                lines,
+                require_abi_scalar(
+                    type_name, context=f"function {name!r} load"
+                ),
             )
-        offset = -int(slot["offset_bytes"])
-        lines.append(f"    mov rax, QWORD PTR [rbp-{offset}]")
-        _core._truncate_rax(
-            lines,
-            _core._require_machine_scalar(
-                type_name, context=f"function {name!r} load"
-            ),
+            _core._store_value(lines, result, "rax", locations)
+            return
+
+        source_type = value_types.get(source)
+        bits = require_pointer_to(
+            source_type,
+            type_name,
+            context=f"function {name!r} load",
         )
+        _core._load_value(lines, source, "rcx", locations)
+        _emit_indirect_scalar_load(lines, bits=bits)
         _core._store_value(lines, result, "rax", locations)
         return
 

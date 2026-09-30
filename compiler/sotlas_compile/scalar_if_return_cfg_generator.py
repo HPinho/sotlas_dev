@@ -12,12 +12,13 @@ or the equivalent fully terminating if/else form, plus:
 
     return callee(parameter_a, parameter_b, ...);
 
-The direct-call return path is intentionally narrow: the callee must be a parsed
-module function (including the current function for M16.3e self recursion), every
-argument must be a direct caller parameter with an exactly matching scalar type,
-and the callee return type must exactly match the caller return type. More general
-call expressions, locals, literals, nested calls, conversions and aggregate values
-remain fail-closed for later milestones.
+M16.4a additionally lowers one already-checked memory shape:
+
+    unsafe { return *pointer_parameter; }
+
+The pointer path only accepts a direct canonical pointer parameter whose pointee
+exactly matches the unsigned scalar return type.  Pointer arithmetic,
+indirect stores, fields, arrays, casts and nested dereferences remain fail-closed.
 """
 from __future__ import annotations
 
@@ -35,6 +36,7 @@ _SCALAR_TYPES = {
     "usize", "isize",
     "f32", "f64",
 }
+_POINTER_LOAD_TYPES = {"u8", "u16", "u32", "u64", "usize"}
 
 
 def make_scalar_if_return_cfg_generator(sir):
@@ -76,6 +78,66 @@ def make_scalar_if_return_cfg_generator(sir):
                 return None
             return name if isinstance(name, str) and name else None
 
+        @staticmethod
+        def _unary_operator(expression: Any) -> str | None:
+            operator = getattr(expression, "op", None)
+            if isinstance(operator, str):
+                return operator
+            name = getattr(operator, "name", None)
+            if name == "STAR":
+                return "*"
+            return None
+
+        @staticmethod
+        def _unary_operand(expression: Any) -> Any:
+            operand = getattr(expression, "operand", None)
+            return operand if operand is not None else getattr(expression, "value", None)
+
+        def _try_lower_pointer_deref_return_subset(
+            self,
+            fn: Any,
+            entry_block: Any,
+            sir_params: list[Any],
+            return_type: str,
+        ) -> bool:
+            """Lower checked `unsafe { return *param; }` into one typed load."""
+            if return_type not in _POINTER_LOAD_TYPES:
+                return False
+            body = list(getattr(fn, "body", None) or ())
+            if len(body) != 1 or type(body[0]).__name__ not in (
+                "Unsafe", "UnsafeBlockNode"
+            ):
+                return False
+            unsafe_body = list(getattr(body[0], "body", None) or ())
+            if len(unsafe_body) != 1 or type(unsafe_body[0]).__name__ not in (
+                "Return", "ReturnNode"
+            ):
+                return False
+            return_statement = unsafe_body[0]
+            expression = getattr(return_statement, "value", None)
+            if type(expression).__name__ not in ("Unary", "UnaryExprNode"):
+                return False
+            if self._unary_operator(expression) != "*":
+                return False
+            operand = self._unary_operand(expression)
+            source_name = self._call_argument_name(operand)
+            if source_name is None:
+                return False
+            source_value = next(
+                (value for value in sir_params if value.name == source_name),
+                None,
+            )
+            if source_value is None or source_value.type_name != f"{return_type}*":
+                return False
+
+            result = self._next_val("deref", return_type)
+            entry_block.add(sir.LoadInst(source=source_value, result=result))
+            entry_block.add(sir.ReturnInst(
+                value=result,
+                point_id=self._statement_point_id(return_statement, "return"),
+            ))
+            return True
+
         def _parsed_parameter_type(self, parameter: Any) -> str | None:
             if isinstance(parameter, tuple) and len(parameter) == 2:
                 type_info = parameter[1]
@@ -106,13 +168,12 @@ def make_scalar_if_return_cfg_generator(sir):
             sir_params: list[Any],
             return_type: str,
         ) -> bool:
-            """Lower `return callee(params...)` as one typed SSA direct call.
+            """Lower checked scalar direct calls, plus M16.4a pointer reads."""
+            if self._try_lower_pointer_deref_return_subset(
+                fn, entry_block, sir_params, return_type
+            ):
+                return True
 
-            Existing direct/whisper ownership-call lowering remains owned by the
-            base generator and is used whenever this scalar-return shape does not
-            match exactly. M16.3e permits the same checked shape when ``callee``
-            resolves to ``fn`` itself; no broader source-call form is introduced.
-            """
             body = list(getattr(fn, "body", None) or ())
             if (
                 return_type not in _SCALAR_TYPES
@@ -193,8 +254,6 @@ def make_scalar_if_return_cfg_generator(sir):
             sir_params: list[Any],
             return_type: str,
         ) -> bool:
-            # Preserve every existing void/ownership behavior in the base
-            # generator.  This extension only owns non-void scalar returns.
             if return_type == "void":
                 return super()._try_lower_simple_if_returns(
                     fn,

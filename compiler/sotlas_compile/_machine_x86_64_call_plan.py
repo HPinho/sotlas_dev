@@ -9,6 +9,7 @@ from ._machine_x86_64_call_validation import (
     validate_abi_function_shape,
     validate_direct_calls,
 )
+from ._machine_x86_64_types import require_abi_scalar
 from .target_ir import TargetIRLoweringError, allocate_target_ir_registers
 
 
@@ -106,7 +107,7 @@ def plan_x86_64_sysv_allocation(
                     raise MachineBackendError(
                         f"function {function_name!r}: invalid or duplicate alloc_stack result"
                     )
-                _core._require_machine_scalar(
+                require_abi_scalar(
                     type_name,
                     context=f"function {function_name!r} local {value_name!r}",
                 )

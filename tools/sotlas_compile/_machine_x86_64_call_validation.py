@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Any
 
 from . import _machine_x86_64_core as _core
+from ._machine_x86_64_types import require_abi_scalar
 
 
 MachineBackendError = _core.MachineBackendError
@@ -68,7 +69,9 @@ def validate_direct_calls(target_ir: dict[str, Any]) -> None:
     direct edge. Self-recursive and mutually recursive call graphs therefore use
     ordinary ABI stack frames; this layer neither proves nor promises a maximum
     recursion depth. Deterministic/realtime/freestanding profiles that require a
-    depth bound must enforce that policy before machine ABI lowering.
+    depth bound must enforce that policy before machine ABI lowering. M16.4a
+    extends scalar ABI transport to canonical pointer values without admitting
+    pointer arithmetic or aggregate ABI lowering.
     """
     if not isinstance(target_ir, dict) or target_ir.get("schema") != "sotlas.target-ir.v1":
         raise MachineBackendError("x86-64 machine backend requires Target IR v1")
@@ -116,7 +119,7 @@ def validate_direct_calls(target_ir: dict[str, Any]) -> None:
                             f"function {caller!r}: call argument {index + 1} to {callee!r} "
                             f"has type {operand_type!r}, expected {parameter_type!r}"
                         )
-                    _core._require_machine_scalar(
+                    require_abi_scalar(
                         parameter_type,
                         context=f"function {caller!r} call argument {index + 1}",
                     )
@@ -130,7 +133,7 @@ def validate_direct_calls(target_ir: dict[str, Any]) -> None:
                             f"function {caller!r}: void call to {callee!r} cannot produce a value"
                         )
                 else:
-                    _core._require_machine_scalar(
+                    require_abi_scalar(
                         return_type,
                         context=f"function {caller!r} call return from {callee!r}",
                     )
@@ -151,13 +154,13 @@ def validate_abi_function_shape(function: dict[str, Any]) -> None:
         raise MachineBackendError(f"invalid x86-64 symbol name {name!r}")
     function_linkage(function)
     for parameter in function.get("parameters", ()):
-        _core._require_machine_scalar(
+        require_abi_scalar(
             parameter.get("type"),
             context=f"function {name!r} parameter {parameter.get('name')!r}",
         )
     return_type = function.get("return_type")
     if return_type != "void":
-        _core._require_machine_scalar(return_type, context=f"function {name!r} return")
+        require_abi_scalar(return_type, context=f"function {name!r} return")
 
     blocks = function.get("blocks", ())
     if not blocks:

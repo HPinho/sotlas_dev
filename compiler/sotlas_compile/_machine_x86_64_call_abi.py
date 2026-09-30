@@ -5,6 +5,7 @@ from typing import Any
 
 from . import _machine_x86_64_core as _core
 from ._machine_x86_64_call_validation import MachineBackendError
+from ._machine_x86_64_types import pointer_pointee, require_abi_scalar
 
 
 _REGISTER_ARGUMENT_COUNT = len(_core._ARG_REGISTERS)
@@ -16,11 +17,13 @@ def load_incoming_parameter_to_rax(
     lines: list[str], *, type_name: str, index: int
 ) -> None:
     if index < _REGISTER_ARGUMENT_COUNT:
-        _core._normalize_argument_to_rax(lines, type_name, index)
+        if pointer_pointee(type_name) is not None:
+            registers = _core._ARG_REGISTERS[index]
+            lines.append(f"    mov rax, {registers[64]}")
+        else:
+            _core._normalize_argument_to_rax(lines, type_name, index)
         return
-    bits = _core._require_machine_scalar(
-        type_name, context=f"parameter {index + 1}"
-    )
+    bits = require_abi_scalar(type_name, context=f"parameter {index + 1}")
     offset = 16 + _STACK_SLOT_BYTES * (index - _REGISTER_ARGUMENT_COUNT)
     lines.append(f"    mov rax, QWORD PTR [rbp+{offset}]")
     _core._truncate_rax(lines, bits)
@@ -29,9 +32,7 @@ def load_incoming_parameter_to_rax(
 def _move_register_argument(lines: list[str], *, type_name: str, index: int) -> None:
     if index >= _REGISTER_ARGUMENT_COUNT:
         raise MachineBackendError("stack call argument passed to register mover")
-    bits = _core._require_machine_scalar(
-        type_name, context=f"call argument {index + 1}"
-    )
+    bits = require_abi_scalar(type_name, context=f"call argument {index + 1}")
     registers = _core._ARG_REGISTERS[index]
     _core._truncate_rax(lines, bits)
     if bits == 64:
@@ -76,7 +77,7 @@ def emit_direct_call(
         operand = operands[index]
         parameter_type = signature["parameters"][index]
         _core._load_value(lines, operand, "rax", locations)
-        bits = _core._require_machine_scalar(
+        bits = require_abi_scalar(
             parameter_type, context=f"call argument {index + 1}"
         )
         _core._truncate_rax(lines, bits)
@@ -93,7 +94,7 @@ def emit_direct_call(
     return_type = signature["return_type"]
     result = instruction.get("result")
     if return_type != "void":
-        bits = _core._require_machine_scalar(
+        bits = require_abi_scalar(
             return_type, context=f"function {caller!r} call return"
         )
         _core._truncate_rax(lines, bits)
