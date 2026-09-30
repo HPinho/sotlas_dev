@@ -1,9 +1,9 @@
 """Backend-neutral source-local address facts and Target IR bridge.
 
 M16.4b2 preserves a non-escaping source-local address as a typed SIR side fact,
-analogous to source linkage facts. This module deliberately does not import the
-source generator or Target IR implementation so reduced compatibility package
-views can load it without pulling unrelated compiler layers.
+analogous to source linkage facts. This module deliberately does not eagerly
+import the source generator or Target IR implementation so reduced compatibility
+package views can load it without pulling unrelated compiler layers.
 """
 from __future__ import annotations
 
@@ -27,6 +27,13 @@ class LocalAddressFact:
     load_result: str
     pointee_type: str
     source_point_id: str
+
+
+def make_local_addressing_generator(sir):
+    """Load the source generator only when canonical SIR generation needs it."""
+    from .local_addressing_generator import make_local_addressing_generator as factory
+
+    return factory(sir)
 
 
 def attach_target_ir_local_addresses(
@@ -141,4 +148,5 @@ __all__ = [
     "LocalAddressFact",
     "LocalAddressingError",
     "attach_target_ir_local_addresses",
+    "make_local_addressing_generator",
 ]
