@@ -11,6 +11,10 @@ from ._machine_x86_64_call_validation import (
 )
 from ._machine_x86_64_types import require_abi_scalar
 from .target_ir import TargetIRLoweringError, allocate_target_ir_registers
+from .target_ir_addressing import (
+    TargetIRAddressingError,
+    validate_target_ir_addressing,
+)
 
 
 _REGISTER_ARGUMENT_COUNT = len(_core._ARG_REGISTERS)
@@ -31,6 +35,10 @@ def plan_x86_64_sysv_allocation(
         )
     if not isinstance(target_ir, dict) or target_ir.get("schema") != "sotlas.target-ir.v1":
         raise MachineBackendError("x86-64 machine backend requires Target IR v1")
+    try:
+        validate_target_ir_addressing(target_ir)
+    except TargetIRAddressingError as error:
+        raise MachineBackendError(str(error)) from error
     for function in target_ir.get("functions", ()):
         validate_abi_function_shape(function)
 
