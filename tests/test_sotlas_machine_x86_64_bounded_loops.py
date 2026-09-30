@@ -59,7 +59,8 @@ fn sum_to(limit: u32) -> u32 {
         assembly = compile_source_to_x86_64_sysv_assembly(
             source, "machine_bounded_loop.sotlas"
         )
-        self.assertIn(".globl sum_to", assembly)
+        self.assertIn(".local sum_to", assembly)
+        self.assertNotIn(".globl sum_to", assembly)
         self.assertIn("setb al", assembly)
         self.assertGreaterEqual(assembly.count("jmp .Lsum_to_bb"), 2)
 
@@ -121,7 +122,8 @@ fn sum_fixed() -> u8 {
         assembly = compile_source_to_x86_64_sysv_assembly(
             source, "machine_constant_bounded_loop.sotlas"
         )
-        self.assertIn(".globl sum_fixed", assembly)
+        self.assertIn(".local sum_fixed", assembly)
+        self.assertNotIn(".globl sum_fixed", assembly)
         self.assertIn("setbe al", assembly)
 
     @unittest.skipUnless(
@@ -135,7 +137,7 @@ fn sum_fixed() -> u8 {
 
         source = """
 module test::machine_bounded_loop_e2e;
-fn sum_to(limit: u32) -> u32 {
+pub fn sum_to(limit: u32) -> u32 {
     let mut index: u32 = 0u32;
     let mut total: u32 = 0u32;
     while index < limit {

@@ -44,7 +44,7 @@ module test::machine_source_call;
 fn add_pair(left: u32, right: u32) -> u32 {
     return left + right;
 }
-fn call_pair(left: u32, right: u32) -> u32 {
+pub fn call_pair(left: u32, right: u32) -> u32 {
     return add_pair(left, right);
 }
 """
@@ -77,14 +77,11 @@ class SotlasX8664SourceCallTests(unittest.TestCase):
         self.assertEqual(call.result.type_name, "u32")
         self.assertEqual([value.name for value in call.arguments], ["left", "right"])
 
-    def test_typed_target_ir_preserves_call_result_type(self):
+    def test_typed_target_ir_preserves_call_result_type_and_source_linkage(self):
         module = self._checked_sir()
         target_ir = _target_calls.lower_sir_to_typed_target_ir(module)
-        caller = next(
-            function
-            for function in target_ir["functions"]
-            if function["name"] == "call_pair"
-        )
+        functions = {item["name"]: item for item in target_ir["functions"]}
+        caller = functions["call_pair"]
         calls = [
             instruction
             for block in caller["blocks"]
@@ -96,12 +93,17 @@ class SotlasX8664SourceCallTests(unittest.TestCase):
         self.assertEqual(call["attributes"]["callee"], "add_pair")
         self.assertEqual(call["type"], "u32")
         self.assertIsInstance(call["result"], str)
+        self.assertEqual(functions["add_pair"]["linkage"], "internal")
+        self.assertEqual(functions["add_pair"]["source_visibility"], "private")
+        self.assertEqual(functions["call_pair"]["linkage"], "external")
+        self.assertEqual(functions["call_pair"]["source_visibility"], "public")
 
     def test_source_call_reaches_sysv_machine_assembly(self):
         assembly = _machine.compile_source_to_x86_64_sysv_assembly(
             SOURCE, "machine_source_call.sotlas"
         )
-        self.assertIn(".globl add_pair", assembly)
+        self.assertIn(".local add_pair", assembly)
+        self.assertNotIn(".globl add_pair", assembly)
         self.assertIn(".globl call_pair", assembly)
         self.assertIn("call add_pair", assembly)
         self.assertIn("sub rsp, 16", assembly)

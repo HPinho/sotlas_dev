@@ -1,20 +1,22 @@
-"""Typed direct-call Target IR bridge.
+"""Typed direct-call and symbol-linkage Target IR bridge.
 
 Target IR v1 historically preserved the SSA result name of ``CallInst`` but did
-not copy the result's SIR type into the lowered instruction.  That omission was
+not copy the result's SIR type into the lowered instruction. That omission was
 harmless while the native backend rejected calls, but M16.3 requires call
 results to participate in liveness, allocation and ABI validation exactly like
 other typed SSA values.
 
-This module keeps the correction explicit and backend-neutral: it first invokes
-the canonical Target IR lowering, then reattaches call-result types from the
-source SIR instruction that defined each result.  It never infers a type from a
-machine register or backend convention.
+M16.3d additionally requires source visibility and ABI-export facts proven on
+canonical SIR to survive the Target IR boundary. This module therefore composes
+two backend-neutral bridges after canonical Target IR lowering: typed call-result
+metadata first, then explicit symbol linkage. Neither step infers semantics from
+machine registers or backend conventions.
 """
 from __future__ import annotations
 
 from typing import Any
 
+from .symbol_linkage import attach_target_ir_symbol_linkage
 from .target_ir import TargetIRLoweringError, lower_sir_to_target_ir
 
 
@@ -106,9 +108,11 @@ def attach_direct_call_result_types(
 
 
 def lower_sir_to_typed_target_ir(module: Any) -> dict[str, Any]:
-    """Lower SIR to Target IR and preserve typed direct-call SSA results."""
+    """Lower SIR to Target IR with typed calls and explicit source linkage."""
     target_ir = lower_sir_to_target_ir(module)
-    return attach_direct_call_result_types(target_ir, module)
+    attach_direct_call_result_types(target_ir, module)
+    attach_target_ir_symbol_linkage(target_ir, module)
+    return target_ir
 
 
 __all__ = [

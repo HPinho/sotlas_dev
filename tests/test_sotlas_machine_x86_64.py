@@ -61,7 +61,8 @@ fn add_values(left: u32, right: u32) -> u32 {
 """
         assembly = compile_source_to_x86_64_sysv_assembly(source, "machine_add.sotlas")
 
-        self.assertIn(".globl add_values", assembly)
+        self.assertIn(".local add_values", assembly)
+        self.assertNotIn(".globl add_values", assembly)
         self.assertIn("add eax, ecx", assembly)
         self.assertIn("r10", assembly)
         self.assertIn("ret", assembly)
@@ -218,7 +219,7 @@ fn add_values(left: u32, right: u32) -> u32 {
 
         source = """
 module test::machine_e2e;
-fn add_values(left: u32, right: u32) -> u32 {
+pub fn add_values(left: u32, right: u32) -> u32 {
     return left + right;
 }
 """

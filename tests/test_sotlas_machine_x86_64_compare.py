@@ -159,7 +159,8 @@ fn less_than(left: u32, right: u32) -> bool {
         assembly = compile_source_to_x86_64_sysv_assembly(
             source, "machine_compare_source.sotlas"
         )
-        self.assertIn(".globl less_than", assembly)
+        self.assertIn(".local less_than", assembly)
+        self.assertNotIn(".globl less_than", assembly)
         self.assertIn("cmp eax, ecx", assembly)
         self.assertIn("setb al", assembly)
         self.assertIn("movzx eax, al", assembly)
@@ -179,7 +180,7 @@ fn less_than(left: u32, right: u32) -> bool {
 
         source = """
 module test::machine_compare_e2e;
-fn less_than(left: u32, right: u32) -> bool {
+pub fn less_than(left: u32, right: u32) -> bool {
     return left < right;
 }
 """
