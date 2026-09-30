@@ -147,6 +147,13 @@
       "verification": "status-examples-are-not-automatically-runnable"
     },
     {
+      "id": "m16-3-recursion-contract-snippets",
+      "document": "docs/sotlas_m16_3_recursion_contract.md",
+      "status": "EXPERIMENTAL",
+      "source": null,
+      "verification": "m16.3e-native-recursion-gates-not-runnable-example"
+    },
+    {
       "id": "master-roadmap-snippets",
       "document": "docs/sotlas_master_roadmap.md",
       "status": "DESIGN_ONLY",
