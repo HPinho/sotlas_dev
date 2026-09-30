@@ -2,8 +2,9 @@
 
 **Status do documento:** PLANO VIVO  
 **Atualizado em:** 2026-09-29 (America/Fortaleza)  
-**Baseline verde atual:** `3c66cd305b8af3ab65521445ca0544f060ef74e0`  
-**CI de referência:** Sotlas CI & Toolchain Build Farm #936 — `success`  
+**Baseline verde atual:** `ddf0353d804bbd1fc3387931c702104b364be637`  
+**Último avanço funcional certificado:** `3c66cd305b8af3ab65521445ca0544f060ef74e0`  
+**CI de referência:** Sotlas CI & Toolchain Build Farm #938 — `success`  
 **Fonte arquitetural principal:** `docs/sotlas_master_roadmap.md`  
 **Índice operacional do 1.0:** `docs/sotlas_implementation_status.md`
 
@@ -215,6 +216,146 @@ Ainda não suportado nesse backend próprio:
 - [ ] unwind/debug metadata;
 - [ ] direct object emission sem assembler externo;
 - [ ] linker Sotlas-owned geral.
+
+---
+
+## K. Kernel / Barecore Implementation Track
+
+Este track acompanha especificamente o caminho necessário para Sotlas produzir
+e executar kernels reais, sem transformar a linguagem em uma linguagem
+específica do Baken. O Baken pode funcionar como consumidor e prova E2E, mas
+qualquer primitiva descoberta durante esse trabalho deve ser implementada como
+capacidade geral da linguagem/toolchain.
+
+### K.1 Regra de maturidade do kernel
+
+A existência de `bootstrap/sotlas/kernel/main.sotlas`, `kernel_main`, estruturas
+de boot ou chamadas de serial/framebuffer **não** significa que o kernel já seja
+bootável pela toolchain Sotlas de ponta a ponta.
+
+Enquanto a cadeia abaixo não estiver certificada, o kernel permanece um
+**bootstrap/source contract + preview de integração**:
+
+```text
+kernel .sotlas
+    ↓
+canonical frontend
+    ↓
+typed semantics
+    ↓
+canonical SIR
+    ↓
+freestanding object
+    ↓
+freestanding linker
+    ↓
+bootable image
+    ↓
+QEMU / firmware
+    ↓
+Sotlas entrypoint executes
+    ↓
+observable serial/framebuffer proof
+```
+
+O primeiro marco que pode ser chamado de **kernel bootável certificado** exige
+essa cadeia completa, um gate E2E e ausência de dependências hosted implícitas.
+
+### K.2 Estado fonte atual
+
+O kernel canônico atual em `bootstrap/sotlas/kernel/main.sotlas` já possui:
+
+- [x] `barecore;` antes da declaração do módulo;
+- [x] módulo `kernel::minimal`;
+- [x] `BootFrame` com `@repr(C)` e `@packed`;
+- [x] `kernel_main(frame: *mut BootFrame) -> u64` exportado e `@system`;
+- [x] contrato fonte para framebuffer;
+- [x] chamadas fonte para serial;
+- [x] desenho fonte mínimo em framebuffer;
+- [x] gate impedindo dependências hosted óbvias no bootstrap;
+- [ ] boot real desse arquivo ainda não é certificado.
+
+`tests/test_sotlas_kernel_freestanding_profile.py` fixa o perfil barecore, o
+contrato ABI fonte de `BootFrame`/`kernel_main` e a ausência de chamadas hosted
+óbvias. Esse teste é evidência do contrato fonte, não de boot E2E.
+
+### K.3 Milestones K0–K14
+
+| Milestone | Objetivo | Estado atual | Critério de saída |
+|---|---|---|---|
+| **K0** | Target profile freestanding | ✅ CERTIFICADO | `barecore` reconhecido pelo frontend, reconciliado com target freestanding e impedido de cair silenciosamente em execução/link hosted |
+| **K1** | Kernel source/ABI bootstrap | ✅ CONTRATO FONTE | kernel canônico declara `barecore`, `BootFrame` e `kernel_main`; testes protegem ABI fonte e hosted-dependency guard |
+| **K2** | Objeto freestanding real | 🟡 PARCIAL | fonte barecore produz `.o` freestanding verificável; nenhuma fallback path pode gerar executável hosted; caminho Sotlas-owned de objeto continua milestone posterior |
+| **K3** | Linker ELF freestanding | 🟡 PREVIEW | target/link plan usa semântica freestanding canônica, entry explícito, OSABI/layout corretos e relocações certificadas; nenhuma heurística hosted pode decidir o layout |
+| **K4** | Boot ABI / startup / entry | ⬜ PENDENTE | definir `_start`/entry genérico, estado inicial da stack/CPU, handoff do bootloader e chamada explícita para a entrada Sotlas sem alias silencioso de `kernel_main` |
+| **K5** | Sections e image layout | ⬜ PENDENTE | `.text/.rodata/.data/.bss`, alinhamentos, endereços e símbolos especiais possuem contrato freestanding verificável e configuração explícita |
+| **K6** | Imagem bootável | ⬜ PENDENTE | objeto(s) + linker geram uma imagem consumível pelo boot path escolhido sem libc/CRT/startup hosted |
+| **K7** | QEMU boot E2E | ⬜ PENDENTE | CI inicia a imagem, chega ao entry Sotlas e verifica marcador determinístico por serial ou mecanismo equivalente |
+| **K8** | Early diagnostics | 🟡 SOURCE PREVIEW | serial/framebuffer do bootstrap tornam-se E2E reais; falhas iniciais têm caminho freestanding de panic/trap e diagnóstico mínimo |
+| **K9** | CPU early setup | ⬜ PENDENTE | GDT/IDT/exception/IRQ setup no x86-64 usa calling/interrupt contracts Sotlas certificados, sem glue específico de produto dentro do compilador |
+| **K10** | Memory management | ⬜ PENDENTE | memory map/handoff, physical pages, paging/address spaces e allocator freestanding possuem APIs e ownership/lifetime definidos |
+| **K11** | Timer e scheduler | ⬜ PENDENTE | timer/clock + interrupt integration + scheduler mínimo executam com efeitos/authority apropriados; primitivas são reutilizáveis por qualquer kernel Sotlas |
+| **K12** | Drivers / MMIO / PCI / DMA | ⬜ PENDENTE | volatile/MMIO, port I/O, PCI, IRQ e DMA usam primitives gerais de Authority/Ownership/Effects; pelo menos um driver E2E é certificado |
+| **K13** | UEFI / PE-COFF path | ⬜ PENDENTE | caminho UEFI é separado do ELF bare-metal quando necessário, com ABI, entry e image format próprios e testes em firmware virtual |
+| **K14** | Kernel majoritariamente Sotlas / soberania | ⬜ LONGO PRAZO | kernel, runtime necessário e toolchain crítica deixam de depender de bridges ad hoc; self-host/backend próprio avançam sem remover Stage 0 antes da paridade |
+
+### K.4 Dependências do track de kernel
+
+O track de kernel não é uma trilha isolada. Ele depende diretamente de outras
+partes do plano:
+
+- **K2–K3:** Fase 16 / M16.6, execution targets e linker freestanding;
+- **K4–K5:** calling conventions, entry functions, linker sections e symbol model;
+- **K7:** CI/reality gates e execução QEMU determinística;
+- **K8:** `core::serial`, framebuffer, freestanding panic/trap;
+- **K9:** interrupt ABI, CPU intrinsics, port I/O e Authority Domains;
+- **K10:** pointers/address spaces, integer semantics, atomics, allocator e Ownership;
+- **K11:** effects, interrupt/realtime safety, clock e concurrency;
+- **K12:** MMIO/volatile, `device`, DMA, Authority/Effects/Ownership;
+- **K13:** PE/COFF/UEFI backend/linker/ABI específicos;
+- **K14:** self-host, Sotlas-owned backend, runtime e stdlib freestanding.
+
+### K.5 Ordem operacional recomendada
+
+O caminho crítico imediato do kernel é:
+
+```text
+K0/K1 certificados
+      ↓
+K2 freestanding object contract
+      ↓
+K3 linker target contract
+      ↓
+K4 entry/startup ABI
+      ↓
+K5 sections/layout
+      ↓
+K6 bootable image
+      ↓
+K7 QEMU E2E
+```
+
+Depois do primeiro boot certificado, avançar K8–K12 de maneira incremental,
+sempre promovendo para a linguagem qualquer primitiva geral descoberta.
+
+O backend próprio M16.2–M16.6 pode evoluir em paralelo. O primeiro boot não
+precisa esperar a remoção de LLVM se o caminho LLVM usado estiver corretamente
+freestanding e certificado; a substituição por backend/object writer Sotlas-owned
+é um objetivo de soberania posterior, não justificativa para fingir que o boot
+já existe hoje.
+
+### K.6 O que nunca deve ser feito para “fechar” o kernel
+
+- não colocar UI, wallpaper, Baken, framebuffer específico ou lógica de produto
+  dentro do compilador;
+- não tratar `kernel_main` como `_start` por alias implícito;
+- não usar linker hosted por trás de um target barecore;
+- não esconder libc/CRT/startup objects no artefato final;
+- não usar um endereço de carga universal sem contrato/configuração explícitos;
+- não marcar serial/framebuffer como E2E enquanto apenas o código fonte existir;
+- não contornar SIR/backend com C específico do Baken;
+- não enfraquecer testes de barecore para obter uma imagem que apenas “pareça”
+  bootável.
 
 ---
 
@@ -742,6 +883,11 @@ Depois que o backend possuir CFG/calls suficientes:
 7. QEMU boot gate;
 8. UEFI/PE path separada quando necessária.
 
+Esses itens correspondem diretamente aos milestones **K2–K7** e **K13** do
+Kernel / Barecore Track. O boot inicial pode usar o backend LLVM certificado
+enquanto o object writer Sotlas-owned amadurece, desde que todo o caminho seja
+realmente freestanding e fail-closed.
+
 Critério de saída P2:
 
 ```text
@@ -866,7 +1012,9 @@ Esta lista é operacional e pode ser atualizada a cada baseline verde.
 - explicit entry;
 - no hosted startup;
 - section/layout model;
-- fail-closed until enough relocation support exists.
+- canonical target/OSABI/load-address policy;
+- fail-closed until enough relocation support exists;
+- primeira entrega do caminho K3–K5.
 
 ---
 
@@ -910,6 +1058,15 @@ Uma capacidade barecore só é real quando não depender silenciosamente de:
 - abort/stdio/process runtime;
 - linker hosted implícito.
 
+Um **kernel bootável** exige adicionalmente:
+
+- [ ] entry/startup ABI explícito;
+- [ ] layout/sections freestanding definidos;
+- [ ] imagem realmente carregável;
+- [ ] QEMU/firmware chega ao código Sotlas;
+- [ ] prova observável determinística, preferencialmente serial;
+- [ ] gate de CI repetível.
+
 ---
 
 ## 9. Como este arquivo deve ser mantido
@@ -922,7 +1079,9 @@ Após cada bloco importante:
 4. adicionar novos gaps descobertos por E2E/regressões;
 5. manter o índice 1.0 separado da visão ampla;
 6. registrar decisões arquiteturais que alterem prioridades;
-7. preferir referências a arquivos/testes reais em vez de percentuais subjetivos.
+7. preferir referências a arquivos/testes reais em vez de percentuais subjetivos;
+8. atualizar o Kernel / Barecore Track quando um milestone K0–K14 mudar de
+   estado, sem promover source preview a boot E2E.
 
 Percentuais amplos da linguagem só devem ser usados quando existir uma métrica
 objetiva. Até lá, checklists, gates e E2E são indicadores mais confiáveis.
@@ -975,6 +1134,14 @@ Essa baseline certifica o primeiro machine-backend slice Sotlas-owned com
 register allocation consumida por code generation, spills reais, stack locals,
 `alloc_stack`, `store`, `load`, unsigned `const/add/sub/mul/return` e E2E Linux.
 
-O próximo avanço recomendado é **M16.2a — compare instruction selection**, salvo
-se uma regressão aparecer antes. Como sempre, regressão tem prioridade sobre
-feature nova.
+O primeiro commit documental do plano, já certificado no CI, é:
+
+```text
+ddf0353d804bbd1fc3387931c702104b364be637
+docs: add full Sotlas implementation plan
+CI #938: success
+```
+
+O próximo avanço técnico recomendado é **M16.2a — compare instruction selection**,
+salvo se uma regressão aparecer antes. Como sempre, regressão tem prioridade
+sobre feature nova.
