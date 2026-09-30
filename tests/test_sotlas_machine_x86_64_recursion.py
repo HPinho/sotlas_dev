@@ -137,6 +137,20 @@ def _mutual_recursive_module() -> dict:
     }
 
 
+def _execution_recursive_module() -> dict:
+    return {
+        "schema": "sotlas.target-ir.v1",
+        "stage": "pre_selection",
+        "module": "recursion_execution",
+        "functions": [
+            _recursive_function("countdown", "countdown"),
+            _recursive_function("bounce_a", "bounce_b"),
+            _recursive_function("bounce_b", "bounce_a"),
+        ],
+        "limitations": [],
+    }
+
+
 class SotlasX8664RecursionTests(unittest.TestCase):
     def test_source_self_recursion_survives_sir_and_typed_target_ir(self):
         checked = _phase1.analyze_source_phase1(
@@ -182,15 +196,15 @@ class SotlasX8664RecursionTests(unittest.TestCase):
         self.assertIn("mov QWORD PTR [rsp+8], r11", assembly)
         self.assertNotIn("LLVM", assembly)
 
-    def test_self_and_mutual_recursion_emit_without_special_call_convention(self):
+    def test_self_and_mutual_recursion_emit_real_direct_calls(self):
         self_assembly = _machine.emit_x86_64_sysv_assembly(_self_recursive_module())
         mutual_assembly = _machine.emit_x86_64_sysv_assembly(_mutual_recursive_module())
 
         self.assertIn("call countdown", self_assembly)
         self.assertIn("call bounce_b", mutual_assembly)
         self.assertIn("call bounce_a", mutual_assembly)
-        self.assertNotIn("tail", self_assembly.lower())
-        self.assertNotIn("tail", mutual_assembly.lower())
+        self.assertIn("sub rsp, 16", self_assembly)
+        self.assertGreaterEqual(mutual_assembly.count("sub rsp, 16"), 2)
 
     @unittest.skipUnless(
         sys.platform.startswith("linux"),
@@ -201,8 +215,7 @@ class SotlasX8664RecursionTests(unittest.TestCase):
         if compiler is None:
             self.skipTest("native C compiler is required for recursion execution gate")
 
-        assembly = _machine.emit_x86_64_sysv_assembly(_self_recursive_module())
-        assembly += "\n" + _machine.emit_x86_64_sysv_assembly(_mutual_recursive_module())
+        assembly = _machine.emit_x86_64_sysv_assembly(_execution_recursive_module())
 
         with tempfile.TemporaryDirectory(prefix="sotlas_machine_recursion_") as temp:
             directory = Path(temp)
@@ -240,6 +253,7 @@ int main(void) {
             "scalar_if_return_cfg_generator.py",
             "_machine_x86_64_call_validation.py",
             "_machine_x86_64_calls.py",
+            "machine_x86_64.py",
         ):
             compiler_path = ROOT / "compiler" / "sotlas_compile" / relative
             tools_path = ROOT / "tools" / "sotlas_compile" / relative
