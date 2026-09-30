@@ -154,6 +154,13 @@
       "verification": "master-roadmap-is-architecture-and-planning-material"
     },
     {
+      "id": "full-implementation-plan-snippets",
+      "document": "docs/sotlas_full_implementation_plan.md",
+      "status": "DESIGN_ONLY",
+      "source": null,
+      "verification": "implementation-plan-is-planning-material-not-support-evidence"
+    },
+    {
       "id": "v1-audit-snippets",
       "document": "docs/sotlas_v1_audit_and_roadmap.md",
       "status": "DESIGN_ONLY",
