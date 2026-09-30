@@ -138,7 +138,7 @@ fn add_values(left: u32, right: u32) -> u32 {
         ):
             emit_x86_64_sysv_assembly(target_ir)
 
-    def test_unconditional_branch_lowers_but_calls_stay_fail_closed(self):
+    def test_unconditional_branch_lowers_but_unknown_calls_stay_fail_closed(self):
         branching = {
             "schema": "sotlas.target-ir.v1",
             "stage": "pre_selection",
@@ -193,7 +193,10 @@ fn add_values(left: u32, right: u32) -> u32 {
             }],
             "limitations": [],
         }
-        with self.assertRaisesRegex(MachineBackendError, "does not lower operation 'call'"):
+        with self.assertRaisesRegex(
+            MachineBackendError,
+            "direct call target 'callee' is not a module function",
+        ):
             emit_x86_64_sysv_assembly(calling)
 
     def test_machine_register_count_is_bounded_by_real_backend_register_set(self):
