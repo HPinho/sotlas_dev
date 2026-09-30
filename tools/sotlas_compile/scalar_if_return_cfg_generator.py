@@ -12,6 +12,13 @@ or the equivalent fully terminating if/else form, plus:
 
     return callee(parameter_a, parameter_b, ...);
 
+The direct-call return path is intentionally narrow: the callee must be a parsed
+module function (including the current function for M16.3e self recursion), every
+argument must be a direct caller parameter with an exactly matching scalar type,
+and the callee return type must exactly match the caller return type. More general
+call expressions, locals, literals, nested calls, conversions and aggregate values
+remain fail-closed for later milestones.
+
 M16.4a additionally lowers one already-checked memory shape:
 
     unsafe { return *pointer_parameter; }
@@ -254,6 +261,8 @@ def make_scalar_if_return_cfg_generator(sir):
             sir_params: list[Any],
             return_type: str,
         ) -> bool:
+            # Preserve every existing void/ownership behavior in the base
+            # generator.  This extension only owns non-void scalar returns.
             if return_type == "void":
                 return super()._try_lower_simple_if_returns(
                     fn,
