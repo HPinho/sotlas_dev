@@ -1,7 +1,7 @@
 """First executable Sotlas-owned x86-64 SysV machine backend slice.
 
 This backend consumes canonical Target IR and the existing CFG liveness/register
-allocation analysis.  Unlike the inspection reports, the resulting physical
+allocation analysis. Unlike the inspection reports, the resulting physical
 allocation is consumed by instruction selection and assembly emission.
 
 The initial contract is deliberately narrow and fail-closed:
@@ -9,6 +9,7 @@ The initial contract is deliberately narrow and fail-closed:
 - one linear basic block per function;
 - up to six unsigned integer parameters;
 - u8/u16/u32/u64/usize values;
+- canonical alloc_stack/store/load local memory;
 - integer constants and add/sub/mul;
 - direct return (or void return);
 - two caller-saved value registers (r10/r11) plus real stack spills.
@@ -49,10 +50,22 @@ def _align(value: int, alignment: int) -> int:
     return (value + alignment - 1) & -alignment
 
 
+def _require_unsigned(type_name: Any, *, context: str) -> int:
+    if type_name in _UNSIGNED_TYPES:
+        return _UNSIGNED_TYPES[type_name]
+    if type_name in {"i8", "i16", "i32", "i64", "isize"}:
+        raise MachineBackendError(
+            f"{context}: signed integer lowering waits for Sotlas overflow-mode semantics"
+        )
+    raise MachineBackendError(
+        f"{context}: x86-64 machine backend does not lower type {type_name!r}"
+    )
+
+
 def plan_x86_64_sysv_allocation(
     target_ir: dict[str, Any], *, register_count: int = 2
 ) -> dict[str, Any]:
-    """Map canonical virtual allocation locations onto real x86-64 locations."""
+    """Map canonical virtual allocation and local memory onto x86-64 locations."""
 
     if (
         not isinstance(register_count, int)
@@ -70,8 +83,20 @@ def plan_x86_64_sysv_allocation(
     except TargetIRLoweringError as error:
         raise MachineBackendError(str(error)) from error
 
+    source_functions = {
+        function.get("name"): function
+        for function in target_ir.get("functions", ())
+        if isinstance(function, dict)
+    }
     functions = []
     for function in allocation.get("functions", ()):
+        function_name = function.get("name")
+        source_function = source_functions.get(function_name)
+        if source_function is None:
+            raise MachineBackendError(
+                f"missing Target IR function for allocation {function_name!r}"
+            )
+
         physical_values = []
         for value in function.get("values", ()):
             logical = value.get("location", {})
@@ -113,12 +138,48 @@ def plan_x86_64_sysv_allocation(
         spill_slots = function.get("spill_slots", 0)
         if not isinstance(spill_slots, int) or spill_slots < 0:
             raise MachineBackendError("invalid spill slot count")
+
+        local_slots = []
+        seen_local_values: set[str] = set()
+        for block in source_function.get("blocks", ()):
+            for instruction in block.get("instructions", ()):
+                if instruction.get("op") != "alloc_stack":
+                    continue
+                value_name = instruction.get("result")
+                type_name = instruction.get("type")
+                if (
+                    not isinstance(value_name, str)
+                    or not value_name
+                    or value_name in seen_local_values
+                ):
+                    raise MachineBackendError(
+                        f"function {function_name!r}: invalid or duplicate alloc_stack result"
+                    )
+                _require_unsigned(
+                    type_name,
+                    context=f"function {function_name!r} local {value_name!r}",
+                )
+                seen_local_values.add(value_name)
+                local_index = len(local_slots)
+                local_slots.append(
+                    {
+                        "value": value_name,
+                        "type": type_name,
+                        "source_name": instruction.get("attributes", {}).get("source_name"),
+                        "slot": local_index,
+                        "offset_bytes": -8 * (spill_slots + local_index + 1),
+                    }
+                )
+
+        total_stack_slots = spill_slots + len(local_slots)
         functions.append(
             {
-                "name": function.get("name"),
+                "name": function_name,
                 "values": physical_values,
                 "spill_slots": spill_slots,
-                "frame_size_bytes": _align(spill_slots * 8, 16),
+                "local_stack_slots": len(local_slots),
+                "stack_slots": local_slots,
+                "frame_size_bytes": _align(total_stack_slots * 8, 16),
             }
         )
 
@@ -141,6 +202,16 @@ def _location_map(function_plan: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return locations
 
 
+def _stack_slot_map(function_plan: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    slots = {}
+    for slot in function_plan.get("stack_slots", ()):
+        name = slot.get("value")
+        if not isinstance(name, str) or not name or name in slots:
+            raise MachineBackendError("machine allocation contains invalid local stack slots")
+        slots[name] = slot
+    return slots
+
+
 def _type_map(function: dict[str, Any]) -> dict[str, str]:
     types: dict[str, str] = {}
     for parameter in function.get("parameters", ()):
@@ -155,18 +226,6 @@ def _type_map(function: dict[str, Any]) -> dict[str, str]:
             if isinstance(result, str) and isinstance(type_name, str):
                 types[result] = type_name
     return types
-
-
-def _require_unsigned(type_name: Any, *, context: str) -> int:
-    if type_name in _UNSIGNED_TYPES:
-        return _UNSIGNED_TYPES[type_name]
-    if type_name in {"i8", "i16", "i32", "i64", "isize"}:
-        raise MachineBackendError(
-            f"{context}: signed integer lowering waits for Sotlas overflow-mode semantics"
-        )
-    raise MachineBackendError(
-        f"{context}: x86-64 machine backend does not lower type {type_name!r}"
-    )
 
 
 def _load_value(
@@ -269,6 +328,7 @@ def emit_x86_64_sysv_assembly(
         if function_plan is None:
             raise MachineBackendError(f"missing allocation plan for {name!r}")
         locations = _location_map(function_plan)
+        stack_slots = _stack_slot_map(function_plan)
         value_types = _type_map(function)
         frame_size = function_plan["frame_size_bytes"]
 
@@ -298,6 +358,69 @@ def emit_x86_64_sysv_assembly(
                     "has no machine lowering yet"
                 )
             op = instruction.get("op")
+
+            if op == "alloc_stack":
+                result = instruction.get("result")
+                slot = stack_slots.get(result)
+                if slot is None or slot.get("type") != instruction.get("type"):
+                    raise MachineBackendError(
+                        f"function {name!r}: alloc_stack has no matching local stack slot"
+                    )
+                continue
+
+            if op == "store":
+                operands = instruction.get("operands", ())
+                if len(operands) != 2:
+                    raise MachineBackendError(
+                        f"function {name!r}: store requires source and destination"
+                    )
+                source, destination = operands
+                slot = stack_slots.get(destination)
+                if slot is None:
+                    raise MachineBackendError(
+                        f"function {name!r}: store destination is not a local stack slot"
+                    )
+                type_name = slot["type"]
+                if value_types.get(source) != type_name:
+                    raise MachineBackendError(
+                        f"function {name!r}: store source type does not match {type_name!r}"
+                    )
+                _load_value(lines, source, "rax", locations)
+                _truncate_rax(
+                    lines,
+                    _require_unsigned(type_name, context=f"function {name!r} store"),
+                )
+                offset = -int(slot["offset_bytes"])
+                lines.append(f"    mov QWORD PTR [rbp-{offset}], rax")
+                continue
+
+            if op == "load":
+                result = instruction.get("result")
+                operands = instruction.get("operands", ())
+                if len(operands) != 1:
+                    raise MachineBackendError(
+                        f"function {name!r}: load requires one local stack slot"
+                    )
+                source = operands[0]
+                slot = stack_slots.get(source)
+                if slot is None:
+                    raise MachineBackendError(
+                        f"function {name!r}: load source is not a local stack slot"
+                    )
+                type_name = instruction.get("type")
+                if slot.get("type") != type_name:
+                    raise MachineBackendError(
+                        f"function {name!r}: load type does not match local stack slot"
+                    )
+                offset = -int(slot["offset_bytes"])
+                lines.append(f"    mov rax, QWORD PTR [rbp-{offset}]")
+                _truncate_rax(
+                    lines,
+                    _require_unsigned(type_name, context=f"function {name!r} load"),
+                )
+                _store_value(lines, result, "rax", locations)
+                continue
+
             if op == "const_int":
                 result = instruction.get("result")
                 type_name = instruction.get("type")
