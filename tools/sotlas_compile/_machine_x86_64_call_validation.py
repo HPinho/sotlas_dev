@@ -62,11 +62,18 @@ def module_signatures(target_ir: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
 
 def validate_direct_calls(target_ir: dict[str, Any]) -> None:
+    """Validate the scalar module-local SysV direct-call contract.
+
+    M16.3e deliberately treats recursive edges exactly like any other validated
+    direct edge. Self-recursive and mutually recursive call graphs therefore use
+    ordinary ABI stack frames; this layer neither proves nor promises a maximum
+    recursion depth. Deterministic/realtime/freestanding profiles that require a
+    depth bound must enforce that policy before machine ABI lowering.
+    """
     if not isinstance(target_ir, dict) or target_ir.get("schema") != "sotlas.target-ir.v1":
         raise MachineBackendError("x86-64 machine backend requires Target IR v1")
 
     signatures = module_signatures(target_ir)
-    call_graph: dict[str, set[str]] = {name: set() for name in signatures}
     for function in target_ir.get("functions", ()):
         caller = function["name"]
         value_types = _core._type_map(function)
@@ -93,7 +100,6 @@ def validate_direct_calls(target_ir: dict[str, Any]) -> None:
                     raise MachineBackendError(
                         f"function {caller!r}: direct call target {callee!r} is not a module function"
                     )
-                call_graph[caller].add(callee)
 
                 operands = tuple(instruction.get("operands", ()))
                 parameters = signature["parameters"]
@@ -136,24 +142,6 @@ def validate_direct_calls(target_ir: dict[str, Any]) -> None:
                         raise MachineBackendError(
                             f"function {caller!r}: call result type for {callee!r} must be {return_type!r}"
                         )
-
-    state = {name: 0 for name in call_graph}
-
-    def visit(name: str) -> None:
-        if state[name] == 1:
-            raise MachineBackendError(
-                "recursive direct calls remain outside the M16.3a machine contract"
-            )
-        if state[name] == 2:
-            return
-        state[name] = 1
-        for callee in sorted(call_graph[name]):
-            visit(callee)
-        state[name] = 2
-
-    for name in sorted(call_graph):
-        if state[name] == 0:
-            visit(name)
 
 
 def validate_abi_function_shape(function: dict[str, Any]) -> None:
