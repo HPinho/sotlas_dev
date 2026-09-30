@@ -1,0 +1,224 @@
+"""Instruction emission shared by the x86-64 SysV direct-call backend."""
+from __future__ import annotations
+
+from typing import Any
+
+from . import _machine_x86_64_core as _core
+from ._machine_x86_64_call_abi import emit_direct_call
+from ._machine_x86_64_call_validation import MachineBackendError
+
+
+def emit_instruction(
+    lines: list[str],
+    *,
+    function: dict[str, Any],
+    instruction: dict[str, Any],
+    locations: dict[str, dict[str, Any]],
+    stack_slots: dict[str, dict[str, Any]],
+    value_types: dict[str, str],
+    block_labels: dict[str, str],
+    frame_size: int,
+    signatures: dict[str, dict[str, Any]],
+) -> None:
+    name = function["name"]
+    if instruction.get("semantic_only"):
+        raise MachineBackendError(
+            f"function {name!r}: semantic operation {instruction.get('op')!r} "
+            "has no machine lowering yet"
+        )
+    op = instruction.get("op")
+
+    if op == "alloc_stack":
+        result = instruction.get("result")
+        slot = stack_slots.get(result)
+        if slot is None or slot.get("type") != instruction.get("type"):
+            raise MachineBackendError(
+                f"function {name!r}: alloc_stack has no matching local stack slot"
+            )
+        return
+
+    if op == "store":
+        operands = instruction.get("operands", ())
+        if len(operands) != 2:
+            raise MachineBackendError(
+                f"function {name!r}: store requires source and destination"
+            )
+        source, destination = operands
+        slot = stack_slots.get(destination)
+        if slot is None:
+            raise MachineBackendError(
+                f"function {name!r}: store destination is not a local stack slot"
+            )
+        type_name = slot["type"]
+        if value_types.get(source) != type_name:
+            raise MachineBackendError(
+                f"function {name!r}: store source type does not match {type_name!r}"
+            )
+        _core._load_value(lines, source, "rax", locations)
+        _core._truncate_rax(
+            lines,
+            _core._require_machine_scalar(
+                type_name, context=f"function {name!r} store"
+            ),
+        )
+        offset = -int(slot["offset_bytes"])
+        lines.append(f"    mov QWORD PTR [rbp-{offset}], rax")
+        return
+
+    if op == "load":
+        result = instruction.get("result")
+        operands = instruction.get("operands", ())
+        if len(operands) != 1:
+            raise MachineBackendError(
+                f"function {name!r}: load requires one local stack slot"
+            )
+        source = operands[0]
+        slot = stack_slots.get(source)
+        if slot is None:
+            raise MachineBackendError(
+                f"function {name!r}: load source is not a local stack slot"
+            )
+        type_name = instruction.get("type")
+        if slot.get("type") != type_name:
+            raise MachineBackendError(
+                f"function {name!r}: load type does not match local stack slot"
+            )
+        offset = -int(slot["offset_bytes"])
+        lines.append(f"    mov rax, QWORD PTR [rbp-{offset}]")
+        _core._truncate_rax(
+            lines,
+            _core._require_machine_scalar(
+                type_name, context=f"function {name!r} load"
+            ),
+        )
+        _core._store_value(lines, result, "rax", locations)
+        return
+
+    if op == "const_int":
+        result = instruction.get("result")
+        type_name = instruction.get("type")
+        bits = _core._require_unsigned(
+            type_name, context=f"function {name!r} constant"
+        )
+        value = instruction.get("attributes", {}).get("value")
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise MachineBackendError(
+                f"function {name!r}: integer constant is malformed"
+            )
+        if value < 0 or value >= (1 << bits):
+            raise MachineBackendError(
+                f"function {name!r}: constant {value} is out of range for {type_name}"
+            )
+        lines.append(f"    mov rax, {value}")
+        _core._truncate_rax(lines, bits)
+        _core._store_value(lines, result, "rax", locations)
+        return
+
+    if op in {"add", "sub", "mul"}:
+        result = instruction.get("result")
+        operands = instruction.get("operands", ())
+        if len(operands) != 2:
+            raise MachineBackendError(
+                f"function {name!r}: {op} requires two operands"
+            )
+        type_name = instruction.get("type")
+        bits = _core._require_unsigned(
+            type_name, context=f"function {name!r} {op}"
+        )
+        left, right = operands
+        if value_types.get(left) != type_name or value_types.get(right) != type_name:
+            raise MachineBackendError(
+                f"function {name!r}: {op} operand types do not match {type_name!r}"
+            )
+        _core._load_value(lines, left, "rax", locations)
+        _core._load_value(lines, right, "rcx", locations)
+        mnemonic = {"add": "add", "sub": "sub", "mul": "imul"}[op]
+        if bits == 64:
+            lines.append(f"    {mnemonic} rax, rcx")
+        else:
+            lines.append(f"    {mnemonic} eax, ecx")
+            _core._truncate_rax(lines, bits)
+        _core._store_value(lines, result, "rax", locations)
+        return
+
+    if op == "compare":
+        result = instruction.get("result")
+        operands = instruction.get("operands", ())
+        if len(operands) != 2:
+            raise MachineBackendError(
+                f"function {name!r}: compare requires two operands"
+            )
+        if instruction.get("type") != "bool":
+            raise MachineBackendError(
+                f"function {name!r}: compare result must have type 'bool'"
+            )
+        left, right = operands
+        left_type = value_types.get(left)
+        right_type = value_types.get(right)
+        if left_type != right_type:
+            raise MachineBackendError(
+                f"function {name!r}: compare operand types must match"
+            )
+        bits = _core._require_unsigned(
+            left_type, context=f"function {name!r} compare"
+        )
+        predicate = instruction.get("attributes", {}).get("predicate")
+        condition = _core._COMPARE_CONDITIONS.get(predicate)
+        if condition is None:
+            raise MachineBackendError(
+                f"function {name!r}: unsupported compare predicate {predicate!r}"
+            )
+        _core._load_value(lines, left, "rax", locations)
+        _core._load_value(lines, right, "rcx", locations)
+        lines.append("    cmp rax, rcx" if bits == 64 else "    cmp eax, ecx")
+        lines.append(f"    set{condition} al")
+        lines.append("    movzx eax, al")
+        _core._store_value(lines, result, "rax", locations)
+        return
+
+    if op == "call":
+        emit_direct_call(
+            lines,
+            function=function,
+            instruction=instruction,
+            locations=locations,
+            signatures=signatures,
+        )
+        return
+
+    if op == "branch":
+        target = instruction.get("targets", ())[0]
+        lines.append(f"    jmp {block_labels[target]}")
+        return
+
+    if op == "cond_branch":
+        condition_value = instruction.get("operands", ())[0]
+        true_target, false_target = instruction.get("targets", ())
+        _core._load_value(lines, condition_value, "rax", locations)
+        _core._truncate_rax(lines, 1)
+        lines.append("    test al, al")
+        lines.append(f"    jne {block_labels[true_target]}")
+        lines.append(f"    jmp {block_labels[false_target]}")
+        return
+
+    if op == "return":
+        _core._emit_return(
+            lines,
+            function=function,
+            instruction=instruction,
+            locations=locations,
+            value_types=value_types,
+            frame_size=frame_size,
+        )
+        return
+
+    if op == "phi":
+        raise MachineBackendError(
+            f"function {name!r}: phi lowering waits for the edge-copy milestone"
+        )
+    raise MachineBackendError(
+        f"function {name!r}: x86-64 machine backend does not lower operation {op!r}"
+    )
+
+
+__all__ = ["emit_instruction"]
