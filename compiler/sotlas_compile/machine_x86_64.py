@@ -1,14 +1,13 @@
 """Canonical Sotlas-owned x86-64 SysV backend orchestration.
 
-The low-level emitter remains intentionally strict and consumes phi-free acyclic
-Target IR. This public layer performs the M16.2c SSA-destruction step first:
-leading phi nodes are materialized as private stack-backed edge copies, then the
-existing allocator and instruction selector consume the resulting Target IR.
+The low-level emitter consumes phi-free Target IR. This public layer performs
+M16.2c SSA destruction first: leading scalar phi nodes become private
+stack-backed edge copies, then the core validates the resulting CFG.
 
-Using dedicated stack slots keeps every phi assignment simultaneous even when
-physical register allocation would otherwise create copy cycles. The temporary
-slots are backend-private and have no source-visible semantics. CFG backedges
-continue to fail closed in the core emitter until the bounded-loop milestone.
+M16.2d lives at that core boundary: cyclic CFG reaches allocation and instruction
+selection only when the core can prove the narrow unsigned counted-loop shape
+and prove that its induction variable cannot wrap while the condition is true.
+Arbitrary cycles remain fail-closed.
 """
 from __future__ import annotations
 
@@ -166,10 +165,13 @@ def _lower_function_phis(function: dict[str, Any]) -> bool:
                 raise MachineBackendError(
                     f"function {name!r}: phi in block {label!r} has an invalid result"
                 )
-            _core._require_machine_scalar(
-                type_name,
-                context=f"function {name!r} phi {result!r}",
-            )
+            try:
+                _core._require_machine_scalar(
+                    type_name,
+                    context=f"function {name!r} phi {result!r}",
+                )
+            except MachineBackendError:
+                raise
             if not isinstance(incoming, list) or not incoming:
                 raise MachineBackendError(
                     f"function {name!r}: phi {result!r} has no incoming values"

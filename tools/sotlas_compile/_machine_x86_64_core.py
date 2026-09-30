@@ -6,7 +6,7 @@ allocation is consumed by instruction selection and assembly emission.
 
 The current deliberately narrow fail-closed contract supports:
 - x86-64 System V ABI;
-- acyclic multi-block CFG without phi nodes or backedges;
+- acyclic multi-block CFG plus explicitly proven bounded-loop backedges;
 - up to six bool/unsigned integer parameters;
 - bool, u8, u16, u32, u64 and usize machine values;
 - canonical alloc_stack/store/load local memory;
@@ -19,8 +19,9 @@ The current deliberately narrow fail-closed contract supports:
 Signed arithmetic remains rejected until Sotlas' checked/wrapping/saturating/
 unchecked overflow semantics are selected explicitly at the language level.
 Signed comparisons remain outside this machine slice until their target contract
-is promoted separately. Phi edge copies and loop backedges are separate machine
-backend milestones and remain fail-closed here.
+is promoted separately. Phi destruction is performed by the public orchestration
+layer; this core independently proves the narrow bounded-loop shape before any
+cyclic CFG reaches allocation or instruction selection.
 """
 from __future__ import annotations
 
@@ -112,10 +113,300 @@ def _block_label_map(function: dict[str, Any]) -> dict[str, str]:
             raise MachineBackendError(
                 f"function {name!r}: machine CFG has duplicate block label {label!r}"
             )
-        # Never splice source/SIR labels into assembler symbols.  A deterministic
-        # index-based local label keeps arbitrary canonical labels safe.
         labels[label] = f".L{name}_bb{index}"
     return labels
+
+
+
+def _cyclic_components(
+    successors: dict[str, tuple[str, ...]]
+) -> list[set[str]]:
+    """Return cyclic SCCs in deterministic Tarjan order."""
+    index = 0
+    indices: dict[str, int] = {}
+    lowlinks: dict[str, int] = {}
+    stack: list[str] = []
+    on_stack: set[str] = set()
+    components: list[set[str]] = []
+
+    def visit(label: str) -> None:
+        nonlocal index
+        indices[label] = index
+        lowlinks[label] = index
+        index += 1
+        stack.append(label)
+        on_stack.add(label)
+        for target in successors.get(label, ()):
+            if target not in indices:
+                visit(target)
+                lowlinks[label] = min(lowlinks[label], lowlinks[target])
+            elif target in on_stack:
+                lowlinks[label] = min(lowlinks[label], indices[target])
+        if lowlinks[label] != indices[label]:
+            return
+        component: set[str] = set()
+        while True:
+            member = stack.pop()
+            on_stack.remove(member)
+            component.add(member)
+            if member == label:
+                break
+        if len(component) > 1 or any(
+            member in successors.get(member, ()) for member in component
+        ):
+            components.append(component)
+
+    for label in successors:
+        if label not in indices:
+            visit(label)
+    return components
+
+
+def _prove_bounded_loop_backedges(
+    function: dict[str, Any],
+    *,
+    successors: dict[str, tuple[str, ...]],
+    value_types: dict[str, str],
+) -> frozenset[tuple[str, str]]:
+    """Prove stack-lowered unsigned counted loops before accepting backedges.
+
+    M16.2c leaves machine-lowering metadata on phi loads/stores. M16.2d uses
+    those facts to identify the induction variable and accepts only recurrences
+    that cannot wrap while the loop condition remains true.
+    """
+    components = _cyclic_components(successors)
+    if not components:
+        return frozenset()
+
+    name = function.get("name")
+    blocks = function.get("blocks", ())
+    block_by_label = {block["label"]: block for block in blocks}
+    predecessors = {label: set() for label in block_by_label}
+    definitions: dict[str, tuple[str, dict[str, Any]] | None] = {}
+    constants: dict[str, int] = {}
+    for parameter in function.get("parameters", ()):
+        parameter_name = parameter.get("name")
+        if isinstance(parameter_name, str):
+            definitions[parameter_name] = None
+    for block in blocks:
+        label = block["label"]
+        for target in successors.get(label, ()):
+            predecessors[target].add(label)
+        for instruction in block.get("instructions", ()):
+            result = instruction.get("result")
+            if isinstance(result, str):
+                definitions[result] = (label, instruction)
+                if instruction.get("op") == "const_int":
+                    constant = instruction.get("attributes", {}).get("value")
+                    if isinstance(constant, int) and not isinstance(constant, bool):
+                        constants[result] = constant
+
+    proved: set[tuple[str, str]] = set()
+    for component in components:
+        if len(component) != 2:
+            raise MachineBackendError(
+                f"function {name!r}: cyclic CFG is outside the bounded-loop machine subset"
+            )
+
+        header_candidates: list[tuple[str, str]] = []
+        for label in component:
+            instructions = block_by_label[label].get("instructions", ())
+            if not instructions or instructions[-1].get("op") != "cond_branch":
+                continue
+            targets = tuple(instructions[-1].get("targets", ()))
+            inside = [target for target in targets if target in component]
+            outside = [target for target in targets if target not in component]
+            if len(inside) == 1 and len(outside) == 1:
+                header_candidates.append((label, inside[0]))
+        if len(header_candidates) != 1:
+            raise MachineBackendError(
+                f"function {name!r}: cyclic CFG lacks one canonical counted-loop header"
+            )
+        header_label, body_label = header_candidates[0]
+        body_instructions = block_by_label[body_label].get("instructions", ())
+        if (
+            not body_instructions
+            or body_instructions[-1].get("op") != "branch"
+            or tuple(body_instructions[-1].get("targets", ())) != (header_label,)
+        ):
+            raise MachineBackendError(
+                f"function {name!r}: loop body does not have one canonical backedge"
+            )
+
+        outside_predecessors = predecessors[header_label] - component
+        if predecessors[header_label] != {body_label, *outside_predecessors} or len(
+            outside_predecessors
+        ) != 1:
+            raise MachineBackendError(
+                f"function {name!r}: bounded-loop header has non-canonical predecessors"
+            )
+        preheader_label = next(iter(outside_predecessors))
+
+        header_instructions = block_by_label[header_label].get("instructions", ())
+        terminator = header_instructions[-1]
+        condition_operands = tuple(terminator.get("operands", ()))
+        if len(condition_operands) != 1:
+            raise MachineBackendError(
+                f"function {name!r}: bounded-loop header has an invalid condition"
+            )
+        condition_value = condition_operands[0]
+        comparison = next(
+            (
+                instruction for instruction in header_instructions[:-1]
+                if instruction.get("op") == "compare"
+                and instruction.get("result") == condition_value
+            ),
+            None,
+        )
+        if comparison is None:
+            raise MachineBackendError(
+                f"function {name!r}: bounded-loop condition is not a canonical comparison"
+            )
+        compare_operands = tuple(comparison.get("operands", ()))
+        if len(compare_operands) != 2:
+            raise MachineBackendError(
+                f"function {name!r}: bounded-loop comparison is malformed"
+            )
+        counter_value, bound_value = compare_operands
+        counter_type = value_types.get(counter_value)
+        bits = _require_unsigned(
+            counter_type, context=f"function {name!r} bounded loop counter"
+        )
+        if value_types.get(bound_value) != counter_type:
+            raise MachineBackendError(
+                f"function {name!r}: bounded-loop limit type does not match the counter"
+            )
+
+        counter_load = next(
+            (
+                instruction for instruction in header_instructions[:-1]
+                if instruction.get("op") == "load"
+                and instruction.get("result") == counter_value
+                and instruction.get("attributes", {}).get("machine_lowering")
+                == "phi_edge_copy"
+            ),
+            None,
+        )
+        if counter_load is None:
+            raise MachineBackendError(
+                f"function {name!r}: bounded-loop counter is not a lowered phi value"
+            )
+        load_operands = tuple(counter_load.get("operands", ()))
+        if len(load_operands) != 1:
+            raise MachineBackendError(
+                f"function {name!r}: bounded-loop counter load is malformed"
+            )
+        counter_slot = load_operands[0]
+
+        def phi_store(block_label: str) -> dict[str, Any] | None:
+            return next(
+                (
+                    instruction
+                    for instruction in block_by_label[block_label].get("instructions", ())
+                    if instruction.get("op") == "store"
+                    and tuple(instruction.get("operands", ()))[1:] == (counter_slot,)
+                    and instruction.get("attributes", {}).get("machine_lowering")
+                    == "phi_edge_copy"
+                    and instruction.get("attributes", {}).get("phi_target")
+                    == header_label
+                    and instruction.get("attributes", {}).get("phi_result")
+                    == counter_value
+                ),
+                None,
+            )
+
+        preheader_store = phi_store(preheader_label)
+        body_store = phi_store(body_label)
+        if preheader_store is None or body_store is None:
+            raise MachineBackendError(
+                f"function {name!r}: bounded-loop counter lacks canonical phi edge stores"
+            )
+        body_store_operands = tuple(body_store.get("operands", ()))
+        if len(body_store_operands) != 2:
+            raise MachineBackendError(
+                f"function {name!r}: bounded-loop backedge store is malformed"
+            )
+        next_counter = body_store_operands[0]
+        counter_update = next(
+            (
+                instruction for instruction in body_instructions[:-1]
+                if instruction.get("result") == next_counter
+            ),
+            None,
+        )
+        if (
+            counter_update is None
+            or counter_update.get("op") not in {"add", "sub"}
+            or counter_update.get("type") != counter_type
+        ):
+            raise MachineBackendError(
+                f"function {name!r}: bounded-loop counter update is not add/sub"
+            )
+        update_operands = tuple(counter_update.get("operands", ()))
+        if len(update_operands) != 2 or update_operands[0] != counter_value:
+            raise MachineBackendError(
+                f"function {name!r}: bounded-loop counter update must use the current counter"
+            )
+        step_value = update_operands[1]
+        step_definition = definitions.get(step_value)
+        if (
+            step_definition is None
+            or step_definition[0] != body_label
+            or step_definition[1].get("op") != "const_int"
+            or value_types.get(step_value) != counter_type
+        ):
+            raise MachineBackendError(
+                f"function {name!r}: bounded-loop step must be a body-local unsigned constant"
+            )
+        step = constants.get(step_value)
+        if not isinstance(step, int) or step <= 0:
+            raise MachineBackendError(
+                f"function {name!r}: bounded-loop step must be positive"
+            )
+
+        if bound_value not in definitions:
+            raise MachineBackendError(
+                f"function {name!r}: bounded-loop limit is undefined"
+            )
+        bound_definition = definitions[bound_value]
+        if bound_definition is not None and bound_definition[0] != preheader_label:
+            raise MachineBackendError(
+                f"function {name!r}: bounded-loop limit must be a parameter or preheader constant"
+            )
+        bound_constant = constants.get(bound_value)
+        predicate = comparison.get("attributes", {}).get("predicate")
+        maximum = (1 << bits) - 1
+        operation = counter_update["op"]
+
+        safe = False
+        if operation == "add" and predicate == "LT":
+            safe = (
+                step == 1 if bound_constant is None
+                else bound_constant == 0
+                or bound_constant <= maximum - step + 1
+            )
+        elif operation == "add" and predicate == "LTE":
+            safe = (
+                bound_constant is not None
+                and bound_constant <= maximum - step
+            )
+        elif operation == "sub" and predicate == "GT":
+            safe = (
+                step == 1 if bound_constant is None
+                else bound_constant >= step - 1
+            )
+        elif operation == "sub" and predicate == "GTE":
+            safe = (
+                bound_constant is not None
+                and bound_constant >= step
+            )
+        if not safe:
+            raise MachineBackendError(
+                f"function {name!r}: loop is not proven bounded without unsigned counter wrap"
+            )
+        proved.add((body_label, header_label))
+
+    return frozenset(proved)
 
 
 def _validate_function_shape(function: dict[str, Any]) -> None:
@@ -196,18 +487,27 @@ def _validate_function_shape(function: dict[str, Any]) -> None:
         else:
             successors[label] = ()
 
+    allowed_backedges = _prove_bounded_loop_backedges(
+        function, successors=successors, value_types=value_types
+    )
+
     visit_state = {label: 0 for label in labels}
 
     def visit(label: str) -> None:
-        state = visit_state[label]
-        if state == 1:
-            raise MachineBackendError(
-                f"function {name!r}: CFG backedges/loops wait for the loop milestone"
-            )
-        if state == 2:
+        if visit_state[label] == 2:
             return
+        if visit_state[label] == 1:
+            raise MachineBackendError(
+                f"function {name!r}: CFG backedge lacks a bounded-loop proof"
+            )
         visit_state[label] = 1
         for target in successors.get(label, ()):
+            if visit_state[target] == 1:
+                if (label, target) not in allowed_backedges:
+                    raise MachineBackendError(
+                        f"function {name!r}: CFG backedge lacks a bounded-loop proof"
+                    )
+                continue
             visit(target)
         visit_state[label] = 2
 
@@ -477,8 +777,6 @@ def emit_x86_64_sysv_assembly(
     if not isinstance(target_ir, dict) or target_ir.get("schema") != "sotlas.target-ir.v1":
         raise MachineBackendError("x86-64 machine backend requires Target IR v1")
 
-    # Validate CFG shape before the target-neutral allocator sees malformed manual
-    # Target IR, then consume the allocator's CFG liveness/interference result.
     for function in target_ir.get("functions", ()):
         _validate_function_shape(function)
     plan = plan_x86_64_sysv_allocation(
@@ -709,8 +1007,6 @@ def emit_x86_64_sysv_assembly(
                     continue
 
                 if op == "phi":
-                    # Normally rejected during shape validation. Keep this guard so
-                    # future validation refactors cannot silently pass phi through.
                     raise MachineBackendError(
                         f"function {name!r}: phi lowering waits for the edge-copy milestone"
                     )

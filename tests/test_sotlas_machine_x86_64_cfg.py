@@ -163,9 +163,37 @@ class SotlasX8664MachineCFGTests(_BASE.SotlasX8664MachineCFGTests):
     def test_parallel_phi_values_are_staged_before_join_loads(self):
         assembly = emit_x86_64_sysv_assembly(_parallel_phi_module())
 
+        # Two private slots stage the incoming values before either phi result is
+        # loaded, so a future physical-register copy cycle cannot corrupt SSA.
         self.assertGreaterEqual(assembly.count("mov QWORD PTR [rbp-"), 4)
         self.assertGreaterEqual(assembly.count("mov rax, QWORD PTR [rbp-"), 2)
         self.assertIn("imul eax, ecx", assembly)
+
+    def test_backedge_stays_fail_closed_until_loop_milestone(self):
+        target_ir = {
+            "schema": "sotlas.target-ir.v1",
+            "stage": "pre_selection",
+            "module": "unproven_cycle",
+            "functions": [{
+                "name": "loop_forever",
+                "parameters": [],
+                "return_type": "void",
+                "blocks": [
+                    {"label": "entry", "instructions": [
+                        {"op": "branch", "targets": ["loop"]}
+                    ]},
+                    {"label": "loop", "instructions": [
+                        {"op": "branch", "targets": ["loop"]}
+                    ]},
+                ],
+            }],
+            "limitations": [],
+        }
+        with self.assertRaisesRegex(
+            MachineBackendError,
+            "cyclic CFG is outside the bounded-loop machine subset",
+        ):
+            emit_x86_64_sysv_assembly(target_ir)
 
     @unittest.skipUnless(
         sys.platform.startswith("linux"),
