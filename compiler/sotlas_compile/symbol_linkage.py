@@ -1,15 +1,22 @@
 """Backend-neutral source visibility and symbol linkage facts.
 
 This module preserves language-level ``pub`` visibility and explicit ``@export``
-ABI exposure independently from any machine backend.  Generated helper
+ABI exposure independently from any machine backend. Generated helper
 functions without a source declaration are module-internal by default.
+
+The module deliberately has no dependency on Target IR. Historical compatibility
+loaders import ``canonical_sir`` from reduced ``tools/sotlas_compile`` package
+views where Target IR is not installed; source-linkage facts must remain usable
+there.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
 
-from .target_ir import TargetIRLoweringError
+
+class SymbolLinkageError(ValueError):
+    """Raised when canonical symbol-linkage facts are malformed or inconsistent."""
 
 
 @dataclass(frozen=True)
@@ -85,11 +92,11 @@ def attach_target_ir_symbol_linkage(
     """Copy SIR-proven linkage into Target IR without machine-side guessing.
 
     Historical/synthetic SIR without ``symbol_linkage`` remains untouched so
-    existing Target IR producers can migrate explicitly.  The machine backend
+    existing Target IR producers can migrate explicitly. The machine backend
     treats absent metadata as its legacy external-linkage contract.
     """
     if not isinstance(target_ir, dict) or target_ir.get("schema") != "sotlas.target-ir.v1":
-        raise TargetIRLoweringError("symbol linkage bridge requires Target IR v1")
+        raise SymbolLinkageError("symbol linkage bridge requires Target IR v1")
 
     facts = tuple(getattr(sir_module, "symbol_linkage", ()) or ())
     if not facts:
@@ -108,9 +115,9 @@ def attach_target_ir_symbol_linkage(
             or visibility not in {"private", "public"}
             or not isinstance(abi_export, bool)
         ):
-            raise TargetIRLoweringError("canonical SIR contains malformed symbol linkage")
+            raise SymbolLinkageError("canonical SIR contains malformed symbol linkage")
         if symbol in by_symbol:
-            raise TargetIRLoweringError(
+            raise SymbolLinkageError(
                 f"canonical SIR contains duplicate symbol linkage for {symbol!r}"
             )
         by_symbol[symbol] = fact
@@ -119,10 +126,10 @@ def attach_target_ir_symbol_linkage(
     for function in target_ir.get("functions", ()):
         name = function.get("name")
         if not isinstance(name, str) or not name:
-            raise TargetIRLoweringError("Target IR contains an invalid function name")
+            raise SymbolLinkageError("Target IR contains an invalid function name")
         fact = by_symbol.get(name)
         if fact is None:
-            raise TargetIRLoweringError(
+            raise SymbolLinkageError(
                 f"Target IR function {name!r} has no canonical SIR linkage fact"
             )
         function["linkage"] = fact.linkage
@@ -132,7 +139,7 @@ def attach_target_ir_symbol_linkage(
 
     missing = sorted(set(by_symbol) - seen)
     if missing:
-        raise TargetIRLoweringError(
+        raise SymbolLinkageError(
             "canonical SIR linkage facts were not preserved in Target IR: "
             + ", ".join(missing)
         )
@@ -140,6 +147,7 @@ def attach_target_ir_symbol_linkage(
 
 
 __all__ = [
+    "SymbolLinkageError",
     "SourceSymbolLinkage",
     "attach_checked_source_symbol_linkage",
     "attach_target_ir_symbol_linkage",
