@@ -175,8 +175,14 @@ pub fn read_oob(values: *mut [u32; 4]) -> u32 {
     unsafe { return values[4]; }
 }
 """
-        module = self._checked_sir(source, "machine_source_fixed_array_oob.sotlas")
-        self.assertIn("read_oob", tuple(module.unlowered_functions))
+        with self.assertRaisesRegex(
+            Exception,
+            r"array index 4 out of bounds for length 4",
+        ) as caught:
+            _phase1.analyze_source_phase1(
+                source, filename="machine_source_fixed_array_oob.sotlas"
+            )
+        self.assertEqual(type(caught.exception).__name__, "Phase1SemanticError")
 
     def test_raw_fixed_array_index_still_requires_unsafe(self):
         source = """
