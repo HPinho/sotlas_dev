@@ -14,7 +14,10 @@ from ._machine_x86_64_call_validation import (
     validate_abi_function_shape,
     validate_direct_calls,
 )
-from ._machine_x86_64_fixed_array_emit import emit_fixed_array_address
+from ._machine_x86_64_fixed_array_emit import (
+    emit_fixed_array_address,
+    emit_fixed_array_dynamic_address,
+)
 from ._machine_x86_64_struct_field_emit import emit_struct_field_address
 from ._machine_x86_64_struct_layout import plan_x86_64_sysv_struct_layouts
 
@@ -81,6 +84,15 @@ def emit_x86_64_sysv_assembly(
                     continue
                 if instruction.get("op") == "array_address":
                     emit_fixed_array_address(
+                        lines,
+                        function=function,
+                        instruction=instruction,
+                        locations=locations,
+                        value_types=value_types,
+                    )
+                    continue
+                if instruction.get("op") == "array_address_dynamic":
+                    emit_fixed_array_dynamic_address(
                         lines,
                         function=function,
                         instruction=instruction,

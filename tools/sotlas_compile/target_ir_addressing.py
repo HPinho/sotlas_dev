@@ -3,8 +3,10 @@
 M16.4b admits exact local-slot ``address_of``. M16.4c adds typed struct field
 projection as ``field_address`` while deliberately keeping target byte offsets
 out of Target IR. M16.4d1 adds constant-index fixed-array projection as
-``array_address``. Aggregate identity and logical indices are validated here;
-the selected machine backend owns physical byte layout.
+``array_address``. M16.4d3a adds runtime-checked dynamic projection as
+``array_address_dynamic`` with an explicit trap policy. Aggregate identity and
+logical indices are validated here; the selected machine backend owns physical
+byte layout and the concrete trap instruction.
 """
 from __future__ import annotations
 
@@ -84,6 +86,38 @@ def _value_types(function: dict[str, Any]) -> dict[str, str]:
             if isinstance(result, str) and isinstance(type_name, str):
                 types[result] = type_name
     return types
+
+
+def _validate_array_result(
+    *,
+    function_name: Any,
+    instruction: dict[str, Any],
+    value_types: dict[str, str],
+    base: Any,
+    element_type: Any,
+    length: Any,
+    operation: str,
+) -> None:
+    if element_type not in _SCALAR_FIELD_TYPES:
+        raise TargetIRAddressingError(
+            f"function {function_name!r}: {operation} has unsupported element type"
+        )
+    if (
+        not isinstance(length, int)
+        or isinstance(length, bool)
+        or length < 1
+    ):
+        raise TargetIRAddressingError(
+            f"function {function_name!r}: {operation} requires a positive fixed-array length"
+        )
+    if _fixed_array_pointer(value_types.get(base)) != (element_type, length):
+        raise TargetIRAddressingError(
+            f"function {function_name!r}: {operation} base does not match fixed-array type"
+        )
+    if instruction.get("type") != f"{element_type}*":
+        raise TargetIRAddressingError(
+            f"function {function_name!r}: {operation} result type must be {element_type + '*'!r}"
+        )
 
 
 def validate_target_ir_addressing(target_ir: dict[str, Any]) -> None:
@@ -178,6 +212,15 @@ def validate_target_ir_addressing(target_ir: dict[str, Any]) -> None:
                         raise TargetIRAddressingError(
                             f"function {name!r}: array_address requires constant integer bounds facts"
                         )
+                    _validate_array_result(
+                        function_name=name,
+                        instruction=instruction,
+                        value_types=value_types,
+                        base=operands[0],
+                        element_type=element_type,
+                        length=length,
+                        operation="array_address",
+                    )
                     if index < 0 or index >= length:
                         raise TargetIRAddressingError(
                             f"function {name!r}: array_address index {index} is outside [0, {length})"
@@ -189,18 +232,59 @@ def validate_target_ir_addressing(target_ir: dict[str, Any]) -> None:
                         raise TargetIRAddressingError(
                             f"function {name!r}: Target IR array_address cannot carry target byte layout"
                         )
-                    base_type = value_types.get(operands[0])
-                    if _fixed_array_pointer(base_type) != (element_type, length):
-                        raise TargetIRAddressingError(
-                            f"function {name!r}: array_address base does not match fixed-array type"
-                        )
-                    if instruction.get("type") != f"{element_type}*":
-                        raise TargetIRAddressingError(
-                            f"function {name!r}: array_address result type must be {element_type + '*'!r}"
-                        )
                     if not isinstance(point_id, str) or not point_id.startswith("array_address@"):
                         raise TargetIRAddressingError(
                             f"function {name!r}: array_address lacks source-stable identity"
+                        )
+                    continue
+
+                if op == "array_address_dynamic":
+                    result = instruction.get("result")
+                    operands = instruction.get("operands", ())
+                    attributes = instruction.get("attributes", {})
+                    element_type = attributes.get("element_type")
+                    length = attributes.get("length")
+                    point_id = attributes.get("source_point_id")
+                    if not isinstance(result, str) or not result:
+                        raise TargetIRAddressingError(
+                            f"function {name!r}: array_address_dynamic requires a result"
+                        )
+                    if len(operands) != 2:
+                        raise TargetIRAddressingError(
+                            f"function {name!r}: array_address_dynamic requires fixed-array base and dynamic index"
+                        )
+                    base, index_value = operands
+                    _validate_array_result(
+                        function_name=name,
+                        instruction=instruction,
+                        value_types=value_types,
+                        base=base,
+                        element_type=element_type,
+                        length=length,
+                        operation="array_address_dynamic",
+                    )
+                    if value_types.get(index_value) != "usize":
+                        raise TargetIRAddressingError(
+                            f"function {name!r}: array_address_dynamic index must have type 'usize'"
+                        )
+                    if attributes.get("bounds_policy") != "trap":
+                        raise TargetIRAddressingError(
+                            f"function {name!r}: array_address_dynamic requires bounds_policy='trap'"
+                        )
+                    if "index" in attributes:
+                        raise TargetIRAddressingError(
+                            f"function {name!r}: array_address_dynamic index must be an SSA operand"
+                        )
+                    if any(
+                        key in attributes
+                        for key in ("offset_bytes", "stride_bytes", "element_size_bytes")
+                    ):
+                        raise TargetIRAddressingError(
+                            f"function {name!r}: Target IR array_address_dynamic cannot carry target byte layout"
+                        )
+                    if not isinstance(point_id, str) or not point_id.startswith("array_address_dynamic@"):
+                        raise TargetIRAddressingError(
+                            f"function {name!r}: array_address_dynamic lacks source-stable identity"
                         )
                     continue
 
