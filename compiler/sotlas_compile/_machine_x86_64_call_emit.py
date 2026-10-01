@@ -14,6 +14,8 @@ from ._machine_x86_64_call_validation import (
     validate_abi_function_shape,
     validate_direct_calls,
 )
+from ._machine_x86_64_struct_field_emit import emit_struct_field_address
+from ._machine_x86_64_struct_layout import plan_x86_64_sysv_struct_layouts
 
 
 def emit_x86_64_sysv_assembly(
@@ -23,6 +25,7 @@ def emit_x86_64_sysv_assembly(
     for function in target_ir.get("functions", ()):
         validate_abi_function_shape(function)
     plan = plan_x86_64_sysv_allocation(target_ir, register_count=register_count)
+    struct_layouts = plan_x86_64_sysv_struct_layouts(target_ir)
     plan_by_name = {
         function["name"]: function for function in plan.get("functions", ())
     }
@@ -65,6 +68,16 @@ def emit_x86_64_sysv_assembly(
         for block in function.get("blocks", ()):
             lines.append(f"{block_labels[block['label']]}:")
             for instruction in block.get("instructions", ()):
+                if instruction.get("op") == "field_address":
+                    emit_struct_field_address(
+                        lines,
+                        function=function,
+                        instruction=instruction,
+                        locations=locations,
+                        value_types=value_types,
+                        struct_layouts=struct_layouts,
+                    )
+                    continue
                 emit_instruction(
                     lines,
                     function=function,
