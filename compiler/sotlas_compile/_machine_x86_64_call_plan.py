@@ -9,8 +9,10 @@ from ._machine_x86_64_call_validation import (
     validate_abi_function_shape,
     validate_direct_calls,
 )
+from ._machine_x86_64_register_view import allocate_x86_64_register_view
+from ._machine_x86_64_struct_layout import plan_x86_64_sysv_struct_layouts
 from ._machine_x86_64_types import require_abi_scalar
-from .target_ir import TargetIRLoweringError, allocate_target_ir_registers
+from .target_ir import TargetIRLoweringError
 from .target_ir_addressing import (
     TargetIRAddressingError,
     validate_target_ir_addressing,
@@ -39,11 +41,14 @@ def plan_x86_64_sysv_allocation(
         validate_target_ir_addressing(target_ir)
     except TargetIRAddressingError as error:
         raise MachineBackendError(str(error)) from error
+    plan_x86_64_sysv_struct_layouts(target_ir)
     for function in target_ir.get("functions", ()):
         validate_abi_function_shape(function)
 
     try:
-        allocation = allocate_target_ir_registers(target_ir, register_count=register_count)
+        allocation = allocate_x86_64_register_view(
+            target_ir, register_count=register_count
+        )
     except TargetIRLoweringError as error:
         raise MachineBackendError(str(error)) from error
 

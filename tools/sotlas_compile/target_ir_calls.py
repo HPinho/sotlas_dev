@@ -1,4 +1,4 @@
-"""Typed direct-call, local-address, and symbol-linkage Target IR bridge.
+"""Typed direct-call, addressing, layout, and symbol-linkage Target IR bridge.
 
 Target IR v1 historically preserved the SSA result name of ``CallInst`` but did
 not copy the result's SIR type into the lowered instruction. That omission was
@@ -6,19 +6,21 @@ harmless while the native backend rejected calls, but M16.3 requires call
 results to participate in liveness, allocation and ABI validation exactly like
 other typed SSA values.
 
-M16.3d additionally requires source visibility and ABI-export facts proven on
-canonical SIR to survive the Target IR boundary. M16.4b2 likewise preserves
-non-escaping source-local address facts and materializes the explicit
-``address_of`` operation before machine lowering. None of these bridges infer
-semantics from machine registers or backend conventions.
+M16.3d preserves source visibility and ABI-export facts. M16.4b2 preserves
+non-escaping source-local addresses. M16.4c adds canonical struct-field
+projection plus source declaration order/types, while leaving byte offsets to
+the target machine layout layer. None of these bridges infer semantics from
+machine registers or backend conventions.
 """
 from __future__ import annotations
 
 from typing import Any
 
 from .local_addressing import attach_target_ir_local_addresses
+from .struct_layout import attach_target_ir_struct_layouts
 from .symbol_linkage import attach_target_ir_symbol_linkage
-from .target_ir import TargetIRLoweringError, lower_sir_to_target_ir
+from .target_ir import TargetIRLoweringError
+from .target_ir_struct_fields import lower_sir_to_target_ir_with_struct_fields
 
 
 def _sir_call_result_types(module: Any) -> dict[tuple[str, str], str]:
@@ -109,9 +111,10 @@ def attach_direct_call_result_types(
 
 
 def lower_sir_to_typed_target_ir(module: Any) -> dict[str, Any]:
-    """Lower SIR with typed calls, local addresses, and explicit source linkage."""
-    target_ir = lower_sir_to_target_ir(module)
+    """Lower SIR with typed calls, layouts, addressing, and source linkage."""
+    target_ir = lower_sir_to_target_ir_with_struct_fields(module)
     attach_direct_call_result_types(target_ir, module)
+    attach_target_ir_struct_layouts(target_ir, module)
     attach_target_ir_local_addresses(target_ir, module)
     attach_target_ir_symbol_linkage(target_ir, module)
     return target_ir
