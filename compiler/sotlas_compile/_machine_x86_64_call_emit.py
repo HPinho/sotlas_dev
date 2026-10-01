@@ -14,22 +14,26 @@ from ._machine_x86_64_call_validation import (
     validate_abi_function_shape,
     validate_direct_calls,
 )
+from ._machine_x86_64_enum_emit import emit_enum_const
 from ._machine_x86_64_fixed_array_emit import (
     emit_fixed_array_address,
     emit_fixed_array_dynamic_address,
 )
 from ._machine_x86_64_struct_field_emit import emit_struct_field_address
 from ._machine_x86_64_struct_layout import plan_x86_64_sysv_struct_layouts
+from .target_ir_enums import validate_target_ir_enum_representation
 
 
 def emit_x86_64_sysv_assembly(
     target_ir: dict[str, Any], *, register_count: int = 2
 ) -> str:
     validate_direct_calls(target_ir)
+    validate_target_ir_enum_representation(target_ir)
     for function in target_ir.get("functions", ()):
         validate_abi_function_shape(function)
     plan = plan_x86_64_sysv_allocation(target_ir, register_count=register_count)
     struct_layouts = plan_x86_64_sysv_struct_layouts(target_ir)
+    enum_layouts = target_ir.get("enum_layouts", {})
     plan_by_name = {
         function["name"]: function for function in plan.get("functions", ())
     }
@@ -98,6 +102,15 @@ def emit_x86_64_sysv_assembly(
                         instruction=instruction,
                         locations=locations,
                         value_types=value_types,
+                    )
+                    continue
+                if instruction.get("op") == "enum_const":
+                    emit_enum_const(
+                        lines,
+                        function=function,
+                        instruction=instruction,
+                        locations=locations,
+                        enum_layouts=enum_layouts,
                     )
                     continue
                 emit_instruction(
