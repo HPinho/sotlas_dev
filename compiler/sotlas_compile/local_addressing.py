@@ -34,9 +34,11 @@ def make_local_addressing_generator(sir):
     from .dynamic_fixed_array_generator import extend_dynamic_fixed_array_generator
     from .enum_source_generator import extend_nullary_enum_generator
     from .local_addressing_generator import make_local_addressing_generator as factory
+    from .slice_source_generator import extend_slice_source_generator
 
     generated = extend_dynamic_fixed_array_generator(factory(sir), sir)
-    return extend_nullary_enum_generator(generated, sir)
+    generated = extend_nullary_enum_generator(generated, sir)
+    return extend_slice_source_generator(generated, sir)
 
 
 def attach_target_ir_local_addresses(
