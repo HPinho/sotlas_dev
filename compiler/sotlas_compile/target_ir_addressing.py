@@ -198,12 +198,19 @@ def validate_target_ir_addressing(target_ir: dict[str, Any]) -> None:
                         raise TargetIRAddressingError(
                             f"function {name!r}: array_address requires one fixed-array pointer"
                         )
+                    if element_type not in _SCALAR_FIELD_TYPES:
+                        raise TargetIRAddressingError(
+                            f"function {name!r}: array_address has unsupported element type"
+                        )
                     if (
-                        not isinstance(index, int)
+                        not isinstance(length, int)
+                        or isinstance(length, bool)
+                        or length < 1
+                        or not isinstance(index, int)
                         or isinstance(index, bool)
                     ):
                         raise TargetIRAddressingError(
-                            f"function {name!r}: array_address requires a constant integer index"
+                            f"function {name!r}: array_address requires constant integer bounds facts"
                         )
                     _validate_array_result(
                         function_name=name,
