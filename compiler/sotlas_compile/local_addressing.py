@@ -30,10 +30,11 @@ class LocalAddressFact:
 
 
 def make_local_addressing_generator(sir):
-    """Load the source generator only when canonical SIR generation needs it."""
+    """Load source-address generators only when canonical SIR needs them."""
+    from .dynamic_fixed_array_generator import extend_dynamic_fixed_array_generator
     from .local_addressing_generator import make_local_addressing_generator as factory
 
-    return factory(sir)
+    return extend_dynamic_fixed_array_generator(factory(sir), sir)
 
 
 def attach_target_ir_local_addresses(
