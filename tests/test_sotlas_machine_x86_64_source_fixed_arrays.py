@@ -70,6 +70,16 @@ class SotlasX8664SourceFixedArrayTests(unittest.TestCase):
             for block in function.blocks
             for instruction in block.instructions
         ]
+        parameter_slots = [
+            instruction
+            for instruction in instructions
+            if type(instruction).__name__ == "AllocStackInst"
+            and instruction.var_name == "values"
+        ]
+        self.assertEqual(len(parameter_slots), 1)
+        self.assertEqual(parameter_slots[0].type_name, "[u32;4]*")
+        self.assertEqual(parameter_slots[0].result.type_name, "[u32;4]*")
+
         projections = [
             instruction
             for instruction in instructions
