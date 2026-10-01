@@ -1,10 +1,11 @@
 """Target IR extension for canonical aggregate address projection.
 
 The base Target IR v1 path remains untouched for modules without the M16.4c
-``StructFieldAddressInst`` or M16.4d2 ``FixedArrayElementAddressInst``. Modules
-that contain one of those proven SIR operations use the extended lowering below;
-all existing instruction lowering and CFG/SSA validation is still delegated to
-the canonical Target IR helpers.
+``StructFieldAddressInst``, M16.4d2 ``FixedArrayElementAddressInst``, or
+M16.4d3b ``DynamicFixedArrayElementAddressInst``. Modules that contain one of
+those proven SIR operations use the extended lowering below; all existing
+instruction lowering and CFG/SSA validation is still delegated to the canonical
+Target IR helpers.
 """
 from __future__ import annotations
 
@@ -15,12 +16,17 @@ from . import target_ir as _base
 
 _FIELD_INST = "StructFieldAddressInst"
 _ARRAY_INST = "FixedArrayElementAddressInst"
+_DYNAMIC_ARRAY_INST = "DynamicFixedArrayElementAddressInst"
 _SCALAR_ARRAY_TYPES = frozenset({"u8", "u16", "u32", "u64", "usize"})
 
 
 def _contains_extended_addressing(module: Any) -> bool:
     return any(
-        type(instruction).__name__ in {_FIELD_INST, _ARRAY_INST}
+        type(instruction).__name__ in {
+            _FIELD_INST,
+            _ARRAY_INST,
+            _DYNAMIC_ARRAY_INST,
+        }
         for function in tuple(getattr(module, "functions", ()) or ())
         for block in tuple(getattr(function, "blocks", ()) or ())
         for instruction in tuple(getattr(block, "instructions", ()) or ())
@@ -29,7 +35,7 @@ def _contains_extended_addressing(module: Any) -> bool:
 
 def _lower_instruction(instruction: Any, *, function: str) -> dict[str, Any]:
     kind = type(instruction).__name__
-    if kind not in {_FIELD_INST, _ARRAY_INST}:
+    if kind not in {_FIELD_INST, _ARRAY_INST, _DYNAMIC_ARRAY_INST}:
         return _base._lower_instruction(instruction, function=function)
 
     if kind == _ARRAY_INST:
@@ -66,6 +72,44 @@ def _lower_instruction(instruction: Any, *, function: str) -> dict[str, Any]:
                 "element_type": element_type,
                 "length": length,
                 "index": index,
+                "source_point_id": point_id,
+            },
+        }
+
+    if kind == _DYNAMIC_ARRAY_INST:
+        context = f"{function}: {_DYNAMIC_ARRAY_INST}"
+        base = _base._value_name(instruction.base, context=context)
+        index = _base._value_name(instruction.index, context=context)
+        result = _base._value_name(instruction.result, context=context)
+        result_type = getattr(instruction.result, "type_name", None)
+        index_type = getattr(instruction.index, "type_name", None)
+        element_type = getattr(instruction, "element_type", None)
+        length = getattr(instruction, "length", None)
+        bounds_policy = getattr(instruction, "bounds_policy", None)
+        point_id = getattr(instruction, "point_id", None)
+        if (
+            element_type not in _SCALAR_ARRAY_TYPES
+            or not isinstance(length, int)
+            or isinstance(length, bool)
+            or length < 1
+            or index_type != "usize"
+            or bounds_policy != "trap"
+            or result_type != f"{element_type}*"
+            or not isinstance(point_id, str)
+            or not point_id.startswith("array_address_dynamic@")
+        ):
+            raise _base.TargetIRLoweringError(
+                f"{context} contains malformed dynamic fixed-array projection facts"
+            )
+        return {
+            "op": "array_address_dynamic",
+            "result": result,
+            "type": result_type,
+            "operands": [base, index],
+            "attributes": {
+                "element_type": element_type,
+                "length": length,
+                "bounds_policy": "trap",
                 "source_point_id": point_id,
             },
         }
