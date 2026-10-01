@@ -165,11 +165,32 @@ def make_local_addressing_generator(sir):
             fixed_array_pointer = f"[{element_type};{length}]*"
             if base_value.type_name not in (flattened_pointer, fixed_array_pointer):
                 return False
+            parameter_slots = [
+                instruction
+                for instruction in entry_block.instructions
+                if type(instruction).__name__ == "AllocStackInst"
+                and getattr(instruction, "var_name", None) == base_name
+            ]
+            if len(parameter_slots) != 1:
+                return False
+            parameter_slot = parameter_slots[0]
+            slot_result = getattr(parameter_slot, "result", None)
+            if (
+                getattr(parameter_slot, "type_name", None)
+                not in (flattened_pointer, fixed_array_pointer)
+                or getattr(slot_result, "type_name", None)
+                not in (flattened_pointer, fixed_array_pointer)
+            ):
+                return False
+
             # The bootstrap Type object already preserves fixed-array identity,
             # but the generic SIR name normalizer historically flattened it to
-            # T*. Repair only this proven d2 source shape instead of changing
+            # T*. Repair only this proven d2 source shape, including the exact
+            # parameter stack slot created before this hook, instead of changing
             # array normalization globally and risking unrelated producers.
             base_value.type_name = fixed_array_pointer
+            parameter_slot.type_name = fixed_array_pointer
+            slot_result.type_name = fixed_array_pointer
 
             element_pointer = self._next_val(
                 f"array_index_{index}_addr", f"{element_type}*"
