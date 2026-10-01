@@ -108,6 +108,10 @@ def emit_fixed_array_dynamic_address(
         raise MachineBackendError(
             f"function {name!r}: array_address_dynamic requires trap bounds policy"
         )
+    if length > (1 << 64) - 1:
+        raise MachineBackendError(
+            f"function {name!r}: array_address_dynamic length does not fit x86-64 usize"
+        )
 
     # rcx/rdx are backend scratch registers, distinct from the current r10/r11
     # value-register class. This keeps base and index intact even when either
