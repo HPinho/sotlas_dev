@@ -130,6 +130,16 @@ class SotlasX8664DynamicFixedArrayTests(unittest.TestCase):
                 ):
                     _addressing.validate_target_ir_addressing(target_ir)
 
+    def test_x86_64_rejects_dynamic_length_larger_than_usize(self):
+        target_ir = _target_ir(
+            _dynamic_reader("too_large", "u8", 1 << 64)
+        )
+        with self.assertRaisesRegex(
+            _machine.MachineBackendError,
+            "length does not fit x86-64 usize",
+        ):
+            _machine.emit_x86_64_sysv_assembly(target_ir)
+
     def test_x86_64_emits_unsigned_bounds_check_trap_and_scaled_address(self):
         target_ir = _target_ir(
             _dynamic_reader("read_u8", "u8"),
@@ -138,7 +148,8 @@ class SotlasX8664DynamicFixedArrayTests(unittest.TestCase):
             _dynamic_reader("read_u64", "u64"),
         )
         assembly = _machine.emit_x86_64_sysv_assembly(target_ir)
-        self.assertGreaterEqual(assembly.count("cmp rdx, 4"), 4)
+        self.assertGreaterEqual(assembly.count("mov rax, 4"), 4)
+        self.assertGreaterEqual(assembly.count("cmp rdx, rax"), 4)
         self.assertGreaterEqual(assembly.count("jb 1f"), 4)
         self.assertGreaterEqual(assembly.count("ud2"), 4)
         self.assertIn("lea rax, [rcx+rdx]", assembly)
