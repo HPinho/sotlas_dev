@@ -109,6 +109,9 @@ def emit_fixed_array_dynamic_address(
             f"function {name!r}: array_address_dynamic requires trap bounds policy"
         )
 
+    # rcx/rdx are backend scratch registers, distinct from the current r10/r11
+    # value-register class.  This keeps base and index intact even when either
+    # value was spilled by the generic allocation preview.
     _core._load_value(lines, base, "rcx", locations)
     _core._load_value(lines, index_value, "rdx", locations)
     lines.append(f"    cmp rdx, {length}")
