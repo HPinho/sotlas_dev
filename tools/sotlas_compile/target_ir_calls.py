@@ -1,4 +1,4 @@
-"""Typed direct-call, addressing, layout, and symbol-linkage Target IR bridge.
+"""Typed direct-call, aggregate, layout, and symbol-linkage Target IR bridge.
 
 Target IR v1 historically preserved the SSA result name of ``CallInst`` but did
 not copy the result's SIR type into the lowered instruction. That omission was
@@ -8,9 +8,9 @@ other typed SSA values.
 
 M16.3d preserves source visibility and ABI-export facts. M16.4b2 preserves
 non-escaping source-local addresses. M16.4c adds canonical struct-field
-projection plus source declaration order/types, while leaving byte offsets to
-the target machine layout layer. None of these bridges infer semantics from
-machine registers or backend conventions.
+projection plus source declaration order/types. M16.4e2 carries explicit
+payload-free enum declarations and ``enum_const`` identity while leaving nominal
+enum ABI classification for the later aggregate-ABI milestone.
 """
 from __future__ import annotations
 
@@ -20,6 +20,7 @@ from .local_addressing import attach_target_ir_local_addresses
 from .struct_layout import attach_target_ir_struct_layouts
 from .symbol_linkage import attach_target_ir_symbol_linkage
 from .target_ir import TargetIRLoweringError
+from .target_ir_enums import attach_target_ir_enum_declarations
 from .target_ir_struct_fields import lower_sir_to_target_ir_with_struct_fields
 
 
@@ -111,8 +112,9 @@ def attach_direct_call_result_types(
 
 
 def lower_sir_to_typed_target_ir(module: Any) -> dict[str, Any]:
-    """Lower SIR with typed calls, layouts, addressing, and source linkage."""
+    """Lower SIR with typed calls, aggregates, layouts, and source linkage."""
     target_ir = lower_sir_to_target_ir_with_struct_fields(module)
+    attach_target_ir_enum_declarations(target_ir, module)
     attach_direct_call_result_types(target_ir, module)
     attach_target_ir_struct_layouts(target_ir, module)
     attach_target_ir_local_addresses(target_ir, module)

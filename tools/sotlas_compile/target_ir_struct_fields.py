@@ -1,11 +1,11 @@
-"""Target IR extension for canonical aggregate address projection.
+"""Target IR extension for canonical aggregate address and enum operations.
 
 The base Target IR v1 path remains untouched for modules without the M16.4c
-``StructFieldAddressInst``, M16.4d2 ``FixedArrayElementAddressInst``, or
-M16.4d3b ``DynamicFixedArrayElementAddressInst``. Modules that contain one of
-those proven SIR operations use the extended lowering below; all existing
-instruction lowering and CFG/SSA validation is still delegated to the canonical
-Target IR helpers.
+``StructFieldAddressInst``, M16.4d2 ``FixedArrayElementAddressInst``, M16.4d3b
+``DynamicFixedArrayElementAddressInst``, or M16.4e2 ``EnumConstInst``. Modules
+that contain one of those proven SIR operations use the extended lowering below;
+all existing instruction lowering and CFG/SSA validation is still delegated to
+the canonical Target IR helpers.
 """
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ from . import target_ir as _base
 _FIELD_INST = "StructFieldAddressInst"
 _ARRAY_INST = "FixedArrayElementAddressInst"
 _DYNAMIC_ARRAY_INST = "DynamicFixedArrayElementAddressInst"
+_ENUM_CONST_INST = "EnumConstInst"
 _SCALAR_ARRAY_TYPES = frozenset({"u8", "u16", "u32", "u64", "usize"})
 
 
@@ -26,6 +27,7 @@ def _contains_extended_addressing(module: Any) -> bool:
             _FIELD_INST,
             _ARRAY_INST,
             _DYNAMIC_ARRAY_INST,
+            _ENUM_CONST_INST,
         }
         for function in tuple(getattr(module, "functions", ()) or ())
         for block in tuple(getattr(function, "blocks", ()) or ())
@@ -35,8 +37,50 @@ def _contains_extended_addressing(module: Any) -> bool:
 
 def _lower_instruction(instruction: Any, *, function: str) -> dict[str, Any]:
     kind = type(instruction).__name__
-    if kind not in {_FIELD_INST, _ARRAY_INST, _DYNAMIC_ARRAY_INST}:
+    if kind not in {
+        _FIELD_INST,
+        _ARRAY_INST,
+        _DYNAMIC_ARRAY_INST,
+        _ENUM_CONST_INST,
+    }:
         return _base._lower_instruction(instruction, function=function)
+
+    if kind == _ENUM_CONST_INST:
+        context = f"{function}: {_ENUM_CONST_INST}"
+        result = _base._value_name(instruction.result, context=context)
+        result_type = getattr(instruction.result, "type_name", None)
+        enum_name = getattr(instruction, "enum_name", None)
+        variant = getattr(instruction, "variant", None)
+        discriminant = getattr(instruction, "discriminant", None)
+        point_id = getattr(instruction, "point_id", None)
+        if (
+            result_type != "u32"
+            or not isinstance(enum_name, str)
+            or not enum_name
+            or not isinstance(variant, str)
+            or not variant
+            or not isinstance(discriminant, int)
+            or isinstance(discriminant, bool)
+            or discriminant < 0
+            or discriminant > 0xFFFFFFFF
+            or not isinstance(point_id, str)
+            or not point_id.startswith("enum_const@")
+        ):
+            raise _base.TargetIRLoweringError(
+                f"{context} contains malformed nullary enum facts"
+            )
+        return {
+            "op": "enum_const",
+            "result": result,
+            "type": "u32",
+            "operands": [],
+            "attributes": {
+                "enum": enum_name,
+                "variant": variant,
+                "discriminant": discriminant,
+                "source_point_id": point_id,
+            },
+        }
 
     if kind == _ARRAY_INST:
         context = f"{function}: {_ARRAY_INST}"
@@ -148,7 +192,7 @@ def _lower_instruction(instruction: Any, *, function: str) -> dict[str, Any]:
 
 
 def lower_sir_to_target_ir_with_struct_fields(module: Any) -> dict[str, Any]:
-    """Lower canonical SIR, extending Target IR only for proven M16.4 projections."""
+    """Lower canonical SIR, extending Target IR only for proven M16.4 operations."""
     if not _contains_extended_addressing(module):
         return _base.lower_sir_to_target_ir(module)
 

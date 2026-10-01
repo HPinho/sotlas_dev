@@ -2,7 +2,7 @@
 
 M16.4b2 preserves a non-escaping source-local address as a typed SIR side fact,
 analogous to source linkage facts. This module deliberately does not eagerly
-import the source generator or Target IR implementation so reduced compatibility
+import source generators or Target IR implementations so reduced compatibility
 package views can load it without pulling unrelated compiler layers.
 """
 from __future__ import annotations
@@ -30,11 +30,13 @@ class LocalAddressFact:
 
 
 def make_local_addressing_generator(sir):
-    """Load source-address generators only when canonical SIR needs them."""
+    """Load source aggregate generators only when canonical SIR needs them."""
     from .dynamic_fixed_array_generator import extend_dynamic_fixed_array_generator
+    from .enum_source_generator import extend_nullary_enum_generator
     from .local_addressing_generator import make_local_addressing_generator as factory
 
-    return extend_dynamic_fixed_array_generator(factory(sir), sir)
+    generated = extend_dynamic_fixed_array_generator(factory(sir), sir)
+    return extend_nullary_enum_generator(generated, sir)
 
 
 def attach_target_ir_local_addresses(

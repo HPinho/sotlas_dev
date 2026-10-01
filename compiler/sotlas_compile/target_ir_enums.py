@@ -1,8 +1,8 @@
-"""Backend-neutral nullary enum representation contract for M16.4e1.
+"""Backend-neutral nullary enum representation and source bridge for M16.4e1/e2.
 
-This first enum slice deliberately models only explicit, payload-free variants.
-The Target IR carries logical enum/variant identity plus a canonical ``u32`` tag;
-target byte size/alignment and aggregate ABI classification remain outside this
+The enum slices deliberately model only explicit, payload-free variants. Target
+IR carries logical enum/variant identity plus a canonical ``u32`` tag; target
+byte size/alignment and nominal aggregate ABI classification remain outside this
 contract.
 """
 from __future__ import annotations
@@ -11,7 +11,7 @@ from typing import Any
 
 
 class TargetIREnumError(ValueError):
-    """Malformed M16.4e1 enum representation."""
+    """Malformed M16.4 nullary enum representation."""
 
 
 _FORBIDDEN_LAYOUT_KEYS = frozenset({
@@ -93,6 +93,64 @@ def _enum_declarations(target_ir: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return normalized
 
 
+def attach_target_ir_enum_declarations(
+    target_ir: dict[str, Any],
+    sir_module: Any,
+) -> dict[str, Any]:
+    """Carry source-proven nullary enum declarations from canonical SIR."""
+
+    if not isinstance(target_ir, dict) or target_ir.get("schema") != "sotlas.target-ir.v1":
+        raise TargetIREnumError("enum source bridge requires Target IR v1")
+    facts = tuple(getattr(sir_module, "nullary_enum_facts", ()) or ())
+    if not facts:
+        return target_ir
+
+    existing = target_ir.get("enum_layouts")
+    if existing not in (None, {}):
+        raise TargetIREnumError(
+            "enum source bridge refuses to overwrite existing enum_layouts"
+        )
+
+    declarations: dict[str, dict[str, Any]] = {}
+    for fact in facts:
+        if type(fact).__name__ != "NullaryEnumFact":
+            raise TargetIREnumError(
+                "canonical SIR contains malformed nullary enum declaration"
+            )
+        enum_name = getattr(fact, "name", None)
+        tag_type = getattr(fact, "tag_type", None)
+        variants = tuple(getattr(fact, "variants", ()) or ())
+        if (
+            not isinstance(enum_name, str)
+            or not enum_name
+            or enum_name in declarations
+            or tag_type != "u32"
+            or not variants
+        ):
+            raise TargetIREnumError(
+                "canonical SIR contains malformed nullary enum declaration"
+            )
+
+        lowered_variants = []
+        for variant in variants:
+            if type(variant).__name__ != "NullaryEnumVariantFact":
+                raise TargetIREnumError(
+                    f"enum {enum_name!r} contains malformed SIR variant facts"
+                )
+            lowered_variants.append({
+                "name": getattr(variant, "name", None),
+                "discriminant": getattr(variant, "discriminant", None),
+            })
+        declarations[enum_name] = {
+            "tag_type": "u32",
+            "variants": lowered_variants,
+        }
+
+    target_ir["enum_layouts"] = declarations
+    _enum_declarations(target_ir)
+    return target_ir
+
+
 def validate_target_ir_enum_representation(target_ir: dict[str, Any]) -> None:
     """Validate nullary enum declarations and ``enum_const`` materialization."""
     if not isinstance(target_ir, dict):
@@ -154,5 +212,6 @@ def validate_target_ir_enum_representation(target_ir: dict[str, Any]) -> None:
 
 __all__ = [
     "TargetIREnumError",
+    "attach_target_ir_enum_declarations",
     "validate_target_ir_enum_representation",
 ]
