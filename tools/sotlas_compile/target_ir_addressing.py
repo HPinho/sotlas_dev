@@ -2,19 +2,33 @@
 
 M16.4b admits exact local-slot ``address_of``. M16.4c adds typed struct field
 projection as ``field_address`` while deliberately keeping target byte offsets
-out of Target IR. Field identity and declaration order/types are validated here;
-the selected machine backend owns physical layout.
+out of Target IR. M16.4d1 adds constant-index fixed-array projection as
+``array_address``. Aggregate identity and logical indices are validated here;
+the selected machine backend owns physical byte layout.
 """
 from __future__ import annotations
 
+import re
 from typing import Any
 
 
 _SCALAR_FIELD_TYPES = frozenset({"u8", "u16", "u32", "u64", "usize"})
+_FIXED_ARRAY_POINTER_RE = re.compile(
+    r"\[(u8|u16|u32|u64|usize);([1-9][0-9]*)\]\*"
+)
 
 
 class TargetIRAddressingError(ValueError):
     """Raised when Target IR addressing facts violate the M16.4 contract."""
+
+
+def _fixed_array_pointer(type_name: Any) -> tuple[str, int] | None:
+    if not isinstance(type_name, str):
+        return None
+    match = _FIXED_ARRAY_POINTER_RE.fullmatch(type_name)
+    if match is None:
+        return None
+    return match.group(1), int(match.group(2))
 
 
 def _struct_layout_map(
@@ -73,7 +87,7 @@ def _value_types(function: dict[str, Any]) -> dict[str, str]:
 
 
 def validate_target_ir_addressing(target_ir: dict[str, Any]) -> None:
-    """Validate exact local addresses and typed struct-field projections."""
+    """Validate local, struct-field, and fixed-array address projections."""
     if not isinstance(target_ir, dict) or target_ir.get("schema") != "sotlas.target-ir.v1":
         raise TargetIRAddressingError("address calculation requires Target IR v1")
 
@@ -131,6 +145,62 @@ def validate_target_ir_addressing(target_ir: dict[str, Any]) -> None:
                     if offset != 0:
                         raise TargetIRAddressingError(
                             f"function {name!r}: address_of byte offsets wait for aggregate layout"
+                        )
+                    continue
+
+                if op == "array_address":
+                    result = instruction.get("result")
+                    operands = instruction.get("operands", ())
+                    attributes = instruction.get("attributes", {})
+                    element_type = attributes.get("element_type")
+                    length = attributes.get("length")
+                    index = attributes.get("index")
+                    point_id = attributes.get("source_point_id")
+                    if not isinstance(result, str) or not result:
+                        raise TargetIRAddressingError(
+                            f"function {name!r}: array_address requires a result"
+                        )
+                    if len(operands) != 1:
+                        raise TargetIRAddressingError(
+                            f"function {name!r}: array_address requires one fixed-array pointer"
+                        )
+                    if element_type not in _SCALAR_FIELD_TYPES:
+                        raise TargetIRAddressingError(
+                            f"function {name!r}: array_address has unsupported element type"
+                        )
+                    if (
+                        not isinstance(length, int)
+                        or isinstance(length, bool)
+                        or length < 1
+                        or not isinstance(index, int)
+                        or isinstance(index, bool)
+                    ):
+                        raise TargetIRAddressingError(
+                            f"function {name!r}: array_address requires constant integer bounds facts"
+                        )
+                    if index < 0 or index >= length:
+                        raise TargetIRAddressingError(
+                            f"function {name!r}: array_address index {index} is outside [0, {length})"
+                        )
+                    if any(
+                        key in attributes
+                        for key in ("offset_bytes", "stride_bytes", "element_size_bytes")
+                    ):
+                        raise TargetIRAddressingError(
+                            f"function {name!r}: Target IR array_address cannot carry target byte layout"
+                        )
+                    base_type = value_types.get(operands[0])
+                    if _fixed_array_pointer(base_type) != (element_type, length):
+                        raise TargetIRAddressingError(
+                            f"function {name!r}: array_address base does not match fixed-array type"
+                        )
+                    if instruction.get("type") != f"{element_type}*":
+                        raise TargetIRAddressingError(
+                            f"function {name!r}: array_address result type must be {element_type + '*'!r}"
+                        )
+                    if not isinstance(point_id, str) or not point_id.startswith("array_address@"):
+                        raise TargetIRAddressingError(
+                            f"function {name!r}: array_address lacks source-stable identity"
                         )
                     continue
 
