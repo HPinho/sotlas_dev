@@ -1,9 +1,10 @@
-"""Target IR extension for canonical struct-field address projection.
+"""Target IR extension for canonical aggregate address projection.
 
-The base Target IR v1 path remains untouched for modules without
-``StructFieldAddressInst``. Only modules that contain the M16.4c SIR operation
-use the extended lowering below; all existing instruction lowering and CFG/SSA
-validation is delegated to the canonical Target IR helpers.
+The base Target IR v1 path remains untouched for modules without the M16.4c
+``StructFieldAddressInst`` or M16.4d2 ``FixedArrayElementAddressInst``. Modules
+that contain one of those proven SIR operations use the extended lowering below;
+all existing instruction lowering and CFG/SSA validation is still delegated to
+the canonical Target IR helpers.
 """
 from __future__ import annotations
 
@@ -13,11 +14,13 @@ from . import target_ir as _base
 
 
 _FIELD_INST = "StructFieldAddressInst"
+_ARRAY_INST = "FixedArrayElementAddressInst"
+_SCALAR_ARRAY_TYPES = frozenset({"u8", "u16", "u32", "u64", "usize"})
 
 
-def _contains_struct_field_address(module: Any) -> bool:
+def _contains_extended_addressing(module: Any) -> bool:
     return any(
-        type(instruction).__name__ == _FIELD_INST
+        type(instruction).__name__ in {_FIELD_INST, _ARRAY_INST}
         for function in tuple(getattr(module, "functions", ()) or ())
         for block in tuple(getattr(function, "blocks", ()) or ())
         for instruction in tuple(getattr(block, "instructions", ()) or ())
@@ -25,8 +28,47 @@ def _contains_struct_field_address(module: Any) -> bool:
 
 
 def _lower_instruction(instruction: Any, *, function: str) -> dict[str, Any]:
-    if type(instruction).__name__ != _FIELD_INST:
+    kind = type(instruction).__name__
+    if kind not in {_FIELD_INST, _ARRAY_INST}:
         return _base._lower_instruction(instruction, function=function)
+
+    if kind == _ARRAY_INST:
+        context = f"{function}: {_ARRAY_INST}"
+        base = _base._value_name(instruction.base, context=context)
+        result = _base._value_name(instruction.result, context=context)
+        result_type = getattr(instruction.result, "type_name", None)
+        element_type = getattr(instruction, "element_type", None)
+        length = getattr(instruction, "length", None)
+        index = getattr(instruction, "index", None)
+        point_id = getattr(instruction, "point_id", None)
+        if (
+            element_type not in _SCALAR_ARRAY_TYPES
+            or not isinstance(length, int)
+            or isinstance(length, bool)
+            or length < 1
+            or not isinstance(index, int)
+            or isinstance(index, bool)
+            or index < 0
+            or index >= length
+            or result_type != f"{element_type}*"
+            or not isinstance(point_id, str)
+            or not point_id.startswith("array_address@")
+        ):
+            raise _base.TargetIRLoweringError(
+                f"{context} contains malformed fixed-array projection facts"
+            )
+        return {
+            "op": "array_address",
+            "result": result,
+            "type": result_type,
+            "operands": [base],
+            "attributes": {
+                "element_type": element_type,
+                "length": length,
+                "index": index,
+                "source_point_id": point_id,
+            },
+        }
 
     context = f"{function}: {_FIELD_INST}"
     base = _base._value_name(instruction.base, context=context)
@@ -62,8 +104,8 @@ def _lower_instruction(instruction: Any, *, function: str) -> dict[str, Any]:
 
 
 def lower_sir_to_target_ir_with_struct_fields(module: Any) -> dict[str, Any]:
-    """Lower canonical SIR, extending Target IR v1 only for M16.4c fields."""
-    if not _contains_struct_field_address(module):
+    """Lower canonical SIR, extending Target IR only for proven M16.4 projections."""
+    if not _contains_extended_addressing(module):
         return _base.lower_sir_to_target_ir(module)
 
     functions = []
