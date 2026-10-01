@@ -1,18 +1,17 @@
-"""Canonical SIR logical slice facts (M16.4f1)."""
+"""Canonical SIR logical slice facts and address projections."""
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .instructions import SIRValue
+from .instructions import SIRInstruction, SIRValue
 
 
 @dataclass(frozen=True)
 class SliceViewFact:
     """Backend-neutral logical slice view over an existing pointer + length pair.
 
-    M16.4f1 deliberately records only semantic representation. Byte size,
-    alignment, field offsets, register classes, and calling-convention transport
-    remain outside this fact until the aggregate-ABI milestone.
+    Byte size, alignment, field offsets, register classes, and calling-convention
+    transport remain outside this fact until the aggregate-ABI milestone.
     """
 
     function: str
@@ -29,4 +28,30 @@ class SliceViewFact:
         return f"{prefix}[{self.element_type}]"
 
 
-__all__ = ["SliceViewFact"]
+@dataclass
+class SliceElementAddressInst(SIRInstruction):
+    """Project one checked slice element address without target byte layout.
+
+    ``length`` remains an SSA ``usize`` value. A preceding ``BoundsCheckInst``
+    proves ``index < length``; this instruction carries only logical element
+    identity and therefore does not choose stride, byte offset, ABI class, or
+    machine trap instruction.
+    """
+
+    base: SIRValue
+    index: SIRValue
+    length: SIRValue
+    result: SIRValue
+    element_type: str
+    bounds_policy: str
+    point_id: str
+
+    def __str__(self) -> str:
+        return (
+            f"  {self.result} = slice_address {self.base}[{self.index}] "
+            f"len={self.length} element={self.element_type} "
+            f"bounds={self.bounds_policy} // {self.point_id}"
+        )
+
+
+__all__ = ["SliceElementAddressInst", "SliceViewFact"]
