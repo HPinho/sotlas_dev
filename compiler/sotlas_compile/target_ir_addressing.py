@@ -130,7 +130,7 @@ def validate_target_ir_addressing(target_ir: dict[str, Any]) -> None:
                     offset = instruction.get("attributes", {}).get("offset_bytes", 0)
                     if offset != 0:
                         raise TargetIRAddressingError(
-                            f"function {name!r}: address_of byte offsets are not field projection"
+                            f"function {name!r}: address_of byte offsets wait for aggregate layout"
                         )
                     continue
 
