@@ -12,6 +12,8 @@ projection plus source declaration order/types. M16.4e2 carries explicit
 payload-free enum declarations and ``enum_const`` identity while leaving nominal
 enum ABI classification for the later aggregate-ABI milestone. M16.4f1 carries
 logical slice views as pointer+length facts without selecting physical layout.
+M16.4f3b preserves checked slice indexing as explicit Target IR ``bounds_check``
+and ``slice_address`` operations without selecting machine ABI or byte stride.
 """
 from __future__ import annotations
 
@@ -22,8 +24,8 @@ from .struct_layout import attach_target_ir_struct_layouts
 from .symbol_linkage import attach_target_ir_symbol_linkage
 from .target_ir import TargetIRLoweringError
 from .target_ir_enums import attach_target_ir_enum_declarations
+from .target_ir_slice_indexing import lower_sir_to_target_ir_with_slice_indexing
 from .target_ir_slices import attach_target_ir_slice_views
-from .target_ir_struct_fields import lower_sir_to_target_ir_with_struct_fields
 
 
 def _sir_call_result_types(module: Any) -> dict[tuple[str, str], str]:
@@ -115,7 +117,7 @@ def attach_direct_call_result_types(
 
 def lower_sir_to_typed_target_ir(module: Any) -> dict[str, Any]:
     """Lower SIR with typed calls, aggregates, layouts, and source linkage."""
-    target_ir = lower_sir_to_target_ir_with_struct_fields(module)
+    target_ir = lower_sir_to_target_ir_with_slice_indexing(module)
     attach_target_ir_enum_declarations(target_ir, module)
     attach_target_ir_slice_views(target_ir, module)
     attach_direct_call_result_types(target_ir, module)

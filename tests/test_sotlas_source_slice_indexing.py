@@ -1,4 +1,4 @@
-"""M16.4f3a source slice indexing and SIR bounds-proof gates."""
+"""M16.4f3 source slice indexing and checked Target IR gates."""
 from __future__ import annotations
 
 import importlib
@@ -165,11 +165,63 @@ class SotlasSourceSliceIndexingTests(unittest.TestCase):
             )
         )
 
-    def test_target_ir_still_fails_closed_until_f3b_bridge(self):
+    def test_target_ir_preserves_bounds_check_and_slice_address(self):
         _, module = _lower_preview(_source())
+        target_ir = _target_calls.lower_sir_to_typed_target_ir(module)
+        function = target_ir["functions"][0]
+        instructions = function["blocks"][0]["instructions"]
+        bounds = next(item for item in instructions if item["op"] == "bounds_check")
+        projection = next(item for item in instructions if item["op"] == "slice_address")
+
+        self.assertEqual(bounds["operands"], ["index", "values__len"])
+        self.assertEqual(bounds["attributes"], {"can_eliminate": False})
+        self.assertEqual(
+            projection["operands"],
+            ["values__data", "index", "values__len"],
+        )
+        self.assertEqual(projection["type"], "u32*")
+        self.assertEqual(projection["attributes"]["element_type"], "u32")
+        self.assertEqual(projection["attributes"]["bounds_policy"], "checked")
+        self.assertTrue(
+            projection["attributes"]["source_point_id"].startswith("slice_address@")
+        )
+        for forbidden in (
+            "size_bytes",
+            "alignment_bytes",
+            "stride_bytes",
+            "offset_bytes",
+            "abi_class",
+            "register_class",
+        ):
+            self.assertNotIn(forbidden, projection["attributes"])
+
+        self.assertEqual(target_ir["slice_views"][0]["data"], "values__data")
+        self.assertEqual(target_ir["slice_views"][0]["length"], "values__len")
+
+    def test_target_ir_rejects_slice_address_without_matching_bounds_proof(self):
+        _, module = _lower_preview(_source())
+        block = module.functions[0].blocks[0]
+        block.instructions = [
+            item for item in block.instructions
+            if type(item).__name__ != "BoundsCheckInst"
+        ]
         with self.assertRaisesRegex(
             _target_calls.TargetIRLoweringError,
-            "BoundsCheckInst|SliceElementAddressInst",
+            "lacks a dominating bounds proof",
+        ):
+            _target_calls.lower_sir_to_typed_target_ir(module)
+
+    def test_target_ir_rejects_non_usize_slice_length(self):
+        _, module = _lower_preview(_source())
+        projection = next(
+            item
+            for item in module.functions[0].blocks[0].instructions
+            if type(item).__name__ == "SliceElementAddressInst"
+        )
+        projection.length.type_name = "u32"
+        with self.assertRaisesRegex(
+            _target_calls.TargetIRLoweringError,
+            "malformed slice bounds proof|malformed slice projection facts",
         ):
             _target_calls.lower_sir_to_typed_target_ir(module)
 
@@ -177,6 +229,8 @@ class SotlasSourceSliceIndexingTests(unittest.TestCase):
         relatives = (
             Path("sotlas") / "sir" / "slices.py",
             Path("sotlas_compile") / "slice_source_generator.py",
+            Path("sotlas_compile") / "target_ir_slice_indexing.py",
+            Path("sotlas_compile") / "target_ir_calls.py",
         )
         for relative in relatives:
             self.assertEqual(
