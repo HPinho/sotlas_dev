@@ -2,10 +2,10 @@
 
 The base Target IR v1 path remains untouched for modules without the M16.4c
 ``StructFieldAddressInst``, M16.4d2 ``FixedArrayElementAddressInst``, M16.4d3b
-``DynamicFixedArrayElementAddressInst``, or M16.4e2 ``EnumConstInst``. Modules
-that contain one of those proven SIR operations use the extended lowering below;
-all existing instruction lowering and CFG/SSA validation is still delegated to
-the canonical Target IR helpers.
+``DynamicFixedArrayElementAddressInst``, M16.4e2 ``EnumConstInst``, or M16.4e3
+``EnumConstructInst``. Modules that contain one of those proven SIR operations
+use the extended lowering below; all existing instruction lowering and CFG/SSA
+validation is still delegated to the canonical Target IR helpers.
 """
 from __future__ import annotations
 
@@ -18,6 +18,7 @@ _FIELD_INST = "StructFieldAddressInst"
 _ARRAY_INST = "FixedArrayElementAddressInst"
 _DYNAMIC_ARRAY_INST = "DynamicFixedArrayElementAddressInst"
 _ENUM_CONST_INST = "EnumConstInst"
+_ENUM_CONSTRUCT_INST = "EnumConstructInst"
 _SCALAR_ARRAY_TYPES = frozenset({"u8", "u16", "u32", "u64", "usize"})
 
 
@@ -28,6 +29,7 @@ def _contains_extended_addressing(module: Any) -> bool:
             _ARRAY_INST,
             _DYNAMIC_ARRAY_INST,
             _ENUM_CONST_INST,
+            _ENUM_CONSTRUCT_INST,
         }
         for function in tuple(getattr(module, "functions", ()) or ())
         for block in tuple(getattr(function, "blocks", ()) or ())
@@ -42,6 +44,7 @@ def _lower_instruction(instruction: Any, *, function: str) -> dict[str, Any]:
         _ARRAY_INST,
         _DYNAMIC_ARRAY_INST,
         _ENUM_CONST_INST,
+        _ENUM_CONSTRUCT_INST,
     }:
         return _base._lower_instruction(instruction, function=function)
 
@@ -78,6 +81,50 @@ def _lower_instruction(instruction: Any, *, function: str) -> dict[str, Any]:
                 "enum": enum_name,
                 "variant": variant,
                 "discriminant": discriminant,
+                "source_point_id": point_id,
+            },
+        }
+
+    if kind == _ENUM_CONSTRUCT_INST:
+        context = f"{function}: {_ENUM_CONSTRUCT_INST}"
+        payload = _base._value_name(instruction.payload, context=context)
+        result = _base._value_name(instruction.result, context=context)
+        payload_type = getattr(instruction, "payload_type", None)
+        source_payload_type = getattr(instruction.payload, "type_name", None)
+        result_type = getattr(instruction.result, "type_name", None)
+        enum_name = getattr(instruction, "enum_name", None)
+        variant = getattr(instruction, "variant", None)
+        discriminant = getattr(instruction, "discriminant", None)
+        point_id = getattr(instruction, "point_id", None)
+        if (
+            not isinstance(enum_name, str)
+            or not enum_name
+            or result_type != enum_name
+            or not isinstance(variant, str)
+            or not variant
+            or not isinstance(payload_type, str)
+            or not payload_type
+            or source_payload_type != payload_type
+            or not isinstance(discriminant, int)
+            or isinstance(discriminant, bool)
+            or discriminant < 0
+            or discriminant > 0xFFFFFFFF
+            or not isinstance(point_id, str)
+            or not point_id.startswith("enum_construct@")
+        ):
+            raise _base.TargetIRLoweringError(
+                f"{context} contains malformed payload enum facts"
+            )
+        return {
+            "op": "enum_construct",
+            "result": result,
+            "type": enum_name,
+            "operands": [payload],
+            "attributes": {
+                "enum": enum_name,
+                "variant": variant,
+                "discriminant": discriminant,
+                "payload_type": payload_type,
                 "source_point_id": point_id,
             },
         }
@@ -206,7 +253,11 @@ def lower_sir_to_target_ir_with_struct_fields(module: Any) -> dict[str, Any]:
         parameters = tuple(getattr(function, "parameters", ()) or ())
         blocks = tuple(getattr(function, "blocks", ()) or ())
         labels = [str(getattr(block, "label", "")) for block in blocks]
-        if not blocks or any(not label for label in labels) or len(set(labels)) != len(labels):
+        if (
+            not blocks
+            or any(not label for label in labels)
+            or len(set(labels)) != len(labels)
+        ):
             raise _base.TargetIRLoweringError(
                 f"SIR function {name!r} has invalid or duplicate blocks"
             )

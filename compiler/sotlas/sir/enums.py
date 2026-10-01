@@ -1,4 +1,4 @@
-"""Canonical SIR facts and instruction for nullary enum tag materialization."""
+"""Canonical SIR facts and instructions for enum representation."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -21,6 +21,25 @@ class NullaryEnumFact:
     name: str
     tag_type: str
     variants: tuple[NullaryEnumVariantFact, ...]
+
+
+@dataclass(frozen=True)
+class PayloadEnumVariantFact:
+    """One explicit tagged-union variant and its optional logical payload type."""
+
+    name: str
+    discriminant: int
+    payload_type: str | None = None
+
+
+@dataclass(frozen=True)
+class PayloadEnumFact:
+    """Backend-neutral declaration facts for one explicit scalar-payload enum."""
+
+    name: str
+    tag_type: str
+    storage: str
+    variants: tuple[PayloadEnumVariantFact, ...]
 
 
 @dataclass
@@ -47,8 +66,37 @@ class EnumConstInst(SIRInstruction):
         )
 
 
+@dataclass
+class EnumConstructInst(SIRInstruction):
+    """Construct one logical tagged-union enum value from a checked payload.
+
+    M16.4e3 keeps the canonical tag, payload SSA value, and nominal enum
+    identity together without selecting byte offsets, alignment, or an ABI
+    transport class. Machine backends must therefore keep nominal enum returns
+    fail-closed until the later aggregate-ABI milestone.
+    """
+
+    enum_name: str
+    variant: str
+    discriminant: int
+    payload: SIRValue
+    payload_type: str
+    result: SIRValue
+    point_id: str
+
+    def __str__(self) -> str:
+        return (
+            f"  {self.result} = enum_construct "
+            f"{self.enum_name}::{self.variant}({self.payload}) "
+            f"tag={self.discriminant} // {self.point_id}"
+        )
+
+
 __all__ = [
     "EnumConstInst",
+    "EnumConstructInst",
     "NullaryEnumFact",
     "NullaryEnumVariantFact",
+    "PayloadEnumFact",
+    "PayloadEnumVariantFact",
 ]
