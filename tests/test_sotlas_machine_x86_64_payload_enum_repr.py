@@ -35,6 +35,7 @@ _phase1 = importlib.import_module(f"{_CANONICAL_PACKAGE}.phase1_pipeline")
 _canonical_sir = importlib.import_module(f"{_CANONICAL_PACKAGE}.canonical_sir")
 _target_calls = importlib.import_module(f"{_CANONICAL_PACKAGE}.target_ir_calls")
 _enums = importlib.import_module(f"{_CANONICAL_PACKAGE}.target_ir_enums")
+_typed_ast = importlib.import_module(f"{_CANONICAL_PACKAGE}.typed_ast")
 
 
 SOURCE = """
@@ -42,7 +43,7 @@ module test::payload_enum_repr;
 
 pub enum MaybeValue {
     None = 0,
-    Some(u32) = 1
+    Some(u32)
 }
 
 pub fn wrap(value: u32) -> MaybeValue {
@@ -52,16 +53,42 @@ pub fn wrap(value: u32) -> MaybeValue {
 
 
 class SotlasPayloadEnumRepresentationTests(unittest.TestCase):
+    def _checked(
+        self,
+        source: str = SOURCE,
+        filename: str = "payload_enum_repr.sotlas",
+    ):
+        return _phase1.analyze_source_phase1(source, filename=filename)
+
     def _checked_sir(
         self,
         source: str = SOURCE,
         filename: str = "payload_enum_repr.sotlas",
     ):
-        checked = _phase1.analyze_source_phase1(source, filename=filename)
+        checked = self._checked(source, filename)
         checked_sir, _ = _canonical_sir.build_canonical_checked_ownership_sir(
             checked
         )
         return checked_sir.module
+
+    def test_phase1_normalizes_implicit_payload_variant_discriminant(self):
+        checked = self._checked()
+        enum = next(
+            item for item in checked.semantic.typed_module.enums
+            if item.name == "MaybeValue"
+        )
+        layout = _typed_ast.lower_enum_layout(enum)
+        self.assertEqual(layout.storage, "tagged_union")
+        self.assertEqual(
+            [
+                (item.name, item.tag, item.payload_type.name if item.payload_type else None)
+                for item in layout.variants
+            ],
+            [
+                ("None", 0, None),
+                ("Some", 1, "u32"),
+            ],
+        )
 
     def test_checked_source_preserves_payload_enum_identity_in_canonical_sir(self):
         module = self._checked_sir()
@@ -182,7 +209,7 @@ module test::payload_enum_literal;
 
 pub enum MaybeValue {
     None = 0,
-    Some(u32) = 1
+    Some(u32)
 }
 
 pub fn wrap() -> MaybeValue {
@@ -217,6 +244,10 @@ pub fn wrap() -> MaybeValue {
     def test_compiler_and_tools_e3_paths_remain_identical(self):
         pairs = (
             ("sotlas/sir/enums.py", "sotlas/sir/enums.py"),
+            (
+                "sotlas_compile/canonical_sir.py",
+                "sotlas_compile/canonical_sir.py",
+            ),
             (
                 "sotlas_compile/enum_source_generator.py",
                 "sotlas_compile/enum_source_generator.py",

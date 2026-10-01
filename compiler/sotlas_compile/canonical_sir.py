@@ -128,6 +128,24 @@ def _attach_checked_contract_proofs(checked_module: object, sir_module) -> None:
     sir_module.contract_postconditions = postconditions
 
 
+def _configure_checked_enum_layouts(semantic: object, generator: object) -> None:
+    """Inject Phase-1 enum layouts into source/SIR extensions without re-deriving them."""
+
+    typed_module = getattr(semantic, "typed_module", None)
+    if typed_module is None:
+        raise ValueError("canonical checked SIR generation lacks typed enum semantics")
+
+    from .typed_ast import lower_module_enum_layouts
+
+    layouts = tuple(lower_module_enum_layouts(typed_module))
+    existing = tuple(getattr(generator, "_checked_enum_layouts", ()) or ())
+    if existing and existing != layouts:
+        raise RuntimeError(
+            "canonical SIR generator already contains conflicting checked enum layouts"
+        )
+    generator._checked_enum_layouts = layouts
+
+
 def load_canonical_sir():
     existing = sys.modules.get(_CANONICAL_SIR_PACKAGE)
     if existing is not None:
@@ -167,6 +185,7 @@ def build_canonical_checked_ownership_sir(checked_module: object):
     generator = generator_type(
         module_name=getattr(parsed_module, "name", "main")
     )
+    _configure_checked_enum_layouts(semantic, generator)
     module = generator.generate_from_ast(parsed_module)
     attach_checked_source_symbol_linkage(checked_module, module)
     _attach_source_effect_summaries(checked_module, module)
@@ -224,6 +243,7 @@ def build_canonical_checked_authority_sir(
     generator = generator_type(
         module_name=getattr(parsed_module, "name", "main")
     )
+    _configure_checked_enum_layouts(semantic, generator)
     module = generator.generate_from_ast(parsed_module)
     attach_checked_source_symbol_linkage(checked_module, module)
     _attach_source_effect_summaries(checked_module, module)

@@ -17,7 +17,7 @@ _SCALAR_PAYLOAD_TYPES = frozenset({
 })
 
 
-def _frontend_type_name(type_info: Any) -> str | None:
+def _semantic_type_name(type_info: Any) -> str | None:
     if type_info is None:
         return None
     name = getattr(type_info, "name", None)
@@ -27,7 +27,7 @@ def _frontend_type_name(type_info: Any) -> str | None:
         bool(getattr(type_info, "pointer", False))
         or bool(getattr(type_info, "is_reference", False))
         or bool(getattr(type_info, "is_array", False))
-        or getattr(type_info, "ownership_domain", None) is not None
+        or getattr(type_info, "declared_ownership_domain", None) is not None
     ):
         return None
     return name
@@ -72,12 +72,18 @@ def _explicit_nullary_enum_fact(enum: Any, enum_sir: Any):
     )
 
 
-def _explicit_scalar_payload_enum_fact(enum: Any, enum_sir: Any):
-    """Admit only explicit tagged unions whose payloads are direct scalars."""
+def _scalar_payload_enum_fact_from_layout(layout: Any, enum_sir: Any):
+    """Admit a checked tagged union whose logical payloads are direct scalars."""
 
-    name = getattr(enum, "name", None)
-    variants = tuple(getattr(enum, "variants", ()) or ())
-    if not isinstance(name, str) or not name or not variants:
+    name = getattr(layout, "enum_name", None)
+    storage = getattr(layout, "storage", None)
+    variants = tuple(getattr(layout, "variants", ()) or ())
+    if (
+        not isinstance(name, str)
+        or not name
+        or storage != "tagged_union"
+        or not variants
+    ):
         return None
 
     seen_names: set[str] = set()
@@ -86,9 +92,9 @@ def _explicit_scalar_payload_enum_fact(enum: Any, enum_sir: Any):
     saw_payload = False
     for variant in variants:
         variant_name = getattr(variant, "name", None)
-        discriminant = getattr(variant, "value", None)
+        discriminant = getattr(variant, "tag", None)
         raw_payload_type = getattr(variant, "payload_type", None)
-        payload_type = _frontend_type_name(raw_payload_type)
+        payload_type = _semantic_type_name(raw_payload_type)
         if raw_payload_type is not None:
             if payload_type not in _SCALAR_PAYLOAD_TYPES:
                 return None
@@ -134,13 +140,25 @@ def extend_nullary_enum_generator(base, sir):
                 for enum in tuple(getattr(ast, "enums", ()) or ())
                 if (fact := _explicit_nullary_enum_fact(enum, enum_sir)) is not None
             )
+
+            source_enum_names = {
+                getattr(enum, "name", None)
+                for enum in tuple(getattr(ast, "enums", ()) or ())
+            }
+            checked_layouts = tuple(
+                getattr(self, "_checked_enum_layouts", ()) or ()
+            )
             payload_facts = tuple(
                 fact
-                for enum in tuple(getattr(ast, "enums", ()) or ())
+                for layout in checked_layouts
+                if getattr(layout, "enum_name", None) in source_enum_names
                 if (
-                    fact := _explicit_scalar_payload_enum_fact(enum, enum_sir)
+                    fact := _scalar_payload_enum_fact_from_layout(
+                        layout, enum_sir
+                    )
                 ) is not None
             )
+
             module = super().generate_from_ast(ast)
             module.nullary_enum_facts = nullary_facts
             module.payload_enum_facts = payload_facts
