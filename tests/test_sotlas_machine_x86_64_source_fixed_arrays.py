@@ -145,7 +145,7 @@ class SotlasX8664SourceFixedArrayTests(unittest.TestCase):
         self.assertIn(".globl read_index2", assembly)
         self.assertNotIn("LLVM", assembly)
 
-    def test_dynamic_index_remains_outside_d2_slice(self):
+    def test_dynamic_index_uses_d3b_projection_not_d2_constant_projection(self):
         source = """
 module test::machine_source_fixed_array_dynamic;
 pub fn read_dynamic(values: *mut [u32; 4], index: usize) -> u32 {
@@ -155,11 +155,12 @@ pub fn read_dynamic(values: *mut [u32; 4], index: usize) -> u32 {
         module = self._checked_sir(
             source, "machine_source_fixed_array_dynamic.sotlas"
         )
-        self.assertIn("read_dynamic", tuple(module.unlowered_functions))
+        self.assertNotIn("read_dynamic", tuple(module.unlowered_functions))
+        function = next(
+            item for item in module.functions if item.name == "read_dynamic"
+        )
         instructions = [
             instruction
-            for function in module.functions
-            if function.name == "read_dynamic"
             for block in function.blocks
             for instruction in block.instructions
         ]
@@ -167,6 +168,24 @@ pub fn read_dynamic(values: *mut [u32; 4], index: usize) -> u32 {
             type(instruction).__name__ == "FixedArrayElementAddressInst"
             for instruction in instructions
         ))
+        dynamic_projections = [
+            instruction
+            for instruction in instructions
+            if type(instruction).__name__ == "DynamicFixedArrayElementAddressInst"
+        ]
+        self.assertEqual(len(dynamic_projections), 1)
+        projection = dynamic_projections[0]
+        self.assertEqual(projection.base.name, "values")
+        self.assertEqual(projection.base.type_name, "[u32;4]*")
+        self.assertEqual(projection.index.name, "index")
+        self.assertEqual(projection.index.type_name, "usize")
+        self.assertEqual(projection.result.type_name, "u32*")
+        self.assertEqual(projection.element_type, "u32")
+        self.assertEqual(projection.length, 4)
+        self.assertEqual(projection.bounds_policy, "trap")
+        self.assertTrue(
+            projection.point_id.startswith("array_address_dynamic@")
+        )
 
     def test_out_of_bounds_constant_remains_fail_closed(self):
         source = """
