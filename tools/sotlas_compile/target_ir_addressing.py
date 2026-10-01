@@ -45,6 +45,12 @@ def _struct_layout_map(
                 raise TargetIRAddressingError(
                     f"struct {name!r}: malformed M16.4c field declaration"
                 )
+            if any(
+                key in field for key in ("offset_bytes", "size_bytes", "alignment_bytes")
+            ):
+                raise TargetIRAddressingError(
+                    f"struct {name!r}: Target IR field declarations cannot carry target layout bytes"
+                )
             field_map[field_name] = type_name
         layouts[name] = field_map
     return layouts
@@ -144,6 +150,14 @@ def validate_target_ir_addressing(target_ir: dict[str, Any]) -> None:
                 if len(operands) != 1:
                     raise TargetIRAddressingError(
                         f"function {name!r}: field_address requires one struct pointer"
+                    )
+                if (
+                    not isinstance(struct_name, str) or not struct_name
+                    or not isinstance(field_name, str) or not field_name
+                    or field_type not in _SCALAR_FIELD_TYPES
+                ):
+                    raise TargetIRAddressingError(
+                        f"function {name!r}: field_address contains malformed field identity"
                     )
                 if "offset_bytes" in attributes:
                     raise TargetIRAddressingError(
