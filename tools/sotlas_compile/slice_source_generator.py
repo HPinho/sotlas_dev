@@ -44,6 +44,11 @@ def extend_slice_source_generator(base, sir):
     The function body deliberately remains in ``unlowered_functions``.  f2b
     proves source identity and pointer+length representation only; it does not
     claim executable body lowering, call ABI, or machine register assignment.
+
+    The base generator may already accept a trivial ``return;`` body as a
+    generic void subset.  A slice signature still requires aggregate ABI work,
+    so this wrapper reclassifies that otherwise-lowered function as unlowered
+    after preserving the logical pointer+length representation.
     """
 
     slice_sir = importlib.import_module(f"{sir.__name__}.slices")
@@ -67,7 +72,7 @@ def extend_slice_source_generator(base, sir):
 
             for fn in tuple(getattr(ast, "functions", ()) or ()):
                 fn_name = getattr(fn, "name", None)
-                if not isinstance(fn_name, str) or fn_name not in unlowered:
+                if not isinstance(fn_name, str) or not fn_name:
                     continue
 
                 params = tuple(getattr(fn, "params", ()) or ())
@@ -184,6 +189,10 @@ def extend_slice_source_generator(base, sir):
                         ),
                     )
                 )
+
+                if fn_name not in unlowered:
+                    module.unlowered_functions.append(fn_name)
+                    unlowered.add(fn_name)
 
             module.slice_view_facts = tuple(facts)
             return module
