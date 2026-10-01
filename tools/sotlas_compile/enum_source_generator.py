@@ -128,6 +128,68 @@ def _scalar_payload_enum_fact_from_layout(layout: Any, enum_sir: Any):
     )
 
 
+def _parameter_prologue_before_fallback(
+    block: Any,
+    sir_fn: Any,
+    *,
+    expected_return_type: str,
+) -> list[Any] | None:
+    """Return the canonical parameter prologue before one prototype fallback.
+
+    Unsupported non-void functions currently contain the honest parameter
+    materialization produced by the base SIR generator followed by a synthetic
+    ``ret_val*`` ReturnInst sentinel.  M16.4e3 may replace only that sentinel;
+    every alloc/store pair must still exactly match the declared SIR parameters.
+    """
+
+    existing = list(getattr(block, "instructions", ()) or ())
+    if not existing or type(existing[-1]).__name__ != "ReturnInst":
+        return None
+
+    fallback = existing[-1]
+    fallback_value = getattr(fallback, "value", None)
+    fallback_name = getattr(fallback_value, "name", None)
+    fallback_type = getattr(fallback_value, "type_name", None)
+    if (
+        not isinstance(fallback_name, str)
+        or not fallback_name.startswith("ret_val")
+        or fallback_type != expected_return_type
+    ):
+        return None
+
+    prefix = existing[:-1]
+    parameters = tuple(getattr(sir_fn, "parameters", ()) or ())
+    if len(prefix) != 2 * len(parameters):
+        return None
+
+    for index, parameter in enumerate(parameters):
+        alloc = prefix[2 * index]
+        store = prefix[2 * index + 1]
+        if (
+            type(alloc).__name__ != "AllocStackInst"
+            or type(store).__name__ != "StoreInst"
+            or getattr(alloc, "var_name", None) != getattr(parameter, "name", None)
+            or getattr(alloc, "type_name", None)
+            != getattr(parameter, "type_name", None)
+        ):
+            return None
+
+        slot = getattr(alloc, "result", None)
+        destination = getattr(store, "destination", None)
+        source = getattr(store, "source", None)
+        if (
+            getattr(slot, "name", None) != getattr(destination, "name", None)
+            or getattr(slot, "type_name", None)
+            != getattr(destination, "type_name", None)
+            or getattr(source, "name", None) != getattr(parameter, "name", None)
+            or getattr(source, "type_name", None)
+            != getattr(parameter, "type_name", None)
+        ):
+            return None
+
+    return prefix
+
+
 def extend_nullary_enum_generator(base, sir):
     """Add checked enum representation without opening aggregate machine ABI."""
 
@@ -325,11 +387,12 @@ def extend_nullary_enum_generator(base, sir):
                 if len(blocks) != 1:
                     continue
                 block = blocks[0]
-                existing = list(getattr(block, "instructions", ()) or ())
-                if (
-                    len(existing) != 1
-                    or type(existing[0]).__name__ != "ReturnInst"
-                ):
+                prefix = _parameter_prologue_before_fallback(
+                    block,
+                    sir_fn,
+                    expected_return_type=enum_name,
+                )
+                if prefix is None:
                     continue
 
                 result = self._next_val(
@@ -337,6 +400,7 @@ def extend_nullary_enum_generator(base, sir):
                     enum_name,
                 )
                 block.instructions = [
+                    *prefix,
                     enum_sir.EnumConstructInst(
                         enum_name=enum_name,
                         variant=variant.name,
