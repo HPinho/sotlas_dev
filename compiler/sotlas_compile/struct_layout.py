@@ -1,16 +1,18 @@
-"""Backend-neutral struct declaration facts for M16.4c.
+"""Backend-neutral struct declaration facts for M16.4c / M16.4h1c1.
 
 This module preserves source field order and canonical field types without
-assigning byte offsets. Target-specific layout is deliberately deferred to the
-machine ABI layer.
+assigning byte offsets. M16.4h1c1 extends the declaration contract with direct
+by-value nominal struct fields while keeping their physical layout deliberately
+unresolved until the machine ABI layer can prove nested aggregate layout.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
 
 _SCALAR_FIELD_TYPES = frozenset({"u8", "u16", "u32", "u64", "usize"})
+_FIELD_REPRESENTATIONS = frozenset({"scalar", "nominal_struct"})
 
 
 class StructLayoutError(ValueError):
@@ -21,6 +23,7 @@ class StructLayoutError(ValueError):
 class StructFieldDecl:
     name: str
     type_name: str
+    representation: str = "scalar"
 
 
 @dataclass(frozen=True)
@@ -29,15 +32,40 @@ class StructLayoutDecl:
     fields: tuple[StructFieldDecl, ...]
 
 
+def _direct_by_value(type_info: Any) -> bool:
+    return not any(
+        bool(getattr(type_info, attribute, False))
+        for attribute in ("pointer", "is_reference", "is_array")
+    )
+
+
+def _normalize_nominal_struct_names(names: Iterable[str]) -> frozenset[str]:
+    normalized = frozenset(names)
+    if any(not isinstance(name, str) or not name for name in normalized):
+        raise StructLayoutError(
+            "nominal struct layout names must be non-empty strings"
+        )
+    return normalized
+
+
 def make_struct_layout_decl(
     struct: Any,
     type_name: Callable[[Any], str],
+    *,
+    nominal_struct_names: Iterable[str] = (),
 ) -> StructLayoutDecl:
-    """Build the narrow scalar M16.4c declaration fact from checked source."""
+    """Build a backend-neutral scalar/nominal declaration from checked source.
+
+    Scalar fields preserve the original M16.4c contract. A direct by-value field
+    may additionally name another source struct only when that name is supplied
+    through ``nominal_struct_names``. This records nominal identity only; no
+    nested size, alignment, offset, flattening, or ABI class is inferred here.
+    """
     name = getattr(struct, "name", None)
     if not isinstance(name, str) or not name:
         raise StructLayoutError("struct layout requires a named source struct")
 
+    nominal_names = _normalize_nominal_struct_names(nominal_struct_names)
     fields: list[StructFieldDecl] = []
     seen: set[str] = set()
     for field in tuple(getattr(struct, "fields", ()) or ()):
@@ -48,16 +76,37 @@ def make_struct_layout_decl(
             )
         if getattr(field, "bit_width", None) is not None:
             raise StructLayoutError(
-                f"struct {name!r} bit-fields are outside M16.4c"
+                f"struct {name!r} bit-fields are outside M16.4h1c1"
             )
-        rendered = type_name(getattr(field, "type", None))
+
+        source_type = getattr(field, "type", None)
+        rendered = type_name(source_type)
+        representation = "scalar"
         if rendered not in _SCALAR_FIELD_TYPES:
-            raise StructLayoutError(
-                f"struct {name!r} field {field_name!r} type {rendered!r} "
-                "is outside the M16.4c scalar layout slice"
-            )
+            if (
+                not isinstance(rendered, str)
+                or not rendered
+                or rendered not in nominal_names
+                or not _direct_by_value(source_type)
+            ):
+                raise StructLayoutError(
+                    f"struct {name!r} field {field_name!r} type {rendered!r} "
+                    "is outside the M16.4h1c1 scalar/nominal declaration contract"
+                )
+            if rendered == name:
+                raise StructLayoutError(
+                    f"struct {name!r} cannot contain itself directly by value"
+                )
+            representation = "nominal_struct"
+
         seen.add(field_name)
-        fields.append(StructFieldDecl(field_name, rendered))
+        fields.append(
+            StructFieldDecl(
+                field_name,
+                rendered,
+                representation=representation,
+            )
+        )
 
     if not fields:
         raise StructLayoutError(f"struct {name!r} has no fields to lay out")
@@ -78,6 +127,82 @@ def attach_sir_struct_layout(sir_module: Any, layout: StructLayoutDecl) -> None:
     sir_module.struct_layouts = existing + (layout,)
 
 
+def _validated_layout_map(
+    layouts: tuple[StructLayoutDecl, ...],
+) -> dict[str, StructLayoutDecl]:
+    by_name: dict[str, StructLayoutDecl] = {}
+    for layout in layouts:
+        if not isinstance(layout, StructLayoutDecl):
+            raise StructLayoutError("canonical SIR contains malformed struct layout")
+        if not isinstance(layout.name, str) or not layout.name or layout.name in by_name:
+            raise StructLayoutError(
+                "canonical SIR contains an invalid or duplicate struct layout name"
+            )
+        if not layout.fields:
+            raise StructLayoutError(
+                f"canonical SIR struct {layout.name!r} has no declared fields"
+            )
+        by_name[layout.name] = layout
+
+    graph: dict[str, tuple[str, ...]] = {}
+    for name, layout in by_name.items():
+        field_names: set[str] = set()
+        dependencies: list[str] = []
+        for field in layout.fields:
+            if (
+                not isinstance(field, StructFieldDecl)
+                or not isinstance(field.name, str)
+                or not field.name
+                or field.name in field_names
+                or not isinstance(field.type_name, str)
+                or not field.type_name
+                or field.representation not in _FIELD_REPRESENTATIONS
+            ):
+                raise StructLayoutError(
+                    f"canonical SIR struct {name!r} contains a malformed field"
+                )
+            field_names.add(field.name)
+            if field.representation == "scalar":
+                if field.type_name not in _SCALAR_FIELD_TYPES:
+                    raise StructLayoutError(
+                        f"canonical SIR struct {name!r} marks non-scalar field "
+                        f"{field.name!r} as scalar"
+                    )
+                continue
+            if field.type_name in _SCALAR_FIELD_TYPES:
+                raise StructLayoutError(
+                    f"canonical SIR struct {name!r} marks scalar field "
+                    f"{field.name!r} as nominal"
+                )
+            if field.type_name not in by_name:
+                raise StructLayoutError(
+                    f"canonical SIR struct {name!r} field {field.name!r} "
+                    f"references undeclared nominal struct {field.type_name!r}"
+                )
+            dependencies.append(field.type_name)
+        graph[name] = tuple(dependencies)
+
+    visiting: set[str] = set()
+    visited: set[str] = set()
+
+    def visit(name: str) -> None:
+        if name in visited:
+            return
+        if name in visiting:
+            raise StructLayoutError(
+                f"canonical SIR nominal struct declarations contain a by-value cycle at {name!r}"
+            )
+        visiting.add(name)
+        for dependency in graph[name]:
+            visit(dependency)
+        visiting.remove(name)
+        visited.add(name)
+
+    for name in sorted(graph):
+        visit(name)
+    return by_name
+
+
 def attach_target_ir_struct_layouts(
     target_ir: dict[str, Any],
     sir_module: Any,
@@ -90,22 +215,19 @@ def attach_target_ir_struct_layouts(
     if not layouts:
         return target_ir
 
+    by_name = _validated_layout_map(layouts)
     normalized = []
-    seen: set[str] = set()
-    for layout in sorted(layouts, key=lambda item: item.name):
-        if not isinstance(layout, StructLayoutDecl):
-            raise StructLayoutError("canonical SIR contains malformed struct layout")
-        if layout.name in seen:
-            raise StructLayoutError(
-                f"canonical SIR repeats struct layout {layout.name!r}"
-            )
-        seen.add(layout.name)
+    for name in sorted(by_name):
+        layout = by_name[name]
+        fields = []
+        for field in layout.fields:
+            item = {"name": field.name, "type": field.type_name}
+            if field.representation == "nominal_struct":
+                item["representation"] = "nominal_struct"
+            fields.append(item)
         normalized.append({
             "name": layout.name,
-            "fields": [
-                {"name": field.name, "type": field.type_name}
-                for field in layout.fields
-            ],
+            "fields": fields,
         })
 
     existing = target_ir.get("struct_layouts")
