@@ -28,6 +28,11 @@ from ._machine_x86_64_fixed_array_emit import (
     emit_fixed_array_address,
     emit_fixed_array_dynamic_address,
 )
+from ._machine_x86_64_slice_emit import (
+    emit_slice_address,
+    emit_slice_bounds_check,
+    validate_slice_indexing_machine_contract,
+)
 from ._machine_x86_64_struct_field_emit import emit_struct_field_address
 from ._machine_x86_64_struct_layout import plan_x86_64_sysv_struct_layouts
 from .target_ir_enums import validate_target_ir_enum_representation
@@ -38,6 +43,7 @@ def emit_x86_64_sysv_assembly(
 ) -> str:
     validate_direct_calls(target_ir)
     validate_target_ir_enum_representation(target_ir)
+    validate_slice_indexing_machine_contract(target_ir)
     for function in target_ir.get("functions", ()):
         validate_abi_function_shape(function)
     plan = plan_x86_64_sysv_aggregate_allocation(
@@ -120,6 +126,24 @@ def emit_x86_64_sysv_assembly(
                     continue
                 if instruction.get("op") == "array_address_dynamic":
                     emit_fixed_array_dynamic_address(
+                        lines,
+                        function=function,
+                        instruction=instruction,
+                        locations=locations,
+                        value_types=value_types,
+                    )
+                    continue
+                if instruction.get("op") == "bounds_check":
+                    emit_slice_bounds_check(
+                        lines,
+                        function=function,
+                        instruction=instruction,
+                        locations=locations,
+                        value_types=value_types,
+                    )
+                    continue
+                if instruction.get("op") == "slice_address":
+                    emit_slice_address(
                         lines,
                         function=function,
                         instruction=instruction,
