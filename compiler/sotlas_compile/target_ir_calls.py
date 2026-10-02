@@ -18,14 +18,14 @@ M16.4h1d preserves checked ownership-bearing struct members as semantic Target
 IR side facts after their nominal declarations have been materialized.
 M16.4h2c2b preserves source-proven nominal enum payload identity as a logical
 sidecar before enum ownership projection or tagged-union byte layout is opened.
+M16.4h2d2 projects checked enum-payload ownership automatically after nominal
+payload identity has been validated, still without physical layout or ABI claims.
 """
 from __future__ import annotations
 
 from typing import Any
 
-from .aggregate_ownership_h2c2b import (
-    attach_target_ir_aggregate_ownership_with_nominal_enums,
-)
+from .aggregate_ownership_h2d import attach_target_ir_enum_payload_ownership
 from .enum_nominal_payloads import attach_target_ir_nominal_enum_payloads
 from .local_addressing import attach_target_ir_local_addresses
 from .struct_layout import attach_target_ir_struct_layouts
@@ -131,7 +131,7 @@ def lower_sir_to_typed_target_ir(module: Any) -> dict[str, Any]:
     attach_target_ir_slice_views(target_ir, module)
     attach_direct_call_result_types(target_ir, module)
     attach_target_ir_struct_layouts(target_ir, module)
-    attach_target_ir_aggregate_ownership_with_nominal_enums(target_ir, module)
+    attach_target_ir_enum_payload_ownership(target_ir, module)
     attach_target_ir_local_addresses(target_ir, module)
     attach_target_ir_symbol_linkage(target_ir, module)
     return target_ir

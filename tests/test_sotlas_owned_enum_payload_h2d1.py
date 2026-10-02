@@ -65,14 +65,16 @@ class SotlasOwnedEnumPayloadH2D1Tests(unittest.TestCase):
         )
         return checked_sir
 
-    def test_explicit_bridge_projects_enum_payload_ownership(self):
+    def test_explicit_bridge_is_idempotent_after_h2d2_auto_projection(self):
         checked_sir = self._checked_sir()
         target_ir = target_ir_calls.lower_sir_to_typed_target_ir(
             checked_sir.module
         )
 
-        before = tuple(target_ir.get("aggregate_ownership_facts", ()) or ())
-        self.assertFalse(
+        before = copy.deepcopy(
+            tuple(target_ir.get("aggregate_ownership_facts", ()) or ())
+        )
+        self.assertTrue(
             any(item.get("kind") == "enum_payload" for item in before)
         )
 
@@ -81,6 +83,10 @@ class SotlasOwnedEnumPayloadH2D1Tests(unittest.TestCase):
             checked_sir.module,
         )
 
+        self.assertEqual(
+            tuple(target_ir.get("aggregate_ownership_facts", ()) or ()),
+            before,
+        )
         enum_facts = [
             item
             for item in target_ir["aggregate_ownership_facts"]

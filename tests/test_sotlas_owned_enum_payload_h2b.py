@@ -130,7 +130,7 @@ class SotlasOwnedEnumPayloadH2BTests(unittest.TestCase):
 
         self.assertEqual(_enum_signatures(checked_sir.module), ())
 
-    def test_automatic_enum_payload_fact_is_validated_by_nominal_target_ir(self):
+    def test_automatic_enum_payload_fact_is_projected_after_nominal_validation(self):
         checked = package.analyze_source_phase1(
             _OWNERSHIP_SOURCE,
             filename="<owned-enum-payload-h2b-target-ir>",
@@ -143,7 +143,15 @@ class SotlasOwnedEnumPayloadH2BTests(unittest.TestCase):
         target_ir = target_ir_calls.lower_sir_to_typed_target_ir(checked_sir.module)
         self.assertIn("MaybeToken", target_ir["nominal_enum_payloads"])
         projected = tuple(target_ir.get("aggregate_ownership_facts", ()) or ())
-        self.assertFalse(any(item.get("kind") == "enum_payload" for item in projected))
+        self.assertTrue(any(
+            item.get("kind") == "enum_payload"
+            and item.get("enum") == "MaybeToken"
+            and item.get("variant") == "Some"
+            and item.get("payload_type") == "Token"
+            and item.get("domain") == "exclusive"
+            and item.get("storage") == "by_value"
+            for item in projected
+        ))
 
     def test_compiler_and_tools_h2b_layers_remain_identical(self):
         for relative in (

@@ -51,7 +51,7 @@ class SotlasOwnedEnumPayloadH2C2BTests(unittest.TestCase):
         checked_sir, _ = canonical_sir.build_canonical_checked_ownership_sir(checked)
         return checked_sir
 
-    def test_full_target_ir_preserves_nominal_payload_without_projecting_enum_ownership(self):
+    def test_full_target_ir_preserves_nominal_payload_and_projects_enum_ownership(self):
         checked_sir = self._checked_sir()
         target_ir = target_ir_calls.lower_sir_to_typed_target_ir(checked_sir.module)
 
@@ -61,9 +61,14 @@ class SotlasOwnedEnumPayloadH2C2BTests(unittest.TestCase):
         self.assertEqual(some["payload_representation"], "nominal_struct")
         self.assertNotIn("size_bytes", declaration)
         self.assertNotIn("payload_offset_bytes", some)
-        self.assertFalse(
+        self.assertTrue(
             any(
                 item.get("kind") == "enum_payload"
+                and item.get("enum") == "MaybeToken"
+                and item.get("variant") == "Some"
+                and item.get("payload_type") == "Token"
+                and item.get("domain") == "exclusive"
+                and item.get("storage") == "by_value"
                 for item in tuple(target_ir.get("aggregate_ownership_facts", ()) or ())
             )
         )

@@ -109,7 +109,7 @@ class SotlasOwnedEnumPayloadH2ATests(unittest.TestCase):
         self.assertEqual(enum_facts[0], combined[1])
         self.assertEqual(tuple(module.aggregate_ownership_facts), combined)
 
-    def test_owned_enum_payload_reaches_logical_target_ir_without_h2d_projection(self):
+    def test_owned_enum_payload_reaches_target_ir_with_h2d_projection(self):
         checked = self._checked()
         checked_sir, _ = canonical_sir.build_canonical_checked_ownership_sir(
             checked
@@ -121,7 +121,15 @@ class SotlasOwnedEnumPayloadH2ATests(unittest.TestCase):
         self.assertEqual(some["payload_type"], "Token")
         self.assertEqual(some["payload_representation"], "nominal_struct")
         projected = tuple(target_ir.get("aggregate_ownership_facts", ()) or ())
-        self.assertFalse(any(item.get("kind") == "enum_payload" for item in projected))
+        self.assertTrue(any(
+            item.get("kind") == "enum_payload"
+            and item.get("enum") == "MaybeToken"
+            and item.get("variant") == "Some"
+            and item.get("payload_type") == "Token"
+            and item.get("domain") == "exclusive"
+            and item.get("storage") == "by_value"
+            for item in projected
+        ))
 
     def test_missing_checked_typed_module_fails_closed(self):
         with self.assertRaisesRegex(
