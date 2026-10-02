@@ -206,7 +206,7 @@ class SotlasNominalStructSourceClosureTests(unittest.TestCase):
 
         with self.assertRaisesRegex(
             struct_layout.StructLayoutError,
-            "outside the M16.4h1c scalar/nominal declaration contract",
+            "outside the M16.4h1c1 scalar/nominal declaration contract",
         ):
             struct_layout.make_struct_layout_decl(
                 envelope,
