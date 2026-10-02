@@ -4,9 +4,11 @@ M16.4b admits exact local-slot ``address_of``. M16.4c adds typed struct field
 projection as ``field_address`` while deliberately keeping target byte offsets
 out of Target IR. M16.4d1 adds constant-index fixed-array projection as
 ``array_address``. M16.4d3a adds runtime-checked dynamic projection as
-``array_address_dynamic`` with an explicit trap policy. Aggregate identity and
-logical indices are validated here; the selected machine backend owns physical
-byte layout and the concrete trap instruction.
+``array_address_dynamic`` with an explicit trap policy. M16.4h1c3 admits
+complete scalar/nominal struct declaration closures for address validation while
+keeping nominal byte layout exclusively in the selected machine backend.
+Aggregate identity and logical indices are validated here; the selected machine
+backend owns physical byte layout and the concrete trap instruction.
 """
 from __future__ import annotations
 
@@ -36,11 +38,11 @@ def _fixed_array_pointer(type_name: Any) -> tuple[str, int] | None:
 def _struct_layout_map(
     target_ir: dict[str, Any],
 ) -> dict[str, dict[str, str]]:
-    layouts: dict[str, dict[str, str]] = {}
+    raw_layouts: dict[str, list[dict[str, Any]]] = {}
     for layout in target_ir.get("struct_layouts", ()):
         name = layout.get("name") if isinstance(layout, dict) else None
         fields = layout.get("fields") if isinstance(layout, dict) else None
-        if not isinstance(name, str) or not name or name in layouts:
+        if not isinstance(name, str) or not name or name in raw_layouts:
             raise TargetIRAddressingError(
                 "Target IR contains an invalid or duplicate struct layout"
             )
@@ -48,15 +50,27 @@ def _struct_layout_map(
             raise TargetIRAddressingError(
                 f"struct {name!r}: Target IR layout requires fields"
             )
+        raw_layouts[name] = fields
+
+    layouts: dict[str, dict[str, str]] = {}
+    dependencies: dict[str, tuple[str, ...]] = {}
+    for name, fields in raw_layouts.items():
         field_map: dict[str, str] = {}
+        nominal_dependencies: list[str] = []
         for field in fields:
             field_name = field.get("name") if isinstance(field, dict) else None
             type_name = field.get("type") if isinstance(field, dict) else None
+            representation = (
+                field.get("representation", "scalar")
+                if isinstance(field, dict)
+                else None
+            )
             if (
                 not isinstance(field_name, str)
                 or not field_name
                 or field_name in field_map
-                or type_name not in _SCALAR_FIELD_TYPES
+                or not isinstance(type_name, str)
+                or not type_name
             ):
                 raise TargetIRAddressingError(
                     f"struct {name!r}: malformed M16.4c field declaration"
@@ -67,8 +81,50 @@ def _struct_layout_map(
                 raise TargetIRAddressingError(
                     f"struct {name!r}: Target IR field declarations cannot carry target layout bytes"
                 )
+
+            if representation == "scalar":
+                if type_name not in _SCALAR_FIELD_TYPES:
+                    raise TargetIRAddressingError(
+                        f"struct {name!r}: malformed M16.4c field declaration"
+                    )
+            elif representation == "nominal_struct":
+                if (
+                    type_name in _SCALAR_FIELD_TYPES
+                    or type_name == name
+                    or type_name not in raw_layouts
+                ):
+                    raise TargetIRAddressingError(
+                        f"struct {name!r}: field {field_name!r} references an undeclared "
+                        f"or invalid nominal struct {type_name!r}"
+                    )
+                nominal_dependencies.append(type_name)
+            else:
+                raise TargetIRAddressingError(
+                    f"struct {name!r}: field {field_name!r} has unsupported representation"
+                )
+
             field_map[field_name] = type_name
         layouts[name] = field_map
+        dependencies[name] = tuple(nominal_dependencies)
+
+    visiting: set[str] = set()
+    visited: set[str] = set()
+
+    def visit(name: str) -> None:
+        if name in visited:
+            return
+        if name in visiting:
+            raise TargetIRAddressingError(
+                f"Target IR nominal struct declarations contain a by-value cycle at {name!r}"
+            )
+        visiting.add(name)
+        for dependency in dependencies[name]:
+            visit(dependency)
+        visiting.remove(name)
+        visited.add(name)
+
+    for name in sorted(dependencies):
+        visit(name)
     return layouts
 
 

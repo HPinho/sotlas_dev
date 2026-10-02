@@ -186,15 +186,13 @@ class SotlasNominalStructSourceClosureTests(unittest.TestCase):
             (("value", "u32", "scalar"),),
         )
 
-    def test_machine_addressing_stays_fail_closed_until_h1c3(self):
+    def test_complete_nominal_closure_is_accepted_by_address_validation(self):
         _, module = _checked_module(_SOURCE)
         target_ir = target_ir_calls.lower_sir_to_typed_target_ir(module)
 
-        with self.assertRaisesRegex(
-            target_ir_addressing.TargetIRAddressingError,
-            "malformed M16.4c field declaration",
-        ):
+        self.assertIsNone(
             target_ir_addressing.validate_target_ir_addressing(target_ir)
+        )
 
     def test_nominal_source_scope_does_not_leak_after_generation(self):
         checked, _ = _checked_module(_SOURCE)
