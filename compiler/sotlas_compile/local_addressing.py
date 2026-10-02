@@ -35,10 +35,37 @@ def make_local_addressing_generator(sir):
     from .enum_source_generator import extend_nullary_enum_generator
     from .local_addressing_generator import make_local_addressing_generator as factory
     from .slice_source_generator import extend_slice_source_generator
+    from .struct_layout import (
+        complete_sir_struct_layout_closure,
+        nominal_struct_layout_scope,
+    )
 
     generated = extend_dynamic_fixed_array_generator(factory(sir), sir)
     generated = extend_nullary_enum_generator(generated, sir)
-    return extend_slice_source_generator(generated, sir)
+    generated = extend_slice_source_generator(generated, sir)
+
+    class NominalStructClosureGenerator(generated):
+        """Scope nominal declarations and close layouts used by source lowering."""
+
+        def generate_from_ast(self, ast: Any):
+            definitions = {
+                struct.name: struct
+                for struct in tuple(getattr(ast, "structs", ()) or ())
+                if isinstance(getattr(struct, "name", None), str)
+                and getattr(struct, "name", None)
+            }
+            with nominal_struct_layout_scope(definitions):
+                module = super().generate_from_ast(ast)
+
+            complete_sir_struct_layout_closure(
+                module,
+                definitions,
+                lambda item: self._type_name(item, "any"),
+            )
+            return module
+
+    NominalStructClosureGenerator.__name__ = "NominalStructClosureGenerator"
+    return NominalStructClosureGenerator
 
 
 def attach_target_ir_local_addresses(

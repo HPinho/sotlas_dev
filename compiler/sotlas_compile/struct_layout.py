@@ -1,18 +1,25 @@
-"""Backend-neutral struct declaration facts for M16.4c / M16.4h1c1.
+"""Backend-neutral struct declaration facts for M16.4c / M16.4h1c.
 
 This module preserves source field order and canonical field types without
 assigning byte offsets. M16.4h1c1 extends the declaration contract with direct
-by-value nominal struct fields while keeping their physical layout deliberately
-unresolved until the machine ABI layer can prove nested aggregate layout.
+by-value nominal struct fields. M16.4h1c2 adds a narrowly scoped source-generation
+context plus dependency closure so canonical SIR can preserve every nominal
+struct declaration required by an actually lowered root layout.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, Iterator, Mapping
 
 
 _SCALAR_FIELD_TYPES = frozenset({"u8", "u16", "u32", "u64", "usize"})
 _FIELD_REPRESENTATIONS = frozenset({"scalar", "nominal_struct"})
+_ACTIVE_NOMINAL_STRUCT_NAMES: ContextVar[frozenset[str] | None] = ContextVar(
+    "sotlas_active_nominal_struct_names",
+    default=None,
+)
 
 
 class StructLayoutError(ValueError):
@@ -48,24 +55,53 @@ def _normalize_nominal_struct_names(names: Iterable[str]) -> frozenset[str]:
     return normalized
 
 
+@contextmanager
+def nominal_struct_layout_scope(
+    names: Iterable[str],
+) -> Iterator[frozenset[str]]:
+    """Temporarily expose checked source struct names to legacy layout callers.
+
+    The original M16.4c source generator calls ``make_struct_layout_decl``
+    without a nominal-name parameter. h1c2 keeps that generator intact and
+    scopes the extra knowledge to one ``generate_from_ast`` call. ContextVar
+    prevents state leaking between nested or concurrent compiler invocations.
+    """
+    normalized = _normalize_nominal_struct_names(names)
+    token = _ACTIVE_NOMINAL_STRUCT_NAMES.set(normalized)
+    try:
+        yield normalized
+    finally:
+        _ACTIVE_NOMINAL_STRUCT_NAMES.reset(token)
+
+
+def _effective_nominal_struct_names(
+    names: Iterable[str] | None,
+) -> frozenset[str]:
+    if names is not None:
+        return _normalize_nominal_struct_names(names)
+    active = _ACTIVE_NOMINAL_STRUCT_NAMES.get()
+    return active if active is not None else frozenset()
+
+
 def make_struct_layout_decl(
     struct: Any,
     type_name: Callable[[Any], str],
     *,
-    nominal_struct_names: Iterable[str] = (),
+    nominal_struct_names: Iterable[str] | None = None,
 ) -> StructLayoutDecl:
     """Build a backend-neutral scalar/nominal declaration from checked source.
 
     Scalar fields preserve the original M16.4c contract. A direct by-value field
     may additionally name another source struct only when that name is supplied
-    through ``nominal_struct_names``. This records nominal identity only; no
-    nested size, alignment, offset, flattening, or ABI class is inferred here.
+    explicitly or by the scoped h1c2 source-generation context. This records
+    nominal identity only; no nested size, alignment, offset, flattening, or ABI
+    class is inferred here.
     """
     name = getattr(struct, "name", None)
     if not isinstance(name, str) or not name:
         raise StructLayoutError("struct layout requires a named source struct")
 
-    nominal_names = _normalize_nominal_struct_names(nominal_struct_names)
+    nominal_names = _effective_nominal_struct_names(nominal_struct_names)
     fields: list[StructFieldDecl] = []
     seen: set[str] = set()
     for field in tuple(getattr(struct, "fields", ()) or ()):
@@ -76,7 +112,7 @@ def make_struct_layout_decl(
             )
         if getattr(field, "bit_width", None) is not None:
             raise StructLayoutError(
-                f"struct {name!r} bit-fields are outside M16.4h1c1"
+                f"struct {name!r} bit-fields are outside M16.4h1c"
             )
 
         source_type = getattr(field, "type", None)
@@ -91,7 +127,7 @@ def make_struct_layout_decl(
             ):
                 raise StructLayoutError(
                     f"struct {name!r} field {field_name!r} type {rendered!r} "
-                    "is outside the M16.4h1c1 scalar/nominal declaration contract"
+                    "is outside the M16.4h1c scalar/nominal declaration contract"
                 )
             if rendered == name:
                 raise StructLayoutError(
@@ -125,6 +161,75 @@ def attach_sir_struct_layout(sir_module: Any, layout: StructLayoutDecl) -> None:
             )
         return
     sir_module.struct_layouts = existing + (layout,)
+
+
+def complete_sir_struct_layout_closure(
+    sir_module: Any,
+    struct_definitions: Mapping[str, Any],
+    type_name: Callable[[Any], str],
+) -> tuple[StructLayoutDecl, ...]:
+    """Close already-used SIR layouts over direct nominal struct dependencies.
+
+    Only declarations reachable from layouts that an existing source lowering
+    actually attached are added. Unused source structs therefore do not pollute
+    canonical SIR. Dependencies are validated from source definitions, cycles
+    fail closed, and physical layout remains entirely deferred.
+    """
+    roots = tuple(getattr(sir_module, "struct_layouts", ()) or ())
+    if not roots:
+        return ()
+
+    definitions = dict(struct_definitions)
+    if any(
+        not isinstance(name, str)
+        or not name
+        or getattr(struct, "name", None) != name
+        for name, struct in definitions.items()
+    ):
+        raise StructLayoutError(
+            "nominal struct closure requires canonical named source definitions"
+        )
+    nominal_names = _normalize_nominal_struct_names(definitions)
+    visiting: set[str] = set()
+    visited: set[str] = set()
+    completed: list[StructLayoutDecl] = []
+
+    def visit(name: str) -> None:
+        if name in visited:
+            return
+        if name in visiting:
+            raise StructLayoutError(
+                f"canonical SIR nominal struct closure contains a by-value cycle at {name!r}"
+            )
+        source = definitions.get(name)
+        if source is None:
+            raise StructLayoutError(
+                f"canonical SIR layout {name!r} has no matching source struct definition"
+            )
+
+        visiting.add(name)
+        layout = make_struct_layout_decl(
+            source,
+            type_name,
+            nominal_struct_names=nominal_names,
+        )
+        for field in layout.fields:
+            if field.representation == "nominal_struct":
+                visit(field.type_name)
+        visiting.remove(name)
+        visited.add(name)
+        attach_sir_struct_layout(sir_module, layout)
+        completed.append(layout)
+
+    for root in roots:
+        name = getattr(root, "name", None)
+        if not isinstance(name, str) or not name:
+            raise StructLayoutError(
+                "canonical SIR contains an invalid root struct layout"
+            )
+        visit(name)
+
+    return tuple(completed)
 
 
 def _validated_layout_map(
@@ -243,5 +348,7 @@ __all__ = [
     "StructLayoutError",
     "attach_sir_struct_layout",
     "attach_target_ir_struct_layouts",
+    "complete_sir_struct_layout_closure",
     "make_struct_layout_decl",
+    "nominal_struct_layout_scope",
 ]
