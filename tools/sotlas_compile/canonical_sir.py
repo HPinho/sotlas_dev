@@ -16,6 +16,7 @@ import importlib.util
 from pathlib import Path
 import sys
 
+from .aggregate_ownership import attach_checked_struct_field_ownership
 from .authority_call_generator import make_authority_call_generator
 from .local_addressing import make_local_addressing_generator
 from .symbol_linkage import attach_checked_source_symbol_linkage
@@ -187,6 +188,7 @@ def build_canonical_checked_ownership_sir(checked_module: object):
     )
     _configure_checked_enum_layouts(semantic, generator)
     module = generator.generate_from_ast(parsed_module)
+    attach_checked_struct_field_ownership(semantic, module)
     attach_checked_source_symbol_linkage(checked_module, module)
     _attach_source_effect_summaries(checked_module, module)
     _attach_foreign_trust_boundaries(checked_module, module)
@@ -245,6 +247,7 @@ def build_canonical_checked_authority_sir(
     )
     _configure_checked_enum_layouts(semantic, generator)
     module = generator.generate_from_ast(parsed_module)
+    attach_checked_struct_field_ownership(semantic, module)
     attach_checked_source_symbol_linkage(checked_module, module)
     _attach_source_effect_summaries(checked_module, module)
     _attach_foreign_trust_boundaries(checked_module, module)
