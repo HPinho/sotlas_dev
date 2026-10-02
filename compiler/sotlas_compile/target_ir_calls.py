@@ -14,11 +14,14 @@ enum ABI classification for the later aggregate-ABI milestone. M16.4f1 carries
 logical slice views as pointer+length facts without selecting physical layout.
 M16.4f3b preserves checked slice indexing as explicit Target IR ``bounds_check``
 and ``slice_address`` operations without selecting machine ABI or byte stride.
+M16.4h1d preserves checked ownership-bearing struct members as semantic Target
+IR side facts after their nominal declarations have been materialized.
 """
 from __future__ import annotations
 
 from typing import Any
 
+from .aggregate_ownership import attach_target_ir_aggregate_ownership
 from .local_addressing import attach_target_ir_local_addresses
 from .struct_layout import attach_target_ir_struct_layouts
 from .symbol_linkage import attach_target_ir_symbol_linkage
@@ -122,6 +125,7 @@ def lower_sir_to_typed_target_ir(module: Any) -> dict[str, Any]:
     attach_target_ir_slice_views(target_ir, module)
     attach_direct_call_result_types(target_ir, module)
     attach_target_ir_struct_layouts(target_ir, module)
+    attach_target_ir_aggregate_ownership(target_ir, module)
     attach_target_ir_local_addresses(target_ir, module)
     attach_target_ir_symbol_linkage(target_ir, module)
     return target_ir
