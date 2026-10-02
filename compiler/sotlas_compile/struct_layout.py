@@ -112,7 +112,7 @@ def make_struct_layout_decl(
             )
         if getattr(field, "bit_width", None) is not None:
             raise StructLayoutError(
-                f"struct {name!r} bit-fields are outside M16.4h1c"
+                f"struct {name!r} bit-fields are outside M16.4h1c1"
             )
 
         source_type = getattr(field, "type", None)
@@ -127,7 +127,7 @@ def make_struct_layout_decl(
             ):
                 raise StructLayoutError(
                     f"struct {name!r} field {field_name!r} type {rendered!r} "
-                    "is outside the M16.4h1c scalar/nominal declaration contract"
+                    "is outside the M16.4h1c1 scalar/nominal declaration contract"
                 )
             if rendered == name:
                 raise StructLayoutError(
