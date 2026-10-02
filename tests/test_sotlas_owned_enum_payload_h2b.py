@@ -130,7 +130,7 @@ class SotlasOwnedEnumPayloadH2BTests(unittest.TestCase):
 
         self.assertEqual(_enum_signatures(checked_sir.module), ())
 
-    def test_automatic_enum_payload_fact_remains_target_ir_fail_closed(self):
+    def test_automatic_enum_payload_fact_is_validated_by_nominal_target_ir(self):
         checked = package.analyze_source_phase1(
             _OWNERSHIP_SOURCE,
             filename="<owned-enum-payload-h2b-target-ir>",
@@ -140,11 +140,10 @@ class SotlasOwnedEnumPayloadH2BTests(unittest.TestCase):
         )
 
         self.assertEqual(len(_enum_signatures(checked_sir.module)), 1)
-        with self.assertRaisesRegex(
-            aggregate.AggregateOwnershipError,
-            "owned enum payload Target IR projection waits for M16.4h2c",
-        ):
-            target_ir_calls.lower_sir_to_typed_target_ir(checked_sir.module)
+        target_ir = target_ir_calls.lower_sir_to_typed_target_ir(checked_sir.module)
+        self.assertIn("MaybeToken", target_ir["nominal_enum_payloads"])
+        projected = tuple(target_ir.get("aggregate_ownership_facts", ()) or ())
+        self.assertFalse(any(item.get("kind") == "enum_payload" for item in projected))
 
     def test_compiler_and_tools_h2b_layers_remain_identical(self):
         for relative in (

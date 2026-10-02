@@ -109,17 +109,19 @@ class SotlasOwnedEnumPayloadH2ATests(unittest.TestCase):
         self.assertEqual(enum_facts[0], combined[1])
         self.assertEqual(tuple(module.aggregate_ownership_facts), combined)
 
-    def test_owned_enum_payload_stays_fail_closed_at_target_ir_until_h2c(self):
+    def test_owned_enum_payload_reaches_logical_target_ir_without_h2d_projection(self):
         checked = self._checked()
         checked_sir, _ = canonical_sir.build_canonical_checked_ownership_sir(
             checked
         )
 
-        with self.assertRaisesRegex(
-            aggregate.AggregateOwnershipError,
-            "owned enum payload Target IR projection waits for M16.4h2c",
-        ):
-            target_ir_calls.lower_sir_to_typed_target_ir(checked_sir.module)
+        target_ir = target_ir_calls.lower_sir_to_typed_target_ir(checked_sir.module)
+        declaration = target_ir["nominal_enum_payloads"]["MaybeToken"]
+        some = next(item for item in declaration["variants"] if item["name"] == "Some")
+        self.assertEqual(some["payload_type"], "Token")
+        self.assertEqual(some["payload_representation"], "nominal_struct")
+        projected = tuple(target_ir.get("aggregate_ownership_facts", ()) or ())
+        self.assertFalse(any(item.get("kind") == "enum_payload" for item in projected))
 
     def test_missing_checked_typed_module_fails_closed(self):
         with self.assertRaisesRegex(

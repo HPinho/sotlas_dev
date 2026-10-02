@@ -18,8 +18,7 @@ def _load_package():
     if package is not None:
         return package
     spec = importlib.util.spec_from_file_location(
-        _PACKAGE,
-        PACKAGE_DIR / "__init__.py",
+        _PACKAGE, PACKAGE_DIR / "__init__.py",
         submodule_search_locations=[str(PACKAGE_DIR)],
     )
     if spec is None or spec.loader is None:
@@ -31,7 +30,6 @@ def _load_package():
 
 
 package = _load_package()
-aggregate = importlib.import_module(f"{_PACKAGE}.aggregate_ownership")
 canonical_sir = importlib.import_module(f"{_PACKAGE}.canonical_sir")
 nominal = importlib.import_module(f"{_PACKAGE}.enum_nominal_payloads")
 target_ir_calls = importlib.import_module(f"{_PACKAGE}.target_ir_calls")
@@ -166,7 +164,7 @@ class SotlasOwnedEnumPayloadH2C2ATests(unittest.TestCase):
         self.assertEqual(returned, before)
         self.assertEqual(tuple(checked_sir.module.nominal_enum_payload_facts), before)
 
-    def test_target_ir_boundary_remains_fail_closed_until_h2c2b(self):
+    def test_target_ir_boundary_advances_to_logical_nominal_sidecar(self):
         checked = package.analyze_source_phase1(
             _OWNERSHIP_SOURCE,
             filename="<owned-enum-payload-h2c2a-target-ir>",
@@ -176,8 +174,13 @@ class SotlasOwnedEnumPayloadH2C2ATests(unittest.TestCase):
         )
 
         self.assertEqual(len(_signatures(checked_sir.module)), 1)
-        with self.assertRaises(aggregate.AggregateOwnershipError):
-            target_ir_calls.lower_sir_to_typed_target_ir(checked_sir.module)
+        target_ir = target_ir_calls.lower_sir_to_typed_target_ir(checked_sir.module)
+        declaration = target_ir["nominal_enum_payloads"]["MaybeToken"]
+        some = next(item for item in declaration["variants"] if item["name"] == "Some")
+        self.assertEqual(
+            (some["payload_type"], some["payload_representation"]),
+            ("Token", "nominal_struct"),
+        )
 
     def test_compiler_and_tools_canonical_sir_remain_identical(self):
         relative = Path("sotlas_compile") / "canonical_sir.py"
