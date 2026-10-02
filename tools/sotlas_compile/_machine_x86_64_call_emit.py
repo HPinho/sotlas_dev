@@ -7,9 +7,12 @@ from . import _machine_x86_64_core as _core
 from ._machine_x86_64_aggregate_allocation import (
     plan_x86_64_sysv_aggregate_allocation,
 )
+from ._machine_x86_64_aggregate_call_emit import (
+    callee_requires_aggregate_call_emission,
+    emit_aggregate_direct_call,
+)
 from ._machine_x86_64_aggregate_param_emit import (
     emit_aggregate_incoming_parameters,
-    validate_aggregate_entry_emission_scope,
 )
 from ._machine_x86_64_call_abi import load_incoming_parameter_to_rax
 from ._machine_x86_64_call_instruction_emit import emit_instruction
@@ -33,7 +36,6 @@ from .target_ir_enums import validate_target_ir_enum_representation
 def emit_x86_64_sysv_assembly(
     target_ir: dict[str, Any], *, register_count: int = 2
 ) -> str:
-    validate_aggregate_entry_emission_scope(target_ir)
     validate_direct_calls(target_ir)
     validate_target_ir_enum_representation(target_ir)
     for function in target_ir.get("functions", ()):
@@ -46,6 +48,9 @@ def emit_x86_64_sysv_assembly(
     enum_layouts = target_ir.get("enum_layouts", {})
     plan_by_name = {
         function["name"]: function for function in plan.get("functions", ())
+    }
+    functions_by_name = {
+        function["name"]: function for function in target_ir.get("functions", ())
     }
     signatures = module_signatures(target_ir)
 
@@ -131,6 +136,25 @@ def emit_x86_64_sysv_assembly(
                         enum_layouts=enum_layouts,
                     )
                     continue
+                if instruction.get("op") == "call":
+                    callee = instruction.get("attributes", {}).get("callee")
+                    callee_plan = plan_by_name.get(callee)
+                    if callee_requires_aggregate_call_emission(callee_plan):
+                        callee_function = functions_by_name.get(callee)
+                        if callee_function is None or callee_plan is None:
+                            raise MachineBackendError(
+                                f"function {name!r}: missing aggregate call target {callee!r}"
+                            )
+                        emit_aggregate_direct_call(
+                            lines,
+                            caller=function,
+                            instruction=instruction,
+                            locations=locations,
+                            caller_value_types=value_types,
+                            callee_function=callee_function,
+                            callee_plan=callee_plan,
+                        )
+                        continue
                 emit_instruction(
                     lines,
                     function=function,
