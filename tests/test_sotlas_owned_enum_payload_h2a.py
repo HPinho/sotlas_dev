@@ -85,52 +85,39 @@ class SotlasOwnedEnumPayloadH2ATests(unittest.TestCase):
         )
         self.assertNotIn("MaybeCount", {fact.enum_name for fact in facts})
 
-    def test_explicit_h2a_bridge_merges_with_existing_h1_struct_fact(self):
+    def test_explicit_h2a_bridge_is_idempotent_after_h2b_auto_attachment(self):
         checked = self._checked()
         checked_sir, _ = canonical_sir.build_canonical_checked_ownership_sir(
             checked
         )
         module = checked_sir.module
 
-        existing = tuple(module.aggregate_ownership_facts)
-        self.assertEqual(len(existing), 1)
-        self.assertIsInstance(existing[0], aggregate.StructFieldOwnershipFact)
-        self.assertEqual(existing[0].struct_name, "Envelope")
-        self.assertEqual(existing[0].field_name, "token")
+        combined = tuple(module.aggregate_ownership_facts)
+        self.assertEqual(len(combined), 2)
+        self.assertIsInstance(combined[0], aggregate.StructFieldOwnershipFact)
+        self.assertEqual(combined[0].struct_name, "Envelope")
+        self.assertEqual(combined[0].field_name, "token")
+        self.assertIsInstance(combined[1], aggregate.EnumPayloadOwnershipFact)
+        self.assertEqual(combined[1].enum_name, "MaybeToken")
+        self.assertEqual(combined[1].variant, "Some")
 
         enum_facts = aggregate.attach_checked_enum_payload_ownership(
             checked.semantic,
             module,
         )
         self.assertEqual(len(enum_facts), 1)
-        combined = tuple(module.aggregate_ownership_facts)
-        self.assertEqual(len(combined), 2)
-        self.assertIsInstance(combined[0], aggregate.StructFieldOwnershipFact)
-        self.assertIsInstance(combined[1], aggregate.EnumPayloadOwnershipFact)
-        self.assertEqual(combined[1], enum_facts[0])
-
-        self.assertEqual(
-            aggregate.attach_checked_enum_payload_ownership(
-                checked.semantic,
-                module,
-            ),
-            enum_facts,
-        )
+        self.assertEqual(enum_facts[0], combined[1])
         self.assertEqual(tuple(module.aggregate_ownership_facts), combined)
 
-    def test_owned_enum_payload_stays_fail_closed_at_target_ir_until_h2b(self):
+    def test_owned_enum_payload_stays_fail_closed_at_target_ir_until_h2c(self):
         checked = self._checked()
         checked_sir, _ = canonical_sir.build_canonical_checked_ownership_sir(
             checked
         )
-        aggregate.attach_checked_enum_payload_ownership(
-            checked.semantic,
-            checked_sir.module,
-        )
 
         with self.assertRaisesRegex(
             aggregate.AggregateOwnershipError,
-            "owned enum payload Target IR projection waits for M16.4h2b",
+            "owned enum payload Target IR projection waits for M16.4h2c",
         ):
             target_ir_calls.lower_sir_to_typed_target_ir(checked_sir.module)
 

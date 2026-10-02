@@ -1,4 +1,4 @@
-"""Backend-neutral ownership facts for aggregates (M16.4h1a / h1d / h2a).
+"""Backend-neutral ownership facts for aggregates (M16.4h1a / h1d / h2a / h2b).
 
 This layer consumes the checked Typed AST instead of re-deriving ownership from
 source syntax. h1 records direct by-value struct fields whose type is a canonical
@@ -246,7 +246,7 @@ def attach_target_ir_aggregate_ownership(
 ) -> dict[str, Any]:
     """Preserve materialized h1 struct ownership facts in Target IR.
 
-    h2a enum payload facts remain SIR-only until nominal payload enum
+    h2b automatically attached enum payload facts remain SIR-only until nominal
     representation is certified. Encountering one here is therefore an explicit
     fail-closed boundary rather than a silent Target IR projection.
     """
@@ -276,7 +276,7 @@ def attach_target_ir_aggregate_ownership(
                     "canonical SIR contains unsupported enum payload ownership facts"
                 )
             raise AggregateOwnershipError(
-                "owned enum payload Target IR projection waits for M16.4h2b"
+                "owned enum payload Target IR projection waits for M16.4h2c"
             )
 
         if not isinstance(fact, StructFieldOwnershipFact):
