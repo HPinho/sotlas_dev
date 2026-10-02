@@ -4,9 +4,15 @@ from __future__ import annotations
 from typing import Any
 
 from . import _machine_x86_64_core as _core
+from ._machine_x86_64_aggregate_allocation import (
+    plan_x86_64_sysv_aggregate_allocation,
+)
+from ._machine_x86_64_aggregate_param_emit import (
+    emit_aggregate_incoming_parameters,
+    validate_aggregate_entry_emission_scope,
+)
 from ._machine_x86_64_call_abi import load_incoming_parameter_to_rax
 from ._machine_x86_64_call_instruction_emit import emit_instruction
-from ._machine_x86_64_call_plan import plan_x86_64_sysv_allocation
 from ._machine_x86_64_call_validation import (
     MachineBackendError,
     function_linkage,
@@ -27,11 +33,15 @@ from .target_ir_enums import validate_target_ir_enum_representation
 def emit_x86_64_sysv_assembly(
     target_ir: dict[str, Any], *, register_count: int = 2
 ) -> str:
+    validate_aggregate_entry_emission_scope(target_ir)
     validate_direct_calls(target_ir)
     validate_target_ir_enum_representation(target_ir)
     for function in target_ir.get("functions", ()):
         validate_abi_function_shape(function)
-    plan = plan_x86_64_sysv_allocation(target_ir, register_count=register_count)
+    plan = plan_x86_64_sysv_aggregate_allocation(
+        target_ir,
+        register_count=register_count,
+    )
     struct_layouts = plan_x86_64_sysv_struct_layouts(target_ir)
     enum_layouts = target_ir.get("enum_layouts", {})
     plan_by_name = {
@@ -65,13 +75,21 @@ def emit_x86_64_sysv_assembly(
         if frame_size:
             lines.append(f"    sub rsp, {frame_size}")
 
-        for index, parameter in enumerate(function.get("parameters", ())):
-            load_incoming_parameter_to_rax(
-                lines, type_name=parameter["type"], index=index
+        if "abi_transport" in function_plan:
+            emit_aggregate_incoming_parameters(
+                lines,
+                function=function,
+                function_plan=function_plan,
+                locations=locations,
             )
-            _core._store_value(
-                lines, parameter["name"], "rax", locations
-            )
+        else:
+            for index, parameter in enumerate(function.get("parameters", ())):
+                load_incoming_parameter_to_rax(
+                    lines, type_name=parameter["type"], index=index
+                )
+                _core._store_value(
+                    lines, parameter["name"], "rax", locations
+                )
 
         for block in function.get("blocks", ()):
             lines.append(f"{block_labels[block['label']]}:")
