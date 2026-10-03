@@ -4,6 +4,7 @@ import importlib
 import importlib.util
 import sys
 from threading import Event
+import time
 import unittest
 from dataclasses import replace
 from pathlib import Path
@@ -168,6 +169,39 @@ flow Home {
         )
         self.assertEqual(result.output("page"), 17)
         self.assertEqual(observed, ["profile", "posts", ("page", 10, 7)])
+
+    def test_typed_and_sir_flow_runners_honor_expired_deadlines(self):
+        checked = package.analyze_source_phase1(self._source("""
+flow Home {
+    stage profile = load_profile;
+}
+"""))
+        plan = checked.flows[0]
+        typed_started = []
+        with self.assertRaises(package.FlowCancelledError):
+            package.execute_typed_flow(
+                plan,
+                {"profile": lambda: typed_started.append(True)},
+                deadline=time.monotonic() - 1.0,
+            )
+        self.assertEqual(typed_started, [])
+
+        checked_sir, _ = package.build_canonical_checked_ownership_sir(checked)
+        sir_started = []
+        with self.assertRaises(package.FlowCancelledError):
+            package.execute_bound_sir_flow(
+                checked_sir.module,
+                "Home",
+                {"load_profile": lambda: sir_started.append(True)},
+                deadline=time.monotonic() - 1.0,
+            )
+        self.assertEqual(sir_started, [])
+        with self.assertRaises(package.FlowCancelledError):
+            package.execute_interpreted_sir_flow(
+                checked_sir.module,
+                "Home",
+                deadline=time.monotonic() - 1.0,
+            )
 
     def test_sir_flow_runner_uses_validated_provenance_and_function_bindings(self):
         checked = package.analyze_source_phase1(self._source("""
@@ -987,6 +1021,25 @@ flow Local { stage value = local; }
         )
         self.assertEqual(bound_execution.selected_flow, "Local")
         self.assertEqual(bound_execution.execution.output("value"), 43)
+        typed_started = []
+        with self.assertRaises(package.FlowCancelledError):
+            package.execute_sir_intent(
+                checked,
+                sir.module,
+                selected,
+                {"value": lambda: typed_started.append(True)},
+                deadline=time.monotonic() - 1.0,
+            )
+        self.assertEqual(typed_started, [])
+        bound_started = []
+        with self.assertRaises(package.FlowCancelledError):
+            package.execute_bound_sir_intent(
+                sir.module,
+                selected,
+                {"local": lambda: bound_started.append(True)},
+                deadline=time.monotonic() - 1.0,
+            )
+        self.assertEqual(bound_started, [])
         self.assertTrue(callable(tools_package.execute_bound_sir_intent))
         with self.assertRaisesRegex(package.IntentError, "differs from the canonical"):
             package.execute_sir_intent(
@@ -1230,6 +1283,77 @@ flow Home {
                 (tampered_plan,), checked.parsed_module, checked_sir.module
             )
 
+    def test_flow_ownership_values_require_linear_consumption(self):
+        source = """module test::flow_owner;
+sole struct Token { value: u32; }
+fn make_token() -> Token { return Token { value: 7u32 }; }
+fn forward(token: Token) -> Token { return token; }
+fn inspect(token: Token) -> u32 { return token.value; }
+flow Linear {
+    stage created = make_token;
+    stage forwarded = forward after created;
+}
+"""
+        checked = package.analyze_source_phase1(source)
+        # A single-consumer owner chain is canonical, but native payload lowering
+        # remains fail-closed until it has destruction and cancellation semantics.
+        with self.assertRaisesRegex(
+            package.FlowSIRError, "native Flow ownership lowering is not supported"
+        ):
+            package.build_canonical_checked_ownership_sir(checked)
+
+    def test_flow_ownership_values_reject_fanout_before_sir_lowering(self):
+        source = """module test::flow_owner_fanout;
+sole struct Token { value: u32; }
+fn make_token() -> Token { return Token { value: 7u32 }; }
+fn inspect(token: Token) -> u32 { return token.value; }
+fn combine(left: u32, right: u32) -> u32 { return left + right; }
+flow Fanout {
+    stage created = make_token;
+    stage first = inspect after created;
+    stage second = inspect after created;
+    stage total = combine after first, second;
+}
+"""
+        checked = package.analyze_source_phase1(source)
+        with self.assertRaisesRegex(
+            package.FlowSIRError, "ownership-bearing value that is consumed more than once"
+        ):
+            package.build_canonical_checked_ownership_sir(checked)
+
+    def test_flow_ownership_value_in_nonfinal_sink_cannot_be_dropped(self):
+        source = """module test::flow_owner_sink;
+sole struct Token { value: u32; }
+fn make_token() -> Token { return Token { value: 7u32 }; }
+fn scalar() -> u32 { return 1u32; }
+flow Dropped {
+    stage owner = make_token;
+    stage result = scalar;
+}
+"""
+        checked = package.analyze_source_phase1(source)
+        with self.assertRaisesRegex(
+            package.FlowSIRError,
+            "ownership-bearing value that is not consumed or returned",
+        ):
+            package.build_canonical_checked_ownership_sir(checked)
+
+    def test_flow_ownership_final_result_uses_topological_schedule_order(self):
+        source = """module test::flow_owner_schedule;
+sole struct Token { value: u32; }
+fn seed() -> u32 { return 7u32; }
+fn make_token(value: u32) -> Token { return Token { value: value }; }
+flow Ordered {
+    stage output = make_token after input;
+    stage input = seed;
+}
+"""
+        checked = package.analyze_source_phase1(source)
+        with self.assertRaisesRegex(
+            package.FlowSIRError, "native Flow ownership lowering is not supported"
+        ):
+            package.build_canonical_checked_ownership_sir(checked)
+
     def test_flow_source_rejects_unknown_stage_function_and_dependency(self):
         for flow, diagnostic in (
             ("flow Broken { stage x = missing; }", "unknown function 'missing'"),
@@ -1238,6 +1362,31 @@ flow Home {
             with self.subTest(diagnostic=diagnostic):
                 with self.assertRaisesRegex(package.SotlasBootstrapError, diagnostic):
                     package.compile_source(self._source(flow))
+
+    def test_flow_stage_semantic_errors_keep_the_stage_source_location(self):
+        source = self._source("""flow Broken {
+    stage bad = missing;
+}""")
+        with self.assertRaises(package.SotlasBootstrapError) as raised:
+            package.compile_source(source, "flow_location.sotlas")
+        error = raised.exception
+        self.assertEqual((error.line, error.column), (8, 5))
+        self.assertIn("flow_location.sotlas:8:5", str(error))
+
+        compatibility_source = """module test::flow_compat_location;
+fn value() -> i32 { return 1; }
+flow Broken { stage invalid = missing; }
+"""
+        compatibility = tools_package.bootstrap.parse(
+            compatibility_source, filename="flow_compat_location.sotlas"
+        )
+        with self.assertRaises(tools_package.SotlasBootstrapError) as compat_error:
+            tools_package.bootstrap.check(compatibility)
+        stage_line = compatibility_source.splitlines()[2]
+        self.assertEqual(compat_error.exception.line, 3)
+        self.assertEqual(
+            compat_error.exception.column, stage_line.index("stage") + 1
+        )
 
     def test_flow_source_rejects_cycles_and_dependency_type_mismatch(self):
         cyclic = self._source("""

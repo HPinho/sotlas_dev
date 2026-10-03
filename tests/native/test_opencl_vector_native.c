@@ -4,16 +4,24 @@
 #include <stddef.h>
 
 int main(void) {
-    const float left[] = {1.0f, -2.0f, 0.5f, 4.0f, 8.0f, -7.0f};
-    const float right[] = {2.0f, 3.0f, -0.5f, 6.0f, -3.0f, 7.0f};
-    const float expected[] = {3.0f, 1.0f, 0.0f, 10.0f, 5.0f, 0.0f};
-    float output[] = {-99.0f, -99.0f, -99.0f, -99.0f, -99.0f, -99.0f};
-    const size_t count = sizeof(left) / sizeof(left[0]);
+    enum { VECTOR_COUNT = 259 };
+    float left[VECTOR_COUNT];
+    float right[VECTOR_COUNT];
+    float output[VECTOR_COUNT];
+    const size_t count = VECTOR_COUNT;
     size_t gpu_index;
     size_t index;
     size_t gpu_count = 0;
     sotlas_opencl_status_t status;
     sotlas_opencl_profile_t profile;
+
+    /* Binary fractions make exact CPU/GPU comparison meaningful while this
+     * length exercises tail handling beyond common workgroup multiples. */
+    for (index = 0; index < count; ++index) {
+        left[index] = (float)((int)(index % 101u) - 50) * 0.25f;
+        right[index] = (float)((int)(index % 37u) - 18) * 0.5f;
+        output[index] = -99.0f;
+    }
 
     status = sotlas_opencl_get_gpu_count(&gpu_count);
     if (status == SOTLAS_OPENCL_NO_GPU ||
@@ -26,7 +34,7 @@ int main(void) {
         if (status != SOTLAS_OPENCL_OK) return 1;
         for (index = 0; index < count; ++index) {
             const float cpu_reference = left[index] + right[index];
-            if (output[index] != cpu_reference || output[index] != expected[index]) return 2;
+            if (output[index] != cpu_reference) return 2;
         }
         if (gpu_index == 0 &&
             (profile.upload_nanoseconds == 0 ||

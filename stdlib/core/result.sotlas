@@ -8,7 +8,64 @@ pub enum ResultCode {
     NotFound = 4,
     PermissionDenied = 5,
     TimedOut = 6,
-    Busy = 7
+    Busy = 7,
+    Overflow = 8
+}
+
+pub class ResultBool {
+    status: ResultCode;
+    value: bool;
+
+    pub fn ok(val: bool) -> ResultBool {
+        let mut r: ResultBool = 0;
+        r.status = ResultCode::Ok;
+        r.value = val;
+        return r;
+    }
+
+    pub fn err(code: ResultCode) -> ResultBool {
+        let mut r: ResultBool = 0;
+        r.status = code;
+        r.value = false;
+        return r;
+    }
+
+    pub fn is_ok(self: *const ResultBool) -> bool {
+        if self == null { return false; }
+        unsafe { return self.status == ResultCode::Ok; }
+    }
+
+    pub fn is_err(self: *const ResultBool) -> bool {
+        if self == null { return true; }
+        unsafe { return self.status != ResultCode::Ok; }
+    }
+
+    pub fn unwrap_or(self: *const ResultBool, default_val: bool) -> bool {
+        if self == null { return default_val; }
+        unsafe {
+            if self.status == ResultCode::Ok { return self.value; }
+        }
+        return default_val;
+    }
+
+    // Copies the success value and leaves output untouched on error.
+    pub fn try_unwrap(self: *const ResultBool, out: *mut bool) -> bool {
+        if self == null || out == null { return false; }
+        unsafe {
+            if self.status != ResultCode::Ok { return false; }
+            *out = self.value;
+            return true;
+        }
+    }
+
+    pub fn unwrap(self: *const ResultBool) -> bool {
+        unsafe { return self.unwrap_or(false); }
+    }
+
+    pub fn unwrap_err(self: *const ResultBool) -> ResultCode {
+        if self == null { return ResultCode::Error; }
+        unsafe { return self.status; }
+    }
 }
 
 pub class ResultU32 {
@@ -57,6 +114,20 @@ pub class ResultU32 {
             }
         }
         return default_val;
+    }
+
+    // Copies the success value to caller storage and leaves it untouched on error.
+    pub fn try_unwrap(self: *const ResultU32, out: *mut u32) -> bool {
+        if self == null || out == null {
+            return false;
+        }
+        unsafe {
+            if self.status != ResultCode::Ok {
+                return false;
+            }
+            *out = self.value;
+            return true;
+        }
     }
 
     pub fn unwrap(self: *const ResultU32) -> u32 {
@@ -123,6 +194,19 @@ pub class ResultI32 {
         return default_val;
     }
 
+    pub fn try_unwrap(self: *const ResultI32, out: *mut i32) -> bool {
+        if self == null || out == null {
+            return false;
+        }
+        unsafe {
+            if self.status != ResultCode::Ok {
+                return false;
+            }
+            *out = self.value;
+            return true;
+        }
+    }
+
     pub fn unwrap(self: *const ResultI32) -> i32 {
         unsafe {
             return self.unwrap_or(0);
@@ -136,5 +220,60 @@ pub class ResultI32 {
         unsafe {
             return self.status;
         }
+    }
+}
+
+pub class ResultU64 {
+    status: ResultCode;
+    value: u64;
+
+    pub fn ok(val: u64) -> ResultU64 {
+        let mut r: ResultU64 = 0;
+        r.status = ResultCode::Ok;
+        r.value = val;
+        return r;
+    }
+
+    pub fn err(code: ResultCode) -> ResultU64 {
+        let mut r: ResultU64 = 0;
+        r.status = code;
+        r.value = 0u64;
+        return r;
+    }
+
+    pub fn is_ok(self: *const ResultU64) -> bool {
+        if self == null { return false; }
+        unsafe { return self.status == ResultCode::Ok; }
+    }
+
+    pub fn is_err(self: *const ResultU64) -> bool {
+        if self == null { return true; }
+        unsafe { return self.status != ResultCode::Ok; }
+    }
+
+    pub fn unwrap_or(self: *const ResultU64, default_val: u64) -> u64 {
+        if self == null { return default_val; }
+        unsafe {
+            if self.status == ResultCode::Ok { return self.value; }
+        }
+        return default_val;
+    }
+
+    pub fn try_unwrap(self: *const ResultU64, out: *mut u64) -> bool {
+        if self == null || out == null { return false; }
+        unsafe {
+            if self.status != ResultCode::Ok { return false; }
+            *out = self.value;
+            return true;
+        }
+    }
+
+    pub fn unwrap(self: *const ResultU64) -> u64 {
+        unsafe { return self.unwrap_or(0u64); }
+    }
+
+    pub fn unwrap_err(self: *const ResultU64) -> ResultCode {
+        if self == null { return ResultCode::Error; }
+        unsafe { return self.status; }
     }
 }

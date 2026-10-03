@@ -39,6 +39,7 @@ class SotlasStdlibTests(unittest.TestCase):
         module = bootstrap.parse(source, filename="<stdlib/result>")
         bootstrap.check(module)
         emitted = bootstrap.emit_c(module)
+        self.assertIn("ResultBool", emitted)
         self.assertIn("ResultU32", emitted)
         self.assertIn("ResultI32", emitted)
 
@@ -69,10 +70,14 @@ class SotlasStdlibTests(unittest.TestCase):
         self.assertIn("allocator_free", emitted_alloc)
         self.assertIn("arena_as_allocator", emitted_alloc)
 
+        result_src = (ROOT / "stdlib" / "core" / "result.sotlas").read_text(encoding="utf-8")
+        mod_result = bootstrap.parse(result_src, filename="<stdlib/result>")
+        bootstrap.check(mod_result)
+
         mod_str = bootstrap.parse(str_src, filename="<stdlib/string>")
         bootstrap.check_with_imports(
             mod_str,
-            {mod_alloc.name: mod_alloc},
+            {mod_alloc.name: mod_alloc, mod_result.name: mod_result},
         )
         emitted_str = bootstrap.emit_c(mod_str)
         self.assertIn("StringSlice", emitted_str)
@@ -84,6 +89,8 @@ class SotlasStdlibTests(unittest.TestCase):
         self.assertIn("string_append_slice_owned", emitted_str)
         self.assertIn("string_growth_capacity", emitted_str)
         self.assertIn("string_deinit", emitted_str)
+        self.assertIn("string_parse_u32", emitted_str)
+        self.assertIn("string_parse_i32", emitted_str)
 
 
 if __name__ == "__main__":

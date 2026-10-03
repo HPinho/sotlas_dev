@@ -1,8 +1,8 @@
 module foundation::hashmap;
 
-pub struct OptionU32 {
+pub struct OptionU64 {
     pub has_value: bool;
-    pub value: u32;
+    pub value: u64;
 }
 
 pub struct HashEntry {
@@ -29,6 +29,9 @@ pub fn hashmap_new(backing_entries: *mut HashEntry, cap: usize) -> HashMapU64 {
     hm.entries = backing_entries;
     hm.capacity = cap;
     hm.count = 0;
+    if backing_entries == null {
+        hm.capacity = 0;
+    }
     if backing_entries != null {
         let mut i: usize = 0;
         unsafe {
@@ -49,6 +52,10 @@ pub fn hashmap_len(hm: *const HashMapU64) -> usize {
         return 0;
     }
     unsafe {
+        if (*hm).entries == null || (*hm).capacity == 0 ||
+            (*hm).count > (*hm).capacity {
+            return 0;
+        }
         return (*hm).count;
     }
 }
@@ -84,7 +91,7 @@ pub fn hash_str(str_ptr: *const u8, len: usize) -> u64 {
     let mut i: usize = 0;
     unsafe {
         while i < len {
-            let b: u64 = *(str_ptr + i) as u64;
+            let b: u64 = str_ptr[i] as u64;
             h = (h ^ b) * 1099511628211;
             i = i + 1;
         }
@@ -97,7 +104,8 @@ pub fn hashmap_insert(hm: *mut HashMapU64, key: u64, value: u64) -> bool {
         return false;
     }
     unsafe {
-        if (*hm).entries == null || (*hm).count >= (*hm).capacity {
+        if (*hm).entries == null || (*hm).capacity == 0 ||
+            (*hm).count > (*hm).capacity {
             return false;
         }
         let hash_val: u64 = hash_key(key);
@@ -108,6 +116,9 @@ pub fn hashmap_insert(hm: *mut HashMapU64, key: u64, value: u64) -> bool {
             let entry: *mut HashEntry = (*hm).entries + index;
             if !(*entry).is_occupied || (*entry).key == key {
                 if !(*entry).is_occupied {
+                    if (*hm).count >= (*hm).capacity {
+                        return false;
+                    }
                     (*hm).count = (*hm).count + 1;
                 }
                 (*entry).is_occupied = true;
@@ -122,16 +133,17 @@ pub fn hashmap_insert(hm: *mut HashMapU64, key: u64, value: u64) -> bool {
     }
 }
 
-pub fn hashmap_get(hm: *const HashMapU64, key: u64) -> OptionU32 {
+pub fn hashmap_get(hm: *const HashMapU64, key: u64) -> OptionU64 {
     if hm == null {
-        let mut opt: OptionU32 = 0;
+        let mut opt: OptionU64 = 0;
         opt.has_value = false;
         opt.value = 0;
         return opt;
     }
     unsafe {
-        if (*hm).entries == null || (*hm).count == 0 {
-            let mut opt: OptionU32 = 0;
+        if (*hm).entries == null || (*hm).capacity == 0 ||
+            (*hm).count == 0 || (*hm).count > (*hm).capacity {
+            let mut opt: OptionU64 = 0;
             opt.has_value = false;
             opt.value = 0;
             return opt;
@@ -143,21 +155,21 @@ pub fn hashmap_get(hm: *const HashMapU64, key: u64) -> OptionU32 {
         while attempts < (*hm).capacity {
             let entry: *const HashEntry = (*hm).entries + index;
             if !(*entry).is_occupied {
-                let mut opt: OptionU32 = 0;
+                let mut opt: OptionU64 = 0;
                 opt.has_value = false;
                 opt.value = 0;
                 return opt;
             }
             if (*entry).key == key {
-                let mut opt: OptionU32 = 0;
+                let mut opt: OptionU64 = 0;
                 opt.has_value = true;
-                opt.value = (*entry).value as u32;
+                opt.value = (*entry).value;
                 return opt;
             }
             index = (index + 1) % (*hm).capacity;
             attempts = attempts + 1;
         }
-        let mut opt: OptionU32 = 0;
+        let mut opt: OptionU64 = 0;
         opt.has_value = false;
         opt.value = 0;
         return opt;
@@ -168,7 +180,7 @@ pub fn hashmap_contains_key(hm: *const HashMapU64, key: u64) -> bool {
     if hm == null {
         return false;
     }
-    let opt: OptionU32 = hashmap_get(hm, key);
+    let opt: OptionU64 = hashmap_get(hm, key);
     return opt.has_value;
 }
 
@@ -177,7 +189,8 @@ pub fn hashmap_remove(hm: *mut HashMapU64, key: u64) -> bool {
         return false;
     }
     unsafe {
-        if (*hm).entries == null || (*hm).count == 0 {
+        if (*hm).entries == null || (*hm).capacity == 0 ||
+            (*hm).count == 0 || (*hm).count > (*hm).capacity {
             return false;
         }
         let hash_val: u64 = hash_key(key);

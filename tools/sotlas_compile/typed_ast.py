@@ -19,6 +19,10 @@ MATURITY = "ISOLATED_PHASE1"
 class Phase1SemanticError(ValueError):
     """Raised by isolated Phase-1 semantic validators."""
 
+    def __init__(self, message: str, token=None):
+        super().__init__(message)
+        self.token = token
+
 
 class VarState(str, Enum):
     LIVE = "LIVE"
@@ -5689,6 +5693,7 @@ def _validate_whisper_call_escapes(
     noescape_parameters: set[tuple[str, int]],
 ) -> None:
     kind = type(expr).__name__
+    token = getattr(expr, "token", None)
     if kind == "Call":
         arguments = tuple(getattr(expr, "args", ()))
         callee = getattr(expr, "callee", None)
@@ -5702,7 +5707,8 @@ def _validate_whisper_call_escapes(
             ):
                 raise Phase1SemanticError(
                     "whisper-derived reference cannot be forwarded through a call "
-                    "without a verified no-escape parameter summary"
+                    "without a verified no-escape parameter summary",
+                    token,
                 )
     elif kind == "MethodCall":
         target = getattr(expr, "target", None)
@@ -5729,7 +5735,8 @@ def _validate_whisper_call_escapes(
             ):
                 raise Phase1SemanticError(
                     "whisper-derived reference cannot be forwarded through a method "
-                    "without a verified no-escape parameter summary"
+                    "without a verified no-escape parameter summary",
+                    token,
                 )
     for child in _whisper_expr_children(expr):
         _validate_whisper_call_escapes(
@@ -5762,6 +5769,7 @@ def _validate_whisper_lifetimes(
         result_tainted = set(tainted)
         for statement in statements:
             kind = type(statement).__name__
+            token = getattr(statement, "token", None)
             if kind == "Let":
                 value = getattr(statement, "value", None)
                 _validate_whisper_call_escapes(
@@ -5781,7 +5789,8 @@ def _validate_whisper_lifetimes(
                 )
                 if alias and bool(getattr(statement, "is_static", False)):
                     raise Phase1SemanticError(
-                        "whisper-derived reference cannot be stored in static local storage"
+                        "whisper-derived reference cannot be stored in static local storage",
+                        token,
                     )
                 result_env[statement.name] = declared
                 if alias:
@@ -5806,7 +5815,8 @@ def _validate_whisper_lifetimes(
                         or getattr(target, "value", None) not in result_env
                     ):
                         raise Phase1SemanticError(
-                            "whisper-derived reference cannot be stored outside a local binding"
+                            "whisper-derived reference cannot be stored outside a local binding",
+                            token,
                         )
                     result_tainted.add(target.value)
                 elif type(target).__name__ == "Name":
@@ -5828,14 +5838,17 @@ def _validate_whisper_lifetimes(
                         ).type
                     except Phase1SemanticError:
                         raise Phase1SemanticError(
-                            "whisper-derived value cannot escape through return"
+                            "whisper-derived value cannot escape through return",
+                            token,
                         )
                     if _whisper_type_carries_alias(return_type, typed_module):
                         raise Phase1SemanticError(
-                            "whisper-derived pointer cannot escape through return"
+                            "whisper-derived pointer cannot escape through return",
+                            token,
                         )
                     raise Phase1SemanticError(
-                        "whisper-derived value cannot escape through return"
+                        "whisper-derived value cannot escape through return",
+                        token,
                     )
                 continue
 
@@ -5896,7 +5909,8 @@ def _validate_whisper_lifetimes(
                     deferred_value, result_env, typed_module, result_tainted
                 ):
                     raise Phase1SemanticError(
-                        "defer cannot capture a whisper-derived reference"
+                        "defer cannot capture a whisper-derived reference",
+                        token,
                     )
                 for nested in getattr(statement, "body", ()) or ():
                     _, nested_tainted = visit_block(
@@ -5905,7 +5919,8 @@ def _validate_whisper_lifetimes(
                     )
                     if nested_tainted - result_tainted:
                         raise Phase1SemanticError(
-                            "defer cannot extend a whisper-derived reference lifetime"
+                            "defer cannot extend a whisper-derived reference lifetime",
+                            token,
                         )
                 continue
 
@@ -5921,7 +5936,8 @@ def _validate_whisper_lifetimes(
                     for operand in operands
                 ):
                     raise Phase1SemanticError(
-                        "asm cannot retain or export a whisper-derived reference"
+                        "asm cannot retain or export a whisper-derived reference",
+                        token,
                     )
 
             if kind not in {
@@ -5943,7 +5959,8 @@ def _validate_whisper_lifetimes(
                     for expr in candidate_exprs
                 ):
                     raise Phase1SemanticError(
-                        "unsupported statement may retain or export a whisper-derived reference"
+                        "unsupported statement may retain or export a whisper-derived reference",
+                        token,
                     )
 
         return result_env, result_tainted
@@ -6053,7 +6070,8 @@ def _validate_whisper_lifetimes(
                 )
                 if direct_only:
                     raise Phase1SemanticError(
-                        str(error).replace("whisper-derived", "direct-derived")
+                        str(error).replace("whisper-derived", "direct-derived"),
+                        getattr(error, "token", None),
                     ) from error
                 raise
 

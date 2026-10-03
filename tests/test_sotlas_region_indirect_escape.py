@@ -29,6 +29,25 @@ bootstrap = package.bootstrap
 
 
 class SotlasRegionIndirectEscapeTests(unittest.TestCase):
+    def test_region_value_cannot_cross_function_pointer_field_call(self):
+        source = """module app::region_indirect_value_escape;
+sole struct Token { value: u32; }
+sole struct Holder { token: Token; }
+struct Dispatch { callback: fn(Token) -> void; }
+fn run(dispatch: Dispatch, holder: region Holder) -> void {
+    dispatch.callback(move holder.token);
+    return;
+}
+"""
+        module = bootstrap.parse(
+            source, filename="<region-indirect-value-escape>"
+        )
+        with self.assertRaisesRegex(
+            bootstrap.SotlasBootstrapError,
+            r"region owner 'holder'.*indirect function-pointer call.*no-escape",
+        ):
+            bootstrap.check(module)
+
     def test_region_reference_cannot_cross_function_pointer_field_call(self):
         source = """module app::region_indirect_escape;
 sole struct Token { value: u32; }

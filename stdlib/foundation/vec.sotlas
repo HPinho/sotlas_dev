@@ -26,6 +26,9 @@ pub fn vec_new(backing_memory: *mut u32, initial_cap: usize) -> VecU32 {
     v.data = backing_memory;
     v.length = 0;
     v.cap = initial_cap;
+    if backing_memory == null {
+        v.cap = 0;
+    }
     return v;
 }
 
@@ -34,6 +37,9 @@ pub fn vec_len(v: *const VecU32) -> usize {
         return 0;
     }
     unsafe {
+        if (*v).data == null || (*v).cap == 0 || (*v).length > (*v).cap {
+            return 0;
+        }
         return (*v).length;
     }
 }
@@ -52,6 +58,9 @@ pub fn vec_is_empty(v: *const VecU32) -> bool {
         return true;
     }
     unsafe {
+        if (*v).data == null || (*v).cap == 0 || (*v).length > (*v).cap {
+            return true;
+        }
         return (*v).length == 0;
     }
 }
@@ -79,7 +88,7 @@ pub fn vec_pop(v: *mut VecU32) -> OptionU32 {
         return opt;
     }
     unsafe {
-        if (*v).length == 0 || (*v).data == null {
+        if (*v).length == 0 || (*v).length > (*v).cap || (*v).data == null {
             let mut opt: OptionU32 = 0;
             opt.has_value = false;
             opt.value = 0;
@@ -102,7 +111,7 @@ pub fn vec_get(v: *const VecU32, index: usize) -> OptionU32 {
         return opt;
     }
     unsafe {
-        if index >= (*v).length || (*v).data == null {
+        if (*v).length > (*v).cap || index >= (*v).length || (*v).data == null {
             let mut opt: OptionU32 = 0;
             opt.has_value = false;
             opt.value = 0;

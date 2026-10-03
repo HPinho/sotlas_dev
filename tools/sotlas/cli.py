@@ -38,6 +38,12 @@ production_frontend = canonical_llvm_frontend()
 compile_source = production_frontend.compile_source
 SotlasBootstrapError = production_frontend.SotlasBootstrapError
 
+
+def _compile_cli_source(source_text: str, source_name: str) -> str:
+    """Compile through the project-aware canonical C11 path used by run."""
+    from sotlas.llvm_toolchain import LLVMToolchain
+    return LLVMToolchain.compile_c11_source(source_text, source_name)
+
 SOTLAS_EXT = ".sotlas"
 _TARGET_CHOICES = (
     "host", "x86_64-freestanding", "x86_64-unknown-none-elf",
@@ -307,7 +313,7 @@ def _run_check(source_path: str) -> int:
     try:
         # `check` e `compile` compartilham o mesmo contrato de aceitação.
         # O C11 gerado permanece apenas em memória neste comando.
-        compile_source(text, source_path)
+        _compile_cli_source(text, source_path)
     except SotlasBootstrapError as error:
         print(f"sotlas: erro: {error}", file=sys.stderr)
         return 1
@@ -617,16 +623,16 @@ def _run_compile(args) -> int:
         emit_type = "obj"
     elif getattr(args, "emit_c", False) or (output_arg and str(output_arg).endswith(".c")):
         emit_type = "c"
+
     backend = getattr(args, "backend", "llvm")
-    if backend == "sotlas-x86_64" and emit_type != "asm":
+    if backend == "sotlas-x86_64" and emit_type not in ("asm", "obj"):
         print(
-            "sotlas: --backend sotlas-x86_64 requires --emit-asm or a .s/.asm output",
+            "sotlas: --backend sotlas-x86_64 requires --emit-asm, --emit-obj, or a .s/.asm/.o/.obj output",
             file=sys.stderr,
         )
         return 2
 
-
-    if emit_type == "asm":
+    if emit_type == "asm" or (backend == "sotlas-x86_64" and emit_type == "obj"):
         if backend == "sotlas-x86_64":
             supported_targets = {
                 "x86_64-freestanding",
@@ -646,14 +652,41 @@ def _run_compile(args) -> int:
                 compile_source_to_x86_64_sysv_assembly,
             )
 
-            out_path = Path(args.output) if args.output else src.with_suffix(".s")
+            default_suffix = ".s" if emit_type == "asm" else (
+                ".obj" if sys.platform == "win32" else ".o"
+            )
+            out_path = Path(args.output) if args.output else src.with_suffix(default_suffix)
             try:
                 assembly = compile_source_to_x86_64_sysv_assembly(
                     text, args.source
                 )
                 out_path.parent.mkdir(parents=True, exist_ok=True)
-                out_path.write_text(assembly, encoding="utf-8")
-                print(f"sotlas: Sotlas-owned x86-64 assembly emitted to {out_path}")
+                if emit_type == "asm":
+                    out_path.write_text(assembly, encoding="utf-8")
+                    print(f"sotlas: Sotlas-owned x86-64 assembly emitted to {out_path}")
+                    return 0
+
+                assembler_command = [args.cc, "-x", "assembler", "-c", "-o", str(out_path), "-"]
+                if args.target != "host":
+                    target_triple = {
+                        "x86_64-freestanding": "x86_64-unknown-none-elf",
+                        "x86_64-unknown-none-elf": "x86_64-unknown-none-elf",
+                        "x86_64-unknown-linux-gnu": "x86_64-unknown-linux-gnu",
+                    }[args.target]
+                    assembler_command[1:1] = ["-target", target_triple]
+                result = subprocess.run(
+                    assembler_command,
+                    input=assembly,
+                    capture_output=True,
+                    text=True,
+                )
+                if result.returncode != 0:
+                    print(
+                        f"sotlas: assembler failed for Sotlas-owned x86-64 output:\n{result.stderr}",
+                        file=sys.stderr,
+                    )
+                    return result.returncode or 1
+                print(f"sotlas: Sotlas-owned x86-64 object emitted to {out_path}")
                 return 0
             except (MachineBackendError, OSError, ValueError) as error:
                 print(f"sotlas: x86-64 machine backend error: {error}", file=sys.stderr)
@@ -697,7 +730,7 @@ def _run_compile(args) -> int:
         return _run_compile_internal_linker(args, src, text)
 
     try:
-        c_code = compile_source(text, args.source)
+        c_code = _compile_cli_source(text, args.source)
     except SotlasBootstrapError as error:
         print(f"sotlas: erro: {error}", file=sys.stderr)
         return 1
@@ -832,7 +865,7 @@ def _run_compile_internal_linker(args, src: Path, text: str) -> int:
 
     # Passo 1: compilar código Sotlas → C11 freestanding
     try:
-        c_code = compile_source(text, args.source)
+        c_code = _compile_cli_source(text, args.source)
     except SotlasBootstrapError as err:
         print(f"sotlas: erro: {err}", file=sys.stderr)
         return 1
@@ -899,7 +932,7 @@ def _run_exec(args) -> int:
                 return 1
 
     try:
-        c_code = compile_source(text, args.source)
+        c_code = _compile_cli_source(text, args.source)
     except SotlasBootstrapError as error:
         print(f"sotlas: erro: {error}", file=sys.stderr)
         return 1

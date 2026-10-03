@@ -7,6 +7,7 @@ from typing import Mapping
 
 from .flow_sir import FlowSIRError, _source_type_name, validate_sir_flow_plans
 from .flow_runtime import (
+    FlowCancelledError,
     FlowExecutionResult,
     execute_bound_sir_flow,
     execute_typed_flow,
@@ -246,6 +247,7 @@ def execute_sir_intent(
     *,
     max_workers: int | None = None,
     cancel_event=None,
+    deadline: float | None = None,
     provider_executors: Mapping[str, object] | None = None,
 ) -> IntentExecutionResult:
     """Execute only the selected Flow after revalidating intent and SIR evidence."""
@@ -316,7 +318,8 @@ def execute_sir_intent(
     provider = _execution_provider(intent)
     if provider is None:
         execution = execute_typed_flow(
-            typed_plan, actions, max_workers=max_workers, cancel_event=cancel_event
+            typed_plan, actions, max_workers=max_workers,
+            cancel_event=cancel_event, deadline=deadline,
         )
     else:
         executors = provider_executors or {}
@@ -330,7 +333,10 @@ def execute_sir_intent(
                 typed_plan, actions,
                 max_workers=max_workers,
                 cancel_event=cancel_event,
+                deadline=deadline,
             )
+        except FlowCancelledError:
+            raise
         except Exception as error:
             raise IntentError(f"provider {provider!r} failed: {error}") from error
         execution = _validate_provider_result(
@@ -351,6 +357,7 @@ def execute_bound_sir_intent(
     *,
     max_workers: int | None = None,
     cancel_event=None,
+    deadline: float | None = None,
     provider_executors: Mapping[str, object] | None = None,
 ) -> IntentExecutionResult:
     """Execute the selected strategy using only its reconciled canonical SIR plan."""
@@ -392,6 +399,7 @@ def execute_bound_sir_intent(
                 function_bindings,
                 max_workers=max_workers,
                 cancel_event=cancel_event,
+                deadline=deadline,
             )
         else:
             executors = provider_executors or {}
@@ -408,6 +416,7 @@ def execute_bound_sir_intent(
                 sir_module, sir_plan, function_bindings,
                 max_workers=max_workers,
                 cancel_event=cancel_event,
+                deadline=deadline,
             )
             execution = _validate_provider_result(
                 execution,
@@ -415,6 +424,8 @@ def execute_bound_sir_intent(
                 provider,
             )
     except IntentError:
+        raise
+    except FlowCancelledError:
         raise
     except (FlowSIRError, TypeError, ValueError) as error:
         raise IntentError(f"selected SIR Flow cannot execute: {error}") from error

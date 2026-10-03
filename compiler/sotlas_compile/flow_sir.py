@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .flow_frontend import _c11_flow_trivial_owner_type
 from .flow_graph import FlowDependency, FlowNode, certify_flow_graph
 
 
@@ -50,6 +51,45 @@ def _source_type_name(type_info) -> str:
     if getattr(type_info, "pointer", False) or getattr(type_info, "is_reference", False):
         name += "*"
     return name
+
+
+def _source_type_has_ownership(type_info, source_module) -> bool:
+    """Identify values whose Flow edges must obey linear ownership."""
+    if getattr(type_info, "ownership_domain", None) is not None:
+        return True
+    name = getattr(type_info, "name", None)
+    return any(
+        item.name == name and getattr(item, "is_sole", False)
+        for item in getattr(source_module, "structs", ())
+    )
+
+
+def _validate_flow_owner_linearity(plan, source_module) -> None:
+    """Reject owner fan-out and owner results that Flow silently drops."""
+    stages = {stage.name: stage for stage in plan.stages}
+    consumers: dict[str, list[str]] = {name: [] for name in stages}
+    for stage in plan.stages:
+        for dependency in stage.dependencies:
+            consumers.setdefault(dependency, []).append(stage.name)
+    for name, stage in stages.items():
+        if not _source_type_has_ownership(stage.result_type, source_module):
+            continue
+        count = len(consumers.get(name, ()))
+        if count > 1:
+            raise FlowSIRError(
+                f"Flow stage {name!r} produces an ownership-bearing value "
+                "that is consumed more than once"
+            )
+        final_layer = (
+            plan.graph.parallel_stages[-1]
+            if plan.graph.parallel_stages else ()
+        )
+        final_stage = final_layer[-1] if final_layer else None
+        if count == 0 and name != final_stage:
+            raise FlowSIRError(
+                f"Flow stage {name!r} produces an ownership-bearing value "
+                "that is not consumed or returned by the plan"
+            )
 
 
 def validate_sir_flow_plans(sir_module):
@@ -191,6 +231,7 @@ def lower_typed_flows_to_sir(typed_flows, source_module, sir_module):
             ) from error
         if graph != plan.graph:
             raise FlowSIRError(f"Flow SIR plan {plan.name!r} is not canonical")
+        _validate_flow_owner_linearity(plan, source_module)
 
         typed_by_name = {stage.name: stage for stage in plan.stages}
         if len(typed_by_name) != len(plan.stages):
@@ -248,6 +289,14 @@ def lower_typed_flows_to_sir(typed_flows, source_module, sir_module):
                 raise FlowSIRError(
                     f"Flow stage {stage.name!r} typed result fact is inconsistent"
                 )
+            if _source_type_has_ownership(stage.result_type, source_module):
+                if not _c11_flow_trivial_owner_type(
+                    stage.result_type, source_module
+                ):
+                    raise FlowSIRError(
+                        f"Flow stage {stage.name!r} carries ownership-bearing "
+                        "payloads; native Flow ownership lowering is not supported"
+                    )
             if len(source_function.params) != len(stage.dependencies):
                 raise FlowSIRError(
                     f"Flow stage {stage.name!r} dependency arity changed after checking"

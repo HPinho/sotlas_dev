@@ -34,6 +34,8 @@ def execute_flow_cfg(
     cfg: FlowExecutableCFG,
     *,
     cancel_event: Event | None = None,
+    max_workers: int | None = None,
+    deadline: float | None = None,
 ) -> FlowExecutionResult:
     """Execute one certified Flow call CFG with dependency-layer concurrency.
 
@@ -159,9 +161,14 @@ def execute_flow_cfg(
     return execute_flow(
         graph,
         actions,
-        max_workers=max(1, min(len(runtime_calls), 32)),
+        max_workers=(
+            max_workers
+            if max_workers is not None
+            else max(1, min(len(runtime_calls), 32))
+        ),
         cancel_event=cancel_event,
         cooperative=True,
+        deadline=deadline,
     )
 
 

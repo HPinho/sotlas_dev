@@ -335,6 +335,39 @@ class LLVMToolchain:
                     self.llvm_dir = candidate
                     break
 
+    @staticmethod
+    def _compile_c11_source(frontend, source_text: str, source_name: str) -> str:
+        """Compile a project entry with its dependency graph when available."""
+        source_path = Path(source_name)
+        project_roots = tuple(
+            parent
+            for parent in (source_path.parent, *source_path.parents)
+            if (parent / "core").is_dir()
+        )
+        has_imports = bool(re.search(r"(?m)^\s*import\s+", source_text))
+        if source_path.is_file() and project_roots and has_imports:
+            # Project emission resolves transitive imports and includes the ARC
+            # atomic runtime when core::arc is part of the dependency graph.
+            # Imports require project emission; single-module C would preserve
+            # calls to imported symbols without emitting their definitions.
+            with tempfile.TemporaryDirectory(prefix="sotlas-c11-project-") as temp:
+                generated = Path(temp) / "project.c"
+                if hasattr(frontend, "emit_c_project"):
+                    frontend.emit_c_project(source_path, generated)
+                else:
+                    from sotlas_compile.bootstrap import emit_c_project
+                    emit_c_project(source_path, generated)
+                return generated.read_text(encoding="utf-8")
+
+        return frontend.compile_source(source_text, filename=source_name)
+
+    @classmethod
+    def compile_c11_source(cls, source_text: str, source_name: str) -> str:
+        """Use the canonical frontend and resolve project dependencies when present."""
+        return cls._compile_c11_source(
+            canonical_llvm_frontend(), source_text, source_name
+        )
+
     def find_tool(self, tool_name: str) -> Optional[Path]:
         """Localiza uma ferramenta LLVM específica (ex: 'clang', 'lld-link', 'llc', 'lldb')."""
         exe_suffix = ".exe" if os.name == "nt" else ""
@@ -615,9 +648,8 @@ class LLVMToolchain:
             )
 
         from sotlas.codegen_llvm import CodegenLLVM
-        production_frontend = canonical_llvm_frontend()
-
         if emit_type == "llvm":
+            production_frontend = canonical_llvm_frontend()
             ast = production_frontend.parse(source_text, filename=source_name)
             sir_mod = generate_llvm_sir(ast, production_frontend)
             llvm_gen = CodegenLLVM(
@@ -634,6 +666,7 @@ class LLVMToolchain:
         safe_stem = re.sub(r'[^a-zA-Z0-9_]', '_', Path(source_name).stem) or "sotlas_module"
 
         if backend == "llvm":
+            production_frontend = canonical_llvm_frontend()
             ast = production_frontend.parse(source_text, filename=source_name)
             sir_mod = generate_llvm_sir(ast, production_frontend)
             llvm_gen = CodegenLLVM(
@@ -663,9 +696,7 @@ class LLVMToolchain:
             # backends. Importing ``sotlas.compile_source`` can resolve a stale
             # tools mirror when both source trees are on sys.path, sending
             # C11 through a different grammar and ownership contract.
-            c_code = production_frontend.compile_source(
-                source_text, filename=source_name
-            )
+            c_code = self.compile_c11_source(source_text, source_name)
             if emit_type == "obj":
                 return self.compile_c_to_obj(
                     c_code,

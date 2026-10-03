@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class SotlasFlowRunCliTests(unittest.TestCase):
-    def _run(self, source: str, *arguments: str):
+    def _run(self, source: str, *arguments: str, guard_timeout: float = 15):
         temporary = tempfile.TemporaryDirectory(prefix="sotlas-flow-run-")
         self.addCleanup(temporary.cleanup)
         source_path = Path(temporary.name) / "flow.sotlas"
@@ -35,6 +35,7 @@ class SotlasFlowRunCliTests(unittest.TestCase):
             text=True,
             env=environment,
             check=False,
+            timeout=guard_timeout,
         )
 
     def test_runs_canonical_parallel_scalar_flow_and_prints_stage_outputs(self):
@@ -180,6 +181,47 @@ flow Compute {
         self.assertEqual(report["backend"], "c11")
         self.assertEqual(report["outputs"], {"high": 10, "low": 3})
 
+    def test_c11_flow_runner_serializes_nested_record_outputs_from_branching_stages(self):
+        result = self._run(
+            """module test::flow_run_nested_records;
+@repr(C)
+pub struct Point { x: u32; y: u32; }
+@repr(C)
+pub struct Frame { origin: Point; scale: f64; }
+fn make_frame() -> Frame {
+    return Frame { origin: Point { x: 4u32, y: 9u32 }, scale: 1.5f64 };
+}
+fn enabled() -> bool { return true; }
+fn translate(frame: Frame, flag: bool) -> Frame {
+    if flag {
+        return Frame {
+            origin: Point { x: frame.origin.x + 3u32, y: frame.origin.y + 2u32 },
+            scale: frame.scale * 2.0f64,
+        };
+    }
+    return frame;
+}
+flow Render {
+    stage input = make_frame;
+    stage flag = enabled;
+    stage output = translate after input, flag;
+}
+""",
+            "--flow",
+            "Render",
+            "--backend",
+            "c11",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)
+        self.assertEqual(report["backend"], "c11")
+        self.assertEqual(report["outputs"], {
+            "input": {"origin": {"x": 4, "y": 9}, "scale": 1.5},
+            "flag": True,
+            "output": {"origin": {"x": 7, "y": 11}, "scale": 3.0},
+        })
+
     def test_reports_unknown_plan_without_success_json(self):
         result = self._run(
             """module test::flow_run_missing;
@@ -227,6 +269,105 @@ flow Compute { stage seed = load; }
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(result.stdout, "")
         self.assertIn("C11 Flow runs in deterministic serial order", result.stderr)
+
+    def test_reference_timeout_discards_a_result_that_misses_its_deadline(self):
+        count = 300
+        functions = "\n".join(
+            f"fn value{index}() -> u32 {{ return {index}u32; }}"
+            for index in range(count)
+        )
+        stages = "\n".join(
+            f"    stage item{index} = value{index};"
+            for index in range(count)
+        )
+        result = self._run(
+            f"""module test::flow_run_timeout_reference;
+{functions}
+flow Wait {{
+{stages}
+}}
+""",
+            "--flow", "Wait", "--timeout", "0.000000000001",
+            guard_timeout=5,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("Flow execution exceeded the 1e-12 second timeout", result.stderr)
+
+    def test_c11_timeout_terminates_native_runner_without_partial_output(self):
+        result = self._run(
+            """module test::flow_run_timeout_c11;
+fn spin() -> u32 { loop { } return 0u32; }
+flow Wait { stage pending = spin; }
+""",
+            "--flow", "Wait", "--backend", "c11", "--timeout", "0.1",
+            guard_timeout=10,
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("native runner process was terminated", result.stderr)
+
+    def test_rejects_nonpositive_flow_timeout(self):
+        result = self._run(
+            """module test::flow_run_timeout_invalid;
+fn load() -> u32 { return 1u32; }
+flow Quick { stage value = load; }
+""",
+            "--flow", "Quick", "--timeout", "0",
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("--timeout must be a finite positive number", result.stderr)
+
+    def test_reference_and_c11_flow_runners_reject_transitive_global_state(self):
+        source = """module test::flow_global_state_rejection;
+static mut state: u32 = 0u32;
+fn read_state() -> u32 { unsafe { return state; } }
+fn stage_value() -> u32 { return read_state(); }
+flow Read { stage value = stage_value; }
+"""
+        for backend in ("reference", "c11"):
+            with self.subTest(backend=backend):
+                result = self._run(
+                    source,
+                    "--flow", "Read",
+                    "--backend", backend,
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(result.stdout, "")
+                self.assertIn("reads or writes global state", result.stderr)
+
+    def test_rejects_nonfinite_flow_timeouts(self):
+        source = """module test::flow_run_nonfinite_timeout;
+fn load() -> u32 { return 1u32; }
+flow Quick { stage value = load; }
+"""
+        for timeout in ("nan", "inf", "-inf"):
+            with self.subTest(timeout=timeout):
+                result = self._run(
+                    source, "--flow", "Quick", f"--timeout={timeout}"
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(result.stdout, "")
+                self.assertIn(
+                    "--timeout must be a finite positive number", result.stderr
+                )
+
+    def test_subnanosecond_reference_timeout_expires_without_success_output(self):
+        result = self._run(
+            """module test::flow_run_tiny_timeout;
+fn load() -> u32 { return 1u32; }
+flow Quick { stage value = load; }
+""",
+            "--flow", "Quick", "--timeout", "1e-12",
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("Flow execution exceeded the 1e-12 second timeout", result.stderr)
 
 
 if __name__ == "__main__":

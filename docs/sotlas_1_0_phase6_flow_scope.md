@@ -31,18 +31,20 @@ strict serial schedule. The SIR interpreter supports straight-line
 integer and boolean bodies plus scalar branches, comparisons, `phi` joins, and
 loop backedges. It validates the CFG through Target IR before execution and
 rejects unreachable blocks, unsupported instructions, and unsupported types.
-Interpretation checks cooperative cancellation at every block entry and stops
-after one million block visits to bound non-terminating cycles. Its signed
+The interpreter checks for cooperative cancellation at every block entry and
+between instructions. A one-million block-visit limit bounds non-terminating
+cycles. Its signed
 arithmetic rejects values outside the declared type range;
 the language-wide signed overflow contract remains open.
 
 For plans whose stage functions are proven pure and use signed or unsigned
-integer scalars, `f32`, `f64`, or `bool`, the C11 backend emits a
+integer scalars, `f32`, `f64`, `bool`, or plain `@repr(C)` records whose fields
+recursively use those scalars or explicitly represented nested records, the C11 backend emits a
 C-callable entrypoint named
 `sotlas_flow_<module>_<flow>`. It calls stages in certified dependency order and
 returns the final stage result. A companion
 `sotlas_flow_<module>_<flow>_outputs` entrypoint writes every stage result to
-caller-provided scalar pointers and returns 0 if any pointer is null. Both
+caller-provided typed output pointers and returns 0 if any pointer is null. Both
 entrypoints execute in native tests, including a graph with independent
 stages. Sotlas callers declare the exact generated symbol with
 `@extern(C)` and call it from an `@system` function. A dedicated Flow invocation
@@ -58,19 +60,27 @@ zero-based. Stage outputs are copied to caller memory only after every stage
 completes, so cancellation leaves those outputs unchanged. A native C caller
 test covers cancellation between stages and the success path.
 
+Record payloads, including explicitly represented nested records, are passed
+and returned by value. Records with pointers,
+arrays, bit-fields, packed/aligned layouts, register unions, ownership domains,
+or nested records without an explicit C representation fail closed. This
+currently integrates value types and dependencies, but not owner transfer or
+cleanup across Flow stages.
+
 An additional `_dispatch` ABI lets a C host provide one executor callback for
 the checked stage schedule. Each callback receives the zero-based stage index,
-the stable stage name, the canonical scalar result type, ordered dependency type
+the stable stage name, the canonical result type, ordered dependency type
 names, dependency values as read-only pointers, the input count, and a pointer
-to the stage's scalar output. Callback status `0` means success; any nonzero
+to the stage output value. Callback status `0` means success; any nonzero
 value is reported as wrapper status `3`, with the original callback value written to
 `stage_status` and the stage index written to `stopped_stage`. Wrapper status
 `1` means an output pointer is null, `2` means cancellation, and `4` means no
 executor was supplied. As with `_cancelable`, caller outputs are committed only
 after every stage succeeds. The callback is responsible for implementing the
 stage associated with each checked index; the compiler does not prove callback
-equivalence to the Sotlas function body. This is a scalar host/provider ABI, not
-a built-in GPU/NPU backend.
+equivalence to the Sotlas function body. This host/provider ABI accepts the
+validated scalar and plain-record representations above; it is not a built-in
+GPU/NPU backend.
 
 This initial native path serializes accepted DAGs in deterministic dependency
 order, including plans with independent stages. It rejects unsupported types,
@@ -80,8 +90,8 @@ classify global reads and writes, so the C11 gate checks that case syntactically
 and conservatively. The host scheduler remains the only path that runs the
 checked source stage bodies with structured stage-failure and cooperative
 cancellation propagation. Direct native entrypoints are restricted to
-proven-pure scalar-returning stages; their cancellation hook cannot interrupt a
-running stage. `_dispatch` delegates stage bodies to a caller-supplied executor,
+proven-pure scalar or plain-record stages; their cancellation hook cannot
+interrupt a running stage. `_dispatch` delegates stage bodies to a caller-supplied executor,
 which is not verified against the source implementation. Native entrypoints do
 not add parallel scheduling or asynchronous execution.
 
@@ -94,8 +104,12 @@ not add parallel scheduling or asynchronous execution.
   rejection, and flow-report serialization are covered.
 - Tests lower source-derived SIR plans into actual call CFGs, execute them via
   the scheduler, and verify outputs, real overlap between independent stages,
-  and fail-closed behavior for effectful functions and ownership-bearing
-  values. Source-derived stage tests
+  and fail-closed behavior for effectful functions and resource-bearing
+  ownership values. A C11 native test executes a linear chain of `sole
+  @repr(C)` records, including nested trivial owners, rejects records with a
+  destructor, and
+  confirms cancellation before publication leaves caller outputs unchanged.
+  Source-derived stage tests
   verify branch selection and scalar `phi` joins; a loop-carried `phi` test
   executes through the scheduler. Cancellation interrupts an executing loop
   stage at a block boundary, and a non-terminating CFG hits its visit cap.
@@ -114,15 +128,21 @@ not add parallel scheduling or asynchronous execution.
 
 - Native C11 parallel scheduling and dedicated source syntax for Flow invocation
   (the explicit ABI declaration path is supported).
-- Ownership, cleanup, and non-scalar/lifetime-bearing values in executable CFG.
+- Ownership transfer, cleanup, and lifetime-bearing values in executable CFG
+  or across native Flow stages. Plain ownership-free C-layout records and
+  nested trivial linear `sole @repr(C)` records without cleanup obligations are
+  supported in the bounded C11 value path; resource-bearing owners remain
+  deferred.
 - Source-verified stage failure semantics, ownership, cleanup, and general
   effects in native Flow execution. `_dispatch` propagates callback failures,
   reports the stopped stage, and publishes no partial outputs, but it does not
   verify that an external callback matches the checked source body. Direct native
   calls to source stages remain pure scalar calls without a source-level failure
   result.
-- Backpressure, retries, distributed scheduling, timeouts, and forced
-  interruption of running synchronous functions.
+- Backpressure, retries, distributed scheduling, and graceful interruption of
+  a running synchronous C11 stage. The `flow-run --timeout` option terminates
+  its isolated runner process and publishes no partial outputs; it does not
+  unwind the stage's C stack or run language-level cleanup.
 - Arbitrary CFG semantics beyond the validated scalar instruction subset,
   ownership-bearing source CFG, and general Flow unwind/defer integration.
 

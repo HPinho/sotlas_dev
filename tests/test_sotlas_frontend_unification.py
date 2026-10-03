@@ -31,7 +31,9 @@ pub fn add(left: u32, right: u32) -> u32 {
 
     def test_cli_does_not_rebuild_legacy_lexer_parser_sema_pipeline(self):
         cli = (ROOT / "compiler" / "sotlas" / "cli.py").read_text(encoding="utf-8")
-        self.assertIn("compile_source(text, source_path)", cli)
+        self.assertIn("production_frontend = canonical_llvm_frontend()", cli)
+        self.assertIn("compile_source = production_frontend.compile_source", cli)
+        self.assertIn("return LLVMToolchain.compile_c11_source(source_text, source_name)", cli)
         self.assertNotIn("from sotlas.parser import Parser", cli)
         self.assertNotIn("from sotlas.sema import Sema", cli)
         self.assertNotIn("tokens = Lexer(", cli)

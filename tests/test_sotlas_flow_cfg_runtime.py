@@ -260,6 +260,43 @@ flow Spinning {
                 checked_sir.module, cfg, cancel_event=CancelAfterReads()
             )
 
+    def test_flow_cancellation_is_polled_between_instructions_in_one_block(self):
+        canonical_sir = importlib.import_module(
+            "sotlas_flow_cfg_runtime_test_package.canonical_sir"
+        )
+        interpreter = importlib.import_module(
+            "sotlas_flow_cfg_runtime_test_package.flow_interpreter"
+        )
+        sir = canonical_sir.load_canonical_sir()
+        function = sir.SIRFunction("long_block", [], "u32")
+        block = function.add_block("entry")
+        last = None
+        for index in range(1000):
+            last = sir.SIRValue(f"constant_{index}", "u32")
+            block.add(sir.ConstantIntInst(index, last))
+        block.add(sir.ReturnInst(last))
+        interpreter._validate_function_shape(function)
+
+        class CancelDuringBlock:
+            def __init__(self):
+                self.polls = 0
+
+            def raise_if_cancelled(self):
+                self.polls += 1
+                if self.polls == 4:
+                    raise package.FlowCancelledError(
+                        "cancelled during a straight-line stage"
+                    )
+
+        token = CancelDuringBlock()
+        with self.assertRaisesRegex(
+            package.FlowCancelledError, "during a straight-line stage"
+        ):
+            interpreter._interpret_function(
+                function, (), cancellation_token=token
+            )
+        self.assertEqual(token.polls, 4)
+
     def test_revalidates_call_cfg_before_any_stage_execution(self):
         sir_module = self._module()
         cfg = package.lower_serial_flow_to_cfg(sir_module, "Serial")

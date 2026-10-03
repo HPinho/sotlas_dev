@@ -1,6 +1,7 @@
 module core::string;
 
 import core::alloc::*;
+import core::result::*;
 
 // Borrowed UTF-8 string slice (&str)
 pub struct StringSlice {
@@ -29,6 +30,110 @@ pub fn string_is_empty(s: StringSlice) -> bool {
     return s.length == 0 || s.data == null;
 }
 
+fn string_byte_in_range(
+    s: StringSlice,
+    index: usize,
+    minimum: u8,
+    maximum: u8
+) -> bool {
+    if s.data == null || index >= s.length {
+        return false;
+    }
+    let byte: u8 = string_char_at(s, index);
+    return byte >= minimum && byte <= maximum;
+}
+
+// Validate Unicode scalar encodings without allocating or decoding them.
+// Other StringSlice operations remain byte-oriented.
+pub fn string_is_valid_utf8(s: StringSlice) -> bool {
+    if s.length == 0 {
+        return true;
+    }
+    if s.data == null {
+        return false;
+    }
+
+    let mut index: usize = 0;
+    while index < s.length {
+        let first: u8 = string_char_at(s, index);
+        let remaining: usize = s.length - index;
+
+        if first <= 0x7Fu8 {
+            index = index + 1;
+            continue;
+        }
+        if first >= 0xC2u8 && first <= 0xDFu8 {
+            if remaining < 2 || !string_byte_in_range(
+                s, index + 1, 0x80u8, 0xBFu8
+            ) {
+                return false;
+            }
+            index = index + 2;
+            continue;
+        }
+        if first == 0xE0u8 {
+            if remaining < 3 ||
+                !string_byte_in_range(s, index + 1, 0xA0u8, 0xBFu8) ||
+                !string_byte_in_range(s, index + 2, 0x80u8, 0xBFu8) {
+                return false;
+            }
+            index = index + 3;
+            continue;
+        }
+        if (first >= 0xE1u8 && first <= 0xECu8) ||
+            (first >= 0xEEu8 && first <= 0xEFu8) {
+            if remaining < 3 ||
+                !string_byte_in_range(s, index + 1, 0x80u8, 0xBFu8) ||
+                !string_byte_in_range(s, index + 2, 0x80u8, 0xBFu8) {
+                return false;
+            }
+            index = index + 3;
+            continue;
+        }
+        if first == 0xEDu8 {
+            if remaining < 3 ||
+                !string_byte_in_range(s, index + 1, 0x80u8, 0x9Fu8) ||
+                !string_byte_in_range(s, index + 2, 0x80u8, 0xBFu8) {
+                return false;
+            }
+            index = index + 3;
+            continue;
+        }
+        if first == 0xF0u8 {
+            if remaining < 4 ||
+                !string_byte_in_range(s, index + 1, 0x90u8, 0xBFu8) ||
+                !string_byte_in_range(s, index + 2, 0x80u8, 0xBFu8) ||
+                !string_byte_in_range(s, index + 3, 0x80u8, 0xBFu8) {
+                return false;
+            }
+            index = index + 4;
+            continue;
+        }
+        if first >= 0xF1u8 && first <= 0xF3u8 {
+            if remaining < 4 ||
+                !string_byte_in_range(s, index + 1, 0x80u8, 0xBFu8) ||
+                !string_byte_in_range(s, index + 2, 0x80u8, 0xBFu8) ||
+                !string_byte_in_range(s, index + 3, 0x80u8, 0xBFu8) {
+                return false;
+            }
+            index = index + 4;
+            continue;
+        }
+        if first == 0xF4u8 {
+            if remaining < 4 ||
+                !string_byte_in_range(s, index + 1, 0x80u8, 0x8Fu8) ||
+                !string_byte_in_range(s, index + 2, 0x80u8, 0xBFu8) ||
+                !string_byte_in_range(s, index + 3, 0x80u8, 0xBFu8) {
+                return false;
+            }
+            index = index + 4;
+            continue;
+        }
+        return false;
+    }
+    return true;
+}
+
 pub fn string_as_bytes(s: StringSlice) -> *const u8 {
     return s.data;
 }
@@ -40,6 +145,22 @@ pub fn string_char_at(s: StringSlice, index: usize) -> u8 {
     unsafe {
         return s.data[index];
     }
+}
+
+// Reads one byte without conflating an embedded NUL with an invalid index.
+// The output is unchanged when the slice, index, or output pointer is invalid.
+pub fn string_try_byte_at(
+    s: StringSlice,
+    index: usize,
+    out: *mut u8
+) -> bool {
+    if s.data == null || index >= s.length || out == null {
+        return false;
+    }
+    unsafe {
+        *out = s.data[index];
+    }
+    return true;
 }
 
 pub fn string_equals(a: StringSlice, b: StringSlice) -> bool {
@@ -242,6 +363,86 @@ pub fn string_trim_end(s: StringSlice) -> StringSlice {
 
 pub fn string_trim(s: StringSlice) -> StringSlice {
     return string_trim_end(string_trim_start(s));
+}
+
+// Parse an ASCII decimal u32. This intentionally does not trim whitespace or
+// accept signs; callers can normalize a borrowed slice before parsing.
+pub fn string_parse_u32(s: StringSlice) -> ResultU32 {
+    if s.data == null || s.length == 0 {
+        return ResultU32::err(ResultCode::InvalidParam);
+    }
+
+    let max_value: u32 = 4294967295u32;
+    let radix: u32 = 10u32;
+    let mut value: u32 = 0u32;
+    let mut index: usize = 0;
+    unsafe {
+        while index < s.length {
+            let byte: u8 = s.data[index];
+            if byte < 48u8 || byte > 57u8 {
+                return ResultU32::err(ResultCode::InvalidParam);
+            }
+            let digit: u32 = (byte - 48u8) as u32;
+            if value > (max_value - digit) / radix {
+                return ResultU32::err(ResultCode::Overflow);
+            }
+            value = value * radix + digit;
+            index = index + 1;
+        }
+    }
+
+    return ResultU32::ok(value);
+}
+
+// Parse a signed 32-bit decimal integer. An optional leading sign is accepted;
+// whitespace and trailing characters are rejected.
+pub fn string_parse_i32(s: StringSlice) -> ResultI32 {
+    if s.data == null || s.length == 0 {
+        return ResultI32::err(ResultCode::InvalidParam);
+    }
+
+    let mut index: usize = 0;
+    let mut negative: bool = false;
+    unsafe {
+        if s.data[0] == 45u8 {
+            negative = true;
+            index = 1;
+        } else if s.data[0] == 43u8 {
+            index = 1;
+        }
+    }
+    if index >= s.length {
+        return ResultI32::err(ResultCode::InvalidParam);
+    }
+
+    let mut limit: u32 = 2147483647u32;
+    if negative {
+        limit = 2147483648u32;
+    }
+    let radix: u32 = 10u32;
+    let mut magnitude: u32 = 0u32;
+    unsafe {
+        while index < s.length {
+            let byte: u8 = s.data[index];
+            if byte < 48u8 || byte > 57u8 {
+                return ResultI32::err(ResultCode::InvalidParam);
+            }
+            let digit: u32 = (byte - 48u8) as u32;
+            if magnitude > (limit - digit) / radix {
+                return ResultI32::err(ResultCode::Overflow);
+            }
+            magnitude = magnitude * radix + digit;
+            index = index + 1;
+        }
+    }
+
+    if negative {
+        if magnitude == 2147483648u32 {
+            return ResultI32::ok(-2147483647 - 1);
+        }
+        return ResultI32::ok(-(magnitude as i32));
+    }
+    return ResultI32::ok(magnitude as i32);
 }
 
 // Owned, growable UTF-8 string buffer
@@ -450,7 +651,15 @@ pub fn string_append_char(s: *mut String, ch: u8) -> bool {
 }
 
 pub fn string_append_slice(s: *mut String, slice: StringSlice) -> bool {
-    if s == null || slice.data == null || slice.length == 0 {
+    if s == null {
+        return false;
+    }
+    // Appending an empty slice is a successful no-op, even when its data
+    // pointer is null. Keep this consistent with the owned append variants.
+    if slice.length == 0 {
+        return true;
+    }
+    if slice.data == null {
         return false;
     }
     unsafe {
@@ -459,6 +668,33 @@ pub fn string_append_slice(s: *mut String, slice: StringSlice) -> bool {
         }
         if slice.length > (*s).capacity - (*s).length {
             return false;
+        }
+        let max_address: usize = ~0usize;
+        let base_address: usize = (*s).data as usize;
+        if (*s).capacity > max_address - base_address {
+            return false;
+        }
+        let buffer_end: usize = base_address + (*s).capacity;
+        let source_address: usize = slice.data as usize;
+        let mut aliases_buffer: bool = false;
+        let mut source_offset: usize = 0;
+        if source_address >= base_address && source_address <= buffer_end {
+            if slice.length > buffer_end - source_address {
+                return false;
+            }
+            aliases_buffer = true;
+            source_offset = source_address - base_address;
+        }
+        if aliases_buffer && source_offset < (*s).length &&
+           slice.length > (*s).length - source_offset {
+            let mut remaining: usize = slice.length;
+            while remaining > 0 {
+                remaining = remaining - 1;
+                let target: *mut u8 = (*s).data + ((*s).length + remaining);
+                *target = slice.data[remaining];
+            }
+            (*s).length = (*s).length + slice.length;
+            return true;
         }
         let mut i: usize = 0;
         while i < slice.length {
@@ -516,9 +752,29 @@ pub fn string_append_slice_owned(
         return false;
     }
 
+    let mut aliases_buffer: bool = false;
+    let mut source_offset: usize = 0;
     unsafe {
         if (*s).length > (*s).capacity {
             return false;
+        }
+        if (*s).data == null {
+            return false;
+        }
+
+        let max_address: usize = ~0usize;
+        let base_address: usize = (*s).data as usize;
+        if (*s).capacity > max_address - base_address {
+            return false;
+        }
+        let buffer_end: usize = base_address + (*s).capacity;
+        let source_address: usize = slice.data as usize;
+        if source_address >= base_address && source_address <= buffer_end {
+            if slice.length > buffer_end - source_address {
+                return false;
+            }
+            aliases_buffer = true;
+            source_offset = source_address - base_address;
         }
 
         let max_length: usize = ~0usize;
@@ -536,6 +792,9 @@ pub fn string_append_slice_owned(
                 string_growth_capacity((*s).capacity, required);
             if !string_reserve(s, target_capacity) {
                 return false;
+            }
+            if aliases_buffer {
+                slice.data = (*s).data + source_offset;
             }
         }
     }

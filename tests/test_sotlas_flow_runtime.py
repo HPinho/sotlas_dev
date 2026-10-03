@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import math
 import sys
 from threading import Barrier, Event, Thread
 import time
@@ -16,12 +17,46 @@ from sotlas_compile import (  # noqa: E402
     FlowDependency,
     FlowExecutionError,
     FlowNode,
+    FlowCancellationToken,
     certify_flow_graph,
     execute_flow,
 )
 
 
 class SotlasFlowRuntimeTests(unittest.TestCase):
+    def test_cancellation_token_observes_expired_deadline(self):
+        token = FlowCancellationToken(deadline=time.monotonic() - 1.0)
+        self.assertTrue(token.is_cancelled())
+        with self.assertRaises(FlowCancelledError):
+            token.raise_if_cancelled()
+
+    def test_flow_rejects_invalid_deadline_type_before_running_tasks(self):
+        plan = certify_flow_graph((FlowNode("work"),), ())
+        started = Event()
+        with self.assertRaisesRegex(TypeError, "deadline must be a monotonic timestamp"):
+            execute_flow(
+                plan,
+                {"work": lambda _inputs: started.set()},
+                cooperative=True,
+                deadline=True,
+            )
+        self.assertFalse(started.is_set())
+
+    def test_flow_rejects_nonfinite_deadlines_before_running_tasks(self):
+        plan = certify_flow_graph((FlowNode("work"),), ())
+        started = Event()
+        for deadline in (math.nan, math.inf, -math.inf):
+            with self.subTest(deadline=deadline):
+                with self.assertRaisesRegex(ValueError, "deadline must be finite"):
+                    execute_flow(
+                        plan,
+                        {"work": lambda _inputs: started.set()},
+                        deadline=deadline,
+                    )
+        self.assertFalse(started.is_set())
+        with self.assertRaisesRegex(ValueError, "deadline must be finite"):
+            FlowCancellationToken(deadline=math.nan)
+
     def test_ready_nodes_run_concurrently_and_receive_only_direct_inputs(self):
         plan = certify_flow_graph(
             tuple(FlowNode(name) for name in ("left", "right", "join")),

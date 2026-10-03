@@ -40,7 +40,14 @@ class SotlasRealityGateTests(unittest.TestCase):
         entries = manifest["examples"]
         numbered = {path.name for path in root.iterdir()
                     if path.is_dir() and path.name[:2].isdigit()}
-        self.assertEqual({item["id"] for item in entries}, numbered)
+        nested_examples = {
+            item["id"]
+            for item in entries
+            if (ROOT / item["entry"]).is_file()
+            and Path(item["entry"]).parent.name in numbered
+            and item["id"].startswith(Path(item["entry"]).parent.name)
+        }
+        self.assertEqual({item["id"] for item in entries}, numbered | nested_examples)
         self.assertTrue(all(item["status"] == "EXPERIMENTAL" for item in entries))
         self.assertTrue(all((ROOT / item["entry"]).exists() for item in entries))
 
@@ -158,7 +165,7 @@ class SotlasRealityGateTests(unittest.TestCase):
         self.assertEqual(
             sum(1 for path in compiler.rglob("*.py")
                 if not (tools / path.relative_to(compiler)).is_file()),
-            26,
+            25,
             "compiler-only modules need a reviewed Phase-0 inventory update",
         )
         self.assertEqual(

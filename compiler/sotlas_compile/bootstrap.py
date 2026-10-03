@@ -411,6 +411,7 @@ class Struct:
     is_register: bool = False
     backing_type: Type | None = None
     is_sole: bool = False
+    has_generic_parameters: bool = False
 
 @dataclass
 class Class:
@@ -758,7 +759,9 @@ class Parser:
 
             if self.accept("struct"):
                 name = self.ident()
+                has_generic_parameters = False
                 if (self.current.kind in ("forge", "IDENT") and self.current.text == "forge") or self.current.kind == "<":
+                    has_generic_parameters = True
                     if self.current.text == "forge": self.at += 1
                     if self.accept("<"):
                         depth = 1
@@ -784,7 +787,11 @@ class Parser:
                             bw = integer_literal_value(self.expect("NUMBER").text)
                         fields.append(FieldDef(fname, ftype, bit_width=bw))
                         self.expect(";")
-                module.structs.append(Struct(name, fields, public, attributes, methods=methods, is_sole=is_sole))
+                module.structs.append(Struct(
+                    name, fields, public, attributes, methods=methods,
+                    is_sole=is_sole,
+                    has_generic_parameters=has_generic_parameters,
+                ))
                 for m in methods:
                     module.functions.append(m)
                 continue
@@ -824,7 +831,9 @@ class Parser:
 
             if self.accept("class"):
                 name = self.ident()
+                has_generic_parameters = False
                 if (self.current.kind in ("forge", "IDENT") and self.current.text == "forge") or self.current.kind == "<":
+                    has_generic_parameters = True
                     if self.current.text == "forge": self.at += 1
                     if self.accept("<"):
                         depth = 1
@@ -847,7 +856,10 @@ class Parser:
                         self.expect(";")
                 cls = Class(name, fields, methods, public, attributes)
                 module.classes.append(cls)
-                module.structs.append(Struct(name, fields, public, attributes, methods=methods))
+                module.structs.append(Struct(
+                    name, fields, public, attributes, methods=methods,
+                    has_generic_parameters=has_generic_parameters,
+                ))
                 for m in methods:
                     module.functions.append(m)
                 continue
@@ -2216,6 +2228,22 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
 
             function = functions.get(expr.callee)
             if function:
+                generic_owner = next((
+                    item for item in struct_map.values()
+                    if item.has_generic_parameters
+                    and expr.callee.startswith(f"{item.name}_")
+                ), None)
+                if (
+                    generic_owner is not None
+                    and not current_function_name.startswith(
+                        f"{generic_owner.name}_"
+                    )
+                ):
+                    raise SotlasBootstrapError(
+                        "C11 generic method specialization is not implemented: "
+                        f"{generic_owner.name}.{expr.callee.split('_', 1)[1]}",
+                        expr.token.line, expr.token.column, filename, source,
+                    )
                 if len(argument_types) != len(function.params):
                     raise SotlasBootstrapError(
                         f"quantidade de argumentos incompatível em chamada "
@@ -2317,6 +2345,16 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
             if expr.method == "add":
                 return target_t
             s_def = struct_map.get(target_t.name)
+            if (
+                s_def is not None
+                and s_def.has_generic_parameters
+                and not current_function_name.startswith(f"{s_def.name}_")
+            ):
+                raise SotlasBootstrapError(
+                    "C11 generic method specialization is not implemented: "
+                    f"{s_def.name}.{expr.method}",
+                    expr.token.line, expr.token.column, filename, source,
+                )
             if s_def:
                 fld = next((f for f in s_def.fields if f.name == expr.method), None)
                 if fld and getattr(fld.type, "is_fn_ptr", False):
@@ -3100,6 +3138,16 @@ def _emit_c_owned_enum_constructors(
 
 def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
            include_import_headers: bool = False) -> str:
+    generic_struct = next((
+        item for item in module.structs
+        if item.has_generic_parameters and not item.is_register
+    ), None)
+    if generic_struct is not None:
+        raise SotlasBootstrapError(
+            "C11 backend does not support generic struct monomorphization yet: "
+            f"{generic_struct.name}",
+            1, 1, module.filename, module.source,
+        )
     sole_type_names = {
         item.name for item in module.structs if item.is_sole and not item.is_register
     }

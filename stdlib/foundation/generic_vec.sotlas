@@ -15,11 +15,12 @@ pub struct Vec forge<T> {
     }
 
     pub fn with_capacity(initial_cap: usize, backing: *mut T) -> Vec forge<T> {
-        return Vec {
-            data: backing,
-            length: 0,
-            cap: initial_cap,
-        };
+        let mut result: Vec forge<T> = Vec::new();
+        if backing != null {
+            result.data = backing;
+            result.cap = initial_cap;
+        }
+        return result;
     }
 
     pub fn len(self: *const Vec forge<T>) -> usize {

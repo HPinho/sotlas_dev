@@ -22,9 +22,12 @@ Uso:
 from __future__ import annotations
 import argparse
 import json
+import math
 import sys
 import subprocess
 import tempfile
+import threading
+import time
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parent.parent
@@ -38,6 +41,12 @@ from sotlas.sir import SIRGenerator
 production_frontend = canonical_llvm_frontend()
 compile_source = production_frontend.compile_source
 SotlasBootstrapError = production_frontend.SotlasBootstrapError
+
+
+def _compile_cli_source(source_text: str, source_name: str) -> str:
+    """Compile through the project-aware canonical C11 path used by run."""
+    from sotlas.llvm_toolchain import LLVMToolchain
+    return LLVMToolchain.compile_c11_source(source_text, source_name)
 
 SOTLAS_EXT = ".sotlas"
 _TARGET_CHOICES = (
@@ -155,7 +164,7 @@ def main() -> int:
 
     flow_run = sub.add_parser(
         "flow-run",
-        help="Interpret a checked pure scalar Flow plan on the CPU",
+        help="Run a checked Flow plan on the CPU",
     )
     flow_run.add_argument("source", help=f"Source file {SOTLAS_EXT}")
     flow_run.add_argument("--flow", required=True, help="Name of the Flow plan to execute")
@@ -166,6 +175,10 @@ def main() -> int:
     flow_run.add_argument(
         "--backend", choices=("reference", "c11"), default="reference",
         help="Execution backend: reference scheduler or a compiled native C11 runner",
+    )
+    flow_run.add_argument(
+        "--timeout", type=float, default=None, metavar="SECONDS",
+        help="Cancel Flow execution after this many seconds",
     )
 
     sir_report = sub.add_parser(
@@ -312,7 +325,9 @@ def main() -> int:
     if args.cmd == "flow-report":
         return _run_flow_report(args.source)
     if args.cmd == "flow-run":
-        return _run_flow_run(args.source, args.flow, args.workers, args.backend)
+        return _run_flow_run(
+            args.source, args.flow, args.workers, args.backend, args.timeout
+        )
     if args.cmd == "sir-report":
         return _run_sir_report(args.source)
     if args.cmd == "target-ir-report":
@@ -381,7 +396,7 @@ def _run_check(source_path: str) -> int:
     try:
         # `check` e `compile` compartilham o mesmo contrato de aceitação.
         # O C11 gerado permanece apenas em memória neste comando.
-        compile_source(text, source_path)
+        _compile_cli_source(text, source_path)
     except SotlasBootstrapError as error:
         print(f"sotlas: erro: {error}", file=sys.stderr)
         return 1
@@ -534,12 +549,15 @@ def _run_flow_run(
     flow_name: str,
     workers: int | None,
     backend: str = "reference",
+    timeout: float | None = None,
 ) -> int:
     loaded = _read_source(source_path)
     if loaded is None:
         return 1
     _, text = loaded
     try:
+        if timeout is not None and (not math.isfinite(timeout) or timeout <= 0):
+            raise ValueError("--timeout must be a finite positive number")
         if backend == "c11":
             if workers is not None:
                 raise ValueError(
@@ -548,21 +566,53 @@ def _run_flow_run(
                 )
             from sotlas_compile.flow_native_runner import run_c11_flow
 
-            outputs = run_c11_flow(text, source_path, flow_name)
+            outputs = run_c11_flow(
+                text, source_path, flow_name, timeout=timeout
+            )
         else:
             from sotlas_compile import (
+                FlowCancelledError,
                 analyze_source_phase1,
                 build_canonical_checked_ownership_sir,
-                execute_interpreted_sir_flow,
+                execute_flow_cfg,
+                lower_flow_to_cfg,
             )
 
             checked = analyze_source_phase1(text, filename=source_path)
+            from sotlas_compile import validate_flow_execution_source
+            validate_flow_execution_source(checked.parsed_module, flow_name)
             checked_sir, _ = build_canonical_checked_ownership_sir(checked)
-            result = execute_interpreted_sir_flow(
-                checked_sir.module,
-                flow_name,
-                max_workers=workers,
+            cfg = lower_flow_to_cfg(checked_sir.module, flow_name)
+            cancel_event = threading.Event() if timeout is not None else None
+            deadline = (
+                time.monotonic() + timeout if timeout is not None else None
             )
+            timer = None
+            if cancel_event is not None:
+                timer = threading.Timer(timeout, cancel_event.set)
+                timer.daemon = True
+                timer.start()
+            try:
+                result = execute_flow_cfg(
+                    checked_sir.module,
+                    cfg,
+                    max_workers=workers,
+                    cancel_event=cancel_event,
+                    deadline=deadline,
+                )
+            except Exception as error:
+                if timeout is not None and isinstance(error, FlowCancelledError):
+                    raise TimeoutError(
+                        f"Flow execution exceeded the {timeout:g} second timeout"
+                    ) from error
+                raise
+            finally:
+                if timer is not None:
+                    timer.cancel()
+            if deadline is not None and time.monotonic() >= deadline:
+                raise TimeoutError(
+                    f"Flow execution exceeded the {timeout:g} second timeout"
+                )
             outputs = dict(result.outputs)
         report = {
             "schema": "sotlas.flow-result.v1",
@@ -944,14 +994,14 @@ def _run_compile(args) -> int:
     # CLI arguments. Preserve the historical LLVM default for those callers.
     backend = getattr(args, "backend", "llvm")
 
-    if backend == "sotlas-x86_64" and emit_type != "asm":
+    if backend == "sotlas-x86_64" and emit_type not in ("asm", "obj"):
         print(
-            "sotlas: --backend sotlas-x86_64 requires --emit-asm or a .s/.asm output",
+            "sotlas: --backend sotlas-x86_64 requires --emit-asm, --emit-obj, or a .s/.asm/.o/.obj output",
             file=sys.stderr,
         )
         return 2
 
-    if emit_type == "asm":
+    if emit_type == "asm" or (backend == "sotlas-x86_64" and emit_type == "obj"):
         if backend == "sotlas-x86_64":
             supported_targets = {
                 "x86_64-freestanding",
@@ -971,14 +1021,41 @@ def _run_compile(args) -> int:
                 compile_source_to_x86_64_sysv_assembly,
             )
 
-            out_path = Path(args.output) if args.output else src.with_suffix(".s")
+            default_suffix = ".s" if emit_type == "asm" else (
+                ".obj" if sys.platform == "win32" else ".o"
+            )
+            out_path = Path(args.output) if args.output else src.with_suffix(default_suffix)
             try:
                 assembly = compile_source_to_x86_64_sysv_assembly(
                     text, args.source
                 )
                 out_path.parent.mkdir(parents=True, exist_ok=True)
-                out_path.write_text(assembly, encoding="utf-8")
-                print(f"sotlas: Sotlas-owned x86-64 assembly emitted to {out_path}")
+                if emit_type == "asm":
+                    out_path.write_text(assembly, encoding="utf-8")
+                    print(f"sotlas: Sotlas-owned x86-64 assembly emitted to {out_path}")
+                    return 0
+
+                assembler_command = [args.cc, "-x", "assembler", "-c", "-o", str(out_path), "-"]
+                if args.target != "host":
+                    target_triple = {
+                        "x86_64-freestanding": "x86_64-unknown-none-elf",
+                        "x86_64-unknown-none-elf": "x86_64-unknown-none-elf",
+                        "x86_64-unknown-linux-gnu": "x86_64-unknown-linux-gnu",
+                    }[args.target]
+                    assembler_command[1:1] = ["-target", target_triple]
+                result = subprocess.run(
+                    assembler_command,
+                    input=assembly,
+                    capture_output=True,
+                    text=True,
+                )
+                if result.returncode != 0:
+                    print(
+                        f"sotlas: assembler failed for Sotlas-owned x86-64 output:\n{result.stderr}",
+                        file=sys.stderr,
+                    )
+                    return result.returncode or 1
+                print(f"sotlas: Sotlas-owned x86-64 object emitted to {out_path}")
                 return 0
             except (MachineBackendError, OSError, ValueError) as error:
                 print(f"sotlas: x86-64 machine backend error: {error}", file=sys.stderr)
@@ -1022,7 +1099,7 @@ def _run_compile(args) -> int:
         return _run_compile_internal_linker(args, src, text)
 
     try:
-        c_code = compile_source(text, args.source)
+        c_code = _compile_cli_source(text, args.source)
     except SotlasBootstrapError as error:
         print(f"sotlas: erro: {error}", file=sys.stderr)
         return 1
@@ -1157,7 +1234,7 @@ def _run_compile_internal_linker(args, src: Path, text: str) -> int:
 
     # Passo 1: compilar código Sotlas → C11 freestanding
     try:
-        c_code = compile_source(text, args.source)
+        c_code = _compile_cli_source(text, args.source)
     except SotlasBootstrapError as err:
         print(f"sotlas: erro: {err}", file=sys.stderr)
         return 1
@@ -1224,7 +1301,7 @@ def _run_exec(args) -> int:
                 return 1
 
     try:
-        c_code = compile_source(text, args.source)
+        c_code = _compile_cli_source(text, args.source)
     except SotlasBootstrapError as error:
         print(f"sotlas: erro: {error}", file=sys.stderr)
         return 1

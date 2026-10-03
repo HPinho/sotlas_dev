@@ -891,6 +891,175 @@ pub fn choose(flag: bool, yes: u32, no: u32) -> u32 {
         self.assertTrue(object_result.is_file())
         self.assertGreater(object_result.stat().st_size, 100)
 
+    def test_c11_conditional_expression_executes_both_branches(self):
+        """Exercise an if-expression through checking, C11, linking, and native run."""
+        source_template = """module test::llvm_if_expression_native;
+pub fn main() -> i32 {
+    return if INPUT { LEFT } else { RIGHT };
+}
+"""
+        for label, flag, left, right, expected in (
+            ("true", "true", "0i32", "7i32", 0),
+            ("false", "false", "7i32", "0i32", 0),
+            ("true_nonzero", "true", "7i32", "0i32", 7),
+            ("false_nonzero", "false", "0i32", "7i32", 7),
+        ):
+            with self.subTest(flag=flag):
+                source = (
+                    source_template.replace("INPUT", flag)
+                    .replace("LEFT", left).replace("RIGHT", right)
+                )
+                executable = self.tmp_path / (
+                    f"if_expression_{label}.exe" if os.name == "nt"
+                    else f"if_expression_{label}"
+                )
+                try:
+                    self.toolchain.compile_source_to_native(
+                        source,
+                        "test::llvm_if_expression_native",
+                        executable,
+                        emit_type="exe",
+                        backend="c11",
+                    )
+                except LLVMToolchainError as error:
+                    if not self.toolchain.is_available():
+                        self.skipTest(f"LLVM executable toolchain is unavailable: {error}")
+                    raise
+
+                executed = subprocess.run(
+                    [str(executable)], capture_output=True, text=True, check=False
+                )
+                self.assertEqual(
+                    executed.returncode, expected, executed.stderr or executed.stdout
+                )
+
+    def test_llvm_conditional_literal_expression_executes_both_cfg_arms(self):
+        for flag, expected in (("true", 13), ("false", 29)):
+            with self.subTest(flag=flag):
+                source = f"""module test::llvm_if_literal_native;
+pub fn main() -> i32 {{
+    return if {flag} {{ 13i32 }} else {{ 29i32 }};
+}}
+"""
+                executable = self.tmp_path / (
+                    f"llvm_if_literal_{flag}.exe" if os.name == "nt"
+                    else f"llvm_if_literal_{flag}"
+                )
+                self.toolchain.compile_source_to_native(
+                    source,
+                    "test::llvm_if_literal_native",
+                    executable,
+                    emit_type="exe",
+                    backend="llvm",
+                )
+                executed = subprocess.run(
+                    [str(executable)], capture_output=True, text=True, check=False
+                )
+                self.assertEqual(
+                    executed.returncode, expected, executed.stderr or executed.stdout
+                )
+
+    def test_llvm_parameter_conditional_expression_executes_through_c_abi(self):
+        source = """module test::llvm_if_parameter_native;
+pub fn choose(flag: bool, yes: u32, no: u32) -> u32 {
+    return if flag { yes } else { no };
+}
+"""
+        llvm_object = self.tmp_path / "if_parameter.obj"
+        caller_source = self.tmp_path / "if_parameter_caller.c"
+        caller_object = self.tmp_path / "if_parameter_caller.obj"
+        executable = self.tmp_path / (
+            "if_parameter.exe" if os.name == "nt" else "if_parameter"
+        )
+        self.toolchain.compile_source_to_native(
+            source,
+            "test::llvm_if_parameter_native",
+            llvm_object,
+            emit_type="obj",
+            backend="llvm",
+        )
+        caller_source.write_text(
+            "#include <stdint.h>\n"
+            "extern uint32_t choose(_Bool, uint32_t, uint32_t);\n"
+            "int main(void) {\n"
+            "  if (choose(1, 13u, 29u) != 13u) return 1;\n"
+            "  if (choose(0, 13u, 29u) != 29u) return 2;\n"
+            "  return 0;\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        self.toolchain.compile_c_to_obj(caller_source, caller_object)
+        self.toolchain.link_native_binary([llvm_object, caller_object], executable)
+        executed = subprocess.run(
+            [str(executable)], capture_output=True, text=True, check=False
+        )
+        self.assertEqual(executed.returncode, 0, executed.stderr or executed.stdout)
+
+    def test_llvm_boolean_conditional_expression_executes_through_c_abi(self):
+        source = """module test::llvm_if_bool_native;
+pub fn choose(flag: bool) -> bool {
+    return if flag { false } else { true };
+}
+"""
+        llvm_object = self.tmp_path / "if_bool.obj"
+        caller_source = self.tmp_path / "if_bool_caller.c"
+        caller_object = self.tmp_path / "if_bool_caller.obj"
+        executable = self.tmp_path / (
+            "if_bool.exe" if os.name == "nt" else "if_bool"
+        )
+        self.toolchain.compile_source_to_native(
+            source,
+            "test::llvm_if_bool_native",
+            llvm_object,
+            emit_type="obj",
+            backend="llvm",
+        )
+        caller_source.write_text(
+            "extern _Bool choose(_Bool);\n"
+            "int main(void) {\n"
+            "  if (choose(1)) return 1;\n"
+            "  if (!choose(0)) return 2;\n"
+            "  return 0;\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        self.toolchain.compile_c_to_obj(caller_source, caller_object)
+        self.toolchain.link_native_binary([llvm_object, caller_object], executable)
+        executed = subprocess.run(
+            [str(executable)], capture_output=True, text=True, check=False
+        )
+        self.assertEqual(executed.returncode, 0, executed.stderr or executed.stdout)
+
+    def test_c11_structured_cfg_combines_early_returns_branches_and_loop_jumps(self):
+        source = """module test::c11_structured_cfg_profile;
+pub fn main() -> i32 {
+    let mut index: u32 = 0u32;
+    let mut total: u32 = 0u32;
+    while index < 6u32 {
+        index += 1u32;
+        if index == 2u32 { continue; }
+        if index == 5u32 { break; }
+        total += index;
+    }
+    if total == 8u32 { return 0; }
+    return 1;
+}
+"""
+        executable = self.tmp_path / (
+            "structured_cfg.exe" if os.name == "nt" else "structured_cfg"
+        )
+        self.toolchain.compile_source_to_native(
+            source,
+            "test::c11_structured_cfg_profile",
+            executable,
+            emit_type="exe",
+            backend="c11",
+        )
+        executed = subprocess.run(
+            [str(executable)], capture_output=True, text=True, check=False
+        )
+        self.assertEqual(executed.returncode, 0, executed.stderr or executed.stdout)
+
     def test_llvm_source_backend_lowers_trivial_call_scoped_direct_domain(self):
         source = """module test::llvm_direct;
 sole struct Token { value: u32; }

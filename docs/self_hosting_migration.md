@@ -41,11 +41,18 @@ currently supports a gated subset, including signed and unsigned scalar
 comparisons. Signed arithmetic remains rejected until Sotlas defines its
 overflow modes.
 
+For that same subset, `--emit-obj --backend sotlas-x86_64` sends the generated
+assembly directly to the configured assembler driver (`--cc`) and writes a
+native object without generating or compiling C. This removes C from this
+artifact path, but still depends on an external assembler and the compiler
+frontend is still Python. Kernel-only privileged operations are not yet
+lowered by this machine backend.
+
 This backend is implemented in the Python compiler today, so it is not yet part
-of the Sotlas-written Stage 1/2 compiler. It emits assembly text only; native
-assembling, object emission, linking, debug information, and runtime services
-remain separate work. The command is an early step toward a Sotlas-owned code
-generation path, not a claim that the compiler is self-hosted or C-free.
+of the Sotlas-written Stage 1/2 compiler. Linking, debug information, and
+runtime services remain separate work. The command is an early step toward a
+Sotlas-owned code generation path, not a claim that the compiler is self-hosted
+or C-free.
 
 ## First parity slice
 

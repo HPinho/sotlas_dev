@@ -1,0 +1,36 @@
+module examples::native_control_flow;
+
+// A compact native profile example with loop edges, branches, and early returns.
+pub fn sum_before_limit(limit: u32) -> u32 {
+    if limit == 0u32 {
+        return 0u32;
+    }
+
+    let mut index: u32 = 0u32;
+    let mut total: u32 = 0u32;
+    let stop_at: u32 = if limit < 7u32 { limit } else { 7u32 };
+    while index < stop_at {
+        index += 1u32;
+        if index == 2u32 {
+            continue;
+        }
+        if index == 7u32 {
+            break;
+        }
+        total += index;
+    }
+    return total;
+}
+
+pub fn main() -> i32 {
+    if sum_before_limit(0u32) != 0u32 {
+        return 1;
+    }
+    if sum_before_limit(5u32) != 13u32 {
+        return 2;
+    }
+    if sum_before_limit(10u32) != 19u32 {
+        return 3;
+    }
+    return 0;
+}

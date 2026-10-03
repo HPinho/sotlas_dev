@@ -70,6 +70,7 @@ from .flow_runtime import (
 from .flow_interpreter import execute_interpreted_sir_flow
 from .flow_frontend import (
     FlowFrontendError,
+    validate_flow_execution_source,
     TypedFlowPlan,
     TypedFlowStage,
     plan_source_flows,
@@ -171,7 +172,7 @@ __all__ = [
     "execute_interpreted_sir_flow",
     "execute_typed_flow", "execute_bound_sir_flow",
     "TransactionExecutionError", "execute_transactional_sir_flow",
-    "FlowFrontendError", "TypedFlowPlan", "TypedFlowStage",
+    "FlowFrontendError", "validate_flow_execution_source", "TypedFlowPlan", "TypedFlowStage",
     "plan_source_flows", "FlowSIRError", "FlowSIRValueRef",
     "FlowSIRArgument", "FlowSIRStage", "FlowSIRPlan",
     "lower_typed_flows_to_sir", "validate_sir_flow_plans",

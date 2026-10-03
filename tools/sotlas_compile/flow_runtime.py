@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
+import math
 from threading import Event
 from time import monotonic
 from types import MappingProxyType
@@ -69,6 +70,22 @@ class FlowExecutionResult:
 FlowAction = Callable[[Mapping[str, object]], object]
 
 
+def _validate_deadline(deadline: object) -> None:
+    if deadline is None:
+        return
+    if (
+        not isinstance(deadline, (int, float))
+        or isinstance(deadline, bool)
+    ):
+        raise TypeError("deadline must be a monotonic timestamp")
+    try:
+        finite = math.isfinite(deadline)
+    except OverflowError:
+        finite = False
+    if not finite:
+        raise ValueError("deadline must be finite")
+
+
 class FlowCancellationToken:
     """Read-only cooperative cancellation signal supplied to opt-in actions."""
 
@@ -76,12 +93,17 @@ class FlowCancellationToken:
         self,
         external_event: Event | None = None,
         stop_event: Event | None = None,
+        deadline: float | None = None,
     ) -> None:
+        _validate_deadline(deadline)
         self._external_event = external_event
         self._stop_event = stop_event or Event()
+        self._deadline = deadline
 
     def is_cancelled(self) -> bool:
-        return self._stop_event.is_set() or (
+        return (
+            self._deadline is not None and monotonic() >= self._deadline
+        ) or self._stop_event.is_set() or (
             self._external_event is not None and self._external_event.is_set()
         )
 
@@ -115,6 +137,7 @@ def execute_flow(
     max_workers: int | None = None,
     cancel_event: Event | None = None,
     cooperative: bool = False,
+    deadline: float | None = None,
 ) -> FlowExecutionResult:
     """Run each ready stage concurrently and commit outputs stage by stage.
 
@@ -153,6 +176,7 @@ def execute_flow(
         raise TypeError("cancel_event must provide is_set()")
     if not isinstance(cooperative, bool):
         raise TypeError("cooperative must be a bool")
+    _validate_deadline(deadline)
 
     committed: dict[str, object] = {}
     grouped: dict[str, list[str]] = {name: [] for name in names}
@@ -160,10 +184,12 @@ def execute_flow(
         grouped[edge.consumer].append(edge.producer)
     dependencies = {name: tuple(grouped[name]) for name in names}
     stop_event = Event()
-    cancellation_token = FlowCancellationToken(cancel_event, stop_event)
+    cancellation_token = FlowCancellationToken(
+        cancel_event, stop_event, deadline
+    )
 
     for stage in plan.parallel_stages:
-        if cancel_event is not None and cancel_event.is_set():
+        if cancellation_token.is_cancelled():
             stop_event.set()
             raise FlowCancelledError("Flow cancelled before the next stage")
         stage_inputs = {
@@ -187,7 +213,7 @@ def execute_flow(
             stage_order = {name: index for index, name in enumerate(stage)}
             failure: FlowExecutionError | FlowCancelledError | None = None
             while pending:
-                if cancel_event is not None and cancel_event.is_set():
+                if cancellation_token.is_cancelled():
                     stop_event.set()
                     failure = FlowCancelledError("Flow cancelled during a stage")
                     break
@@ -212,8 +238,7 @@ def execute_flow(
                     break
             if (
                 failure is None
-                and cancel_event is not None
-                and cancel_event.is_set()
+                and cancellation_token.is_cancelled()
             ):
                 stop_event.set()
                 failure = FlowCancelledError("Flow cancelled during a stage")
@@ -256,6 +281,7 @@ def execute_typed_flow(
     max_workers: int | None = None,
     cancel_event: Event | None = None,
     cooperative: bool = False,
+    deadline: float | None = None,
 ) -> FlowExecutionResult:
     """Execute a checked source Flow plan using stage-name callables.
 
@@ -324,6 +350,7 @@ def execute_typed_flow(
         max_workers=max_workers,
         cancel_event=cancel_event,
         cooperative=cooperative,
+        deadline=deadline,
     )
 
 
@@ -335,6 +362,7 @@ def execute_bound_sir_flow(
     max_workers: int | None = None,
     cancel_event: Event | None = None,
     cooperative: bool = False,
+    deadline: float | None = None,
 ) -> FlowExecutionResult:
     """Schedule a validated SIR Flow plan using explicit host function bindings.
 
@@ -397,6 +425,7 @@ def execute_bound_sir_flow(
         max_workers=max_workers,
         cancel_event=cancel_event,
         cooperative=cooperative,
+        deadline=deadline,
     )
 
 

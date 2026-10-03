@@ -3,15 +3,16 @@ import core::mem::*;
 
 @repr(C)
 pub struct ArcHeader {
-    ref_count: usize;
+    ref_count: u64;
     data_size: usize;
 }
 
 // ============================================================================
 // Atomic ARC — seguro para SMP
 // ============================================================================
-// Todas as operações em ref_count usam __atomic_add_u64 / __atomic_sub_u64
-// que compilam para `lock xaddq` no x86-64, garantindo atomicidade entre CPUs.
+// Retain and release use compare-and-swap loops over sequentially consistent
+// atomic loads. The checked C11 runtime supplies these operations on supported
+// project builds; local helpers below remain explicitly single-threaded.
 
 @system
 pub fn arc_init(header: *mut ArcHeader, size: usize) {
@@ -19,7 +20,7 @@ pub fn arc_init(header: *mut ArcHeader, size: usize) {
         unsafe {
             // Inicialização não precisa ser atômica — nenhuma outra CPU tem
             // acesso ao header neste ponto.
-            header.ref_count = 1;
+            __atomic_store_u64((&header.ref_count) as u64, 1u64);
             header.data_size = size;
         }
     }
@@ -28,43 +29,65 @@ pub fn arc_init(header: *mut ArcHeader, size: usize) {
 // Incrementa atomicamente o ref_count. Retorna o header para encadeamento.
 @system
 pub fn arc_retain(header: *mut ArcHeader) -> *mut ArcHeader {
-    if header != null {
-        unsafe {
-            __atomic_add_u64(&header.ref_count as *mut usize as u64, 1);
-        }
+    if header == null {
+        return null;
     }
-    return header;
+    let mut address: u64 = 0;
+    let mut count: u64 = 0;
+    unsafe {
+        address = (&header.ref_count) as u64;
+        count = __atomic_load_u64(address);
+    }
+    while count > 0 {
+        if count == 18446744073709551615u64 {
+            return null;
+        }
+        let mut observed: u64 = 0;
+        unsafe {
+            observed = __atomic_cmpxchg_u64(address, count, count + 1u64);
+        }
+        if observed == count {
+            return header;
+        }
+        count = observed;
+    }
+    return null;
 }
 
 // Decrementa atomicamente o ref_count. Retorna true se o ref_count chegou a 0
 // (o chamador é responsável por liberar a memória).
 @system
 pub fn arc_release(header: *mut ArcHeader) -> bool {
-    if header != null {
+    if header == null {
+        return false;
+    }
+    let mut address: u64 = 0;
+    let mut count: u64 = 0;
+    unsafe {
+        address = (&header.ref_count) as u64;
+        count = __atomic_load_u64(address);
+    }
+    while count > 0 {
+        let mut observed: u64 = 0;
         unsafe {
-            // __atomic_sub_u64 retorna o valor ANTIGO.
-            // Se old era 1, então agora é 0 → último owner.
-            let old: u64 = __atomic_sub_u64(&header.ref_count as *mut usize as u64, 1);
-            if old == 1 {
-                // Full fence antes de qualquer destruição, para garantir que
-                // todos os acessos anteriores por outras CPUs sejam visíveis.
-                __dma_fence();
-                return true;
-            }
-            return false;
+            observed = __atomic_cmpxchg_u64(address, count, count - 1u64);
         }
+        if observed == count {
+            return count == 1u64;
+        }
+        count = observed;
     }
     return false;
 }
 
 // Lê atomicamente o ref_count sem modificá-lo.
 @system
-pub fn arc_count(header: *const ArcHeader) -> usize {
+pub fn arc_count(header: *const ArcHeader) -> u64 {
     if header == null {
         return 0;
     }
     unsafe {
-        return __atomic_load_u64(&header.ref_count as *const usize as u64) as usize;
+        return __atomic_load_u64((&header.ref_count) as u64);
     }
 }
 
@@ -75,24 +98,30 @@ pub fn arc_count(header: *const ArcHeader) -> usize {
 // entre CPUs (e.g., dados thread-local, período de bootstrap antes de SMP).
 
 pub fn arc_retain_local(header: *mut ArcHeader) -> *mut ArcHeader {
-    if header != null {
-        unsafe {
-            header.ref_count = header.ref_count + 1;
+    if header == null {
+        return null;
+    }
+    unsafe {
+        if header.ref_count == 0 ||
+           header.ref_count == 18446744073709551615u64 {
+            return null;
         }
+        header.ref_count = header.ref_count + 1u64;
     }
     return header;
 }
 
 pub fn arc_release_local(header: *mut ArcHeader) -> bool {
-    if header != null {
-        unsafe {
-            if header.ref_count > 0 {
-                header.ref_count = header.ref_count - 1;
-            }
-            return header.ref_count == 0;
-        }
+    if header == null {
+        return false;
     }
-    return false;
+    unsafe {
+        if header.ref_count == 0 {
+            return false;
+        }
+        header.ref_count = header.ref_count - 1u64;
+        return header.ref_count == 0;
+    }
 }
 
 // ============================================================================
@@ -105,7 +134,7 @@ pub class SharedCounter {
 
     pub fn new(initial: u64) -> SharedCounter {
         let mut sc: SharedCounter = 0;
-        arc_init(&sc.header, 8);
+        unsafe { arc_init((&mut sc.header) as *mut ArcHeader, 8); }
         sc.value = initial;
         return sc;
     }
@@ -129,18 +158,19 @@ pub class SharedCounter {
         }
     }
 
-    pub fn retain(self: *mut SharedCounter) {
-        if self != null {
-            unsafe {
-                arc_retain(&self.header);
-            }
+    pub fn retain(self: *mut SharedCounter) -> bool {
+        if self == null {
+            return false;
+        }
+        unsafe {
+            return arc_retain((&self.header) as *mut ArcHeader) != null;
         }
     }
 
     pub fn release(self: *mut SharedCounter) -> bool {
         if self != null {
             unsafe {
-                return arc_release(&self.header);
+                return arc_release(self as *mut ArcHeader);
             }
         }
         return false;

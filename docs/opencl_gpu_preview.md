@@ -52,4 +52,11 @@ system OpenCL framework. A machine without an OpenCL GPU returns the explicit
   harness that accounts for host setup and end-to-end latency.
 
 The hardware test is optional in CI because hosted runners do not promise an
-OpenCL GPU. It was executed against a physical OpenCL GPU during development.
+OpenCL GPU. Native tests also supply a fake OpenCL provider: one compares CPU
+and provider results for 259 exact-representable values, and others simulate
+zero GPUs and zero platforms to verify required-device failure, unchanged
+output, and CPU fallback. These tests verify host-side ABI, buffer transfers,
+kernel dispatch, and policy handling. The optional hardware test runs the same
+259-element exact-binary-fraction workload through the real provider and checks
+each result against the CPU reference; it runs only on machines with an OpenCL
+GPU.

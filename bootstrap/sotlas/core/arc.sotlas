@@ -88,6 +88,34 @@ pub fn arc_count(header: *const ArcHeader) -> u64 {
     }
 }
 
+// Single-threaded helpers. Do not use these when references can cross CPUs.
+pub fn arc_retain_local(header: *mut ArcHeader) -> *mut ArcHeader {
+    if header == null {
+        return null;
+    }
+    unsafe {
+        if header.ref_count == 0 ||
+           header.ref_count == 18446744073709551615u64 {
+            return null;
+        }
+        header.ref_count = header.ref_count + 1u64;
+    }
+    return header;
+}
+
+pub fn arc_release_local(header: *mut ArcHeader) -> bool {
+    if header == null {
+        return false;
+    }
+    unsafe {
+        if header.ref_count == 0 {
+            return false;
+        }
+        header.ref_count = header.ref_count - 1u64;
+        return header.ref_count == 0;
+    }
+}
+
 pub class SharedCounter {
     header: ArcHeader;
     value: u64;
@@ -120,11 +148,12 @@ pub class SharedCounter {
     }
 
     @system
-    pub fn retain(self: *mut SharedCounter) {
-        if self != null {
-            unsafe {
-                arc_retain((&self.header) as *mut ArcHeader);
-            }
+    pub fn retain(self: *mut SharedCounter) -> bool {
+        if self == null {
+            return false;
+        }
+        unsafe {
+            return arc_retain((&self.header) as *mut ArcHeader) != null;
         }
     }
 

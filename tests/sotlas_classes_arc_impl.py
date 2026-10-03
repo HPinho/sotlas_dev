@@ -1833,7 +1833,7 @@ fn main() -> i32 {
         pub fn main_test() -> u32 {
             let mut counter: SharedCounter = SharedCounter::new(100);
             counter.increment();
-            counter.retain();
+            if !counter.retain() { return 0; }
 
             unsafe {
                 if arc_count((&counter.header) as *const ArcHeader) != 2 {
@@ -1871,6 +1871,25 @@ fn main() -> i32 {
                     != 18446744073709551614u64 {
                     return 0;
                 }
+
+                let mut local: ArcHeader = 0;
+                local.ref_count = 1u64;
+                let local_ptr: *mut ArcHeader = (&mut local) as *mut ArcHeader;
+                if arc_retain_local(local_ptr) == null { return 0; }
+                if arc_count(local_ptr as *const ArcHeader) != 2u64 { return 0; }
+                if arc_release_local(local_ptr) { return 0; }
+                if !arc_release_local(local_ptr) { return 0; }
+                if arc_release_local(local_ptr) { return 0; }
+                if arc_retain_local(local_ptr) != null { return 0; }
+                if arc_count(local_ptr as *const ArcHeader) != 0u64 { return 0; }
+
+                let mut local_saturated: ArcHeader = 0;
+                local_saturated.ref_count = 18446744073709551615u64;
+                let local_saturated_ptr: *mut ArcHeader =
+                    (&mut local_saturated) as *mut ArcHeader;
+                if arc_retain_local(local_saturated_ptr) != null { return 0; }
+                if arc_count(local_saturated_ptr as *const ArcHeader)
+                    != 18446744073709551615u64 { return 0; }
             }
 
             let opt: OptionU32 = OptionU32::some(42);

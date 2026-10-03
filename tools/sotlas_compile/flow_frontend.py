@@ -14,6 +14,10 @@ from .flow_graph import (
 class FlowFrontendError(ValueError):
     """Raised when source Flow declarations cannot be certified."""
 
+    def __init__(self, message: str, token=None) -> None:
+        super().__init__(message)
+        self.token = token
+
 
 @dataclass(frozen=True)
 class TypedFlowStage:
@@ -23,6 +27,7 @@ class TypedFlowStage:
     input_types: tuple[object, ...]
     result_type: object
     effects: tuple[str, ...]
+    token: object | None = None
 
 
 @dataclass(frozen=True)
@@ -30,6 +35,7 @@ class TypedFlowPlan:
     name: str
     graph: FlowGraphPlan
     stages: tuple[TypedFlowStage, ...]
+    token: object | None = None
 
 
 _C11_FLOW_SCALAR_TYPES = frozenset({
@@ -39,8 +45,109 @@ _C11_FLOW_SCALAR_TYPES = frozenset({
 })
 
 
+def _c11_flow_value_type(type_obj, module, visiting=frozenset()) -> bool:
+    """Return whether a type has a plain, ownership-free C11 Flow ABI value."""
+    if (
+        getattr(type_obj, "name", None) in _C11_FLOW_SCALAR_TYPES
+        and not getattr(type_obj, "pointer", False)
+        and not getattr(type_obj, "is_array", False)
+        and not getattr(type_obj, "is_reference", False)
+        and not getattr(type_obj, "is_fn_ptr", False)
+        and getattr(type_obj, "ownership_domain", None) is None
+    ):
+        return True
+    if (
+        type_obj is None
+        or getattr(type_obj, "pointer", False)
+        or getattr(type_obj, "is_array", False)
+        or getattr(type_obj, "is_reference", False)
+        or getattr(type_obj, "is_fn_ptr", False)
+        or getattr(type_obj, "ownership_domain", None) is not None
+    ):
+        return False
+    name = getattr(type_obj, "name", None)
+    if not isinstance(name, str) or name in visiting:
+        return False
+    struct = next(
+        (item for item in getattr(module, "structs", ()) if item.name == name),
+        None,
+    )
+    if (
+        struct is None
+        or getattr(struct, "is_sole", False)
+        or getattr(struct, "is_register", False)
+        or "@repr(C)" not in tuple(getattr(struct, "attributes", ()))
+        or not getattr(struct, "fields", ())
+        or any(
+            getattr(field, "bit_width", None) is not None
+            for field in struct.fields
+        )
+        or any(
+            attribute == "@packed" or attribute.startswith("@aligned(")
+            for attribute in tuple(getattr(struct, "attributes", ()))
+        )
+    ):
+        return False
+    return all(
+        _c11_flow_value_type(field.type, module, visiting | {name})
+        for field in struct.fields
+    )
+
+
+def _c11_flow_trivial_owner_type(type_obj, module, visiting=frozenset()) -> bool:
+    """Allow a linear sole record only when its representation is inert POD."""
+    if (
+        type_obj is None
+        or getattr(type_obj, "pointer", False)
+        or getattr(type_obj, "is_array", False)
+        or getattr(type_obj, "is_reference", False)
+        or getattr(type_obj, "is_fn_ptr", False)
+        or getattr(type_obj, "ownership_domain", None) is not None
+    ):
+        return False
+    name = getattr(type_obj, "name", None)
+    if not isinstance(name, str) or name in visiting:
+        return False
+    struct = next(
+        (item for item in getattr(module, "structs", ()) if item.name == name),
+        None,
+    )
+    attributes = tuple(getattr(struct, "attributes", ())) if struct else ()
+    methods = tuple(getattr(struct, "methods", ()) or ()) if struct else ()
+    if (
+        struct is None
+        or not getattr(struct, "is_sole", False)
+        or "@repr(C)" not in attributes
+        or not getattr(struct, "fields", ())
+        or any(
+            getattr(method, "name", None) in {"deinit", f"{name}_deinit"}
+            for method in methods
+        )
+        or any(
+            getattr(field, "bit_width", None) is not None
+            for field in struct.fields
+        )
+        or any(
+            attribute == "@packed" or attribute.startswith("@aligned(")
+            for attribute in attributes
+        )
+    ):
+        return False
+    return all(
+        _c11_flow_abi_value_type(field.type, module, visiting | {name})
+        for field in struct.fields
+    )
+
+
+def _c11_flow_abi_value_type(type_obj, module, visiting=frozenset()) -> bool:
+    """Return whether a Flow value has a certified by-value C11 ABI."""
+    return _c11_flow_value_type(type_obj, module, visiting) or _c11_flow_trivial_owner_type(
+        type_obj, module, visiting
+    )
+
+
 def _emit_c11_flow_entrypoints(module, bootstrap) -> str:
-    """Emit C-callable entrypoints for verified pure scalar Flow plans.
+    """Emit C-callable entrypoints for verified pure Flow plans.
 
     C11 currently uses a deterministic serial fallback for independent stages.
     The source and reference scheduler retain the parallel layers; because every
@@ -62,14 +169,15 @@ def _emit_c11_flow_entrypoints(module, bootstrap) -> str:
         if not layers or any(not layer for layer in layers):
             raise FlowFrontendError(
                 f"C11 Flow lowering found an invalid stage schedule for "
-                f"Flow {plan.name!r}"
+                f"Flow {plan.name!r}",
+                plan.token,
             )
         order = tuple(stage for layer in layers for stage in layer)
         stages = {stage.name: stage for stage in plan.stages}
         if set(order) != set(stages) or len(order) != len(stages):
             raise FlowFrontendError(
                 f"C11 Flow lowering found an inconsistent stage schedule for "
-                f"{plan.name!r}"
+                f"{plan.name!r}", plan.token
             )
         final_stage = stages[order[-1]]
 
@@ -81,25 +189,26 @@ def _emit_c11_flow_entrypoints(module, bootstrap) -> str:
         dispatch_name = f"{entry_name}_dispatch"
         if entry_name in generated_names:
             raise FlowFrontendError(
-                f"multiple Flow plans map to generated C11 symbol {entry_name!r}"
+                    f"multiple Flow plans map to generated C11 symbol {entry_name!r}",
+                    plan.token,
             )
         generated_names.add(entry_name)
         if outputs_name in generated_names or outputs_name in used_names:
             raise FlowFrontendError(
                 f"generated C11 Flow outputs symbol {outputs_name!r} collides "
-                "with a function or another Flow plan"
+                    "with a function or another Flow plan", plan.token
             )
         generated_names.add(outputs_name)
         if cancelable_name in generated_names or cancelable_name in used_names:
             raise FlowFrontendError(
                 f"generated C11 Flow cancellation symbol {cancelable_name!r} "
-                "collides with a function or another Flow plan"
+                    "collides with a function or another Flow plan", plan.token
             )
         generated_names.add(cancelable_name)
         if dispatch_name in generated_names or dispatch_name in used_names:
             raise FlowFrontendError(
                 f"generated C11 Flow dispatch symbol {dispatch_name!r} "
-                "collides with a function or another Flow plan"
+                    "collides with a function or another Flow plan", plan.token
             )
         generated_names.add(dispatch_name)
         declaration = functions.get(entry_name)
@@ -112,12 +221,13 @@ def _emit_c11_flow_entrypoints(module, bootstrap) -> str:
             ):
                 raise FlowFrontendError(
                     f"generated C11 Flow entrypoint {entry_name!r} collides with an "
-                    "incompatible function declaration"
+                    "incompatible function declaration", plan.token
                 )
         else:
             if entry_name in used_names:
                 raise FlowFrontendError(
-                    f"generated C11 Flow entrypoint {entry_name!r} collides with a function"
+                    f"generated C11 Flow entrypoint {entry_name!r} collides with a function",
+                    plan.token,
                 )
             used_names.add(entry_name)
 
@@ -134,15 +244,16 @@ def _emit_c11_flow_entrypoints(module, bootstrap) -> str:
             function = functions.get(stage.function)
             if function is None:
                 raise FlowFrontendError(
-                    f"C11 Flow stage {stage.name!r} has no source function"
+                    f"C11 Flow stage {stage.name!r} has no source function",
+                    stage.token,
                 )
-            if stage.result_type.name not in _C11_FLOW_SCALAR_TYPES or any(
-                item.name not in _C11_FLOW_SCALAR_TYPES
+            if not _c11_flow_abi_value_type(stage.result_type, module) or any(
+                not _c11_flow_abi_value_type(item, module)
                 for item in stage.input_types
             ):
                 raise FlowFrontendError(
                     f"C11 Flow lowering does not support value type in stage "
-                    f"{stage.name!r}"
+                    f"{stage.name!r}", stage.token
                 )
             summary = summaries.get(stage.function)
             if (
@@ -152,14 +263,14 @@ def _emit_c11_flow_entrypoints(module, bootstrap) -> str:
             ):
                 raise FlowFrontendError(
                     f"C11 Flow lowering requires a proven pure stage function "
-                    f"{stage.function!r}"
+                    f"{stage.function!r}", stage.token
                 )
             if _flow_function_reaches_global_access(
                 function, functions, globals_, bootstrap
             ):
                 raise FlowFrontendError(
                     f"C11 Flow lowering does not yet verify global access in "
-                    f"stage function {stage.function!r}"
+                    f"stage function {stage.function!r}", stage.token
                 )
             if any(
                 attribute in {"@system", "@extern(C)"}
@@ -167,7 +278,7 @@ def _emit_c11_flow_entrypoints(module, bootstrap) -> str:
             ):
                 raise FlowFrontendError(
                     f"C11 Flow lowering does not call system or foreign stage "
-                    f"function {stage.function!r}"
+                    f"function {stage.function!r}", stage.token
                 )
             if (
                 getattr(function, "requires", None) is not None
@@ -175,11 +286,12 @@ def _emit_c11_flow_entrypoints(module, bootstrap) -> str:
             ):
                 raise FlowFrontendError(
                     f"C11 Flow lowering does not yet integrate contracts on "
-                    f"stage function {stage.function!r}"
+                    f"stage function {stage.function!r}", stage.token
                 )
             if len(function.params) != len(stage.dependencies):
                 raise FlowFrontendError(
-                    f"C11 Flow stage {stage.name!r} parameter count changed"
+                    f"C11 Flow stage {stage.name!r} parameter count changed",
+                    stage.token,
                 )
 
             arguments = []
@@ -188,7 +300,7 @@ def _emit_c11_flow_entrypoints(module, bootstrap) -> str:
                 if value_name is None:
                     raise FlowFrontendError(
                         f"C11 Flow stage {stage.name!r} reads a dependency "
-                        f"{dependency!r} before it is produced"
+                        f"{dependency!r} before it is produced", stage.token
                     )
                 arguments.append(value_name)
 
@@ -202,7 +314,7 @@ def _emit_c11_flow_entrypoints(module, bootstrap) -> str:
                 if dispatch_dependency is None:
                     raise FlowFrontendError(
                         f"C11 Flow dispatch stage {stage.name!r} reads a dependency "
-                        f"{dependency!r} before it is produced"
+                        f"{dependency!r} before it is produced", stage.token
                     )
                 dispatch_arguments.append(dispatch_dependency)
             dispatch_inputs_name = bootstrap._c_ident(
@@ -383,6 +495,123 @@ def _flow_function_reaches_global_access(function, functions, globals_, bootstra
     return False
 
 
+def validate_flow_execution_source(
+    module, flow_name: str, bootstrap_module=None
+) -> None:
+    """Require source proofs used by both executable Flow backends.
+
+    Typed Flow plans also support analysis of effectful/transactional graphs.
+    Execution has the narrower pure-stage contract, so this check belongs at
+    the runner boundary rather than in source planning.
+    """
+    if bootstrap_module is None:
+        from . import bootstrap as bootstrap_module
+    bootstrap = bootstrap_module
+
+    plans = tuple(getattr(module, "typed_flows", ()) or ())
+    matches = tuple(plan for plan in plans if plan.name == flow_name)
+    if len(matches) != 1:
+        raise FlowFrontendError(
+            f"Flow execution requires exactly one checked plan named {flow_name!r}"
+        )
+    functions = {function.name: function for function in module.functions}
+    globals_ = {item.name for item in getattr(module, "globals", ())}
+    summaries = getattr(module, "source_effect_summaries", {}) or {}
+    for stage in matches[0].stages:
+        function = functions.get(stage.function)
+        if function is None:
+            raise FlowFrontendError(
+                f"Flow stage {stage.name!r} has no source function"
+            )
+        if any(
+            attribute in {"@system", "@extern(C)"}
+            for attribute in function.attributes
+        ):
+            raise FlowFrontendError(
+                f"Flow stage {stage.name!r} cannot execute a system or foreign function"
+            )
+        summary = summaries.get(stage.function)
+        if summary is None:
+            # The older tools/ package installs the same Flow checker without
+            # the production source-effects pass. Prove the small executable
+            # subset directly and fail closed on constructs whose effects
+            # cannot be established here.
+            def children(value):
+                if isinstance(value, (bootstrap.Expr, bootstrap.Stmt)):
+                    return tuple(vars(value).values())
+                if isinstance(value, (tuple, list)):
+                    return tuple(value)
+                return ()
+
+            pending = [function]
+            visited: set[str] = set()
+            while pending:
+                current = pending.pop()
+                if current.name in visited:
+                    continue
+                visited.add(current.name)
+                if any(
+                    attribute in {"@system", "@extern(C)"}
+                    for attribute in current.attributes
+                ):
+                    raise FlowFrontendError(
+                        f"Flow stage {stage.name!r} reaches a system or foreign function"
+                    )
+                if (
+                    getattr(current, "requires", None) is not None
+                    or getattr(current, "ensures", None) is not None
+                ):
+                    raise FlowFrontendError(
+                        f"Flow stage {stage.name!r} reaches a function with unproven contracts"
+                    )
+                if _flow_function_reaches_global_access(
+                    current, functions, globals_, bootstrap
+                ):
+                    raise FlowFrontendError(
+                        f"Flow stage {stage.name!r} reads or writes global state"
+                    )
+                stack = list(current.body)
+                while stack:
+                    value = stack.pop()
+                    if isinstance(value, bootstrap.MethodCall) or type(value).__name__ in {
+                        "Asm", "Unsafe", "Defer"
+                    }:
+                        raise FlowFrontendError(
+                            f"Flow stage {stage.name!r} uses a construct whose effects "
+                            "cannot be proven by this compiler path"
+                        )
+                    if isinstance(value, bootstrap.Call):
+                        callee = functions.get(value.callee)
+                        if callee is None:
+                            raise FlowFrontendError(
+                                f"Flow stage {stage.name!r} reaches unresolved call "
+                                f"{value.callee!r}"
+                            )
+                        pending.append(callee)
+                    stack.extend(children(value))
+            continue
+        if (
+            tuple(getattr(summary, "transitive_effects", ()))
+            or tuple(getattr(summary, "unresolved_calls", ()))
+        ):
+            raise FlowFrontendError(
+                f"Flow stage {stage.name!r} requires a proven pure function"
+            )
+        if _flow_function_reaches_global_access(
+            function, functions, globals_, bootstrap
+        ):
+            raise FlowFrontendError(
+                f"Flow stage {stage.name!r} reads or writes global state"
+            )
+        if (
+            getattr(function, "requires", None) is not None
+            or getattr(function, "ensures", None) is not None
+        ):
+            raise FlowFrontendError(
+                f"Flow stage {stage.name!r} has contracts not yet proven by Flow"
+            )
+
+
 def plan_source_flows(module, bootstrap) -> tuple[TypedFlowPlan, ...]:
     """Validate source Flow DAGs and type each stage's dependency values."""
     flows = tuple(getattr(module, "flows", ()))
@@ -393,11 +622,23 @@ def plan_source_flows(module, bootstrap) -> tuple[TypedFlowPlan, ...]:
     seen_flows: set[str] = set()
     for flow in flows:
         if flow.name in seen_flows:
-            raise FlowFrontendError(f"flow {flow.name!r} is declared more than once")
+            raise FlowFrontendError(
+                f"flow {flow.name!r} is declared more than once", flow.token
+            )
         seen_flows.add(flow.name)
         stage_names = [stage.name for stage in flow.stages]
         if len(set(stage_names)) != len(stage_names):
-            raise FlowFrontendError(f"flow {flow.name!r} repeats a stage name")
+            seen_stage_names: set[str] = set()
+            duplicate = None
+            for stage in flow.stages:
+                if stage.name in seen_stage_names:
+                    duplicate = stage
+                    break
+                seen_stage_names.add(stage.name)
+            raise FlowFrontendError(
+                f"flow {flow.name!r} repeats a stage name",
+                getattr(duplicate, "token", flow.token),
+            )
         stage_declarations = {stage.name: stage for stage in flow.stages}
         try:
             graph = certify_flow_graph(
@@ -409,7 +650,9 @@ def plan_source_flows(module, bootstrap) -> tuple[TypedFlowPlan, ...]:
                 ),
             )
         except ValueError as error:
-            raise FlowFrontendError(f"flow {flow.name!r}: {error}") from error
+            raise FlowFrontendError(
+                f"flow {flow.name!r}: {error}", flow.token
+            ) from error
 
         typed_stages = []
         for stage in flow.stages:
@@ -417,21 +660,23 @@ def plan_source_flows(module, bootstrap) -> tuple[TypedFlowPlan, ...]:
             if function is None:
                 raise FlowFrontendError(
                     f"flow stage {stage.name!r} references unknown function "
-                    f"{stage.function!r}"
+                    f"{stage.function!r}", stage.token
                 )
             if not function.body:
                 raise FlowFrontendError(
-                    f"flow stage {stage.name!r} requires a source function body"
+                    f"flow stage {stage.name!r} requires a source function body",
+                    stage.token,
                 )
             if function.result.name == "void":
                 raise FlowFrontendError(
-                    f"flow stage {stage.name!r} must return a value"
+                    f"flow stage {stage.name!r} must return a value", stage.token
                 )
             if len(function.params) != len(stage.dependencies):
                 raise FlowFrontendError(
                     f"flow stage {stage.name!r} has {len(stage.dependencies)} "
                     f"dependencies but function {stage.function!r} accepts "
-                    f"{len(function.params)} parameters"
+                    f"{len(function.params)} parameters",
+                    stage.token,
                 )
             input_types = []
             for dependency, (_, parameter_type) in zip(
@@ -441,7 +686,7 @@ def plan_source_flows(module, bootstrap) -> tuple[TypedFlowPlan, ...]:
                 if producer is None:
                     raise FlowFrontendError(
                         f"flow stage {stage.name!r} references unknown "
-                        f"dependency {dependency!r}"
+                        f"dependency {dependency!r}", stage.token
                     )
                 producer_function = functions.get(producer.function)
                 if producer_function is None:
@@ -453,7 +698,7 @@ def plan_source_flows(module, bootstrap) -> tuple[TypedFlowPlan, ...]:
                 ):
                     raise FlowFrontendError(
                         f"flow stage {stage.name!r} parameter type does not "
-                        f"match dependency {dependency!r} result"
+                        f"match dependency {dependency!r} result", stage.token
                     )
                 input_types.append(parameter_type)
             summary = (getattr(module, "source_effect_summaries", {}) or {}).get(
@@ -464,13 +709,16 @@ def plan_source_flows(module, bootstrap) -> tuple[TypedFlowPlan, ...]:
             )
             if "unknown_call" in effects:
                 raise FlowFrontendError(
-                    f"flow stage {stage.name!r} has unresolved call effects"
+                    f"flow stage {stage.name!r} has unresolved call effects",
+                    stage.token,
                 )
             typed_stages.append(TypedFlowStage(
                 stage.name, stage.function, stage.dependencies,
-                tuple(input_types), function.result, effects,
+                tuple(input_types), function.result, effects, stage.token,
             ))
-        plans.append(TypedFlowPlan(flow.name, graph, tuple(typed_stages)))
+        plans.append(TypedFlowPlan(
+            flow.name, graph, tuple(typed_stages), flow.token
+        ))
     return tuple(plans)
 
 
@@ -483,8 +731,13 @@ def install(bootstrap) -> None:
         try:
             module.typed_flows = plan_source_flows(module, bootstrap)
         except FlowFrontendError as error:
+            token = error.token
             raise bootstrap.SotlasBootstrapError(
-                str(error), 1, 1, module.filename, module.source
+                str(error),
+                getattr(token, "line", 1),
+                getattr(token, "column", 1),
+                module.filename,
+                module.source,
             ) from error
         return result
 
@@ -495,8 +748,13 @@ def install(bootstrap) -> None:
         try:
             flow_c = _emit_c11_flow_entrypoints(module, bootstrap)
         except FlowFrontendError as error:
+            token = error.token
             raise bootstrap.SotlasBootstrapError(
-                str(error), 1, 1, module.filename, module.source
+                str(error),
+                getattr(token, "line", 1),
+                getattr(token, "column", 1),
+                module.filename,
+                module.source,
             ) from error
         return generated + ("\n" + flow_c if flow_c else "")
 
@@ -505,6 +763,7 @@ def install(bootstrap) -> None:
 
 __all__ = [
     "FlowFrontendError",
+    "validate_flow_execution_source",
     "TypedFlowStage",
     "TypedFlowPlan",
     "plan_source_flows",

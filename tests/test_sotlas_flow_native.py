@@ -23,6 +23,330 @@ bootstrap = canonical_llvm_frontend()
 
 
 class SotlasFlowNativeTests(unittest.TestCase):
+    def test_c11_flow_executes_nested_linear_trivial_sole_records(self):
+        compiler = default_toolchain.find_tool("clang") or shutil.which("gcc")
+        if compiler is None:
+            self.skipTest("Clang or GCC is required for native Flow execution")
+        source = """module test::native_nested_flow_sole;
+@repr(C)
+sole struct Inner { value: u32; }
+@repr(C)
+sole struct Outer { inner: Inner; }
+fn create() -> Outer {
+    return Outer { inner: Inner { value: 17u32 } };
+}
+fn forward(value: Outer) -> Outer { return move value; }
+flow Nested {
+    stage created = create;
+    stage forwarded = forward after created;
+}
+"""
+        from sotlas_compile.flow_native_runner import run_c11_flow
+
+        outputs = run_c11_flow(source, "native_nested_flow_sole.sotlas", "Nested")
+        self.assertEqual(outputs, {
+            "created": {"inner": {"value": 17}},
+            "forwarded": {"inner": {"value": 17}},
+        })
+
+    def test_c11_flow_executes_linear_trivial_sole_record_chain(self):
+        compiler = default_toolchain.find_tool("clang") or shutil.which("gcc")
+        if compiler is None:
+            self.skipTest("Clang or GCC is required for native Flow execution")
+        source = """module test::native_flow_sole_pod;
+@repr(C)
+sole struct Token { value: u32; }
+fn make_token() -> Token { return Token { value: 7u32 }; }
+fn forward(token: Token) -> Token { return move token; }
+flow Linear {
+    stage created = make_token;
+    stage forwarded = forward after created;
+}
+"""
+        c_source = bootstrap.compile_source(source, "native_flow_sole_pod.sotlas")
+        entrypoint = "sotlas_flow_test__native_flow_sole_pod_Linear"
+        with tempfile.TemporaryDirectory(prefix="sotlas-flow-sole-pod-") as tmpdir:
+            root = Path(tmpdir)
+            generated = root / "flow.c"
+            caller = root / "caller.c"
+            executable = root / ("caller.exe" if os.name == "nt" else "caller")
+            generated.write_text(c_source, encoding="utf-8")
+            caller.write_text(
+                '#include "flow.c"\n'
+                "static int32_t cancel_before_forward(void *raw) {\n"
+                "  int32_t *checks = (int32_t *)raw; return (*checks)++ == 1;\n"
+                "}\n"
+                "int main(void) {\n"
+                f"  Token result = {entrypoint}();\n"
+                "  if (result.value != 7u) return 1;\n"
+                f"  int32_t (*outputs)(Token *, Token *) = {entrypoint}_outputs;\n"
+                "  Token created_output = {0u}, forwarded_output = {0u};\n"
+                "  if (!outputs(&created_output, &forwarded_output) || "
+                "created_output.value != 7u || forwarded_output.value != 7u) return 2;\n"
+                f"  int32_t (*cancelable)(int32_t (*)(void *), void *, "
+                f"int32_t *, Token *, Token *) = {entrypoint}_cancelable;\n"
+                "  int32_t checks = 0, stopped = -9;\n"
+                "  Token created = {91u}, forwarded = {92u};\n"
+                "  if (cancelable(cancel_before_forward, &checks, &stopped, "
+                "&created, &forwarded) != 2 || stopped != 1 || "
+                "created.value != 91u || forwarded.value != 92u) return 3;\n"
+                "  return 0;\n"
+                "}\n",
+                encoding="utf-8",
+            )
+            compiled = subprocess.run(
+                [str(compiler), "-std=c11", "-Wall", "-Wextra", "-Werror",
+                 "-I", str(root), str(caller), "-o", str(executable)],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            executed = subprocess.run(
+                [str(executable)], capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(executed.returncode, 0, executed.stderr or executed.stdout)
+
+    def test_c11_flow_executes_plain_repr_c_record_payload(self):
+        compiler = default_toolchain.find_tool("clang") or shutil.which("gcc")
+        if compiler is None:
+            self.skipTest("Clang or GCC is required for native Flow execution")
+        source = """module test::native_flow_record;
+@repr(C)
+pub struct Pair { left: u32; right: u32; }
+fn make_pair() -> Pair { return Pair { left: 2u32, right: 3u32 }; }
+fn transform_pair(pair: Pair) -> Pair {
+    return Pair { left: pair.left + 4u32, right: pair.right * 2u32 };
+}
+flow Compute {
+    stage seed = make_pair;
+    stage result = transform_pair after seed;
+}
+"""
+        c_source = bootstrap.compile_source(source, "native_flow_record.sotlas")
+        entrypoint = "sotlas_flow_test__native_flow_record_Compute"
+        self.assertIn(f"Pair {entrypoint}(void)", c_source)
+
+        with tempfile.TemporaryDirectory(prefix="sotlas-flow-record-") as tmpdir:
+            root = Path(tmpdir)
+            (root / "flow.c").write_text(c_source, encoding="utf-8")
+            caller = root / "caller.c"
+            caller.write_text(
+                '#include "flow.c"\n'
+                "#include <string.h>\n"
+                "typedef struct { int calls; int fail; } Context;\n"
+                "static int32_t cancel_before_result(void *raw) {\n"
+                "  int *calls = (int *)raw; return (*calls)++ == 1;\n"
+                "}\n"
+                "static int32_t dispatch_stage(void *raw, uint32_t stage, "
+                "const char *name, const char *type, const char *const *types, "
+                "const void *const *inputs, uint32_t count, void *output) {\n"
+                "  Context *ctx = (Context *)raw;\n"
+                "  if (strcmp(type, \"Pair\") != 0) return 90;\n"
+                "  if (stage == 0 && strcmp(name, \"seed\") == 0 && count == 0) {\n"
+                "    *(Pair *)output = (Pair){2u, 3u}; return 0;\n"
+                "  }\n"
+                "  if (stage == 1 && strcmp(name, \"result\") == 0 && count == 1 && "
+                "strcmp(types[0], \"Pair\") == 0) {\n"
+                "    const Pair *value = (const Pair *)inputs[0];\n"
+                "    *(Pair *)output = (Pair){value->left + 4u, value->right * 2u};\n"
+                "    return ctx->fail ? 41 : 0;\n"
+                "  }\n"
+                "  return 91;\n"
+                "}\n"
+                "int main(void) {\n"
+                f"  Pair value = {entrypoint}();\n"
+                "  if (value.left != 6u || value.right != 6u) return 1;\n"
+                f"  int32_t (*outputs)(Pair *, Pair *) = {entrypoint}_outputs;\n"
+                "  Pair seed = {0u, 0u}, result = {0u, 0u};\n"
+                "  if (!outputs(&seed, &result) || seed.left != 2u || "
+                "seed.right != 3u || result.left != 6u || result.right != 6u) return 2;\n"
+                "  if (outputs(0, &result)) return 3;\n"
+                f"  int32_t (*cancelable)(int32_t (*)(void *), void *, int32_t *, "
+                f"Pair *, Pair *) = {entrypoint}_cancelable;\n"
+                "  int calls = 0, cancelled = -9; seed = (Pair){90u, 91u}; "
+                "result = (Pair){92u, 93u};\n"
+                "  if (cancelable(cancel_before_result, &calls, &cancelled, "
+                "&seed, &result) != 2 || cancelled != 1 || seed.left != 90u || "
+                "result.left != 92u) return 4;\n"
+                f"  int32_t (*dispatch)(int32_t (*)(void *, uint32_t, const char *, "
+                f"const char *, const char *const *, const void *const *, uint32_t, "
+                f"void *), void *, int32_t (*)(void *), int32_t *, int32_t *, "
+                f"Pair *, Pair *) = {entrypoint}_dispatch;\n"
+                "  Context ctx = {0, 0}; int32_t stopped = -9, stage_status = -9;\n"
+                "  seed = (Pair){70u, 71u}; result = (Pair){72u, 73u};\n"
+                "  if (dispatch(dispatch_stage, &ctx, 0, &stopped, &stage_status, "
+                "&seed, &result) != 0 || stopped != -1 || stage_status != 0 || "
+                "seed.left != 2u || result.left != 6u || result.right != 6u) return 5;\n"
+                "  ctx.fail = 1; seed = (Pair){70u, 71u}; result = (Pair){72u, 73u};\n"
+                "  if (dispatch(dispatch_stage, &ctx, 0, &stopped, &stage_status, "
+                "&seed, &result) != 3 || stopped != 1 || stage_status != 41 || "
+                "seed.left != 70u || seed.right != 71u || result.left != 72u || "
+                "result.right != 73u) return 6;\n"
+                "  return 0;\n"
+                "}\n",
+                encoding="utf-8",
+            )
+            executable = root / ("caller.exe" if os.name == "nt" else "caller")
+            compiled = subprocess.run(
+                [str(compiler), "-std=c11", "-Wall", "-Wextra", "-I", str(root),
+                 str(caller), "-o", str(executable)],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            executed = subprocess.run(
+                [str(executable)], capture_output=True, text=True, check=False
+            )
+            self.assertEqual(executed.returncode, 0, executed.stderr or executed.stdout)
+
+    def test_c11_flow_executes_nested_repr_c_record_payloads(self):
+        compiler = default_toolchain.find_tool("clang") or shutil.which("gcc")
+        if compiler is None:
+            self.skipTest("Clang or GCC is required for native Flow execution")
+        source = """module test::native_nested_flow_record;
+@repr(C)
+pub struct Point { x: u32; y: u32; }
+@repr(C)
+pub struct Frame { origin: Point; scale: f64; }
+fn make_frame() -> Frame {
+    return Frame { origin: Point { x: 4u32, y: 9u32 }, scale: 1.5f64 };
+}
+fn translate(frame: Frame) -> Frame {
+    return Frame {
+        origin: Point { x: frame.origin.x + 3u32, y: frame.origin.y + 2u32 },
+        scale: frame.scale * 2.0f64,
+    };
+}
+flow Render {
+    stage input = make_frame;
+    stage output = translate after input;
+}
+"""
+        c_source = bootstrap.compile_source(source, "native_nested_flow_record.sotlas")
+        entrypoint = "sotlas_flow_test__native_nested_flow_record_Render"
+        with tempfile.TemporaryDirectory(prefix="sotlas-flow-nested-record-") as tmpdir:
+            root = Path(tmpdir)
+            generated = root / "flow.c"
+            caller = root / "caller.c"
+            executable = root / ("caller.exe" if os.name == "nt" else "caller")
+            generated.write_text(c_source, encoding="utf-8")
+            caller.write_text(
+                '#include "flow.c"\n'
+                f"int main(void) {{ Frame result = {entrypoint}(); "
+                "return result.origin.x == 7u && result.origin.y == 11u && "
+                "result.scale == 3.0 ? 0 : 1; }\n",
+                encoding="utf-8",
+            )
+            compiled = subprocess.run(
+                [str(compiler), "-std=c11", "-Wall", "-Wextra", "-I", str(root),
+                 str(caller), "-o", str(executable)],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            executed = subprocess.run(
+                [str(executable)], capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(executed.returncode, 0, executed.stderr or executed.stdout)
+
+    def test_c11_flow_executes_record_stage_with_branch_and_early_return(self):
+        compiler = default_toolchain.find_tool("clang") or shutil.which("gcc")
+        if compiler is None:
+            self.skipTest("Clang or GCC is required for native Flow execution")
+        source = """module test::native_flow_record_branch;
+@repr(C)
+pub struct Pair { left: u32; right: u32; }
+fn make_pair() -> Pair { return Pair { left: 4u32, right: 9u32 }; }
+fn enabled() -> bool { return true; }
+fn select(pair: Pair, flag: bool) -> Pair {
+    if flag {
+        return Pair { left: pair.left + 1u32, right: pair.right + 2u32 };
+    }
+    return Pair { left: pair.left * 2u32, right: pair.right * 3u32 };
+}
+flow Select {
+    stage input = make_pair;
+    stage flag = enabled;
+    stage result = select after input, flag;
+}
+"""
+        c_source = bootstrap.compile_source(source, "native_flow_record_branch.sotlas")
+        entrypoint = "sotlas_flow_test__native_flow_record_branch_Select"
+        with tempfile.TemporaryDirectory(prefix="sotlas-flow-record-branch-") as tmpdir:
+            root = Path(tmpdir)
+            generated = root / "flow.c"
+            caller = root / "caller.c"
+            executable = root / ("caller.exe" if os.name == "nt" else "caller")
+            generated.write_text(c_source, encoding="utf-8")
+            caller.write_text(
+                '#include "flow.c"\n'
+                f"int main(void) {{ Pair result = {entrypoint}(); "
+                "return result.left == 5u && result.right == 11u ? 0 : 1; }\n",
+                encoding="utf-8",
+            )
+            compiled = subprocess.run(
+                [str(compiler), "-std=c11", "-Wall", "-Wextra", "-I", str(root),
+                 str(caller), "-o", str(executable)],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            executed = subprocess.run(
+                [str(executable)], capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(executed.returncode, 0, executed.stderr or executed.stdout)
+
+    def test_c11_flow_rejects_nonportable_and_reference_bearing_records(self):
+        cases = (
+            (
+                "nonrepr",
+                "struct Pair { left: u32; right: u32; }",
+                "Pair { left: 1u32, right: 2u32 }",
+            ),
+            (
+                "pointer",
+                "@repr(C)\nstruct Pair { value: *const u32; }",
+                "Pair { value: null }",
+            ),
+            (
+                "owned_with_deinit",
+                "@repr(C)\nsole struct Pair { value: u32; fn deinit(&mut self) -> void { return; } }",
+                "Pair { value: 1u32 }",
+            ),
+            (
+                "bitfield",
+                "@repr(C)\nstruct Pair { value: u32: 3; }",
+                "Pair { value: 1u32 }",
+            ),
+            (
+                "packed",
+                "@repr(C)\n@packed\nstruct Pair { value: u32; }",
+                "Pair { value: 1u32 }",
+            ),
+            (
+                "implicit_nested_layout",
+                "struct Inner { value: u32; }\n@repr(C)\nstruct Pair { inner: Inner; }",
+                "Pair { inner: Inner { value: 1u32 } }",
+            ),
+        )
+        for suffix, declaration, initializer in cases:
+            with self.subTest(case=suffix):
+                source = f"""module test::flow_record_{suffix};
+{declaration}
+                fn make_pair() -> Pair {{ return {initializer}; }}
+flow Compute {{ stage result = make_pair; }}
+"""
+                with self.assertRaisesRegex(
+                    bootstrap.SotlasBootstrapError,
+                    "C11 Flow lowering does not support value type",
+                ) as raised:
+                    bootstrap.compile_source(source, f"flow_record_{suffix}.sotlas")
+                stage_line = next(
+                    index for index, line in enumerate(source.splitlines(), 1)
+                    if "stage result = make_pair" in line
+                )
+                stage_column = source.splitlines()[stage_line - 1].index("stage") + 1
+                self.assertEqual(
+                    (raised.exception.line, raised.exception.column),
+                    (stage_line, stage_column),
+                )
+
     def test_c11_flow_dispatch_abi_propagates_stage_failure_and_cancellation(self):
         compiler = default_toolchain.find_tool("clang") or shutil.which("gcc")
         if compiler is None:

@@ -33,31 +33,26 @@ def _load_canonical_package():
 
 sotlas_compile = _load_canonical_package()
 typed_ast = importlib.import_module(f"{sotlas_compile.__name__}.typed_ast")
-try:
-    _shared_sir_package = importlib.import_module("sotlas.sir")
-except ImportError:
-    sir_name = "sotlas_phase1_sir_package"
-    sir_spec = importlib.util.spec_from_file_location(
-        sir_name,
-        ROOT / "compiler" / "sotlas" / "sir" / "__init__.py",
-        submodule_search_locations=[str(ROOT / "compiler" / "sotlas" / "sir")],
-    )
-    assert sir_spec is not None and sir_spec.loader is not None
-    sir_module = importlib.util.module_from_spec(sir_spec)
-    sys.modules[sir_name] = sir_module
-    sir_spec.loader.exec_module(sir_module)
-    _shared_sir_package = sir_module
-RetainInst = _shared_sir_package.RetainInst
-DirectAccessInst = _shared_sir_package.DirectAccessInst
-OwnershipDomainTransferInst = _shared_sir_package.OwnershipDomainTransferInst
-generate_checked_ownership_sir = (
-    _shared_sir_package.generate_checked_ownership_sir
+_canonical_sir_loader = importlib.import_module(
+    f"{sotlas_compile.__name__}.canonical_sir"
 )
-CallInst, DestroyInst, ReleaseInst, ReturnInst, ShareInst = (
-    _shared_sir_package.CallInst, _shared_sir_package.DestroyInst,
-    _shared_sir_package.ReleaseInst, _shared_sir_package.ReturnInst,
-    _shared_sir_package.ShareInst,
-)
+
+
+def _bind_current_sir_symbols():
+    """Bind identity-sensitive SIR classes from the frontend's live loader."""
+    sir = _canonical_sir_loader.load_canonical_sir()
+    for name in (
+        "RetainInst", "DirectAccessInst", "OwnershipDomainTransferInst",
+        "CallInst", "DestroyInst", "ReleaseInst", "ReturnInst", "ShareInst",
+    ):
+        globals()[name] = getattr(sir, name)
+    return sir
+
+
+def generate_checked_ownership_sir(checked):
+    """Use the currently registered canonical SIR package and its classes."""
+    sir = _bind_current_sir_symbols()
+    return sir.generate_checked_ownership_sir(checked)
 
 
 class SotlasPhase1PipelineTests(unittest.TestCase):
@@ -1210,8 +1205,10 @@ fn leak(token: whisper Token) -> *Token {
         with self.assertRaisesRegex(
             sotlas_compile.SotlasBootstrapError,
             "whisper-derived pointer cannot escape through return",
-        ):
+        ) as raised:
             sotlas_compile.bootstrap.check(parsed)
+        self.assertEqual(raised.exception.line, 4)
+        self.assertEqual(raised.exception.column, 14)
 
     def test_production_checker_allows_copying_scalar_from_whisper(self):
         source = """module test::production_whisper_scalar;
@@ -1257,8 +1254,9 @@ fn leak(token: whisper Token) -> *Token {
         with self.assertRaisesRegex(
             sotlas_compile.SotlasBootstrapError,
             "whisper-derived reference cannot be forwarded through a call without a verified no-escape parameter summary",
-        ):
+        ) as raised:
             sotlas_compile.bootstrap.check(parsed)
+        self.assertEqual(raised.exception.line, 4)
 
     def test_production_checker_rejects_forwarding_to_escaping_function(self):
         source = """module test::production_whisper_unsafe_forward;
@@ -1276,8 +1274,10 @@ fn relay(token: whisper Token) -> *Token {
         with self.assertRaisesRegex(
             sotlas_compile.SotlasBootstrapError,
             "whisper-derived reference cannot be forwarded through a call without a verified no-escape parameter summary",
-        ):
+        ) as raised:
             sotlas_compile.bootstrap.check(parsed)
+        self.assertEqual(raised.exception.line, 7)
+        self.assertEqual(raised.exception.column, 21)
 
     def test_production_checker_rejects_direct_forwarding_to_escaping_function(self):
         source = """module test::production_direct_unsafe_forward;
@@ -1295,8 +1295,10 @@ fn relay(token: direct Token) -> *Token {
         with self.assertRaisesRegex(
             sotlas_compile.SotlasBootstrapError,
             "direct-derived reference cannot be forwarded through a call without a verified no-escape parameter summary",
-        ):
+        ) as raised:
             sotlas_compile.bootstrap.check(parsed)
+        self.assertEqual(raised.exception.line, 7)
+        self.assertEqual(raised.exception.column, 21)
 
     def test_production_checker_allows_forwarding_to_verified_noescape_method(self):
         source = """module test::production_whisper_method;
@@ -1310,6 +1312,36 @@ fn relay(token: whisper Token) -> u32 { return token.inspect(); }
             source, filename="<production-whisper-method>"
         )
         sotlas_compile.bootstrap.check(parsed)
+
+    def test_production_checker_scopes_method_noescape_proofs_by_receiver_type(self):
+        source = """module test::production_whisper_method_scope;
+sole struct Token { value: u32; }
+struct SafeReader {}
+struct LeakingReader {}
+impl SafeReader {
+    fn inspect(self: &SafeReader, token: &Token) -> u32 {
+        return token.value;
+    }
+}
+impl LeakingReader {
+    fn inspect(self: &LeakingReader, token: &Token) -> usize {
+        unsafe { return token as *Token as usize; }
+    }
+}
+fn relay(token: whisper Token, safe: &SafeReader, leaking: &LeakingReader) -> usize {
+    safe.inspect(token);
+    return leaking.inspect(token);
+}
+"""
+        parsed = sotlas_compile.bootstrap.parse(
+            source, filename="<production-whisper-method-scope>"
+        )
+        with self.assertRaisesRegex(
+            sotlas_compile.SotlasBootstrapError,
+            "whisper-derived reference cannot be forwarded through a method without a verified no-escape parameter summary",
+        ) as raised:
+            sotlas_compile.bootstrap.check(parsed)
+        self.assertEqual(raised.exception.line, 17)
 
     def test_production_checker_rejects_forwarding_to_external_parameter(self):
         source = """module test::production_whisper_extern;

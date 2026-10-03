@@ -11,6 +11,61 @@ pub enum ResultCode {
     Busy = 7
 }
 
+pub class ResultBool {
+    status: ResultCode;
+    value: bool;
+
+    pub fn ok(val: bool) -> ResultBool {
+        let mut r: ResultBool = 0;
+        r.status = ResultCode::Ok;
+        r.value = val;
+        return r;
+    }
+
+    pub fn err(code: ResultCode) -> ResultBool {
+        let mut r: ResultBool = 0;
+        r.status = code;
+        r.value = false;
+        return r;
+    }
+
+    pub fn is_ok(self: *const ResultBool) -> bool {
+        if self == null { return false; }
+        unsafe { return self.status == ResultCode::Ok; }
+    }
+
+    pub fn is_err(self: *const ResultBool) -> bool {
+        if self == null { return true; }
+        unsafe { return self.status != ResultCode::Ok; }
+    }
+
+    pub fn unwrap_or(self: *const ResultBool, default_val: bool) -> bool {
+        if self == null { return default_val; }
+        unsafe {
+            if self.status == ResultCode::Ok { return self.value; }
+        }
+        return default_val;
+    }
+
+    pub fn try_unwrap(self: *const ResultBool, out: *mut bool) -> bool {
+        if self == null || out == null { return false; }
+        unsafe {
+            if self.status != ResultCode::Ok { return false; }
+            *out = self.value;
+            return true;
+        }
+    }
+
+    pub fn unwrap(self: *const ResultBool) -> bool {
+        unsafe { return self.unwrap_or(false); }
+    }
+
+    pub fn unwrap_err(self: *const ResultBool) -> ResultCode {
+        if self == null { return ResultCode::Error; }
+        unsafe { return self.status; }
+    }
+}
+
 pub class ResultU32 {
     status: ResultCode;
     value: u32;

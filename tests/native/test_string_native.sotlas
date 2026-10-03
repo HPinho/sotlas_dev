@@ -34,7 +34,32 @@ fn tracking_realloc(
     new_size: usize,
     alignment: usize
 ) -> *mut u8 {
-    return null;
+    if context == null || new_size == 0 {
+        return null;
+    }
+    let grown: *mut u8 = tracking_alloc(context, new_size, alignment);
+    if grown == null {
+        return null;
+    }
+    if ptr != null {
+        let mut copied: usize = old_size;
+        if copied > new_size {
+            copied = new_size;
+        }
+        let mut i: usize = 0;
+        unsafe {
+            while i < copied {
+                *(grown + i) = *(ptr + i);
+                i = i + 1;
+            }
+            i = 0;
+            while i < old_size {
+                *(ptr + i) = 238u8;
+                i = i + 1;
+            }
+        }
+    }
+    return grown;
 }
 
 fn tracking_free(
@@ -50,6 +75,32 @@ fn tracking_free(
 }
 
 pub fn main() -> i32 {
+    let mut byte_storage: [u8; 3] = 0;
+    unsafe {
+        byte_storage[0] = 65u8;
+        byte_storage[1] = 0u8;
+        byte_storage[2] = 66u8;
+    }
+    let embedded_nul: StringSlice = string_from_raw(
+        byte_storage as *const u8, 3
+    );
+    let mut extracted_byte: u8 = 99u8;
+    let extracted_byte_ptr: *mut u8 = unsafe {
+        (&mut extracted_byte) as *mut u8
+    };
+    if !string_try_byte_at(embedded_nul, 1, extracted_byte_ptr) ||
+       extracted_byte != 0u8 {
+        return 87;
+    }
+    extracted_byte = 77u8;
+    if string_try_byte_at(embedded_nul, 3, extracted_byte_ptr) ||
+       extracted_byte != 77u8 {
+        return 88;
+    }
+    if string_try_byte_at(embedded_nul, 0, null) {
+        return 89;
+    }
+
     let raw: *const u8 = "hello, world!" as *const u8;
     let s: StringSlice = string_from_raw(raw, 13);
 
@@ -86,11 +137,106 @@ pub fn main() -> i32 {
         return 84;
     }
     let malformed: StringSlice = string_from_raw(null, 1);
+    let empty_utf8: StringSlice = string_from_raw(null, 0);
+    if !string_is_valid_utf8(empty_utf8) {
+        return 101;
+    }
+    if string_is_valid_utf8(malformed) {
+        return 102;
+    }
+    if !string_is_valid_utf8(s) {
+        return 103;
+    }
+    if !string_is_valid_utf8(embedded_nul) {
+        return 112;
+    }
     if string_compare(malformed, hello) != -2 {
         return 85;
     }
     if string_compare(hello, malformed) != -2 {
         return 86;
+    }
+
+    let mut utf8_two: [u8; 2] = 0;
+    unsafe {
+        utf8_two[0] = 0xC2u8;
+        utf8_two[1] = 0xA2u8;
+    }
+    if !string_is_valid_utf8(string_from_raw(utf8_two as *const u8, 2)) {
+        return 104;
+    }
+    let mut utf8_three: [u8; 3] = 0;
+    unsafe {
+        utf8_three[0] = 0xE2u8;
+        utf8_three[1] = 0x82u8;
+        utf8_three[2] = 0xACu8;
+    }
+    if !string_is_valid_utf8(string_from_raw(utf8_three as *const u8, 3)) {
+        return 105;
+    }
+    let mut utf8_four: [u8; 4] = 0;
+    unsafe {
+        utf8_four[0] = 0xF0u8;
+        utf8_four[1] = 0x9Fu8;
+        utf8_four[2] = 0x92u8;
+        utf8_four[3] = 0xA9u8;
+    }
+    if !string_is_valid_utf8(string_from_raw(utf8_four as *const u8, 4)) {
+        return 106;
+    }
+
+    let mut invalid_utf8: [u8; 4] = 0;
+    unsafe {
+        invalid_utf8[0] = 0x80u8;
+    }
+    if string_is_valid_utf8(string_from_raw(invalid_utf8 as *const u8, 1)) {
+        return 107;
+    }
+    unsafe {
+        invalid_utf8[0] = 0xC0u8;
+        invalid_utf8[1] = 0x80u8;
+    }
+    if string_is_valid_utf8(string_from_raw(invalid_utf8 as *const u8, 2)) {
+        return 108;
+    }
+    unsafe {
+        invalid_utf8[0] = 0xE2u8;
+        invalid_utf8[1] = 0x82u8;
+    }
+    if string_is_valid_utf8(string_from_raw(invalid_utf8 as *const u8, 2)) {
+        return 109;
+    }
+    unsafe {
+        invalid_utf8[0] = 0xEDu8;
+        invalid_utf8[1] = 0xA0u8;
+        invalid_utf8[2] = 0x80u8;
+    }
+    if string_is_valid_utf8(string_from_raw(invalid_utf8 as *const u8, 3)) {
+        return 110;
+    }
+    unsafe {
+        invalid_utf8[0] = 0xF4u8;
+        invalid_utf8[1] = 0x90u8;
+        invalid_utf8[2] = 0x80u8;
+        invalid_utf8[3] = 0x80u8;
+    }
+    if string_is_valid_utf8(string_from_raw(invalid_utf8 as *const u8, 4)) {
+        return 111;
+    }
+    unsafe {
+        invalid_utf8[0] = 0xF0u8;
+        invalid_utf8[1] = 0x80u8;
+        invalid_utf8[2] = 0x80u8;
+        invalid_utf8[3] = 0x80u8;
+    }
+    if string_is_valid_utf8(string_from_raw(invalid_utf8 as *const u8, 4)) {
+        return 113;
+    }
+    unsafe {
+        invalid_utf8[0] = 0xF5u8;
+    }
+    if string_is_valid_utf8(string_from_raw(invalid_utf8 as *const u8, 4)) {
+        return 114;
     }
 
     let comma_idx: i64 = string_find_char(s, 44); // ','
@@ -155,8 +301,64 @@ pub fn main() -> i32 {
         return 19;
     }
 
+    let mut overlap_storage: [u8; 8] = 0;
+    unsafe {
+        overlap_storage[0] = 97u8;
+        overlap_storage[1] = 98u8;
+        overlap_storage[2] = 99u8;
+        overlap_storage[3] = 100u8;
+        overlap_storage[4] = 101u8;
+        overlap_storage[5] = 102u8;
+        overlap_storage[6] = 103u8;
+        overlap_storage[7] = 104u8;
+    }
+    let mut overlap: String = string_new(overlap_storage as *mut u8, 8);
+    overlap.length = 4;
+    let overlap_ptr: *mut String = unsafe { (&mut overlap) as *mut String };
+    let overlap_source: *const u8 = unsafe {
+        (overlap_storage as *const u8) + 1
+    };
+    let overlap_slice: StringSlice = string_from_raw(overlap_source, 4);
+    if !string_append_slice(overlap_ptr, overlap_slice) {
+        return 95;
+    }
+    let overlap_expected_raw: *const u8 = "abcdbcde" as *const u8;
+    let overlap_expected: StringSlice = string_from_raw(overlap_expected_raw, 8);
+    if !string_equals(
+        string_as_slice(overlap_ptr as *const String),
+        overlap_expected
+    ) {
+        return 96;
+    }
+
     let mut too_small: String = string_new(g_string_buf as *mut u8, 5);
     let too_small_ptr: *mut String = unsafe { (&mut too_small) as *mut String };
+    let mut empty_append_storage: [u8; 2] = 0;
+    unsafe {
+        empty_append_storage[0] = 65u8;
+        empty_append_storage[1] = 66u8;
+    }
+    let mut empty_append_target: String =
+        string_new(empty_append_storage as *mut u8, 2);
+    empty_append_target.length = 2;
+    let empty_append_ptr: *mut String = unsafe {
+        (&mut empty_append_target) as *mut String
+    };
+    let empty_after_append: StringSlice = string_from_raw(null, 0);
+    if !string_append_slice(empty_append_ptr, empty_after_append) {
+        return 97;
+    }
+    if empty_append_target.length != 2 {
+        return 98;
+    }
+    unsafe {
+        if empty_append_storage[0] != 65u8 || empty_append_storage[1] != 66u8 {
+            return 99;
+        }
+    }
+    if too_small.length != 0 {
+        return 98;
+    }
     if string_concat_into(too_small_ptr, hello, world) {
         return 20;
     }
@@ -467,6 +669,38 @@ pub fn main() -> i32 {
     unsafe {
         if g_owned_free_count != 1 {
             return 82;
+        }
+    }
+
+    let mut realloc_string: String =
+        string_new_with_allocator(deinit_allocator_ptr, 2);
+    let realloc_string_ptr: *mut String =
+        unsafe { (&mut realloc_string) as *mut String };
+    let ab_raw: *const u8 = "ab" as *const u8;
+    let ab: StringSlice = string_from_raw(ab_raw, 2);
+    if !string_append_slice(realloc_string_ptr, ab) {
+        return 90;
+    }
+    let self_slice: StringSlice =
+        string_as_slice(realloc_string_ptr as *const String);
+    if !string_append_slice_owned(realloc_string_ptr, self_slice) {
+        return 91;
+    }
+    let abab_raw: *const u8 = "abab" as *const u8;
+    let abab: StringSlice = string_from_raw(abab_raw, 4);
+    if realloc_string.length != 4 || realloc_string.capacity < 4 {
+        return 92;
+    }
+    if !string_equals(
+        string_as_slice(realloc_string_ptr as *const String),
+        abab
+    ) {
+        return 93;
+    }
+    string_deinit(realloc_string_ptr);
+    unsafe {
+        if g_owned_free_count != 2 {
+            return 94;
         }
     }
 

@@ -42,15 +42,17 @@ Sotlas source can call it through a matching `@extern(C)` declaration from an
 `@system` function;
 a dedicated Flow invocation syntax is not available yet. The reference CPU
 scheduler runs independent stages concurrently and propagates stage failures
-and cooperative cancellation. The C11 backend accepts pure scalar DAGs,
-including independent stages, but evaluates them in deterministic serial order
-and the direct entrypoint returns only the final stage value. Companion
+and cooperative cancellation. The C11 backend accepts pure scalar DAGs and
+ownership-free `@repr(C)` records with recursively scalar fields, including
+independent stages, but evaluates them in deterministic serial order and the
+direct entrypoint returns only the final stage value. Companion
 `_cancelable` and `_dispatch` ABIs report the stopped stage, propagate
 cancellation or a caller-executor failure code, and publish output slots only
 after success. `_dispatch` delegates stage execution to a host callback that is
 not verified equivalent to the Sotlas stage bodies; direct Sotlas stage calls
-remain pure scalar and cannot report failure. Native parallel scheduling,
-ownership payloads, physical Flow device providers, GPU/NPU dispatch, and
+remain pure scalar or plain-record calls and cannot report failure. Native
+parallel scheduling, ownership payloads, physical Flow device providers,
+GPU/NPU dispatch, and
 hardware synchronization remain unsupported.
 
 Intent planning can also associate required provider names with candidate Flows

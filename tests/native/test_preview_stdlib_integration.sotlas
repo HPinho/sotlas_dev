@@ -1,0 +1,120 @@
+module test::preview_stdlib_integration;
+
+import foundation::vec::*;
+import core::result::*;
+import core::string::*;
+
+static mut input: [u8; 5] = [49, 55, 44, 50, 57];
+static mut storage: [u32; 2] = [0; 2];
+
+pub fn main() -> i32 {
+    unsafe {
+        let line: StringSlice = string_from_raw(input as *const u8, 5);
+        if string_len(line) != 5 { return 1; }
+
+        let comma: StringSlice = string_from_raw("," as *const u8, 1);
+        let parts: StringSplit = string_split_once(line, comma);
+        if !parts.found || string_len(parts.before) != 2 ||
+            string_len(parts.after) != 2 {
+            return 2;
+        }
+        if string_char_at(parts.before, 0) != 49 ||
+            string_char_at(parts.before, 1) != 55 ||
+            string_char_at(parts.after, 0) != 50 ||
+            string_char_at(parts.after, 1) != 57 {
+            return 3;
+        }
+
+        let first_result: ResultU32 = string_parse_u32(parts.before);
+        let second_result: ResultU32 = string_parse_u32(parts.after);
+        let mut first: u32 = 0;
+        let mut second: u32 = 0;
+        if !first_result.try_unwrap((&mut first) as *mut u32) || first != 17 ||
+            !second_result.try_unwrap((&mut second) as *mut u32) || second != 29 {
+            return 9;
+        }
+
+        let overflow: ResultU32 = string_parse_u32(
+            string_from_raw("4294967296" as *const u8, 10)
+        );
+        if !overflow.is_err() || overflow.unwrap_err() != ResultCode::Overflow {
+            return 10;
+        }
+        let malformed: ResultU32 = string_parse_u32(
+            string_from_raw("12x" as *const u8, 3)
+        );
+        if !malformed.is_err() ||
+            malformed.unwrap_err() != ResultCode::InvalidParam {
+            return 11;
+        }
+        let empty: ResultU32 = string_parse_u32(string_from_raw(null, 0));
+        if !empty.is_err() || empty.unwrap_err() != ResultCode::InvalidParam {
+            return 12;
+        }
+        let maximum: ResultU32 = string_parse_u32(
+            string_from_raw("4294967295" as *const u8, 10)
+        );
+        let mut max_value: u32 = 0;
+        if !maximum.try_unwrap((&mut max_value) as *mut u32) ||
+            max_value != 4294967295u32 {
+            return 13;
+        }
+        let signed_minimum: ResultI32 = string_parse_i32(
+            string_from_raw("-2147483648" as *const u8, 11)
+        );
+        let mut min_value: i32 = 0;
+        if !signed_minimum.try_unwrap((&mut min_value) as *mut i32) ||
+            min_value != -2147483647 - 1 {
+            return 14;
+        }
+        let signed_maximum: ResultI32 = string_parse_i32(
+            string_from_raw("+2147483647" as *const u8, 11)
+        );
+        let mut signed_max_value: i32 = 0;
+        if !signed_maximum.try_unwrap((&mut signed_max_value) as *mut i32) ||
+            signed_max_value != 2147483647 {
+            return 15;
+        }
+        let signed_overflow: ResultI32 = string_parse_i32(
+            string_from_raw("2147483648" as *const u8, 10)
+        );
+        if !signed_overflow.is_err() ||
+            signed_overflow.unwrap_err() != ResultCode::Overflow {
+            return 16;
+        }
+        let sign_only: ResultI32 = string_parse_i32(
+            string_from_raw("-" as *const u8, 1)
+        );
+        if !sign_only.is_err() ||
+            sign_only.unwrap_err() != ResultCode::InvalidParam {
+            return 17;
+        }
+
+        let mut values: VecU32 = vec_new(storage as *mut u32, 2);
+        if !vec_push((&mut values) as *mut VecU32, first) ||
+            !vec_push((&mut values) as *mut VecU32, second) {
+            return 4;
+        }
+        let left: OptionU32 = vec_get((&values) as *const VecU32, 0);
+        let right: OptionU32 = vec_get((&values) as *const VecU32, 1);
+        if !left.has_value || !right.has_value || left.value != 17 ||
+            right.value != 29 {
+            return 5;
+        }
+
+        let total: u32 = left.value + right.value;
+        let success: ResultU32 = ResultU32::ok(total);
+        let mut extracted: u32 = 0;
+        if !success.try_unwrap((&mut extracted) as *mut u32) || extracted != 46 {
+            return 6;
+        }
+
+        let missing: StringSplit = string_split_once(line, string_from_raw("!" as *const u8, 1));
+        if missing.found { return 7; }
+        let failure: ResultU32 = ResultU32::err(ResultCode::InvalidParam);
+        if !failure.is_err() || failure.unwrap_err() != ResultCode::InvalidParam {
+            return 8;
+        }
+        return 0;
+    }
+}

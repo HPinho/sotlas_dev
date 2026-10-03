@@ -20,6 +20,110 @@ pub fn string_is_empty(s: StringSlice) -> bool {
     return s.length == 0 || s.data == null;
 }
 
+fn string_byte_in_range(
+    s: StringSlice,
+    index: usize,
+    minimum: u8,
+    maximum: u8
+) -> bool {
+    if s.data == null || index >= s.length {
+        return false;
+    }
+    let byte: u8 = string_char_at(s, index);
+    return byte >= minimum && byte <= maximum;
+}
+
+// Validate Unicode scalar encodings without allocating or decoding them.
+// Other StringSlice operations remain byte-oriented.
+pub fn string_is_valid_utf8(s: StringSlice) -> bool {
+    if s.length == 0 {
+        return true;
+    }
+    if s.data == null {
+        return false;
+    }
+
+    let mut index: usize = 0;
+    while index < s.length {
+        let first: u8 = string_char_at(s, index);
+        let remaining: usize = s.length - index;
+
+        if first <= 0x7Fu8 {
+            index = index + 1;
+            continue;
+        }
+        if first >= 0xC2u8 && first <= 0xDFu8 {
+            if remaining < 2 || !string_byte_in_range(
+                s, index + 1, 0x80u8, 0xBFu8
+            ) {
+                return false;
+            }
+            index = index + 2;
+            continue;
+        }
+        if first == 0xE0u8 {
+            if remaining < 3 ||
+                !string_byte_in_range(s, index + 1, 0xA0u8, 0xBFu8) ||
+                !string_byte_in_range(s, index + 2, 0x80u8, 0xBFu8) {
+                return false;
+            }
+            index = index + 3;
+            continue;
+        }
+        if (first >= 0xE1u8 && first <= 0xECu8) ||
+            (first >= 0xEEu8 && first <= 0xEFu8) {
+            if remaining < 3 ||
+                !string_byte_in_range(s, index + 1, 0x80u8, 0xBFu8) ||
+                !string_byte_in_range(s, index + 2, 0x80u8, 0xBFu8) {
+                return false;
+            }
+            index = index + 3;
+            continue;
+        }
+        if first == 0xEDu8 {
+            if remaining < 3 ||
+                !string_byte_in_range(s, index + 1, 0x80u8, 0x9Fu8) ||
+                !string_byte_in_range(s, index + 2, 0x80u8, 0xBFu8) {
+                return false;
+            }
+            index = index + 3;
+            continue;
+        }
+        if first == 0xF0u8 {
+            if remaining < 4 ||
+                !string_byte_in_range(s, index + 1, 0x90u8, 0xBFu8) ||
+                !string_byte_in_range(s, index + 2, 0x80u8, 0xBFu8) ||
+                !string_byte_in_range(s, index + 3, 0x80u8, 0xBFu8) {
+                return false;
+            }
+            index = index + 4;
+            continue;
+        }
+        if first >= 0xF1u8 && first <= 0xF3u8 {
+            if remaining < 4 ||
+                !string_byte_in_range(s, index + 1, 0x80u8, 0xBFu8) ||
+                !string_byte_in_range(s, index + 2, 0x80u8, 0xBFu8) ||
+                !string_byte_in_range(s, index + 3, 0x80u8, 0xBFu8) {
+                return false;
+            }
+            index = index + 4;
+            continue;
+        }
+        if first == 0xF4u8 {
+            if remaining < 4 ||
+                !string_byte_in_range(s, index + 1, 0x80u8, 0x8Fu8) ||
+                !string_byte_in_range(s, index + 2, 0x80u8, 0xBFu8) ||
+                !string_byte_in_range(s, index + 3, 0x80u8, 0xBFu8) {
+                return false;
+            }
+            index = index + 4;
+            continue;
+        }
+        return false;
+    }
+    return true;
+}
+
 pub fn string_char_at(s: StringSlice, index: usize) -> u8 {
     if index >= s.length || s.data == null {
         return 0;

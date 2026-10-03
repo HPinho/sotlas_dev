@@ -81,6 +81,13 @@
       "backend_contract": false
     },
     {
+      "id": "12_sotlas_by_example_native_control_flow",
+      "entry": "examples/12_sotlas_by_example/05_native_control_flow.sotlas",
+      "status": "EXPERIMENTAL",
+      "backend_contract": true,
+      "native_run": true
+    },
+    {
       "id": "13_opencl_vector_add",
       "entry": "examples/13_opencl_vector_add/main.sotlas",
       "status": "EXPERIMENTAL",

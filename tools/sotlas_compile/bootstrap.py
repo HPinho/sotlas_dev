@@ -366,6 +366,7 @@ class Struct:
     is_register: bool = False
     backing_type: Type | None = None
     is_sole: bool = False
+    has_generic_parameters: bool = False
 
 @dataclass
 class Class:
@@ -687,7 +688,9 @@ class Parser:
 
             if self.accept("struct"):
                 name = self.ident()
+                has_generic_parameters = False
                 if (self.current.kind in ("forge", "IDENT") and self.current.text == "forge") or self.current.kind == "<":
+                    has_generic_parameters = True
                     if self.current.text == "forge": self.at += 1
                     if self.accept("<"):
                         depth = 1
@@ -713,7 +716,11 @@ class Parser:
                             bw = integer_literal_value(self.expect("NUMBER").text)
                         fields.append(FieldDef(fname, ftype, bit_width=bw))
                         self.expect(";")
-                module.structs.append(Struct(name, fields, public, attributes, methods=methods, is_sole=is_sole))
+                module.structs.append(Struct(
+                    name, fields, public, attributes, methods=methods,
+                    is_sole=is_sole,
+                    has_generic_parameters=has_generic_parameters,
+                ))
                 for m in methods:
                     module.functions.append(m)
                 continue
@@ -1871,6 +1878,17 @@ def _c_struct_attributes(attributes: list[str]) -> str:
 
 def emit_c(module: Module, mangle: bool = False, include_preamble: bool = True,
            include_import_headers: bool = False) -> str:
+    generic_struct = next((
+        item for item in module.structs
+        if item.has_generic_parameters and not item.is_register
+    ), None)
+    if generic_struct is not None:
+        raise SotlasBootstrapError(
+            "C11 backend does not support generic struct monomorphization yet: "
+            f"{generic_struct.name}",
+            1, 1, module.filename, module.source,
+        )
+
     def _contains_domain(type_obj: Type | None, domain: str) -> bool:
         if type_obj is None:
             return False

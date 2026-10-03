@@ -180,7 +180,7 @@ class _ExprInfo:
 
 class _StrictSafetyChecker:
     def __init__(self, bootstrap, module, imported_fns=None, imported_types=None,
-                 imported_globals=None):
+                 imported_globals=None, imported_enums=None):
         self.b = bootstrap
         self.module = module
         self.filename = getattr(module, "filename", None)
@@ -191,8 +191,12 @@ class _StrictSafetyChecker:
             self.functions.update(imported_fns)
         self.globals = {item.name: item.type for item in module.globals}
         self.globals.update({name: item.type for name, item in (imported_globals or {}).items()})
-        self.structs = {item.name: item for item in module.structs}
+        self.structs = {
+            item.name: item for item in (*module.structs, *module.classes)
+        }
         self.structs.update(imported_types or {})
+        self.enums = {item.name: item for item in module.enums}
+        self.enums.update(imported_enums or {})
 
     def error(self, message, token) -> None:
         raise self.b.SotlasBootstrapError(
@@ -207,9 +211,11 @@ class _StrictSafetyChecker:
             )
 
     def check(self) -> None:
+        seen_region_functions = set()
         for function in self.module.functions:
             if _attr(function, _EXTERN_ATTR):
                 continue
+            seen_region_functions.add(id(function))
             self._validate_quarantine_aliases(function)
             self._statements(
                 function.body,
@@ -217,6 +223,14 @@ class _StrictSafetyChecker:
                 0,
                 _attr(function, "@system") or _attr(function, "@naked") or _attr(function, "@interrupt"),
             )
+        for declaration in (*self.module.structs, *self.module.classes):
+            for method in getattr(declaration, "methods", ()) or ():
+                if id(method) in seen_region_functions:
+                    continue
+                seen_region_functions.add(id(method))
+                if _attr(method, _EXTERN_ATTR):
+                    continue
+                self._validate_quarantine_aliases(method)
         self._validate_whisper_lifetimes()
 
     def _validate_whisper_lifetimes(self) -> None:
@@ -280,9 +294,128 @@ class _StrictSafetyChecker:
         try:
             typed_ast.validate_whisper_lifetimes(self.module)
         except typed_ast.Phase1SemanticError as error:
+            token = getattr(error, "token", None)
             raise self.b.SotlasBootstrapError(
-                str(error), 1, 1, self.filename, self.source
+                str(error),
+                getattr(token, "line", 1),
+                getattr(token, "column", 1),
+                self.filename,
+                self.source,
             ) from error
+
+    def _region_parameter_may_escape(
+        self, function, parameter_name, visiting=None
+    ) -> bool:
+        """Conservatively detect returns or stores derived from a REGION param."""
+        b = self.b
+        visiting = set(visiting or ())
+        identity = (id(function), parameter_name)
+        if identity in visiting:
+            # A closed recursive forwarding cycle does not escape by itself.
+            # Each function frame is still scanned for local returns, stores,
+            # and calls with an unproved contract; those concrete escape paths
+            # propagate back through the cycle and make the proof fail.
+            return False
+        visiting.add(identity)
+        aliases: dict[str, set[str]] = {parameter_name: {parameter_name}}
+        local_names = {
+            name for name, _ in (getattr(function, "params", ()) or ())
+        }
+
+        def sources(expr):
+            if expr is None:
+                return set()
+            if isinstance(expr, b.Name):
+                return set(aliases.get(expr.value, ()))
+            if isinstance(expr, b.MoveExpr):
+                return sources(expr.value)
+            if isinstance(expr, b.Unary) and expr.op == "&":
+                return sources(expr.value)
+            if isinstance(expr, b.StructLit):
+                result = set()
+                for _, value in expr.fields:
+                    result.update(sources(value))
+                return result
+            if isinstance(expr, b.ArrayLit):
+                result = set()
+                for value in expr.elements:
+                    result.update(sources(value))
+                return result
+            if isinstance(expr, b.IfExpr):
+                return sources(expr.then_expr) | sources(expr.else_expr)
+            if isinstance(expr, b.TryExpr):
+                return sources(expr.expr)
+            return set()
+
+        def walk(statements):
+            for statement in statements:
+                if isinstance(statement, b.Return) and sources(statement.value):
+                    if getattr(
+                        getattr(function, "result", None),
+                        "ownership_domain",
+                        None,
+                    ) != "region":
+                        return True
+                if isinstance(statement, b.Let):
+                    local_names.add(statement.name)
+                    derived = sources(statement.value)
+                    if derived:
+                        aliases[statement.name] = derived
+                    else:
+                        aliases.pop(statement.name, None)
+                elif isinstance(statement, b.Assign):
+                    derived = sources(statement.value)
+                    if derived and isinstance(statement.target, (b.Member, b.Index)):
+                        return True
+                    target = statement.target
+                    while isinstance(target, (b.Member, b.Index)):
+                        target = target.target
+                    if derived and not isinstance(target, b.Name):
+                        return True
+                    if isinstance(target, b.Name):
+                        if target.value not in local_names and derived:
+                            return True
+                        if derived:
+                            aliases[target.value] = derived
+                        else:
+                            aliases.pop(target.value, None)
+                elif type(statement).__name__ in ("ExprStmt", "Expression"):
+                    # Passing a region-derived value onward is allowed only
+                    # after this callee itself has a proven non-escaping param.
+                    expression = getattr(
+                        statement, "expr", getattr(statement, "value", None)
+                    )
+                    calls = (
+                        (expression,)
+                        if isinstance(expression, b.Call)
+                        else ()
+                    )
+                    for call in calls:
+                        callee = self.functions.get(call.callee)
+                        params = tuple(getattr(callee, "params", ()) or ())
+                        for index, argument in enumerate(call.args):
+                            if not sources(argument):
+                                continue
+                            param = params[index] if index < len(params) else None
+                            if not isinstance(param, tuple) or len(param) != 2:
+                                return True
+                            if getattr(param[1], "ownership_domain", None) != "region":
+                                return True
+                            if (
+                                getattr(callee, "body", None) is None
+                                or self._region_parameter_may_escape(
+                                    callee, param[0], visiting
+                                )
+                            ):
+                                return True
+
+                for attr in ("body", "then_body", "else_body", "otherwise"):
+                    nested = getattr(statement, attr, None)
+                    if nested and walk(nested):
+                        return True
+            return False
+
+        return walk(getattr(function, "body", ()) or ())
 
     def _validate_quarantine_aliases(self, function) -> None:
         """Prevent use of reference aliases after their owner is isolated.
@@ -310,6 +443,7 @@ class _StrictSafetyChecker:
             if name in owners and getattr(typ, "ownership_domain", None) == "region"
         }
         aliases: dict[str, set[str]] = {}
+        region_aggregate_origins: dict[str, set[str]] = {}
         invalid: dict[str, str] = {}
         quarantined_owners: set[str] = set()
         escaped_owners: set[str] = set()
@@ -340,6 +474,92 @@ class _StrictSafetyChecker:
             if isinstance(expr, b.TryExpr):
                 return (expr.expr,)
             return ()
+
+        def type_carries_sole_value(typ, visiting=frozenset()) -> bool:
+            if typ is None:
+                return True
+            if getattr(typ, "pointer", False) or getattr(typ, "is_reference", False):
+                return False
+            if getattr(typ, "is_array", False):
+                return type_carries_sole_value(
+                    getattr(typ, "elem_type", None), visiting
+                )
+            name = getattr(typ, "name", "")
+            struct = self.structs.get(name)
+            if name in visiting:
+                return False
+            if struct is not None and getattr(struct, "is_sole", False):
+                return True
+            if struct is not None:
+                return any(
+                    type_carries_sole_value(field.type, visiting | {name})
+                    for field in getattr(struct, "fields", ()) or ()
+                )
+            enum = self.enums.get(name)
+            return bool(enum) and any(
+                variant.payload_type is not None
+                and type_carries_sole_value(
+                    variant.payload_type, visiting | {name}
+                )
+                for variant in enum.variants
+            )
+
+        def enum_payload(callee):
+            for enum in self.enums.values():
+                for variant in enum.variants:
+                    if f"{enum.name}_{variant.name}" == callee:
+                        return variant.payload_type
+            return None
+
+        def region_value_origins(expr) -> set[str]:
+            """Track REGION owners carried by by-value aggregate locals."""
+            if expr is None:
+                return set()
+            if isinstance(expr, b.Name):
+                if expr.value in region_owners:
+                    return {expr.value}
+                return set(region_aggregate_origins.get(expr.value, ()))
+            if isinstance(expr, b.MoveExpr):
+                return region_value_origins(expr.value)
+            if isinstance(expr, (b.Member, b.Index)):
+                origins = region_value_origins(expr.target)
+                if not origins:
+                    return set()
+                try:
+                    selected_type = self._infer(expr, scope, 1, False).type_obj
+                except Exception:
+                    selected_type = None
+                return origins if type_carries_sole_value(selected_type) else set()
+            if isinstance(expr, b.StructLit):
+                return set().union(
+                    *(region_value_origins(value) for _, value in expr.fields)
+                ) if expr.fields else set()
+            if isinstance(expr, b.ArrayLit):
+                return set().union(
+                    *(region_value_origins(value) for value in expr.elements)
+                ) if expr.elements else set()
+            if isinstance(expr, b.IfExpr):
+                return (
+                    region_value_origins(expr.then_expr)
+                    | region_value_origins(expr.else_expr)
+                )
+            if isinstance(expr, b.Call):
+                payload_type = enum_payload(expr.callee)
+                if payload_type is not None and type_carries_sole_value(payload_type):
+                    return set().union(
+                        *(region_value_origins(arg) for arg in expr.args)
+                    ) if expr.args else set()
+                callee = self.functions.get(expr.callee)
+                if getattr(
+                    getattr(callee, "result", None),
+                    "ownership_domain",
+                    None,
+                ) != "region":
+                    return set()
+                return set().union(
+                    *(region_value_origins(argument) for argument in expr.args)
+                ) if expr.args else set()
+            return set()
 
         def expr_names(expr) -> set[str]:
             if expr is None:
@@ -387,7 +607,72 @@ class _StrictSafetyChecker:
             if expr is None:
                 return
             if isinstance(expr, b.Call):
-                yield expr
+                callee = self.functions.get(expr.callee)
+                yield (
+                    expr.callee,
+                    tuple(expr.args),
+                    expr.token,
+                    tuple(getattr(callee, "params", ()) or ()),
+                    callee,
+                    False,
+                    False,
+                )
+            elif isinstance(expr, b.MethodCall):
+                try:
+                    receiver_type = self._infer(
+                        expr.target, scope, 1, False
+                    ).type_obj
+                except Exception:
+                    receiver_type = None
+                type_name = getattr(receiver_type, "name", None)
+                declaration = self.structs.get(type_name or "")
+                callee = self.functions.get(
+                    f"{type_name}_{expr.method}"
+                    if type_name else ""
+                )
+                if callee is None and declaration is not None:
+                    callee = next(
+                        (
+                            method for method in getattr(
+                                declaration, "methods", ()
+                            ) or ()
+                            if getattr(method, "name", None) == expr.method
+                        ),
+                        None,
+                    )
+                indirect_field = None
+                if callee is None and declaration is not None:
+                    indirect_field = next(
+                        (
+                            field for field in getattr(
+                                declaration, "fields", ()
+                            ) or ()
+                            if getattr(field, "name", None) == expr.method
+                        ),
+                        None,
+                    )
+                is_indirect_call = bool(
+                    getattr(
+                        getattr(indirect_field, "type", None),
+                        "is_fn_ptr",
+                        False,
+                    )
+                )
+                params = tuple(getattr(callee, "params", ()) or ())
+                if params and (
+                    params[0][0] == "self"
+                    or len(params) == len(expr.args) + 1
+                ):
+                    params = params[1:]
+                yield (
+                    f"{type_name}.{expr.method}" if type_name else expr.method,
+                    tuple(expr.args),
+                    expr.token,
+                    params,
+                    callee,
+                    True,
+                    is_indirect_call,
+                )
             for child in children(expr):
                 yield from direct_calls(child)
 
@@ -566,6 +851,7 @@ class _StrictSafetyChecker:
             key=lambda item: (item.token.line, item.token.column),
         )
         invalidated_at: dict[str, tuple[tuple[int, int], ...]] = {}
+        invalid_reason: dict[str, str] = {}
         quarantine_paths: dict[str, tuple[tuple[int, int], ...]] = {}
 
         def paths_are_disjoint(left, right) -> bool:
@@ -584,7 +870,10 @@ class _StrictSafetyChecker:
         for item in statements:
             exprs = statement_exprs(item)
             if isinstance(item, b.Return) and item.value is not None:
-                returned = alias_sources(item.value).intersection(region_owners)
+                returned = (
+                    alias_sources(item.value)
+                    | region_value_origins(item.value)
+                ).intersection(region_owners)
                 if returned:
                     try:
                         result_type = self._infer(
@@ -592,10 +881,22 @@ class _StrictSafetyChecker:
                         ).type_obj
                     except Exception:
                         result_type = None
+                    result_domain = getattr(
+                        result_type, "ownership_domain", None
+                    )
                     if type_stores_reference(result_type):
                         owner = sorted(returned)[0]
                         self.error(
                             f"reference to region owner {owner!r} cannot escape through return",
+                            item.token,
+                        )
+                    elif (
+                        region_value_origins(item.value)
+                        and result_domain != "region"
+                    ):
+                        owner = sorted(returned)[0]
+                        self.error(
+                            f"region owner {owner!r} cannot escape through return or aggregate storage",
                             item.token,
                         )
             if isinstance(item, b.Let) and item.name in invalid:
@@ -618,11 +919,18 @@ class _StrictSafetyChecker:
             }
             if stale:
                 alias = sorted(stale)[0]
-                self.error(
-                    f"reference alias {alias!r} to quarantined owner "
-                    f"{invalid[alias]!r} is used after quarantine",
-                    item.token,
-                )
+                reason = invalid_reason.get(alias, "quarantine")
+                if reason == "handover":
+                    message = (
+                        f"reference alias {alias!r} to transferred owner "
+                        f"{invalid[alias]!r} is used after handover"
+                    )
+                else:
+                    message = (
+                        f"reference alias {alias!r} to quarantined owner "
+                        f"{invalid[alias]!r} is used after quarantine"
+                    )
+                self.error(message, item.token)
 
             if not isinstance(item, (b.Let, b.Assign)):
                 derived = set().union(
@@ -639,13 +947,29 @@ class _StrictSafetyChecker:
                     )
 
             for expr in exprs:
-                for call in direct_calls(expr):
-                    callee = self.functions.get(call.callee)
-                    params = tuple(getattr(callee, "params", ()) or ())
-                    for index, argument in enumerate(call.args):
-                        borrowed_region = alias_sources(argument).intersection(
-                            region_owners
-                        )
+                for (
+                    call_name, call_args, call_token, params, callee,
+                    is_method_call, is_indirect_call,
+                ) in direct_calls(expr):
+                    for index, argument in enumerate(call_args):
+                        if is_indirect_call:
+                            indirect_values = region_value_origins(
+                                argument
+                            ).intersection(region_owners)
+                            if indirect_values:
+                                owner = sorted(indirect_values)[0]
+                                self.error(
+                                    f"reference to region owner {owner!r} cannot escape through "
+                                    "an indirect function-pointer call without a proven no-escape contract",
+                                    call_token,
+                                )
+                            # Reference arguments to function-pointer fields
+                            # are checked by the dedicated indirect-call pass.
+                            continue
+                        borrowed_region = (
+                            alias_sources(argument)
+                            | region_value_origins(argument)
+                        ).intersection(region_owners)
                         if not borrowed_region:
                             continue
                         parameter_type = (
@@ -655,14 +979,51 @@ class _StrictSafetyChecker:
                             and len(params[index]) == 2
                             else None
                         )
+                        if (
+                            is_method_call
+                            and getattr(
+                                parameter_type, "ownership_domain", None
+                            ) not in ("direct", "whisper", "region")
+                            and (
+                                getattr(parameter_type, "pointer", False)
+                                or getattr(parameter_type, "is_reference", False)
+                            )
+                        ):
+                            # Method reference contracts are checked by the
+                            # dedicated method-boundary pass, which also
+                            # reports the resolved method name and parameter.
+                            continue
                         if getattr(parameter_type, "ownership_domain", None) not in (
-                            "direct", "whisper"
+                            "direct", "whisper", "region"
                         ):
                             owner = sorted(borrowed_region)[0]
                             self.error(
                                 f"reference to region owner {owner!r} cannot escape through an opaque call",
-                                call.token,
+                                call_token,
                             )
+                        elif getattr(parameter_type, "ownership_domain", None) == "region":
+                            parameter_name = (
+                                params[index][0]
+                                if index < len(params)
+                                and isinstance(params[index], tuple)
+                                and len(params[index]) == 2
+                                else None
+                            )
+                            callee_body = getattr(callee, "body", None)
+                            if (
+                                not parameter_name
+                                or callee_body is None
+                                or self._region_parameter_may_escape(
+                                    callee, parameter_name
+                                )
+                            ):
+                                owner = sorted(borrowed_region)[0]
+                                self.error(
+                                    f"reference to region owner {owner!r} cannot cross call to "
+                                    f"{call_name!r}; parameter "
+                                    f"{parameter_name or index + 1!r} has no proven no-escape contract",
+                                    call_token,
+                                )
                 for argument in call_arguments(expr):
                     for name in expr_names(argument):
                         escaped = aliases.get(name, ())
@@ -686,6 +1047,11 @@ class _StrictSafetyChecker:
                         typ = self._infer(item.value, scope, 1, False).type_obj
                     except Exception:
                         typ = None
+                carried_region_owners = region_value_origins(item.value)
+                if carried_region_owners:
+                    region_aggregate_origins[item.name] = carried_region_owners
+                else:
+                    region_aggregate_origins.pop(item.name, None)
                 related = alias_sources(item.value)
                 quarantined_related = {
                     owner for owner in related if quarantined_on_path(owner, item)
@@ -713,7 +1079,7 @@ class _StrictSafetyChecker:
                     aliases.pop(item.name, None)
 
             elif isinstance(item, b.Assign):
-                related = alias_sources(item.value)
+                related = alias_sources(item.value) | region_value_origins(item.value)
                 escaping_region = related.intersection(region_owners)
                 if escaping_region and (
                     root_name(item.target) in self.globals
@@ -736,6 +1102,20 @@ class _StrictSafetyChecker:
                 target_name = root_name(item.target)
                 if target_name is not None and target_name not in scope:
                     escaped_owners.update(related)
+                if (
+                    isinstance(item.target, b.Name)
+                    and target_name in scope
+                ):
+                    carried_region_owners = region_value_origins(item.value)
+                    if carried_region_owners:
+                        # Statement traversal is source ordered across branch
+                        # bodies. Keep every possible REGION origin seen at an
+                        # assignment so a later return/call cannot lose an
+                        # owner introduced by a conditional reinitialization.
+                        region_aggregate_origins[target_name] = (
+                            region_aggregate_origins.get(target_name, set())
+                            | carried_region_owners
+                        )
                 if target_name is not None and related:
                     aliases[target_name] = aliases.get(target_name, set()) | related
                 elif target_name is not None:
@@ -761,6 +1141,19 @@ class _StrictSafetyChecker:
                     if owner in targets:
                         invalid[alias] = owner
                         invalidated_at[alias] = branch_paths.get(id(item), ())
+                        invalid_reason[alias] = "quarantine"
+
+            elif isinstance(item, b.Handover):
+                transferred = region_value_origins(item.value)
+                source_name = root_name(item.value)
+                if source_name in region_owners:
+                    transferred.add(source_name)
+                for alias, targets in aliases.items():
+                    owners = targets.intersection(transferred)
+                    if owners:
+                        invalid[alias] = sorted(owners)[0]
+                        invalidated_at[alias] = branch_paths.get(id(item), ())
+                        invalid_reason[alias] = "handover"
 
     def _infer(self, expr, scope, depth: int, system_context: bool) -> _ExprInfo:
         b = self.b
@@ -999,7 +1392,10 @@ def install(bootstrap) -> None:
         finally:
             for function in added_system:
                 function.attributes.remove("@system")
-        _StrictSafetyChecker(bootstrap, module, imported_fns, imported_types, imported_globals).check()
+        _StrictSafetyChecker(
+            bootstrap, module, imported_fns, imported_types,
+            imported_globals, imported_enums,
+        ).check()
         return result
     bootstrap.check = strict_check
 

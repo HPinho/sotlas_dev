@@ -178,6 +178,10 @@ class SIRGenerator:
             if depth > 32:
                 return False
             kind = type(node).__name__
+            if kind == "Boolean":
+                target = yes if bool(getattr(node, "value", False)) else no
+                branches.append((label, BranchInst(target)))
+                return True
             if kind == "LiteralNode":
                 token_kind = getattr(node, "kind", None)
                 token_name = getattr(token_kind, "name", None)
@@ -1436,17 +1440,60 @@ class SIRGenerator:
         if return_type not in scalar_types:
             return False
         parameters = {item.name: item for item in sir_params}
-        branch_values: list[SIRValue] = []
+        branch_sources: list[tuple[SIRValue | None, int | None]] = []
         for branch in (
             getattr(expression, "then_expr", None),
             getattr(expression, "else_expr", None),
         ):
-            if type(branch).__name__ != "Name":
+            if type(branch).__name__ == "Name":
+                value = parameters.get(getattr(branch, "value", ""))
+                if value is None or value.type_name != return_type:
+                    return False
+                branch_sources.append((value, None))
+                continue
+
+            kind = type(branch).__name__
+            if kind == "Boolean":
+                if return_type != "bool":
+                    return False
+                branch_sources.append((None, int(bool(getattr(branch, "value", False)))))
+                continue
+            if kind == "Number":
+                raw = getattr(branch, "value", None)
+            elif kind == "LiteralNode":
+                if getattr(getattr(branch, "kind", None), "name", None) != "INT_LIT":
+                    return False
+                raw = getattr(branch, "value", None)
+            else:
                 return False
-            value = parameters.get(getattr(branch, "value", ""))
-            if value is None or value.type_name != return_type:
+            if return_type not in {
+                "u8", "i8", "u16", "i16", "u32", "i32", "u64", "i64",
+                "usize", "isize",
+            } or not isinstance(raw, str):
                 return False
-            branch_values.append(value)
+            match = re.fullmatch(
+                r"(.+?)(u8|u16|u32|u64|usize|i8|i16|i32|i64|isize)?", raw
+            )
+            if match is None:
+                return False
+            digits, suffix = match.groups()
+            if suffix is not None and suffix != return_type:
+                return False
+            try:
+                literal_value = int(digits.replace("_", ""), 0)
+            except ValueError:
+                return False
+            width = {
+                "u8": 8, "i8": 8, "u16": 16, "i16": 16,
+                "u32": 32, "i32": 32, "u64": 64, "i64": 64,
+                "usize": 64, "isize": 64,
+            }[return_type]
+            is_signed = return_type.startswith("i")
+            minimum = -(1 << (width - 1)) if is_signed else 0
+            maximum = (1 << (width - 1)) - 1 if is_signed else (1 << width) - 1
+            if not minimum <= literal_value <= maximum:
+                return False
+            branch_sources.append((None, literal_value))
 
         point = self._statement_point_id(expression, "if").removeprefix("if@")
         line, column = point.split(":", 1)
@@ -1478,8 +1525,24 @@ class SIRGenerator:
             blocks[label] = sir_fn.add_block(label)
         for label, instruction in condition_plan:
             blocks[label].add(instruction)
-        blocks[then_label].add(BranchInst(join_label))
-        blocks[else_label].add(BranchInst(join_label))
+        branch_labels = (then_label, else_label)
+        branch_values: list[SIRValue] = []
+        for index, (label, (value, literal)) in enumerate(
+            zip(branch_labels, branch_sources)
+        ):
+            if value is None:
+                value = self._next_val("if_const", return_type)
+                blocks[label].add(ConstantIntInst(
+                    literal,
+                    value,
+                    source_point_id=self._statement_point_id(
+                        (getattr(expression, "then_expr", None),
+                         getattr(expression, "else_expr", None))[index],
+                        "constant",
+                    ),
+                ))
+            branch_values.append(value)
+            blocks[label].add(BranchInst(join_label))
         result = self._next_val("if_value", return_type)
         blocks[join_label].add(PhiInst(
             result=result,

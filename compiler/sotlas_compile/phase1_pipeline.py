@@ -182,16 +182,11 @@ def analyze_module_phase1(parsed_module) -> Phase1CheckedModule:
     # Keep the Typed AST package independent from SIR imports. The public
     # pipeline is the composition boundary between canonical semantic facts
     # and the backend-neutral intermediate representation.
-    try:
-        from sotlas.sir import lower_ownership_module_semantics
-    except ModuleNotFoundError as error:
-        if error.name != "sotlas":
-            raise
-        from .canonical_sir import load_canonical_sir
+    from .canonical_sir import load_canonical_sir
 
-        lower_ownership_module_semantics = (
-            load_canonical_sir().lower_ownership_module_semantics
-        )
+    lower_ownership_module_semantics = (
+        load_canonical_sir().lower_ownership_module_semantics
+    )
 
     ownership_sir = lower_ownership_module_semantics(
         semantic.ownership,

@@ -18,7 +18,7 @@ pub fn main() -> i32 {
     }
 
     // Test get
-    let opt1: OptionU32 = hashmap_get(&hm, 1001);
+    let opt1: OptionU64 = hashmap_get(&hm, 1001);
     if !opt1.has_value || opt1.value != 55555 {
         return 3;
     }
@@ -28,7 +28,7 @@ pub fn main() -> i32 {
     if !rem_ok || hashmap_len(&hm) != 1 {
         return 4;
     }
-    let opt_after: OptionU32 = hashmap_get(&hm, 1001);
+    let opt_after: OptionU64 = hashmap_get(&hm, 1001);
     if opt_after.has_value {
         return 5;
     }

@@ -1417,8 +1417,107 @@ def _shared_semantic_replacements(
             raise ValueError(
                 f"shared ownership alias mismatch at {point_id!r}"
             )
-        replacements[id(marker)] = point.instructions
+        replacements[id(marker)] = tuple(
+            _canonical_shared_instruction(item, function.name)
+            for item in point.instructions
+        )
     return replacements
+
+
+def _canonical_shared_instruction(
+    instruction: object,
+    function_name: str,
+) -> SIRInstruction:
+    """Rebuild the closed ARC instruction subset with this SIR package's types.
+
+    Semantic ownership plans may be created by another import of the compiler
+    package during the compatibility-mirror migration. Dataclass identity must
+    not leak across this boundary, so accept only the known one-value ARC
+    schemas and canonicalize their values here.
+    """
+    instruction_type = type(instruction)
+    fields = getattr(instruction_type, "__dataclass_fields__", None)
+    if not isinstance(fields, dict):
+        raise ValueError(
+            f"shared semantic instruction in {function_name!r} is not a dataclass"
+        )
+    instruction_type_name = instruction_type.__name__
+    constructors = {
+        "ShareInst": ShareInst,
+        "RetainInst": RetainInst,
+        "ReleaseInst": ReleaseInst,
+        "DestroyInst": DestroyInst,
+    }
+    if instruction_type_name == "CallInst":
+        required = {
+            "callee", "arguments", "result", "is_system",
+            "defer_point_id", "source_point_id",
+        }
+        if not required.issubset(fields):
+            raise ValueError(
+                f"deferred call in {function_name!r} is outside the canonical call schema"
+            )
+        callee = getattr(instruction, "callee", None)
+        arguments = tuple(getattr(instruction, "arguments", ()) or ())
+        result = getattr(instruction, "result", None)
+        if not isinstance(callee, str) or not callee:
+            raise ValueError(f"deferred call in {function_name!r} has no callee")
+
+        def canonical_value(value: object) -> SIRValue:
+            name = getattr(value, "name", None)
+            type_name = getattr(value, "type_name", None)
+            if not isinstance(name, str) or not name or not isinstance(
+                type_name, str
+            ) or not type_name:
+                raise ValueError(
+                    f"deferred call {callee!r} in {function_name!r} "
+                    "has an invalid SSA value"
+                )
+            return SIRValue(name, type_name)
+
+        return CallInst(
+            callee=callee,
+            arguments=[canonical_value(value) for value in arguments],
+            result=canonical_value(result) if result is not None else None,
+            is_system=bool(getattr(instruction, "is_system", False)),
+            defer_point_id=getattr(instruction, "defer_point_id", None),
+            source_point_id=getattr(instruction, "source_point_id", None),
+        )
+    if instruction_type_name == "DeferUseInst":
+        if not {"value", "defer_point_id"}.issubset(fields):
+            raise ValueError(
+                f"defer-use instruction in {function_name!r} has an invalid schema"
+            )
+        value = getattr(instruction, "value", None)
+        name = getattr(value, "name", None)
+        type_name = getattr(value, "type_name", None)
+        point_id = getattr(instruction, "defer_point_id", None)
+        if (
+            not isinstance(name, str) or not name
+            or not isinstance(type_name, str) or not type_name
+            or not isinstance(point_id, str) or not point_id
+        ):
+            raise ValueError(
+                f"defer-use instruction in {function_name!r} has invalid source data"
+            )
+        return DeferUseInst(SIRValue(name, type_name), point_id)
+    constructor = constructors.get(instruction_type_name)
+    if constructor is None or not {"value"}.issubset(fields):
+        raise ValueError(
+            f"shared semantic instruction {instruction_type_name!r} in "
+            f"{function_name!r} is outside the canonical ARC schema"
+        )
+    value = getattr(instruction, "value", None)
+    value_name = getattr(value, "name", None)
+    value_type = getattr(value, "type_name", None)
+    if not isinstance(value_name, str) or not value_name or not isinstance(
+        value_type, str
+    ) or not value_type:
+        raise ValueError(
+            f"shared semantic instruction {instruction_type_name!r} in "
+            f"{function_name!r} has an invalid SSA value"
+        )
+    return constructor(SIRValue(value_name, value_type))
 
 
 def _commit_shared_semantic_replacements(
@@ -1503,7 +1602,10 @@ def _commit_shared_function_exit_cleanup(
         rewritten: list[SIRInstruction] = []
         for instruction in block.instructions:
             if instruction is target:
-                rewritten.extend(segment.instructions)
+                rewritten.extend(
+                    _canonical_shared_instruction(item, function.name)
+                    for item in segment.instructions
+                )
                 inserted += len(segment.instructions)
             rewritten.append(instruction)
         block.instructions = rewritten
@@ -1699,7 +1801,10 @@ def _commit_shared_return_cleanup(
                 and instruction.point_id in segments
             ):
                 segment = segments[instruction.point_id]
-                rewritten.extend(segment.instructions)
+                rewritten.extend(
+                    _canonical_shared_instruction(item, function.name)
+                    for item in segment.instructions
+                )
                 inserted += len(segment.instructions)
             rewritten.append(instruction)
         rewrites.append((block, rewritten))
@@ -1732,7 +1837,10 @@ def _commit_shared_loop_control_cleanup(
                 key = (instruction.control_kind, instruction.point_id)
                 if key in segments:
                     segment = segments[key]
-                    rewritten.extend(segment.instructions)
+                    rewritten.extend(
+                        _canonical_shared_instruction(item, function.name)
+                        for item in segment.instructions
+                    )
                     inserted += len(segment.instructions)
             rewritten.append(instruction)
         rewrites.append((block, rewritten))
@@ -1767,7 +1875,10 @@ def _commit_shared_loop_backedge_cleanup(
                 and instruction.point_id in segments
             ):
                 segment = segments[instruction.point_id]
-                rewritten.extend(segment.instructions)
+                rewritten.extend(
+                    _canonical_shared_instruction(item, function.name)
+                    for item in segment.instructions
+                )
                 inserted += len(segment.instructions)
             rewritten.append(instruction)
         rewrites.append((block, rewritten))

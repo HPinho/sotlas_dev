@@ -250,6 +250,117 @@ class _RegionMethodEscapeChecker:
                         call.token,
                     )
 
+    def _check_handover_aliases(self, item, aliases, region_owners) -> None:
+        """Mark aliases stale when their REGION owner is transferred."""
+        b = self.b
+        if not isinstance(item, b.Handover):
+            return
+        source = self._root_name(item.value)
+        if source not in region_owners:
+            return
+        for alias, owners in aliases.items():
+            if source in owners:
+                aliases[alias] = {
+                    f"\0invalid:{owner}" if owner == source else owner
+                    for owner in owners
+                }
+
+    def _moved_region_owners(self, item, region_owners) -> set[str]:
+        """Find direct REGION owners consumed by move expressions in a statement."""
+        b = self.b
+        moved: set[str] = set()
+
+        def visit(expr):
+            if expr is None:
+                return
+            if isinstance(expr, b.MoveExpr):
+                owner = self._root_name(expr.value)
+                if owner in region_owners:
+                    moved.add(owner)
+            for child in self._children(expr):
+                visit(child)
+
+        for expr in self._statement_exprs(item):
+            visit(expr)
+        return moved
+
+    def _invalidate_moved_aliases(self, item, aliases, region_owners) -> None:
+        for owner in self._moved_region_owners(item, region_owners):
+            for alias, owners in aliases.items():
+                if owner in owners:
+                    aliases[alias] = {
+                        f"\0invalid-move:{owner}" if candidate == owner else candidate
+                        for candidate in owners
+                    }
+
+    def _check_deferred_handover(self, item, deferred_names, aliases) -> None:
+        b = self.b
+        if not isinstance(item, b.Handover):
+            return
+        source = self._root_name(item.value)
+        if source is None:
+            return
+        for name in sorted(deferred_names):
+            owners = {name} if name == source else aliases.get(name, set())
+            if source in owners:
+                self.error(
+                    f"defer uses reference alias {name!r} after handover of "
+                    f"owner {source!r}",
+                    item.token,
+                )
+
+    def _check_invalid_alias_use(self, expr, aliases) -> None:
+        if expr is None:
+            return
+        names = set()
+        if isinstance(expr, self.b.Name):
+            names.add(expr.value)
+        for child in self._children(expr):
+            self._collect_expr_names(child, names)
+        for name in sorted(names):
+            invalid = next((
+                owner for owner in aliases.get(name, ())
+                if owner.startswith(("\0invalid:", "\0invalid-move:"))
+            ), None)
+            if invalid is not None:
+                if invalid.startswith("\0invalid-move:"):
+                    owner = invalid.removeprefix("\0invalid-move:")
+                    message = (
+                        f"reference alias {name!r} to moved owner {owner!r} "
+                        "is used after move"
+                    )
+                else:
+                    owner = invalid.removeprefix("\0invalid:")
+                    message = (
+                        f"reference alias {name!r} to transferred owner {owner!r} "
+                        "is used after handover"
+                    )
+                self.error(message, expr.token)
+
+    def _collect_expr_names(self, expr, result) -> None:
+        if isinstance(expr, self.b.Name):
+            result.add(expr.value)
+        for child in self._children(expr):
+            self._collect_expr_names(child, result)
+
+    def _defer_alias_uses(self, item) -> set[str]:
+        names: set[str] = set()
+
+        def visit(statements):
+            for statement in statements or ():
+                for expr in self._statement_exprs(statement):
+                    self._collect_expr_names(expr, names)
+                for attr in ("then_body", "else_body", "body"):
+                    nested = getattr(statement, attr, None)
+                    if nested:
+                        visit(nested)
+                for case in getattr(statement, "cases", ()) or ():
+                    visit(getattr(case, "body", ()))
+
+        visit(getattr(item, "body", ()) or ())
+        self._collect_expr_names(getattr(item, "value", None), names)
+        return names
+
     def _statement_exprs(self, item):
         b = self.b
         attrs = {
@@ -270,11 +381,28 @@ class _RegionMethodEscapeChecker:
             expressions.extend(item.outputs)
         return tuple(expr for expr in expressions if expr is not None)
 
-    def _check_statements(self, statements, scope, region_owners, aliases) -> None:
+    def _check_statements(
+        self, statements, scope, region_owners, aliases, deferred_names=None
+    ) -> None:
         b = self.b
+        if deferred_names is None:
+            deferred_names = set()
         for item in statements:
+            self._check_deferred_handover(item, deferred_names, aliases)
             for expr in self._statement_exprs(item):
+                is_rebinding_target = (
+                    isinstance(item, b.Assign)
+                    and expr is item.target
+                    and isinstance(item.target, b.Name)
+                )
+                if not is_rebinding_target:
+                    self._check_invalid_alias_use(expr, aliases)
                 self._check_expr(expr, scope, aliases, region_owners)
+            self._check_handover_aliases(item, aliases, region_owners)
+            self._invalidate_moved_aliases(item, aliases, region_owners)
+
+            if isinstance(item, b.Defer):
+                deferred_names.update(self._defer_alias_uses(item))
 
             if isinstance(item, b.Let):
                 typ = item.type
@@ -326,7 +454,10 @@ class _RegionMethodEscapeChecker:
                 may_skip = True
 
             if nested_bodies is not None:
-                outer_names = set(scope)
+                # Inferred reference locals need not have an explicit entry in
+                # ``scope``; aliases are still live bindings and must join at
+                # the control-flow merge.
+                outer_names = set(scope) | set(aliases)
                 incoming_aliases = {
                     name: set(owners) for name, owners in aliases.items()
                 }
@@ -343,6 +474,7 @@ class _RegionMethodEscapeChecker:
                         branch_scope,
                         set(region_owners),
                         branch_state,
+                        set(deferred_names),
                     )
                     branch_aliases.append(branch_state)
                     branch_local_names.append({
@@ -368,6 +500,7 @@ class _RegionMethodEscapeChecker:
                         aliases[name] = sources
                     else:
                         aliases.pop(name, None)
+
 
     def _functions_to_check(self):
         result = []

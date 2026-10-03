@@ -155,6 +155,8 @@ def _interpret_function(
         # updates only after evaluating every selected input preserves loop SSA.
         values.update(phi_updates)
         for instruction in instructions:
+            if cancellation_token is not None:
+                cancellation_token.raise_if_cancelled()
             kind = type(instruction).__name__
             if kind == "PhiInst":
                 continue
@@ -281,6 +283,7 @@ def execute_interpreted_sir_flow(
     *,
     max_workers: int | None = None,
     cancel_event: Event | None = None,
+    deadline: float | None = None,
 ) -> FlowExecutionResult:
     """Interpret pure scalar stage bodies from one verified SIR Flow.
 
@@ -369,6 +372,7 @@ def execute_interpreted_sir_flow(
         max_workers=max_workers,
         cancel_event=cancel_event,
         cooperative=True,
+        deadline=deadline,
     )
 
 

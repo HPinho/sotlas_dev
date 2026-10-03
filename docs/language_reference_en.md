@@ -57,13 +57,45 @@ unsafe {
 
 ## 4. Ownership & Lifetime Discipline
 
-Sotlas provides static, zero-runtime ownership semantics:
+Ownership checking is static. Runtime enforcement depends on the domain and
+backend; the following are the preview contracts exercised by the current
+tests:
 
-- `sole`: Exclusive ownership. Moves ownership on assignment; the source variable is invalidated.
-- `island`: Thread-confined allocation. Cannot cross execution core boundaries without explicit handover.
-- `whisper`: Read-only borrowed reference; direct calls are checked with local escape analysis and verified no-escape summaries, while external/indirect forwarding and backend lowering remain unsupported.
-- `direct`: Low-bookkeeping SRG access for low-level contexts; the current canonical subset permits immutable call-scoped function parameters borrowed from a live `exclusive` or `shared` binding. C11 lowers this subset to a const pointer; LLVM lowering remains unsupported.
-- `co-owned`: Reference-counted shared resource (ARC).
+- `sole`: Exclusive ownership. Moves invalidate the source binding. C11 emits
+  drop glue for the tested value types and cleanup paths.
+- `region`: A bounded lifetime domain for `sole` values. The canonical checker
+  rejects tested reference, nested-struct, array-element, enum-payload,
+  method-body, and direct or indirect call escapes; eligible internal calls
+  and `region`-to-`region` returns preserve lifetime identity. Closed recursive
+  and mutually recursive forwarding calls can use a no-escape proof; a cycle
+  containing an escaping path is rejected. The native arena
+  tests cover the declared structured subset. This is not yet a
+  general lifetime graph for arbitrary CFGs or every aggregate shape.
+- `island`: The ownership graph recognizes the domain and checks supported
+  transitions. The current C11 subset can preserve values through tested
+  `quarantine`/`handover` paths. There is no scheduler, thread, or processor
+  core enforcement in the runtime, so `island` does not currently guarantee
+  physical thread confinement.
+- `whisper`: Immutable, non-owning borrow scoped to a call. The canonical
+  checker proves no-escape for the tested internal calls and forwarding
+  chains; eligible C11 and LLVM parameters lower to const pointers. Storage,
+  returned references, FFI and indirect calls, and runtime weak-handle
+  invalidation are outside the supported contract.
+- `direct`: Explicit immutable, call-scoped access without ownership transfer
+  or reference-count operations. Tested internal calls and forwarding to
+  eligible `whisper` parameters are supported. Storage, return, opaque calls,
+  and broader alias or CFG forms remain unsupported.
+- `co-owned`: Reference-counted shared resource (ARC). The C11 preview covers
+  tested local aliases, early returns, `defer`, and destruction paths; it does
+  not claim complete ARC support for every payload, backend, or control-flow
+  shape.
+
+`handover` and `quarantine` are checked transitions in the supported subset.
+`quarantine` invalidates tracked aliases statically; its current C11 lowering
+does not change the value's representation or provide runtime weak-reference
+invalidation. `handover` transfers cleanup responsibility to a named
+destination for the tested transitions. Unsupported transition shapes and
+backends fail closed rather than implying runtime enforcement.
 
 ---
 

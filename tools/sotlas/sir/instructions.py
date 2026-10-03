@@ -163,8 +163,25 @@ class StateTransitionInst(SIRInstruction):
         )
 
 
+class _BorrowFactMeta(type):
+    """Accept only the exact source-identified borrow schema across SIR mirrors."""
+
+    _required_fields = frozenset({
+        "source", "callee", "parameter", "source_domain", "point_id",
+    })
+
+    def __instancecheck__(cls, instance: object) -> bool:
+        if type.__instancecheck__(cls, instance):
+            return True
+        instance_type = type(instance)
+        if instance_type.__name__ != cls.__name__:
+            return False
+        fields = getattr(instance_type, "__dataclass_fields__", None)
+        return isinstance(fields, dict) and cls._required_fields.issubset(fields)
+
+
 @dataclass
-class WhisperBorrowInst(SIRInstruction):
+class WhisperBorrowInst(SIRInstruction, metaclass=_BorrowFactMeta):
     """Backend-neutral call-scoped borrow fact; has no runtime effect."""
 
     source: SIRValue
@@ -181,7 +198,7 @@ class WhisperBorrowInst(SIRInstruction):
 
 
 @dataclass
-class DirectAccessInst(SIRInstruction):
+class DirectAccessInst(SIRInstruction, metaclass=_BorrowFactMeta):
     """Backend-neutral, call-scoped direct access fact; no runtime effect."""
 
     source: SIRValue
