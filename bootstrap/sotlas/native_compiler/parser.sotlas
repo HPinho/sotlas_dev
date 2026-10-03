@@ -430,6 +430,7 @@ impl Parser {
                 return 0;
             }
             if !self.match_token(TokenKind::SemiColon) {
+                self.reject_current();
                 return 0;
             }
             self.advance();
@@ -437,6 +438,7 @@ impl Parser {
         }
 
         if !self.match_token(TokenKind::SemiColon) {
+            self.reject_current();
             return 0;
         }
         self.advance();
@@ -501,6 +503,7 @@ impl Parser {
             }
 
             if !self.match_token(TokenKind::SemiColon) {
+                self.reject_current();
                 return 0;
             }
             self.advance();
@@ -983,14 +986,18 @@ impl Parser {
 
     pub fn parse_primary_expression(mut self: &mut Self) -> usize {
         let tok: Token = self.current();
-        if tok.kind != TokenKind::IntLit && tok.kind != TokenKind::StrLit
+        if tok.kind != TokenKind::IntLit && tok.kind != TokenKind::FloatLit
+            && tok.kind != TokenKind::StrLit && tok.kind != TokenKind::CharLit
+            && tok.kind != TokenKind::BoolLit
             && tok.kind != TokenKind::OpenBracket && tok.kind != TokenKind::Ident
             && tok.kind != TokenKind::OpenParen {
             self.record_unexpected(tok);
             return 0;
         }
         self.advance();
-        if tok.kind == TokenKind::IntLit || tok.kind == TokenKind::StrLit {
+        if tok.kind == TokenKind::IntLit || tok.kind == TokenKind::FloatLit
+            || tok.kind == TokenKind::StrLit || tok.kind == TokenKind::CharLit
+            || tok.kind == TokenKind::BoolLit {
             return self.alloc_text_node(AstKind::ExprLiteral, tok);
         }
 

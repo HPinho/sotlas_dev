@@ -38,6 +38,12 @@ errors, and compares parsed function names, parameter counts, and emitted C
 function arities for valid inputs. This corpus is evidence for that subset; it
 does not establish full parser or semantic parity.
 
+Recent regression hardening keeps boolean, floating-point, and character
+literal tokens valid in primary expressions. Missing semicolons in local
+declarations and assignments now retain the unexpected token location. The
+differential corpus covers those accepted literal contexts, malformed
+character literals, and both missing-semicolon paths.
+
 ## Promotion gates
 
 1. **Initial subset validated:** compare Stage 1 and Python lexer behavior for

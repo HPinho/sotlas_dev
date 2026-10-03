@@ -242,9 +242,32 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
                     False,
                 ),
                 (
+                    "parser_contextual_literals",
+                    "module parity::literals;\n"
+                    "pub fn enabled() -> bool { return true; }\n"
+                    "pub fn ratio() -> f64 { return 3.5; }\n"
+                    "pub fn marker() -> i32 { let letter: char = 'x'; return 0; }\n",
+                    True,
+                    False,
+                ),
+                (
                     "parser_diagnostic",
                     "module parity::syntax;\n"
                     "pub fn broken() -> i32 { return 1 + ; }\n",
+                    False,
+                    True,
+                ),
+                (
+                    "parser_missing_semicolon",
+                    "module parity::missing_semicolon;\n"
+                    "fn run() -> i32 { let value: i32 = 1\nreturn value; }\n",
+                    False,
+                    True,
+                ),
+                (
+                    "parser_missing_assignment_semicolon",
+                    "module parity::missing_assignment_semicolon;\n"
+                    "fn run() -> i32 { let mut value: i32 = 1; value = 2\nreturn value; }\n",
                     False,
                     True,
                 ),
@@ -279,6 +302,12 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
                 (
                     "lex_unterminated_string",
                     'module parity::bad_string;\nfn run() -> i32 { return "open; }\n',
+                    False,
+                    True,
+                ),
+                (
+                    "lex_unterminated_character",
+                    "module parity::bad_character_literal;\nfn run() -> i32 { let letter: char = 'x; return 0; }\n",
                     False,
                     True,
                 ),
