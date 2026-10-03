@@ -24,19 +24,32 @@ removed.
 
 ## First parity slice
 
-The self-hosted lexer in `bootstrap/sotlas/sotlas_lite/lexer.sotlas` now counts
-columns through line and block comments. A native conformance test compiles the
-Sotlas lexer, runs it, and compares token text, class, line, and column with the
-Python lexer for a shared source sample. This keeps the current bootstrap
-usable while the native frontend grows against observable behavior.
+The Stage 1 lexer in `bootstrap/sotlas/sotlas_lite/lexer.sotlas` counts columns
+through line and block comments. Its native conformance test compares token
+text, class, line, and column with the Python lexer. The native compiler lexer
+also reports unterminated block comments, strings, and character literals,
+rejects unsupported bytes, preserves source spans, and classifies the
+single-character bitwise operators.
+
+The native compiler integration test now differentially checks a documented
+subset against the canonical Python frontend. It compares acceptance for a
+small parser and semantic corpus, checks exact locations for parser and lexer
+errors, and compares parsed function names, parameter counts, and emitted C
+function arities for valid inputs. This corpus is evidence for that subset; it
+does not establish full parser or semantic parity.
 
 ## Promotion gates
 
-1. Expand shared lexer cases to cover the full supported token subset, malformed
-   input, Unicode policy, and source spans.
-2. Compare parser trees and diagnostics for a documented source subset.
-3. Compare semantic acceptance and rejection, including ownership and target
-   profile rules.
+1. **Initial subset validated:** compare Stage 1 and Python lexer behavior for
+   shared tokens and source positions; native malformed comments, strings,
+   characters, and unsupported bytes fail closed. Full token and Unicode
+   policy parity remains open.
+2. **Initial subset validated:** compare parser acceptance, function names,
+   parameter counts, C function arities, and exact syntax error locations.
+   Full tree-shape and diagnostic-message parity remain open.
+3. **Initial subset validated:** compare semantic acceptance and rejection for
+   duplicate declarations, unknown names, and return type mismatches.
+   Ownership and target-profile parity remain open.
 4. Replace the C-emitting path with a stable Sotlas IR and native object path.
 5. Move filesystem, process, and platform services behind documented Sotlas
    interfaces and replace the C driver incrementally.

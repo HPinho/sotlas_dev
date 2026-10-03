@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 from sotlas import compile_source
 from sotlas.llvm_toolchain import default_toolchain
 from sotlas_compile.bootstrap import PREAMBLE, compile_module, emit_c, parse
+from sotlas_compile import compile_source as canonical_compile_source
 
 
 class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
@@ -48,9 +49,23 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
             compiler_c.write_text("\n".join(fragments), encoding="utf-8")
             driver_c.write_text(
                 "#include <stdint.h>\n#include <stddef.h>\n#include <stdio.h>\n"
+                "#include <string.h>\n"
                 "extern size_t sotlas_native_compile_diagnostic(const uint8_t *, size_t, "
                 "uint8_t *, size_t, uint32_t *, uint32_t *);\n"
                 "int main(int argc, char **argv) {\n"
+                "  if (argc == 4 && strcmp(argv[1], \"--compile\") == 0) {\n"
+                "    static uint8_t input[65536], output[1048576];\n"
+                "    FILE *src = fopen(argv[2], \"rb\"); if (!src) return 30;\n"
+                "    size_t len = fread(input, 1, sizeof(input), src);\n"
+                "    int read_error = ferror(src); fclose(src); if (read_error) return 31;\n"
+                "    uint32_t err_line = 0, err_col = 0;\n"
+                "    size_t out_len = sotlas_native_compile_diagnostic(input, len, output, sizeof(output), &err_line, &err_col);\n"
+                "    printf(\"%zu|%u|%u\\n\", out_len, err_line, err_col);\n"
+                "    if (out_len == 0) return 0;\n"
+                "    FILE *dest = fopen(argv[3], \"wb\"); if (!dest) return 32;\n"
+                "    size_t written = fwrite(output, 1, out_len, dest); fclose(dest);\n"
+                "    return written == out_len ? 0 : 33;\n"
+                "  }\n"
                 "  static const uint8_t bad[] = \"module test::bad;\\nfn (\";\n"
                 "  static const uint8_t duplicate[] = \"module test::duplicate;\\n"
                 "fn run() -> i32 { return 0; }\\n"
@@ -216,6 +231,133 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
                 [str(app_exe)], capture_output=True, text=True, check=False
             )
             self.assertEqual(run_app.returncode, 0, run_app.stderr)
+
+            cases = (
+                (
+                    "parser_tree",
+                    "module parity::tree;\n"
+                    "pub fn add(left: i32, right: i32) -> i32 { return left + right; }\n"
+                    "pub fn apply(value: i32) -> i32 { return add(value, 2); }\n",
+                    True,
+                    False,
+                ),
+                (
+                    "parser_diagnostic",
+                    "module parity::syntax;\n"
+                    "pub fn broken() -> i32 { return 1 + ; }\n",
+                    False,
+                    True,
+                ),
+                (
+                    "semantic_duplicate",
+                    "module parity::duplicate;\n"
+                    "fn run() -> i32 { return 1; }\n"
+                    "fn run() -> i32 { return 2; }\n",
+                    False,
+                    False,
+                ),
+                (
+                    "semantic_unknown_name",
+                    "module parity::unknown;\n"
+                    "fn run() -> i32 { return missing; }\n",
+                    False,
+                    False,
+                ),
+                (
+                    "semantic_return_type",
+                    "module parity::wrong_type;\n"
+                    "fn run() -> i32 { return true; }\n",
+                    False,
+                    False,
+                ),
+                (
+                    "lex_unterminated_block_comment",
+                    "module parity::bad_comment;\n/* never closed",
+                    False,
+                    True,
+                ),
+                (
+                    "lex_unterminated_string",
+                    'module parity::bad_string;\nfn run() -> i32 { return "open; }\n',
+                    False,
+                    True,
+                ),
+                (
+                    "lex_invalid_character",
+                    "module parity::bad_character;\n§\n",
+                    False,
+                    True,
+                ),
+            )
+            for name, source, expected_acceptance, compare_location in cases:
+                with self.subTest(case=name):
+                    source_path = root / f"{name}.sotlas"
+                    native_c = root / f"{name}.c"
+                    source_path.write_text(source, encoding="utf-8")
+                    try:
+                        canonical_c = canonical_compile_source(
+                            source, filename=f"{name}.sotlas"
+                        )
+                        canonical_error = None
+                    except Exception as error:
+                        canonical_c = None
+                        canonical_error = error
+                    canonical_accepted = canonical_error is None
+                    self.assertEqual(canonical_accepted, expected_acceptance)
+
+                    native_result = subprocess.run(
+                        [str(compiler_exe), "--compile", str(source_path), str(native_c)],
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                    self.assertEqual(native_result.returncode, 0, native_result.stderr)
+                    fields = native_result.stdout.strip().split("|")
+                    self.assertEqual(len(fields), 3, native_result.stdout)
+                    native_size, native_line, native_col = map(int, fields)
+                    native_accepted = native_size > 0
+                    self.assertEqual(native_accepted, canonical_accepted)
+
+                    if compare_location:
+                        self.assertIsNotNone(canonical_error)
+                        self.assertEqual(
+                            (native_line, native_col),
+                            (canonical_error.line, canonical_error.column),
+                        )
+
+                    if name == "parser_tree":
+                        self.assertTrue(native_c.is_file())
+                        reference_module = parse(source, filename=name)
+                        names = [function.name for function in reference_module.functions]
+                        self.assertEqual(names, ["add", "apply"])
+                        self.assertEqual(
+                            [len(function.params) for function in reference_module.functions],
+                            [2, 1],
+                        )
+
+                        # Both pipelines accept the same parsed module, and
+                        # their emitted C must expose the same function ABI.
+                        for function_name, arity in (
+                            ("add", 2),
+                            ("apply", 1),
+                        ):
+                            for code in (native_c.read_text(encoding="utf-8"), canonical_c):
+                                signature = next(
+                                    (
+                                        line.strip()
+                                        for line in code.splitlines()
+                                        if function_name + "(" in line
+                                        and "{" in line
+                                    ),
+                                    None,
+                                )
+                                self.assertIsNotNone(
+                                    signature, f"missing {function_name} definition"
+                                )
+                                self.assertEqual(
+                                    signature.count(",") + (0 if "()" in signature else 1),
+                                    arity,
+                                )
 
     def test_native_token_module_compiles(self):
         token_file = ROOT / "bootstrap" / "sotlas" / "native_compiler" / "token.sotlas"

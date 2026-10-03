@@ -108,6 +108,14 @@ impl Parser {
         self.error_count = self.error_count + 1;
     }
 
+    pub fn record_unexpected(mut self: &mut Self, tok: Token) {
+        if self.error_count == 0 {
+            self.error_line = tok.span.line;
+            self.error_col = tok.span.col;
+        }
+        self.error_count = self.error_count + 1;
+    }
+
     pub fn alloc_node(mut self: &mut Self, kind: AstKind, span: Span) -> usize {
         if self.nodes == null || self.node_count >= self.node_capacity {
             return 0;
@@ -671,8 +679,11 @@ impl Parser {
         if inner.kind == TokenKind::KwFn || inner.kind == TokenKind::KwTrapfn {
             self.advance();
             let fn_node: usize = self.alloc_node(if inner.kind == TokenKind::KwTrapfn { AstKind::TrapfnDecl } else { AstKind::FnDecl }, inner.span);
+            if fn_node == 0 {
+                return 0;
+            }
             let name_tok: Token = self.expect(TokenKind::Ident);
-            if !self.set_node_text(fn_node, name_tok) {
+            if self.error_count != 0 || !self.set_node_text(fn_node, name_tok) {
                 return 0;
             }
             if self.match_token(TokenKind::OpenParen) {
@@ -687,6 +698,7 @@ impl Parser {
 
                     let param_name: Token = self.current();
                     if param_name.kind != TokenKind::Ident {
+                        self.reject_current();
                         return 0;
                     }
                     self.advance();
@@ -704,6 +716,7 @@ impl Parser {
                     }
 
                     if !self.match_token(TokenKind::Colon) {
+                        self.reject_current();
                         return 0;
                     }
                     self.advance();
@@ -732,6 +745,7 @@ impl Parser {
                 }
 
                 if !self.match_token(TokenKind::CloseParen) {
+                    self.reject_current();
                     return 0;
                 }
                 self.advance();
@@ -741,6 +755,7 @@ impl Parser {
                 if self.is_at_end()
                     || self.match_token(TokenKind::OpenBrace)
                     || self.match_token(TokenKind::SemiColon) {
+                    self.reject_current();
                     return 0;
                 }
 
@@ -967,7 +982,14 @@ impl Parser {
     }
 
     pub fn parse_primary_expression(mut self: &mut Self) -> usize {
-        let tok: Token = self.advance();
+        let tok: Token = self.current();
+        if tok.kind != TokenKind::IntLit && tok.kind != TokenKind::StrLit
+            && tok.kind != TokenKind::OpenBracket && tok.kind != TokenKind::Ident
+            && tok.kind != TokenKind::OpenParen {
+            self.record_unexpected(tok);
+            return 0;
+        }
+        self.advance();
         if tok.kind == TokenKind::IntLit || tok.kind == TokenKind::StrLit {
             return self.alloc_text_node(AstKind::ExprLiteral, tok);
         }
@@ -1134,6 +1156,7 @@ impl Parser {
             let op: Token = self.advance();
             let operand: usize = self.parse_unary_expression();
             if operand == 0 {
+                self.record_unexpected(self.current());
                 return 0;
             }
             let node: usize = self.alloc_node(AstKind::ExprUnary, op.span);
@@ -1190,10 +1213,17 @@ impl Parser {
 
     pub fn parse_additive_expression(mut self: &mut Self) -> usize {
         let mut left: usize = self.parse_multiplicative_expression();
+        if left == 0 {
+            return 0;
+        }
         while self.match_token(TokenKind::Plus)
             || self.match_token(TokenKind::Minus) {
             let op: Token = self.advance();
             let right: usize = self.parse_multiplicative_expression();
+            if right == 0 {
+                self.record_unexpected(self.current());
+                return 0;
+            }
             left = self.make_binary(left, op, right);
             if left == 0 {
                 return 0;
@@ -1204,6 +1234,9 @@ impl Parser {
 
     pub fn parse_expression(mut self: &mut Self) -> usize {
         let mut left: usize = self.parse_additive_expression();
+        if left == 0 {
+            return 0;
+        }
         while self.match_token(TokenKind::EqEq)
             || self.match_token(TokenKind::BangEq)
             || self.match_token(TokenKind::Lt)
@@ -1212,6 +1245,10 @@ impl Parser {
             || self.match_token(TokenKind::GtEq) {
             let op: Token = self.advance();
             let right: usize = self.parse_additive_expression();
+            if right == 0 {
+                self.record_unexpected(self.current());
+                return 0;
+            }
             left = self.make_binary(left, op, right);
             if left == 0 {
                 return 0;

@@ -105,7 +105,8 @@ pub enum TokenKind {
     OpenBrace = 112,
     CloseBrace = 113,
     OpenBracket = 114,
-    CloseBracket = 115
+    CloseBracket = 115,
+    Error = 120
 }
 
 // Representação de localização geográfica no código-fonte

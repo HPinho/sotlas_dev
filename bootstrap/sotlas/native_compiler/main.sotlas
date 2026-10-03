@@ -511,9 +511,18 @@ pub fn sotlas_native_compile_diagnostic(
             *(g_token_buffer as *mut Token + tok_count) = tok;
         }
         tok_count = tok_count + 1;
-        if tok.kind == TokenKind::Eof {
+        if tok.kind == TokenKind::Eof || tok.kind == TokenKind::Error {
             break;
         }
+    }
+    if lex.error_count != 0 {
+        if error_line != null {
+            unsafe { *error_line = lex.error_line; }
+        }
+        if error_col != null {
+            unsafe { *error_col = lex.error_col; }
+        }
+        return 0;
     }
     if !lex.is_at_end() {
         return 0;

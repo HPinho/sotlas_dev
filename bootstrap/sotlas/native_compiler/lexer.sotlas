@@ -8,6 +8,10 @@ pub struct Lexer {
     pub cursor: usize;
     pub line: u32;
     pub col: u32;
+    pub error_count: usize;
+    pub error_line: u32;
+    pub error_col: u32;
+    pub reached_eof: bool;
 }
 
 impl Lexer {
@@ -17,12 +21,16 @@ impl Lexer {
             source_len: len,
             cursor: 0,
             line: 1,
-            col: 1
+            col: 1,
+            error_count: 0,
+            error_line: 0,
+            error_col: 0,
+            reached_eof: false
         };
     }
 
     pub fn is_at_end(self: &Self) -> bool {
-        return self.cursor >= self.source_len;
+        return self.reached_eof || self.cursor >= self.source_len;
     }
 
     pub fn peek(self: &Self) -> u8 {
@@ -82,15 +90,27 @@ impl Lexer {
                     self.advance();
                 }
             } else if ch == 47 && self.peek_next() == 42 { // /* comentário de bloco
+                let comment_line: u32 = self.line;
+                let comment_col: u32 = self.col;
                 self.advance();
                 self.advance();
+                let mut closed: bool = false;
                 while !self.is_at_end() {
                     if self.peek() == 42 && self.peek_next() == 47 {
                         self.advance();
                         self.advance();
+                        closed = true;
                         break;
                     }
                     self.advance();
+                }
+                if !closed {
+                    self.error_count = self.error_count + 1;
+                    if self.error_line == 0 {
+                        self.error_line = comment_line;
+                        self.error_col = comment_col;
+                    }
+                    return;
                 }
             } else {
                 break;
@@ -100,7 +120,14 @@ impl Lexer {
 
     pub fn next_token(mut self: &mut Self) -> Token {
         self.skip_whitespace_and_comments();
-        if self.is_at_end() {
+        if self.error_count != 0 {
+            return Token::new(TokenKind::Error, self.error_line, self.error_col);
+        }
+        if self.cursor >= self.source_len && !self.reached_eof {
+            self.reached_eof = true;
+            return Token::new(TokenKind::Eof, self.line, self.col);
+        }
+        if self.reached_eof {
             return Token::new(TokenKind::Eof, self.line, self.col);
         }
 
@@ -180,16 +207,48 @@ impl Lexer {
                 if self.peek() == 92 { // '\\'
                     self.advance();
                 }
+                if self.peek() == 10 {
+                    break;
+                }
                 self.advance();
             }
-            if !self.is_at_end() {
+            if !self.is_at_end() && self.peek() == 34 {
                 self.advance(); // fecha-aspas
+            } else {
+                self.error_count = self.error_count + 1;
+                if self.error_line == 0 {
+                    self.error_line = start_line;
+                    self.error_col = start_col;
+                }
+                return Token::new(TokenKind::Error, start_line, start_col);
             }
             let length: usize = self.cursor - start_offset;
             let mut tok: Token = Token::new(TokenKind::StrLit, start_line, start_col);
             tok.span.offset = start_offset;
             tok.span.length = length;
             return tok;
+        }
+
+        // Character literals share the same escape and termination contract as strings.
+        if ch == 39 {
+            while !self.is_at_end() && self.peek() != 39 && self.peek() != 10 {
+                if self.peek() == 92 {
+                    self.advance();
+                }
+                if !self.is_at_end() {
+                    self.advance();
+                }
+            }
+            if self.is_at_end() || self.peek() != 39 {
+                self.error_count = self.error_count + 1;
+                if self.error_line == 0 {
+                    self.error_line = start_line;
+                    self.error_col = start_col;
+                }
+                return Token::new(TokenKind::Error, start_line, start_col);
+            }
+            self.advance();
+            return self.token_from_span(TokenKind::CharLit, start_line, start_col, start_offset);
         }
 
         // Operadores compostos e pontuação
@@ -230,6 +289,10 @@ impl Lexer {
         if ch == 42 { return self.token_from_span(TokenKind::Star, start_line, start_col, start_offset); }
         if ch == 47 { return self.token_from_span(TokenKind::Slash, start_line, start_col, start_offset); }
         if ch == 37 { return self.token_from_span(TokenKind::Percent, start_line, start_col, start_offset); }
+        if ch == 38 { return self.token_from_span(TokenKind::Amp, start_line, start_col, start_offset); }
+        if ch == 124 { return self.token_from_span(TokenKind::Pipe, start_line, start_col, start_offset); }
+        if ch == 94 { return self.token_from_span(TokenKind::Caret, start_line, start_col, start_offset); }
+        if ch == 126 { return self.token_from_span(TokenKind::Tilde, start_line, start_col, start_offset); }
         if ch == 59 { return self.token_from_span(TokenKind::SemiColon, start_line, start_col, start_offset); }
         if ch == 44 { return self.token_from_span(TokenKind::Comma, start_line, start_col, start_offset); }
         if ch == 63 { return self.token_from_span(TokenKind::Qmark, start_line, start_col, start_offset); }
@@ -240,7 +303,12 @@ impl Lexer {
         if ch == 91 { return self.token_from_span(TokenKind::OpenBracket, start_line, start_col, start_offset); }
         if ch == 93 { return self.token_from_span(TokenKind::CloseBracket, start_line, start_col, start_offset); }
 
-        return self.token_from_span(TokenKind::Ident, start_line, start_col, start_offset);
+        self.error_count = self.error_count + 1;
+        if self.error_line == 0 {
+            self.error_line = start_line;
+            self.error_col = start_col;
+        }
+        return Token::new(TokenKind::Error, start_line, start_col);
     }
 
     pub fn classify_keyword(self: &Self, offset: usize, len: usize) -> TokenKind {
