@@ -86,44 +86,7 @@ jobs:
         pip install -e .
 
     - name: Validate example manifest
-      shell: bash
-      run: |
-        python - <<'PY'
-        import json
-        from pathlib import Path
-
-        root = Path("examples")
-        data = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
-        allowed = {"SUPPORTED", "EXPERIMENTAL", "PROTOTYPE", "DESIGNED", "PLANNED"}
-        items = data["examples"]
-
-        ids = [item["id"] for item in items]
-        if len(ids) != len(set(ids)):
-            raise SystemExit("duplicate example id in examples/manifest.json")
-
-        numbered = sorted(
-            p.name for p in root.iterdir()
-            if p.is_dir() and len(p.name) >= 2 and p.name[:2].isdigit()
-        )
-        if sorted(ids) != numbered:
-            raise SystemExit(
-                f"manifest mismatch: declared={sorted(ids)}, actual={numbered}"
-            )
-
-        for item in items:
-            if item["status"] not in allowed:
-                raise SystemExit(
-                    f"invalid status for {item['id']}: {item['status']}"
-                )
-            if not Path(item["entry"]).exists():
-                raise SystemExit(
-                    f"missing entry for {item['id']}: {item['entry']}"
-                )
-            if item.get("native_run") is True and item.get("backend_contract") is not True:
-                raise SystemExit(
-                    f"native-run example must also satisfy backend contract: {item['id']}"
-                )
-        PY
+      run: python scripts/validate_example_manifest.py
 
     - name: Verify backend-contract examples satisfy check -> C11 contract
       shell: bash
