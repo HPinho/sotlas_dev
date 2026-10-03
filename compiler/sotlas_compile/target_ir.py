@@ -445,7 +445,7 @@ def allocate_target_ir_registers(
         raise TargetIRLoweringError("register allocation requires Target IR v1")
 
     scalar_types = {
-        "bool", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64",
+        "bool", "i8", "i16", "i32", "i64", "isize", "u8", "u16", "u32", "u64",
         "usize", "f32", "f64",
     }
 
@@ -574,7 +574,8 @@ def layout_target_ir_stack(
         "bool": (1, 1), "i8": (1, 1), "u8": (1, 1),
         "i16": (2, 2), "u16": (2, 2),
         "i32": (4, 4), "u32": (4, 4), "f32": (4, 4),
-        "i64": (8, 8), "u64": (8, 8), "usize": (8, 8), "f64": (8, 8),
+        "i64": (8, 8), "u64": (8, 8), "usize": (8, 8),
+        "isize": (8, 8), "f64": (8, 8),
     }
 
 

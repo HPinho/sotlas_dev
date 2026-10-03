@@ -27,6 +27,26 @@ the bootstrap. This fixed point validates only the checked-in `sotlas_lite`
 subset; it does not establish full frontend parity or prove that Python can be
 removed from production builds.
 
+## Sotlas-owned assembly preview
+
+The canonical CLI exposes the experimental x86-64 SysV machine backend:
+
+```sh
+sotlas compile source.sotlas --emit-asm --backend sotlas-x86_64 --target x86_64-unknown-linux-gnu
+```
+
+This path lowers checked Sotlas source through Target IR and emits
+Intel-syntax assembly without invoking LLVM or compiling intermediate C. It
+currently supports a gated subset, including signed and unsigned scalar
+comparisons. Signed arithmetic remains rejected until Sotlas defines its
+overflow modes.
+
+This backend is implemented in the Python compiler today, so it is not yet part
+of the Sotlas-written Stage 1/2 compiler. It emits assembly text only; native
+assembling, object emission, linking, debug information, and runtime services
+remain separate work. The command is an early step toward a Sotlas-owned code
+generation path, not a claim that the compiler is self-hosted or C-free.
+
 ## First parity slice
 
 The Stage 1 lexer in `bootstrap/sotlas/sotlas_lite/lexer.sotlas` counts columns

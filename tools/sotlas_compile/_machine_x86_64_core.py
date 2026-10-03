@@ -8,20 +8,20 @@ The current deliberately narrow fail-closed contract supports:
 - x86-64 System V ABI;
 - acyclic multi-block CFG plus explicitly proven bounded-loop backedges;
 - up to six bool/unsigned integer parameters;
-- bool, u8, u16, u32, u64 and usize machine values;
+- bool, signed/unsigned integer parameters and returns;
 - canonical alloc_stack/store/load local memory;
 - integer constants and unsigned add/sub/mul;
-- unsigned EQ/NEQ/LT/LTE/GT/GTE comparisons with canonical bool results;
+- signed and unsigned EQ/NEQ/LT/LTE/GT/GTE comparisons with canonical bool results;
 - unconditional and conditional branches over canonical bool conditions;
 - direct return (or void return) from any supported block;
 - two caller-saved value registers (r10/r11) plus real stack spills.
 
 Signed arithmetic remains rejected until Sotlas' checked/wrapping/saturating/
 unchecked overflow semantics are selected explicitly at the language level.
-Signed comparisons remain outside this machine slice until their target contract
-is promoted separately. Phi destruction is performed by the public orchestration
-layer; this core independently proves the narrow bounded-loop shape before any
-cyclic CFG reaches allocation or instruction selection.
+Signed comparisons use the signed x86 condition codes and do not depend on
+arithmetic overflow semantics. Phi destruction is performed by the public
+orchestration layer; this core independently proves the narrow bounded-loop
+shape before any cyclic CFG reaches allocation or instruction selection.
 """
 from __future__ import annotations
 
@@ -41,6 +41,7 @@ class MachineBackendError(ValueError):
 
 _VALUE_REGISTERS = ("r10", "r11")
 _UNSIGNED_TYPES = {"u8": 8, "u16": 16, "u32": 32, "u64": 64, "usize": 64}
+_SIGNED_TYPES = {"i8": 8, "i16": 16, "i32": 32, "i64": 64, "isize": 64}
 _BOOL_TYPES = {"bool"}
 _COMPARE_CONDITIONS = {
     "EQ": "e",
@@ -49,6 +50,14 @@ _COMPARE_CONDITIONS = {
     "LTE": "be",
     "GT": "a",
     "GTE": "ae",
+}
+_SIGNED_COMPARE_CONDITIONS = {
+    "EQ": "e",
+    "NEQ": "ne",
+    "LT": "l",
+    "LTE": "le",
+    "GT": "g",
+    "GTE": "ge",
 }
 _ARG_REGISTERS = (
     {64: "rdi", 32: "edi", 16: "di", 8: "dil"},
@@ -81,7 +90,26 @@ def _require_unsigned(type_name: Any, *, context: str) -> int:
 def _require_machine_scalar(type_name: Any, *, context: str) -> int:
     if type_name in _BOOL_TYPES:
         return 1
+    if type_name in _SIGNED_TYPES:
+        return _SIGNED_TYPES[type_name]
     return _require_unsigned(type_name, context=context)
+
+
+def _comparison_info(
+    type_name: Any, predicate: Any, *, context: str
+) -> tuple[int, str]:
+    if type_name in _SIGNED_TYPES:
+        bits = _SIGNED_TYPES[type_name]
+        conditions = _SIGNED_COMPARE_CONDITIONS
+    else:
+        bits = _require_unsigned(type_name, context=context)
+        conditions = _COMPARE_CONDITIONS
+    condition = conditions.get(predicate)
+    if condition is None:
+        raise MachineBackendError(
+            f"{context}: unsupported compare predicate {predicate!r}"
+        )
+    return bits, condition
 
 
 def _type_map(function: dict[str, Any]) -> dict[str, str]:
@@ -960,18 +988,24 @@ def emit_x86_64_sysv_assembly(
                         raise MachineBackendError(
                             f"function {name!r}: compare operand types must match"
                         )
-                    bits = _require_unsigned(
-                        left_type, context=f"function {name!r} compare"
-                    )
                     predicate = instruction.get("attributes", {}).get("predicate")
-                    condition = _COMPARE_CONDITIONS.get(predicate)
-                    if condition is None:
-                        raise MachineBackendError(
-                            f"function {name!r}: unsupported compare predicate {predicate!r}"
-                        )
+                    bits, condition = _comparison_info(
+                        left_type, predicate, context=f"function {name!r} compare"
+                    )
                     _load_value(lines, left, "rax", locations)
                     _load_value(lines, right, "rcx", locations)
-                    if bits == 64:
+                    if left_type in _SIGNED_TYPES:
+                        signed_registers = {
+                            8: ("al", "cl"),
+                            16: ("ax", "cx"),
+                            32: ("eax", "ecx"),
+                            64: ("rax", "rcx"),
+                        }
+                        left_register, right_register = signed_registers[bits]
+                        lines.append(
+                            f"    cmp {left_register}, {right_register}"
+                        )
+                    elif bits == 64:
                         lines.append("    cmp rax, rcx")
                     else:
                         lines.append("    cmp eax, ecx")

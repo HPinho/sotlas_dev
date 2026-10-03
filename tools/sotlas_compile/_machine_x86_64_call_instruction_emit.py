@@ -213,18 +213,23 @@ def emit_instruction(
             raise MachineBackendError(
                 f"function {name!r}: compare operand types must match"
             )
-        bits = _core._require_unsigned(
-            left_type, context=f"function {name!r} compare"
-        )
         predicate = instruction.get("attributes", {}).get("predicate")
-        condition = _core._COMPARE_CONDITIONS.get(predicate)
-        if condition is None:
-            raise MachineBackendError(
-                f"function {name!r}: unsupported compare predicate {predicate!r}"
-            )
+        bits, condition = _core._comparison_info(
+            left_type, predicate, context=f"function {name!r} compare"
+        )
         _core._load_value(lines, left, "rax", locations)
         _core._load_value(lines, right, "rcx", locations)
-        lines.append("    cmp rax, rcx" if bits == 64 else "    cmp eax, ecx")
+        if left_type in _core._SIGNED_TYPES:
+            signed_registers = {
+                8: ("al", "cl"),
+                16: ("ax", "cx"),
+                32: ("eax", "ecx"),
+                64: ("rax", "rcx"),
+            }
+            left_register, right_register = signed_registers[bits]
+            lines.append(f"    cmp {left_register}, {right_register}")
+        else:
+            lines.append("    cmp rax, rcx" if bits == 64 else "    cmp eax, ecx")
         lines.append(f"    set{condition} al")
         lines.append("    movzx eax, al")
         _core._store_value(lines, result, "rax", locations)
