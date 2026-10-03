@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import importlib.util
 import struct
 import sys
 import tempfile
@@ -9,10 +10,23 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "compiler"))
 
-from sotlas.elf_emitter import ElfEmitter
-from sotlas.elf_linker import (
+
+def _load_compiler_module(name: str):
+    """Load compiler internals by file path, independent of prior test imports."""
+    path = ROOT / "compiler" / "sotlas" / f"{name}.py"
+    spec = importlib.util.spec_from_file_location(f"_sotlas_test_{name}", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"could not load compiler module {path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+ElfEmitter = _load_compiler_module("elf_emitter").ElfEmitter
+_elf_linker = _load_compiler_module("elf_linker")
+(
     EM_X86_64,
     ELFLinker,
     ELFLinkerError,
@@ -31,7 +45,26 @@ from sotlas.elf_linker import (
     STB_LOCAL,
     STT_FUNC,
     STT_OBJECT,
-)
+) = tuple(getattr(_elf_linker, name) for name in (
+    "EM_X86_64",
+    "ELFLinker",
+    "ELFLinkerError",
+    "ObjRelocation",
+    "ObjSection",
+    "ObjSymbol",
+    "ObjectFile",
+    "R_X86_64_32S",
+    "R_X86_64_64",
+    "R_X86_64_PC32",
+    "SHF_ALLOC",
+    "SHF_EXECINSTR",
+    "SHT_NULL",
+    "SHT_PROGBITS",
+    "STB_GLOBAL",
+    "STB_LOCAL",
+    "STT_FUNC",
+    "STT_OBJECT",
+))
 
 
 class SotlasELFLinkerTests(unittest.TestCase):
