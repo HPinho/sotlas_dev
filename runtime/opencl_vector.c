@@ -98,6 +98,14 @@ static void *sotlas_opencl_symbol(sotlas_library_t library, const char *name) {
 #endif
 }
 
+static sotlas_library_t sotlas_opencl_open_library(const char *path) {
+#if defined(_WIN32)
+    return LoadLibraryA(path);
+#else
+    return dlopen(path, RTLD_NOW | RTLD_LOCAL);
+#endif
+}
+
 static void sotlas_opencl_close_library(sotlas_library_t library) {
     if (!library) return;
 #if defined(_WIN32)
@@ -114,15 +122,25 @@ static void sotlas_opencl_close_library(sotlas_library_t library) {
 } while (0)
 
 static int sotlas_opencl_load(sotlas_opencl_api_t *api) {
+    const char *library_override;
     memset(api, 0, sizeof(*api));
+    library_override = getenv("SOTLAS_OPENCL_LIBRARY");
+    if (library_override && library_override[0] != '\0') {
+        api->library = sotlas_opencl_open_library(library_override);
+    } else {
 #if defined(_WIN32)
-    api->library = LoadLibraryA("OpenCL.dll");
+        api->library = sotlas_opencl_open_library("OpenCL.dll");
 #elif defined(__APPLE__)
-    api->library = dlopen("/System/Library/Frameworks/OpenCL.framework/OpenCL", RTLD_NOW | RTLD_LOCAL);
+        api->library = sotlas_opencl_open_library(
+            "/System/Library/Frameworks/OpenCL.framework/OpenCL"
+        );
 #else
-    api->library = dlopen("libOpenCL.so.1", RTLD_NOW | RTLD_LOCAL);
-    if (!api->library) api->library = dlopen("libOpenCL.so", RTLD_NOW | RTLD_LOCAL);
+        api->library = sotlas_opencl_open_library("libOpenCL.so.1");
+        if (!api->library) {
+            api->library = sotlas_opencl_open_library("libOpenCL.so");
+        }
 #endif
+    }
     if (!api->library) return 0;
 
     SOTLAS_LOAD_OPENCL(api, get_platform_ids, "clGetPlatformIDs");

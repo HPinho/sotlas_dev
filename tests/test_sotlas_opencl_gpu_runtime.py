@@ -39,8 +39,15 @@ class SotlasOpenCLGpuRuntimeTests(unittest.TestCase):
     @staticmethod
     def _fake_provider_environment(directory: Path, fail_at: str | None = None) -> dict[str, str]:
         environment = os.environ.copy()
+        provider_name = "OpenCL.dll" if os.name == "nt" else "libOpenCL.so.1"
+        provider = (directory / provider_name).resolve()
+        environment["SOTLAS_OPENCL_LIBRARY"] = str(provider)
         if os.name == "nt":
             environment["PATH"] = str(directory) + os.pathsep + environment.get("PATH", "")
+        elif sys.platform == "darwin":
+            environment["DYLD_LIBRARY_PATH"] = str(directory) + os.pathsep + environment.get(
+                "DYLD_LIBRARY_PATH", ""
+            )
         else:
             environment["LD_LIBRARY_PATH"] = str(directory) + os.pathsep + environment.get(
                 "LD_LIBRARY_PATH", ""
