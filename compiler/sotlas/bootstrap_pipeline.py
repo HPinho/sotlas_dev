@@ -118,6 +118,31 @@ static bool file_exists(const char *path) {
     return false;
 }
 
+static bool files_equal(const char *left_path, const char *right_path) {
+    FILE *left = fopen(left_path, "rb");
+    FILE *right = fopen(right_path, "rb");
+    if (!left || !right) {
+        if (left) fclose(left);
+        if (right) fclose(right);
+        return false;
+    }
+
+    bool equal = true;
+    for (;;) {
+        int left_byte = fgetc(left);
+        int right_byte = fgetc(right);
+        if (left_byte != right_byte) {
+            equal = false;
+            break;
+        }
+        if (left_byte == EOF) break;
+    }
+    if (ferror(left) || ferror(right)) equal = false;
+    fclose(left);
+    fclose(right);
+    return equal;
+}
+
 static void make_dir(const char *path) {
 #if defined(_WIN32)
     CreateDirectoryA(path, NULL);
@@ -1278,7 +1303,7 @@ static int run_selfhost_command(int argc, char **argv) {
     g_num_loaded_files = 0;
     src[0] = 0;
     size_t src_len = 0;
-    printf("[1/3] Carregando fontes nativos de Sotlas em %s...\n", entry);
+    printf("[1/4] Loading native Sotlas sources from %s...\n", entry);
     if (!load_source_file(entry, src, &src_len, MAX_SOURCE_SIZE)) {
         fprintf(stderr, "sotlas-selfhost: erro ao carregar modulos Sotlas\n");
         free(src);
@@ -1286,7 +1311,7 @@ static int run_selfhost_command(int argc, char **argv) {
         return 1;
     }
 
-    printf("[2/3] Compilando compilador nativo (Stage 2 Self-Host)...\n");
+    printf("[2/4] Compiling the native compiler (Stage 2 self-host)...\n");
     memset(out, 0, MAX_OUTPUT_SIZE);
     size_t out_len = sotlas_compile(src, out, MAX_OUTPUT_SIZE);
     free(src);
@@ -1309,7 +1334,7 @@ static int run_selfhost_command(int argc, char **argv) {
     free(out);
     printf("      -> Emitido %s (%zu bytes)\n", stage2_c, out_len);
 
-    printf("[3/3] Compilando e linkando binario final via Clang nativo...\n");
+    printf("[3/4] Compiling and linking the native binary with the C toolchain...\n");
     const char *cc = find_c_compiler();
     const char *driver_path = "bootstrap/sotlas/sotlas_lite/sotlas_native_driver.c";
     char build_cmd[1024];
@@ -1319,14 +1344,34 @@ static int run_selfhost_command(int argc, char **argv) {
     snprintf(build_cmd, sizeof(build_cmd), "\"%s\" -O2 -Wno-pointer-sign \"%s\" \"%s\" -o \"bin/sotlas_stage2\"", cc, stage2_c, driver_path);
 #endif
     int ret = system(build_cmd);
-    if (ret == 0) {
-        printf("\033[32m[SUCESSO] Compilador nativo Stage-2 auto-hospedado gerado com sucesso (Zero-Python)!\033[0m\n");
-        printf("          -> Binario gerado: bin/sotlas_stage2.exe\n");
-        return 0;
-    } else {
+    if (ret != 0) {
         fprintf(stderr, "\033[31m[ERRO] Falha na linkedicao do compilador nativo (codigo: %d)\033[0m\n", ret);
         return ret;
     }
+
+    const char *stage2_exe = "bin/sotlas_stage2";
+    const char *fixed_point_c = "build/sotlas_compiler_stage2_rebuilt.c";
+    char verify_cmd[1024];
+#if defined(_WIN32)
+    stage2_exe = "bin\\sotlas_stage2.exe";
+    snprintf(verify_cmd, sizeof(verify_cmd), "\"\"%s\" \"%s\" --emit-c -o \"%s\"\"", stage2_exe, entry, fixed_point_c);
+#else
+    snprintf(verify_cmd, sizeof(verify_cmd), "\"%s\" \"%s\" --emit-c -o \"%s\"", stage2_exe, entry, fixed_point_c);
+#endif
+    printf("[4/4] Verifying the Stage 2 binary fixed point...\n");
+    ret = system(verify_cmd);
+    if (ret != 0) {
+        fprintf(stderr, "sotlas-selfhost: Stage 2 could not recompile the compiler (exit code: %d)\n", ret);
+        return ret;
+    }
+    if (!files_equal(stage2_c, fixed_point_c)) {
+        fprintf(stderr, "sotlas-selfhost: Stage 1 and Stage 2 emitted different C artifacts\n");
+        return 1;
+    }
+
+    printf("\033[32m[SUCCESS] Stage 1 and Stage 2 emitted identical C artifacts (fixed point).\033[0m\n");
+    printf("          -> Binary: %s\n", stage2_exe);
+    return 0;
 }
 
 int main(int argc, char **argv) {

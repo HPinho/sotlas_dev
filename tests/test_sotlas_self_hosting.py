@@ -190,6 +190,22 @@ pub fn main() -> i32 {
         run_res = subprocess.run([str(stage2_exe), "run", str(app_file)], capture_output=True, text=True)
         self.assertEqual(run_res.returncode, 0, f"Stage 2 run falhou:\n{run_res.stderr}")
 
+    def test_selfhost_command_builds_and_verifies_stage2_fixed_point(self):
+        result = subprocess.run(
+            [str(self.native_compiler), "selfhost"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, f"selfhost failed:\n{result.stdout}\n{result.stderr}")
+        self.assertIn("Stage 1 and Stage 2 emitted identical C artifacts (fixed point)", result.stdout)
+
+        stage2_c = ROOT / "build" / "sotlas_compiler_stage2.c"
+        rebuilt_c = ROOT / "build" / "sotlas_compiler_stage2_rebuilt.c"
+        self.assertTrue(stage2_c.is_file())
+        self.assertTrue(rebuilt_c.is_file())
+        self.assertEqual(stage2_c.read_bytes(), rebuilt_c.read_bytes())
+
     def test_native_compiler_compiles_modern_sotlas_constructs(self):
         code_file = self.tmp_path / "test_modern.sotlas"
         code_file.write_text("""module test::modern;

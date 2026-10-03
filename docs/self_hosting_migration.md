@@ -17,10 +17,15 @@ system services.
 | Native code generation | C11 emitted by Sotlas | Transitional |
 
 The Stage 1 compiler can compile Sotlas programs without starting Python once
-it has been built. Building that executable still uses the Python compiler and
-a native C toolchain. The existing fixed-point check compares Stage 1 and
-Stage 2 compiler output; it does not prove that the Python bootstrap can be
-removed.
+it has been built. The `selfhost` command now builds Stage 2, asks the Stage 2
+executable to emit the compiler again, and requires the Stage 1 and Stage 2 C
+artifacts to be byte-identical before reporting success. A native integration
+test exercises that command and checks the artifacts directly.
+
+Building Stage 1 still uses the Python compiler, and Python still coordinates
+the bootstrap. This fixed point validates only the checked-in `sotlas_lite`
+subset; it does not establish full frontend parity or prove that Python can be
+removed from production builds.
 
 ## First parity slice
 
@@ -60,7 +65,9 @@ character literals, and both missing-semicolon paths.
 5. Move filesystem, process, and platform services behind documented Sotlas
    interfaces and replace the C driver incrementally.
 6. Build Stage 1 from Stage 0, then Stage 2 from Stage 1; compare artifacts and
-   behavior reproducibly on supported hosts.
+   behavior reproducibly on supported hosts. The `selfhost` command enforces
+   byte-identical Stage 1/Stage 2 C output on the host running the command;
+   cross-platform release coverage is still required.
 7. Remove Python from normal builds only after those gates pass on every
    supported platform. Keep Python as a recovery bootstrap until the new path
    has independent release coverage.

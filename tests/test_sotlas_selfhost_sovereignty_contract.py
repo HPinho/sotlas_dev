@@ -71,6 +71,13 @@ class SotlasSelfHostSovereigntyContractTests(unittest.TestCase):
             with self.subTest(marker=marker):
                 self.assertIn(marker, gate)
 
+    def test_selfhost_command_enforces_fixed_point_before_success(self):
+        self.assertIn("static bool files_equal(const char *left_path, const char *right_path)", NATIVE_DRIVER_C)
+        self.assertIn('const char *fixed_point_c = "build/sotlas_compiler_stage2_rebuilt.c";', NATIVE_DRIVER_C)
+        self.assertIn("if (!files_equal(stage2_c, fixed_point_c))", NATIVE_DRIVER_C)
+        self.assertIn("Stage 1 and Stage 2 emitted different C artifacts", NATIVE_DRIVER_C)
+        self.assertIn("Stage 1 and Stage 2 emitted identical C artifacts (fixed point)", NATIVE_DRIVER_C)
+
 
 if __name__ == "__main__":
     unittest.main()
