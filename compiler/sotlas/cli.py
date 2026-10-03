@@ -940,7 +940,11 @@ def _run_compile(args) -> int:
     elif getattr(args, "emit_c", False) or (output_arg and str(output_arg).endswith(".c")):
         emit_type = "c"
 
-    if args.backend == "sotlas-x86_64" and emit_type != "asm":
+    # Some internal callers construct a minimal namespace instead of parsing
+    # CLI arguments. Preserve the historical LLVM default for those callers.
+    backend = getattr(args, "backend", "llvm")
+
+    if backend == "sotlas-x86_64" and emit_type != "asm":
         print(
             "sotlas: --backend sotlas-x86_64 requires --emit-asm or a .s/.asm output",
             file=sys.stderr,
@@ -948,7 +952,7 @@ def _run_compile(args) -> int:
         return 2
 
     if emit_type == "asm":
-        if args.backend == "sotlas-x86_64":
+        if backend == "sotlas-x86_64":
             supported_targets = {
                 "x86_64-freestanding",
                 "x86_64-unknown-none-elf",
@@ -979,7 +983,7 @@ def _run_compile(args) -> int:
             except (MachineBackendError, OSError, ValueError) as error:
                 print(f"sotlas: x86-64 machine backend error: {error}", file=sys.stderr)
                 return 1
-        if args.backend != "llvm":
+        if backend != "llvm":
             print("sotlas: --emit-asm requires --backend llvm or sotlas-x86_64", file=sys.stderr)
             return 2
         from sotlas.llvm_toolchain import default_toolchain
@@ -1030,7 +1034,7 @@ def _run_compile(args) -> int:
     is_llvm = (
         not force_gcc
         and default_toolchain.is_available()
-        and (args.backend == "llvm" or emit_type in ("obj", "llvm"))
+        and (backend == "llvm" or emit_type in ("obj", "llvm"))
     )
 
     if args.output:
