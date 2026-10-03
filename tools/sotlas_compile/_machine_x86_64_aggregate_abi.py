@@ -1,7 +1,8 @@
-"""x86-64 SysV aggregate ABI classification for the M16.4g1a slice."""
+"""x86-64 SysV aggregate ABI classification for the M16.4g1a / M16.4h2e2b slices."""
 from __future__ import annotations
 from typing import Any
 from . import _machine_x86_64_core as _core
+from ._machine_x86_64_enum_abi import classify_x86_64_sysv_nominal_enums
 from ._machine_x86_64_struct_layout import plan_x86_64_sysv_struct_layouts
 from .target_ir_slices import TargetIRSliceError, validate_target_ir_slice_views
 
@@ -90,19 +91,58 @@ def _tag_only_enum_classifications(target_ir: dict[str, Any]) -> list[dict[str, 
     return sorted(classified, key=lambda item: item["name"])
 
 
+def _nominal_enum_classifications(target_ir: dict[str, Any]) -> list[dict[str, Any]]:
+    """Reuse the certified h2e2a classifier inside the central aggregate plan."""
+    plan = classify_x86_64_sysv_nominal_enums(target_ir)
+    aggregates = plan.get("aggregates")
+    if not isinstance(aggregates, list):
+        raise _core.MachineBackendError(
+            "x86-64 nominal enum ABI classifier returned a malformed aggregate set"
+        )
+    return list(aggregates)
+
+
+def _reject_duplicate_named_aggregates(
+    aggregates: list[dict[str, Any]],
+) -> None:
+    seen: dict[str, str] = {}
+    for item in aggregates:
+        if not isinstance(item, dict):
+            raise _core.MachineBackendError(
+                "x86-64 aggregate ABI classification produced a malformed entry"
+            )
+        kind = item.get("kind")
+        if kind not in {"struct", "enum"}:
+            continue
+        name = item.get("name")
+        if not isinstance(name, str) or not name:
+            raise _core.MachineBackendError(
+                "x86-64 aggregate ABI classification produced an unnamed aggregate"
+            )
+        previous = seen.get(name)
+        if previous is not None:
+            raise _core.MachineBackendError(
+                f"x86-64 aggregate ABI classification has duplicate named aggregate {name!r}"
+            )
+        seen[name] = kind
+
+
 def classify_x86_64_sysv_aggregates(target_ir: dict[str, Any]) -> dict[str, Any]:
     """Classify proven aggregate layouts without assigning physical registers."""
     if not isinstance(target_ir, dict) or target_ir.get("schema") != "sotlas.target-ir.v1":
         raise _core.MachineBackendError("x86-64 aggregate ABI classification requires Target IR v1")
+    aggregates = [
+        *_struct_classifications(target_ir),
+        *_slice_classifications(target_ir),
+        *_tag_only_enum_classifications(target_ir),
+        *_nominal_enum_classifications(target_ir),
+    ]
+    _reject_duplicate_named_aggregates(aggregates)
     return {
         "schema": "sotlas.aggregate-abi.x86_64-sysv.v1",
         "target": _TARGET,
         "abi": _ABI,
-        "aggregates": [
-            *_struct_classifications(target_ir),
-            *_slice_classifications(target_ir),
-            *_tag_only_enum_classifications(target_ir),
-        ],
+        "aggregates": aggregates,
     }
 
 

@@ -1,7 +1,8 @@
 """M16.4h2e2a explicit x86-64 SysV ABI classification for nominal payload enums.
 
-This layer consumes the h2e1 physical planner but deliberately does not alter the
-central aggregate classifier or transport planner yet.
+This layer is the source of truth for nominal tagged-union classification.
+M16.4h2e2b lets the central aggregate classifier reuse it; transport assignment
+remains a separate stage.
 """
 from __future__ import annotations
 

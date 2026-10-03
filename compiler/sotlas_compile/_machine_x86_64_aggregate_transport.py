@@ -171,6 +171,13 @@ def _parameter_units(
         type_name = parameter.get("type")
         classification = by_type.get(type_name)
         if classification is not None:
+            if (
+                classification.get("kind") == "enum"
+                and classification.get("storage") == "tagged_union"
+            ):
+                raise _core.MachineBackendError(
+                    f"parameter {name!r}: nominal payload enum transport waits for M16.4h2e2c"
+                )
             units.append(
                 _aggregate_unit(
                     name=name,
@@ -210,6 +217,14 @@ def _return_unit(
             "size_bytes": 8 if bits > 32 else max(1, bits // 8),
             "alignment_bytes": min(8, max(1, bits // 8)),
         }
+
+    if (
+        classification.get("kind") == "enum"
+        and classification.get("storage") == "tagged_union"
+    ):
+        raise _core.MachineBackendError(
+            f"function {function.get('name')!r} return: nominal payload enum transport waits for M16.4h2e2c"
+        )
 
     return {
         "kind": classification["kind"],
@@ -343,7 +358,7 @@ def plan_x86_64_sysv_aggregate_transport(
         "limitations": [
             "This plan assigns ABI transport locations but does not emit machine instructions.",
             "Stack argument byte offsets remain deferred to aggregate machine emission.",
-            "Payload enums remain unsupported until tagged-union byte layout is certified.",
+            "Nominal payload enums are centrally classified by h2e2b but transport waits for h2e2c.",
         ],
     }
 

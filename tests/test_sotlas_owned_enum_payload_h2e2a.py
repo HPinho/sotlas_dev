@@ -204,16 +204,17 @@ class SotlasOwnedEnumPayloadH2E2ATests(unittest.TestCase):
                 _mixed_float_target_ir()
             )
 
-    def test_central_aggregate_classifier_is_not_opened_by_h2e2a(self):
+    def test_central_aggregate_classifier_reuses_h2e2a_after_h2e2b(self):
         target_ir = _target_ir_from_source()
-        classified = aggregate_abi.classify_x86_64_sysv_aggregates(target_ir)
-        self.assertFalse(
-            any(
-                item.get("kind") == "enum"
-                and item.get("name") == "MaybeToken"
-                for item in classified["aggregates"]
-            )
+        explicit = enum_abi.classify_x86_64_sysv_nominal_enums(target_ir)
+        central = aggregate_abi.classify_x86_64_sysv_aggregates(target_ir)
+        maybe = next(
+            item
+            for item in central["aggregates"]
+            if item.get("kind") == "enum"
+            and item.get("name") == "MaybeToken"
         )
+        self.assertEqual(maybe, explicit["aggregates"][0])
 
     def test_compiler_and_tools_h2e2a_layers_remain_identical(self):
         relative = Path("sotlas_compile") / "_machine_x86_64_enum_abi.py"
