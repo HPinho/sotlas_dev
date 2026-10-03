@@ -299,6 +299,15 @@ contrato ABI fonte de `BootFrame`/`kernel_main` e a ausência de chamadas hosted
 | **K13** | UEFI / PE-COFF path | ⬜ PENDENTE | caminho UEFI é separado do ELF bare-metal quando necessário, com ABI, entry e image format próprios e testes em firmware virtual |
 | **K14** | Kernel majoritariamente Sotlas / soberania | ⬜ LONGO PRAZO | kernel, runtime necessário e toolchain crítica deixam de depender de bridges ad hoc; self-host/backend próprio avançam sem remover Stage 0 antes da paridade |
 
+**K3 local hardening candidate (CI pending):** the internal ELF linker now requires
+the requested entry to resolve to bytes in an executable section, rejects duplicate
+strong symbols and invalid relocation targets, applies relocations to the correctly
+aligned section slice, and uses the same virtual-address layout for relocation and
+`PT_LOAD` emission. Synthetic ELF tests cover the exact entry, missing and
+non-executable entries, section alignment, relocation bounds and overflow. This
+does not certify compiler-generated kernel objects, a bootable image, or a QEMU
+boot; K3 remains in preview until those integration gates run.
+
 ### K.4 Dependências do track de kernel
 
 O track de kernel não é uma trilha isolada. Ele depende diretamente de outras

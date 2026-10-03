@@ -293,6 +293,20 @@ class ELFLinker:
         target_triple: str = "x86_64-linux-gnu",
         page_size: int = PAGE_SIZE,
     ) -> None:
+        if (
+            not isinstance(page_size, int)
+            or isinstance(page_size, bool)
+            or page_size < 1
+            or page_size & (page_size - 1)
+        ):
+            raise ELFLinkerError("ELF page size must be a positive power of two")
+        if not isinstance(load_address, (int, type(None))) or (
+            isinstance(load_address, bool)
+            or (load_address is not None and load_address < 0)
+        ):
+            raise ELFLinkerError("ELF load address must be a non-negative integer")
+        if not isinstance(entry_symbol, str) or not entry_symbol:
+            raise ELFLinkerError("ELF entry symbol must be a non-empty name")
         self.entry_symbol = entry_symbol
         self.load_address = load_address if load_address is not None else self.DEFAULT_LOAD_ADDR
         self.target_triple = target_triple
@@ -310,6 +324,9 @@ class ELFLinker:
         self._merged_bss_size = 0
         # Mapeamento: (obj_idx, sec_idx_local) → vaddr_final
         self._sec_vaddr: Dict[Tuple[int, int], int] = {}
+        self._text_vaddr = 0
+        self._rodata_vaddr = 0
+        self._data_vaddr = 0
 
     def add_object(self, path: str) -> None:
         """Adiciona um arquivo .o ao conjunto de entrada."""
@@ -339,23 +356,32 @@ class ELFLinker:
 
     def _collect_symbols(self) -> None:
         """Coleta todos os símbolos globais/fracos de todos os arquivos objeto."""
+        self._global_syms.clear()
         for obj in self._objects:
             for sym in obj.symbols:
                 if sym.binding in (STB_GLOBAL, STB_WEAK) and sym.name:
                     if sym.shndx != 0:  # definido (não undef)
-                        if sym.name not in self._global_syms or sym.binding == STB_GLOBAL:
+                        previous = self._global_syms.get(sym.name)
+                        if sym.binding == STB_GLOBAL:
+                            if previous is not None and previous[0].binding == STB_GLOBAL:
+                                raise ELFLinkerError(
+                                    f"duplicate strong symbol {sym.name!r} in "
+                                    f"{previous[1].path} and {obj.path}"
+                                )
+                            self._global_syms[sym.name] = (sym, obj)
+                        elif previous is None:
                             self._global_syms[sym.name] = (sym, obj)
 
     def _check_undefined(self) -> None:
         """Verifica que todos os símbolos referenciados foram definidos."""
-        undefined: List[str] = []
+        undefined: set[str] = set()
         for obj in self._objects:
             for sym in obj.symbols:
                 if sym.binding in (STB_GLOBAL, STB_WEAK) and sym.shndx == 0 and sym.name:
                     if sym.name not in self._global_syms:
-                        undefined.append(f"'{sym.name}' (referenciado em {obj.path})")
+                        undefined.add(f"'{sym.name}' (referenciado em {obj.path})")
         if undefined:
-            msg = "\n  ".join(undefined)
+            msg = "\n  ".join(sorted(undefined))
             raise ELFLinkerError(f"símbolos não definidos:\n  {msg}")
 
     # ------------------------------------------------------------------
@@ -369,52 +395,114 @@ class ELFLinker:
 
     def _layout_sections(self) -> None:
         """Monta as seções unificadas e calcula endereços virtuais."""
-        vaddr = self.load_address
+        self._merged_text.clear()
+        self._merged_rodata.clear()
+        self._merged_data.clear()
+        self._merged_bss_size = 0
+        self._sec_vaddr.clear()
 
-        # ── Segmento .text (rx) ──
-        text_base = vaddr
+        for obj_idx, obj in enumerate(self._objects):
+            for sec in obj.sections:
+                if not (sec.flags & SHF_ALLOC):
+                    continue
+                if (
+                    not isinstance(sec.addr_align, int)
+                    or sec.addr_align < 1
+                    or sec.addr_align & (sec.addr_align - 1)
+                ):
+                    raise ELFLinkerError(
+                        f"{obj.path}:{sec.name}: section alignment must be a power of two"
+                    )
+                if sec.flags & SHF_EXECINSTR:
+                    if sec.sec_type != SHT_PROGBITS or sec.flags & SHF_WRITE:
+                        raise ELFLinkerError(
+                            f"{obj.path}:{sec.name}: executable load sections must be read-only PROGBITS"
+                        )
+                elif sec.flags & SHF_WRITE:
+                    if sec.sec_type not in (SHT_PROGBITS, SHT_NOBITS):
+                        raise ELFLinkerError(
+                            f"{obj.path}:{sec.name}: writable load section has unsupported type {sec.sec_type}"
+                        )
+                elif sec.sec_type != SHT_PROGBITS:
+                    raise ELFLinkerError(
+                        f"{obj.path}:{sec.name}: read-only load section must be PROGBITS"
+                    )
+
+        def append_sections(predicate, buffer: bytearray, base: int, vaddr: int) -> int:
+            for obj_idx, obj in enumerate(self._objects):
+                for sec_idx, sec in enumerate(obj.sections):
+                    if not (sec.flags & SHF_ALLOC) or not predicate(sec):
+                        continue
+                    aligned = self._align_up(vaddr, sec.addr_align)
+                    buffer_offset = aligned - base
+                    if buffer_offset < len(buffer):
+                        raise ELFLinkerError(
+                            f"{obj.path}:{sec.name}: overlapping section layout"
+                        )
+                    buffer.extend(bytes(buffer_offset - len(buffer)))
+                    self._sec_vaddr[(obj_idx, sec_idx)] = aligned
+                    buffer.extend(sec.data)
+                    vaddr = aligned + len(sec.data)
+            return vaddr
+
+        self._text_vaddr = self._align_up(self.load_address, self.page_size)
+        vaddr = append_sections(
+            lambda sec: bool(sec.flags & SHF_EXECINSTR),
+            self._merged_text,
+            self._text_vaddr,
+            self._text_vaddr,
+        )
+
+        self._rodata_vaddr = self._align_up(vaddr, self.page_size)
+        vaddr = append_sections(
+            lambda sec: not (sec.flags & SHF_EXECINSTR)
+            and not (sec.flags & SHF_WRITE),
+            self._merged_rodata,
+            self._rodata_vaddr,
+            self._rodata_vaddr,
+        )
+
+        self._data_vaddr = self._align_up(vaddr, self.page_size)
+        vaddr = append_sections(
+            lambda sec: bool(sec.flags & SHF_WRITE)
+            and sec.sec_type == SHT_PROGBITS,
+            self._merged_data,
+            self._data_vaddr,
+            self._data_vaddr,
+        )
+        bss_start = vaddr
         for obj_idx, obj in enumerate(self._objects):
             for sec_idx, sec in enumerate(obj.sections):
-                if sec.sec_type in (SHT_PROGBITS, SHT_NOBITS) and (sec.flags & SHF_EXECINSTR):
-                    vaddr = self._align_up(vaddr, sec.addr_align)
-                    self._sec_vaddr[(obj_idx, sec_idx)] = vaddr
-                    vaddr += len(sec.data)
-                    self._merged_text.extend(bytes(sec.data))
-
-        # Alinha ao próximo page boundary para separação rx/r
-        vaddr = self._align_up(vaddr, self.page_size)
-
-        # ── Segmento .rodata (r) ──
-        for obj_idx, obj in enumerate(self._objects):
-            for sec_idx, sec in enumerate(obj.sections):
-                if (sec.sec_type == SHT_PROGBITS
-                        and not (sec.flags & SHF_EXECINSTR)
-                        and not (sec.flags & SHF_WRITE)
-                        and (sec.flags & SHF_ALLOC)):
-                    vaddr = self._align_up(vaddr, sec.addr_align)
-                    self._sec_vaddr[(obj_idx, sec_idx)] = vaddr
-                    vaddr += len(sec.data)
-                    self._merged_rodata.extend(bytes(sec.data))
-
-        vaddr = self._align_up(vaddr, self.page_size)
-
-        # ── Segmento .data + .bss (rw) ──
-        for obj_idx, obj in enumerate(self._objects):
-            for sec_idx, sec in enumerate(obj.sections):
-                if sec.flags & SHF_WRITE and sec.flags & SHF_ALLOC:
-                    vaddr = self._align_up(vaddr, sec.addr_align)
-                    self._sec_vaddr[(obj_idx, sec_idx)] = vaddr
-                    if sec.sec_type == SHT_NOBITS:
-                        self._merged_bss_size += len(sec.data)
-                    else:
-                        self._merged_data.extend(bytes(sec.data))
-                    vaddr += len(sec.data)
+                if not (
+                    sec.flags & SHF_ALLOC
+                    and sec.flags & SHF_WRITE
+                    and sec.sec_type == SHT_NOBITS
+                ):
+                    continue
+                aligned = self._align_up(vaddr, sec.addr_align)
+                self._sec_vaddr[(obj_idx, sec_idx)] = aligned
+                vaddr = aligned + len(sec.data)
+        self._merged_bss_size = vaddr - bss_start
 
     def _resolve_symbol_vaddr(self, sym: ObjSymbol, obj: ObjectFile) -> int:
         """Retorna o endereço virtual absoluto de um símbolo."""
-        key = (obj.symbols.index(sym) if sym in obj.symbols else -1, sym.shndx)
-        sec_base = self._sec_vaddr.get((self._objects.index(obj), sym.shndx), 0)
-        return sec_base + sym.value
+        if sym.shndx == 0xFFF1:  # SHN_ABS
+            return sym.value
+        if not 0 < sym.shndx < len(obj.sections):
+            raise ELFLinkerError(
+                f"{obj.path}: symbol {sym.name!r} has invalid section index {sym.shndx}"
+            )
+        obj_idx = self._objects.index(obj)
+        sec_vaddr = self._sec_vaddr.get((obj_idx, sym.shndx))
+        if sec_vaddr is None:
+            raise ELFLinkerError(
+                f"{obj.path}: symbol {sym.name!r} refers to a non-loadable section"
+            )
+        if sym.value > len(obj.sections[sym.shndx].data):
+            raise ELFLinkerError(
+                f"{obj.path}: symbol {sym.name!r} lies outside its section"
+            )
+        return sec_vaddr + sym.value
 
     # ------------------------------------------------------------------
     # Pass 3: Aplicar relocações
@@ -431,65 +519,112 @@ class ELFLinker:
                 # Encontra o buffer na saída correspondente a este sec_idx
                 sec_buf = self._get_section_output_buffer(obj_idx, sec_idx)
                 if sec_buf is None:
-                    continue
+                    if not (sec.flags & SHF_ALLOC):
+                        # Debug and other non-allocated sections are discarded.
+                        continue
+                    raise ELFLinkerError(
+                        f"{obj.path}:{sec.name}: relocation targets a non-file-backed load section"
+                    )
 
                 for rel in sec.relocations:
                     # Resolve o símbolo
                     sym_obj = obj.symbols[rel.sym_idx] if rel.sym_idx < len(obj.symbols) else None
-                    if sym_obj is None:
+                    if rel.rtype == R_X86_64_NONE:
                         continue
+                    if (
+                        sym_obj is None
+                        or rel.sym_idx < 0
+                        or rel.sym_idx >= len(obj.symbols)
+                    ):
+                        raise ELFLinkerError(
+                            f"{obj.path}:{sec.name}: relocation references invalid symbol index {rel.sym_idx}"
+                        )
 
-                    sym_vaddr = 0
-                    if sym_obj.shndx != 0:
-                        # Símbolo local/definido neste obj
-                        sym_sec_vaddr = self._sec_vaddr.get((obj_idx, sym_obj.shndx), 0)
-                        sym_vaddr = sym_sec_vaddr + sym_obj.value
-                    elif sym_obj.name in self._global_syms:
-                        g_sym, g_obj = self._global_syms[sym_obj.name]
-                        g_obj_idx = self._objects.index(g_obj)
-                        g_sec_vaddr = self._sec_vaddr.get((g_obj_idx, g_sym.shndx), 0)
-                        sym_vaddr = g_sec_vaddr + g_sym.value
+                    if sym_obj.shndx == 0:
+                        resolved = self._global_syms.get(sym_obj.name)
+                        if resolved is None:
+                            raise ELFLinkerError(
+                                f"{obj.path}:{sec.name}: unresolved relocation symbol {sym_obj.name!r}"
+                            )
+                        sym_obj, sym_owner = resolved
                     else:
-                        continue  # símbolo externo não resolvido (já reportado)
+                        sym_owner = obj
 
-                    S = sym_vaddr
+                    S = self._resolve_symbol_vaddr(sym_obj, sym_owner)
                     A = rel.addend
                     P = sec_vaddr + rel.offset
+                    widths = {
+                        R_X86_64_64: 8,
+                        R_X86_64_PC32: 4,
+                        R_X86_64_PLT32: 4,
+                        R_X86_64_32: 4,
+                        R_X86_64_32S: 4,
+                    }
+                    width = widths.get(rel.rtype)
+                    if width is None:
+                        raise ELFLinkerError(
+                            f"{obj.path}:{sec.name}: unsupported x86-64 relocation type {rel.rtype}"
+                        )
+                    if rel.offset < 0 or rel.offset + width > len(sec.data):
+                        raise ELFLinkerError(
+                            f"{obj.path}:{sec.name}: relocation at offset {rel.offset} exceeds section bounds"
+                        )
+                    if sec_buf is None:
+                        raise ELFLinkerError(
+                            f"{obj.path}:{sec.name}: relocation targets a non-file-backed section"
+                        )
 
-                    try:
-                        if rel.rtype == R_X86_64_64:
-                            val = (S + A) & 0xFFFFFFFFFFFFFFFF
-                            struct.pack_into("<Q", sec_buf, rel.offset, val)
+                    if rel.rtype == R_X86_64_64:
+                        value = S + A
+                        if not 0 <= value <= 0xFFFFFFFFFFFFFFFF:
+                            raise ELFLinkerError(
+                                f"{obj.path}:{sec.name}: R_X86_64_64 relocation overflow"
+                            )
+                        struct.pack_into("<Q", sec_buf, rel.offset, value)
+                    elif rel.rtype in (R_X86_64_PC32, R_X86_64_PLT32):
+                        value = S + A - P
+                        if not -(1 << 31) <= value < (1 << 31):
+                            raise ELFLinkerError(
+                                f"{obj.path}:{sec.name}: PC-relative relocation overflow"
+                            )
+                        struct.pack_into("<i", sec_buf, rel.offset, value)
+                    elif rel.rtype == R_X86_64_32:
+                        value = S + A
+                        if not 0 <= value <= 0xFFFFFFFF:
+                            raise ELFLinkerError(
+                                f"{obj.path}:{sec.name}: R_X86_64_32 relocation overflow"
+                            )
+                        struct.pack_into("<I", sec_buf, rel.offset, value)
+                    else:  # R_X86_64_32S
+                        value = S + A
+                        if not -(1 << 31) <= value < (1 << 31):
+                            raise ELFLinkerError(
+                                f"{obj.path}:{sec.name}: R_X86_64_32S relocation overflow"
+                            )
+                        struct.pack_into("<i", sec_buf, rel.offset, value)
 
-                        elif rel.rtype in (R_X86_64_PC32, R_X86_64_PLT32):
-                            val = (S + A - P) & 0xFFFFFFFF
-                            # Verifica overflow de 32 bits (signed)
-                            signed_val = struct.unpack("<i", struct.pack("<I", val))[0]
-                            struct.pack_into("<i", sec_buf, rel.offset, signed_val)
-
-                        elif rel.rtype == R_X86_64_32:
-                            val = (S + A) & 0xFFFFFFFF
-                            struct.pack_into("<I", sec_buf, rel.offset, val)
-
-                        elif rel.rtype == R_X86_64_32S:
-                            val = (S + A) & 0xFFFFFFFF
-                            signed_val = struct.unpack("<i", struct.pack("<I", val))[0]
-                            struct.pack_into("<i", sec_buf, rel.offset, signed_val)
-
-                    except struct.error:
-                        pass  # overflow de relocação: reportar como warning
-
-    def _get_section_output_buffer(self, obj_idx: int, sec_idx: int) -> Optional[bytearray]:
-        """Retorna o bytearray de saída que contém os dados desta seção."""
+    def _get_section_output_buffer(self, obj_idx: int, sec_idx: int):
+        """Return a writable view of the merged output bytes for a section."""
         obj = self._objects[obj_idx]
         sec = obj.sections[sec_idx]
+        section_vaddr = self._sec_vaddr.get((obj_idx, sec_idx))
+        if section_vaddr is None:
+            return None
         if sec.flags & SHF_EXECINSTR:
-            # Calcula offset dentro de _merged_text
-            text_start = self.load_address
-            sec_start = self._sec_vaddr.get((obj_idx, sec_idx), 0)
-            off = sec_start - text_start
-            if 0 <= off < len(self._merged_text):
-                return memoryview(self._merged_text)[off: off + len(sec.data)].obj  # type: ignore
+            buffer = self._merged_text
+            base = self._text_vaddr
+        elif sec.flags & SHF_WRITE:
+            if sec.sec_type == SHT_NOBITS:
+                return None
+            buffer = self._merged_data
+            base = self._data_vaddr
+        else:
+            buffer = self._merged_rodata
+            base = self._rodata_vaddr
+        offset = section_vaddr - base
+        end = offset + len(sec.data)
+        if 0 <= offset <= end <= len(buffer):
+            return memoryview(buffer)[offset:end]
         return None
 
     # ------------------------------------------------------------------
@@ -508,20 +643,27 @@ class ELFLinker:
         # Pass 3: relocações
         self._apply_relocations()
 
-        # Obtém entry point
-        entry_vaddr = 0
-        if self.entry_symbol in self._global_syms:
-            e_sym, e_obj = self._global_syms[self.entry_symbol]
-            e_obj_idx = self._objects.index(e_obj)
-            e_sec_vaddr = self._sec_vaddr.get((e_obj_idx, e_sym.shndx), 0)
-            entry_vaddr = e_sec_vaddr + e_sym.value
-        else:
-            # Tenta _start como fallback
-            if "_start" in self._global_syms and self.entry_symbol != "_start":
-                e_sym, e_obj = self._global_syms["_start"]
-                e_obj_idx = self._objects.index(e_obj)
-                e_sec_vaddr = self._sec_vaddr.get((e_obj_idx, e_sym.shndx), 0)
-                entry_vaddr = e_sec_vaddr + e_sym.value
+        # Resolve the requested entry exactly; never alias it to another symbol.
+        entry = self._global_syms.get(self.entry_symbol)
+        if entry is None:
+            raise ELFLinkerError(
+                f"entry symbol {self.entry_symbol!r} is not defined"
+            )
+        entry_symbol, entry_obj = entry
+        if not 0 < entry_symbol.shndx < len(entry_obj.sections):
+            raise ELFLinkerError(
+                f"entry symbol {self.entry_symbol!r} is not defined in a loadable section"
+            )
+        entry_section = entry_obj.sections[entry_symbol.shndx]
+        if not (entry_section.flags & SHF_EXECINSTR):
+            raise ELFLinkerError(
+                f"entry symbol {self.entry_symbol!r} is not in an executable section"
+            )
+        if not 0 <= entry_symbol.value < len(entry_section.data):
+            raise ELFLinkerError(
+                f"entry symbol {self.entry_symbol!r} lies outside executable section"
+            )
+        entry_vaddr = self._resolve_symbol_vaddr(entry_symbol, entry_obj)
 
         # Emite ELF executável
         elf_bytes = self._emit_exec_elf(entry_vaddr)
@@ -547,14 +689,14 @@ class ELFLinker:
 
         load_addr = self.load_address
 
-        # Calcula VAs dos segmentos de acordo com o layout
-        text_vaddr  = self._align_up(load_addr, self.page_size)
+        # Use the same section bases that symbol resolution and relocation used.
+        text_vaddr  = self._text_vaddr
         text_size   = len(self._merged_text)
 
-        rodata_vaddr = self._align_up(text_vaddr + text_size, self.page_size)
+        rodata_vaddr = self._rodata_vaddr
         rodata_size  = len(self._merged_rodata)
 
-        data_vaddr = self._align_up(rodata_vaddr + rodata_size, self.page_size)
+        data_vaddr = self._data_vaddr
         data_size  = len(self._merged_data)
         bss_size   = self._merged_bss_size
 
