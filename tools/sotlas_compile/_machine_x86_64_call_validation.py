@@ -87,17 +87,28 @@ def validate_direct_calls(target_ir: dict[str, Any]) -> None:
                     attributes = instruction.get("attributes", {})
                     symbol = attributes.get("symbol")
                     point_id = attributes.get("point_id")
-                    required = {
-                        "__cli": ["cpu.interrupts"],
-                        "__sti": ["cpu.interrupts"],
-                    }.get(symbol)
-                    if required is None or attributes.get("capabilities") != required:
+                    contracts = {
+                        "__cli": (["cpu.interrupts"], (), None),
+                        "__sti": (["cpu.interrupts"], (), None),
+                        "__outb": (["io.port"], ("u16", "u8"), None),
+                        "__inb": (["io.port"], ("u16",), "u8"),
+                    }
+                    contract = contracts.get(symbol)
+                    if contract is None or attributes.get("capabilities") != contract[0]:
                         raise MachineBackendError(
                             f"function {caller!r}: unsupported or unauthorized machine intrinsic {symbol!r}"
                         )
+                    _, expected_types, result_type = contract
+                    operands = tuple(instruction.get("operands", ()))
+                    actual_types = tuple(value_types.get(value) for value in operands)
                     if (
-                        instruction.get("operands")
-                        or instruction.get("result") is not None
+                        actual_types != expected_types
+                        or (
+                            instruction.get("result") is not None
+                            if result_type is None
+                            else value_types.get(instruction.get("result")) != result_type
+                        )
+                        or instruction.get("type") != result_type
                         or not isinstance(point_id, str)
                         or not point_id.startswith("call@")
                         or point_id in seen_system_points

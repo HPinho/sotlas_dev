@@ -13,12 +13,16 @@ class AuthorityABIInst(SIRInstruction):
     symbol: str
     point_id: str
     required_capabilities: tuple[str, ...]
+    arguments: list[object] | None = None
+    result: object | None = None
 
     def __str__(self) -> str:
         capabilities = ", ".join(self.required_capabilities)
+        prefix = f"{self.result} = " if self.result else ""
+        arguments = ", ".join(map(str, self.arguments or ()))
         return (
-            f"  authority_abi @{self.symbol} [{capabilities}]"
-            f" // {self.point_id}"
+            f"  {prefix}authority_abi @{self.symbol}({arguments}) "
+            f"[{capabilities}] // {self.point_id}"
         )
 
 

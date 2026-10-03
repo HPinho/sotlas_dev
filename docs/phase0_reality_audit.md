@@ -29,7 +29,7 @@
   files differ: `sotlas/__init__.py`, `sotlas/cli.py`,
   `sotlas_compile/__init__.py`, `sotlas_compile/bootstrap.py`, and
   `sotlas_compile/language_safety.py`.
-  There are 26 compiler-only and three tools-only modules. The new
+  There are 25 compiler-only and three tools-only modules. The new
   `sotlas/doctor.py` is intentionally compiler-only because it diagnoses the
   installed preview package and its host toolchain; mirroring it into the
   historical `tools/` tree would create a second public diagnostic surface.

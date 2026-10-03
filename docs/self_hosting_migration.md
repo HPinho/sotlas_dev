@@ -51,12 +51,16 @@ described below.
 
 The machine backend lowers source calls to `__cli()` and `__sti()` directly to
 the x86 instructions when the containing function declares
-`@system(cpu.interrupts)`. The authority fact and capability are carried into
-Target IR and checked again before instruction selection. These privileged
-instructions are validated as assembly output; tests do not execute them in
-the host process. Port I/O, MSR access, and interrupt-state queries still use
-the C11 reference lowering and are not yet supported by the Sotlas-owned
-machine backend.
+`@system(cpu.interrupts)`. It also lowers `__outb(port, value)` and
+`__inb(port)` to `out dx, al` and `in al, dx` when the containing function
+declares `@system(io.port)`. These initial port operations accept values passed
+through scalar function parameters; computed arguments and the 16-bit and
+32-bit port variants remain unsupported by this backend. The authority fact,
+operand types, result type, and capability are carried into Target IR and
+checked again before instruction selection. Tests inspect the assembly and do
+not execute privileged instructions in the host process. MSR access and
+interrupt-state queries still use the C11 reference lowering and are not yet
+supported by the Sotlas-owned machine backend.
 
 This backend is implemented in the Python compiler today, so it is not yet part
 of the Sotlas-written Stage 1/2 compiler. Linking, debug information, and

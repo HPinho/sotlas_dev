@@ -223,9 +223,15 @@ def _lower_instruction(instruction: Any, *, function: str) -> dict[str, Any]:
             },
         }
     if kind == "AuthorityABIInst":
+        result = getattr(instruction, "result", None)
+        arguments = tuple(getattr(instruction, "arguments", ()) or ())
         return {
             "op": "system_op",
-            "operands": [],
+            "result": _value_name(result, context=context) if result else None,
+            "operands": [
+                _value_name(value, context=context) for value in arguments
+            ],
+            "type": getattr(result, "type_name", None) if result else None,
             "attributes": {
                 "symbol": instruction.symbol,
                 "capabilities": list(instruction.required_capabilities),

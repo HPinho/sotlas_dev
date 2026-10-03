@@ -246,14 +246,33 @@ def emit_instruction(
         return
 
     if op == "system_op":
-        symbol = instruction.get("attributes", {}).get("symbol")
+        attributes = instruction.get("attributes", {})
+        symbol = attributes.get("symbol")
         intrinsic = {"__cli": "cli", "__sti": "sti"}.get(symbol)
-        if intrinsic is None:
+        if intrinsic is not None:
+            lines.append(f"    {intrinsic}")
+            return
+        operands = tuple(instruction.get("operands", ()))
+        if symbol == "__outb" and len(operands) == 2:
+            port, value = operands
+            _core._load_value(lines, port, "rcx", locations)
+            lines.append("    mov dx, cx")
+            _core._load_value(lines, value, "rax", locations)
+            _core._truncate_rax(lines, 8)
+            lines.append("    out dx, al")
+            return
+        if symbol == "__inb" and len(operands) == 1:
+            (port,) = operands
+            _core._load_value(lines, port, "rcx", locations)
+            lines.append("    mov dx, cx")
+            lines.append("    in al, dx")
+            lines.append("    movzx eax, al")
+            _core._store_value(lines, instruction.get("result"), "rax", locations)
+            return
+        else:
             raise MachineBackendError(
                 f"function {name!r}: x86-64 machine backend does not lower intrinsic {symbol!r}"
             )
-        lines.append(f"    {intrinsic}")
-        return
 
     if op == "branch":
         target = instruction.get("targets", ())[0]

@@ -141,6 +141,41 @@ pub fn kernel_disable_interrupts() -> void {
                 source, "kernel_interrupts_denied.sotlas"
             )
 
+    def test_port_io_intrinsics_lower_to_x86_io_instructions(self):
+        source = """module kernel::port_io;
+@system(io.port)
+pub fn write_port(port: u16, value: u8) -> void {
+    __outb(port, value);
+    return;
+}
+@system(io.port)
+pub fn read_port(port: u16) -> u8 {
+    return __inb(port);
+}
+"""
+        assembly = _machine.compile_source_to_x86_64_sysv_assembly(
+            source, "kernel_port_io.sotlas"
+        )
+        write_body = assembly.split("write_port:", 1)[1].split(".size", 1)[0]
+        read_body = assembly.split("read_port:", 1)[1].split(".size", 1)[0]
+        self.assertIn("    out dx, al", write_body)
+        self.assertNotIn("call __outb", write_body)
+        self.assertIn("    in al, dx", read_body)
+        self.assertNotIn("call __inb", read_body)
+
+    def test_port_io_rejects_missing_io_capability(self):
+        source = """module kernel::port_io_denied;
+@system(cpu.interrupts)
+pub fn write_port(port: u16, value: u8) -> void {
+    __outb(port, value);
+    return;
+}
+"""
+        with self.assertRaisesRegex(Exception, "missing capabilities: io.port"):
+            _machine.compile_source_to_x86_64_sysv_assembly(
+                source, "kernel_port_io_denied.sotlas"
+            )
+
     @unittest.skipUnless(
         sys.platform.startswith("linux"),
         "x86-64 SysV execution gate is Linux-specific",
@@ -183,7 +218,10 @@ int main(void) {
     def test_compiler_and_tools_source_call_bridges_remain_identical(self):
         for relative in (
             "scalar_if_return_cfg_generator.py",
+            "authority_call_generator.py",
             "target_ir_calls.py",
+            "_machine_x86_64_call_validation.py",
+            "_machine_x86_64_call_instruction_emit.py",
             "machine_x86_64.py",
         ):
             compiler_path = ROOT / "compiler" / "sotlas_compile" / relative
