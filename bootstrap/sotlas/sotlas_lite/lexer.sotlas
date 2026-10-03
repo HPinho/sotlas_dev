@@ -29,13 +29,16 @@ pub fn lex_source(src: *const u8, tokens: *mut Token, max_tokens: usize) -> usiz
             // Comentário de linha //
             else if ch == 47 && src[i + 1] == 47 {
                 i = i + 2;
+                col = col + 2;
                 while src[i] != 0 && src[i] != 10 {
                     i = i + 1;
+                    col = col + 1;
                 }
             }
             // Comentário de bloco /* ... */
             else if ch == 47 && src[i + 1] == 42 {
                 i = i + 2;
+                col = col + 2;
                 while src[i] != 0 && !(src[i] == 42 && src[i + 1] == 47) {
                     if src[i] == 10 {
                         line = line + 1;
@@ -47,6 +50,7 @@ pub fn lex_source(src: *const u8, tokens: *mut Token, max_tokens: usize) -> usiz
                 }
                 if src[i] != 0 {
                     i = i + 2;
+                    col = col + 2;
                 }
             }
             // Atributo @...
