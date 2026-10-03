@@ -163,15 +163,20 @@ class SotlasOwnedEnumPayloadH2E2BTests(unittest.TestCase):
         names = {item["name"] for item in plan["functions"]}
         self.assertIn("read_value", names)
 
-    def test_nominal_enum_parameter_and_return_wait_for_h2e2c(self):
+    def test_nominal_enum_parameter_and_return_use_central_sysv_transport(self):
         target_ir = _target_ir_from_source()
         target_ir["functions"] = [_echo_function()]
-
-        with self.assertRaisesRegex(
-            machine.MachineBackendError,
-            "nominal payload enum transport waits for M16.4h2e2c",
-        ):
-            transport.plan_x86_64_sysv_aggregate_transport(target_ir)
+        function = transport.plan_x86_64_sysv_aggregate_transport(
+            target_ir
+        )["functions"][0]
+        self.assertEqual(
+            function["parameters"][0]["transport"],
+            {"kind": "registers", "registers": ["rdi"]},
+        )
+        self.assertEqual(
+            function["return"]["transport"],
+            {"kind": "registers", "registers": ["rax"]},
+        )
 
     def test_sse_payload_mix_remains_fail_closed_through_central_classifier(self):
         with self.assertRaisesRegex(

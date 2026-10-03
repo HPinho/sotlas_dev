@@ -671,6 +671,18 @@ Implementar modos explícitos:
 
 #### Milestone M16.4 — aggregates
 
+**Current local increment — M16.4h2e2c2 (CI certification pending).** The central
+x86-64 SysV aggregate transport plan now consumes certified nominal tagged-union
+classifications. It assigns one or two INTEGER eightbytes to argument and return
+registers, records MEMORY-class parameters as stack-passed units, reserves `rdi`
+for hidden `sret`, and shifts following integer arguments accordingly. Register
+exhaustion spills an entire enum value instead of partially consuming registers.
+The gate covers source-derived `MaybeToken`, 16-byte and MEMORY-class enums,
+mixed scalar arguments, planner parity, and fail-closed SSE and uncertified-layout
+cases. This stage plans ABI locations only; it does not emit enum construction,
+payload extraction, or machine instructions. The Windows run also skips the
+Linux-only native execution gates.
+
 - [ ] pointers;
 - [ ] address calculation;
 - [ ] struct fields;

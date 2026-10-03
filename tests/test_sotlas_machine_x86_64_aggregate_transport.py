@@ -246,7 +246,7 @@ class SotlasX8664AggregateTransportTests(unittest.TestCase):
             {"kind": "registers", "registers": ["rax"]},
         )
 
-    def test_payload_enum_remains_fail_closed_before_transport(self):
+    def test_payload_enum_without_certified_byte_layout_remains_fail_closed(self):
         target_ir = _base_target_ir()
         target_ir["enum_declarations"] = [{
             "name": "MaybeValue",

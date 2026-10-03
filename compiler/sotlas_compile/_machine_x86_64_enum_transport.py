@@ -120,6 +120,6 @@ def plan_x86_64_sysv_nominal_enum_transport(target_ir: dict[str, Any]) -> dict[s
         return_unit, uses_sret = _assign_return_transport(_return_unit(function, classifications))
         parameters = _assign_parameter_transport(_parameter_units(function, classifications), initial_register_index=1 if uses_sret else 0)
         planned_functions.append({"name": name, "sret": uses_sret, "parameters": parameters, "return": return_unit})
-    return {"schema": "sotlas.nominal-enum-transport.x86_64-sysv.v1", "target": "x86_64-unknown-linux-gnu", "abi": "sysv", "functions": planned_functions, "limitations": ["h2e2c1 assigns nominal payload enum argument/return locations but does not emit machine instructions.", "SSE/other payload classes remain fail-closed through h2e2a.", "Central aggregate transport integration waits for h2e2c2.", "Machine enum construction and payload extraction remain deferred."]}
+    return {"schema": "sotlas.nominal-enum-transport.x86_64-sysv.v1", "target": "x86_64-unknown-linux-gnu", "abi": "sysv", "functions": planned_functions, "limitations": ["This planner assigns nominal payload enum argument/return locations but does not emit machine instructions.", "SSE/other payload classes remain fail-closed through h2e2a.", "The central aggregate planner consumes the same certified INTEGER/MEMORY classifications.", "Machine enum construction and payload extraction remain deferred."]}
 
 __all__ = ["plan_x86_64_sysv_nominal_enum_transport"]

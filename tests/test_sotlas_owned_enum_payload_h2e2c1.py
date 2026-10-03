@@ -36,7 +36,6 @@ enum_transport = importlib.import_module(
 aggregate_transport = importlib.import_module(
     f"{_PACKAGE}._machine_x86_64_aggregate_transport"
 )
-machine = importlib.import_module(f"{_PACKAGE}.machine_x86_64")
 
 
 def _function(name, parameters, return_type="void"):
@@ -234,7 +233,7 @@ class SotlasOwnedEnumPayloadH2E2C1Tests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, rendered)
 
-    def test_central_transport_remains_closed_until_h2e2c2(self):
+    def test_central_transport_consumes_the_enum_classification(self):
         target_ir = _target_ir(
             "Token",
             [{"name": "value", "type": "u32"}],
@@ -245,13 +244,17 @@ class SotlasOwnedEnumPayloadH2E2C1Tests(unittest.TestCase):
                 return_type="MaybeToken",
             )],
         )
-        with self.assertRaisesRegex(
-            machine.MachineBackendError,
-            "nominal payload enum transport waits for M16.4h2e2c",
-        ):
-            aggregate_transport.plan_x86_64_sysv_aggregate_transport(
-                target_ir
-            )
+        function = aggregate_transport.plan_x86_64_sysv_aggregate_transport(
+            target_ir
+        )["functions"][0]
+        self.assertEqual(
+            function["parameters"][0]["transport"],
+            {"kind": "registers", "registers": ["rdi"]},
+        )
+        self.assertEqual(
+            function["return"]["transport"],
+            {"kind": "registers", "registers": ["rax"]},
+        )
 
     def test_compiler_and_tools_h2e2c1_layers_remain_identical(self):
         relative = (
