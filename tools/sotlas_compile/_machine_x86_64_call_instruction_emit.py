@@ -245,6 +245,16 @@ def emit_instruction(
         )
         return
 
+    if op == "system_op":
+        symbol = instruction.get("attributes", {}).get("symbol")
+        intrinsic = {"__cli": "cli", "__sti": "sti"}.get(symbol)
+        if intrinsic is None:
+            raise MachineBackendError(
+                f"function {name!r}: x86-64 machine backend does not lower intrinsic {symbol!r}"
+            )
+        lines.append(f"    {intrinsic}")
+        return
+
     if op == "branch":
         target = instruction.get("targets", ())[0]
         lines.append(f"    jmp {block_labels[target]}")

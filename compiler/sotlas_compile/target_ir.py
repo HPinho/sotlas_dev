@@ -222,6 +222,16 @@ def _lower_instruction(instruction: Any, *, function: str) -> dict[str, Any]:
                 "defer_point_id": getattr(instruction, "defer_point_id", None),
             },
         }
+    if kind == "AuthorityABIInst":
+        return {
+            "op": "system_op",
+            "operands": [],
+            "attributes": {
+                "symbol": instruction.symbol,
+                "capabilities": list(instruction.required_capabilities),
+                "point_id": instruction.point_id,
+            },
+        }
     if kind == "BranchInst":
         return {
             "op": "branch",

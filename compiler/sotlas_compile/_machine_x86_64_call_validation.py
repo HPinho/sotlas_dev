@@ -80,8 +80,33 @@ def validate_direct_calls(target_ir: dict[str, Any]) -> None:
     for function in target_ir.get("functions", ()):
         caller = function["name"]
         value_types = _core._type_map(function)
+        seen_system_points: set[str] = set()
         for block in function.get("blocks", ()):
             for instruction in block.get("instructions", ()):
+                if instruction.get("op") == "system_op":
+                    attributes = instruction.get("attributes", {})
+                    symbol = attributes.get("symbol")
+                    point_id = attributes.get("point_id")
+                    required = {
+                        "__cli": ["cpu.interrupts"],
+                        "__sti": ["cpu.interrupts"],
+                    }.get(symbol)
+                    if required is None or attributes.get("capabilities") != required:
+                        raise MachineBackendError(
+                            f"function {caller!r}: unsupported or unauthorized machine intrinsic {symbol!r}"
+                        )
+                    if (
+                        instruction.get("operands")
+                        or instruction.get("result") is not None
+                        or not isinstance(point_id, str)
+                        or not point_id.startswith("call@")
+                        or point_id in seen_system_points
+                    ):
+                        raise MachineBackendError(
+                            f"function {caller!r}: malformed or duplicate machine intrinsic source point"
+                        )
+                    seen_system_points.add(point_id)
+                    continue
                 if instruction.get("op") != "call":
                     continue
                 if instruction.get("semantic_only"):

@@ -337,8 +337,19 @@ def compile_source_to_x86_64_sysv_assembly(
     from .phase1_pipeline import analyze_source_phase1
 
     checked = analyze_source_phase1(source, filename=filename)
-    checked_sir, _ = build_canonical_checked_ownership_sir(checked)
-    module = checked_sir.module
+    authority = getattr(checked, "authority", None)
+    has_named_abi_intrinsic = any(
+        getattr(edge, "target_kind", None) == "abi_intrinsic"
+        for edge in tuple(getattr(authority, "calls", ()) or ())
+    )
+    if has_named_abi_intrinsic:
+        from .canonical_sir import build_canonical_checked_authority_sir
+
+        checked_authority = build_canonical_checked_authority_sir(checked)
+        module = checked_authority.ownership.module
+    else:
+        checked_sir, _ = build_canonical_checked_ownership_sir(checked)
+        module = checked_sir.module
     unlowered = tuple(getattr(module, "unlowered_functions", ()) or ())
     if unlowered:
         raise MachineBackendError(

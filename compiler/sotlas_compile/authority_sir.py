@@ -134,15 +134,23 @@ def place_authority_abi_facts(
                 for instruction in tuple(getattr(block, "instructions", ()) or ())
                 if isinstance(instruction, sir.AuthorityABIInst)
             )
-    if existing:
-        raise AuthoritySIRError(
-            "authority ABI placement requires SIR without pre-existing ABI facts"
-        )
+    existing_points = {
+        (function.name, instruction.point_id)
+        for function in functions.values()
+        for block in tuple(getattr(function, "blocks", ()) or ())
+        for instruction in tuple(getattr(block, "instructions", ()) or ())
+        if isinstance(instruction, sir.AuthorityABIInst)
+    }
 
     placed = 0
     terminators = (sir.ReturnInst, sir.BranchInst, sir.CondBranchInst)
     for edge in authority.calls:
         if edge.target_kind != "abi_intrinsic":
+            continue
+        if (edge.caller, edge.point_id) in existing_points:
+            # The canonical source generator already placed this intrinsic at
+            # its statement position. Certification below checks its symbol
+            # and capability payload against the authority plan.
             continue
         function = functions.get(edge.caller)
         if function is None:

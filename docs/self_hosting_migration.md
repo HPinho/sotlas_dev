@@ -46,7 +46,17 @@ assembly directly to the configured assembler driver (`--cc`) and writes a
 native object without generating or compiling C. This removes C from this
 artifact path, but still depends on an external assembler and the compiler
 frontend is still Python. Kernel-only privileged operations are not yet
-lowered by this machine backend.
+lowered by this machine backend, except the initial interrupt-control slice
+described below.
+
+The machine backend lowers source calls to `__cli()` and `__sti()` directly to
+the x86 instructions when the containing function declares
+`@system(cpu.interrupts)`. The authority fact and capability are carried into
+Target IR and checked again before instruction selection. These privileged
+instructions are validated as assembly output; tests do not execute them in
+the host process. Port I/O, MSR access, and interrupt-state queries still use
+the C11 reference lowering and are not yet supported by the Sotlas-owned
+machine backend.
 
 This backend is implemented in the Python compiler today, so it is not yet part
 of the Sotlas-written Stage 1/2 compiler. Linking, debug information, and

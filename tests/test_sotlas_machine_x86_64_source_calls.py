@@ -111,6 +111,36 @@ class SotlasX8664SourceCallTests(unittest.TestCase):
         self.assertIn("mov QWORD PTR [rsp+8], r11", assembly)
         self.assertNotIn("LLVM", assembly)
 
+    def test_named_interrupt_authority_lowers_to_a_native_privileged_instruction(self):
+        source = """module kernel::interrupts;
+@system(cpu.interrupts)
+pub fn kernel_disable_interrupts() -> void {
+    __cli();
+    return;
+}
+"""
+        assembly = _machine.compile_source_to_x86_64_sysv_assembly(
+            source, "kernel_interrupts.sotlas"
+        )
+        self.assertIn("    cli\n", assembly)
+        self.assertNotIn("call __cli", assembly)
+        self.assertIn("kernel_disable_interrupts:", assembly)
+
+    def test_privileged_instruction_rejects_the_wrong_authority_capability(self):
+        source = """module kernel::interrupts_denied;
+@system(io.port)
+pub fn kernel_disable_interrupts() -> void {
+    __cli();
+    return;
+}
+"""
+        with self.assertRaisesRegex(
+            Exception, "missing capabilities: cpu.interrupts"
+        ):
+            _machine.compile_source_to_x86_64_sysv_assembly(
+                source, "kernel_interrupts_denied.sotlas"
+            )
+
     @unittest.skipUnless(
         sys.platform.startswith("linux"),
         "x86-64 SysV execution gate is Linux-specific",
