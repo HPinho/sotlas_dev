@@ -95,7 +95,7 @@ def main() -> int:
     )
     cp.add_argument(
         "--backend",
-        choices=["llvm", "c11"],
+        choices=["llvm", "c11", "sotlas-x86_64"],
         default="llvm",
         help="Backend de compilação (padrão: llvm quando disponível)",
     )
@@ -617,10 +617,49 @@ def _run_compile(args) -> int:
         emit_type = "obj"
     elif getattr(args, "emit_c", False) or (output_arg and str(output_arg).endswith(".c")):
         emit_type = "c"
+    backend = getattr(args, "backend", "llvm")
+    if backend == "sotlas-x86_64" and emit_type != "asm":
+        print(
+            "sotlas: --backend sotlas-x86_64 requires --emit-asm or a .s/.asm output",
+            file=sys.stderr,
+        )
+        return 2
+
 
     if emit_type == "asm":
-        if args.backend != "llvm":
-            print("sotlas: --emit-asm exige --backend llvm", file=sys.stderr)
+        if backend == "sotlas-x86_64":
+            supported_targets = {
+                "x86_64-freestanding",
+                "x86_64-unknown-none-elf",
+                "x86_64-unknown-linux-gnu",
+            }
+            if args.target not in supported_targets and not (
+                args.target == "host" and sys.platform.startswith("linux")
+            ):
+                print(
+                    "sotlas: the Sotlas-owned assembly backend requires an x86-64 SysV target",
+                    file=sys.stderr,
+                )
+                return 2
+            from compiler.sotlas_compile.machine_x86_64 import (
+                MachineBackendError,
+                compile_source_to_x86_64_sysv_assembly,
+            )
+
+            out_path = Path(args.output) if args.output else src.with_suffix(".s")
+            try:
+                assembly = compile_source_to_x86_64_sysv_assembly(
+                    text, args.source
+                )
+                out_path.parent.mkdir(parents=True, exist_ok=True)
+                out_path.write_text(assembly, encoding="utf-8")
+                print(f"sotlas: Sotlas-owned x86-64 assembly emitted to {out_path}")
+                return 0
+            except (MachineBackendError, OSError, ValueError) as error:
+                print(f"sotlas: x86-64 machine backend error: {error}", file=sys.stderr)
+                return 1
+        if backend != "llvm":
+            print("sotlas: --emit-asm requires --backend llvm or sotlas-x86_64", file=sys.stderr)
             return 2
         from sotlas.llvm_toolchain import default_toolchain
         out_path = Path(args.output) if args.output else src.with_suffix(".s")
@@ -670,7 +709,7 @@ def _run_compile(args) -> int:
     is_llvm = (
         not force_gcc
         and default_toolchain.is_available()
-        and (args.backend == "llvm" or emit_type in ("obj", "llvm"))
+        and (backend == "llvm" or emit_type in ("obj", "llvm"))
     )
 
     if args.output:
