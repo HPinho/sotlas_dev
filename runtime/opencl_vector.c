@@ -106,6 +106,32 @@ static sotlas_library_t sotlas_opencl_open_library(const char *path) {
 #endif
 }
 
+static int sotlas_opencl_load_override(sotlas_library_t *library) {
+#if defined(_WIN32)
+    char *library_override = NULL;
+    size_t library_override_length = 0;
+    if (_dupenv_s(
+            &library_override,
+            &library_override_length,
+            "SOTLAS_OPENCL_LIBRARY"
+        ) != 0) {
+        return -1;
+    }
+    if (!library_override || library_override[0] == '\0') {
+        free(library_override);
+        return 0;
+    }
+    *library = sotlas_opencl_open_library(library_override);
+    free(library_override);
+    return *library ? 1 : -1;
+#else
+    const char *library_override = getenv("SOTLAS_OPENCL_LIBRARY");
+    if (!library_override || library_override[0] == '\0') return 0;
+    *library = sotlas_opencl_open_library(library_override);
+    return *library ? 1 : -1;
+#endif
+}
+
 static void sotlas_opencl_close_library(sotlas_library_t library) {
     if (!library) return;
 #if defined(_WIN32)
@@ -122,12 +148,11 @@ static void sotlas_opencl_close_library(sotlas_library_t library) {
 } while (0)
 
 static int sotlas_opencl_load(sotlas_opencl_api_t *api) {
-    const char *library_override;
+    int override_status;
     memset(api, 0, sizeof(*api));
-    library_override = getenv("SOTLAS_OPENCL_LIBRARY");
-    if (library_override && library_override[0] != '\0') {
-        api->library = sotlas_opencl_open_library(library_override);
-    } else {
+    override_status = sotlas_opencl_load_override(&api->library);
+    if (override_status < 0) return 0;
+    if (override_status == 0) {
 #if defined(_WIN32)
         api->library = sotlas_opencl_open_library("OpenCL.dll");
 #elif defined(__APPLE__)
