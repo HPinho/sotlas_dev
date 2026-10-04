@@ -55,7 +55,7 @@ path stops depending on them, but they are not part of the sovereignty target.
 |---|---|---|
 | **SV0** | Recover a green cross-platform baseline before sovereignty work | ✅ CERTIFIED (`7162167d`, CI #1063) |
 | **SV1** | Define backend-neutral Target IR in Sotlas, independent of C/Python containers | 🟡 IN PROGRESS |
-| **SV2** | Lower the Sotlas-written native frontend AST/sema subset into native Target IR | ⬜ PENDING |
+| **SV2** | Lower the Sotlas-written native frontend AST/sema subset into native Target IR | 🟡 IN PROGRESS (SV2a lowering component added) |
 | **SV3** | Feed native Target IR into the Sotlas-owned x86-64 backend for scalar functions | ⬜ PENDING |
 | **SV4** | Native CFG, calls, aggregates, ownership/effects and ABI parity required by real apps | ⬜ PENDING |
 | **SV5** | Sotlas-owned object emission and freestanding/native linking for supported targets | ⬜ PENDING |
@@ -93,11 +93,19 @@ Sotlas-written frontend lowers all of those operations.
 - [ ] differential tests compare native Target IR with canonical Stage-0 Target IR.
 - [ ] the Sotlas-owned machine backend consumes the native representation.
 
-## Next implementation slice
+## SV2a implementation status
 
-`SV2a` will lower the smallest executable native-frontend subset into this
-Target IR: integer scalar parameters, integer constants, `add/sub/mul`, direct
-returns and one basic block. The result must be deterministic and fail closed on
-any AST form outside that subset. Once differential parity is established, the
-slice will be handed directly to the x86-64 Sotlas-owned backend rather than to
-`emitter_c.sotlas`.
+`bootstrap/sotlas/native_compiler/backend/lower_scalar.sotlas` now contains a
+Sotlas-written AST-to-Target-IR lowering pass for integer scalar parameters,
+decimal constants, `add/sub/mul` expressions, direct returns and one basic
+block. It writes deterministic value IDs and flat parameter, operand,
+instruction, block and function tables into caller-owned buffers. Unsupported
+declarations, statement shapes, expression forms, types and buffer exhaustion
+fail closed and clear the published module counts.
+
+The Stage-0 gate type-checks the Target IR contract and lowering module without
+calling the C emitter. This confirms Sotlas syntax and type consistency; it is
+not yet runtime evidence for the produced IR. SV2 remains in progress until a
+native AST/sema driver invokes the pass and positive/negative differential
+tests compare its output with the canonical compiler. The Sotlas-owned x86-64
+backend still does not consume this representation.

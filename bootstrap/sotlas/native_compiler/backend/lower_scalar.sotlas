@@ -1,0 +1,575 @@
+module sotlas::compiler::backend::lower_scalar;
+
+import sotlas::compiler::ast::*;
+import sotlas::compiler::sema::*;
+import sotlas::compiler::backend::target_ir::*;
+
+// Caller-owned flat buffers let this lowering run without a host allocator.
+// Offsets in TargetFunction/TargetBlock/TargetInstruction index these buffers.
+pub struct ScalarLowering {
+    pub nodes: *const AstNode;
+    pub node_count: usize;
+    pub source: *const u8;
+    pub source_len: usize;
+    pub values: *mut TargetValue;
+    pub value_capacity: usize;
+    pub value_count: usize;
+    pub parameters: *mut TargetParameter;
+    pub parameter_capacity: usize;
+    pub parameter_count: usize;
+    pub instructions: *mut TargetInstruction;
+    pub instruction_capacity: usize;
+    pub instruction_count: usize;
+    pub operands: *mut TargetOperand;
+    pub operand_capacity: usize;
+    pub operand_count: usize;
+    pub blocks: *mut TargetBlock;
+    pub block_capacity: usize;
+    pub block_count: usize;
+    pub functions: *mut TargetFunction;
+    pub function_capacity: usize;
+    pub function_count: usize;
+    pub next_value_id: u32;
+    pub error_node: usize;
+}
+
+impl ScalarLowering {
+    pub fn new(
+        nodes: *const AstNode,
+        node_count: usize,
+        source: *const u8,
+        source_len: usize,
+        values: *mut TargetValue,
+        value_capacity: usize,
+        parameters: *mut TargetParameter,
+        parameter_capacity: usize,
+        instructions: *mut TargetInstruction,
+        instruction_capacity: usize,
+        operands: *mut TargetOperand,
+        operand_capacity: usize,
+        blocks: *mut TargetBlock,
+        block_capacity: usize,
+        functions: *mut TargetFunction,
+        function_capacity: usize
+    ) -> ScalarLowering {
+        return ScalarLowering {
+            nodes: nodes,
+            node_count: node_count,
+            source: source,
+            source_len: source_len,
+            values: values,
+            value_capacity: value_capacity,
+            value_count: 0,
+            parameters: parameters,
+            parameter_capacity: parameter_capacity,
+            parameter_count: 0,
+            instructions: instructions,
+            instruction_capacity: instruction_capacity,
+            instruction_count: 0,
+            operands: operands,
+            operand_capacity: operand_capacity,
+            operand_count: 0,
+            blocks: blocks,
+            block_capacity: block_capacity,
+            block_count: 0,
+            functions: functions,
+            function_capacity: function_capacity,
+            function_count: 0,
+            next_value_id: 1,
+            error_node: 0
+        };
+    }
+
+    pub fn reject(mut self: &mut Self, node_index: usize) -> bool {
+        self.value_count = 0;
+        self.parameter_count = 0;
+        self.instruction_count = 0;
+        self.operand_count = 0;
+        self.block_count = 0;
+        self.function_count = 0;
+        self.next_value_id = 1;
+        self.error_node = node_index;
+        return false;
+    }
+
+    pub fn type_tag_for(self: &Self, type_index: usize) -> TargetTypeTag {
+        if self.nodes == null || self.source == null || type_index == 0
+            || type_index >= self.node_count {
+            return TargetTypeTag::Invalid;
+        }
+        let mut sem: Sema = Sema::new();
+        let tag: i64 = sem.fixed_integer_type_tag(
+            self.nodes,
+            self.node_count,
+            type_index,
+            self.source,
+            self.source_len
+        );
+        if tag == 1 { return TargetTypeTag::I8; }
+        if tag == 2 { return TargetTypeTag::I16; }
+        if tag == 3 { return TargetTypeTag::I32; }
+        if tag == 4 { return TargetTypeTag::I64; }
+        if tag == 5 { return TargetTypeTag::U8; }
+        if tag == 6 { return TargetTypeTag::U16; }
+        if tag == 7 { return TargetTypeTag::U32; }
+        if tag == 8 { return TargetTypeTag::U64; }
+        return TargetTypeTag::Invalid;
+    }
+
+    pub fn integer_type_max(self: &Self, type_tag: TargetTypeTag) -> u64 {
+        if type_tag == TargetTypeTag::I8 { return 127; }
+        if type_tag == TargetTypeTag::I16 { return 32767; }
+        if type_tag == TargetTypeTag::I32 { return 2147483647; }
+        if type_tag == TargetTypeTag::I64 { return 9223372036854775807; }
+        if type_tag == TargetTypeTag::U8 { return 255; }
+        if type_tag == TargetTypeTag::U16 { return 65535; }
+        if type_tag == TargetTypeTag::U32 { return 4294967295; }
+        if type_tag == TargetTypeTag::U64 { return 18446744073709551615; }
+        return 0;
+    }
+
+    pub fn source_name_equals(
+        self: &Self,
+        left_offset: usize,
+        left_length: usize,
+        right_offset: usize,
+        right_length: usize
+    ) -> bool {
+        if left_length != right_length || left_offset > self.source_len
+            || right_offset > self.source_len
+            || left_length > self.source_len - left_offset
+            || right_length > self.source_len - right_offset {
+            return false;
+        }
+        let mut index: usize = 0;
+        while index < left_length {
+            if unsafe { *(self.source + left_offset + index) }
+                != unsafe { *(self.source + right_offset + index) } {
+                return false;
+            }
+            index = index + 1;
+        }
+        return true;
+    }
+
+    pub fn append_value(
+        mut self: &mut Self,
+        type_tag: TargetTypeTag,
+        name_offset: usize,
+        name_length: usize
+    ) -> u32 {
+        if self.values == null || self.value_count >= self.value_capacity
+            || self.next_value_id == 0 {
+            return TARGET_VALUE_NONE;
+        }
+        let value_id: u32 = self.next_value_id;
+        self.next_value_id = self.next_value_id + 1;
+        let mut value: TargetValue = TargetValue::empty();
+        value.id = value_id;
+        value.type_tag = type_tag;
+        value.source_name = TargetSourceSlice {
+            offset: name_offset,
+            length: name_length
+        };
+        unsafe { *(self.values + self.value_count) = value; }
+        self.value_count = self.value_count + 1;
+        return value_id;
+    }
+
+    pub fn append_operand(mut self: &mut Self, value_id: u32) -> bool {
+        if self.operands == null || self.operand_count >= self.operand_capacity
+            || value_id == TARGET_VALUE_NONE {
+            return false;
+        }
+        unsafe {
+            *(self.operands + self.operand_count) = TargetOperand::new(value_id);
+        }
+        self.operand_count = self.operand_count + 1;
+        return true;
+    }
+
+    pub fn append_instruction(
+        mut self: &mut Self,
+        opcode: TargetOpcode,
+        result_value: u32,
+        type_tag: TargetTypeTag,
+        first_operand: u32,
+        operand_count: u32,
+        node_index: usize
+    ) -> bool {
+        if self.instructions == null
+            || self.instruction_count >= self.instruction_capacity
+            || node_index == 0 || node_index >= self.node_count {
+            return false;
+        }
+        let node: AstNode = unsafe { *(self.nodes + node_index) };
+        let mut instruction: TargetInstruction = TargetInstruction::new(opcode);
+        instruction.result_value = result_value;
+        instruction.type_tag = type_tag;
+        instruction.first_operand = first_operand;
+        instruction.operand_count = operand_count;
+        instruction.source_point = TargetSourceSlice {
+            offset: node.span.offset,
+            length: node.span.length
+        };
+        unsafe {
+            *(self.instructions + self.instruction_count) = instruction;
+        }
+        self.instruction_count = self.instruction_count + 1;
+        return true;
+    }
+
+    pub fn lower_integer_literal(
+        mut self: &mut Self,
+        node_index: usize,
+        type_tag: TargetTypeTag
+    ) -> u32 {
+        if node_index == 0 || node_index >= self.node_count {
+            return TARGET_VALUE_NONE;
+        }
+        let node: AstNode = unsafe { *(self.nodes + node_index) };
+        if node.kind != AstKind::ExprLiteral || node.str_len == 0
+            || node.str_offset > self.source_len
+            || node.str_len > self.source_len - node.str_offset {
+            return TARGET_VALUE_NONE;
+        }
+        let value_id: u32 = self.append_value(type_tag, 0, 0);
+        if value_id == TARGET_VALUE_NONE {
+            return TARGET_VALUE_NONE;
+        }
+        let instruction_index: usize = self.instruction_count;
+        if !self.append_instruction(
+            TargetOpcode::ConstInt,
+            value_id,
+            type_tag,
+            0,
+            0,
+            node_index
+        ) {
+            return TARGET_VALUE_NONE;
+        }
+
+        let mut value: u64 = 0;
+        let mut index: usize = 0;
+        let mut saw_digit: bool = false;
+        while index < node.str_len {
+            let ch: u8 = unsafe { *(self.source + node.str_offset + index) };
+            if ch == 95 {
+                index = index + 1;
+                continue;
+            }
+            if ch < 48 || ch > 57 {
+                self.instruction_count = instruction_index;
+                return TARGET_VALUE_NONE;
+            }
+            let digit: u64 = (ch - 48) as u64;
+            if value > 1844674407370955161u64
+                || (value == 1844674407370955161u64 && digit > 5) {
+                self.instruction_count = instruction_index;
+                return TARGET_VALUE_NONE;
+            }
+            value = value * 10 + digit;
+            saw_digit = true;
+            index = index + 1;
+        }
+        if !saw_digit || value > self.integer_type_max(type_tag) {
+            self.instruction_count = instruction_index;
+            return TARGET_VALUE_NONE;
+        }
+        let mut instruction: TargetInstruction = unsafe {
+            *(self.instructions + instruction_index)
+        };
+        instruction.immediate_bits = value;
+        unsafe { *(self.instructions + instruction_index) = instruction; }
+        return value_id;
+    }
+
+    pub fn find_parameter_value(
+        self: &Self,
+        first_parameter: usize,
+        parameter_count: usize,
+        name_offset: usize,
+        name_length: usize
+    ) -> u32 {
+        if self.parameters == null || self.values == null
+            || first_parameter > self.parameter_count
+            || parameter_count > self.parameter_count - first_parameter {
+            return TARGET_VALUE_NONE;
+        }
+        let mut parameter_offset: usize = 0;
+        while parameter_offset < parameter_count {
+            let parameter: TargetParameter = unsafe {
+                *(self.parameters + first_parameter + parameter_offset)
+            };
+            if self.source_name_equals(
+                parameter.name.offset,
+                parameter.name.length,
+                name_offset,
+                name_length
+            ) {
+                return parameter.value_id;
+            }
+            parameter_offset = parameter_offset + 1;
+        }
+        return TARGET_VALUE_NONE;
+    }
+
+    pub fn lower_expression(
+        mut self: &mut Self,
+        expression_index: usize,
+        type_tag: TargetTypeTag,
+        first_parameter: usize,
+        parameter_count: usize
+    ) -> u32 {
+        if self.nodes == null || expression_index == 0
+            || expression_index >= self.node_count {
+            return TARGET_VALUE_NONE;
+        }
+        let expression: AstNode = unsafe { *(self.nodes + expression_index) };
+        if expression.kind == AstKind::ExprLiteral {
+            return self.lower_integer_literal(expression_index, type_tag);
+        }
+        if expression.kind == AstKind::ExprIdent {
+            return self.find_parameter_value(
+                first_parameter,
+                parameter_count,
+                expression.str_offset,
+                expression.str_len
+            );
+        }
+        if expression.kind != AstKind::ExprBinary
+            || expression.first_child == 0
+            || expression.first_child >= self.node_count {
+            return TARGET_VALUE_NONE;
+        }
+        let left_index: usize = expression.first_child;
+        let left: u32 = self.lower_expression(
+            left_index, type_tag, first_parameter, parameter_count
+        );
+        if left == TARGET_VALUE_NONE {
+            return TARGET_VALUE_NONE;
+        }
+        let right_index: usize = unsafe {
+            (*(self.nodes + left_index)).next_sibling
+        };
+        if right_index == 0 || right_index >= self.node_count
+            || unsafe { (*(self.nodes + right_index)).next_sibling } != 0 {
+            return TARGET_VALUE_NONE;
+        }
+        let right: u32 = self.lower_expression(
+            right_index, type_tag, first_parameter, parameter_count
+        );
+        if right == TARGET_VALUE_NONE {
+            return TARGET_VALUE_NONE;
+        }
+        let mut opcode: TargetOpcode = TargetOpcode::Invalid;
+        if expression.int_value == 80 {
+            opcode = TargetOpcode::Add;
+        } else if expression.int_value == 81 {
+            opcode = TargetOpcode::Sub;
+        } else if expression.int_value == 82 {
+            opcode = TargetOpcode::Mul;
+        } else {
+            return TARGET_VALUE_NONE;
+        }
+        let first_operand: u32 = self.operand_count as u32;
+        if !self.append_operand(left) || !self.append_operand(right) {
+            return TARGET_VALUE_NONE;
+        }
+        let result: u32 = self.append_value(type_tag, 0, 0);
+        if result == TARGET_VALUE_NONE || !self.append_instruction(
+            opcode, result, type_tag, first_operand, 2, expression_index
+        ) {
+            return TARGET_VALUE_NONE;
+        }
+        return result;
+    }
+}
+
+// Lowers only typed integer functions with parameters, decimal constants,
+// add/sub/mul expressions and one direct return in one block. The caller must
+// run native sema first; this routine still checks shape and capacity itself.
+pub fn lower_scalar_module(
+    lowering: &mut ScalarLowering,
+    module_index: usize,
+    output: &mut TargetModule
+) -> bool {
+    *output = TargetModule::empty();
+    lowering.error_node = 0;
+    if lowering.nodes == null || lowering.source == null || module_index == 0
+        || module_index >= lowering.node_count {
+        return lowering.reject(module_index);
+    }
+    let module_node: AstNode = unsafe { *(lowering.nodes + module_index) };
+    if module_node.kind != AstKind::Module {
+        return lowering.reject(module_index);
+    }
+
+    let mut function_index: usize = module_node.first_child;
+    while function_index != 0 {
+        if function_index >= lowering.node_count {
+            return lowering.reject(function_index);
+        }
+        let function_node: AstNode = unsafe { *(lowering.nodes + function_index) };
+        if function_node.kind == AstKind::Import {
+            function_index = function_node.next_sibling;
+            continue;
+        }
+        if function_node.kind != AstKind::FnDecl
+            || lowering.function_count >= lowering.function_capacity
+            || lowering.functions == null {
+            return lowering.reject(function_index);
+        }
+        let first_parameter: usize = lowering.parameter_count;
+        let mut return_type: TargetTypeTag = TargetTypeTag::Invalid;
+        let mut body_index: usize = 0;
+        let mut child_index: usize = function_node.first_child;
+        while child_index != 0 {
+            if child_index >= lowering.node_count {
+                return lowering.reject(function_index);
+            }
+            let child: AstNode = unsafe { *(lowering.nodes + child_index) };
+            if child.kind == AstKind::ParamDecl {
+                if child.first_child == 0 || child.first_child >= lowering.node_count
+                    || lowering.parameters == null
+                    || lowering.parameter_count >= lowering.parameter_capacity {
+                    return lowering.reject(child_index);
+                }
+                let type_index: usize = child.first_child;
+                let type_tag: TargetTypeTag = lowering.type_tag_for(type_index);
+                if type_tag == TargetTypeTag::Invalid || child.str_len == 0
+                    || child.int_value != 0 {
+                    return lowering.reject(child_index);
+                }
+                let value_id: u32 = lowering.append_value(
+                    type_tag, child.str_offset, child.str_len
+                );
+                if value_id == TARGET_VALUE_NONE {
+                    return lowering.reject(child_index);
+                }
+                unsafe {
+                    *(lowering.parameters + lowering.parameter_count) = TargetParameter {
+                        value_id: value_id,
+                        type_tag: type_tag,
+                        name: TargetSourceSlice {
+                            offset: child.str_offset,
+                            length: child.str_len
+                        }
+                    };
+                }
+                lowering.parameter_count = lowering.parameter_count + 1;
+            } else if child.kind == AstKind::TypeRef {
+                if return_type != TargetTypeTag::Invalid {
+                    return lowering.reject(child_index);
+                }
+                return_type = lowering.type_tag_for(child_index);
+                if return_type == TargetTypeTag::Invalid {
+                    return lowering.reject(child_index);
+                }
+            } else if child.kind == AstKind::Block {
+                if body_index != 0 {
+                    return lowering.reject(child_index);
+                }
+                body_index = child_index;
+            } else {
+                return lowering.reject(child_index);
+            }
+            child_index = child.next_sibling;
+        }
+        if return_type == TargetTypeTag::Invalid || body_index == 0
+            || lowering.block_count >= lowering.block_capacity
+            || lowering.blocks == null {
+            return lowering.reject(function_index);
+        }
+
+        let mut parameter_index: usize = first_parameter;
+        while parameter_index < lowering.parameter_count {
+            let parameter: TargetParameter = unsafe {
+                *(lowering.parameters + parameter_index)
+            };
+            if parameter.type_tag != return_type {
+                return lowering.reject(function_index);
+            }
+            parameter_index = parameter_index + 1;
+        }
+
+        let body: AstNode = unsafe { *(lowering.nodes + body_index) };
+        let return_index: usize = body.first_child;
+        if return_index == 0 || return_index >= lowering.node_count {
+            return lowering.reject(body_index);
+        }
+        let return_node: AstNode = unsafe { *(lowering.nodes + return_index) };
+        if return_node.kind != AstKind::ReturnStmt || return_node.first_child == 0
+            || return_node.first_child >= lowering.node_count
+            || return_node.next_sibling != 0 {
+            return lowering.reject(return_index);
+        }
+        let return_expression: usize = return_node.first_child;
+        if unsafe { (*(lowering.nodes + return_expression)).next_sibling } != 0 {
+            return lowering.reject(return_expression);
+        }
+
+        let first_instruction: usize = lowering.instruction_count;
+        let result_value: u32 = lowering.lower_expression(
+            return_expression,
+            return_type,
+            first_parameter,
+            lowering.parameter_count - first_parameter
+        );
+        if result_value == TARGET_VALUE_NONE {
+            return lowering.reject(return_expression);
+        }
+        let return_operand: u32 = lowering.operand_count as u32;
+        if !lowering.append_operand(result_value)
+            || !lowering.append_instruction(
+                TargetOpcode::Return,
+                TARGET_VALUE_NONE,
+                return_type,
+                return_operand,
+                1,
+                return_index
+            ) {
+            return lowering.reject(return_index);
+        }
+
+        let block_id: u32 = (lowering.block_count + 1) as u32;
+        unsafe {
+            *(lowering.blocks + lowering.block_count) = TargetBlock {
+                id: block_id,
+                label: TargetSourceSlice::empty(),
+                first_instruction: first_instruction as u32,
+                instruction_count: (lowering.instruction_count - first_instruction) as u32
+            };
+        }
+        let function: TargetFunction = TargetFunction {
+            name: TargetSourceSlice {
+                offset: function_node.str_offset,
+                length: function_node.str_len
+            },
+            return_type: return_type,
+            first_parameter: first_parameter as u32,
+            parameter_count: (lowering.parameter_count - first_parameter) as u32,
+            first_block: lowering.block_count as u32,
+            block_count: 1,
+            flags: 0
+        };
+        unsafe {
+            *(lowering.functions + lowering.function_count) = function;
+        }
+        lowering.block_count = lowering.block_count + 1;
+        lowering.function_count = lowering.function_count + 1;
+        function_index = function_node.next_sibling;
+    }
+
+    if lowering.function_count == 0 {
+        return lowering.reject(module_index);
+    }
+    output.version = TARGET_IR_VERSION;
+    output.function_count = lowering.function_count as u32;
+    output.parameter_count = lowering.parameter_count as u32;
+    output.block_count = lowering.block_count as u32;
+    output.instruction_count = lowering.instruction_count as u32;
+    output.value_count = lowering.value_count as u32;
+    output.operand_count = lowering.operand_count as u32;
+    return true;
+}

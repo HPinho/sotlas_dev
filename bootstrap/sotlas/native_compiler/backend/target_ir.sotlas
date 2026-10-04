@@ -184,6 +184,14 @@ pub struct TargetFunction {
     pub flags: u32;
 }
 
+// Function parameters are stored in a flat module table. Their names remain
+// source slices and their SSA identities are numeric, like all other values.
+pub struct TargetParameter {
+    pub value_id: u32;
+    pub type_tag: TargetTypeTag;
+    pub name: TargetSourceSlice;
+}
+
 impl TargetFunction {
     pub fn empty() -> TargetFunction {
         return TargetFunction {
@@ -203,6 +211,7 @@ impl TargetFunction {
 pub struct TargetModule {
     pub version: u32;
     pub function_count: u32;
+    pub parameter_count: u32;
     pub block_count: u32;
     pub instruction_count: u32;
     pub value_count: u32;
@@ -216,6 +225,7 @@ impl TargetModule {
         return TargetModule {
             version: TARGET_IR_VERSION,
             function_count: 0,
+            parameter_count: 0,
             block_count: 0,
             instruction_count: 0,
             value_count: 0,
