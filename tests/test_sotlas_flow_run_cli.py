@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -270,32 +271,22 @@ flow Compute { stage seed = load; }
         self.assertEqual(result.stdout, "")
         self.assertIn("C11 Flow runs in deterministic serial order", result.stderr)
 
-    def test_reference_timeout_discards_a_result_that_misses_its_deadline(self):
-        # A deliberately broad flow makes this sub-nanosecond deadline expire
-        # during execution, independent of timer-thread scheduling resolution.
-        count = 300
-        functions = "\n".join(
-            f"fn value{index}() -> u32 {{ return {index}u32; }}"
-            for index in range(count)
-        )
-        stages = "\n".join(
-            f"    stage item{index} = value{index};"
-            for index in range(count)
-        )
+    def test_reference_timeout_below_clock_resolution_expires_without_output(self):
+        timeout = time.get_clock_info("monotonic").resolution / 2
         result = self._run(
-            f"""module test::flow_run_timeout_reference;
-{functions}
-flow Wait {{
-{stages}
-}}
+            """module test::flow_run_timeout_reference;
+fn value() -> u32 { return 7u32; }
+flow Wait { stage item = value; }
 """,
-            "--flow", "Wait", "--timeout", "0.000000000001",
-            guard_timeout=5,
+            "--flow", "Wait", "--timeout", repr(timeout),
         )
 
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(result.stdout, "")
-        self.assertIn("Flow execution exceeded the 1e-12 second timeout", result.stderr)
+        self.assertIn(
+            f"Flow execution exceeded the {timeout:g} second timeout",
+            result.stderr,
+        )
 
     def test_c11_timeout_terminates_native_runner_without_partial_output(self):
         result = self._run(

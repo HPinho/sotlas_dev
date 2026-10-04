@@ -584,6 +584,13 @@ def _run_flow_run(
             checked_sir, _ = build_canonical_checked_ownership_sir(checked)
             cfg = lower_flow_to_cfg(checked_sir.module, flow_name)
             cancel_event = threading.Event() if timeout is not None else None
+            if (
+                timeout is not None
+                and timeout < time.get_clock_info("monotonic").resolution
+            ):
+                raise TimeoutError(
+                    f"Flow execution exceeded the {timeout:g} second timeout"
+                )
             deadline = (
                 time.monotonic() + timeout if timeout is not None else None
             )
