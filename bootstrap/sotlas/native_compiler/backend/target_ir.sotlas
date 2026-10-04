@@ -1,0 +1,260 @@
+module sotlas::compiler::backend::target_ir;
+
+// Native in-memory Target IR contract for the self-hosting compiler.
+// This module deliberately contains no C ABI, host-runtime or Python concepts.
+// It is a data boundary only: lowering and machine emission are separate stages.
+
+pub const TARGET_IR_VERSION: u32 = 1;
+pub const TARGET_VALUE_NONE: u32 = 0;
+pub const TARGET_BLOCK_NONE: u32 = 0;
+pub const TARGET_FLAG_SEMANTIC_ONLY: u32 = 1;
+pub const TARGET_FLAG_SYSTEM: u32 = 2;
+
+pub enum TargetTypeTag {
+    Invalid = 0,
+    Bool = 1,
+    U8 = 2,
+    U16 = 3,
+    U32 = 4,
+    U64 = 5,
+    Usize = 6,
+    I8 = 7,
+    I16 = 8,
+    I32 = 9,
+    I64 = 10,
+    Isize = 11,
+    F32 = 12,
+    F64 = 13,
+    Pointer = 14,
+    Aggregate = 15,
+    Void = 16
+}
+
+pub enum TargetOpcode {
+    Invalid = 0,
+    AllocStack = 1,
+    Store = 2,
+    Load = 3,
+    ConstInt = 4,
+    Add = 5,
+    Sub = 6,
+    Mul = 7,
+    Compare = 8,
+    Phi = 9,
+    Call = 10,
+    SystemOp = 11,
+    Branch = 12,
+    CondBranch = 13,
+    Return = 14,
+    SemanticDirectBorrow = 15,
+    SemanticWhisperBorrow = 16,
+    SemanticOwnershipTransfer = 17,
+    SemanticShare = 18,
+    SemanticRetain = 19,
+    SemanticRelease = 20,
+    SemanticDestroy = 21,
+    SemanticOwnershipPoint = 22,
+    SemanticSharedOwnershipPoint = 23,
+    SemanticDeferUse = 24,
+    SemanticStateTransition = 25
+}
+
+pub struct TargetSourceSlice {
+    pub offset: usize;
+    pub length: usize;
+}
+
+impl TargetSourceSlice {
+    pub fn empty() -> TargetSourceSlice {
+        return TargetSourceSlice {
+            offset: 0,
+            length: 0
+        };
+    }
+}
+
+// Values are identified by stable numeric SSA ids instead of host-language
+// strings. Id zero is reserved for "no value".
+pub struct TargetValue {
+    pub id: u32;
+    pub type_tag: TargetTypeTag;
+    pub source_name: TargetSourceSlice;
+    pub flags: u32;
+}
+
+impl TargetValue {
+    pub fn empty() -> TargetValue {
+        return TargetValue {
+            id: TARGET_VALUE_NONE,
+            type_tag: TargetTypeTag::Invalid,
+            source_name: TargetSourceSlice::empty(),
+            flags: 0
+        };
+    }
+}
+
+// Operand arrays are stored in a flat table owned by the module. Calls and
+// future variadic instructions therefore do not bake a host container into IR.
+pub struct TargetOperand {
+    pub value_id: u32;
+}
+
+impl TargetOperand {
+    pub fn new(value_id: u32) -> TargetOperand {
+        return TargetOperand { value_id: value_id };
+    }
+}
+
+// Phi inputs require both the incoming value and predecessor block.
+pub struct TargetPhiInput {
+    pub value_id: u32;
+    pub block_id: u32;
+}
+
+impl TargetPhiInput {
+    pub fn new(value_id: u32, block_id: u32) -> TargetPhiInput {
+        return TargetPhiInput {
+            value_id: value_id,
+            block_id: block_id
+        };
+    }
+}
+
+pub struct TargetInstruction {
+    pub opcode: TargetOpcode;
+    pub result_value: u32;
+    pub type_tag: TargetTypeTag;
+    pub first_operand: u32;
+    pub operand_count: u32;
+    pub first_phi_input: u32;
+    pub phi_input_count: u32;
+    pub first_target: u32;
+    pub target_count: u32;
+    pub immediate_bits: u64;
+    pub symbol: TargetSourceSlice;
+    pub source_point: TargetSourceSlice;
+    pub flags: u32;
+}
+
+impl TargetInstruction {
+    pub fn new(opcode: TargetOpcode) -> TargetInstruction {
+        return TargetInstruction {
+            opcode: opcode,
+            result_value: TARGET_VALUE_NONE,
+            type_tag: TargetTypeTag::Invalid,
+            first_operand: 0,
+            operand_count: 0,
+            first_phi_input: 0,
+            phi_input_count: 0,
+            first_target: 0,
+            target_count: 0,
+            immediate_bits: 0,
+            symbol: TargetSourceSlice::empty(),
+            source_point: TargetSourceSlice::empty(),
+            flags: 0
+        };
+    }
+}
+
+pub struct TargetBlock {
+    pub id: u32;
+    pub label: TargetSourceSlice;
+    pub first_instruction: u32;
+    pub instruction_count: u32;
+}
+
+impl TargetBlock {
+    pub fn empty() -> TargetBlock {
+        return TargetBlock {
+            id: TARGET_BLOCK_NONE,
+            label: TargetSourceSlice::empty(),
+            first_instruction: 0,
+            instruction_count: 0
+        };
+    }
+}
+
+pub struct TargetFunction {
+    pub name: TargetSourceSlice;
+    pub return_type: TargetTypeTag;
+    pub first_parameter: u32;
+    pub parameter_count: u32;
+    pub first_block: u32;
+    pub block_count: u32;
+    pub flags: u32;
+}
+
+impl TargetFunction {
+    pub fn empty() -> TargetFunction {
+        return TargetFunction {
+            name: TargetSourceSlice::empty(),
+            return_type: TargetTypeTag::Void,
+            first_parameter: 0,
+            parameter_count: 0,
+            first_block: 0,
+            block_count: 0,
+            flags: 0
+        };
+    }
+}
+
+// TargetModule contains only counts and versioning. Storage ownership stays with
+// the compiler arena so the same IR can be used by hosted apps and barecore.
+pub struct TargetModule {
+    pub version: u32;
+    pub function_count: u32;
+    pub block_count: u32;
+    pub instruction_count: u32;
+    pub value_count: u32;
+    pub operand_count: u32;
+    pub phi_input_count: u32;
+    pub target_count: u32;
+}
+
+impl TargetModule {
+    pub fn empty() -> TargetModule {
+        return TargetModule {
+            version: TARGET_IR_VERSION,
+            function_count: 0,
+            block_count: 0,
+            instruction_count: 0,
+            value_count: 0,
+            operand_count: 0,
+            phi_input_count: 0,
+            target_count: 0
+        };
+    }
+}
+
+pub fn target_opcode_is_terminator(opcode: TargetOpcode) -> bool {
+    return opcode == TargetOpcode::Branch
+        || opcode == TargetOpcode::CondBranch
+        || opcode == TargetOpcode::Return;
+}
+
+pub fn target_opcode_is_semantic_only(opcode: TargetOpcode) -> bool {
+    return opcode == TargetOpcode::SemanticDirectBorrow
+        || opcode == TargetOpcode::SemanticWhisperBorrow
+        || opcode == TargetOpcode::SemanticOwnershipTransfer
+        || opcode == TargetOpcode::SemanticShare
+        || opcode == TargetOpcode::SemanticRetain
+        || opcode == TargetOpcode::SemanticRelease
+        || opcode == TargetOpcode::SemanticDestroy
+        || opcode == TargetOpcode::SemanticOwnershipPoint
+        || opcode == TargetOpcode::SemanticSharedOwnershipPoint
+        || opcode == TargetOpcode::SemanticDeferUse
+        || opcode == TargetOpcode::SemanticStateTransition;
+}
+
+pub fn target_type_is_integer(type_tag: TargetTypeTag) -> bool {
+    return type_tag == TargetTypeTag::U8
+        || type_tag == TargetTypeTag::U16
+        || type_tag == TargetTypeTag::U32
+        || type_tag == TargetTypeTag::U64
+        || type_tag == TargetTypeTag::Usize
+        || type_tag == TargetTypeTag::I8
+        || type_tag == TargetTypeTag::I16
+        || type_tag == TargetTypeTag::I32
+        || type_tag == TargetTypeTag::I64
+        || type_tag == TargetTypeTag::Isize;
+}
