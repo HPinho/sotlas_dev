@@ -2226,6 +2226,7 @@ def verify_stage_fixed_point(
         "build_provenance": "stage1-stage2-sotlas-c-emission-clang-c-driver",
         "compiler_source_deterministic": False,
         "c_source_fixed_point": False,
+        "stage3_compiler_source_fixed_point": False,
         "app_obj_deterministic": False,
         "kernel_obj_deterministic": False,
         "app_exe_deterministic": False,
@@ -2271,6 +2272,12 @@ pub fn _start() -> u32 {
         results["compiler_source_deterministic"] = h_compiler_c1 == h_compiler_c2
         results["c_source_fixed_point"] = h_compiler_c1 == h_compiler_c2
         results["compiler_frontend_self_hosted"] = results["c_source_fixed_point"]
+        if stage3_exe and stage3_exe.is_file():
+            compiler_c3 = tmp / "compiler_stage3.c"
+            _emit_native_compiler_c(stage3_exe.resolve(), compiler_c3, "Stage 3")
+            h_compiler_c3 = hashlib.sha256(compiler_c3.read_bytes()).hexdigest()
+            results["hashes"]["compiler_c3"] = h_compiler_c3
+            results["stage3_compiler_source_fixed_point"] = h_compiler_c2 == h_compiler_c3
 
         # 1. Differential C emission for a representative application.
         c1 = tmp / "app1.c"
