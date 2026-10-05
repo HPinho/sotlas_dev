@@ -25,10 +25,10 @@ class SotlasNativeStaticImplTypeTests(unittest.TestCase):
     @unittest.skipUnless(default_toolchain.is_available(), "native C toolchain unavailable")
     def test_static_impl_calls_use_method_parameter_and_return_types(self):
         module_dir = ROOT / "bootstrap" / "sotlas" / "native_compiler"
-        order = ("token", "ast", "lexer", "parser", "sema", "emitter_c", "main")
+        order = ("token", "ast", "lexer", "parser", "sema", "emitter_c", "target_ir", "lower_scalar", "x86_64_scalar", "main")
         modules = {
             path.stem: parse(path.read_text(encoding="utf-8"), filename=str(path))
-            for path in module_dir.glob("*.sotlas")
+            for path in module_dir.rglob("*.sotlas")
         }
         self.assertEqual(set(modules), set(order))
 

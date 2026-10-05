@@ -56,10 +56,10 @@ class SotlasNativeStaticImplCallSemanticsTests(unittest.TestCase):
         self.assertIn("self.emit_static_impl_symbol(method_index)", emitter_text)
         self.assertIn("self.emit_impl(child)", emitter_text)
 
-        order = ("token", "ast", "lexer", "parser", "sema", "emitter_c", "main")
+        order = ("token", "ast", "lexer", "parser", "sema", "emitter_c", "target_ir", "lower_scalar", "x86_64_scalar", "main")
         modules = {
             path.stem: parse(path.read_text(encoding="utf-8"), filename=str(path))
-            for path in module_dir.glob("*.sotlas")
+            for path in module_dir.rglob("*.sotlas")
         }
         self.assertEqual(set(modules), set(order))
 

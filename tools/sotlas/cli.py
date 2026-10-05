@@ -1,3 +1,4 @@
+# tools cli mirror
 """Sotlas CLI — driver canônico e unificado para a linguagem Sotlas.
 
 Uso:
@@ -6,6 +7,7 @@ Uso:
     sotlas run     arquivo.sotlas
     sotlas dump-ast arquivo.sotlas
     sotlas dump-sir arquivo.sotlas
+    sotlas sir-report arquivo.sotlas
     sotlas dump-llvm arquivo.sotlas [--debug]
     sotlas fmt     arquivo.sotlas [--check]
     sotlas lint    arquivo.sotlas
@@ -21,9 +23,12 @@ Uso:
 from __future__ import annotations
 import argparse
 import json
+import math
 import sys
 import subprocess
 import tempfile
+import threading
+import time
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parent.parent
@@ -55,7 +60,7 @@ _TARGET_CHOICES = (
 )
 
 
-def main() -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="sotlas",
         description=f"Compilador e Driver Sotlas v{SOTLAS_VERSION}",
@@ -101,9 +106,9 @@ def main() -> int:
     )
     cp.add_argument(
         "--backend",
-        choices=["llvm", "c11", "sotlas-x86_64"],
-        default="llvm",
-        help="Backend de compilação (padrão: llvm quando disponível)",
+        choices=["native", "llvm", "c11", "sotlas-x86_64"],
+        default="native",
+        help="Compilation backend (native Sotlas, LLVM, legacy C11, or the Sotlas-owned x86-64 preview)",
     )
     cp.add_argument(
         "--cc",
@@ -124,8 +129,8 @@ def main() -> int:
     )
     cp.add_argument(
         "--entry",
-        default="_start",
-        help="Símbolo de entry point para o linker interno (padrão: _start)",
+        default=None,
+        help="Símbolo de entry point para o linker interno (padrão: _start para freestanding, main_entry ou main para hosted)",
     )
 
     # Subcomando: check
@@ -157,6 +162,69 @@ def main() -> int:
         help="Emite JSON determinístico dos planos Flow reconciliados com o SIR",
     )
     flow_report.add_argument("source", help=f"Arquivo fonte {SOTLAS_EXT}")
+
+    flow_run = sub.add_parser(
+        "flow-run",
+        help="Run a checked Flow plan on the CPU",
+    )
+    flow_run.add_argument("source", help=f"Source file {SOTLAS_EXT}")
+    flow_run.add_argument("--flow", required=True, help="Name of the Flow plan to execute")
+    flow_run.add_argument(
+        "--workers", type=int, default=None,
+        help="Maximum concurrent independent stages (default: runtime setting)",
+    )
+    flow_run.add_argument(
+        "--backend", choices=("reference", "c11"), default="reference",
+        help="Execution backend: reference scheduler or a compiled native C11 runner",
+    )
+    flow_run.add_argument(
+        "--timeout", type=float, default=None, metavar="SECONDS",
+        help="Cancel Flow execution after this many seconds",
+    )
+
+    sir_report = sub.add_parser(
+        "sir-report",
+        help="Emite inventário JSON do subset SIR canônico validado",
+    )
+    sir_report.add_argument("source", help=f"Arquivo fonte {SOTLAS_EXT}")
+
+    target_ir_report = sub.add_parser(
+        "target-ir-report",
+        help="Emite o Target IR v1 derivado do subset SIR canônico validado",
+    )
+    target_ir_report.add_argument("source", help=f"Arquivo fonte {SOTLAS_EXT}")
+
+    allocation_report = sub.add_parser(
+        "register-allocation-report",
+        help="Report linear liveness/allocation for straight-line scalar functions",
+    )
+    allocation_report.add_argument("source", help=f"Arquivo fonte {SOTLAS_EXT}")
+    allocation_report.add_argument(
+        "--registers", type=int, default=4,
+        help="Number of virtual register slots in the preview (default: 4)",
+    )
+
+    stack_report = sub.add_parser(
+        "stack-layout-report",
+        help="Report target-neutral scalar local stack slots from checked Target IR",
+    )
+    stack_report.add_argument("source", help=f"Source file {SOTLAS_EXT}")
+    stack_report.add_argument(
+        "--alignment", type=int, default=16,
+        help="Abstract frame alignment in bytes (default: 16; must be a power of two)",
+    )
+
+    liveness_report = sub.add_parser(
+        "target-ir-liveness-report",
+        help="Report CFG liveness and SSA interference from checked Target IR",
+    )
+    liveness_report.add_argument("source", help=f"Source file {SOTLAS_EXT}")
+
+    source_map_report = sub.add_parser(
+        "target-ir-source-map-report",
+        help="Report source-stable locations preserved by checked Target IR",
+    )
+    source_map_report.add_argument("source", help=f"Source file {SOTLAS_EXT}")
 
     target_report = sub.add_parser(
         "target-report",
@@ -238,7 +306,15 @@ def main() -> int:
     # Subcomando: version
     sub.add_parser("version", help="Exibe a versão do compilador")
 
-    args = parser.parse_args()
+    return parser
+
+
+_build_parser = build_parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
 
     if args.cmd == "version":
         print(f"Sotlas {SOTLAS_VERSION}")
@@ -257,6 +333,22 @@ def main() -> int:
         return _run_contract_report(args.source)
     if args.cmd == "flow-report":
         return _run_flow_report(args.source)
+    if args.cmd == "flow-run":
+        return _run_flow_run(
+            args.source, args.flow, args.workers, args.backend, args.timeout
+        )
+    if args.cmd == "sir-report":
+        return _run_sir_report(args.source)
+    if args.cmd == "target-ir-report":
+        return _run_target_ir_report(args.source)
+    if args.cmd == "register-allocation-report":
+        return _run_register_allocation_report(args.source, args.registers)
+    if args.cmd == "stack-layout-report":
+        return _run_stack_layout_report(args.source, args.alignment)
+    if args.cmd == "target-ir-liveness-report":
+        return _run_target_ir_liveness_report(args.source)
+    if args.cmd == "target-ir-source-map-report":
+        return _run_target_ir_source_map_report(args.source)
     if args.cmd == "target-report":
         return _run_target_report(args.target, args.cpu_feature)
     if args.cmd == "dump-llvm":
@@ -461,6 +553,160 @@ def _run_flow_report(source_path: str) -> int:
     return 0
 
 
+def _run_flow_run(
+    source_path: str,
+    flow_name: str,
+    workers: int | None,
+    backend: str = "reference",
+    timeout: float | None = None,
+) -> int:
+    loaded = _read_source(source_path)
+    if loaded is None:
+        return 1
+    _, text = loaded
+    try:
+        if timeout is not None and (not math.isfinite(timeout) or timeout <= 0):
+            raise ValueError("--timeout must be a finite positive number")
+        if backend == "c11":
+            if workers is not None:
+                raise ValueError(
+                    "--workers applies to the reference backend; C11 Flow runs "
+                    "in deterministic serial order"
+                )
+            from sotlas_compile.flow_native_runner import run_c11_flow
+
+            outputs = run_c11_flow(
+                text, source_path, flow_name, timeout=timeout
+            )
+        else:
+            from sotlas_compile import (
+                FlowCancelledError,
+                analyze_source_phase1,
+                build_canonical_checked_ownership_sir,
+                execute_flow_cfg,
+                lower_flow_to_cfg,
+            )
+
+            checked = analyze_source_phase1(text, filename=source_path)
+            from sotlas_compile import validate_flow_execution_source
+            validate_flow_execution_source(checked.parsed_module, flow_name)
+            checked_sir, _ = build_canonical_checked_ownership_sir(checked)
+            cfg = lower_flow_to_cfg(checked_sir.module, flow_name)
+            cancel_event = threading.Event() if timeout is not None else None
+            if (
+                timeout is not None
+                and timeout < time.get_clock_info("monotonic").resolution
+            ):
+                raise TimeoutError(
+                    f"Flow execution exceeded the {timeout:g} second timeout"
+                )
+            deadline = (
+                time.monotonic() + timeout if timeout is not None else None
+            )
+            timer = None
+            if cancel_event is not None:
+                timer = threading.Timer(timeout, cancel_event.set)
+                timer.daemon = True
+                timer.start()
+            try:
+                result = execute_flow_cfg(
+                    checked_sir.module,
+                    cfg,
+                    max_workers=workers,
+                    cancel_event=cancel_event,
+                    deadline=deadline,
+                )
+            except Exception as error:
+                if timeout is not None and isinstance(error, FlowCancelledError):
+                    raise TimeoutError(
+                        f"Flow execution exceeded the {timeout:g} second timeout"
+                    ) from error
+                raise
+            finally:
+                if timer is not None:
+                    timer.cancel()
+            if deadline is not None and time.monotonic() >= deadline:
+                raise TimeoutError(
+                    f"Flow execution exceeded the {timeout:g} second timeout"
+                )
+            outputs = dict(result.outputs)
+        report = {
+            "schema": "sotlas.flow-result.v1",
+            "module": production_frontend.parse(
+                text, filename=source_path
+            ).name,
+            "flow": flow_name,
+            "backend": backend,
+            "outputs": outputs,
+        }
+        print(json.dumps(report, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+    except Exception as error:
+        print(f"sotlas: Flow execution failed: {error}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def _run_sir_report(source_path: str) -> int:
+    loaded = _read_source(source_path)
+    if loaded is None:
+        return 1
+    _, text = loaded
+    try:
+        from collections import Counter
+        from sotlas_compile import (
+            analyze_source_phase1,
+            build_canonical_checked_ownership_sir,
+            validate_sir_flow_plans,
+        )
+
+        checked = analyze_source_phase1(text, filename=source_path)
+        checked_sir, _ = build_canonical_checked_ownership_sir(checked)
+        module = checked_sir.module
+        plans = validate_sir_flow_plans(module)
+        functions = []
+        instruction_counts = Counter()
+        block_count = 0
+        for function in module.functions:
+            blocks = []
+            for block in function.blocks:
+                block_count += 1
+                opcodes = [
+                    type(instruction).__name__.removesuffix("Inst").lower()
+                    for instruction in block.instructions
+                ]
+                instruction_counts.update(opcodes)
+                blocks.append({"label": block.label, "operations": opcodes})
+            functions.append({
+                "name": function.name,
+                "parameters": [
+                    {"name": parameter.name, "type": parameter.type_name}
+                    for parameter in function.parameters
+                ],
+                "return_type": function.return_type,
+                "system": function.is_system,
+                "required_cpu_features": list(function.required_cpu_features),
+                "blocks": blocks,
+            })
+        report = {
+            "schema": "sotlas.sir-report.v1",
+            "module": module.name,
+            "representation": "canonical_checked_subset",
+            "functions": functions,
+            "flows": [plan.name for plan in plans],
+            "summary": {
+                "function_count": len(functions),
+                "block_count": block_count,
+                "instruction_count": sum(instruction_counts.values()),
+                "operations": dict(sorted(instruction_counts.items())),
+            },
+        }
+        print(json.dumps(report, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+    except Exception as error:
+        print(f"sotlas: erro ao gerar sir report: {error}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def _run_target_report(target_name: str, cpu_features: list[str]) -> int:
     try:
         target = resolve_execution_target(target_name, cpu_features=cpu_features)
@@ -483,6 +729,142 @@ def _run_target_report(target_name: str, cpu_features: list[str]) -> int:
         },
     }
     print(json.dumps(report, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+    return 0
+
+
+def _run_target_ir_report(source_path: str) -> int:
+    loaded = _read_source(source_path)
+    if loaded is None:
+        return 1
+    _, text = loaded
+    try:
+        from sotlas_compile import (
+            analyze_source_phase1,
+            build_canonical_checked_ownership_sir,
+            validate_sir_flow_plans,
+        )
+        from sotlas_compile.target_ir import lower_sir_to_target_ir
+
+        checked = analyze_source_phase1(text, filename=source_path)
+        checked_sir, _ = build_canonical_checked_ownership_sir(checked)
+        validate_sir_flow_plans(checked_sir.module)
+        report = lower_sir_to_target_ir(checked_sir.module)
+        print(json.dumps(report, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+    except Exception as error:
+        print(f"sotlas: error generating target IR report: {error}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def _run_register_allocation_report(source_path: str, register_count: int) -> int:
+    loaded = _read_source(source_path)
+    if loaded is None:
+        return 1
+    _, text = loaded
+    try:
+        from sotlas_compile import (
+            analyze_source_phase1,
+            build_canonical_checked_ownership_sir,
+            validate_sir_flow_plans,
+        )
+        from sotlas_compile.target_ir import (
+            allocate_target_ir_registers,
+            lower_sir_to_target_ir,
+        )
+
+        checked = analyze_source_phase1(text, filename=source_path)
+        checked_sir, _ = build_canonical_checked_ownership_sir(checked)
+        validate_sir_flow_plans(checked_sir.module)
+        target_ir = lower_sir_to_target_ir(checked_sir.module)
+        report = allocate_target_ir_registers(target_ir, register_count=register_count)
+        print(json.dumps(report, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+    except Exception as error:
+        print(f"sotlas: error generating register allocation preview: {error}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def _run_stack_layout_report(source_path: str, stack_alignment: int) -> int:
+    loaded = _read_source(source_path)
+    if loaded is None:
+        return 1
+    _, text = loaded
+    try:
+        from sotlas_compile import (
+            analyze_source_phase1,
+            build_canonical_checked_ownership_sir,
+            validate_sir_flow_plans,
+        )
+        from sotlas_compile.target_ir import (
+            layout_target_ir_stack,
+            lower_sir_to_target_ir,
+        )
+
+        checked = analyze_source_phase1(text, filename=source_path)
+        checked_sir, _ = build_canonical_checked_ownership_sir(checked)
+        validate_sir_flow_plans(checked_sir.module)
+        target_ir = lower_sir_to_target_ir(checked_sir.module)
+        report = layout_target_ir_stack(target_ir, stack_alignment=stack_alignment)
+        print(json.dumps(report, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+    except Exception as error:
+        print(f"sotlas: error generating stack layout preview: {error}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def _run_target_ir_liveness_report(source_path: str) -> int:
+    loaded = _read_source(source_path)
+    if loaded is None:
+        return 1
+    _, text = loaded
+    try:
+        from sotlas_compile import (
+            analyze_source_phase1,
+            build_canonical_checked_ownership_sir,
+            validate_sir_flow_plans,
+        )
+        from sotlas_compile.target_ir import (
+            analyze_target_ir_liveness,
+            lower_sir_to_target_ir,
+        )
+
+        checked = analyze_source_phase1(text, filename=source_path)
+        checked_sir, _ = build_canonical_checked_ownership_sir(checked)
+        validate_sir_flow_plans(checked_sir.module)
+        target_ir = lower_sir_to_target_ir(checked_sir.module)
+        report = analyze_target_ir_liveness(target_ir)
+        print(json.dumps(report, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+    except Exception as error:
+        print(f"sotlas: error generating Target IR liveness report: {error}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def _run_target_ir_source_map_report(source_path: str) -> int:
+    loaded = _read_source(source_path)
+    if loaded is None:
+        return 1
+    _, text = loaded
+    try:
+        from sotlas_compile import (
+            analyze_source_phase1,
+            build_canonical_checked_ownership_sir,
+            validate_sir_flow_plans,
+        )
+        from sotlas_compile.target_ir import (
+            lower_sir_to_target_ir,
+            map_target_ir_source_points,
+        )
+
+        checked = analyze_source_phase1(text, filename=source_path)
+        checked_sir, _ = build_canonical_checked_ownership_sir(checked)
+        validate_sir_flow_plans(checked_sir.module)
+        target_ir = lower_sir_to_target_ir(checked_sir.module)
+        report = map_target_ir_source_points(target_ir)
+        print(json.dumps(report, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+    except Exception as error:
+        print(f"sotlas: error generating Target IR source map: {error}", file=sys.stderr)
+        return 1
     return 0
 
 
@@ -611,6 +993,22 @@ def _run_compile(args) -> int:
         print(f"sotlas: erro de target: {error}", file=sys.stderr)
         return 2
 
+    linker_mode = getattr(args, "linker", "auto")
+    if linker_mode == "internal":
+        if (
+            target_spec.architecture != "x86_64"
+            or getattr(args, "target", "host") not in {
+                "host", "x86_64-freestanding", "x86_64-unknown-none-elf",
+                "x86_64-unknown-linux-gnu",
+            }
+        ):
+            print(
+                "sotlas: linker interno suporta apenas host Linux e x86-64 freestanding/Linux",
+                file=sys.stderr,
+            )
+            return 2
+        return _run_compile_internal_linker(args, src, text)
+
     emit_type = "exe"
     output_arg = getattr(args, "output", None)
     if getattr(args, "emit_asm", False) or getattr(args, "emit", None) == "asm" or (
@@ -624,7 +1022,63 @@ def _run_compile(args) -> int:
     elif getattr(args, "emit_c", False) or (output_arg and str(output_arg).endswith(".c")):
         emit_type = "c"
 
-    backend = getattr(args, "backend", "llvm")
+    backend = getattr(args, "backend", "native")
+
+    if backend == "native":
+        from sotlas.bootstrap_pipeline import (
+            build_stage1_native_compiler,
+            _ROOT,
+        )
+        exe_suffix = ".exe" if sys.platform == "win32" else ""
+        stage1_path = _ROOT / "build" / f"sotlas_stage1{exe_suffix}"
+        if not stage1_path.is_file():
+            try:
+                stage1_path = build_stage1_native_compiler(output_exe=stage1_path, verbose=False)
+            except Exception:
+                stage1_path = None
+
+        if stage1_path and stage1_path.is_file():
+            if emit_type == "obj":
+                out_path = Path(output_arg) if output_arg else src.with_suffix(".o")
+                out_path.parent.mkdir(parents=True, exist_ok=True)
+                res = subprocess.run([str(stage1_path), "--compile-obj", str(src), str(out_path)], capture_output=True, text=True)
+                if res.returncode == 0 and out_path.is_file():
+                    print(f"sotlas: objeto ELF64 nativo emitido em {out_path}")
+                    return 0
+            elif emit_type == "c":
+                out_path = Path(output_arg) if output_arg else src.with_suffix(".c")
+                out_path.parent.mkdir(parents=True, exist_ok=True)
+                res = subprocess.run([str(stage1_path), "--emit-c", str(src), str(out_path)], capture_output=True, text=True)
+                if res.returncode == 0 and out_path.is_file():
+                    print(f"sotlas: C11 emitido pelo compilador nativo em {out_path}")
+                    return 0
+            elif emit_type == "exe":
+                is_freestanding = getattr(args, "target", "host") in (
+                    "x86_64-freestanding", "x86_64-unknown-none-elf",
+                    "aarch64-freestanding", "aarch64-unknown-none-elf",
+                )
+                out_path = Path(output_arg) if output_arg else src.with_suffix(".exe" if sys.platform == "win32" else ".bin")
+                out_path.parent.mkdir(parents=True, exist_ok=True)
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    tmp_obj = Path(tmpdir) / "mod.o"
+                    res_obj = subprocess.run([str(stage1_path), "--compile-obj", str(src), str(tmp_obj)], capture_output=True, text=True)
+                    if res_obj.returncode == 0 and tmp_obj.is_file():
+                        entry_arg = getattr(args, "entry", None)
+                        if entry_arg:
+                            candidate_entries = [entry_arg]
+                        elif is_freestanding:
+                            candidate_entries = ["_start", "kernel_main"]
+                        else:
+                            candidate_entries = ["main_entry", "main"]
+                        for sym in candidate_entries:
+                            cmd = [str(stage1_path), "--link-exe", str(tmp_obj), str(out_path), sym]
+                            if is_freestanding:
+                                cmd.append("--freestanding")
+                            res_link = subprocess.run(cmd, capture_output=True, text=True)
+                            if res_link.returncode == 0 and out_path.is_file():
+                                print(f"sotlas: executável nativo gerado com sucesso em {out_path}")
+                                return 0
+
     if backend == "sotlas-x86_64" and emit_type not in ("asm", "obj"):
         print(
             "sotlas: --backend sotlas-x86_64 requires --emit-asm, --emit-obj, or a .s/.asm/.o/.obj output",
@@ -647,7 +1101,7 @@ def _run_compile(args) -> int:
                     file=sys.stderr,
                 )
                 return 2
-            from compiler.sotlas_compile.machine_x86_64 import (
+            from sotlas_compile.machine_x86_64 import (
                 MachineBackendError,
                 compile_source_to_x86_64_sysv_assembly,
             )
@@ -713,21 +1167,7 @@ def _run_compile(args) -> int:
             return 1
 
     # ── Modo linker interno: pipeline completamente autônomo ──────────────
-    linker_mode = getattr(args, "linker", "auto")
-    if linker_mode == "internal":
-        if (
-            target_spec.architecture != "x86_64"
-            or args.target not in {
-                "host", "x86_64-freestanding", "x86_64-unknown-none-elf",
-                "x86_64-unknown-linux-gnu",
-            }
-        ):
-            print(
-                "sotlas: linker interno suporta apenas host Linux e x86-64 freestanding/Linux",
-                file=sys.stderr,
-            )
-            return 2
-        return _run_compile_internal_linker(args, src, text)
+    force_gcc = (linker_mode == "gcc")
 
     try:
         c_code = _compile_cli_source(text, args.source)
@@ -854,7 +1294,7 @@ def _run_compile_internal_linker(args, src: Path, text: str) -> int:
         out_path = src.with_suffix(".bin")
 
     target = getattr(args, "target", "host")
-    entry  = getattr(args, "entry", "_start")
+    entry  = getattr(args, "entry", "_start") or "_start"
 
     if sys.platform == "win32" and target == "host":
         print(

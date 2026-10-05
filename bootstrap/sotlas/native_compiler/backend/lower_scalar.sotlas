@@ -26,14 +26,248 @@ pub struct ScalarLowering {
     pub blocks: *mut TargetBlock;
     pub block_capacity: usize;
     pub block_count: usize;
+    pub phi_inputs: *mut TargetPhiInput;
+    pub phi_input_capacity: usize;
+    pub phi_input_count: usize;
+    pub targets: *mut u32;
+    pub target_capacity: usize;
+    pub target_count: usize;
     pub functions: *mut TargetFunction;
     pub function_capacity: usize;
     pub function_count: usize;
     pub next_value_id: u32;
     pub error_node: usize;
+    pub local_name_offsets: [usize; 128];
+    pub local_name_lens: [usize; 128];
+    pub local_value_ids: [u32; 128];
+    pub local_struct_ids: [u32; 128];
+    pub local_count: usize;
+    pub struct_name_offsets: [usize; 32];
+    pub struct_name_lens: [usize; 32];
+    pub struct_sizes: [u32; 32];
+    pub struct_field_starts: [u32; 32];
+    pub struct_field_counts: [u32; 32];
+    pub struct_count: usize;
+    pub field_name_offsets: [usize; 128];
+    pub field_name_lens: [usize; 128];
+    pub field_offsets: [u32; 128];
+    pub field_type_tags: [TargetTypeTag; 128];
+    pub field_total_count: usize;
+    pub enum_name_offsets: [usize; 32];
+    pub enum_name_lens: [usize; 32];
+    pub enum_variant_starts: [u32; 32];
+    pub enum_variant_counts: [u32; 32];
+    pub enum_count: usize;
+    pub variant_name_offsets: [usize; 256];
+    pub variant_name_lens: [usize; 256];
+    pub variant_values: [u64; 256];
+    pub variant_total_count: usize;
+}
+
+fn align_val(value: usize, alignment: usize) -> usize {
+    return (value + alignment - 1) / alignment * alignment;
+}
+
+pub static mut g_extended_len: usize = 0;
+
+@export
+@system
+pub fn sotlas_native_extended_source_len() -> usize {
+    return unsafe { g_extended_len };
 }
 
 impl ScalarLowering {
+    pub fn append_synthetic_str_symbol(mut self: &mut Self, id: usize) -> TargetSourceSlice {
+        let name_off: usize = unsafe { g_extended_len };
+        let src_mut: *mut u8 = self.source as *mut u8;
+        unsafe {
+            *(src_mut + name_off) = 95;
+            *(src_mut + name_off + 1) = 115;
+            *(src_mut + name_off + 2) = 116;
+            *(src_mut + name_off + 3) = 114;
+            *(src_mut + name_off + 4) = 95;
+        }
+        let mut name_len: usize = 5;
+        let mut temp: usize = id;
+        if temp == 0 {
+            unsafe { *(src_mut + name_off + name_len) = 48; }
+            name_len = name_len + 1;
+        } else {
+            let mut digits: [u8; 16] = 0;
+            let mut d_count: usize = 0;
+            while temp > 0 {
+                digits[d_count] = ((temp % 10) as u8) + 48;
+                temp = temp / 10;
+                d_count = d_count + 1;
+            }
+            while d_count > 0 {
+                d_count = d_count - 1;
+                unsafe { *(src_mut + name_off + name_len) = digits[d_count]; }
+                name_len = name_len + 1;
+            }
+        }
+        unsafe { g_extended_len = g_extended_len + name_len; }
+        return TargetSourceSlice {
+            offset: name_off,
+            length: name_len
+        };
+    }
+
+    pub fn parse_array_type_size(self: &Self, type_offset: usize, type_len: usize) -> usize {
+        let mut sep: usize = 0;
+        let mut i: usize = 0;
+        while i < type_len {
+            if unsafe { *(self.source + type_offset + i) } == 59 {
+                sep = i;
+                break;
+            }
+            i = i + 1;
+        }
+        if sep == 0 { return 8 as usize; }
+        let mut elem_sz: usize = 4 as usize;
+        let mut j: usize = 0;
+        let mut saw_u8: bool = false;
+        let mut saw_64: bool = false;
+        let mut saw_16: bool = false;
+        while j < sep {
+            let c1: u8 = unsafe { *(self.source + type_offset + j) };
+            if j + 1 < sep {
+                let c2: u8 = unsafe { *(self.source + type_offset + j + 1) };
+                if (c1 == 117 || c1 == 105) && c2 == 56 {
+                    saw_u8 = true;
+                }
+                if (c1 == 117 || c1 == 105) && (c2 == 54 || c2 == 115) {
+                    saw_64 = true;
+                }
+                if (c1 == 117 || c1 == 105) && c2 == 49 {
+                    saw_16 = true;
+                }
+            }
+            if c1 == 42 {
+                saw_64 = true;
+            }
+            j = j + 1;
+        }
+        if saw_u8 { elem_sz = 1 as usize; }
+        else if saw_16 { elem_sz = 2 as usize; }
+        else if saw_64 { elem_sz = 8 as usize; }
+
+        let mut count: usize = 0;
+        let mut k: usize = sep + 1;
+        while k < type_len {
+            let ch: u8 = unsafe { *(self.source + type_offset + k) };
+            if ch >= 48 && ch <= 57 {
+                count = count * 10 + (ch - 48) as usize;
+            }
+            k = k + 1;
+        }
+        if count == 0 { count = 1 as usize; }
+        return elem_sz * count;
+    }
+
+    pub fn find_global_bss(self: &Self, offset: usize, len: usize) -> isize {
+        let count: usize = unsafe { g_bss_sym_count };
+        let mut i: usize = 0;
+        while i < count {
+            if self.source_name_equals(unsafe { g_bss_sym_offsets[i] }, unsafe { g_bss_sym_lens[i] }, offset, len) {
+                return i as isize;
+            }
+            i = i + 1;
+        }
+        return -1;
+    }
+
+    pub fn lower_string_literal(mut self: &mut Self, expression_index: usize) -> u32 {
+        let node: AstNode = unsafe { *(self.nodes + expression_index) };
+        if node.str_len < 2 { return TARGET_VALUE_NONE; }
+        let rodata_start: usize = unsafe { g_rodata_len };
+        let mut src_i: usize = 1;
+        let end_i: usize = if unsafe { *(self.source + node.str_offset + node.str_len - 1) } == 34 {
+            node.str_len - 1
+        } else { node.str_len };
+        let mut cur_len: usize = rodata_start;
+        while src_i < end_i {
+            let mut ch: u8 = unsafe { *(self.source + node.str_offset + src_i) };
+            if ch == 92 && src_i + 1 < end_i {
+                src_i = src_i + 1;
+                let next_ch: u8 = unsafe { *(self.source + node.str_offset + src_i) };
+                if next_ch == 110 { ch = 10; }
+                else if next_ch == 114 { ch = 13; }
+                else if next_ch == 116 { ch = 9; }
+                else if next_ch == 48 { ch = 0; }
+                else if next_ch == 92 { ch = 92; }
+                else if next_ch == 34 { ch = 34; }
+                else { ch = next_ch; }
+            }
+            if cur_len < 65535 {
+                unsafe { g_rodata_buf[cur_len] = ch; }
+                cur_len = cur_len + 1;
+            }
+            src_i = src_i + 1;
+        }
+        if cur_len < 65536 {
+            unsafe { g_rodata_buf[cur_len] = 0; }
+            cur_len = cur_len + 1;
+        }
+        let str_bytes_len: usize = cur_len - rodata_start;
+        unsafe { g_rodata_len = cur_len; }
+
+        let sym_slice: TargetSourceSlice = self.append_synthetic_str_symbol(unsafe { g_rodata_sym_count });
+        let sym_idx: usize = unsafe { g_rodata_sym_count };
+        if sym_idx < 256 {
+            unsafe {
+                g_rodata_sym_offsets[sym_idx] = sym_slice.offset;
+                g_rodata_sym_lens[sym_idx] = sym_slice.length;
+                g_rodata_sym_places[sym_idx] = rodata_start;
+                g_rodata_sym_sizes[sym_idx] = str_bytes_len;
+                g_rodata_sym_count = sym_idx + 1;
+            }
+        }
+
+        let ptr_val: u32 = self.append_value(TargetTypeTag::Pointer, 0, 0);
+        if ptr_val == TARGET_VALUE_NONE { return TARGET_VALUE_NONE; }
+        if !self.append_instruction(
+            TargetOpcode::AllocStack, ptr_val, TargetTypeTag::Pointer,
+            0, 0, expression_index
+        ) {
+            return TARGET_VALUE_NONE;
+        }
+        let alloc_idx: usize = self.instruction_count - 1;
+        let mut instr: TargetInstruction = unsafe { *(self.instructions + alloc_idx) };
+        instr.immediate_bits = str_bytes_len as u64;
+        instr.symbol = sym_slice;
+        unsafe { *(self.instructions + alloc_idx) = instr; }
+        return ptr_val;
+    }
+
+    pub fn append_mangled_name(
+        mut self: &mut Self,
+        struct_offset: usize,
+        struct_len: usize,
+        method_offset: usize,
+        method_len: usize
+    ) -> TargetSourceSlice {
+        let name_off: usize = unsafe { g_extended_len };
+        let name_len: usize = struct_len + 1 + method_len;
+        let mut i: usize = 0;
+        let src_mut: *mut u8 = self.source as *mut u8;
+        while i < struct_len {
+            unsafe { *(src_mut + name_off + i) = *(self.source + struct_offset + i); }
+            i = i + 1;
+        }
+        unsafe { *(src_mut + name_off + struct_len) = 95; }
+        i = 0;
+        while i < method_len {
+            unsafe { *(src_mut + name_off + struct_len + 1 + i) = *(self.source + method_offset + i); }
+            i = i + 1;
+        }
+        unsafe { g_extended_len = g_extended_len + name_len; }
+        return TargetSourceSlice {
+            offset: name_off,
+            length: name_len
+        };
+    }
+
     pub fn new(
         nodes: *const AstNode,
         node_count: usize,
@@ -47,8 +281,12 @@ impl ScalarLowering {
         instruction_capacity: usize,
         operands: *mut TargetOperand,
         operand_capacity: usize,
+        phi_inputs: *mut TargetPhiInput,
+        phi_input_capacity: usize,
         blocks: *mut TargetBlock,
         block_capacity: usize,
+        targets: *mut u32,
+        target_capacity: usize,
         functions: *mut TargetFunction,
         function_capacity: usize
     ) -> ScalarLowering {
@@ -69,14 +307,45 @@ impl ScalarLowering {
             operands: operands,
             operand_capacity: operand_capacity,
             operand_count: 0,
+            phi_inputs: phi_inputs,
+            phi_input_capacity: phi_input_capacity,
+            phi_input_count: 0,
             blocks: blocks,
             block_capacity: block_capacity,
             block_count: 0,
+            targets: targets,
+            target_capacity: target_capacity,
+            target_count: 0,
             functions: functions,
             function_capacity: function_capacity,
             function_count: 0,
             next_value_id: 1,
-            error_node: 0
+            error_node: 0,
+            local_name_offsets: [0; 128],
+            local_name_lens: [0; 128],
+            local_value_ids: [0; 128],
+            local_struct_ids: [0; 128],
+            local_count: 0,
+            struct_name_offsets: [0; 32],
+            struct_name_lens: [0; 32],
+            struct_sizes: [0; 32],
+            struct_field_starts: [0; 32],
+            struct_field_counts: [0; 32],
+            struct_count: 0,
+            field_name_offsets: [0; 128],
+            field_name_lens: [0; 128],
+            field_offsets: [0; 128],
+            field_type_tags: [TargetTypeTag::Invalid; 128],
+            field_total_count: 0,
+            enum_name_offsets: [0; 32],
+            enum_name_lens: [0; 32],
+            enum_variant_starts: [0; 32],
+            enum_variant_counts: [0; 32],
+            enum_count: 0,
+            variant_name_offsets: [0; 256],
+            variant_name_lens: [0; 256],
+            variant_values: [0; 256],
+            variant_total_count: 0
         };
     }
 
@@ -85,8 +354,15 @@ impl ScalarLowering {
         self.parameter_count = 0;
         self.instruction_count = 0;
         self.operand_count = 0;
+        self.phi_input_count = 0;
         self.block_count = 0;
+        self.target_count = 0;
         self.function_count = 0;
+        self.local_count = 0;
+        self.struct_count = 0;
+        self.field_total_count = 0;
+        self.enum_count = 0;
+        self.variant_total_count = 0;
         self.next_value_id = 1;
         self.error_node = node_index;
         return false;
@@ -97,7 +373,35 @@ impl ScalarLowering {
             || type_index >= self.node_count {
             return TargetTypeTag::Invalid;
         }
+        let type_node: AstNode = unsafe { *(self.nodes + type_index) };
         let mut sem: Sema = Sema::new();
+        if type_node.kind == AstKind::TypeRef && type_node.str_len >= 1 {
+            let first_ch: u8 = unsafe { *(self.source + type_node.str_offset) };
+            if first_ch == 42 || first_ch == 38 {
+                return TargetTypeTag::Pointer;
+            }
+            if type_node.str_len == 4 && sem.source_slice_equals(
+                self.source, self.source_len, type_node.str_offset, type_node.str_len, "Self", 4
+            ) {
+                return TargetTypeTag::Pointer;
+            }
+        }
+        if type_node.kind == AstKind::TypeRef && sem.source_slice_equals(
+            self.source, self.source_len, type_node.str_offset, type_node.str_len,
+            "bool", 4
+        ) {
+            return TargetTypeTag::Bool;
+        }
+        if type_node.kind == AstKind::TypeRef && type_node.str_len >= 1 {
+            let struct_id: u32 = self.find_struct(type_node.str_offset, type_node.str_len);
+            if struct_id != 0 {
+                return TargetTypeTag::Pointer;
+            }
+            let enum_id: u32 = self.find_enum(type_node.str_offset, type_node.str_len);
+            if enum_id != 0 {
+                return TargetTypeTag::U32;
+            }
+        }
         let tag: i64 = sem.fixed_integer_type_tag(
             self.nodes,
             self.node_count,
@@ -152,6 +456,142 @@ impl ScalarLowering {
         return true;
     }
 
+    pub fn find_struct(
+        self: &Self,
+        name_offset: usize,
+        name_length: usize
+    ) -> u32 {
+        let mut i: usize = 0;
+        while i < self.struct_count {
+            if self.source_name_equals(
+                self.struct_name_offsets[i],
+                self.struct_name_lens[i],
+                name_offset,
+                name_length
+            ) {
+                return (i + 1) as u32;
+            }
+            i = i + 1;
+        }
+        return 0;
+    }
+
+    pub fn find_field(
+        self: &Self,
+        struct_id: u32,
+        name_offset: usize,
+        name_length: usize
+    ) -> u32 {
+        if struct_id == 0 || struct_id as usize > self.struct_count {
+            return 0;
+        }
+        let s_idx: usize = (struct_id - 1) as usize;
+        let start: usize = self.struct_field_starts[s_idx] as usize;
+        let count: usize = self.struct_field_counts[s_idx] as usize;
+        let mut i: usize = 0;
+        while i < count {
+            let f_idx: usize = start + i;
+            if self.source_name_equals(
+                self.field_name_offsets[f_idx],
+                self.field_name_lens[f_idx],
+                name_offset,
+                name_length
+            ) {
+                return (f_idx + 1) as u32;
+            }
+            i = i + 1;
+        }
+        return 0;
+    }
+
+    pub fn find_local_struct_id(
+        self: &Self,
+        name_offset: usize,
+        name_length: usize
+    ) -> u32 {
+        let mut local_offset: usize = self.local_count;
+        while local_offset > 0 {
+            local_offset = local_offset - 1;
+            if self.source_name_equals(
+                self.local_name_offsets[local_offset],
+                self.local_name_lens[local_offset],
+                name_offset,
+                name_length
+            ) {
+                return self.local_struct_ids[local_offset];
+            }
+        }
+        return 0;
+    }
+
+    pub fn parse_integer_value(
+        self: &Self,
+        offset: usize,
+        length: usize
+    ) -> u64 {
+        if offset > self.source_len || length > self.source_len - offset || length == 0 {
+            return 0;
+        }
+        let mut value: u64 = 0;
+        let mut i: usize = 0;
+        while i < length {
+            let ch: u8 = unsafe { *(self.source + offset + i) };
+            if ch >= 48 && ch <= 57 {
+                value = value * 10 + (ch - 48) as u64;
+            }
+            i = i + 1;
+        }
+        return value;
+    }
+
+    pub fn find_enum(
+        self: &Self,
+        name_offset: usize,
+        name_length: usize
+    ) -> u32 {
+        let mut i: usize = 0;
+        while i < self.enum_count {
+            if self.source_name_equals(
+                self.enum_name_offsets[i],
+                self.enum_name_lens[i],
+                name_offset,
+                name_length
+            ) {
+                return (i + 1) as u32;
+            }
+            i = i + 1;
+        }
+        return 0;
+    }
+
+    pub fn find_variant(
+        self: &Self,
+        enum_id: u32,
+        name_offset: usize,
+        name_length: usize
+    ) -> u64 {
+        if enum_id == 0 || enum_id as usize > self.enum_count {
+            return 0;
+        }
+        let e_idx: usize = (enum_id - 1) as usize;
+        let start: usize = self.enum_variant_starts[e_idx] as usize;
+        let count: usize = self.enum_variant_counts[e_idx] as usize;
+        let mut i: usize = 0;
+        while i < count {
+            let v_idx: usize = start + i;
+            if self.source_name_equals(
+                self.variant_name_offsets[v_idx],
+                self.variant_name_lens[v_idx],
+                name_offset,
+                name_length
+            ) {
+                return self.variant_values[v_idx];
+            }
+            i = i + 1;
+        }
+        return 0;
+    }
+
     pub fn append_value(
         mut self: &mut Self,
         type_tag: TargetTypeTag,
@@ -185,6 +625,16 @@ impl ScalarLowering {
             *(self.operands + self.operand_count) = TargetOperand::new(value_id);
         }
         self.operand_count = self.operand_count + 1;
+        return true;
+    }
+
+    pub fn append_target(mut self: &mut Self, block_id: u32) -> bool {
+        if self.targets == null || self.target_count >= self.target_capacity
+            || block_id == TARGET_BLOCK_NONE {
+            return false;
+        }
+        unsafe { *(self.targets + self.target_count) = block_id; }
+        self.target_count = self.target_count + 1;
         return true;
     }
 
@@ -291,13 +741,26 @@ impl ScalarLowering {
         name_offset: usize,
         name_length: usize
     ) -> u32 {
+        let mut local_offset: usize = self.local_count;
+        while local_offset > 0 {
+            local_offset = local_offset - 1;
+            if self.source_name_equals(
+                self.local_name_offsets[local_offset],
+                self.local_name_lens[local_offset],
+                name_offset,
+                name_length
+            ) {
+                return self.local_value_ids[local_offset];
+            }
+        }
         if self.parameters == null || self.values == null
             || first_parameter > self.parameter_count
             || parameter_count > self.parameter_count - first_parameter {
             return TARGET_VALUE_NONE;
         }
-        let mut parameter_offset: usize = 0;
-        while parameter_offset < parameter_count {
+        let mut parameter_offset: usize = parameter_count;
+        while parameter_offset > 0 {
+            parameter_offset = parameter_offset - 1;
             let parameter: TargetParameter = unsafe {
                 *(self.parameters + first_parameter + parameter_offset)
             };
@@ -309,7 +772,6 @@ impl ScalarLowering {
             ) {
                 return parameter.value_id;
             }
-            parameter_offset = parameter_offset + 1;
         }
         return TARGET_VALUE_NONE;
     }
@@ -327,15 +789,312 @@ impl ScalarLowering {
         }
         let expression: AstNode = unsafe { *(self.nodes + expression_index) };
         if expression.kind == AstKind::ExprLiteral {
+            let first_ch: u8 = unsafe { *(self.source + expression.str_offset) };
+            if first_ch == 34 {
+                return self.lower_string_literal(expression_index);
+            }
             return self.lower_integer_literal(expression_index, type_tag);
         }
         if expression.kind == AstKind::ExprIdent {
-            return self.find_parameter_value(
+            let local_val: u32 = self.find_parameter_value(
                 first_parameter,
                 parameter_count,
                 expression.str_offset,
                 expression.str_len
             );
+            if local_val != TARGET_VALUE_NONE {
+                return local_val;
+            }
+            let g_idx: isize = self.find_global_bss(expression.str_offset, expression.str_len);
+            if g_idx >= 0 {
+                let gi: usize = g_idx as usize;
+                let ptr_val: u32 = self.append_value(TargetTypeTag::Pointer, 0, 0);
+                if ptr_val == TARGET_VALUE_NONE { return TARGET_VALUE_NONE; }
+                let sym_slice: TargetSourceSlice = TargetSourceSlice {
+                    offset: expression.str_offset,
+                    length: expression.str_len
+                };
+                if !self.append_instruction(
+                    TargetOpcode::AllocStack, ptr_val, TargetTypeTag::Pointer,
+                    0, 0, expression_index
+                ) {
+                    return TARGET_VALUE_NONE;
+                }
+                let alloc_idx: usize = self.instruction_count - 1;
+                let mut instr: TargetInstruction = unsafe { *(self.instructions + alloc_idx) };
+                instr.immediate_bits = unsafe { g_bss_sym_sizes[gi] } as u64;
+                instr.symbol = sym_slice;
+                unsafe { *(self.instructions + alloc_idx) = instr; }
+
+                if unsafe { g_bss_sym_is_array[gi] } != 0 {
+                    return ptr_val;
+                }
+                let actual_type: TargetTypeTag = if type_tag != TargetTypeTag::Invalid && type_tag != TargetTypeTag::Void { type_tag }
+                    else { unsafe { g_bss_sym_types[gi] } as TargetTypeTag };
+                let val_id: u32 = self.append_value(actual_type, 0, 0);
+                let first_op: u32 = self.operand_count as u32;
+                if !self.append_operand(ptr_val) { return TARGET_VALUE_NONE; }
+                if !self.append_instruction(
+                    TargetOpcode::Load, val_id, actual_type,
+                    first_op, 1, expression_index
+                ) {
+                    return TARGET_VALUE_NONE;
+                }
+                let load_idx: usize = self.instruction_count - 1;
+                unsafe { (*(self.instructions + load_idx)).immediate_bits = 0; }
+                return val_id;
+            }
+            return TARGET_VALUE_NONE;
+        }
+        if expression.kind == AstKind::ExprCall {
+            if expression.first_child == 0 || expression.first_child >= self.node_count {
+                return TARGET_VALUE_NONE;
+            }
+            let callee: AstNode = unsafe { *(self.nodes + expression.first_child) };
+            let mut callee_symbol: TargetSourceSlice = TargetSourceSlice::empty();
+            let first_operand: u32 = self.operand_count as u32;
+            let mut argument_count: u32 = 0;
+            let mut argument_index: usize = callee.next_sibling;
+
+            if callee.kind == AstKind::ExprIdent {
+                if callee.str_len == 0
+                    || callee.str_offset > self.source_len
+                    || callee.str_len > self.source_len - callee.str_offset {
+                    return TARGET_VALUE_NONE;
+                }
+                callee_symbol = TargetSourceSlice {
+                    offset: callee.str_offset,
+                    length: callee.str_len
+                };
+            } else if callee.kind == AstKind::ExprPath {
+                let mut sep: usize = 0;
+                let mut i: usize = 0;
+                while i + 1 < callee.str_len {
+                    let c1: u8 = unsafe { *(self.source + callee.str_offset + i) };
+                    let c2: u8 = unsafe { *(self.source + callee.str_offset + i + 1) };
+                    if c1 == 58 && c2 == 58 {
+                        sep = i;
+                        break;
+                    }
+                    i = i + 1;
+                }
+                if sep == 0 { return TARGET_VALUE_NONE; }
+                let s_off: usize = callee.str_offset;
+                let s_len: usize = sep;
+                let m_off: usize = callee.str_offset + sep + 2;
+                let m_len: usize = callee.str_len - (sep + 2);
+                callee_symbol = self.append_mangled_name(s_off, s_len, m_off, m_len);
+            } else if callee.kind == AstKind::ExprFieldAccess {
+                let base_index: usize = callee.first_child;
+                if base_index == 0 || base_index >= self.node_count { return TARGET_VALUE_NONE; }
+                let base_node: AstNode = unsafe { *(self.nodes + base_index) };
+                if base_node.kind != AstKind::ExprIdent { return TARGET_VALUE_NONE; }
+                let struct_id: u32 = self.find_local_struct_id(base_node.str_offset, base_node.str_len);
+                let base_ptr: u32 = self.find_parameter_value(first_parameter, parameter_count, base_node.str_offset, base_node.str_len);
+                if struct_id == 0 || base_ptr == TARGET_VALUE_NONE { return TARGET_VALUE_NONE; }
+                let s_idx: usize = (struct_id - 1) as usize;
+                let s_off: usize = self.struct_name_offsets[s_idx];
+                let s_len: usize = self.struct_name_lens[s_idx];
+                let m_off: usize = callee.str_offset;
+                let m_len: usize = callee.str_len;
+                callee_symbol = self.append_mangled_name(s_off, s_len, m_off, m_len);
+                if !self.append_operand(base_ptr) { return TARGET_VALUE_NONE; }
+                argument_count = argument_count + 1;
+            } else {
+                return TARGET_VALUE_NONE;
+            }
+
+            while argument_index != 0 {
+                if argument_index >= self.node_count || argument_count >= 6 {
+                    return TARGET_VALUE_NONE;
+                }
+                let argument_value: u32 = self.lower_expression(
+                    argument_index, TargetTypeTag::U32, first_parameter, parameter_count
+                );
+                if argument_value == TARGET_VALUE_NONE || !self.append_operand(argument_value) {
+                    return TARGET_VALUE_NONE;
+                }
+                argument_count = argument_count + 1;
+                argument_index = unsafe { (*(self.nodes + argument_index)).next_sibling };
+            }
+            let actual_type: TargetTypeTag = if type_tag != TargetTypeTag::Invalid && type_tag != TargetTypeTag::Void { type_tag } else { TargetTypeTag::U32 };
+            let result: u32 = self.append_value(actual_type, 0, 0);
+            if result == TARGET_VALUE_NONE || !self.append_instruction(
+                TargetOpcode::Call, result, actual_type,
+                first_operand, argument_count, expression_index
+            ) {
+                return TARGET_VALUE_NONE;
+            }
+            let call_index: usize = self.instruction_count - 1;
+            let mut call: TargetInstruction = unsafe { *(self.instructions + call_index) };
+            call.symbol = callee_symbol;
+            unsafe { *(self.instructions + call_index) = call; }
+            return result;
+        }
+        if expression.kind == AstKind::ExprStructLiteral {
+            let struct_id: u32 = self.find_struct(expression.str_offset, expression.str_len);
+            if struct_id == 0 {
+                return TARGET_VALUE_NONE;
+            }
+            let s_idx: usize = (struct_id - 1) as usize;
+            let struct_size: u32 = self.struct_sizes[s_idx];
+            let ptr_value: u32 = self.append_value(TargetTypeTag::Pointer, 0, 0);
+            if ptr_value == TARGET_VALUE_NONE {
+                return TARGET_VALUE_NONE;
+            }
+            if !self.append_instruction(
+                TargetOpcode::AllocStack, ptr_value, TargetTypeTag::Pointer,
+                0, 0, expression_index
+            ) {
+                return TARGET_VALUE_NONE;
+            }
+            let alloc_idx: usize = self.instruction_count - 1;
+            unsafe {
+                (*(self.instructions + alloc_idx)).immediate_bits = struct_size as u64;
+            }
+
+            let mut init_index: usize = expression.first_child;
+            while init_index != 0 {
+                if init_index >= self.node_count {
+                    return TARGET_VALUE_NONE;
+                }
+                let init_node: AstNode = unsafe { *(self.nodes + init_index) };
+                if init_node.kind == AstKind::StructFieldInit {
+                    let field_id: u32 = self.find_field(
+                        struct_id, init_node.str_offset, init_node.str_len
+                    );
+                    if field_id == 0 {
+                        return TARGET_VALUE_NONE;
+                    }
+                    let f_idx: usize = (field_id - 1) as usize;
+                    let f_offset: u32 = self.field_offsets[f_idx];
+                    let f_type: TargetTypeTag = self.field_type_tags[f_idx];
+                    let val_expr_index: usize = init_node.first_child;
+                    if val_expr_index == 0 || val_expr_index >= self.node_count {
+                        return TARGET_VALUE_NONE;
+                    }
+                    let val_id: u32 = self.lower_expression(
+                        val_expr_index, f_type, first_parameter, parameter_count
+                    );
+                    if val_id == TARGET_VALUE_NONE {
+                        return TARGET_VALUE_NONE;
+                    }
+                    let first_op: u32 = self.operand_count as u32;
+                    if !self.append_operand(ptr_value) || !self.append_operand(val_id) {
+                        return TARGET_VALUE_NONE;
+                    }
+                    if !self.append_instruction(
+                        TargetOpcode::Store, TARGET_VALUE_NONE, f_type,
+                        first_op, 2, init_index
+                    ) {
+                        return TARGET_VALUE_NONE;
+                    }
+                    let store_idx: usize = self.instruction_count - 1;
+                    unsafe {
+                        (*(self.instructions + store_idx)).immediate_bits = f_offset as u64;
+                    }
+                }
+                init_index = init_node.next_sibling;
+            }
+            return ptr_value;
+        }
+        if expression.kind == AstKind::ExprFieldAccess {
+            let base_expr_index: usize = expression.first_child;
+            if base_expr_index == 0 || base_expr_index >= self.node_count {
+                return TARGET_VALUE_NONE;
+            }
+            let base_node: AstNode = unsafe { *(self.nodes + base_expr_index) };
+            let mut struct_id: u32 = 0;
+            let mut base_ptr_val: u32 = TARGET_VALUE_NONE;
+            if base_node.kind == AstKind::ExprIdent {
+                struct_id = self.find_local_struct_id(base_node.str_offset, base_node.str_len);
+                base_ptr_val = self.find_parameter_value(
+                    first_parameter, parameter_count, base_node.str_offset, base_node.str_len
+                );
+            } else if base_node.kind == AstKind::ExprStructLiteral {
+                base_ptr_val = self.lower_expression(
+                    base_expr_index, TargetTypeTag::Pointer, first_parameter, parameter_count
+                );
+                struct_id = self.find_struct(base_node.str_offset, base_node.str_len);
+            }
+            if struct_id == 0 || base_ptr_val == TARGET_VALUE_NONE {
+                return TARGET_VALUE_NONE;
+            }
+            let field_id: u32 = self.find_field(
+                struct_id, expression.str_offset, expression.str_len
+            );
+            if field_id == 0 {
+                return TARGET_VALUE_NONE;
+            }
+            let f_idx: usize = (field_id - 1) as usize;
+            let f_offset: u32 = self.field_offsets[f_idx];
+            let f_type: TargetTypeTag = self.field_type_tags[f_idx];
+            let first_op: u32 = self.operand_count as u32;
+            if !self.append_operand(base_ptr_val) {
+                return TARGET_VALUE_NONE;
+            }
+            let result_val: u32 = self.append_value(f_type, 0, 0);
+            if result_val == TARGET_VALUE_NONE {
+                return TARGET_VALUE_NONE;
+            }
+            if !self.append_instruction(
+                TargetOpcode::Load, result_val, f_type,
+                first_op, 1, expression_index
+            ) {
+                return TARGET_VALUE_NONE;
+            }
+            let load_idx: usize = self.instruction_count - 1;
+            unsafe {
+                (*(self.instructions + load_idx)).immediate_bits = f_offset as u64;
+            }
+            return result_val;
+        }
+        if expression.kind == AstKind::ExprPath {
+            let mut sep_index: usize = 0;
+            let mut found_sep: bool = false;
+            let mut i: usize = 0;
+            while i + 1 < expression.str_len {
+                let c1: u8 = unsafe { *(self.source + expression.str_offset + i) };
+                let c2: u8 = unsafe { *(self.source + expression.str_offset + i + 1) };
+                if c1 == 58 && c2 == 58 {
+                    sep_index = i;
+                    found_sep = true;
+                    break;
+                }
+                i = i + 1;
+            }
+            if !found_sep {
+                return TARGET_VALUE_NONE;
+            }
+            let enum_offset: usize = expression.str_offset;
+            let enum_len: usize = sep_index;
+            let variant_offset: usize = expression.str_offset + sep_index + 2;
+            let variant_len: usize = expression.str_len - (sep_index + 2);
+            let enum_id: u32 = self.find_enum(enum_offset, enum_len);
+            if enum_id == 0 {
+                return TARGET_VALUE_NONE;
+            }
+            let variant_val: u64 = self.find_variant(enum_id, variant_offset, variant_len);
+            let actual_type: TargetTypeTag = if type_tag != TargetTypeTag::Invalid { type_tag } else { TargetTypeTag::U32 };
+            let val_id: u32 = self.append_value(actual_type, 0, 0);
+            if val_id == TARGET_VALUE_NONE {
+                return TARGET_VALUE_NONE;
+            }
+            if !self.append_instruction(
+                TargetOpcode::ConstInt,
+                val_id,
+                actual_type,
+                0,
+                0,
+                expression_index
+            ) {
+                return TARGET_VALUE_NONE;
+            }
+            let const_idx: usize = self.instruction_count - 1;
+            unsafe {
+                (*(self.instructions + const_idx)).immediate_bits = variant_val;
+            }
+            return val_id;
         }
         if expression.kind != AstKind::ExprBinary
             || expression.first_child == 0
@@ -384,11 +1143,868 @@ impl ScalarLowering {
         }
         return result;
     }
+
+    pub fn lower_return_statement(
+        mut self: &mut Self,
+        return_index: usize,
+        return_type: TargetTypeTag,
+        first_parameter: usize,
+        parameter_count: usize
+    ) -> bool {
+        if return_index == 0 || return_index >= self.node_count {
+            return false;
+        }
+        let return_node: AstNode = unsafe { *(self.nodes + return_index) };
+        if return_node.kind != AstKind::ReturnStmt || return_node.first_child == 0
+            || return_node.first_child >= self.node_count
+            || return_node.next_sibling != 0 {
+            return false;
+        }
+        let expression_index: usize = return_node.first_child;
+        if unsafe { (*(self.nodes + expression_index)).next_sibling } != 0 {
+            return false;
+        }
+        let result: u32 = self.lower_expression(
+            expression_index, return_type, first_parameter, parameter_count
+        );
+        if result == TARGET_VALUE_NONE { return false; }
+        let first_operand: u32 = self.operand_count as u32;
+        return self.append_operand(result)
+            && self.append_instruction(
+                TargetOpcode::Return, TARGET_VALUE_NONE, return_type,
+                first_operand, 1, return_index
+            );
+    }
+
+    pub fn lower_condition_expression(
+        mut self: &mut Self,
+        expression_index: usize,
+        first_parameter: usize,
+        parameter_count: usize
+    ) -> u32 {
+        if expression_index == 0 || expression_index >= self.node_count {
+            return TARGET_VALUE_NONE;
+        }
+        let expression: AstNode = unsafe { *(self.nodes + expression_index) };
+        if expression.kind == AstKind::ExprIdent {
+            let value_id: u32 = self.find_parameter_value(
+                first_parameter, parameter_count, expression.str_offset, expression.str_len
+            );
+            if value_id == TARGET_VALUE_NONE || self.values == null { return TARGET_VALUE_NONE; }
+            if unsafe { (*(self.values + value_id as usize - 1)).type_tag } != TargetTypeTag::Bool {
+                return TARGET_VALUE_NONE;
+            }
+            return value_id;
+        }
+        if expression.kind != AstKind::ExprBinary
+            || (expression.int_value < 86 || expression.int_value > 91)
+            || expression.first_child == 0 || expression.first_child >= self.node_count {
+            return TARGET_VALUE_NONE;
+        }
+        let left_index: usize = expression.first_child;
+        let right_index: usize = unsafe { (*(self.nodes + left_index)).next_sibling };
+        if right_index == 0 || right_index >= self.node_count
+            || unsafe { (*(self.nodes + right_index)).next_sibling } != 0 {
+            return TARGET_VALUE_NONE;
+        }
+        let left: u32 = self.lower_expression(
+            left_index, TargetTypeTag::U32, first_parameter, parameter_count
+        );
+        let right: u32 = self.lower_expression(
+            right_index, TargetTypeTag::U32, first_parameter, parameter_count
+        );
+        if left == TARGET_VALUE_NONE || right == TARGET_VALUE_NONE { return TARGET_VALUE_NONE; }
+        let first_operand: u32 = self.operand_count as u32;
+        if !self.append_operand(left) || !self.append_operand(right) {
+            return TARGET_VALUE_NONE;
+        }
+        let result: u32 = self.append_value(TargetTypeTag::Bool, 0, 0);
+        if result == TARGET_VALUE_NONE || !self.append_instruction(
+            TargetOpcode::Compare, result, TargetTypeTag::Bool, first_operand, 2, expression_index
+        ) {
+            return TARGET_VALUE_NONE;
+        }
+        let compare_index: usize = self.instruction_count - 1;
+        let mut compare: TargetInstruction = unsafe { *(self.instructions + compare_index) };
+        compare.immediate_bits = expression.int_value as u64;
+        unsafe { *(self.instructions + compare_index) = compare; }
+        return result;
+    }
+
+    pub fn lower_if_return_branches(
+        mut self: &mut Self,
+        if_index: usize,
+        return_type: TargetTypeTag,
+        first_parameter: usize,
+        parameter_count: usize,
+        entry_first_instruction: usize
+    ) -> bool {
+        if if_index == 0 || if_index >= self.node_count || self.blocks == null
+            || self.targets == null || self.block_count + 3 > self.block_capacity {
+            return false;
+        }
+        let if_node: AstNode = unsafe { *(self.nodes + if_index) };
+        if if_node.kind != AstKind::IfStmt || if_node.next_sibling != 0
+            || if_node.first_child == 0 || if_node.first_child >= self.node_count {
+            return false;
+        }
+        let condition_index: usize = if_node.first_child;
+        let condition: AstNode = unsafe { *(self.nodes + condition_index) };
+        let then_index: usize = condition.next_sibling;
+        if (condition.kind != AstKind::ExprIdent && condition.kind != AstKind::ExprBinary)
+            || then_index == 0
+            || then_index >= self.node_count {
+            return false;
+        }
+        let then_node: AstNode = unsafe { *(self.nodes + then_index) };
+        let else_index: usize = then_node.next_sibling;
+        if then_node.kind != AstKind::Block || else_index == 0
+            || else_index >= self.node_count {
+            return false;
+        }
+        let else_node: AstNode = unsafe { *(self.nodes + else_index) };
+        if else_node.kind != AstKind::Block || else_node.next_sibling != 0 {
+            return false;
+        }
+        let condition_value: u32 = self.lower_condition_expression(
+            condition_index, first_parameter, parameter_count
+        );
+        if condition_value == TARGET_VALUE_NONE || self.values == null {
+            return false;
+        }
+        let condition_type: TargetTypeTag = unsafe {
+            (*(self.values + condition_value as usize - 1)).type_tag
+        };
+        if condition_type != TargetTypeTag::Bool { return false; }
+
+        let entry_id: u32 = self.block_count as u32 + 1;
+        let then_id: u32 = entry_id + 1;
+        let else_id: u32 = entry_id + 2;
+        let condition_operand: u32 = self.operand_count as u32;
+        if !self.append_operand(condition_value)
+            || !self.append_instruction(
+                TargetOpcode::CondBranch, TARGET_VALUE_NONE, TargetTypeTag::Bool,
+                condition_operand, 1, if_index
+            ) {
+            return false;
+        }
+        let branch_index: usize = self.instruction_count - 1;
+        let first_target: u32 = self.target_count as u32;
+        if !self.append_target(then_id) || !self.append_target(else_id) {
+            return false;
+        }
+        let mut branch: TargetInstruction = unsafe {
+            *(self.instructions + branch_index)
+        };
+        branch.first_target = first_target;
+        branch.target_count = 2;
+        unsafe { *(self.instructions + branch_index) = branch; }
+        unsafe {
+            *(self.blocks + self.block_count) = TargetBlock {
+                id: entry_id,
+                label: TargetSourceSlice::empty(),
+                first_instruction: entry_first_instruction as u32,
+                instruction_count: (self.instruction_count - entry_first_instruction) as u32
+            };
+        }
+
+        let then_first_instruction: usize = self.instruction_count;
+        let then_return: usize = then_node.first_child;
+        if then_return == 0 || then_return >= self.node_count
+            || unsafe { (*(self.nodes + then_return)).next_sibling } != 0
+            || !self.lower_return_statement(
+                then_return, return_type, first_parameter, parameter_count
+            ) {
+            return false;
+        }
+        unsafe {
+            *(self.blocks + self.block_count + 1) = TargetBlock {
+                id: then_id,
+                label: TargetSourceSlice::empty(),
+                first_instruction: then_first_instruction as u32,
+                instruction_count: (self.instruction_count - then_first_instruction) as u32
+            };
+        }
+
+        let else_first_instruction: usize = self.instruction_count;
+        let else_return: usize = else_node.first_child;
+        if else_return == 0 || else_return >= self.node_count
+            || unsafe { (*(self.nodes + else_return)).next_sibling } != 0
+            || !self.lower_return_statement(
+                else_return, return_type, first_parameter, parameter_count
+            ) {
+            return false;
+        }
+        unsafe {
+            *(self.blocks + self.block_count + 2) = TargetBlock {
+                id: else_id,
+                label: TargetSourceSlice::empty(),
+                first_instruction: else_first_instruction as u32,
+                instruction_count: (self.instruction_count - else_first_instruction) as u32
+            };
+        }
+        self.block_count = self.block_count + 3;
+        return true;
+    }
+
+    // Lower a deliberately explicit loop slice: `while condition { break; }
+    // return value;` or its `continue` form. This creates a real conditional
+    // backedge/exit and loop jump semantics; other body shapes remain closed.
+    pub fn lower_while_jump_then_return(
+        mut self: &mut Self,
+        while_index: usize,
+        return_index: usize,
+        return_type: TargetTypeTag,
+        first_parameter: usize,
+        parameter_count: usize,
+        entry_first_instruction: usize
+    ) -> bool {
+        if while_index == 0 || while_index >= self.node_count
+            || return_index == 0 || return_index >= self.node_count
+            || self.blocks == null || self.targets == null
+            || self.block_count + 3 > self.block_capacity {
+            return false;
+        }
+        let while_node: AstNode = unsafe { *(self.nodes + while_index) };
+        let return_node: AstNode = unsafe { *(self.nodes + return_index) };
+        if while_node.kind != AstKind::WhileStmt || while_node.next_sibling != return_index
+            || return_node.kind != AstKind::ReturnStmt || return_node.next_sibling != 0
+            || while_node.first_child == 0 || while_node.first_child >= self.node_count {
+            return false;
+        }
+        let condition_index: usize = while_node.first_child;
+        let condition_node: AstNode = unsafe { *(self.nodes + condition_index) };
+        let body_index: usize = condition_node.next_sibling;
+        if body_index == 0 || body_index >= self.node_count
+            || unsafe { (*(self.nodes + body_index)).next_sibling } != 0 {
+            return false;
+        }
+        let body: AstNode = unsafe { *(self.nodes + body_index) };
+        let jump_index: usize = body.first_child;
+        if body.kind != AstKind::Block || jump_index == 0 || jump_index >= self.node_count
+            || (unsafe { (*(self.nodes + jump_index)).kind } != AstKind::ContinueStmt
+                && unsafe { (*(self.nodes + jump_index)).kind } != AstKind::BreakStmt)
+            || unsafe { (*(self.nodes + jump_index)).next_sibling } != 0 {
+            return false;
+        }
+
+        let first_block: usize = self.block_count;
+        let entry_id: u32 = first_block as u32 + 1;
+        let body_id: u32 = entry_id + 1;
+        let exit_id: u32 = entry_id + 2;
+        let condition_value: u32 = self.lower_condition_expression(
+            condition_index, first_parameter, parameter_count
+        );
+        if condition_value == TARGET_VALUE_NONE || self.values == null
+            || unsafe { (*(self.values + condition_value as usize - 1)).type_tag } != TargetTypeTag::Bool {
+            return false;
+        }
+        let condition_operand: u32 = self.operand_count as u32;
+        if !self.append_operand(condition_value)
+            || !self.append_instruction(
+                TargetOpcode::CondBranch, TARGET_VALUE_NONE, TargetTypeTag::Bool,
+                condition_operand, 1, while_index
+            ) {
+            return false;
+        }
+        let condition_branch_index: usize = self.instruction_count - 1;
+        let condition_first_target: u32 = self.target_count as u32;
+        if !self.append_target(body_id) || !self.append_target(exit_id) {
+            return false;
+        }
+        let mut condition_branch: TargetInstruction = unsafe {
+            *(self.instructions + condition_branch_index)
+        };
+        condition_branch.first_target = condition_first_target;
+        condition_branch.target_count = 2;
+        unsafe { *(self.instructions + condition_branch_index) = condition_branch; }
+        unsafe {
+            *(self.blocks + first_block) = TargetBlock {
+                id: entry_id,
+                label: TargetSourceSlice::empty(),
+                first_instruction: entry_first_instruction as u32,
+                instruction_count: (self.instruction_count - entry_first_instruction) as u32
+            };
+        }
+
+        let body_first_instruction: usize = self.instruction_count;
+        let jump_kind: AstKind = unsafe { (*(self.nodes + jump_index)).kind };
+        let body_target: u32 = if jump_kind == AstKind::BreakStmt { exit_id } else { entry_id };
+        if !self.append_instruction(
+            TargetOpcode::Branch, TARGET_VALUE_NONE, TargetTypeTag::Invalid,
+            self.operand_count as u32, 0, jump_index
+        ) {
+            return false;
+        }
+        let body_branch_index: usize = self.instruction_count - 1;
+        let body_first_target: u32 = self.target_count as u32;
+        if !self.append_target(body_target) { return false; }
+        let mut body_branch: TargetInstruction = unsafe {
+            *(self.instructions + body_branch_index)
+        };
+        body_branch.first_target = body_first_target;
+        body_branch.target_count = 1;
+        unsafe { *(self.instructions + body_branch_index) = body_branch; }
+        unsafe {
+            *(self.blocks + first_block + 1) = TargetBlock {
+                id: body_id,
+                label: TargetSourceSlice::empty(),
+                first_instruction: body_first_instruction as u32,
+                instruction_count: (self.instruction_count - body_first_instruction) as u32
+            };
+        }
+
+        let exit_first_instruction: usize = self.instruction_count;
+        if !self.lower_return_statement(
+            return_index, return_type, first_parameter, parameter_count
+        ) {
+            return false;
+        }
+        unsafe {
+            *(self.blocks + first_block + 2) = TargetBlock {
+                id: exit_id,
+                label: TargetSourceSlice::empty(),
+                first_instruction: exit_first_instruction as u32,
+                instruction_count: (self.instruction_count - exit_first_instruction) as u32
+            };
+        }
+        self.block_count = self.block_count + 3;
+        return true;
+    }
+    pub fn lower_while_if_jumps_then_return(
+        mut self: &mut Self,
+        while_index: usize,
+        return_index: usize,
+        return_type: TargetTypeTag,
+        first_parameter: usize,
+        parameter_count: usize,
+        entry_first_instruction: usize
+    ) -> bool {
+        if while_index == 0 || while_index >= self.node_count
+            || return_index == 0 || return_index >= self.node_count
+            || self.blocks == null || self.targets == null
+            || self.block_count + 5 > self.block_capacity {
+            return false;
+        }
+        let while_node: AstNode = unsafe { *(self.nodes + while_index) };
+        let return_node: AstNode = unsafe { *(self.nodes + return_index) };
+        if while_node.kind != AstKind::WhileStmt || while_node.next_sibling != return_index
+            || return_node.kind != AstKind::ReturnStmt || return_node.next_sibling != 0
+            || while_node.first_child == 0 || while_node.first_child >= self.node_count {
+            return false;
+        }
+        let condition_index: usize = while_node.first_child;
+        let while_condition: AstNode = unsafe { *(self.nodes + condition_index) };
+        let body_index: usize = while_condition.next_sibling;
+        if body_index == 0 || body_index >= self.node_count
+            || unsafe { (*(self.nodes + body_index)).next_sibling } != 0 {
+            return false;
+        }
+        let body: AstNode = unsafe { *(self.nodes + body_index) };
+        let if_index: usize = body.first_child;
+        if body.kind != AstKind::Block || if_index == 0 || if_index >= self.node_count
+            || unsafe { (*(self.nodes + if_index)).kind } != AstKind::IfStmt
+            || unsafe { (*(self.nodes + if_index)).next_sibling } != 0 {
+            return false;
+        }
+        let if_node: AstNode = unsafe { *(self.nodes + if_index) };
+        let test_index: usize = if_node.first_child;
+        if test_index == 0 || test_index >= self.node_count { return false; }
+        let test_node: AstNode = unsafe { *(self.nodes + test_index) };
+        let then_index: usize = test_node.next_sibling;
+        if then_index == 0 || then_index >= self.node_count { return false; }
+        let then_node: AstNode = unsafe { *(self.nodes + then_index) };
+        let else_index: usize = then_node.next_sibling;
+        if then_node.kind != AstKind::Block || else_index == 0 || else_index >= self.node_count
+            || unsafe { (*(self.nodes + else_index)).next_sibling } != 0 {
+            return false;
+        }
+        let else_node: AstNode = unsafe { *(self.nodes + else_index) };
+        let then_jump: usize = then_node.first_child;
+        let else_jump: usize = else_node.first_child;
+        if else_node.kind != AstKind::Block || then_jump == 0 || else_jump == 0
+            || then_jump >= self.node_count || else_jump >= self.node_count
+            || unsafe { (*(self.nodes + then_jump)).next_sibling } != 0
+            || unsafe { (*(self.nodes + else_jump)).next_sibling } != 0 {
+            return false;
+        }
+        let then_kind: AstKind = unsafe { (*(self.nodes + then_jump)).kind };
+        let else_kind: AstKind = unsafe { (*(self.nodes + else_jump)).kind };
+        if (then_kind != AstKind::BreakStmt && then_kind != AstKind::ContinueStmt)
+            || (else_kind != AstKind::BreakStmt && else_kind != AstKind::ContinueStmt) {
+            return false;
+        }
+
+        let first_block: usize = self.block_count;
+        let entry_id: u32 = first_block as u32 + 1;
+        let body_id: u32 = entry_id + 1;
+        let then_id: u32 = entry_id + 2;
+        let else_id: u32 = entry_id + 3;
+        let exit_id: u32 = entry_id + 4;
+
+        let while_value: u32 = self.lower_condition_expression(
+            condition_index, first_parameter, parameter_count
+        );
+        if while_value == TARGET_VALUE_NONE || self.values == null
+            || unsafe { (*(self.values + while_value as usize - 1)).type_tag } != TargetTypeTag::Bool {
+            return false;
+        }
+        let entry_operand: u32 = self.operand_count as u32;
+        if !self.append_operand(while_value)
+            || !self.append_instruction(
+                TargetOpcode::CondBranch, TARGET_VALUE_NONE, TargetTypeTag::Bool,
+                entry_operand, 1, while_index
+            ) {
+            return false;
+        }
+        let entry_branch_index: usize = self.instruction_count - 1;
+        let entry_targets: u32 = self.target_count as u32;
+        if !self.append_target(body_id) || !self.append_target(exit_id) { return false; }
+        let mut entry_branch: TargetInstruction = unsafe { *(self.instructions + entry_branch_index) };
+        entry_branch.first_target = entry_targets;
+        entry_branch.target_count = 2;
+        unsafe { *(self.instructions + entry_branch_index) = entry_branch; }
+        unsafe {
+            *(self.blocks + first_block) = TargetBlock {
+                id: entry_id, label: TargetSourceSlice::empty(),
+                first_instruction: entry_first_instruction as u32,
+                instruction_count: (self.instruction_count - entry_first_instruction) as u32
+            };
+        }
+
+        let body_first_instruction: usize = self.instruction_count;
+        let test_value: u32 = self.lower_condition_expression(
+            test_index, first_parameter, parameter_count
+        );
+        if test_value == TARGET_VALUE_NONE
+            || unsafe { (*(self.values + test_value as usize - 1)).type_tag } != TargetTypeTag::Bool {
+            return false;
+        }
+        let test_operand: u32 = self.operand_count as u32;
+        if !self.append_operand(test_value)
+            || !self.append_instruction(
+                TargetOpcode::CondBranch, TARGET_VALUE_NONE, TargetTypeTag::Bool,
+                test_operand, 1, if_index
+            ) {
+            return false;
+        }
+        let body_branch_index: usize = self.instruction_count - 1;
+        let body_targets: u32 = self.target_count as u32;
+        if !self.append_target(then_id) || !self.append_target(else_id) { return false; }
+        let mut body_branch: TargetInstruction = unsafe { *(self.instructions + body_branch_index) };
+        body_branch.first_target = body_targets;
+        body_branch.target_count = 2;
+        unsafe { *(self.instructions + body_branch_index) = body_branch; }
+        unsafe {
+            *(self.blocks + first_block + 1) = TargetBlock {
+                id: body_id, label: TargetSourceSlice::empty(),
+                first_instruction: body_first_instruction as u32,
+                instruction_count: (self.instruction_count - body_first_instruction) as u32
+            };
+        }
+
+        let then_first_instruction: usize = self.instruction_count;
+        let then_target: u32 = if then_kind == AstKind::BreakStmt { exit_id } else { entry_id };
+        if !self.append_instruction(
+            TargetOpcode::Branch, TARGET_VALUE_NONE, TargetTypeTag::Invalid,
+            self.operand_count as u32, 0, then_jump
+        ) { return false; }
+        let then_branch_index: usize = self.instruction_count - 1;
+        let then_targets: u32 = self.target_count as u32;
+        if !self.append_target(then_target) { return false; }
+        let mut then_branch: TargetInstruction = unsafe { *(self.instructions + then_branch_index) };
+        then_branch.first_target = then_targets;
+        then_branch.target_count = 1;
+        unsafe { *(self.instructions + then_branch_index) = then_branch; }
+        unsafe {
+            *(self.blocks + first_block + 2) = TargetBlock {
+                id: then_id, label: TargetSourceSlice::empty(),
+                first_instruction: then_first_instruction as u32,
+                instruction_count: (self.instruction_count - then_first_instruction) as u32
+            };
+        }
+
+        let else_first_instruction: usize = self.instruction_count;
+        let else_target: u32 = if else_kind == AstKind::BreakStmt { exit_id } else { entry_id };
+        if !self.append_instruction(
+            TargetOpcode::Branch, TARGET_VALUE_NONE, TargetTypeTag::Invalid,
+            self.operand_count as u32, 0, else_jump
+        ) { return false; }
+        let else_branch_index: usize = self.instruction_count - 1;
+        let else_targets: u32 = self.target_count as u32;
+        if !self.append_target(else_target) { return false; }
+        let mut else_branch: TargetInstruction = unsafe { *(self.instructions + else_branch_index) };
+        else_branch.first_target = else_targets;
+        else_branch.target_count = 1;
+        unsafe { *(self.instructions + else_branch_index) = else_branch; }
+        unsafe {
+            *(self.blocks + first_block + 3) = TargetBlock {
+                id: else_id, label: TargetSourceSlice::empty(),
+                first_instruction: else_first_instruction as u32,
+                instruction_count: (self.instruction_count - else_first_instruction) as u32
+            };
+        }
+
+        let exit_first_instruction: usize = self.instruction_count;
+        if !self.lower_return_statement(
+            return_index, return_type, first_parameter, parameter_count
+        ) { return false; }
+        unsafe {
+            *(self.blocks + first_block + 4) = TargetBlock {
+                id: exit_id, label: TargetSourceSlice::empty(),
+                first_instruction: exit_first_instruction as u32,
+                instruction_count: (self.instruction_count - exit_first_instruction) as u32
+            };
+        }
+        self.block_count = self.block_count + 5;
+        return true;
+    }
+
+    pub fn lower_declared_function(
+        mut self: &mut Self,
+        function_node: AstNode,
+        function_index: usize,
+        fn_name: TargetSourceSlice,
+        impl_struct_id: u32
+    ) -> bool {
+        if self.function_count >= self.function_capacity || self.functions == null {
+            return self.reject(function_index);
+        }
+        let mut function_is_external: bool = true;
+        let mut signature_scan: usize = function_node.first_child;
+        while signature_scan != 0 && signature_scan < self.node_count {
+            if unsafe { (*(self.nodes + signature_scan)).kind } == AstKind::Block {
+                function_is_external = false;
+                break;
+            }
+            signature_scan = unsafe { (*(self.nodes + signature_scan)).next_sibling };
+        }
+        let first_parameter: usize = self.parameter_count;
+        self.local_count = 0;
+        let mut return_type: TargetTypeTag = TargetTypeTag::Invalid;
+        let mut body_index: usize = 0;
+        let mut child_index: usize = function_node.first_child;
+        let mut is_first_param: bool = true;
+        while child_index != 0 {
+            if child_index >= self.node_count {
+                return self.reject(function_index);
+            }
+            let child: AstNode = unsafe { *(self.nodes + child_index) };
+            if child.kind == AstKind::ParamDecl {
+                if child.first_child == 0 || child.first_child >= self.node_count
+                    || self.parameters == null
+                    || self.parameter_count >= self.parameter_capacity {
+                    return self.reject(child_index);
+                }
+                let type_index: usize = child.first_child;
+                let type_tag: TargetTypeTag = self.type_tag_for(type_index);
+                if type_tag == TargetTypeTag::Invalid || child.str_len == 0
+                    || (child.int_value != 0 && child.int_value != 1) {
+                    return self.reject(child_index);
+                }
+                let value_id: u32 = if function_is_external { TARGET_VALUE_NONE }
+                    else { self.append_value(type_tag, child.str_offset, child.str_len) };
+                if !function_is_external && value_id == TARGET_VALUE_NONE { return self.reject(child_index); }
+                unsafe {
+                    *(self.parameters + self.parameter_count) = TargetParameter {
+                        value_id: value_id,
+                        type_tag: type_tag,
+                        name: TargetSourceSlice {
+                            offset: child.str_offset,
+                            length: child.str_len
+                        }
+                    };
+                }
+                self.parameter_count = self.parameter_count + 1;
+                let is_self_param: bool = child.str_len == 4
+                    && unsafe { *(self.source + child.str_offset) == 115
+                        && *(self.source + child.str_offset + 1) == 101
+                        && *(self.source + child.str_offset + 2) == 108
+                        && *(self.source + child.str_offset + 3) == 102 };
+                if is_first_param && impl_struct_id != 0 && is_self_param {
+                    if self.local_count < 128 {
+                        self.local_name_offsets[self.local_count] = child.str_offset;
+                        self.local_name_lens[self.local_count] = child.str_len;
+                        self.local_value_ids[self.local_count] = value_id;
+                        self.local_struct_ids[self.local_count] = impl_struct_id;
+                        self.local_count = self.local_count + 1;
+                    }
+                }
+                is_first_param = false;
+            } else if child.kind == AstKind::TypeRef {
+                if return_type != TargetTypeTag::Invalid {
+                    return self.reject(child_index);
+                }
+                return_type = self.type_tag_for(child_index);
+                if return_type == TargetTypeTag::Invalid {
+                    return self.reject(child_index);
+                }
+            } else if child.kind == AstKind::Block {
+                if body_index != 0 {
+                    return self.reject(child_index);
+                }
+                body_index = child_index;
+                function_is_external = false;
+            } else {
+                return self.reject(child_index);
+            }
+            child_index = child.next_sibling;
+        }
+        if return_type == TargetTypeTag::Invalid {
+            return_type = TargetTypeTag::Void;
+        }
+        let function_param_count: usize = self.parameter_count - first_parameter;
+        if function_is_external {
+            if body_index != 0 { return self.reject(function_index); }
+            let external_function: TargetFunction = TargetFunction {
+                name: fn_name,
+                return_type: return_type,
+                first_parameter: first_parameter as u32,
+                parameter_count: function_param_count as u32,
+                first_block: self.block_count as u32,
+                block_count: 0,
+                flags: TARGET_FUNCTION_EXTERNAL
+            };
+            unsafe { *(self.functions + self.function_count) = external_function; }
+            self.function_count = self.function_count + 1;
+            return true;
+        }
+
+        if body_index == 0 || self.blocks == null {
+            return self.reject(function_index);
+        }
+        let first_block: usize = self.block_count;
+        let first_instruction: usize = self.instruction_count;
+        let mut statement_index: usize = unsafe { (*(self.nodes + body_index)).first_child };
+        let mut function_block_count: u32 = 0;
+        while statement_index != 0 {
+            if statement_index >= self.node_count {
+                return self.reject(statement_index);
+            }
+            let statement: AstNode = unsafe { *(self.nodes + statement_index) };
+            if statement.kind == AstKind::LetStmt {
+                let mut type_child: usize = 0;
+                let mut right_index: usize = 0;
+                if statement.first_child != 0 && statement.first_child < self.node_count {
+                    let first_c: AstNode = unsafe { *(self.nodes + statement.first_child) };
+                    if first_c.kind == AstKind::TypeRef {
+                        type_child = statement.first_child;
+                        right_index = first_c.next_sibling;
+                    } else {
+                        right_index = statement.first_child;
+                    }
+                }
+                if right_index == 0 || right_index >= self.node_count {
+                    return self.reject(statement_index);
+                }
+                let right_node: AstNode = unsafe { *(self.nodes + right_index) };
+                if right_node.kind == AstKind::ExprStructLiteral {
+                    let struct_id: u32 = self.find_struct(right_node.str_offset, right_node.str_len);
+                    if struct_id == 0 { return self.reject(statement_index); }
+                    let ptr_val: u32 = self.lower_expression(right_index, TargetTypeTag::Pointer, first_parameter, function_param_count);
+                    if ptr_val == TARGET_VALUE_NONE { return self.reject(statement_index); }
+                    if self.local_count >= 128 { return self.reject(statement_index); }
+                    self.local_name_offsets[self.local_count] = statement.str_offset;
+                    self.local_name_lens[self.local_count] = statement.str_len;
+                    self.local_value_ids[self.local_count] = ptr_val;
+                    self.local_struct_ids[self.local_count] = struct_id;
+                    self.local_count = self.local_count + 1;
+                    statement_index = statement.next_sibling;
+                    continue;
+                }
+                let mut var_type: TargetTypeTag = TargetTypeTag::Invalid;
+                if type_child != 0 && type_child < self.node_count {
+                    var_type = self.type_tag_for(type_child);
+                }
+                if var_type == TargetTypeTag::Invalid {
+                    let mut sem: Sema = Sema::new();
+                    if sem.expression_is_integer_literal(self.nodes, self.node_count, right_index, self.source, self.source_len) {
+                        var_type = TargetTypeTag::U32;
+                    } else if right_node.kind == AstKind::ExprPath {
+                        var_type = TargetTypeTag::U32;
+                    } else {
+                        var_type = TargetTypeTag::U32;
+                    }
+                }
+                let expr_value: u32 = self.lower_expression(right_index, var_type, first_parameter, function_param_count);
+                if expr_value == TARGET_VALUE_NONE { return self.reject(statement_index); }
+                if self.local_count >= 128 { return self.reject(statement_index); }
+                let struct_id: u32 = self.find_local_struct_id(statement.str_offset, statement.str_len);
+                self.local_name_offsets[self.local_count] = statement.str_offset;
+                self.local_name_lens[self.local_count] = statement.str_len;
+                self.local_value_ids[self.local_count] = expr_value;
+                self.local_struct_ids[self.local_count] = struct_id;
+                self.local_count = self.local_count + 1;
+                statement_index = statement.next_sibling;
+                continue;
+            } else if statement.kind == AstKind::AssignStmt {
+                let left_index: usize = statement.first_child;
+                let right_index: usize = unsafe { (*(self.nodes + left_index)).next_sibling };
+                if left_index == 0 || right_index == 0
+                    || left_index >= self.node_count || right_index >= self.node_count {
+                    return self.reject(statement_index);
+                }
+                let left_node: AstNode = unsafe { *(self.nodes + left_index) };
+                if left_node.kind == AstKind::ExprFieldAccess {
+                    let base_expr_idx: usize = left_node.first_child;
+                    if base_expr_idx == 0 || base_expr_idx >= self.node_count { return self.reject(statement_index); }
+                    let base_node: AstNode = unsafe { *(self.nodes + base_expr_idx) };
+                    if base_node.kind != AstKind::ExprIdent { return self.reject(statement_index); }
+                    let struct_id: u32 = self.find_local_struct_id(base_node.str_offset, base_node.str_len);
+                    let base_ptr: u32 = self.find_parameter_value(first_parameter, function_param_count, base_node.str_offset, base_node.str_len);
+                    if struct_id == 0 || base_ptr == TARGET_VALUE_NONE { return self.reject(statement_index); }
+                    let field_id: u32 = self.find_field(struct_id, left_node.str_offset, left_node.str_len);
+                    if field_id == 0 { return self.reject(statement_index); }
+                    let f_idx: usize = (field_id - 1) as usize;
+                    let f_offset: u32 = self.field_offsets[f_idx];
+                    let f_type: TargetTypeTag = self.field_type_tags[f_idx];
+                    let expr_value: u32 = self.lower_expression(right_index, f_type, first_parameter, function_param_count);
+                    if expr_value == TARGET_VALUE_NONE { return self.reject(statement_index); }
+                    let first_op: u32 = self.operand_count as u32;
+                    if !self.append_operand(base_ptr) || !self.append_operand(expr_value) { return self.reject(statement_index); }
+                    if !self.append_instruction(TargetOpcode::Store, TARGET_VALUE_NONE, f_type, first_op, 2, statement_index) { return self.reject(statement_index); }
+                    let store_idx: usize = self.instruction_count - 1;
+                    unsafe { (*(self.instructions + store_idx)).immediate_bits = f_offset as u64; }
+                    statement_index = statement.next_sibling;
+                    continue;
+                }
+                if left_node.kind != AstKind::ExprIdent { return self.reject(statement_index); }
+                let old_value_id: u32 = self.find_parameter_value(first_parameter, function_param_count, left_node.str_offset, left_node.str_len);
+                if old_value_id == TARGET_VALUE_NONE {
+                    let g_idx: isize = self.find_global_bss(left_node.str_offset, left_node.str_len);
+                    if g_idx >= 0 {
+                        let gi: usize = g_idx as usize;
+                        let ptr_val: u32 = self.append_value(TargetTypeTag::Pointer, 0, 0);
+                        if ptr_val == TARGET_VALUE_NONE { return self.reject(statement_index); }
+                        let sym_slice: TargetSourceSlice = TargetSourceSlice {
+                            offset: left_node.str_offset,
+                            length: left_node.str_len
+                        };
+                        if !self.append_instruction(
+                            TargetOpcode::AllocStack, ptr_val, TargetTypeTag::Pointer,
+                            0, 0, statement_index
+                        ) {
+                            return self.reject(statement_index);
+                        }
+                        let alloc_idx: usize = self.instruction_count - 1;
+                        let mut instr: TargetInstruction = unsafe { *(self.instructions + alloc_idx) };
+                        instr.immediate_bits = unsafe { g_bss_sym_sizes[gi] } as u64;
+                        instr.symbol = sym_slice;
+                        unsafe { *(self.instructions + alloc_idx) = instr; }
+
+                        let var_type: TargetTypeTag = unsafe { g_bss_sym_types[gi] } as TargetTypeTag;
+                        let expr_value: u32 = self.lower_expression(right_index, var_type, first_parameter, function_param_count);
+                        if expr_value == TARGET_VALUE_NONE { return self.reject(statement_index); }
+                        let first_op: u32 = self.operand_count as u32;
+                        if !self.append_operand(ptr_val) || !self.append_operand(expr_value) { return self.reject(statement_index); }
+                        if !self.append_instruction(TargetOpcode::Store, TARGET_VALUE_NONE, var_type, first_op, 2, statement_index) { return self.reject(statement_index); }
+                        let store_idx: usize = self.instruction_count - 1;
+                        unsafe { (*(self.instructions + store_idx)).immediate_bits = 0; }
+                        statement_index = statement.next_sibling;
+                        continue;
+                    }
+                    return self.reject(statement_index);
+                }
+                if self.values == null { return self.reject(statement_index); }
+                let var_type: TargetTypeTag = unsafe { (*(self.values + old_value_id as usize - 1)).type_tag };
+                let expr_value: u32 = self.lower_expression(right_index, var_type, first_parameter, function_param_count);
+                if expr_value == TARGET_VALUE_NONE { return self.reject(statement_index); }
+                if self.local_count >= 128 { return self.reject(statement_index); }
+                let struct_id: u32 = self.find_local_struct_id(left_node.str_offset, left_node.str_len);
+                self.local_name_offsets[self.local_count] = left_node.str_offset;
+                self.local_name_lens[self.local_count] = left_node.str_len;
+                self.local_value_ids[self.local_count] = expr_value;
+                self.local_struct_ids[self.local_count] = struct_id;
+                self.local_count = self.local_count + 1;
+                statement_index = statement.next_sibling;
+                continue;
+            } else if statement.kind == AstKind::ExprCall {
+                let call_val: u32 = self.lower_expression(statement_index, TargetTypeTag::U32, first_parameter, function_param_count);
+                if call_val == TARGET_VALUE_NONE { return self.reject(statement_index); }
+                statement_index = statement.next_sibling;
+                continue;
+            } else if statement.kind == AstKind::ReturnStmt {
+                if statement.next_sibling != 0
+                    || self.block_count >= self.block_capacity
+                    || !self.lower_return_statement(
+                        statement_index, return_type, first_parameter,
+                        function_param_count
+                    ) {
+                    return self.reject(statement_index);
+                }
+                unsafe {
+                    *(self.blocks + first_block) = TargetBlock {
+                        id: (first_block + 1) as u32,
+                        label: TargetSourceSlice::empty(),
+                        first_instruction: first_instruction as u32,
+                        instruction_count: (self.instruction_count - first_instruction) as u32
+                    };
+                }
+                self.block_count = self.block_count + 1;
+                function_block_count = (self.block_count - first_block) as u32;
+                break;
+            } else if statement.kind == AstKind::IfStmt {
+                if !self.lower_if_return_branches(
+                    statement_index, return_type, first_parameter,
+                    function_param_count, first_instruction
+                ) {
+                    return self.reject(statement_index);
+                }
+                function_block_count = (self.block_count - first_block) as u32;
+                break;
+            } else if statement.kind == AstKind::WhileStmt {
+                let return_index: usize = statement.next_sibling;
+                let while_condition_index: usize = statement.first_child;
+                let while_body_index: usize = if while_condition_index == 0
+                    || while_condition_index >= self.node_count { 0 as usize }
+                    else { unsafe { (*(self.nodes + while_condition_index)).next_sibling } };
+                let first_body_statement: usize = if while_body_index == 0
+                    || while_body_index >= self.node_count { 0 as usize }
+                    else { unsafe { (*(self.nodes + while_body_index)).first_child } };
+                let body_is_if: bool = first_body_statement != 0
+                    && first_body_statement < self.node_count
+                    && unsafe { (*(self.nodes + first_body_statement)).kind } == AstKind::IfStmt;
+                let loop_lowered: bool = if body_is_if {
+                    self.lower_while_if_jumps_then_return(
+                        statement_index, return_index, return_type, first_parameter,
+                        function_param_count, first_instruction
+                    )
+                } else {
+                    self.lower_while_jump_then_return(
+                        statement_index, return_index, return_type, first_parameter,
+                        function_param_count, first_instruction
+                    )
+                };
+                if return_index == 0 || !loop_lowered {
+                    return self.reject(statement_index);
+                }
+                function_block_count = (self.block_count - first_block) as u32;
+                break;
+            } else {
+                return self.reject(statement_index);
+            }
+        }
+
+        let function: TargetFunction = TargetFunction {
+            name: fn_name,
+            return_type: return_type,
+            first_parameter: first_parameter as u32,
+            parameter_count: function_param_count as u32,
+            first_block: first_block as u32,
+            block_count: function_block_count,
+            flags: 0
+        };
+        unsafe {
+            *(self.functions + self.function_count) = function;
+        }
+        self.function_count = self.function_count + 1;
+        return true;
+    }
 }
 
-// Lowers only typed integer functions with parameters, decimal constants,
-// add/sub/mul expressions and one direct return in one block. The caller must
-// run native sema first; this routine still checks shape and capacity itself.
+// Lowers typed scalar functions with decimal arithmetic and direct returns,
+// plus a boolean-parameter if/else whose two arms return. The caller runs native
+// sema first; this routine still checks shape and caller-buffer capacity.
 pub fn lower_scalar_module(
     lowering: &mut ScalarLowering,
     module_index: usize,
@@ -396,6 +2012,12 @@ pub fn lower_scalar_module(
 ) -> bool {
     *output = TargetModule::empty();
     lowering.error_node = 0;
+    unsafe {
+        g_rodata_len = 0;
+        g_rodata_sym_count = 0;
+        g_bss_total_size = 0;
+        g_bss_sym_count = 0;
+    }
     if lowering.nodes == null || lowering.source == null || module_index == 0
         || module_index >= lowering.node_count {
         return lowering.reject(module_index);
@@ -405,159 +2027,171 @@ pub fn lower_scalar_module(
         return lowering.reject(module_index);
     }
 
+    let mut struct_scan_index: usize = module_node.first_child;
+    while struct_scan_index != 0 {
+        if struct_scan_index >= lowering.node_count {
+            return lowering.reject(struct_scan_index);
+        }
+        let decl_node: AstNode = unsafe { *(lowering.nodes + struct_scan_index) };
+        if decl_node.kind == AstKind::LetStmt && unsafe { g_bss_sym_count } < 256 {
+            let mut var_size: usize = 8 as usize;
+            let mut is_array: u8 = 0;
+            let mut type_tag_val: u32 = 4;
+            if decl_node.first_child != 0 && decl_node.first_child < lowering.node_count {
+                let type_node: AstNode = unsafe { *(lowering.nodes + decl_node.first_child) };
+                if type_node.str_len > 0 {
+                    let first_c: u8 = unsafe { *(lowering.source + type_node.str_offset) };
+                    if first_c == 91 {
+                        is_array = 1;
+                        var_size = lowering.parse_array_type_size(type_node.str_offset, type_node.str_len);
+                        type_tag_val = 14;
+                    } else {
+                        let tt: TargetTypeTag = lowering.type_tag_for(decl_node.first_child);
+                        if tt != TargetTypeTag::Invalid {
+                            type_tag_val = tt as u32;
+                            var_size = if tt == TargetTypeTag::U64 || tt == TargetTypeTag::I64 || tt == TargetTypeTag::Pointer { 8 as usize }
+                                       else if tt == TargetTypeTag::U16 || tt == TargetTypeTag::I16 { 2 as usize }
+                                       else if tt == TargetTypeTag::U8 || tt == TargetTypeTag::I8 || tt == TargetTypeTag::Bool { 1 as usize }
+                                       else { 4 as usize };
+                        }
+                    }
+                }
+            }
+            let bss_off: usize = align_val(unsafe { g_bss_total_size }, 8);
+            let b_idx: usize = unsafe { g_bss_sym_count };
+            unsafe {
+                g_bss_sym_offsets[b_idx] = decl_node.str_offset;
+                g_bss_sym_lens[b_idx] = decl_node.str_len;
+                g_bss_sym_places[b_idx] = bss_off;
+                g_bss_sym_sizes[b_idx] = var_size;
+                g_bss_sym_is_array[b_idx] = is_array;
+                g_bss_sym_types[b_idx] = type_tag_val;
+                g_bss_sym_count = b_idx + 1;
+                g_bss_total_size = bss_off + var_size;
+            }
+        }
+        if decl_node.kind == AstKind::StructDecl && lowering.struct_count < 32 {
+            let s_id: usize = lowering.struct_count;
+            lowering.struct_name_offsets[s_id] = decl_node.str_offset;
+            lowering.struct_name_lens[s_id] = decl_node.str_len;
+            lowering.struct_field_starts[s_id] = lowering.field_total_count as u32;
+            let mut cur_offset: u32 = 0;
+            let mut f_cnt: u32 = 0;
+            let mut f_scan: usize = decl_node.first_child;
+            while f_scan != 0 {
+                if f_scan >= lowering.node_count {
+                    return lowering.reject(f_scan);
+                }
+                let f_node: AstNode = unsafe { *(lowering.nodes + f_scan) };
+                if f_node.kind == AstKind::FieldDecl && lowering.field_total_count < 128 {
+                    let f_idx: usize = lowering.field_total_count;
+                    lowering.field_name_offsets[f_idx] = f_node.str_offset;
+                    lowering.field_name_lens[f_idx] = f_node.str_len;
+                    lowering.field_offsets[f_idx] = cur_offset;
+                    let mut f_type: TargetTypeTag = TargetTypeTag::U32;
+                    if f_node.first_child != 0 && f_node.first_child < lowering.node_count {
+                        f_type = lowering.type_tag_for(f_node.first_child);
+                        if f_type == TargetTypeTag::Invalid {
+                            f_type = TargetTypeTag::U32;
+                        }
+                    }
+                    lowering.field_type_tags[f_idx] = f_type;
+                    let f_sz: u32 = if f_type == TargetTypeTag::U64 || f_type == TargetTypeTag::I64 || f_type == TargetTypeTag::Pointer { 8 }
+                                    else if f_type == TargetTypeTag::U16 || f_type == TargetTypeTag::I16 { 2 }
+                                    else if f_type == TargetTypeTag::U8 || f_type == TargetTypeTag::I8 || f_type == TargetTypeTag::Bool { 1 }
+                                    else { 4 };
+                    cur_offset = cur_offset + f_sz;
+                    lowering.field_total_count = lowering.field_total_count + 1;
+                    f_cnt = f_cnt + 1;
+                }
+                f_scan = f_node.next_sibling;
+            }
+            lowering.struct_field_counts[s_id] = f_cnt;
+            let mut cur_size: u32 = 8;
+            if cur_offset > 0 {
+                cur_size = cur_offset;
+            }
+            lowering.struct_sizes[s_id] = cur_size;
+            lowering.struct_count = lowering.struct_count + 1;
+        }
+        if decl_node.kind == AstKind::EnumDecl && lowering.enum_count < 32 {
+            let e_id: usize = lowering.enum_count;
+            lowering.enum_name_offsets[e_id] = decl_node.str_offset;
+            lowering.enum_name_lens[e_id] = decl_node.str_len;
+            lowering.enum_variant_starts[e_id] = lowering.variant_total_count as u32;
+            let mut v_cnt: u32 = 0;
+            let mut v_scan: usize = decl_node.first_child;
+            while v_scan != 0 {
+                if v_scan >= lowering.node_count {
+                    return lowering.reject(v_scan);
+                }
+                let v_node: AstNode = unsafe { *(lowering.nodes + v_scan) };
+                if v_node.kind == AstKind::EnumVariant && lowering.variant_total_count < 256 {
+                    let v_idx: usize = lowering.variant_total_count;
+                    lowering.variant_name_offsets[v_idx] = v_node.str_offset;
+                    lowering.variant_name_lens[v_idx] = v_node.str_len;
+                    let mut v_val: u64 = 0;
+                    if v_node.first_child != 0 && v_node.first_child < lowering.node_count {
+                        let lit_node: AstNode = unsafe { *(lowering.nodes + v_node.first_child) };
+                        v_val = lowering.parse_integer_value(lit_node.str_offset, lit_node.str_len);
+                    }
+                    lowering.variant_values[v_idx] = v_val;
+                    lowering.variant_total_count = lowering.variant_total_count + 1;
+                    v_cnt = v_cnt + 1;
+                }
+                v_scan = v_node.next_sibling;
+            }
+            lowering.enum_variant_counts[e_id] = v_cnt;
+            lowering.enum_count = lowering.enum_count + 1;
+        }
+        struct_scan_index = decl_node.next_sibling;
+    }
+
+    unsafe { g_extended_len = lowering.source_len; }
     let mut function_index: usize = module_node.first_child;
     while function_index != 0 {
         if function_index >= lowering.node_count {
             return lowering.reject(function_index);
         }
         let function_node: AstNode = unsafe { *(lowering.nodes + function_index) };
-        if function_node.kind == AstKind::Import {
+        if function_node.kind == AstKind::Import
+            || function_node.kind == AstKind::StructDecl
+            || function_node.kind == AstKind::EnumDecl
+            || function_node.kind == AstKind::MeshDecl
+            || function_node.kind == AstKind::LetStmt {
             function_index = function_node.next_sibling;
             continue;
         }
-        if function_node.kind != AstKind::FnDecl
-            || lowering.function_count >= lowering.function_capacity
-            || lowering.functions == null {
+        if function_node.kind == AstKind::ImplDecl {
+            let struct_id: u32 = lowering.find_struct(function_node.str_offset, function_node.str_len);
+            let mut method_index: usize = function_node.first_child;
+            while method_index != 0 {
+                if method_index >= lowering.node_count { return lowering.reject(method_index); }
+                let method_node: AstNode = unsafe { *(lowering.nodes + method_index) };
+                if method_node.kind == AstKind::FnDecl {
+                    let fn_name: TargetSourceSlice = lowering.append_mangled_name(
+                        function_node.str_offset, function_node.str_len,
+                        method_node.str_offset, method_node.str_len
+                    );
+                    if !lowering.lower_declared_function(method_node, method_index, fn_name, struct_id) {
+                        return lowering.reject(method_index);
+                    }
+                }
+                method_index = method_node.next_sibling;
+            }
+            function_index = function_node.next_sibling;
+            continue;
+        }
+        if function_node.kind != AstKind::FnDecl {
             return lowering.reject(function_index);
         }
-        let first_parameter: usize = lowering.parameter_count;
-        let mut return_type: TargetTypeTag = TargetTypeTag::Invalid;
-        let mut body_index: usize = 0;
-        let mut child_index: usize = function_node.first_child;
-        while child_index != 0 {
-            if child_index >= lowering.node_count {
-                return lowering.reject(function_index);
-            }
-            let child: AstNode = unsafe { *(lowering.nodes + child_index) };
-            if child.kind == AstKind::ParamDecl {
-                if child.first_child == 0 || child.first_child >= lowering.node_count
-                    || lowering.parameters == null
-                    || lowering.parameter_count >= lowering.parameter_capacity {
-                    return lowering.reject(child_index);
-                }
-                let type_index: usize = child.first_child;
-                let type_tag: TargetTypeTag = lowering.type_tag_for(type_index);
-                if type_tag == TargetTypeTag::Invalid || child.str_len == 0
-                    || child.int_value != 0 {
-                    return lowering.reject(child_index);
-                }
-                let value_id: u32 = lowering.append_value(
-                    type_tag, child.str_offset, child.str_len
-                );
-                if value_id == TARGET_VALUE_NONE {
-                    return lowering.reject(child_index);
-                }
-                unsafe {
-                    *(lowering.parameters + lowering.parameter_count) = TargetParameter {
-                        value_id: value_id,
-                        type_tag: type_tag,
-                        name: TargetSourceSlice {
-                            offset: child.str_offset,
-                            length: child.str_len
-                        }
-                    };
-                }
-                lowering.parameter_count = lowering.parameter_count + 1;
-            } else if child.kind == AstKind::TypeRef {
-                if return_type != TargetTypeTag::Invalid {
-                    return lowering.reject(child_index);
-                }
-                return_type = lowering.type_tag_for(child_index);
-                if return_type == TargetTypeTag::Invalid {
-                    return lowering.reject(child_index);
-                }
-            } else if child.kind == AstKind::Block {
-                if body_index != 0 {
-                    return lowering.reject(child_index);
-                }
-                body_index = child_index;
-            } else {
-                return lowering.reject(child_index);
-            }
-            child_index = child.next_sibling;
-        }
-        if return_type == TargetTypeTag::Invalid || body_index == 0
-            || lowering.block_count >= lowering.block_capacity
-            || lowering.blocks == null {
-            return lowering.reject(function_index);
-        }
-
-        let mut parameter_index: usize = first_parameter;
-        while parameter_index < lowering.parameter_count {
-            let parameter: TargetParameter = unsafe {
-                *(lowering.parameters + parameter_index)
-            };
-            if parameter.type_tag != return_type {
-                return lowering.reject(function_index);
-            }
-            parameter_index = parameter_index + 1;
-        }
-
-        let body: AstNode = unsafe { *(lowering.nodes + body_index) };
-        let return_index: usize = body.first_child;
-        if return_index == 0 || return_index >= lowering.node_count {
-            return lowering.reject(body_index);
-        }
-        let return_node: AstNode = unsafe { *(lowering.nodes + return_index) };
-        if return_node.kind != AstKind::ReturnStmt || return_node.first_child == 0
-            || return_node.first_child >= lowering.node_count
-            || return_node.next_sibling != 0 {
-            return lowering.reject(return_index);
-        }
-        let return_expression: usize = return_node.first_child;
-        if unsafe { (*(lowering.nodes + return_expression)).next_sibling } != 0 {
-            return lowering.reject(return_expression);
-        }
-
-        let first_instruction: usize = lowering.instruction_count;
-        let result_value: u32 = lowering.lower_expression(
-            return_expression,
-            return_type,
-            first_parameter,
-            lowering.parameter_count - first_parameter
-        );
-        if result_value == TARGET_VALUE_NONE {
-            return lowering.reject(return_expression);
-        }
-        let return_operand: u32 = lowering.operand_count as u32;
-        if !lowering.append_operand(result_value)
-            || !lowering.append_instruction(
-                TargetOpcode::Return,
-                TARGET_VALUE_NONE,
-                return_type,
-                return_operand,
-                1,
-                return_index
-            ) {
-            return lowering.reject(return_index);
-        }
-
-        let block_id: u32 = (lowering.block_count + 1) as u32;
-        unsafe {
-            *(lowering.blocks + lowering.block_count) = TargetBlock {
-                id: block_id,
-                label: TargetSourceSlice::empty(),
-                first_instruction: first_instruction as u32,
-                instruction_count: (lowering.instruction_count - first_instruction) as u32
-            };
-        }
-        let function: TargetFunction = TargetFunction {
-            name: TargetSourceSlice {
-                offset: function_node.str_offset,
-                length: function_node.str_len
-            },
-            return_type: return_type,
-            first_parameter: first_parameter as u32,
-            parameter_count: (lowering.parameter_count - first_parameter) as u32,
-            first_block: lowering.block_count as u32,
-            block_count: 1,
-            flags: 0
+        let fn_name: TargetSourceSlice = TargetSourceSlice {
+            offset: function_node.str_offset,
+            length: function_node.str_len
         };
-        unsafe {
-            *(lowering.functions + lowering.function_count) = function;
+        if !lowering.lower_declared_function(function_node, function_index, fn_name, 0) {
+            return lowering.reject(function_index);
         }
-        lowering.block_count = lowering.block_count + 1;
-        lowering.function_count = lowering.function_count + 1;
         function_index = function_node.next_sibling;
     }
 
@@ -571,5 +2205,7 @@ pub fn lower_scalar_module(
     output.instruction_count = lowering.instruction_count as u32;
     output.value_count = lowering.value_count as u32;
     output.operand_count = lowering.operand_count as u32;
+    output.phi_input_count = lowering.phi_input_count as u32;
+    output.target_count = lowering.target_count as u32;
     return true;
 }

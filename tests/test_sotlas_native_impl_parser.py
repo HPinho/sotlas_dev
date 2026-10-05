@@ -25,10 +25,10 @@ class SotlasNativeImplParserTests(unittest.TestCase):
     @unittest.skipUnless(default_toolchain.is_available(), "native C toolchain unavailable")
     def test_static_method_lowers_to_namespaced_c11_while_unsupported_forms_fail_closed(self):
         module_dir = ROOT / "bootstrap" / "sotlas" / "native_compiler"
-        order = ("token", "ast", "lexer", "parser", "sema", "emitter_c", "main")
+        order = ("token", "ast", "lexer", "parser", "sema", "emitter_c", "target_ir", "lower_scalar", "x86_64_scalar", "main")
         modules = {
             path.stem: parse(path.read_text(encoding="utf-8"), filename=str(path))
-            for path in module_dir.glob("*.sotlas")
+            for path in module_dir.rglob("*.sotlas")
         }
         self.assertEqual(set(modules), set(order))
 

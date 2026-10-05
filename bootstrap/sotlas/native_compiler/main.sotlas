@@ -6,12 +6,40 @@ import sotlas::compiler::ast::*;
 import sotlas::compiler::parser::*;
 import sotlas::compiler::sema::*;
 import sotlas::compiler::emitter_c::*;
+import sotlas::compiler::backend::target_ir::*;
+import sotlas::compiler::backend::lower_scalar::*;
+import sotlas::compiler::backend::x86_64_scalar::*;
 
-pub const TOKEN_BUFFER_CAPACITY: usize = 32768;
-pub const AST_NODE_BUFFER_CAPACITY: usize = 65536;
+pub const TOKEN_BUFFER_CAPACITY: usize = 262144;
+pub const AST_NODE_BUFFER_CAPACITY: usize = 262144;
+pub const TARGET_VALUE_CAPACITY: usize = 16384;
+pub const TARGET_PARAM_CAPACITY: usize = 16384;
+pub const TARGET_INSTR_CAPACITY: usize = 16384;
+pub const TARGET_OPERAND_CAPACITY: usize = 16384;
+pub const TARGET_PHI_CAPACITY: usize = 16384;
+pub const TARGET_TARGET_CAPACITY: usize = 16384;
+pub const TARGET_BLOCK_CAPACITY: usize = 8192;
+pub const TARGET_FUNCTION_CAPACITY: usize = 8192;
 
-static mut g_token_buffer: [Token; 32768] = 0;
-static mut g_ast_node_buffer: [AstNode; 65536] = 0;
+static mut g_token_buffer: [Token; 262144] = 0;
+static mut g_ast_node_buffer: [AstNode; 262144] = 0;
+static mut g_target_values: [TargetValue; 16384] = 0;
+static mut g_target_parameters: [TargetParameter; 16384] = 0;
+static mut g_target_instructions: [TargetInstruction; 16384] = 0;
+static mut g_target_operands: [TargetOperand; 16384] = 0;
+static mut g_target_phi_inputs: [TargetPhiInput; 16384] = 0;
+static mut g_target_targets: [u32; 16384] = 0;
+static mut g_target_blocks: [TargetBlock; 8192] = 0;
+static mut g_target_functions: [TargetFunction; 8192] = 0;
+static mut g_target_module: [TargetModule; 1] = 0;
+static mut g_err_line: [u32; 1] = 0;
+static mut g_err_col: [u32; 1] = 0;
+static mut g_link_offset: [usize; 1] = 0;
+static mut g_link_length: [usize; 1] = 0;
+static mut g_extended_source: [u8; 1048576] = 0;
+static mut g_project_objects: [u8; 4194304] = 0;
+static mut g_project_obj_offsets: [usize; 64] = 0;
+static mut g_project_obj_lengths: [usize; 64] = 0;
 
 pub fn backfill_decimal_float_literal_slices(
     nodes: *mut AstNode,
@@ -614,3 +642,457 @@ pub fn sotlas_native_compile(
         source, len, out_buf, max_out, null, null
     );
 }
+
+@export
+@system
+pub fn sotlas_compile(
+    source: *const u8,
+    out_buf: *mut u8,
+    max_len: usize
+) -> usize {
+    if source == null || out_buf == null || max_len == 0 { return 0; }
+    let mut len: usize = 0;
+    while unsafe { *(source + len) } != 0 {
+        len = len + 1;
+    }
+    return sotlas_native_compile(source, len, out_buf, max_len);
+}
+
+// Native frontend entry point for the initial Sotlas-owned Target IR slice.
+// Unlike sotlas_native_compile_diagnostic, this path stops at Target IR and
+// never invokes CEmitter. Output storage belongs to the caller.
+@export
+@system
+pub fn sotlas_native_lower_scalar_diagnostic(
+    source: *const u8,
+    len: usize,
+    out_values: *mut TargetValue,
+    value_capacity: usize,
+    out_parameters: *mut TargetParameter,
+    parameter_capacity: usize,
+    out_instructions: *mut TargetInstruction,
+    instruction_capacity: usize,
+    out_operands: *mut TargetOperand,
+    operand_capacity: usize,
+    out_phi_inputs: *mut TargetPhiInput,
+    phi_input_capacity: usize,
+    out_targets: *mut u32,
+    target_capacity: usize,
+    out_blocks: *mut TargetBlock,
+    block_capacity: usize,
+    out_functions: *mut TargetFunction,
+    function_capacity: usize,
+    out_module: *mut TargetModule,
+    error_line: *mut u32,
+    error_col: *mut u32
+) -> bool {
+    if error_line != null {
+        unsafe { *error_line = 0; }
+    }
+    if error_col != null {
+        unsafe { *error_col = 0; }
+    }
+    if out_module == null {
+        return false;
+    }
+    unsafe {
+        *out_module = TargetModule {
+            version: 1,
+            function_count: 0,
+            parameter_count: 0,
+            block_count: 0,
+            instruction_count: 0,
+            value_count: 0,
+            operand_count: 0,
+            phi_input_count: 0,
+            target_count: 0
+        };
+    }
+    if source == null || len == 0 {
+        return false;
+    }
+
+    let mut lex: Lexer = Lexer::new(source, len);
+    let mut token_count: usize = 0;
+    while !lex.is_at_end() && token_count < TOKEN_BUFFER_CAPACITY {
+        let token: Token = lex.next_token();
+        unsafe {
+            *(g_token_buffer as *mut Token + token_count) = token;
+        }
+        token_count = token_count + 1;
+        if token.kind == TokenKind::Eof || token.kind == TokenKind::Error {
+            break;
+        }
+    }
+    if lex.error_count != 0 || !lex.is_at_end() {
+        if error_line != null {
+            unsafe { *error_line = lex.error_line; }
+        }
+        if error_col != null {
+            unsafe { *error_col = lex.error_col; }
+        }
+        return false;
+    }
+
+    let token_ptr: *const Token = unsafe { g_token_buffer as *const Token };
+    let node_ptr: *mut AstNode = unsafe { g_ast_node_buffer as *mut AstNode };
+    let mut parser: Parser = Parser::new(
+        token_ptr,
+        token_count,
+        node_ptr,
+        AST_NODE_BUFFER_CAPACITY
+    );
+    let module_index: usize = parser.parse_module();
+    if module_index == 0 {
+        if error_line != null {
+            unsafe { *error_line = parser.error_line; }
+        }
+        if error_col != null {
+            unsafe { *error_col = parser.error_col; }
+        }
+        return false;
+    }
+
+    let mut sem: Sema = Sema::new();
+    if !sem.check_top_level_declarations(
+        node_ptr, parser.node_count, module_index, source, len
+    ) {
+        if error_line != null {
+            unsafe { *error_line = sem.error_line; }
+        }
+        if error_col != null {
+            unsafe { *error_col = sem.error_col; }
+        }
+        return false;
+    }
+
+    let mut lowering: ScalarLowering = ScalarLowering::new(
+        node_ptr,
+        parser.node_count,
+        source,
+        len,
+        out_values,
+        value_capacity,
+        out_parameters,
+        parameter_capacity,
+        out_instructions,
+        instruction_capacity,
+        out_operands,
+        operand_capacity,
+        out_phi_inputs,
+        phi_input_capacity,
+        out_blocks,
+        block_capacity,
+        out_targets,
+        target_capacity,
+        out_functions,
+        function_capacity
+    );
+    let mut target_module: TargetModule = TargetModule {
+        version: 1,
+        function_count: 0,
+        parameter_count: 0,
+        block_count: 0,
+        instruction_count: 0,
+        value_count: 0,
+        operand_count: 0,
+        phi_input_count: 0,
+        target_count: 0
+    };
+    if !lower_scalar_module(&mut lowering, module_index, &mut target_module) {
+        if lowering.error_node != 0 && lowering.error_node < parser.node_count {
+            let error_node: AstNode = unsafe { *(node_ptr + lowering.error_node) };
+            if error_line != null {
+                unsafe { *error_line = error_node.span.line; }
+            }
+            if error_col != null {
+                unsafe { *error_col = error_node.span.col; }
+            }
+        }
+        return false;
+    }
+
+    unsafe { *out_module = target_module; }
+    return true;
+}
+
+@extern(C)
+fn emit_elf64_module_object(
+    source: *const u8,
+    len: usize,
+    target_module: *const TargetModule,
+    functions: *const TargetFunction,
+    parameters: *const TargetParameter,
+    values: *const TargetValue,
+    blocks: *const TargetBlock,
+    instructions: *const TargetInstruction,
+    operands: *const TargetOperand,
+    phi_inputs: *const TargetPhiInput,
+    targets: *const u32,
+    output: *mut u8,
+    capacity: usize,
+    out_length: *mut usize
+) -> bool;
+
+@extern(C)
+fn link_elf64_executable(
+    object_data: *const u8,
+    object_offsets: *const usize,
+    object_lengths: *const usize,
+    object_count: u32,
+    entry_name: *const u8,
+    entry_name_length: usize,
+    entry_arguments: *const u32,
+    entry_argument_count: u32,
+    base_address: u64,
+    freestanding: bool,
+    output: *mut u8,
+    capacity: usize,
+    output_length: *mut usize
+) -> bool;
+
+// Compiles Sotlas source code directly to a freestanding or hosted ELF64 relocatable
+// object without invoking the C11 emitter or external assemblers.
+@export
+@system
+pub fn sotlas_native_compile_object(
+    source: *const u8,
+    len: usize,
+    output: *mut u8,
+    capacity: usize,
+    out_length: *mut usize
+) -> bool {
+    if out_length == null { return false; }
+    unsafe { *out_length = 0; }
+    if source == null || len == 0 || output == null || capacity == 0 || len > 1048576 {
+        return false;
+    }
+
+    let mut i: usize = 0;
+    while i < len {
+        unsafe {
+            *(g_extended_source as *mut u8 + i) = *(source + i);
+        }
+        i = i + 1;
+    }
+
+    let lower_ok: bool = sotlas_native_lower_scalar_diagnostic(
+        unsafe { g_extended_source as *const u8 },
+        len,
+        unsafe { g_target_values as *mut TargetValue },
+        TARGET_VALUE_CAPACITY,
+        unsafe { g_target_parameters as *mut TargetParameter },
+        TARGET_PARAM_CAPACITY,
+        unsafe { g_target_instructions as *mut TargetInstruction },
+        TARGET_INSTR_CAPACITY,
+        unsafe { g_target_operands as *mut TargetOperand },
+        TARGET_OPERAND_CAPACITY,
+        unsafe { g_target_phi_inputs as *mut TargetPhiInput },
+        TARGET_PHI_CAPACITY,
+        unsafe { g_target_targets as *mut u32 },
+        TARGET_TARGET_CAPACITY,
+        unsafe { g_target_blocks as *mut TargetBlock },
+        TARGET_BLOCK_CAPACITY,
+        unsafe { g_target_functions as *mut TargetFunction },
+        TARGET_FUNCTION_CAPACITY,
+        unsafe { g_target_module as *mut TargetModule },
+        unsafe { g_err_line as *mut u32 },
+        unsafe { g_err_col as *mut u32 }
+    );
+    let target_mod: TargetModule = unsafe { *(g_target_module as *const TargetModule) };
+    if !lower_ok || target_mod.function_count == 0 {
+        return false;
+    }
+
+    let ext_len: usize = sotlas_native_extended_source_len();
+    let total_src_len: usize = if ext_len > len { ext_len } else { len };
+
+    return emit_elf64_module_object(
+        unsafe { g_extended_source as *const u8 },
+        total_src_len,
+        unsafe { g_target_module as *const TargetModule },
+        unsafe { g_target_functions as *const TargetFunction },
+        unsafe { g_target_parameters as *const TargetParameter },
+        unsafe { g_target_values as *const TargetValue },
+        unsafe { g_target_blocks as *const TargetBlock },
+        unsafe { g_target_instructions as *const TargetInstruction },
+        unsafe { g_target_operands as *const TargetOperand },
+        unsafe { g_target_phi_inputs as *const TargetPhiInput },
+        unsafe { g_target_targets as *const u32 },
+        output,
+        capacity,
+        out_length
+    );
+}
+
+@export
+@system
+pub fn sotlas_native_last_error_line() -> u32 {
+    return unsafe { *(g_err_line as *const u32) };
+}
+
+@export
+@system
+pub fn sotlas_native_last_error_col() -> u32 {
+    return unsafe { *(g_err_col as *const u32) };
+}
+
+@export
+@system
+pub fn sotlas_native_last_function_count() -> u32 {
+    return unsafe { (*(g_target_module as *const TargetModule)).function_count };
+}
+
+// Links an ELF64 relocatable object into an ELF64 executable directly
+// without calling external linkers. Supports both hosted executables and
+// freestanding kernels with explicit entry points.
+@export
+@system
+pub fn sotlas_native_link_executable(
+    object: *const u8,
+    object_len: usize,
+    entry_name: *const u8,
+    entry_name_len: usize,
+    freestanding: bool,
+    output: *mut u8,
+    capacity: usize,
+    out_length: *mut usize
+) -> bool {
+    if out_length == null { return false; }
+    unsafe { *out_length = 0; }
+    if object == null || object_len == 0 || output == null || capacity == 0 {
+        return false;
+    }
+    unsafe {
+        *(g_link_offset as *mut usize) = 0;
+        *(g_link_length as *mut usize) = object_len;
+    }
+    let base_addr: u64 = if freestanding { 1048576 } else { 4194304 };
+    return link_elf64_executable(
+        object,
+        unsafe { g_link_offset as *const usize },
+        unsafe { g_link_length as *const usize },
+        1,
+        entry_name,
+        entry_name_len,
+        null,
+        0,
+        base_addr,
+        freestanding,
+        output,
+        capacity,
+        out_length
+    );
+}
+
+// Links several ELF64 relocatable objects into one executable. Objects are
+// supplied as one buffer plus per-object offsets/lengths. Cross-object symbol
+// resolution and relocations are done by link_elf64_executable; undefined
+// references and duplicate strong symbols fail closed.
+@export
+@system
+pub fn sotlas_native_link_objects(
+    object_data: *const u8,
+    object_offsets: *const usize,
+    object_lengths: *const usize,
+    object_count: u32,
+    entry_name: *const u8,
+    entry_name_len: usize,
+    freestanding: bool,
+    output: *mut u8,
+    capacity: usize,
+    out_length: *mut usize
+) -> bool {
+    if out_length == null { return false; }
+    unsafe { *out_length = 0; }
+    if object_data == null || object_offsets == null || object_lengths == null
+        || object_count == 0 || output == null || capacity == 0 {
+        return false;
+    }
+    let base_addr: u64 = if freestanding { 1048576 } else { 4194304 };
+    return link_elf64_executable(
+        object_data,
+        object_offsets,
+        object_lengths,
+        object_count,
+        entry_name,
+        entry_name_len,
+        null,
+        0,
+        base_addr,
+        freestanding,
+        output,
+        capacity,
+        out_length
+    );
+}
+
+// Compiles a multi-module Sotlas project into relocatable ELF64 objects and links
+// them directly into an ELF64 executable without external linkers or Python driver.
+@export
+@system
+pub fn sotlas_native_compile_project(
+    sources_data: *const u8,
+    source_offsets: *const usize,
+    source_lengths: *const usize,
+    source_count: u32,
+    entry_name: *const u8,
+    entry_name_len: usize,
+    freestanding: bool,
+    output: *mut u8,
+    capacity: usize,
+    out_length: *mut usize
+) -> bool {
+    if out_length == null { return false; }
+    unsafe { *out_length = 0; }
+    if sources_data == null || source_offsets == null || source_lengths == null
+        || source_count == 0 || source_count > 64 || output == null || capacity == 0 {
+        return false;
+    }
+
+    let mut current_obj_offset: usize = 0;
+    let max_obj_cap: usize = 4194304;
+    let mut mod_idx: u32 = 0;
+
+    while mod_idx < source_count {
+        let s_off: usize = unsafe { *(source_offsets + mod_idx as usize) };
+        let s_len: usize = unsafe { *(source_lengths + mod_idx as usize) };
+        if s_len == 0 { return false; }
+        let src_ptr: *const u8 = unsafe { sources_data + s_off };
+
+        if current_obj_offset >= max_obj_cap { return false; }
+        let obj_dest: *mut u8 = unsafe { g_project_objects as *mut u8 + current_obj_offset };
+        let remaining_cap: usize = max_obj_cap - current_obj_offset;
+
+        let dest_len_ptr: *mut usize = unsafe { (g_project_obj_lengths as *mut usize + mod_idx as usize) };
+        let ok: bool = sotlas_native_compile_object(
+            src_ptr, s_len, obj_dest, remaining_cap, dest_len_ptr
+        );
+        let obj_len: usize = unsafe { *(g_project_obj_lengths as *const usize + mod_idx as usize) };
+        if !ok || obj_len == 0 {
+            return false;
+        }
+
+        unsafe {
+            *(g_project_obj_offsets as *mut usize + mod_idx as usize) = current_obj_offset;
+        }
+
+        let aligned_obj_len: usize = ((obj_len + 15) / 16) * 16;
+        current_obj_offset = current_obj_offset + aligned_obj_len;
+        mod_idx = mod_idx + 1;
+    }
+
+    return sotlas_native_link_objects(
+        unsafe { g_project_objects as *const u8 },
+        unsafe { g_project_obj_offsets as *const usize },
+        unsafe { g_project_obj_lengths as *const usize },
+        source_count,
+        entry_name,
+        entry_name_len,
+        freestanding,
+        output,
+        capacity,
+        out_length
+    );
+}
+

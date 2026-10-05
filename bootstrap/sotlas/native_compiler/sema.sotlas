@@ -293,14 +293,25 @@ impl Sema {
                     return false;
                 }
                 let target: AstNode = unsafe { *(nodes + target_index) };
-                if target.kind != AstKind::ExprIdent {
+                let mut base_ident_index: usize = target_index;
+                if target.kind == AstKind::ExprFieldAccess {
+                    base_ident_index = target.first_child;
+                    if base_ident_index == 0 || base_ident_index >= node_count {
+                        self.error_count = self.error_count + 1;
+                        self.error_line = target.span.line;
+                        self.error_col = target.span.col;
+                        return false;
+                    }
+                }
+                let base_target: AstNode = unsafe { *(nodes + base_ident_index) };
+                if base_target.kind != AstKind::ExprIdent {
                     self.error_count = self.error_count + 1;
                     self.error_line = target.span.line;
                     self.error_col = target.span.col;
                     return false;
                 }
                 let binding_index: usize = self.find_visible_binding(
-                    nodes, node_count, target_index, source, source_len
+                    nodes, node_count, base_ident_index, source, source_len
                 );
                 if binding_index == 0 || binding_index >= node_count {
                     self.error_count = self.error_count + 1;
@@ -374,6 +385,9 @@ impl Sema {
         source_len: usize
     ) -> bool {
         let expression: AstNode = unsafe { *(nodes + expression_index) };
+        if self.source_slice_equals(source, source_len, expression.str_offset, expression.str_len, "null", 4) {
+            return true;
+        }
         let parent_index: usize = expression.parent;
         if parent_index != 0 && parent_index < node_count {
             let parent: AstNode = unsafe { *(nodes + parent_index) };
@@ -650,6 +664,9 @@ impl Sema {
         if self.source_slice_equals(source, source_len, typ.str_offset, typ.str_len, "i64", 3) {
             return 4;
         }
+        if self.source_slice_equals(source, source_len, typ.str_offset, typ.str_len, "isize", 5) {
+            return 4;
+        }
         if self.source_slice_equals(source, source_len, typ.str_offset, typ.str_len, "u8", 2) {
             return 5;
         }
@@ -660,6 +677,9 @@ impl Sema {
             return 7;
         }
         if self.source_slice_equals(source, source_len, typ.str_offset, typ.str_len, "u64", 3) {
+            return 8;
+        }
+        if self.source_slice_equals(source, source_len, typ.str_offset, typ.str_len, "usize", 5) {
             return 8;
         }
         return 0;
@@ -763,7 +783,7 @@ impl Sema {
             return false;
         }
 
-        index = if is_hex { 2 } else { 0 };
+        index = if is_hex { 2 as usize } else { 0 as usize };
         started = false;
         let mut limit_index: usize = 0;
         while index < literal.str_len {
@@ -883,13 +903,15 @@ impl Sema {
         if tag == 5 {
             return self.integer_literal_fits_limit(
                 nodes, node_count, literal_index, source, source_len,
-                is_hex, if is_hex { "ff" } else { "255" }, if is_hex { 2 } else { 3 }
+                is_hex, if is_hex { "ff" } else { "255" },
+                if is_hex { 2 as usize } else { 3 as usize }
             );
         }
         if tag == 6 {
             return self.integer_literal_fits_limit(
                 nodes, node_count, literal_index, source, source_len,
-                is_hex, if is_hex { "ffff" } else { "65535" }, if is_hex { 4 } else { 5 }
+                is_hex, if is_hex { "ffff" } else { "65535" },
+                if is_hex { 4 as usize } else { 5 as usize }
             );
         }
         if tag == 7 {
@@ -897,14 +919,14 @@ impl Sema {
                 nodes, node_count, literal_index, source, source_len,
                 is_hex,
                 if is_hex { "ffffffff" } else { "4294967295" },
-                if is_hex { 8 } else { 10 }
+                if is_hex { 8 as usize } else { 10 as usize }
             );
         }
         return self.integer_literal_fits_limit(
             nodes, node_count, literal_index, source, source_len,
             is_hex,
             if is_hex { "ffffffffffffffff" } else { "18446744073709551615" },
-            if is_hex { 16 } else { 20 }
+            if is_hex { 16 as usize } else { 20 as usize }
         );
     }
 
@@ -1135,6 +1157,29 @@ impl Sema {
             child = node.next_sibling;
         }
         return 0;
+    }
+
+    pub fn is_by_value_self_receiver(
+        self: &Self,
+        nodes: *const AstNode,
+        node_count: usize,
+        param_index: usize,
+        source: *const u8,
+        source_len: usize
+    ) -> bool {
+        if nodes == null || source == null || param_index == 0 || param_index >= node_count {
+            return false;
+        }
+        let param: AstNode = unsafe { *(nodes + param_index) };
+        if param.first_child == 0 || param.first_child >= node_count {
+            return false;
+        }
+        let type_ref: AstNode = unsafe { *(nodes + param.first_child) };
+        if type_ref.str_len == 0 || type_ref.str_offset >= source_len {
+            return false;
+        }
+        let first_ch: u8 = unsafe { *(source + type_ref.str_offset) };
+        return first_ch != 38 && first_ch != 42;
     }
 
     pub fn path_matches_static_method(
@@ -1406,8 +1451,10 @@ impl Sema {
                 nodes, node_count, method_index, source, source_len
             );
             if receiver_index != 0 {
-                let receiver: AstNode = unsafe { *(nodes + receiver_index) };
-                return self.reject_node(receiver);
+                if self.is_by_value_self_receiver(nodes, node_count, receiver_index, source, source_len) {
+                    let receiver: AstNode = unsafe { *(nodes + receiver_index) };
+                    return self.reject_node(receiver);
+                }
             }
             if !self.static_method_is_unique(
                 nodes,
@@ -2519,6 +2566,22 @@ impl Sema {
                         }
                     }
                     parameter_index = parameter.next_sibling;
+                }
+            }
+            if parent.kind == AstKind::Module {
+                let mut decl_index: usize = parent.first_child;
+                while decl_index != 0 {
+                    if decl_index >= node_count {
+                        return 0;
+                    }
+                    let decl: AstNode = unsafe { *(nodes + decl_index) };
+                    if decl.kind == AstKind::LetStmt
+                        && self.same_declaration_name(
+                            source, source_len, decl, expression
+                        ) {
+                        return decl_index;
+                    }
+                    decl_index = decl.next_sibling;
                 }
                 return 0;
             }

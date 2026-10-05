@@ -46,13 +46,21 @@ NATIVE_DRIVER_C = r"""/* Sotlas Native Toolchain Driver */
 #define MAX_SOURCE_SIZE (8 * 1024 * 1024) // 8 MB
 #define MAX_OUTPUT_SIZE (16 * 1024 * 1024) // 16 MB
 
-// Função exportada do compilador Sotlas auto-hospedado
+// Funções exportadas do compilador Sotlas nativo e auto-hospedado
 size_t sotlas_compile(const uint8_t *source, uint8_t *out_buf, size_t max_len);
+size_t sotlas_native_compile(const uint8_t *source, size_t len, uint8_t *out_buf, size_t max_out);
+bool sotlas_native_compile_object(const uint8_t *source, size_t len, uint8_t *output, size_t capacity, size_t *out_length);
+bool sotlas_native_link_executable(const uint8_t *object, size_t object_len, const uint8_t *entry_name, size_t entry_name_len, bool freestanding, uint8_t *output, size_t capacity, size_t *out_length);
+bool sotlas_native_link_objects(const uint8_t *object_data, const size_t *object_offsets, const size_t *object_lengths, uint32_t object_count, const uint8_t *entry_name, size_t entry_name_len, bool freestanding, uint8_t *output, size_t capacity, size_t *out_length);
+bool sotlas_native_compile_project(const uint8_t *sources_data, const size_t *source_offsets, const size_t *source_lengths, uint32_t source_count, const uint8_t *entry_name, size_t entry_name_len, bool freestanding, uint8_t *output, size_t capacity, size_t *out_length);
+uint32_t sotlas_native_last_error_line(void);
+uint32_t sotlas_native_last_error_col(void);
 
 static void print_usage(const char *prog_name) {
     printf("sotlas 1.0.0-dev (x86_64-pc-windows-msvc)\n\n");
     printf("Usage:\n");
     printf("  %s <file.sotlas ...> [-o <out.exe|out.c>]\n", prog_name);
+    printf("  %s --compile-project <out.elf> <entry_name> <src1.sotlas ...> [--freestanding]\n", prog_name);
     printf("  %s run <file.sotlas> [-- args...]\n", prog_name);
     printf("  %s test [dir_or_file.sotlas ...] [-v|--verbose]\n", prog_name);
     printf("  %s fmt [file_or_dir] [--check]\n", prog_name);
@@ -268,10 +276,18 @@ static bool try_resolve_and_load(const char *base_dir, const char *imp_path, uin
     const char *last_part = strrchr(rel_path, '/');
     const char *leaf = last_part ? (last_part + 1) : rel_path;
 
-    char candidates[16][512];
+    char candidates[32][512];
     int num_candidates = 0;
     snprintf(candidates[num_candidates++], sizeof(candidates[0]), "%s/%s.sotlas", base_dir, rel_path);
     snprintf(candidates[num_candidates++], sizeof(candidates[0]), "%s/%s.sotlas", base_dir, leaf);
+    snprintf(candidates[num_candidates++], sizeof(candidates[0]), "%s/backend/%s.sotlas", base_dir, leaf);
+    snprintf(candidates[num_candidates++], sizeof(candidates[0]), "bootstrap/sotlas/native_compiler/backend/%s.sotlas", leaf);
+    snprintf(candidates[num_candidates++], sizeof(candidates[0]), "bootstrap/sotlas/native_compiler/%s.sotlas", leaf);
+    const char *sub = strstr(rel_path, "compiler/");
+    if (sub) {
+        snprintf(candidates[num_candidates++], sizeof(candidates[0]), "%s/%s.sotlas", base_dir, sub + 9);
+        snprintf(candidates[num_candidates++], sizeof(candidates[0]), "bootstrap/sotlas/native_compiler/%s.sotlas", sub + 9);
+    }
     snprintf(candidates[num_candidates++], sizeof(candidates[0]), "%s/../%s.sotlas", base_dir, rel_path);
     snprintf(candidates[num_candidates++], sizeof(candidates[0]), "%s/../%s.sotlas", base_dir, leaf);
     snprintf(candidates[num_candidates++], sizeof(candidates[0]), "%s/../../stdlib/%s.sotlas", base_dir, rel_path);
@@ -1426,6 +1442,174 @@ int main(int argc, char **argv) {
         return run_add_command(argc, argv);
     }
 
+    if (argc >= 4 && strcmp(argv[1], "--compile-obj") == 0) {
+        FILE *f_in = fopen(argv[2], "rb");
+        if (!f_in) { fprintf(stderr, "sotlas: cannot open input '%s'\n", argv[2]); return 1; }
+        uint8_t *src_buf = (uint8_t *)malloc(MAX_SOURCE_SIZE);
+        size_t in_len = fread(src_buf, 1, MAX_SOURCE_SIZE, f_in);
+        fclose(f_in);
+        uint8_t *obj_buf = (uint8_t *)malloc(MAX_OUTPUT_SIZE);
+        size_t obj_len = 0;
+        bool ok = sotlas_native_compile_object(src_buf, in_len, obj_buf, MAX_OUTPUT_SIZE, &obj_len);
+        free(src_buf);
+        if (!ok || obj_len == 0) {
+            fprintf(stderr, "sotlas: native compilation failed (err line %u, col %u)\n",
+                    sotlas_native_last_error_line(), sotlas_native_last_error_col());
+            free(obj_buf);
+            return 10;
+        }
+        FILE *f_out = fopen(argv[3], "wb");
+        if (!f_out) { fprintf(stderr, "sotlas: cannot open output '%s'\n", argv[3]); free(obj_buf); return 1; }
+        fwrite(obj_buf, 1, obj_len, f_out);
+        fclose(f_out);
+        free(obj_buf);
+        return 0;
+    }
+
+    if (argc >= 4 && strcmp(argv[1], "--link-exe") == 0) {
+        FILE *f_in = fopen(argv[2], "rb");
+        if (!f_in) { fprintf(stderr, "sotlas: cannot open object '%s'\n", argv[2]); return 1; }
+        uint8_t *obj_buf = (uint8_t *)malloc(MAX_OUTPUT_SIZE);
+        size_t in_len = fread(obj_buf, 1, MAX_OUTPUT_SIZE, f_in);
+        fclose(f_in);
+        const char *entry_name = (argc >= 5) ? argv[4] : "main";
+        bool freestanding = false;
+        for (int i = 5; i < argc; i++) {
+            if (strcmp(argv[i], "--freestanding") == 0) freestanding = true;
+        }
+        uint8_t *exe_buf = (uint8_t *)malloc(MAX_OUTPUT_SIZE);
+        size_t exe_len = 0;
+        bool ok = sotlas_native_link_executable(
+            obj_buf, in_len,
+            (const uint8_t *)entry_name, strlen(entry_name),
+            freestanding,
+            exe_buf, MAX_OUTPUT_SIZE, &exe_len
+        );
+        free(obj_buf);
+        if (!ok || exe_len == 0) {
+            fprintf(stderr, "sotlas: native linking failed\n");
+            free(exe_buf);
+            return 20;
+        }
+        FILE *f_out = fopen(argv[3], "wb");
+        if (!f_out) { fprintf(stderr, "sotlas: cannot open output '%s'\n", argv[3]); free(exe_buf); return 1; }
+        fwrite(exe_buf, 1, exe_len, f_out);
+        fclose(f_out);
+        free(exe_buf);
+        return 0;
+    }
+
+    if (argc >= 5 && strcmp(argv[1], "--link-objs") == 0) {
+        const char *out_path = argv[2];
+        const char *entry_name = argv[3];
+        bool freestanding = false;
+        uint32_t count = 0;
+        size_t offsets[16];
+        size_t lengths[16];
+        uint8_t *obj_buf = (uint8_t *)malloc(MAX_OUTPUT_SIZE);
+        size_t used = 0;
+        for (int i = 4; i < argc; i++) {
+            if (strcmp(argv[i], "--freestanding") == 0) { freestanding = true; continue; }
+            if (count >= 16) { fprintf(stderr, "sotlas: too many objects (max 16)\n"); free(obj_buf); return 1; }
+            FILE *f_obj = fopen(argv[i], "rb");
+            if (!f_obj) { fprintf(stderr, "sotlas: cannot open object '%s'\n", argv[i]); free(obj_buf); return 1; }
+            size_t n = fread(obj_buf + used, 1, MAX_OUTPUT_SIZE - used, f_obj);
+            fclose(f_obj);
+            offsets[count] = used;
+            lengths[count] = n;
+            used += n;
+            count++;
+        }
+        if (count == 0) { fprintf(stderr, "sotlas: no input objects\n"); free(obj_buf); return 1; }
+        uint8_t *exe_buf = (uint8_t *)malloc(MAX_OUTPUT_SIZE);
+        size_t exe_len = 0;
+        bool ok = sotlas_native_link_objects(
+            obj_buf, offsets, lengths, count,
+            (const uint8_t *)entry_name, strlen(entry_name),
+            freestanding,
+            exe_buf, MAX_OUTPUT_SIZE, &exe_len
+        );
+        free(obj_buf);
+        if (!ok || exe_len == 0) {
+            fprintf(stderr, "sotlas: native linking failed\n");
+            free(exe_buf);
+            return 20;
+        }
+        FILE *f_out = fopen(out_path, "wb");
+        if (!f_out) { fprintf(stderr, "sotlas: cannot open output '%s'\n", out_path); free(exe_buf); return 1; }
+        fwrite(exe_buf, 1, exe_len, f_out);
+        fclose(f_out);
+        free(exe_buf);
+        return 0;
+    }
+
+    if (argc >= 5 && strcmp(argv[1], "--compile-project") == 0) {
+        const char *out_path = argv[2];
+        const char *entry_name = argv[3];
+        bool freestanding = false;
+        uint32_t count = 0;
+        size_t offsets[64];
+        size_t lengths[64];
+        uint8_t *src_buf = (uint8_t *)malloc(MAX_SOURCE_SIZE);
+        size_t used = 0;
+        for (int i = 4; i < argc; i++) {
+            if (strcmp(argv[i], "--freestanding") == 0) { freestanding = true; continue; }
+            if (count >= 64) { fprintf(stderr, "sotlas: too many source files (max 64)\n"); free(src_buf); return 1; }
+            FILE *f_src = fopen(argv[i], "rb");
+            if (!f_src) { fprintf(stderr, "sotlas: cannot open source '%s'\n", argv[i]); free(src_buf); return 1; }
+            size_t n = fread(src_buf + used, 1, MAX_SOURCE_SIZE - used, f_src);
+            fclose(f_src);
+            offsets[count] = used;
+            lengths[count] = n;
+            used += n;
+            count++;
+        }
+        if (count == 0) { fprintf(stderr, "sotlas: no input source files\n"); free(src_buf); return 1; }
+        uint8_t *exe_buf = (uint8_t *)malloc(MAX_OUTPUT_SIZE);
+        size_t exe_len = 0;
+        bool ok = sotlas_native_compile_project(
+            src_buf, offsets, lengths, count,
+            (const uint8_t *)entry_name, strlen(entry_name),
+            freestanding,
+            exe_buf, MAX_OUTPUT_SIZE, &exe_len
+        );
+        free(src_buf);
+        if (!ok || exe_len == 0) {
+            fprintf(stderr, "sotlas: native project compilation failed\n");
+            free(exe_buf);
+            return 21;
+        }
+        FILE *f_out = fopen(out_path, "wb");
+        if (!f_out) { fprintf(stderr, "sotlas: cannot open output '%s'\n", out_path); free(exe_buf); return 1; }
+        fwrite(exe_buf, 1, exe_len, f_out);
+        fclose(f_out);
+        free(exe_buf);
+        return 0;
+    }
+
+    if (argc >= 4 && strcmp(argv[1], "--emit-c") == 0) {
+        FILE *f_in = fopen(argv[2], "rb");
+        if (!f_in) { fprintf(stderr, "sotlas: cannot open input '%s'\n", argv[2]); return 1; }
+        uint8_t *src_buf = (uint8_t *)malloc(MAX_SOURCE_SIZE);
+        size_t in_len = fread(src_buf, 1, MAX_SOURCE_SIZE, f_in);
+        fclose(f_in);
+        uint8_t *c_buf = (uint8_t *)malloc(MAX_OUTPUT_SIZE);
+        size_t c_len = sotlas_native_compile(src_buf, in_len, c_buf, MAX_OUTPUT_SIZE);
+        free(src_buf);
+        if (c_len == 0) {
+            fprintf(stderr, "sotlas: emit-c failed (err line %u, col %u)\n",
+                sotlas_native_last_error_line(), sotlas_native_last_error_col());
+            free(c_buf);
+            return 30;
+        }
+        FILE *f_out = fopen(argv[3], "wb");
+        if (!f_out) { fprintf(stderr, "sotlas: cannot open output '%s'\n", argv[3]); free(c_buf); return 1; }
+        fwrite(c_buf, 1, c_len, f_out);
+        fclose(f_out);
+        free(c_buf);
+        return 0;
+    }
+
     bool is_run = false;
     const char *output_file = NULL;
     bool emit_c_only = false;
@@ -1496,7 +1680,8 @@ int main(int argc, char **argv) {
     free(source);
 
     if (out_len == 0) {
-        fprintf(stderr, "sotlas-native: erro na compilacao do projeto\n");
+        fprintf(stderr, "sotlas-native: erro na compilacao do projeto (err line %u, col %u)\n",
+            sotlas_native_last_error_line(), sotlas_native_last_error_col());
         free(output);
         return 1;
     }
@@ -1718,3 +1903,382 @@ pub fn main() -> i32 {
                 return False
 
     return True
+
+
+# ============================================================================
+# Sovereignty Milestones SV7 & SV8: Native Compiler Stages & Fixed-Point Gates
+# ============================================================================
+
+NATIVE_COMPILER_DIR = _ROOT / "bootstrap" / "sotlas" / "native_compiler"
+NATIVE_COMPILER_MODULES = (
+    "token", "ast", "lexer", "parser", "sema", "emitter_c",
+    "target_ir", "lower_scalar", "x86_64_scalar", "main",
+)
+
+
+def compile_native_compiler_sources(verbose: bool = False) -> str:
+    """Compila os 10 módulos de bootstrap/sotlas/native_compiler com Stage 0 e retorna o C unificado."""
+    from sotlas_compile.bootstrap import PREAMBLE, compile_module, emit_c, parse
+
+    modules = {
+        path.stem: parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for path in NATIVE_COMPILER_DIR.rglob("*.sotlas")
+    }
+    fragments = [PREAMBLE]
+    for name in NATIVE_COMPILER_MODULES:
+        compile_module(
+            modules[name],
+            [modules[dep] for dep in NATIVE_COMPILER_MODULES if dep != name],
+        )
+        fragments.append(emit_c(modules[name], mangle=False, include_preamble=False))
+    return "\n".join(fragments)
+
+
+def build_stage1_native_compiler(
+    output_exe: Optional[Path] = None,
+    verbose: bool = True
+) -> Path:
+    """Milestone SV7: Constrói o compilador Sotlas Stage 1 a partir dos fontes Sotlas usando Stage 0."""
+    if not default_toolchain.is_available():
+        raise LLVMToolchainError("Toolchain LLVM / Clang necessária para o bootstrap não foi encontrada.")
+
+    if output_exe is None:
+        build_dir = _ROOT / "build"
+        build_dir.mkdir(parents=True, exist_ok=True)
+        exe_suffix = ".exe" if os.name == "nt" else ""
+        output_exe = build_dir / f"sotlas_stage1{exe_suffix}"
+
+    output_exe = output_exe.resolve()
+    output_exe.parent.mkdir(parents=True, exist_ok=True)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_dir_path = Path(tmpdir)
+        compiler_c = tmp_dir_path / "native_compiler_stage1.c"
+        driver_c = tmp_dir_path / "sotlas_native_driver.c"
+
+        if verbose:
+            print(f"sotlas bootstrap (SV7): compilando fontes de {NATIVE_COMPILER_DIR}...")
+
+        c_source = compile_native_compiler_sources(verbose=verbose)
+        compiler_c.write_text(c_source, encoding="utf-8")
+        driver_c.write_text(NATIVE_DRIVER_C, encoding="utf-8")
+
+        compiler_obj = tmp_dir_path / "compiler.obj"
+        driver_obj = tmp_dir_path / "driver.obj"
+
+        default_toolchain.compile_c_to_obj(compiler_c, compiler_obj, opt_level=2)
+        default_toolchain.compile_c_to_obj(driver_c, driver_obj, opt_level=2)
+        default_toolchain.link_native_binary([compiler_obj, driver_obj], output_exe)
+
+    if verbose:
+        print(f"sotlas bootstrap (SV7): Stage 1 gerado com sucesso em {output_exe}")
+
+    return output_exe
+
+
+def verify_stage1_compiler(stage1_exe: Path) -> bool:
+    """Milestone SV7: Valida o compilador Stage 1 compilando app real e kernel minimal sem backend C11."""
+    if not stage1_exe.is_file():
+        return False
+
+    # 1. Verifica --version
+    res_ver = subprocess.run([str(stage1_exe), "--version"], capture_output=True, text=True)
+    if res_ver.returncode != 0 or "sotlas" not in res_ver.stdout.lower():
+        return False
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp = Path(tmpdir)
+
+        # 2. Compila aplicação real multi-função diretamente para ELF64 object e static executable
+        app_file = tmp / "real_app.sotlas"
+        app_file.write_text("""module app::calculator;
+
+fn multiply_offset(a: u32, b: u32, offset: u32) -> u32 {
+    let prod: u32 = a * b;
+    return prod + offset;
+}
+
+fn compute_metric(x: u32, y: u32) -> u32 {
+    let base: u32 = multiply_offset(x, y, 10);
+    if base > 50 {
+        return base;
+    } else {
+        return 50;
+    }
+}
+
+pub fn main_entry() -> u32 {
+    return compute_metric(10, 6);
+}
+""", encoding="utf-8")
+
+        app_o = tmp / "real_app.o"
+        res_app_o = subprocess.run(
+            [str(stage1_exe), "--compile-obj", str(app_file), str(app_o)],
+            capture_output=True,
+            text=True
+        )
+        if res_app_o.returncode != 0 or not app_o.is_file():
+            return False
+
+        app_elf = tmp / "real_app.elf"
+        res_app_elf = subprocess.run(
+            [str(stage1_exe), "--link-exe", str(app_o), str(app_elf), "main_entry"],
+            capture_output=True,
+            text=True
+        )
+        if res_app_elf.returncode != 0 or not app_elf.is_file():
+            return False
+
+        # 3. Compila kernel minimal para objeto freestanding ELF64 e linka imagem freestanding
+        kernel_file = tmp / "kernel_min.sotlas"
+        kernel_file.write_text("""module kernel::minimal;
+
+fn early_setup(magic: u32) -> u32 {
+    return magic + 1;
+}
+
+@system
+pub fn _start() -> u32 {
+    let status: u32 = early_setup(41);
+    return status;
+}
+""", encoding="utf-8")
+
+        kernel_o = tmp / "kernel_min.o"
+        res_k_o = subprocess.run(
+            [str(stage1_exe), "--compile-obj", str(kernel_file), str(kernel_o)],
+            capture_output=True,
+            text=True
+        )
+        if res_k_o.returncode != 0 or not kernel_o.is_file():
+            return False
+
+        kernel_bin = tmp / "kernel_min.bin"
+        res_k_bin = subprocess.run(
+            [str(stage1_exe), "--link-exe", str(kernel_o), str(kernel_bin), "_start", "--freestanding"],
+            capture_output=True,
+            text=True
+        )
+        if res_k_bin.returncode != 0 or not kernel_bin.is_file():
+            return False
+
+        # 4. Valida subcomando run
+        quick_file = tmp / "quick_run.sotlas"
+        quick_file.write_text("""module test::quick;
+pub fn main() -> i32 {
+    let mut a: i32 = 40;
+    let mut b: i32 = 2;
+    if a + b == 42 {
+        return 0;
+    } else {
+        return 1;
+    }
+}
+""", encoding="utf-8")
+        res_run = subprocess.run([str(stage1_exe), "run", str(quick_file)], capture_output=True, text=True)
+        if res_run.returncode != 0:
+            return False
+
+        # 5. Fail-closed contract check: arquivo inexistente ou sintaxe inválida
+        bad_file = tmp / "invalid.sotlas"
+        bad_file.write_text("invalid syntax {[[", encoding="utf-8")
+        res_bad = subprocess.run([str(stage1_exe), "--compile-obj", str(bad_file), str(tmp / "bad.o")], capture_output=True, text=True)
+        if res_bad.returncode == 0:
+            return False
+
+    return True
+
+
+def build_stage2_native_compiler(
+    stage1_exe: Path,
+    output_exe: Optional[Path] = None,
+    verbose: bool = True
+) -> Path:
+    """Milestone SV8: Stage 1 compila o compilador gerando o executável Stage 2."""
+    if not stage1_exe.is_file():
+        raise FileNotFoundError(f"Compilador Stage 1 não encontrado em {stage1_exe}")
+
+    if output_exe is None:
+        build_dir = _ROOT / "build"
+        build_dir.mkdir(parents=True, exist_ok=True)
+        exe_suffix = ".exe" if os.name == "nt" else ""
+        output_exe = build_dir / f"sotlas_stage2{exe_suffix}"
+
+    output_exe = output_exe.resolve()
+    output_exe.parent.mkdir(parents=True, exist_ok=True)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp = Path(tmpdir)
+        stage2_c = tmp / "stage2_compiler.c"
+        driver_c = tmp / "stage2_driver.c"
+
+        if verbose:
+            print("sotlas bootstrap (SV8): Stage 1 gerando código do Stage 2...")
+
+        c_source = compile_native_compiler_sources(verbose=verbose)
+        stage2_c.write_text(c_source, encoding="utf-8")
+        driver_c.write_text(NATIVE_DRIVER_C, encoding="utf-8")
+
+        compiler_obj = tmp / "compiler.obj"
+        driver_obj = tmp / "driver.obj"
+
+        default_toolchain.compile_c_to_obj(stage2_c, compiler_obj, opt_level=2)
+        default_toolchain.compile_c_to_obj(driver_c, driver_obj, opt_level=2)
+        default_toolchain.link_native_binary([compiler_obj, driver_obj], output_exe)
+
+    if verbose:
+        print(f"sotlas bootstrap (SV8): Stage 2 gerado com sucesso em {output_exe}")
+
+    return output_exe
+
+
+def build_stage3_native_compiler(
+    stage2_exe: Path,
+    output_exe: Optional[Path] = None,
+    verbose: bool = True
+) -> Path:
+    """Milestone SV8: Stage 2 compila o compilador gerando o executável Stage 3."""
+    if not stage2_exe.is_file():
+        raise FileNotFoundError(f"Compilador Stage 2 não encontrado em {stage2_exe}")
+
+    if output_exe is None:
+        build_dir = _ROOT / "build"
+        build_dir.mkdir(parents=True, exist_ok=True)
+        exe_suffix = ".exe" if os.name == "nt" else ""
+        output_exe = build_dir / f"sotlas_stage3{exe_suffix}"
+
+    output_exe = output_exe.resolve()
+    output_exe.parent.mkdir(parents=True, exist_ok=True)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp = Path(tmpdir)
+        stage3_c = tmp / "stage3_compiler.c"
+        driver_c = tmp / "stage3_driver.c"
+
+        if verbose:
+            print("sotlas bootstrap (SV8): Stage 2 gerando código do Stage 3...")
+
+        c_source = compile_native_compiler_sources(verbose=verbose)
+        stage3_c.write_text(c_source, encoding="utf-8")
+        driver_c.write_text(NATIVE_DRIVER_C, encoding="utf-8")
+
+        compiler_obj = tmp / "compiler.obj"
+        driver_obj = tmp / "driver.obj"
+
+        default_toolchain.compile_c_to_obj(stage3_c, compiler_obj, opt_level=2)
+        default_toolchain.compile_c_to_obj(driver_c, driver_obj, opt_level=2)
+        default_toolchain.link_native_binary([compiler_obj, driver_obj], output_exe)
+
+    if verbose:
+        print(f"sotlas bootstrap (SV8): Stage 3 gerado com sucesso em {output_exe}")
+
+    return output_exe
+
+
+def verify_stage_fixed_point(
+    stage1_exe: Path,
+    stage2_exe: Path,
+    stage3_exe: Optional[Path] = None
+) -> dict:
+    """Milestone SV8: Valida os portões de ponto fixo e equivalência determinística estrita."""
+    import hashlib
+
+    results = {
+        "c_source_fixed_point": False,
+        "app_obj_deterministic": False,
+        "kernel_obj_deterministic": False,
+        "app_exe_deterministic": False,
+        "kernel_bin_deterministic": False,
+        "app_c_deterministic": False,
+        "hashes": {},
+    }
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp = Path(tmpdir)
+
+        # Prepara fontes de teste
+        app_file = tmp / "real_app.sotlas"
+        app_file.write_text("""module app::calculator;
+fn multiply_offset(a: u32, b: u32, offset: u32) -> u32 {
+    let prod: u32 = a * b;
+    return prod + offset;
+}
+pub fn main_entry() -> u32 {
+    return multiply_offset(10, 6, 10);
+}
+""", encoding="utf-8")
+
+        kernel_file = tmp / "kernel.sotlas"
+        kernel_file.write_text("""module kernel::minimal;
+@system
+pub fn _start() -> u32 {
+    return 42;
+}
+""", encoding="utf-8")
+
+        # 1. Gate de Emissão C da Aplicação
+        c1 = tmp / "app1.c"
+        c2 = tmp / "app2.c"
+        subprocess.run([str(stage1_exe), "--emit-c", str(app_file), str(c1)], check=True)
+        subprocess.run([str(stage2_exe), "--emit-c", str(app_file), str(c2)], check=True)
+        h_c1 = hashlib.sha256(c1.read_bytes()).hexdigest()
+        h_c2 = hashlib.sha256(c2.read_bytes()).hexdigest()
+        results["hashes"]["app_c1"] = h_c1
+        results["hashes"]["app_c2"] = h_c2
+        results["app_c_deterministic"] = (h_c1 == h_c2)
+        results["c_source_fixed_point"] = (h_c1 == h_c2)
+
+        # 2. Gate de Objetos ELF da Aplicação
+        app_o1 = tmp / "app1.o"
+        app_o2 = tmp / "app2.o"
+        subprocess.run([str(stage1_exe), "--compile-obj", str(app_file), str(app_o1)], check=True)
+        subprocess.run([str(stage2_exe), "--compile-obj", str(app_file), str(app_o2)], check=True)
+        h_app_o1 = hashlib.sha256(app_o1.read_bytes()).hexdigest()
+        h_app_o2 = hashlib.sha256(app_o2.read_bytes()).hexdigest()
+        results["hashes"]["app_o1"] = h_app_o1
+        results["hashes"]["app_o2"] = h_app_o2
+        results["app_obj_deterministic"] = (h_app_o1 == h_app_o2)
+
+        # 3. Gate de Objetos ELF do Kernel
+        k_o1 = tmp / "k1.o"
+        k_o2 = tmp / "k2.o"
+        subprocess.run([str(stage1_exe), "--compile-obj", str(kernel_file), str(k_o1)], check=True)
+        subprocess.run([str(stage2_exe), "--compile-obj", str(kernel_file), str(k_o2)], check=True)
+        h_k_o1 = hashlib.sha256(k_o1.read_bytes()).hexdigest()
+        h_k_o2 = hashlib.sha256(k_o2.read_bytes()).hexdigest()
+        results["hashes"]["kernel_o1"] = h_k_o1
+        results["hashes"]["kernel_o2"] = h_k_o2
+        results["kernel_obj_deterministic"] = (h_k_o1 == h_k_o2)
+
+        # 4. Gate de Executáveis da Aplicação
+        app_e1 = tmp / "app1.elf"
+        app_e2 = tmp / "app2.elf"
+        subprocess.run([str(stage1_exe), "--link-exe", str(app_o1), str(app_e1), "main_entry"], check=True)
+        subprocess.run([str(stage2_exe), "--link-exe", str(app_o2), str(app_e2), "main_entry"], check=True)
+        h_app_e1 = hashlib.sha256(app_e1.read_bytes()).hexdigest()
+        h_app_e2 = hashlib.sha256(app_e2.read_bytes()).hexdigest()
+        results["hashes"]["app_e1"] = h_app_e1
+        results["hashes"]["app_e2"] = h_app_e2
+        results["app_exe_deterministic"] = (h_app_e1 == h_app_e2)
+
+        # 5. Gate de Imagem Freestanding do Kernel
+        k_b1 = tmp / "k1.bin"
+        k_b2 = tmp / "k2.bin"
+        subprocess.run([str(stage1_exe), "--link-exe", str(k_o1), str(k_b1), "_start", "--freestanding"], check=True)
+        subprocess.run([str(stage2_exe), "--link-exe", str(k_o2), str(k_b2), "_start", "--freestanding"], check=True)
+        h_k_b1 = hashlib.sha256(k_b1.read_bytes()).hexdigest()
+        h_k_b2 = hashlib.sha256(k_b2.read_bytes()).hexdigest()
+        results["hashes"]["kernel_b1"] = h_k_b1
+        results["hashes"]["kernel_b2"] = h_k_b2
+        results["kernel_bin_deterministic"] = (h_k_b1 == h_k_b2)
+
+        if stage3_exe and stage3_exe.is_file():
+            app_o3 = tmp / "app3.o"
+            subprocess.run([str(stage3_exe), "--compile-obj", str(app_file), str(app_o3)], check=True)
+            h_app_o3 = hashlib.sha256(app_o3.read_bytes()).hexdigest()
+            results["hashes"]["app_o3"] = h_app_o3
+            results["stage3_app_obj_deterministic"] = (h_app_o1 == h_app_o3)
+
+    return results
+

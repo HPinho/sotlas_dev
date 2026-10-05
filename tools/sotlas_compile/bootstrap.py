@@ -860,6 +860,8 @@ class Parser:
                 self.expect(",")
         result = Type("void")
         if self.accept("->"): result = self.type()
+        if "@extern(C)" in (attributes or []) and self.accept(";"):
+            return Function(name, params, result, [], public, attributes or [])
         return Function(name, params, result, self.block(), public, attributes or [])
 
     def block(self) -> list[Stmt]:

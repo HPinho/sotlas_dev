@@ -297,6 +297,21 @@ impl Parser {
             return 0;
         }
 
+        if self.match_token(TokenKind::KwBarecore) {
+            self.advance();
+            if self.match_token(TokenKind::SemiColon) {
+                self.advance();
+            }
+        } else if self.match_token(TokenKind::KwTarget) {
+            self.advance();
+            while !self.is_at_end() && !self.match_token(TokenKind::SemiColon) {
+                self.advance();
+            }
+            if self.match_token(TokenKind::SemiColon) {
+                self.advance();
+            }
+        }
+
         if self.match_token(TokenKind::KwModule) {
             self.advance();
             // Consome identificadores de módulo separados por ::
@@ -308,8 +323,43 @@ impl Parser {
             }
         }
 
+        if self.match_token(TokenKind::KwBarecore) {
+            self.advance();
+            if self.match_token(TokenKind::SemiColon) {
+                self.advance();
+            }
+        } else if self.match_token(TokenKind::KwTarget) {
+            self.advance();
+            while !self.is_at_end() && !self.match_token(TokenKind::SemiColon) {
+                self.advance();
+            }
+            if self.match_token(TokenKind::SemiColon) {
+                self.advance();
+            }
+        }
+
         // Persiste todas as declarações de topo como filhos do módulo.
         while !self.is_at_end() {
+            if self.match_token(TokenKind::KwModule) {
+                self.advance();
+                while !self.is_at_end() && !self.match_token(TokenKind::SemiColon) {
+                    self.advance();
+                }
+                if self.match_token(TokenKind::SemiColon) {
+                    self.advance();
+                }
+                continue;
+            }
+            if self.match_token(TokenKind::KwBarecore) {
+                self.advance();
+                if self.match_token(TokenKind::SemiColon) { self.advance(); }
+                continue;
+            } else if self.match_token(TokenKind::KwTarget) {
+                self.advance();
+                while !self.is_at_end() && !self.match_token(TokenKind::SemiColon) { self.advance(); }
+                if self.match_token(TokenKind::SemiColon) { self.advance(); }
+                continue;
+            }
             let before: usize = self.cursor;
             let decl_node: usize = self.parse_declaration();
             if decl_node == 0 {
@@ -674,9 +724,39 @@ impl Parser {
     }
 
     pub fn parse_declaration(mut self: &mut Self) -> usize {
+        while self.match_token(TokenKind::At) {
+            self.advance();
+            if !self.is_at_end() && !self.match_token(TokenKind::OpenParen) && !self.match_token(TokenKind::At) && !self.match_token(TokenKind::SemiColon) {
+                self.advance();
+            }
+            if self.match_token(TokenKind::OpenParen) {
+                self.advance();
+                while !self.is_at_end() && !self.match_token(TokenKind::CloseParen) {
+                    self.advance();
+                }
+                if self.match_token(TokenKind::CloseParen) {
+                    self.advance();
+                }
+            }
+        }
         let tok: Token = self.current();
         if tok.kind == TokenKind::KwPub {
             self.advance();
+            while self.match_token(TokenKind::At) {
+                self.advance();
+                if !self.is_at_end() && !self.match_token(TokenKind::OpenParen) && !self.match_token(TokenKind::At) && !self.match_token(TokenKind::SemiColon) {
+                    self.advance();
+                }
+                if self.match_token(TokenKind::OpenParen) {
+                    self.advance();
+                    while !self.is_at_end() && !self.match_token(TokenKind::CloseParen) {
+                        self.advance();
+                    }
+                    if self.match_token(TokenKind::CloseParen) {
+                        self.advance();
+                    }
+                }
+            }
         }
         let inner: Token = self.current();
         if inner.kind == TokenKind::KwFn || inner.kind == TokenKind::KwTrapfn {
@@ -980,6 +1060,60 @@ impl Parser {
             }
             self.expect(TokenKind::SemiColon);
             return imp_node;
+        } else if inner.kind == TokenKind::KwConst || inner.kind == TokenKind::KwStatic {
+            self.advance();
+            let decl_node: usize = self.alloc_node(AstKind::LetStmt, inner.span);
+            if decl_node == 0 {
+                return 0;
+            }
+            let mut is_mutable: bool = false;
+            if self.match_token(TokenKind::KwMut) {
+                self.advance();
+                is_mutable = true;
+            }
+            let name_tok: Token = self.current();
+            if name_tok.kind != TokenKind::Ident {
+                return 0;
+            }
+            self.advance();
+            if !self.set_node_text(decl_node, name_tok) {
+                return 0;
+            }
+            let mut stored_node: AstNode = unsafe { *(self.nodes + decl_node) };
+            if is_mutable {
+                stored_node.int_value = 1;
+            }
+            unsafe {
+                *(self.nodes + decl_node) = stored_node;
+            }
+            if self.match_token(TokenKind::Colon) {
+                self.advance();
+                if self.is_at_end()
+                    || self.match_token(TokenKind::Equal)
+                    || self.match_token(TokenKind::SemiColon) {
+                    return 0;
+                }
+                let type_node: usize = self.parse_type_ref(1);
+                if type_node == 0 {
+                    return 0;
+                }
+                if !self.append_child(decl_node, type_node) {
+                    return 0;
+                }
+            }
+            if self.match_token(TokenKind::Equal) {
+                self.advance();
+                let val_node: usize = self.parse_expression();
+                if val_node == 0 || !self.append_child(decl_node, val_node) {
+                    return 0;
+                }
+            }
+            if !self.match_token(TokenKind::SemiColon) {
+                self.reject_current();
+                return 0;
+            }
+            self.advance();
+            return decl_node;
         }
         return self.parse_statement();
     }
@@ -1109,38 +1243,64 @@ impl Parser {
                 }
             }
 
-            if !self.match_token(TokenKind::OpenParen) {
-                return callee_node;
-            }
-
-            let call_node: usize = self.alloc_node(AstKind::ExprCall, tok.span);
-            if call_node == 0 {
-                return 0;
-            }
-            if !self.append_child(call_node, callee_node) {
-                return 0;
-            }
-
-            self.advance();
-            while !self.is_at_end() && !self.match_token(TokenKind::CloseParen) {
-                let arg_node: usize = self.parse_expression();
-                if arg_node == 0 {
-                    return 0;
-                }
-                if !self.append_child(call_node, arg_node) {
-                    return 0;
-                }
-                if self.match_token(TokenKind::Comma) {
+            let mut current_expr: usize = callee_node;
+            while !self.is_at_end() {
+                if self.match_token(TokenKind::Dot) {
                     self.advance();
+                    let field_tok: Token = self.current();
+                    if field_tok.kind != TokenKind::Ident {
+                        self.reject_current();
+                        return 0;
+                    }
+                    self.advance();
+                    let field_node: usize = self.alloc_node(AstKind::ExprFieldAccess, field_tok.span);
+                    if field_node == 0 || !self.set_node_text(field_node, field_tok) {
+                        return 0;
+                    }
+                    if !self.append_child(field_node, current_expr) {
+                        return 0;
+                    }
+                    current_expr = field_node;
+                } else if self.match_token(TokenKind::OpenParen) {
+                    let call_node: usize = self.alloc_node(AstKind::ExprCall, tok.span);
+                    if call_node == 0 {
+                        return 0;
+                    }
+                    if current_expr == callee_node {
+                        if !self.append_child(call_node, callee_node) {
+                            return 0;
+                        }
+                    } else {
+                        if !self.append_child(call_node, current_expr) {
+                            return 0;
+                        }
+                    }
+
+                    self.advance();
+                    while !self.is_at_end() && !self.match_token(TokenKind::CloseParen) {
+                        let arg_node: usize = self.parse_expression();
+                        if arg_node == 0 {
+                            return 0;
+                        }
+                        if !self.append_child(call_node, arg_node) {
+                            return 0;
+                        }
+                        if self.match_token(TokenKind::Comma) {
+                            self.advance();
+                        } else {
+                            break;
+                        }
+                    }
+                    if !self.match_token(TokenKind::CloseParen) {
+                        return 0;
+                    }
+                    self.advance();
+                    current_expr = call_node;
                 } else {
                     break;
                 }
             }
-            if !self.match_token(TokenKind::CloseParen) {
-                return 0;
-            }
-            self.advance();
-            return call_node;
+            return current_expr;
         }
 
         if tok.kind == TokenKind::OpenParen {
@@ -1149,7 +1309,25 @@ impl Parser {
                 return 0;
             }
             self.advance();
-            return inner;
+            let mut current_expr: usize = inner;
+            while !self.is_at_end() && self.match_token(TokenKind::Dot) {
+                self.advance();
+                let field_tok: Token = self.current();
+                if field_tok.kind != TokenKind::Ident {
+                    self.reject_current();
+                    return 0;
+                }
+                self.advance();
+                let field_node: usize = self.alloc_node(AstKind::ExprFieldAccess, field_tok.span);
+                if field_node == 0 || !self.set_node_text(field_node, field_tok) {
+                    return 0;
+                }
+                if !self.append_child(field_node, current_expr) {
+                    return 0;
+                }
+                current_expr = field_node;
+            }
+            return current_expr;
         }
 
         return self.alloc_node(AstKind::ExprLiteral, tok.span);

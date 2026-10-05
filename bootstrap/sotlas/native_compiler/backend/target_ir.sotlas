@@ -9,6 +9,7 @@ pub const TARGET_VALUE_NONE: u32 = 0;
 pub const TARGET_BLOCK_NONE: u32 = 0;
 pub const TARGET_FLAG_SEMANTIC_ONLY: u32 = 1;
 pub const TARGET_FLAG_SYSTEM: u32 = 2;
+pub const TARGET_FUNCTION_EXTERNAL: u32 = 4;
 
 pub enum TargetTypeTag {
     Invalid = 0,
@@ -268,3 +269,1084 @@ pub fn target_type_is_integer(type_tag: TargetTypeTag) -> bool {
         || type_tag == TargetTypeTag::I64
         || type_tag == TargetTypeTag::Isize;
 }
+
+pub fn target_range_is_valid(first: u32, count: u32, total: u32) -> bool {
+    return first <= total && count <= total - first;
+}
+
+pub fn target_cfg_has_block(
+    blocks: *const TargetBlock,
+    first_block: u32,
+    block_count: u32,
+    block_id: u32
+) -> bool {
+    if blocks == null || block_id == TARGET_BLOCK_NONE {
+        return false;
+    }
+    let mut offset: u32 = 0;
+    while offset < block_count {
+        if unsafe { (*(blocks + first_block + offset)).id } == block_id {
+            return true;
+        }
+        offset = offset + 1;
+    }
+    return false;
+}
+
+pub fn target_cfg_block_has_edge(
+    block: &TargetBlock,
+    instructions: *const TargetInstruction,
+    targets: *const u32,
+    target_id: u32
+) -> bool {
+    if block.instruction_count == 0 || instructions == null || targets == null {
+        return false;
+    }
+    let terminator_index: u32 = block.first_instruction + block.instruction_count - 1;
+    let terminator: TargetInstruction = unsafe { *(instructions + terminator_index) };
+    if terminator.opcode != TargetOpcode::Branch
+        && terminator.opcode != TargetOpcode::CondBranch {
+        return false;
+    }
+    let mut target_offset: u32 = 0;
+    while target_offset < terminator.target_count {
+        let actual: u32 = unsafe {
+            *(targets + terminator.first_target + target_offset)
+        };
+        if actual == target_id {
+            return true;
+        }
+        target_offset = target_offset + 1;
+    }
+    return false;
+}
+
+pub fn target_value_matches(
+    values: *const TargetValue,
+    value_count: u32,
+    value_id: u32,
+    type_tag: TargetTypeTag
+) -> bool {
+    if values == null || value_id == TARGET_VALUE_NONE || value_id > value_count {
+        return false;
+    }
+    let value: TargetValue = unsafe { *(values + value_id - 1) };
+    return value.id == value_id && value.type_tag == type_tag;
+}
+
+pub fn target_function_defines_value(
+    function: &TargetFunction,
+    parameters: *const TargetParameter,
+    blocks: *const TargetBlock,
+    instructions: *const TargetInstruction,
+    value_id: u32
+) -> bool {
+    let mut parameter_offset: u32 = 0;
+    while parameter_offset < function.parameter_count {
+        if unsafe {
+            (*(parameters + function.first_parameter + parameter_offset)).value_id
+        } == value_id {
+            return true;
+        }
+        parameter_offset = parameter_offset + 1;
+    }
+    let mut block_offset: u32 = 0;
+    while block_offset < function.block_count {
+        let block: TargetBlock = unsafe {
+            *(blocks + function.first_block + block_offset)
+        };
+        let mut instruction_offset: u32 = 0;
+        while instruction_offset < block.instruction_count {
+            if unsafe {
+                (*(instructions + block.first_instruction + instruction_offset)).result_value
+            } == value_id {
+                return true;
+            }
+            instruction_offset = instruction_offset + 1;
+        }
+        block_offset = block_offset + 1;
+    }
+    return false;
+}
+
+pub fn target_cfg_block_offset(
+    blocks: *const TargetBlock,
+    function: &TargetFunction,
+    block_id: u32
+) -> u32 {
+    let mut offset: u32 = 0;
+    while offset < function.block_count {
+        if unsafe { (*(blocks + function.first_block + offset)).id } == block_id {
+            return offset;
+        }
+        offset = offset + 1;
+    }
+    return function.block_count;
+}
+
+pub fn target_dom_contains(
+    dominators: *mut u8,
+    stride: usize,
+    block_offset: u32,
+    dominator_offset: u32
+) -> bool {
+    let byte_offset: usize = block_offset as usize * stride
+        + dominator_offset as usize / 8;
+    let bit: u8 = (1 << (dominator_offset % 8)) as u8;
+    return unsafe { (*(dominators + byte_offset)) & bit } != 0;
+}
+
+pub fn target_value_dominates_point(
+    function: &TargetFunction,
+    parameters: *const TargetParameter,
+    blocks: *const TargetBlock,
+    instructions: *const TargetInstruction,
+    dominators: *mut u8,
+    stride: usize,
+    value_id: u32,
+    use_block_id: u32,
+    use_instruction_offset: u32
+) -> bool {
+    let mut parameter_offset: u32 = 0;
+    while parameter_offset < function.parameter_count {
+        if unsafe {
+            (*(parameters + function.first_parameter + parameter_offset)).value_id
+        } == value_id {
+            return true;
+        }
+        parameter_offset = parameter_offset + 1;
+    }
+
+    let mut definition_found: bool = false;
+    let mut definition_block_id: u32 = TARGET_BLOCK_NONE;
+    let mut definition_instruction_offset: u32 = 0;
+    let mut block_offset: u32 = 0;
+    while block_offset < function.block_count {
+        let block: TargetBlock = unsafe {
+            *(blocks + function.first_block + block_offset)
+        };
+        let mut instruction_offset: u32 = 0;
+        while instruction_offset < block.instruction_count {
+            if unsafe {
+                (*(instructions + block.first_instruction + instruction_offset)).result_value
+            } == value_id {
+                definition_found = true;
+                definition_block_id = block.id;
+                definition_instruction_offset = instruction_offset;
+            }
+            instruction_offset = instruction_offset + 1;
+        }
+        block_offset = block_offset + 1;
+    }
+    if !definition_found { return false; }
+    let definition_block: u32 = target_cfg_block_offset(
+        blocks, function, definition_block_id
+    );
+    let use_block: u32 = target_cfg_block_offset(blocks, function, use_block_id);
+    if definition_block >= function.block_count || use_block >= function.block_count {
+        return false;
+    }
+    if definition_block == use_block {
+        return definition_instruction_offset < use_instruction_offset;
+    }
+    return target_dom_contains(dominators, stride, use_block, definition_block);
+}
+
+// Validate flat table ranges and the structural CFG contract before a backend
+// consumes it. This checks branch destinations and phi predecessor edges, but
+// deliberately leaves type checking and full SSA dominance to later passes.
+pub fn target_module_validate_cfg(
+    target_module: *const TargetModule,
+    functions: *const TargetFunction,
+    parameters: *const TargetParameter,
+    values: *const TargetValue,
+    blocks: *const TargetBlock,
+    instructions: *const TargetInstruction,
+    operands: *const TargetOperand,
+    phi_inputs: *const TargetPhiInput,
+    targets: *const u32
+) -> bool {
+    if target_module == null {
+        return false;
+    }
+    let target: TargetModule = unsafe { *target_module };
+    if target.version != TARGET_IR_VERSION
+        || (target.function_count != 0 && functions == null)
+        || (target.parameter_count != 0 && parameters == null)
+        || (target.value_count != 0 && values == null)
+        || (target.block_count != 0 && blocks == null)
+        || (target.instruction_count != 0 && instructions == null)
+        || (target.operand_count != 0 && operands == null)
+        || (target.phi_input_count != 0 && phi_inputs == null)
+        || (target.target_count != 0 && targets == null) {
+        return false;
+    }
+
+    let mut value_index: u32 = 0;
+    while value_index < target.value_count {
+        let value: TargetValue = unsafe { *(values + value_index) };
+        if value.id != value_index + 1 || value.type_tag == TargetTypeTag::Invalid {
+            return false;
+        }
+        value_index = value_index + 1;
+    }
+
+    let mut function_index: u32 = 0;
+    while function_index < target.function_count {
+        let function: TargetFunction = unsafe { *(functions + function_index) };
+        if (function.flags & TARGET_FUNCTION_EXTERNAL) != 0 {
+            if function.flags != TARGET_FUNCTION_EXTERNAL
+                || function.block_count != 0
+                || function.return_type == TargetTypeTag::Invalid
+                || function.name.length == 0
+                || function.name.offset > 536870911
+                || !target_range_is_valid(
+                    function.first_parameter, function.parameter_count, target.parameter_count
+                ) {
+                return false;
+            }
+            let mut external_parameter: u32 = 0;
+            while external_parameter < function.parameter_count {
+                let parameter: TargetParameter = unsafe {
+                    *(parameters + function.first_parameter + external_parameter)
+                };
+                if parameter.value_id != TARGET_VALUE_NONE
+                    || parameter.type_tag == TargetTypeTag::Invalid {
+                    return false;
+                }
+                external_parameter = external_parameter + 1;
+            }
+            function_index = function_index + 1;
+            continue;
+        }
+        if function.block_count == 0
+            || function.return_type == TargetTypeTag::Invalid
+            || !target_range_is_valid(
+                function.first_parameter, function.parameter_count,
+                target.parameter_count
+            )
+            || !target_range_is_valid(
+                function.first_block, function.block_count, target.block_count
+            ) {
+            return false;
+        }
+
+        let mut parameter_offset: u32 = 0;
+        while parameter_offset < function.parameter_count {
+            let parameter: TargetParameter = unsafe {
+                *(parameters + function.first_parameter + parameter_offset)
+            };
+            if parameter.value_id == TARGET_VALUE_NONE
+                || parameter.value_id > target.value_count
+                || !target_value_matches(
+                    values, target.value_count, parameter.value_id, parameter.type_tag
+                ) {
+                return false;
+            }
+            let mut prior_parameter: u32 = 0;
+            while prior_parameter < parameter_offset {
+                if unsafe {
+                    (*(parameters + function.first_parameter + prior_parameter)).value_id
+                } == parameter.value_id {
+                    return false;
+                }
+                prior_parameter = prior_parameter + 1;
+            }
+            parameter_offset = parameter_offset + 1;
+        }
+
+        let mut block_offset: u32 = 0;
+        while block_offset < function.block_count {
+            let block_index: u32 = function.first_block + block_offset;
+            let block: TargetBlock = unsafe { *(blocks + block_index) };
+            if block.id == TARGET_BLOCK_NONE || block.instruction_count == 0
+                || !target_range_is_valid(
+                    block.first_instruction, block.instruction_count,
+                    target.instruction_count
+                ) {
+                return false;
+            }
+
+            let mut prior_range_offset: u32 = 0;
+            while prior_range_offset < block_offset {
+                let prior_range: TargetBlock = unsafe {
+                    *(blocks + function.first_block + prior_range_offset)
+                };
+                let current_end: u32 = block.first_instruction + block.instruction_count;
+                let prior_end: u32 = prior_range.first_instruction
+                    + prior_range.instruction_count;
+                if block.first_instruction < prior_end
+                    && prior_range.first_instruction < current_end {
+                    return false;
+                }
+                prior_range_offset = prior_range_offset + 1;
+            }
+
+            let mut other_offset: u32 = 0;
+            while other_offset < block_offset {
+                if unsafe {
+                    (*(blocks + function.first_block + other_offset)).id
+                } == block.id {
+                    return false;
+                }
+                other_offset = other_offset + 1;
+            }
+
+            let mut instruction_offset: u32 = 0;
+            let mut saw_non_phi: bool = false;
+            while instruction_offset < block.instruction_count {
+                let instruction_index: u32 = block.first_instruction + instruction_offset;
+                let instruction: TargetInstruction = unsafe {
+                    *(instructions + instruction_index)
+                };
+                let is_last: bool = instruction_offset + 1 == block.instruction_count;
+                if (is_last && !target_opcode_is_terminator(instruction.opcode))
+                    || (!is_last && target_opcode_is_terminator(instruction.opcode))
+                    || instruction.opcode == TargetOpcode::Invalid
+                    || !target_range_is_valid(
+                        instruction.first_operand, instruction.operand_count,
+                        target.operand_count
+                    )
+                    || !target_range_is_valid(
+                        instruction.first_phi_input, instruction.phi_input_count,
+                        target.phi_input_count
+                    )
+                    || !target_range_is_valid(
+                        instruction.first_target, instruction.target_count,
+                        target.target_count
+                    )
+                    || (instruction.result_value != TARGET_VALUE_NONE
+                        && instruction.result_value > target.value_count) {
+                    return false;
+                }
+                if instruction.opcode == TargetOpcode::Phi {
+                    if saw_non_phi { return false; }
+                } else {
+                    saw_non_phi = true;
+                }
+
+                if instruction.result_value != TARGET_VALUE_NONE {
+                    if instruction.type_tag == TargetTypeTag::Invalid
+                        || !target_value_matches(
+                            values, target.value_count,
+                            instruction.result_value, instruction.type_tag
+                        ) {
+                        return false;
+                    }
+                    let mut prior_function: u32 = 0;
+                    while prior_function <= function_index {
+                        let prior_fn: TargetFunction = unsafe { *(functions + prior_function) };
+                        let prior_block_end: u32 = if prior_function == function_index {
+                            block_offset
+                        } else { prior_fn.block_count };
+                        let mut prior_block_offset: u32 = 0;
+                        while prior_block_offset < prior_block_end {
+                            let prior_block: TargetBlock = unsafe {
+                                *(blocks + prior_fn.first_block + prior_block_offset)
+                            };
+                            let prior_instruction_end: u32 = if prior_function == function_index
+                                && prior_block_offset == block_offset {
+                                instruction_offset
+                            } else { prior_block.instruction_count };
+                            let mut prior_instruction_offset: u32 = 0;
+                            while prior_instruction_offset < prior_instruction_end {
+                                let prior_instruction: TargetInstruction = unsafe {
+                                    *(instructions + prior_block.first_instruction
+                                        + prior_instruction_offset)
+                                };
+                                if prior_instruction.result_value == instruction.result_value {
+                                    return false;
+                                }
+                                prior_instruction_offset = prior_instruction_offset + 1;
+                            }
+                            prior_block_offset = prior_block_offset + 1;
+                        }
+                        prior_function = prior_function + 1;
+                    }
+                    let mut parameter_fn: u32 = 0;
+                    while parameter_fn <= function_index {
+                        let prior_fn: TargetFunction = unsafe { *(functions + parameter_fn) };
+                        let parameter_end: u32 = if parameter_fn == function_index {
+                            function.parameter_count
+                        } else { prior_fn.parameter_count };
+                        let parameter_start: u32 = if parameter_fn == function_index {
+                            0
+                        } else { 0 };
+                        let mut prior_parameter: u32 = parameter_start;
+                        while prior_parameter < parameter_end {
+                            if unsafe {
+                                (*(parameters + prior_fn.first_parameter + prior_parameter)).value_id
+                            } == instruction.result_value {
+                                return false;
+                            }
+                            prior_parameter = prior_parameter + 1;
+                        }
+                        parameter_fn = parameter_fn + 1;
+                    }
+                }
+
+                let mut operand_offset: u32 = 0;
+                while operand_offset < instruction.operand_count {
+                    let operand: TargetOperand = unsafe {
+                        *(operands + instruction.first_operand + operand_offset)
+                    };
+                    if operand.value_id == TARGET_VALUE_NONE
+                        || operand.value_id > target.value_count
+                        || !target_function_defines_value(
+                            &function, parameters, blocks, instructions, operand.value_id
+                        ) {
+                        return false;
+                    }
+                    operand_offset = operand_offset + 1;
+                }
+
+                if instruction.opcode == TargetOpcode::Branch {
+                    if instruction.result_value != TARGET_VALUE_NONE
+                        || instruction.operand_count != 0 || instruction.target_count != 1
+                        || instruction.phi_input_count != 0 {
+                        return false;
+                    }
+                } else if instruction.opcode == TargetOpcode::CondBranch {
+                    if instruction.result_value != TARGET_VALUE_NONE
+                        || instruction.operand_count != 1 || instruction.target_count != 2
+                        || instruction.phi_input_count != 0 {
+                        return false;
+                    }
+                    let condition: TargetOperand = unsafe {
+                        *(operands + instruction.first_operand)
+                    };
+                    if condition.value_id == TARGET_VALUE_NONE
+                        || !target_value_matches(
+                            values, target.value_count, condition.value_id,
+                            TargetTypeTag::Bool
+                        ) {
+                        return false;
+                    }
+                } else if instruction.opcode == TargetOpcode::Return {
+                    if instruction.result_value != TARGET_VALUE_NONE
+                        || instruction.type_tag != function.return_type
+                        || instruction.target_count != 0 || instruction.phi_input_count != 0
+                        || instruction.operand_count > 1
+                        || (function.return_type == TargetTypeTag::Void
+                            && instruction.operand_count != 0)
+                        || (function.return_type != TargetTypeTag::Void
+                            && instruction.operand_count != 1) {
+                        return false;
+                    }
+                    if instruction.operand_count == 1 {
+                        let returned: TargetOperand = unsafe {
+                            *(operands + instruction.first_operand)
+                        };
+                        if !target_value_matches(
+                            values, target.value_count, returned.value_id,
+                            function.return_type
+                        ) { return false; }
+                    }
+                } else if instruction.opcode == TargetOpcode::Phi {
+                    if instruction.phi_input_count == 0
+                        || instruction.operand_count != 0
+                        || instruction.result_value == TARGET_VALUE_NONE {
+                        return false;
+                    }
+                    let mut phi_offset: u32 = 0;
+                    let mut predecessor_count: u32 = 0;
+                    let mut predecessor_scan: u32 = 0;
+                    while predecessor_scan < function.block_count {
+                        let predecessor: TargetBlock = unsafe {
+                            *(blocks + function.first_block + predecessor_scan)
+                        };
+                        if target_cfg_block_has_edge(
+                            &predecessor, instructions, targets, block.id
+                        ) {
+                            predecessor_count = predecessor_count + 1;
+                        }
+                        predecessor_scan = predecessor_scan + 1;
+                    }
+                    if instruction.phi_input_count != predecessor_count {
+                        return false;
+                    }
+                    while phi_offset < instruction.phi_input_count {
+                        let incoming: TargetPhiInput = unsafe {
+                            *(phi_inputs + instruction.first_phi_input + phi_offset)
+                        };
+                        if incoming.value_id == TARGET_VALUE_NONE
+                            || incoming.value_id > target.value_count
+                            || !target_function_defines_value(
+                                &function, parameters, blocks, instructions,
+                                incoming.value_id
+                            )
+                            || !target_value_matches(
+                                values, target.value_count, incoming.value_id,
+                                instruction.type_tag
+                            )
+                            || !target_cfg_has_block(
+                                blocks, function.first_block, function.block_count,
+                                incoming.block_id
+                            ) {
+                            return false;
+                        }
+                        let mut predecessor_offset: u32 = 0;
+                        let mut has_predecessor: bool = false;
+                        while predecessor_offset < function.block_count {
+                            let predecessor: TargetBlock = unsafe {
+                                *(blocks + function.first_block + predecessor_offset)
+                            };
+                            if target_cfg_block_has_edge(
+                                &predecessor, instructions, targets, block.id
+                            ) && predecessor.id == incoming.block_id {
+                                has_predecessor = true;
+                            }
+                            predecessor_offset = predecessor_offset + 1;
+                        }
+                        if !has_predecessor {
+                            return false;
+                        }
+                        let mut earlier_phi: u32 = 0;
+                        while earlier_phi < phi_offset {
+                            let prior: TargetPhiInput = unsafe {
+                                *(phi_inputs + instruction.first_phi_input + earlier_phi)
+                            };
+                            if prior.block_id == incoming.block_id {
+                                return false;
+                            }
+                            earlier_phi = earlier_phi + 1;
+                        }
+                        phi_offset = phi_offset + 1;
+                    }
+                } else if instruction.target_count != 0
+                    || instruction.phi_input_count != 0 {
+                    return false;
+                }
+
+                if instruction.opcode == TargetOpcode::ConstInt {
+                    if instruction.result_value == TARGET_VALUE_NONE
+                        || !target_type_is_integer(instruction.type_tag)
+                        || instruction.operand_count != 0 {
+                        return false;
+                    }
+                } else if instruction.opcode == TargetOpcode::Add
+                    || instruction.opcode == TargetOpcode::Sub
+                    || instruction.opcode == TargetOpcode::Mul {
+                    if instruction.result_value == TARGET_VALUE_NONE
+                        || !target_type_is_integer(instruction.type_tag)
+                        || instruction.operand_count != 2 {
+                        return false;
+                    }
+                    let left: TargetOperand = unsafe {
+                        *(operands + instruction.first_operand)
+                    };
+                    let right: TargetOperand = unsafe {
+                        *(operands + instruction.first_operand + 1)
+                    };
+                    if !target_value_matches(
+                        values, target.value_count, left.value_id, instruction.type_tag
+                    ) || !target_value_matches(
+                        values, target.value_count, right.value_id, instruction.type_tag
+                    ) { return false; }
+                } else if instruction.opcode == TargetOpcode::Compare {
+                    if instruction.result_value == TARGET_VALUE_NONE
+                        || instruction.type_tag != TargetTypeTag::Bool
+                        || instruction.operand_count != 2
+                        || instruction.immediate_bits < 86 || instruction.immediate_bits > 91 {
+                        return false;
+                    }
+                    let left: TargetOperand = unsafe {
+                        *(operands + instruction.first_operand)
+                    };
+                    let right: TargetOperand = unsafe {
+                        *(operands + instruction.first_operand + 1)
+                    };
+                    if left.value_id == TARGET_VALUE_NONE || right.value_id == TARGET_VALUE_NONE
+                        || left.value_id > target.value_count || right.value_id > target.value_count {
+                        return false;
+                    }
+                    let left_type: TargetTypeTag = unsafe {
+                        (*(values + left.value_id as usize - 1)).type_tag
+                    };
+                    let right_type: TargetTypeTag = unsafe {
+                        (*(values + right.value_id as usize - 1)).type_tag
+                    };
+                    if left_type != right_type || !target_type_is_integer(left_type) {
+                        return false;
+                    }
+                } else if instruction.opcode == TargetOpcode::Call {
+                    if instruction.type_tag == TargetTypeTag::Invalid
+                        || instruction.symbol.length == 0
+                        || instruction.phi_input_count != 0
+                        || instruction.target_count != 0
+                        || (instruction.type_tag == TargetTypeTag::Void
+                            && instruction.result_value != TARGET_VALUE_NONE)
+                        || (instruction.type_tag != TargetTypeTag::Void
+                            && instruction.result_value == TARGET_VALUE_NONE) {
+                        return false;
+                    }
+                } else if instruction.opcode == TargetOpcode::AllocStack {
+                    if instruction.result_value == TARGET_VALUE_NONE
+                        || instruction.type_tag != TargetTypeTag::Pointer
+                        || instruction.operand_count != 0
+                        || instruction.immediate_bits == 0 {
+                        return false;
+                    }
+                } else if instruction.opcode == TargetOpcode::Store {
+                    if instruction.result_value != TARGET_VALUE_NONE
+                        || instruction.operand_count != 2 {
+                        return false;
+                    }
+                    let ptr_op: TargetOperand = unsafe { *(operands + instruction.first_operand) };
+                    let val_op: TargetOperand = unsafe { *(operands + instruction.first_operand + 1) };
+                    if ptr_op.value_id == TARGET_VALUE_NONE || val_op.value_id == TARGET_VALUE_NONE
+                        || ptr_op.value_id > target.value_count || val_op.value_id > target.value_count {
+                        return false;
+                    }
+                    let ptr_type: TargetTypeTag = unsafe { (*(values + ptr_op.value_id as usize - 1)).type_tag };
+                    let val_type: TargetTypeTag = unsafe { (*(values + val_op.value_id as usize - 1)).type_tag };
+                    if ptr_type != TargetTypeTag::Pointer || val_type != instruction.type_tag {
+                        return false;
+                    }
+                } else if instruction.opcode == TargetOpcode::Load {
+                    if instruction.result_value == TARGET_VALUE_NONE
+                        || instruction.operand_count != 1 {
+                        return false;
+                    }
+                    let ptr_op: TargetOperand = unsafe { *(operands + instruction.first_operand) };
+                    if ptr_op.value_id == TARGET_VALUE_NONE || ptr_op.value_id > target.value_count {
+                        return false;
+                    }
+                    let ptr_type: TargetTypeTag = unsafe { (*(values + ptr_op.value_id as usize - 1)).type_tag };
+                    if ptr_type != TargetTypeTag::Pointer {
+                        return false;
+                    }
+                }
+
+                if instruction.opcode == TargetOpcode::Branch
+                    || instruction.opcode == TargetOpcode::CondBranch {
+                    let mut target_offset: u32 = 0;
+                    while target_offset < instruction.target_count {
+                        let target_id: u32 = unsafe {
+                            *(targets + instruction.first_target + target_offset)
+                        };
+                        if !target_cfg_has_block(
+                            blocks, function.first_block, function.block_count,
+                            target_id
+                        ) {
+                            return false;
+                        }
+                        target_offset = target_offset + 1;
+                    }
+                }
+                instruction_offset = instruction_offset + 1;
+            }
+            block_offset = block_offset + 1;
+        }
+        function_index = function_index + 1;
+    }
+    return true;
+}
+
+// Validate call targets against the function table, including external
+// declarations. This keeps a direct call's symbol, arity and scalar types
+// consistent before backend-specific ABI lowering.
+pub fn target_module_validate_calls(
+    source: *const u8,
+    source_len: usize,
+    target_module: *const TargetModule,
+    functions: *const TargetFunction,
+    parameters: *const TargetParameter,
+    values: *const TargetValue,
+    blocks: *const TargetBlock,
+    instructions: *const TargetInstruction,
+    operands: *const TargetOperand
+) -> bool {
+    if source == null || target_module == null || functions == null
+        || (unsafe { (*target_module).parameter_count } != 0 && parameters == null)
+        || (unsafe { (*target_module).value_count } != 0 && values == null)
+        || (unsafe { (*target_module).block_count } != 0 && blocks == null)
+        || (unsafe { (*target_module).instruction_count } != 0 && instructions == null)
+        || (unsafe { (*target_module).operand_count } != 0 && operands == null)
+        || !target_module_validate_cfg(
+            target_module, functions, parameters, values, blocks, instructions,
+            operands, null, null
+        ) {
+        return false;
+    }
+    let target: TargetModule = unsafe { *target_module };
+    let mut function_index: u32 = 0;
+    while function_index < target.function_count {
+        let caller: TargetFunction = unsafe { *(functions + function_index) };
+        let mut block_offset: u32 = 0;
+        while block_offset < caller.block_count {
+            let block: TargetBlock = unsafe { *(blocks + caller.first_block + block_offset) };
+            let mut instruction_offset: u32 = 0;
+            while instruction_offset < block.instruction_count {
+                let instruction: TargetInstruction = unsafe {
+                    *(instructions + block.first_instruction + instruction_offset)
+                };
+                if instruction.opcode == TargetOpcode::Call {
+                    if instruction.symbol.length == 0 || instruction.symbol.offset > source_len
+                        || instruction.symbol.length > source_len - instruction.symbol.offset {
+                        return false;
+                    }
+                    let mut callee_index: u32 = 0;
+                    while callee_index < target.function_count {
+                        let callee: TargetFunction = unsafe { *(functions + callee_index) };
+                        if callee.name.length == instruction.symbol.length
+                            && callee.name.offset <= source_len
+                            && callee.name.length <= source_len - callee.name.offset {
+                            let mut name_index: usize = 0;
+                            let mut names_match: bool = true;
+                            while name_index < callee.name.length {
+                                if unsafe { *(source + callee.name.offset + name_index) }
+                                    != unsafe { *(source + instruction.symbol.offset + name_index) } {
+                                    names_match = false;
+                                    break;
+                                }
+                                name_index = name_index + 1;
+                            }
+                            if names_match { break; }
+                        }
+                        callee_index = callee_index + 1;
+                    }
+                    if callee_index >= target.function_count { return false; }
+                    let callee: TargetFunction = unsafe { *(functions + callee_index) };
+                    if callee.return_type != instruction.type_tag
+                        || callee.parameter_count != instruction.operand_count {
+                        return false;
+                    }
+                    let mut argument_index: u32 = 0;
+                    while argument_index < instruction.operand_count {
+                        let argument: TargetOperand = unsafe {
+                            *(operands + instruction.first_operand + argument_index)
+                        };
+                        let argument_type: TargetTypeTag = unsafe {
+                            (*(values + argument.value_id as usize - 1)).type_tag
+                        };
+                        let parameter: TargetParameter = unsafe {
+                            *(parameters + callee.first_parameter + argument_index)
+                        };
+                        if argument_type != parameter.type_tag { return false; }
+                        argument_index = argument_index + 1;
+                    }
+                }
+                instruction_offset = instruction_offset + 1;
+            }
+            block_offset = block_offset + 1;
+        }
+        function_index = function_index + 1;
+    }
+    return true;
+}
+
+// Add full reachable-block dominance checks to the structural CFG validator.
+// The caller provides bounded scratch storage so this pass works without a
+// host allocator and can be used by both hosted and barecore builds.
+pub fn target_module_validate_ssa_dominance(
+    target_module: *const TargetModule,
+    functions: *const TargetFunction,
+    parameters: *const TargetParameter,
+    values: *const TargetValue,
+    blocks: *const TargetBlock,
+    instructions: *const TargetInstruction,
+    operands: *const TargetOperand,
+    phi_inputs: *const TargetPhiInput,
+    targets: *const u32,
+    scratch: *mut u8,
+    scratch_capacity: usize
+) -> bool {
+    if !target_module_validate_cfg(
+        target_module, functions, parameters, values, blocks, instructions,
+        operands, phi_inputs, targets
+    ) { return false; }
+    let target: TargetModule = unsafe { *target_module };
+    let mut function_index: u32 = 0;
+    while function_index < target.function_count {
+        let function: TargetFunction = unsafe { *(functions + function_index) };
+        let block_count: usize = function.block_count as usize;
+        if block_count > 4096 { return false; }
+        let stride: usize = (block_count + 7) / 8;
+        let matrix_size: usize = block_count * stride;
+        let needed: usize = matrix_size + stride + block_count;
+        if scratch == null || scratch_capacity < needed { return false; }
+        let dominators: *mut u8 = scratch;
+        let temporary: *mut u8 = unsafe { scratch + matrix_size };
+        let reachable: *mut u8 = unsafe { scratch + matrix_size + stride };
+
+        let mut byte_index: usize = 0;
+        while byte_index < needed {
+            unsafe { *(scratch + byte_index) = 0; }
+            byte_index = byte_index + 1;
+        }
+        unsafe { *reachable = 1; }
+        let mut reach_changed: bool = true;
+        let mut reach_round: u32 = 0;
+        while reach_changed && reach_round < function.block_count {
+            reach_changed = false;
+            let mut destination_offset: u32 = 1;
+            while destination_offset < function.block_count {
+                if unsafe { *(reachable + destination_offset as usize) } == 0 {
+                    let destination: TargetBlock = unsafe {
+                        *(blocks + function.first_block + destination_offset)
+                    };
+                    let mut predecessor_offset: u32 = 0;
+                    while predecessor_offset < function.block_count {
+                        let predecessor: TargetBlock = unsafe {
+                            *(blocks + function.first_block + predecessor_offset)
+                        };
+                        if unsafe { *(reachable + predecessor_offset as usize) } != 0
+                            && target_cfg_block_has_edge(
+                                &predecessor, instructions, targets, destination.id
+                            ) {
+                            unsafe { *(reachable + destination_offset as usize) = 1; }
+                            reach_changed = true;
+                            break;
+                        }
+                        predecessor_offset = predecessor_offset + 1;
+                    }
+                }
+                destination_offset = destination_offset + 1;
+            }
+            reach_round = reach_round + 1;
+        }
+
+        let mut block_offset: u32 = 0;
+        while block_offset < function.block_count {
+            let row_offset: usize = block_offset as usize * stride;
+            let mut row_byte: usize = 0;
+            while row_byte < stride {
+                unsafe { *(dominators + row_offset + row_byte) = 255; }
+                row_byte = row_byte + 1;
+            }
+            if block_offset == 0
+                || unsafe { *(reachable + block_offset as usize) } == 0 {
+                row_byte = 0;
+                while row_byte < stride {
+                    unsafe { *(dominators + row_offset + row_byte) = 0; }
+                    row_byte = row_byte + 1;
+                }
+                let own_bit: u8 = (1 << (block_offset % 8)) as u8;
+                unsafe { *(dominators + row_offset + block_offset as usize / 8) = own_bit; }
+            }
+            block_offset = block_offset + 1;
+        }
+
+        let mut dom_changed: bool = true;
+        let mut dom_round: u32 = 0;
+        while dom_changed && dom_round <= function.block_count {
+            dom_changed = false;
+            block_offset = 1;
+            while block_offset < function.block_count {
+                if unsafe { *(reachable + block_offset as usize) } != 0 {
+                    let destination: TargetBlock = unsafe {
+                        *(blocks + function.first_block + block_offset)
+                    };
+                    let mut row_byte: usize = 0;
+                    while row_byte < stride {
+                        unsafe { *(temporary + row_byte) = 255; }
+                        row_byte = row_byte + 1;
+                    }
+                    let mut predecessor_count: u32 = 0;
+                    let mut predecessor_offset: u32 = 0;
+                    while predecessor_offset < function.block_count {
+                        if unsafe { *(reachable + predecessor_offset as usize) } != 0 {
+                            let predecessor: TargetBlock = unsafe {
+                                *(blocks + function.first_block + predecessor_offset)
+                            };
+                            if target_cfg_block_has_edge(
+                                &predecessor, instructions, targets, destination.id
+                            ) {
+                                predecessor_count = predecessor_count + 1;
+                                row_byte = 0;
+                                while row_byte < stride {
+                                    let current: u8 = unsafe {
+                                        *(temporary + row_byte)
+                                    };
+                                    let incoming: u8 = unsafe {
+                                        *(dominators + predecessor_offset as usize * stride + row_byte)
+                                    };
+                                    unsafe { *(temporary + row_byte) = current & incoming; }
+                                    row_byte = row_byte + 1;
+                                }
+                            }
+                        }
+                        predecessor_offset = predecessor_offset + 1;
+                    }
+                    if predecessor_count == 0 {
+                        row_byte = 0;
+                        while row_byte < stride {
+                            unsafe { *(temporary + row_byte) = 0; }
+                            row_byte = row_byte + 1;
+                        }
+                    }
+                    let own_bit: u8 = (1 << (block_offset % 8)) as u8;
+                    let own_byte: usize = block_offset as usize / 8;
+                    unsafe { *(temporary + own_byte) = *(temporary + own_byte) | own_bit; }
+                    row_byte = 0;
+                    while row_byte < stride {
+                        let old_value: u8 = unsafe {
+                            *(dominators + block_offset as usize * stride + row_byte)
+                        };
+                        let new_value: u8 = unsafe { *(temporary + row_byte) };
+                        if old_value != new_value { dom_changed = true; }
+                        unsafe {
+                            *(dominators + block_offset as usize * stride + row_byte) = new_value;
+                        }
+                        row_byte = row_byte + 1;
+                    }
+                }
+                block_offset = block_offset + 1;
+            }
+            dom_round = dom_round + 1;
+        }
+        if dom_changed { return false; }
+
+        block_offset = 0;
+        while block_offset < function.block_count {
+            let block: TargetBlock = unsafe {
+                *(blocks + function.first_block + block_offset)
+            };
+            let mut instruction_offset: u32 = 0;
+            while instruction_offset < block.instruction_count {
+                let instruction: TargetInstruction = unsafe {
+                    *(instructions + block.first_instruction + instruction_offset)
+                };
+                let mut operand_offset: u32 = 0;
+                while operand_offset < instruction.operand_count {
+                    let operand: TargetOperand = unsafe {
+                        *(operands + instruction.first_operand + operand_offset)
+                    };
+                    if !target_value_dominates_point(
+                        &function, parameters, blocks, instructions, dominators,
+                        stride, operand.value_id, block.id, instruction_offset
+                    ) { return false; }
+                    operand_offset = operand_offset + 1;
+                }
+                let mut phi_offset: u32 = 0;
+                while phi_offset < instruction.phi_input_count {
+                    let incoming: TargetPhiInput = unsafe {
+                        *(phi_inputs + instruction.first_phi_input + phi_offset)
+                    };
+                    let predecessor_offset: u32 = target_cfg_block_offset(
+                        blocks, &function, incoming.block_id
+                    );
+                    if predecessor_offset >= function.block_count { return false; }
+                    let predecessor: TargetBlock = unsafe {
+                        *(blocks + function.first_block + predecessor_offset)
+                    };
+                    if !target_value_dominates_point(
+                        &function, parameters, blocks, instructions, dominators,
+                        stride, incoming.value_id, incoming.block_id,
+                        predecessor.instruction_count - 1
+                    ) { return false; }
+                    phi_offset = phi_offset + 1;
+                }
+                instruction_offset = instruction_offset + 1;
+            }
+            block_offset = block_offset + 1;
+        }
+        function_index = function_index + 1;
+    }
+    return true;
+}
+
+pub static mut g_rodata_buf: [u8; 65536] = 0;
+pub static mut g_rodata_len: usize = 0;
+pub static mut g_rodata_sym_offsets: [usize; 256] = 0;
+pub static mut g_rodata_sym_lens: [usize; 256] = 0;
+pub static mut g_rodata_sym_places: [usize; 256] = 0;
+pub static mut g_rodata_sym_sizes: [usize; 256] = 0;
+pub static mut g_rodata_sym_count: usize = 0;
+
+pub static mut g_bss_total_size: usize = 0;
+pub static mut g_bss_sym_offsets: [usize; 256] = 0;
+pub static mut g_bss_sym_lens: [usize; 256] = 0;
+pub static mut g_bss_sym_places: [usize; 256] = 0;
+pub static mut g_bss_sym_sizes: [usize; 256] = 0;
+pub static mut g_bss_sym_is_array: [u8; 256] = 0;
+pub static mut g_bss_sym_types: [u32; 256] = 0;
+pub static mut g_bss_sym_count: usize = 0;
+
+@export
+@system
+pub fn sotlas_native_get_rodata_buffer() -> *const u8 {
+    return unsafe { g_rodata_buf as *const u8 };
+}
+
+@export
+@system
+pub fn sotlas_native_get_rodata_len() -> usize {
+    return unsafe { g_rodata_len };
+}
+
+@export
+@system
+pub fn sotlas_native_get_bss_size() -> usize {
+    return unsafe { g_bss_total_size };
+}
+
+@export
+@system
+pub fn sotlas_native_get_rodata_sym_count() -> usize {
+    return unsafe { g_rodata_sym_count };
+}
+
+@export
+@system
+pub fn sotlas_native_get_rodata_sym_offset(index: usize) -> usize {
+    if index >= unsafe { g_rodata_sym_count } { return 0; }
+    return unsafe { g_rodata_sym_offsets[index] };
+}
+
+@export
+@system
+pub fn sotlas_native_get_rodata_sym_len(index: usize) -> usize {
+    if index >= unsafe { g_rodata_sym_count } { return 0; }
+    return unsafe { g_rodata_sym_lens[index] };
+}
+
+@export
+@system
+pub fn sotlas_native_get_rodata_sym_place(index: usize) -> usize {
+    if index >= unsafe { g_rodata_sym_count } { return 0; }
+    return unsafe { g_rodata_sym_places[index] };
+}
+
+@export
+@system
+pub fn sotlas_native_get_rodata_sym_size(index: usize) -> usize {
+    if index >= unsafe { g_rodata_sym_count } { return 0; }
+    return unsafe { g_rodata_sym_sizes[index] };
+}
+
+@export
+@system
+pub fn sotlas_native_get_bss_sym_count() -> usize {
+    return unsafe { g_bss_sym_count };
+}
+
+@export
+@system
+pub fn sotlas_native_get_bss_sym_offset(index: usize) -> usize {
+    if index >= unsafe { g_bss_sym_count } { return 0; }
+    return unsafe { g_bss_sym_offsets[index] };
+}
+
+@export
+@system
+pub fn sotlas_native_get_bss_sym_len(index: usize) -> usize {
+    if index >= unsafe { g_bss_sym_count } { return 0; }
+    return unsafe { g_bss_sym_lens[index] };
+}
+
+@export
+@system
+pub fn sotlas_native_get_bss_sym_place(index: usize) -> usize {
+    if index >= unsafe { g_bss_sym_count } { return 0; }
+    return unsafe { g_bss_sym_places[index] };
+}
+
+@export
+@system
+pub fn sotlas_native_get_bss_sym_size(index: usize) -> usize {
+    if index >= unsafe { g_bss_sym_count } { return 0; }
+    return unsafe { g_bss_sym_sizes[index] };
+}
+

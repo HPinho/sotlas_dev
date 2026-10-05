@@ -29,3 +29,72 @@ pub fn sotlas_compile(source: *const u8, out_buf: *mut u8, max_len: usize) -> us
     }
     return emitted;
 }
+
+@export
+@system
+pub fn sotlas_native_compile(source: *const u8, len: usize, out_buf: *mut u8, max_out: usize) -> usize {
+    return sotlas_compile(source, out_buf, max_out);
+}
+
+@export
+@system
+pub fn sotlas_native_compile_object(
+    source: *const u8,
+    len: usize,
+    output: *mut u8,
+    capacity: usize,
+    out_length: *mut usize
+) -> bool {
+    if out_length == null { return false; }
+    unsafe { *out_length = 0; }
+    return false;
+}
+
+@export
+@system
+pub fn sotlas_native_link_executable(
+    object: *const u8,
+    object_len: usize,
+    entry_name: *const u8,
+    entry_name_len: usize,
+    freestanding: bool,
+    output: *mut u8,
+    capacity: usize,
+    out_length: *mut usize
+) -> bool {
+    if out_length == null { return false; }
+    unsafe { *out_length = 0; }
+    return false;
+}
+
+@export
+@system
+pub fn sotlas_native_last_error_line() -> u32 {
+    return 0;
+}
+
+@export
+@system
+pub fn sotlas_native_last_error_col() -> u32 {
+    return 0;
+}
+
+@export
+@system
+pub fn sotlas_native_link_objects(
+    object_data: *const u8,
+    object_offsets: *const usize,
+    object_lengths: *const usize,
+    object_count: u32,
+    entry_name: *const u8,
+    entry_name_len: usize,
+    freestanding: bool,
+    output: *mut u8,
+    capacity: usize,
+    out_length: *mut usize
+) -> bool {
+    if out_length == null { return false; }
+    unsafe { *out_length = 0; }
+    return false;
+}
+

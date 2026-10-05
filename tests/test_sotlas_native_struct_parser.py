@@ -25,10 +25,10 @@ class SotlasNativeAggregateParserTests(unittest.TestCase):
     @unittest.skipUnless(default_toolchain.is_available(), "native C toolchain unavailable")
     def test_explicit_enum_struct_and_fixed_array_lower_to_c11(self):
         module_dir = ROOT / "bootstrap" / "sotlas" / "native_compiler"
-        order = ("token", "ast", "lexer", "parser", "sema", "emitter_c", "main")
+        order = ("token", "ast", "lexer", "parser", "sema", "emitter_c", "target_ir", "lower_scalar", "x86_64_scalar", "main")
         modules = {
             path.stem: parse(path.read_text(encoding="utf-8"), filename=str(path))
-            for path in module_dir.glob("*.sotlas")
+            for path in module_dir.rglob("*.sotlas")
         }
         self.assertEqual(set(modules), set(order))
 
@@ -160,6 +160,17 @@ int main(int argc, char **argv) {
             self.assertTrue(generated_c.is_file())
             default_toolchain.compile_c_to_obj(generated_c, generated_obj, opt_level=0)
             self.assertTrue(generated_obj.is_file())
+
+    def test_native_parser_parses_field_access_expressions(self):
+        ast_file = ROOT / "bootstrap" / "sotlas" / "native_compiler" / "ast.sotlas"
+        parser_file = (
+            ROOT / "bootstrap" / "sotlas" / "native_compiler" / "parser.sotlas"
+        )
+        ast_text = ast_file.read_text(encoding="utf-8")
+        parser_text = parser_file.read_text(encoding="utf-8")
+        self.assertIn("ExprFieldAccess = 37", ast_text)
+        self.assertIn("AstKind::ExprFieldAccess", parser_text)
+        self.assertIn("self.match_token(TokenKind::Dot)", parser_text)
 
 
 if __name__ == "__main__":

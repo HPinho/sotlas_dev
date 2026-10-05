@@ -59,7 +59,7 @@ _TARGET_CHOICES = (
 )
 
 
-def main() -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="sotlas",
         description=f"Compilador e Driver Sotlas v{SOTLAS_VERSION}",
@@ -105,9 +105,9 @@ def main() -> int:
     )
     cp.add_argument(
         "--backend",
-        choices=["llvm", "c11", "sotlas-x86_64"],
-        default="llvm",
-        help="Compilation backend (LLVM, C11, or the Sotlas-owned x86-64 preview)",
+        choices=["native", "llvm", "c11", "sotlas-x86_64"],
+        default="native",
+        help="Compilation backend (native Sotlas, LLVM, legacy C11, or the Sotlas-owned x86-64 preview)",
     )
     cp.add_argument(
         "--cc",
@@ -128,8 +128,8 @@ def main() -> int:
     )
     cp.add_argument(
         "--entry",
-        default="_start",
-        help="Símbolo de entry point para o linker interno (padrão: _start)",
+        default=None,
+        help="Símbolo de entry point para o linker interno (padrão: _start para freestanding, main_entry ou main para hosted)",
     )
 
     # Subcomando: check
@@ -305,7 +305,15 @@ def main() -> int:
     # Subcomando: version
     sub.add_parser("version", help="Exibe a versão do compilador")
 
-    args = parser.parse_args()
+    return parser
+
+
+_build_parser = build_parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
 
     if args.cmd == "version":
         print(f"Sotlas {SOTLAS_VERSION}")
@@ -984,6 +992,22 @@ def _run_compile(args) -> int:
         print(f"sotlas: erro de target: {error}", file=sys.stderr)
         return 2
 
+    linker_mode = getattr(args, "linker", "auto")
+    if linker_mode == "internal":
+        if (
+            target_spec.architecture != "x86_64"
+            or getattr(args, "target", "host") not in {
+                "host", "x86_64-freestanding", "x86_64-unknown-none-elf",
+                "x86_64-unknown-linux-gnu",
+            }
+        ):
+            print(
+                "sotlas: linker interno suporta apenas host Linux e x86-64 freestanding/Linux",
+                file=sys.stderr,
+            )
+            return 2
+        return _run_compile_internal_linker(args, src, text)
+
     emit_type = "exe"
     output_arg = getattr(args, "output", None)
     if getattr(args, "emit_asm", False) or getattr(args, "emit", None) == "asm" or (
@@ -997,9 +1021,62 @@ def _run_compile(args) -> int:
     elif getattr(args, "emit_c", False) or (output_arg and str(output_arg).endswith(".c")):
         emit_type = "c"
 
-    # Some internal callers construct a minimal namespace instead of parsing
-    # CLI arguments. Preserve the historical LLVM default for those callers.
-    backend = getattr(args, "backend", "llvm")
+    backend = getattr(args, "backend", "native")
+
+    if backend == "native":
+        from sotlas.bootstrap_pipeline import (
+            build_stage1_native_compiler,
+            _ROOT,
+        )
+        exe_suffix = ".exe" if sys.platform == "win32" else ""
+        stage1_path = _ROOT / "build" / f"sotlas_stage1{exe_suffix}"
+        if not stage1_path.is_file():
+            try:
+                stage1_path = build_stage1_native_compiler(output_exe=stage1_path, verbose=False)
+            except Exception:
+                stage1_path = None
+
+        if stage1_path and stage1_path.is_file():
+            if emit_type == "obj":
+                out_path = Path(output_arg) if output_arg else src.with_suffix(".o")
+                out_path.parent.mkdir(parents=True, exist_ok=True)
+                res = subprocess.run([str(stage1_path), "--compile-obj", str(src), str(out_path)], capture_output=True, text=True)
+                if res.returncode == 0 and out_path.is_file():
+                    print(f"sotlas: objeto ELF64 nativo emitido em {out_path}")
+                    return 0
+            elif emit_type == "c":
+                out_path = Path(output_arg) if output_arg else src.with_suffix(".c")
+                out_path.parent.mkdir(parents=True, exist_ok=True)
+                res = subprocess.run([str(stage1_path), "--emit-c", str(src), str(out_path)], capture_output=True, text=True)
+                if res.returncode == 0 and out_path.is_file():
+                    print(f"sotlas: C11 emitido pelo compilador nativo em {out_path}")
+                    return 0
+            elif emit_type == "exe":
+                is_freestanding = getattr(args, "target", "host") in (
+                    "x86_64-freestanding", "x86_64-unknown-none-elf",
+                    "aarch64-freestanding", "aarch64-unknown-none-elf",
+                )
+                out_path = Path(output_arg) if output_arg else src.with_suffix(".exe" if sys.platform == "win32" else ".bin")
+                out_path.parent.mkdir(parents=True, exist_ok=True)
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    tmp_obj = Path(tmpdir) / "mod.o"
+                    res_obj = subprocess.run([str(stage1_path), "--compile-obj", str(src), str(tmp_obj)], capture_output=True, text=True)
+                    if res_obj.returncode == 0 and tmp_obj.is_file():
+                        entry_arg = getattr(args, "entry", None)
+                        if entry_arg:
+                            candidate_entries = [entry_arg]
+                        elif is_freestanding:
+                            candidate_entries = ["_start", "kernel_main"]
+                        else:
+                            candidate_entries = ["main_entry", "main"]
+                        for sym in candidate_entries:
+                            cmd = [str(stage1_path), "--link-exe", str(tmp_obj), str(out_path), sym]
+                            if is_freestanding:
+                                cmd.append("--freestanding")
+                            res_link = subprocess.run(cmd, capture_output=True, text=True)
+                            if res_link.returncode == 0 and out_path.is_file():
+                                print(f"sotlas: executável nativo gerado com sucesso em {out_path}")
+                                return 0
 
     if backend == "sotlas-x86_64" and emit_type not in ("asm", "obj"):
         print(
@@ -1089,21 +1166,7 @@ def _run_compile(args) -> int:
             return 1
 
     # ── Modo linker interno: pipeline completamente autônomo ──────────────
-    linker_mode = getattr(args, "linker", "auto")
-    if linker_mode == "internal":
-        if (
-            target_spec.architecture != "x86_64"
-            or args.target not in {
-                "host", "x86_64-freestanding", "x86_64-unknown-none-elf",
-                "x86_64-unknown-linux-gnu",
-            }
-        ):
-            print(
-                "sotlas: linker interno suporta apenas host Linux e x86-64 freestanding/Linux",
-                file=sys.stderr,
-            )
-            return 2
-        return _run_compile_internal_linker(args, src, text)
+    force_gcc = (linker_mode == "gcc")
 
     try:
         c_code = _compile_cli_source(text, args.source)
@@ -1230,7 +1293,7 @@ def _run_compile_internal_linker(args, src: Path, text: str) -> int:
         out_path = src.with_suffix(".bin")
 
     target = getattr(args, "target", "host")
-    entry  = getattr(args, "entry", "_start")
+    entry  = getattr(args, "entry", "_start") or "_start"
 
     if sys.platform == "win32" and target == "host":
         print(

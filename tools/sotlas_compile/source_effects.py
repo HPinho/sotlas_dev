@@ -120,6 +120,11 @@ def analyze_source_effects(module, bootstrap) -> dict[str, SourceEffectSummary]:
         contract = declared[name]
         if name in bootstrap.BUILTIN_FUNCTIONS and name not in module_functions:
             continue
+        if name not in module_functions:
+            summary = getattr(function, "_source_effect_summary", None)
+            if summary is not None:
+                direct[name].update(summary.transitive_effects)
+            continue
         if not function.body:
             if "@extern(C)" in function.attributes:
                 direct[name].add("ffi")
@@ -220,6 +225,7 @@ def analyze_source_effects(module, bootstrap) -> dict[str, SourceEffectSummary]:
             unresolved_calls=tuple(sorted(reachable_unknown[name])),
             declared_effects=contract,
         )
+        function._source_effect_summary = summaries[name]
     return summaries
 
 

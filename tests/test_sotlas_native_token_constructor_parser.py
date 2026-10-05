@@ -31,10 +31,10 @@ class SotlasNativeTokenConstructorParserTests(unittest.TestCase):
         self.assertIn("span: Span {", source_text)
         self.assertIn("text: [0; 128]", source_text)
 
-        order = ("token", "ast", "lexer", "parser", "sema", "emitter_c", "main")
+        order = ("token", "ast", "lexer", "parser", "sema", "emitter_c", "target_ir", "lower_scalar", "x86_64_scalar", "main")
         modules = {
             path.stem: parse(path.read_text(encoding="utf-8"), filename=str(path))
-            for path in module_dir.glob("*.sotlas")
+            for path in module_dir.rglob("*.sotlas")
         }
         self.assertEqual(set(modules), set(order))
 

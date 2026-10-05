@@ -28,6 +28,8 @@ pub enum TokenKind {
     KwTrapfn = 22,
     KwTypealias = 23,
     KwImpl = 24,
+    KwBarecore = 25,
+    KwTarget = 26,
 
     // Variáveis e posse
     KwLet = 30,
@@ -98,6 +100,7 @@ pub enum TokenKind {
     DColon = 105,
     SemiColon = 106,
     Comma = 107,
+    At = 108,
 
     // Delimitadores
     OpenParen = 110,

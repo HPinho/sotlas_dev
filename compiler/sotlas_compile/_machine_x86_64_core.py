@@ -28,11 +28,23 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from .target_ir import (
-    TargetIRLoweringError,
-    allocate_target_ir_registers,
-    lower_sir_to_target_ir,
-)
+try:
+    from .target_ir import (
+        TargetIRLoweringError,
+        allocate_target_ir_registers,
+        lower_sir_to_target_ir,
+    )
+except ImportError:
+    import sys
+    from pathlib import Path
+    _c_dir = str(Path(__file__).resolve().parents[2] / "compiler")
+    if _c_dir not in sys.path:
+        sys.path.insert(0, _c_dir)
+    from sotlas_compile.target_ir import (
+        TargetIRLoweringError,
+        allocate_target_ir_registers,
+        lower_sir_to_target_ir,
+    )
 
 
 class MachineBackendError(ValueError):

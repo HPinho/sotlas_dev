@@ -1526,7 +1526,7 @@ impl CEmitter {
             let ch: u8 = unsafe { *(self.source + typ.str_offset + i) };
             let alpha: bool = (ch >= 65 && ch <= 90) || (ch >= 97 && ch <= 122);
             let digit: bool = ch >= 48 && ch <= 57;
-            if !alpha && !digit && ch != 95 {
+            if !alpha && !digit && ch != 95 && ch != 42 && ch != 38 && ch != 32 && ch != 9 {
                 return false;
             }
             i = i + 1;
@@ -1593,7 +1593,7 @@ impl CEmitter {
         }
         let field: AstNode = unsafe { *(self.nodes + field_index) };
         let typ: AstNode = unsafe { *(self.nodes + type_index) };
-        if field.kind != AstKind::FieldDecl || field.str_len == 0
+        if (field.kind != AstKind::FieldDecl && field.kind != AstKind::LetStmt) || field.str_len == 0
             || typ.kind != AstKind::TypeRef || typ.str_len < 5
             || typ.str_offset > self.source_len
             || typ.str_len > self.source_len - typ.str_offset {
@@ -1725,6 +1725,88 @@ impl CEmitter {
         }
         if self.type_ref_is_result(type_index) {
             return false;
+        }
+
+        let mut start: usize = 0;
+        while start < typ.str_len {
+            let ch: u8 = unsafe { *(self.source + typ.str_offset + start) };
+            if ch == 32 || ch == 9 {
+                start = start + 1;
+            } else {
+                break;
+            }
+        }
+        if start < typ.str_len {
+            let first_ch: u8 = unsafe { *(self.source + typ.str_offset + start) };
+            if first_ch == 42 {
+                let rem_len: usize = typ.str_len - start;
+                if rem_len >= 7 && self.source_slice_equals(typ.str_offset + start, 6, "*const", 6) {
+                    let mut b_start: usize = start + 6;
+                    while b_start < typ.str_len {
+                        let ch: u8 = unsafe { *(self.source + typ.str_offset + b_start) };
+                        if ch == 32 || ch == 9 {
+                            b_start = b_start + 1;
+                        } else {
+                            break;
+                        }
+                    }
+                    let b_len: usize = typ.str_len - b_start;
+                    if b_len > 0 {
+                        if !self.write_str("const ", 6) { return false; }
+                        if !self.emit_plain_c_type_slice(typ.str_offset + b_start, b_len) { return false; }
+                        return self.write_str(" *", 2);
+                    }
+                } else if rem_len >= 5 && self.source_slice_equals(typ.str_offset + start, 4, "*mut", 4) {
+                    let mut b_start: usize = start + 4;
+                    while b_start < typ.str_len {
+                        let ch: u8 = unsafe { *(self.source + typ.str_offset + b_start) };
+                        if ch == 32 || ch == 9 {
+                            b_start = b_start + 1;
+                        } else {
+                            break;
+                        }
+                    }
+                    let b_len: usize = typ.str_len - b_start;
+                    if b_len > 0 {
+                        if !self.emit_plain_c_type_slice(typ.str_offset + b_start, b_len) { return false; }
+                        return self.write_str(" *", 2);
+                    }
+                }
+            } else if first_ch == 38 {
+                let rem_len: usize = typ.str_len - start;
+                if rem_len >= 5 && self.source_slice_equals(typ.str_offset + start, 4, "&mut", 4) {
+                    let mut b_start: usize = start + 4;
+                    while b_start < typ.str_len {
+                        let ch: u8 = unsafe { *(self.source + typ.str_offset + b_start) };
+                        if ch == 32 || ch == 9 {
+                            b_start = b_start + 1;
+                        } else {
+                            break;
+                        }
+                    }
+                    let b_len: usize = typ.str_len - b_start;
+                    if b_len > 0 {
+                        if !self.emit_plain_c_type_slice(typ.str_offset + b_start, b_len) { return false; }
+                        return self.write_str(" *", 2);
+                    }
+                } else {
+                    let mut b_start: usize = start + 1;
+                    while b_start < typ.str_len {
+                        let ch: u8 = unsafe { *(self.source + typ.str_offset + b_start) };
+                        if ch == 32 || ch == 9 {
+                            b_start = b_start + 1;
+                        } else {
+                            break;
+                        }
+                    }
+                    let b_len: usize = typ.str_len - b_start;
+                    if b_len > 0 {
+                        if !self.write_str("const ", 6) { return false; }
+                        if !self.emit_plain_c_type_slice(typ.str_offset + b_start, b_len) { return false; }
+                        return self.write_str(" *", 2);
+                    }
+                }
+            }
         }
 
         if self.source_slice_equals(typ.str_offset, typ.str_len, "i8", 2) {
@@ -2403,6 +2485,10 @@ impl CEmitter {
             }
         }
 
+        if !self.type_ref_is_plain_field_type(type_index) {
+            return self.emit_fixed_array_field(index, type_index);
+        }
+
         if !self.emit_c_type(type_index) {
             return false;
         }
@@ -2591,6 +2677,10 @@ impl CEmitter {
                 if !self.emit_impl(child) {
                     return false;
                 }
+            } else if node.kind == AstKind::LetStmt {
+                if !self.emit_let_statement(child) {
+                    return false;
+                }
             } else {
                 // Unsupported top-level forms must not disappear silently.
                 return false;
@@ -2602,7 +2692,7 @@ impl CEmitter {
     }
 
     pub fn emit_header(mut self: &mut Self) -> bool {
-        let hdr: *const u8 = "// Compilado nativamente pelo compilador Sotlas in Sotlas (v1.0-selfhost)\n#include <stdint.h>\n#include <stdbool.h>\n#include <stddef.h>\n#ifndef SOTLAS_RESULT_U64_DEFINED\n#define SOTLAS_RESULT_U64_DEFINED 1\ntypedef struct { int32_t status; uint64_t value; } SotlasResultU64;\n#endif\n#ifndef SOTLAS_RESULT_U64_I32_DEFINED\n#define SOTLAS_RESULT_U64_I32_DEFINED 1\ntypedef struct { bool is_ok; union { uint64_t ok; int32_t err; } payload; } SotlasResultU64I32;\n#endif\n\n";
-        return self.write_str(hdr, 462);
+        let hdr: *const u8 = "// Compilado nativamente pelo compilador Sotlas in Sotlas (v1.0-selfhost)\n#include <stdint.h>\n#include <stdbool.h>\n#include <stddef.h>\n#ifndef null\n#define null NULL\n#endif\n#ifndef SOTLAS_RESULT_U64_DEFINED\n#define SOTLAS_RESULT_U64_DEFINED 1\ntypedef struct { int32_t status; uint64_t value; } SotlasResultU64;\n#endif\n#ifndef SOTLAS_RESULT_U64_I32_DEFINED\n#define SOTLAS_RESULT_U64_I32_DEFINED 1\ntypedef struct { bool is_ok; union { uint64_t ok; int32_t err; } payload; } SotlasResultU64I32;\n#endif\n\n";
+        return self.write_str(hdr, 500);
     }
 }
