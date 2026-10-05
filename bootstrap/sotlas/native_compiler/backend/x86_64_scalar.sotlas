@@ -2248,15 +2248,24 @@ pub fn emit_elf64_module_object(
             let function: TargetFunction = unsafe { *(functions + function_index) };
             let symbol_index: u32 = symbol_of_function[function_index as usize];
             let external: bool = (function.flags & TARGET_FUNCTION_EXTERNAL) != 0;
-            let actual_sym_index: u32 = if external { symbol_index + data_sym_total as u32 } else { symbol_index };
+            let mut actual_sym_index: u32 = symbol_index;
+            let mut symbol_info: u8 = 18;
+            let mut symbol_section: u16 = 1;
+            let mut symbol_value: u64 = function_offsets[function_index as usize] as u64;
+            let mut symbol_size: u64 = function_sizes[function_index as usize] as u64;
+            if external {
+                actual_sym_index = symbol_index + data_sym_total as u32;
+                symbol_info = 16;
+                symbol_section = 0;
+                symbol_value = 0;
+                symbol_size = 0;
+            }
             let symbol_offset: usize = symtab_offset + actual_sym_index as usize * 24;
             if !put_u32(output, capacity, symbol_offset, string_cursor as u32)
-                || !put_u8(output, capacity, symbol_offset + 4, if external { 16 as u8 } else { 18 as u8 })
-                || !put_u16(output, capacity, symbol_offset + 6, if external { 0 as u16 } else { 1 as u16 })
-                || !put_u64(output, capacity, symbol_offset + 8,
-                    if external { 0 as u64 } else { function_offsets[function_index as usize] as u64 })
-                || !put_u64(output, capacity, symbol_offset + 16,
-                    if external { 0 as u64 } else { function_sizes[function_index as usize] as u64 }) {
+                || !put_u8(output, capacity, symbol_offset + 4, symbol_info)
+                || !put_u16(output, capacity, symbol_offset + 6, symbol_section)
+                || !put_u64(output, capacity, symbol_offset + 8, symbol_value)
+                || !put_u64(output, capacity, symbol_offset + 16, symbol_size) {
                 return false;
             }
             copy_index = 0;
