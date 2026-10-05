@@ -62,7 +62,17 @@ path stops depending on them, but they are not part of the sovereignty target.
 | **SV6** | Compile a real application and the minimal kernel without the C11 backend | ✅ CERTIFIED (`tests/test_sotlas_sovereignty_sv6.py`) |
 | **SV7** | Build the Sotlas compiler Stage 1 from Sotlas sources using Stage 0 | ✅ CERTIFIED (`tests/test_sotlas_sovereignty_sv7.py`) |
 | **SV8** | Stage 1 builds Stage 2 with deterministic fixed-point/equivalence gates | 🟡 IN PROGRESS (Stage 1/2 now emit the complete imported compiler source tree for the next stage; Clang and the C host driver still link each executable, and end-to-end validation is pending) |
-| **SV9** | Make the native compiler/backend the normal installed path; Python/C become optional legacy/reference tooling | 🟡 IN PROGRESS (the CLI defaults to the bounded native backend and fails closed, but packaging/bootstrap still depend on Python, Clang and the C host driver) |
+| **SV9** | Make the native compiler/backend the normal installed path; Python/C become optional legacy/reference tooling | 🟡 IN PROGRESS (the CLI defaults to the bounded native backend and fails closed; post-bootstrap ELF64 object emission and hosted/freestanding linking are CI-gated with PATH/CC/Clang/LD/Python unavailable, but packaging/bootstrap still depend on Python, Clang and the C host driver) |
+
+SV9 now has an explicit **post-bootstrap independence gate** in
+`tests/test_sotlas_sovereignty_sv9.py`. After Stage 1 has been built by the
+transitional bootstrap, the gate launches that executable with an empty
+`PATH` and poisoned `CLANG_PATH`, `CC`, `CXX`, `LD`, `PYTHON`,
+`PYTHONHOME`, and `PYTHONPATH`. It then requires both hosted ELF64 object /
+executable emission and freestanding kernel object / image linking to succeed.
+This certifies that the bounded native artifact path is Sotlas-owned after
+bootstrap; it does **not** certify the Stage 1 executable build itself as
+Python/C/Clang-free.
 
 The Stage 1/2 path now starts at `native_compiler/main.sotlas`; its C host
 driver recursively loads the imported module tree before invoking the native
