@@ -127,7 +127,7 @@ fn append_object_slot_store64(
     return append_object_byte(output, capacity, length, 72)
         && append_object_byte(output, capacity, length, 137)
         && append_object_byte(output, capacity, length, 133)
-        && append_object_u32(output, capacity, length, 0 - value_id * 8);
+        && append_object_u32(output, capacity, length, 0 as u32 - value_id * 8);
 }
 
 fn append_object_lea_rbp(
