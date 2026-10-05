@@ -33,6 +33,7 @@ pub fn sotlas_compile(source: *const u8, out_buf: *mut u8, max_len: usize) -> us
 @export
 @system
 pub fn sotlas_native_compile(source: *const u8, len: usize, out_buf: *mut u8, max_out: usize) -> usize {
+    if len == 0 { return 0; }
     return sotlas_compile(source, out_buf, max_out);
 }
 
