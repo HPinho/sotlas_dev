@@ -89,7 +89,7 @@ fn append_object_slot_load(
     if value_id == 0 || value_id > 536870911 { return false; }
     return append_object_byte(output, capacity, length, 139)
         && append_object_byte(output, capacity, length, 133)
-        && append_object_u32(output, capacity, length, 0u32 - value_id * 8);
+        && append_object_u32(output, capacity, length, 0 - value_id * 8);
 }
 
 fn append_object_slot_store(
@@ -101,7 +101,7 @@ fn append_object_slot_store(
     if value_id == 0 || value_id > 536870911 { return false; }
     return append_object_byte(output, capacity, length, 137)
         && append_object_byte(output, capacity, length, 133)
-        && append_object_u32(output, capacity, length, 0u32 - value_id * 8);
+        && append_object_u32(output, capacity, length, 0 - value_id * 8);
 }
 
 fn append_object_slot_load_ptr(
@@ -114,7 +114,7 @@ fn append_object_slot_load_ptr(
     return append_object_byte(output, capacity, length, 72)
         && append_object_byte(output, capacity, length, 139)
         && append_object_byte(output, capacity, length, 141)
-        && append_object_u32(output, capacity, length, 0u32 - value_id * 8);
+        && append_object_u32(output, capacity, length, 0 - value_id * 8);
 }
 
 fn append_object_slot_store64(
@@ -127,7 +127,7 @@ fn append_object_slot_store64(
     return append_object_byte(output, capacity, length, 72)
         && append_object_byte(output, capacity, length, 137)
         && append_object_byte(output, capacity, length, 133)
-        && append_object_u32(output, capacity, length, 0u32 - value_id * 8);
+        && append_object_u32(output, capacity, length, 0 - value_id * 8);
 }
 
 fn append_object_lea_rbp(
@@ -139,7 +139,7 @@ fn append_object_lea_rbp(
     return append_object_byte(output, capacity, length, 72)
         && append_object_byte(output, capacity, length, 141)
         && append_object_byte(output, capacity, length, 133)
-        && append_object_u32(output, capacity, length, 0u32 - offset_from_rbp);
+        && append_object_u32(output, capacity, length, 0 - offset_from_rbp);
 }
 
 fn append_object_store_mem32(
@@ -174,22 +174,23 @@ fn append_object_sysv_parameter_store(
 ) -> bool {
     if value_id == 0 || value_id > 536870911 || parameter_index > 5 { return false; }
     if is_64bit {
-        let rex: u8 = if parameter_index == 4 || parameter_index == 5 { 76 } else { 72 };
+        let mut rex: u8 = 72;
+        if parameter_index == 4 || parameter_index == 5 { rex = 76; }
         if !append_object_byte(output, capacity, length, rex) { return false; }
     } else {
         if parameter_index == 4 || parameter_index == 5 {
             if !append_object_byte(output, capacity, length, 68) { return false; }
         }
     }
-    let modrm: u8 = if parameter_index == 0 { 189 }
-        else if parameter_index == 1 { 181 }
-        else if parameter_index == 2 { 149 }
-        else if parameter_index == 3 { 141 }
-        else if parameter_index == 4 { 133 }
-        else { 141 };
+    let mut modrm: u8 = 141;
+    if parameter_index == 0 { modrm = 189; }
+    else if parameter_index == 1 { modrm = 181; }
+    else if parameter_index == 2 { modrm = 149; }
+    else if parameter_index == 3 { modrm = 141; }
+    else if parameter_index == 4 { modrm = 133; }
     return append_object_byte(output, capacity, length, 137)
         && append_object_byte(output, capacity, length, modrm)
-        && append_object_u32(output, capacity, length, 0u32 - value_id * 8);
+        && append_object_u32(output, capacity, length, 0 - value_id * 8);
 }
 
 fn object_value_defined_in_block(
@@ -464,7 +465,7 @@ pub fn emit_elf64_scalar_function_object(
                 return false;
             }
             if !append_object_u32(
-                output, capacity, &mut code_length, 0u32 - right.value_id * 8
+                output, capacity, &mut code_length, 0 - right.value_id * 8
             )
                 || !append_object_slot_store(
                     output, capacity, &mut code_length, instruction.result_value
@@ -493,14 +494,15 @@ pub fn emit_elf64_scalar_function_object(
                 || !append_object_slot_load(output, capacity, &mut code_length, left.value_id)
                 || !append_object_byte(output, capacity, &mut code_length, 59)
                 || !append_object_byte(output, capacity, &mut code_length, 133)
-                || !append_object_u32(output, capacity, &mut code_length, 0u32 - right.value_id * 8) {
+                || !append_object_u32(output, capacity, &mut code_length, 0 - right.value_id * 8) {
                 return false;
             }
-            let setcc: u8 = if instruction.immediate_bits == 86 { 148 }
-                else if instruction.immediate_bits == 87 { 149 }
-                else if instruction.immediate_bits == 88 { 146 }
-                else if instruction.immediate_bits == 89 { 150 }
-                else if instruction.immediate_bits == 90 { 151 } else { 147 };
+            let mut setcc: u8 = 147;
+            if instruction.immediate_bits == 86 { setcc = 148; }
+            else if instruction.immediate_bits == 87 { setcc = 149; }
+            else if instruction.immediate_bits == 88 { setcc = 146; }
+            else if instruction.immediate_bits == 89 { setcc = 150; }
+            else if instruction.immediate_bits == 90 { setcc = 151; }
             if !append_object_byte(output, capacity, &mut code_length, 15)
                 || !append_object_byte(output, capacity, &mut code_length, setcc)
                 || !append_object_byte(output, capacity, &mut code_length, 192)
@@ -851,7 +853,11 @@ pub fn emit_elf64_scalar_module_object(
                 return false;
             }
             value_id = value_id + 1;
-            text_size = text_size + if parameter_index >= 4 { 7 as usize } else { 6 as usize };
+            if parameter_index >= 4 {
+                text_size = text_size + 7;
+            } else {
+                text_size = text_size + 6;
+            }
             parameter_index = parameter_index + 1;
         }
         parameter_cursor = parameter_cursor + function.parameter_count;
@@ -1171,7 +1177,7 @@ pub fn emit_elf64_scalar_module_object(
                     || !append_object_byte(output, capacity, &mut code_cursor, 133) {
                     return false;
                 }
-                if !append_object_u32(output, capacity, &mut code_cursor, 0u32 - right.value_id * 8)
+                if !append_object_u32(output, capacity, &mut code_cursor, 0 - right.value_id * 8)
                     || !append_object_slot_store(output, capacity, &mut code_cursor, instruction.result_value) {
                     return false;
                 }
@@ -1521,7 +1527,7 @@ fn append_object_slot_load_rax64(
     return append_object_byte(output, capacity, length, 72)
         && append_object_byte(output, capacity, length, 139)
         && append_object_byte(output, capacity, length, 133)
-        && append_object_u32(output, capacity, length, 0u32 - value_id * 8);
+        && append_object_u32(output, capacity, length, 0 - value_id * 8);
 }
 
 fn append_object_rax_to_argument(
@@ -1853,7 +1859,7 @@ pub fn emit_elf64_module_object(
                         || !append_object_byte(output, capacity, &mut code, 133) {
                         return false;
                     }
-                    if !append_object_u32(output, capacity, &mut code, 0u32 - right.value_id * 8)
+                    if !append_object_u32(output, capacity, &mut code, 0 - right.value_id * 8)
                         || !append_object_slot_store(output, capacity, &mut code, instruction.result_value) {
                         return false;
                     }
@@ -1913,7 +1919,7 @@ pub fn emit_elf64_module_object(
                         || !append_object_slot_load(output, capacity, &mut code, left.value_id)
                         || !append_object_byte(output, capacity, &mut code, 59)
                         || !append_object_byte(output, capacity, &mut code, 133)
-                        || !append_object_u32(output, capacity, &mut code, 0u32 - right.value_id * 8) {
+                        || !append_object_u32(output, capacity, &mut code, 0 - right.value_id * 8) {
                         return false;
                     }
                     let setcc: u8 = if instruction.immediate_bits == 86 { 148 }
@@ -2733,10 +2739,10 @@ pub fn link_elf64_executable(
         while section_index < section_count {
             let header: usize = headers + section_index as usize * 64;
             if get_u32(object, length, header + 4) == 4 {
-                let target: u32 = get_u32(object, length, header + 44);
-                if target == 0 || target >= section_count { return false; }
-                let target_slot: usize = (object_index * 32 + target) as usize;
-                let target_header: usize = headers + target as usize * 64;
+                let target_section: u32 = get_u32(object, length, header + 44);
+                if target_section == 0 || target_section >= section_count { return false; }
+                let target_slot: usize = (object_index * 32 + target_section) as usize;
+                let target_header: usize = headers + target_section as usize * 64;
                 if section_kind[target_slot] == 0 && (get_u64(object, length, target_header + 8) & 2) == 0 {
                     section_index = section_index + 1;
                     continue;

@@ -6229,7 +6229,10 @@ def compile_source(source: str, filename: str | None = None,
             search_dirs.extend([p, p / "src", p / "bootstrap" / "sotlas" / "native_compiler"])
         loaded_mods: list[Module] = []
         for imp in module.imports:
-            parts = tuple(imp.split("::")) if isinstance(imp, str) else tuple(imp)
+            parts = tuple(
+                part for part in (imp.split("::") if isinstance(imp, str) else imp)
+                if part and part != "*"
+            )
             relative_candidates = tuple(
                 Path(*parts[index:]).with_suffix(".sotlas")
                 for index in range(len(parts))

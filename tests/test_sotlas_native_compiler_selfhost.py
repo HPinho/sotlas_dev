@@ -1106,7 +1106,7 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
                 self.assertEqual(linked_constant_module_run.returncode, 7, linked_constant_module_run.stderr)
                 constant_module_caller = root / "constant_module_caller.c"
                 constant_module_caller.write_text(
-                    "#include <stdint.h>\nextern uint32_t first_value(void); extern uint32_t helper(uint32_t); extern uint32_t second_value(void);\n"
+                    "#include <stdint.h>\nextern uint32_t first_value(void); extern uint32_t helper(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t); extern uint32_t second_value(void);\n"
                     "int main(void) { return first_value() == 7u && helper(1u,2u,3u,4u,5u,6u) == 21u && second_value() == 21u ? 0 : 1; }\n",
                     encoding="utf-8",
                 )

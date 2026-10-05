@@ -60,7 +60,8 @@ pub fn square(n: u32) -> u32 {
         c_code = out_c.read_text(encoding="utf-8")
         self.assertIn("uint32_t", c_code)
         self.assertIn("square", c_code)
-        self.assertIn("return result", c_code)
+        self.assertIn("uint32_t result", c_code)
+        self.assertIn("return __sotlas_return_value", c_code)
 
     def test_native_compiler_compiles_and_runs_runtime_app(self):
         app_file = self.tmp_path / "test_runtime_app.sotlas"

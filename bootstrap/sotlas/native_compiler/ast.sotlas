@@ -39,7 +39,10 @@ pub enum AstKind {
     ExprStructLiteral = 34,
     StructFieldInit = 35,
     ExprArrayRepeat = 36,
-    ExprFieldAccess = 37
+    ExprFieldAccess = 37,
+    UnsafeExpr = 38,
+    ExprCast = 39,
+    ExprIndex = 40
 }
 
 pub struct AstNode {

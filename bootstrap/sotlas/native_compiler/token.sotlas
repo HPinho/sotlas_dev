@@ -101,6 +101,8 @@ pub enum TokenKind {
     SemiColon = 106,
     Comma = 107,
     At = 108,
+    LogicalAnd = 116,
+    LogicalOr = 117,
 
     // Delimitadores
     OpenParen = 110,

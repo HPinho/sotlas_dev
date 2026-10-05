@@ -1,5 +1,15 @@
 """Sotlas Compile — frontend canônico, segurança e lowering de produção."""
 
+# The compatibility package intentionally omits selected canonical compiler
+# modules from its mirror. Make those modules importable as package children
+# when this checkout is on sys.path (for example, the Target IR used by the
+# mirrored x86-64 backend), without copying a second implementation.
+from pathlib import Path as _Path
+
+_canonical_children = _Path(__file__).resolve().parents[2] / "compiler" / "sotlas_compile"
+if _canonical_children.is_dir() and str(_canonical_children) not in __path__:
+    __path__.append(str(_canonical_children))
+
 # Há uma única rota de compilação de produção: bootstrap + extensões oficiais +
 # política de segurança/FFI. Ferramentas podem expor ASTs auxiliares, mas não
 # podem possuir um segundo lowering ou uma segunda semântica executável.

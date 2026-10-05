@@ -11,6 +11,8 @@ pub struct CEmitter {
     pub source_len: usize;
     pub nodes: *const AstNode;
     pub node_count: usize;
+    pub error_line: u32;
+    pub error_col: u32;
 }
 
 impl CEmitter {
@@ -29,7 +31,9 @@ impl CEmitter {
             source: source,
             source_len: source_len,
             nodes: nodes,
-            node_count: node_count
+            node_count: node_count,
+            error_line: 0,
+            error_col: 0
         };
     }
 
@@ -111,6 +115,11 @@ impl CEmitter {
         if tag == 82 { return self.write_byte(42); } // *
         if tag == 83 { return self.write_byte(47); } // /
         if tag == 84 { return self.write_byte(37); } // %
+        if tag == 92 { return self.write_byte(38); } // &
+        if tag == 93 { return self.write_byte(124); } // |
+        if tag == 94 { return self.write_byte(94); } // ^
+        if tag == 96 { return self.write_byte(60) && self.write_byte(60); } // <<
+        if tag == 97 { return self.write_byte(62) && self.write_byte(62); } // >>
         if tag == 86 {
             return self.write_byte(61) && self.write_byte(61);
         }
@@ -125,13 +134,21 @@ impl CEmitter {
         if tag == 91 {
             return self.write_byte(62) && self.write_byte(61);
         }
+        if tag == 110 {
+            return self.write_byte(38) && self.write_byte(38);
+        }
+        if tag == 111 {
+            return self.write_byte(124) && self.write_byte(124);
+        }
         return false;
     }
 
     pub fn emit_unary_operator(mut self: &mut Self, tag: i64) -> bool {
         if tag == 80 { return self.write_byte(43); } // +
         if tag == 81 { return self.write_byte(45); } // -
+        if tag == 82 { return self.write_byte(42); } // * dereference
         if tag == 95 { return self.write_byte(126); } // ~
+        if tag == 92 { return self.write_byte(38); } // & reference
         if tag == 98 { return self.write_byte(33); } // !
         return false;
     }
@@ -435,6 +452,54 @@ impl CEmitter {
         return self.emit_expression(index);
     }
 
+    pub fn emit_enum_variant_path(
+        mut self: &mut Self,
+        path_index: usize
+    ) -> bool {
+        if !self.valid_node(path_index) || self.source == null {
+            return false;
+        }
+        let path: AstNode = unsafe { *(self.nodes + path_index) };
+        if path.kind != AstKind::ExprPath || path.str_len < 3
+            || path.str_offset > self.source_len
+            || path.str_len > self.source_len - path.str_offset {
+            return false;
+        }
+
+        let mut variant_start: usize = path.str_len;
+        while variant_start > 0 {
+            let ch: u8 = unsafe { *(self.source + path.str_offset + variant_start - 1) };
+            if ch == 58 {
+                break;
+            }
+            variant_start = variant_start - 1;
+        }
+        if variant_start < 2 || variant_start >= path.str_len {
+            return false;
+        }
+        let variant_start_absolute: usize = path.str_offset + variant_start;
+        let mut enum_end: usize = variant_start - 2;
+        let mut enum_start: usize = enum_end;
+        while enum_start > 0 {
+            let ch: u8 = unsafe { *(self.source + path.str_offset + enum_start - 1) };
+            if ch == 58 {
+                break;
+            }
+            enum_start = enum_start - 1;
+        }
+        if enum_start >= enum_end {
+            return false;
+        }
+        if !self.write_source_slice(
+            path.str_offset + enum_start, enum_end - enum_start
+        ) || !self.write_byte(95) {
+            return false;
+        }
+        return self.write_source_slice(
+            variant_start_absolute, path.str_len - variant_start
+        );
+    }
+
     pub fn emit_struct_literal(
         mut self: &mut Self,
         literal_index: usize
@@ -495,8 +560,32 @@ impl CEmitter {
         }
         let node: AstNode = unsafe { *(self.nodes + index) };
 
+        if node.kind == AstKind::UnsafeExpr {
+            if node.first_child == 0 || !self.valid_node(node.first_child) {
+                return false;
+            }
+            return self.emit_expression(node.first_child);
+        }
+
         if node.kind == AstKind::ExprIdent {
             return self.write_source_slice(node.str_offset, node.str_len);
+        }
+        if node.kind == AstKind::ExprFieldAccess {
+            if !self.valid_node(node.first_child) || node.str_len == 0 {
+                return false;
+            }
+            let field_receiver: AstNode = unsafe { *(self.nodes + node.first_child) };
+            if field_receiver.kind == AstKind::ExprIdent
+                && self.source_slice_equals(
+                    field_receiver.str_offset, field_receiver.str_len, "self", 4
+                ) {
+                return self.emit_expression(node.first_child)
+                    && self.write_str("->", 2)
+                    && self.write_source_slice(node.str_offset, node.str_len);
+            }
+            return self.emit_expression(node.first_child)
+                && self.write_byte(46)
+                && self.write_source_slice(node.str_offset, node.str_len);
         }
         if node.kind == AstKind::ExprLiteral {
             return self.emit_literal(index);
@@ -511,10 +600,42 @@ impl CEmitter {
             return false;
         }
 
+        if node.kind == AstKind::ExprCast {
+            if node.first_child == 0 || !self.valid_node(node.first_child) {
+                return false;
+            }
+            let value: AstNode = unsafe { *(self.nodes + node.first_child) };
+            let type_index: usize = value.next_sibling;
+            if !self.valid_node(type_index) {
+                return false;
+            }
+            if !self.write_str("((", 2)
+                || !self.emit_c_type(type_index)
+                || !self.write_str(")(", 2)
+                || !self.emit_expression(node.first_child)
+                || !self.write_str("))", 2) {
+                return false;
+            }
+            return true;
+        }
+        if node.kind == AstKind::ExprIndex {
+            let base_index: usize = node.first_child;
+            if base_index == 0 || base_index >= self.node_count { return false; }
+            let base_node: AstNode = unsafe { *(self.nodes + base_index) };
+            let index_index: usize = base_node.next_sibling;
+            if index_index == 0 || index_index >= self.node_count { return false; }
+            if !self.write_byte(40) || !self.emit_expression(base_index)
+                || !self.write_byte(91) || !self.emit_expression(index_index)
+                || !self.write_byte(93) || !self.write_byte(41) {
+                return false;
+            }
+            return true;
+        }
+
         if node.kind == AstKind::ExprPath {
-            // A path is only lowerable when used as the callee of a validated
-            // static impl call. Standalone qualified values remain fail-closed.
-            return false;
+            // Static impl calls are resolved by the call lowering below;
+            // standalone enum paths use the same flattened spelling as emit_enum.
+            return self.emit_enum_variant_path(index);
         }
 
         if node.kind == AstKind::TryExpr {
@@ -534,7 +655,16 @@ impl CEmitter {
             if !self.emit_unary_operator(node.int_value) {
                 return false;
             }
-            return self.emit_expression(node.first_child);
+            if node.int_value == 82 && !self.write_byte(40) {
+                return false;
+            }
+            if !self.emit_expression(node.first_child) {
+                return false;
+            }
+            if node.int_value == 82 {
+                return self.write_byte(41);
+            }
+            return true;
         }
 
         if node.kind == AstKind::ExprBinary {
@@ -569,6 +699,39 @@ impl CEmitter {
                     || !self.emit_static_impl_symbol(method_index) {
                     return false;
                 }
+            } else if callee_node.kind == AstKind::ExprFieldAccess {
+                let receiver_index: usize = callee_node.first_child;
+                if !self.valid_node(receiver_index) {
+                    return false;
+                }
+                let receiver: AstNode = unsafe { *(self.nodes + receiver_index) };
+                if receiver.kind != AstKind::ExprIdent {
+                    return false;
+                }
+                if self.source_slice_equals(
+                    receiver.str_offset, receiver.str_len, "self", 4
+                ) {
+                    let function_index: usize = self.find_enclosing_function(index);
+                    let impl_index: usize = self.find_enclosing_impl(function_index);
+                    let method_index: usize = self.find_impl_method_by_name(
+                        impl_index, callee_node.str_offset, callee_node.str_len
+                    );
+                    if method_index == 0
+                        || !self.emit_static_impl_symbol(method_index) {
+                        return false;
+                    }
+                } else {
+                    let method_index: usize = self.find_instance_impl_method(
+                        index,
+                        receiver_index,
+                        callee_node.str_offset,
+                        callee_node.str_len
+                    );
+                    if method_index == 0
+                        || !self.emit_static_impl_symbol(method_index) {
+                        return false;
+                    }
+                }
             } else if !self.emit_expression(callee) {
                 return false;
             }
@@ -576,6 +739,25 @@ impl CEmitter {
 
             let mut arg: usize = callee_node.next_sibling;
             let mut first: bool = true;
+            if callee_node.kind == AstKind::ExprFieldAccess {
+                let receiver_index: usize = callee_node.first_child;
+                let receiver: AstNode = unsafe { *(self.nodes + receiver_index) };
+                let receiver_is_self: bool = receiver.kind == AstKind::ExprIdent
+                    && self.source_slice_equals(
+                        receiver.str_offset, receiver.str_len, "self", 4
+                    );
+                if !receiver_is_self
+                    && !self.receiver_binding_is_indirect(receiver_index) {
+                    if !self.write_str("&(", 2)
+                        || !self.emit_expression(receiver_index)
+                        || !self.write_byte(41) {
+                        return false;
+                    }
+                } else if !self.emit_expression(receiver_index) {
+                    return false;
+                }
+                first = false;
+            }
             while arg != 0 {
                 if !self.valid_node(arg) {
                     return false;
@@ -1284,6 +1466,317 @@ impl CEmitter {
             child = node.next_sibling;
         }
         return false;
+    }
+
+    pub fn find_visible_binding(
+        self: &Self,
+        expression_index: usize
+    ) -> usize {
+        if !self.valid_node(expression_index) {
+            return 0;
+        }
+        let expression: AstNode = unsafe { *(self.nodes + expression_index) };
+        if expression.kind != AstKind::ExprIdent {
+            return 0;
+        }
+
+        let function_index: usize = self.find_enclosing_function(expression_index);
+        let mut parent_index: usize = expression.parent;
+        let mut child_on_path: usize = expression_index;
+        let mut traversed: usize = 0;
+        while parent_index != 0 {
+            if !self.valid_node(parent_index) || traversed >= self.node_count {
+                return 0;
+            }
+            let parent: AstNode = unsafe { *(self.nodes + parent_index) };
+            if parent.kind == AstKind::Block {
+                let mut sibling_index: usize = parent.first_child;
+                let mut found_path: bool = false;
+                let mut found_binding: usize = 0;
+                while sibling_index != 0 {
+                    if !self.valid_node(sibling_index) {
+                        return 0;
+                    }
+                    if sibling_index == child_on_path {
+                        found_path = true;
+                        break;
+                    }
+                    let sibling: AstNode = unsafe { *(self.nodes + sibling_index) };
+                    if sibling.kind == AstKind::LetStmt
+                        && self.source_slices_equal(
+                            sibling.str_offset, sibling.str_len,
+                            expression.str_offset, expression.str_len
+                        ) {
+                        found_binding = sibling_index;
+                    }
+                    sibling_index = sibling.next_sibling;
+                }
+                if !found_path {
+                    return 0;
+                }
+                if found_binding != 0 {
+                    return found_binding;
+                }
+            }
+            if parent.kind == AstKind::FnDecl || parent.kind == AstKind::TrapfnDecl {
+                let mut parameter_index: usize = parent.first_child;
+                while parameter_index != 0 {
+                    if !self.valid_node(parameter_index) {
+                        return 0;
+                    }
+                    let parameter: AstNode = unsafe { *(self.nodes + parameter_index) };
+                    if parameter.kind == AstKind::ParamDecl
+                        && self.source_slices_equal(
+                            parameter.str_offset, parameter.str_len,
+                            expression.str_offset, expression.str_len
+                        ) {
+                        return parameter_index;
+                    }
+                    parameter_index = parameter.next_sibling;
+                }
+                return 0;
+            }
+            if parent.kind == AstKind::Module {
+                let mut declaration_index: usize = parent.first_child;
+                while declaration_index != 0 {
+                    if !self.valid_node(declaration_index) {
+                        return 0;
+                    }
+                    let declaration: AstNode = unsafe { *(self.nodes + declaration_index) };
+                    if declaration.kind == AstKind::LetStmt
+                        && self.source_slices_equal(
+                            declaration.str_offset, declaration.str_len,
+                            expression.str_offset, expression.str_len
+                        ) {
+                        return declaration_index;
+                    }
+                    declaration_index = declaration.next_sibling;
+                }
+                return 0;
+            }
+            child_on_path = parent_index;
+            parent_index = parent.parent;
+            traversed = traversed + 1;
+        }
+        return 0;
+    }
+
+    pub fn binding_type_ref(self: &Self, binding_index: usize) -> usize {
+        if !self.valid_node(binding_index) {
+            return 0;
+        }
+        let binding: AstNode = unsafe { *(self.nodes + binding_index) };
+        let type_index: usize = binding.first_child;
+        if !self.valid_node(type_index) {
+            return 0;
+        }
+        let typ: AstNode = unsafe { *(self.nodes + type_index) };
+        if typ.kind != AstKind::TypeRef {
+            return 0;
+        }
+        return type_index;
+    }
+
+    pub fn type_ref_matches_impl_target(
+        self: &Self,
+        type_index: usize,
+        impl_index: usize
+    ) -> bool {
+        if !self.valid_node(type_index) || !self.valid_node(impl_index) {
+            return false;
+        }
+        let typ: AstNode = unsafe { *(self.nodes + type_index) };
+        let impl_node: AstNode = unsafe { *(self.nodes + impl_index) };
+        if typ.kind != AstKind::TypeRef || impl_node.kind != AstKind::ImplDecl {
+            return false;
+        }
+
+        let mut start: usize = 0;
+        while start < typ.str_len {
+            let ch: u8 = unsafe { *(self.source + typ.str_offset + start) };
+            if ch == 32 || ch == 9 || ch == 10 || ch == 13
+                || ch == 38 || ch == 42 {
+                start = start + 1;
+            } else {
+                break;
+            }
+        }
+        if start + 3 <= typ.str_len
+            && self.source_slice_equals(typ.str_offset + start, 3, "mut", 3) {
+            start = start + 3;
+        } else if start + 5 <= typ.str_len
+            && self.source_slice_equals(typ.str_offset + start, 5, "const", 5) {
+            start = start + 5;
+        }
+        while start < typ.str_len {
+            let ch: u8 = unsafe { *(self.source + typ.str_offset + start) };
+            if ch == 32 || ch == 9 || ch == 10 || ch == 13 {
+                start = start + 1;
+            } else {
+                break;
+            }
+        }
+        let mut end: usize = typ.str_len;
+        while end > start {
+            let ch: u8 = unsafe { *(self.source + typ.str_offset + end - 1) };
+            if ch == 32 || ch == 9 || ch == 10 || ch == 13 {
+                end = end - 1;
+            } else {
+                break;
+            }
+        }
+        let mut last_separator: usize = start;
+        let mut i: usize = start;
+        while i + 1 < end {
+            let left: u8 = unsafe { *(self.source + typ.str_offset + i) };
+            let right: u8 = unsafe { *(self.source + typ.str_offset + i + 1) };
+            if left == 58 && right == 58 {
+                last_separator = i + 2;
+            }
+            i = i + 1;
+        }
+        return end > last_separator
+            && self.source_slices_equal(
+                typ.str_offset + last_separator, end - last_separator,
+                impl_node.str_offset, impl_node.str_len
+            );
+    }
+
+    pub fn find_instance_impl_method(
+        self: &Self,
+        call_index: usize,
+        receiver_index: usize,
+        method_offset: usize,
+        method_len: usize
+    ) -> usize {
+        if !self.valid_node(call_index) || !self.valid_node(receiver_index)
+            || method_len == 0 {
+            return 0;
+        }
+        let receiver: AstNode = unsafe { *(self.nodes + receiver_index) };
+        if receiver.kind != AstKind::ExprIdent {
+            return 0;
+        }
+        let binding_index: usize = self.find_visible_binding(receiver_index);
+        let type_index: usize = self.binding_type_ref(binding_index);
+        if type_index == 0 {
+            return 0;
+        }
+        let module_index: usize = self.find_enclosing_module(call_index);
+        if !self.valid_node(module_index) {
+            return 0;
+        }
+        let module_node: AstNode = unsafe { *(self.nodes + module_index) };
+        let mut found: usize = 0;
+        let mut declaration_index: usize = module_node.first_child;
+        while declaration_index != 0 {
+            if !self.valid_node(declaration_index) {
+                return 0;
+            }
+            let declaration: AstNode = unsafe { *(self.nodes + declaration_index) };
+            if declaration.kind == AstKind::ImplDecl
+                && self.impl_target_is_declared(module_index, declaration_index)
+                && self.type_ref_matches_impl_target(type_index, declaration_index) {
+                let mut method_index: usize = declaration.first_child;
+                while method_index != 0 {
+                    if !self.valid_node(method_index) {
+                        return 0;
+                    }
+                    let method: AstNode = unsafe { *(self.nodes + method_index) };
+                    if method.kind == AstKind::FnDecl
+                        && self.static_impl_method_has_receiver(method_index)
+                        && self.source_slices_equal(
+                            method.str_offset, method.str_len,
+                            method_offset, method_len
+                        ) {
+                        if found != 0 {
+                            return 0;
+                        }
+                        found = method_index;
+                    }
+                    method_index = method.next_sibling;
+                }
+            }
+            declaration_index = declaration.next_sibling;
+        }
+        return found;
+    }
+
+    pub fn receiver_binding_is_indirect(
+        self: &Self,
+        receiver_index: usize
+    ) -> bool {
+        let binding_index: usize = self.find_visible_binding(receiver_index);
+        let type_index: usize = self.binding_type_ref(binding_index);
+        if !self.valid_node(type_index) {
+            return false;
+        }
+        let typ: AstNode = unsafe { *(self.nodes + type_index) };
+        if typ.str_len == 0 {
+            return false;
+        }
+        let mut i: usize = 0;
+        while i < typ.str_len {
+            let ch: u8 = unsafe { *(self.source + typ.str_offset + i) };
+            if ch == 32 || ch == 9 || ch == 10 || ch == 13 {
+                i = i + 1;
+            } else {
+                return ch == 38 || ch == 42;
+            }
+        }
+        return false;
+    }
+
+    pub fn find_impl_method_by_name(
+        self: &Self,
+        impl_index: usize,
+        name_offset: usize,
+        name_len: usize
+    ) -> usize {
+        if !self.valid_node(impl_index) {
+            return 0;
+        }
+        let impl_node: AstNode = unsafe { *(self.nodes + impl_index) };
+        if impl_node.kind != AstKind::ImplDecl {
+            return 0;
+        }
+        let mut found: usize = 0;
+        let mut method_index: usize = impl_node.first_child;
+        while method_index != 0 {
+            if !self.valid_node(method_index) {
+                return 0;
+            }
+            let method: AstNode = unsafe { *(self.nodes + method_index) };
+            if method.kind == AstKind::FnDecl
+                && self.source_slices_equal(
+                    method.str_offset, method.str_len, name_offset, name_len
+                ) {
+                if found != 0 {
+                    return 0;
+                }
+                found = method_index;
+            }
+            method_index = method.next_sibling;
+        }
+        return found;
+    }
+
+    pub fn find_enclosing_impl(self: &Self, index: usize) -> usize {
+        if !self.valid_node(index) {
+            return 0;
+        }
+        let mut current: usize = index;
+        while current != 0 {
+            if !self.valid_node(current) {
+                return 0;
+            }
+            let node: AstNode = unsafe { *(self.nodes + current) };
+            if node.kind == AstKind::ImplDecl {
+                return current;
+            }
+            current = node.parent;
+        }
+        return 0;
     }
 
     pub fn emit_static_impl_symbol(
@@ -1995,7 +2488,26 @@ impl CEmitter {
             return false;
         }
 
-        if !self.emit_c_type(type_index) {
+        if self.source_slice_equals(param.str_offset, param.str_len, "self", 4) {
+            let impl_index: usize = self.find_enclosing_impl(param_index);
+            if !self.valid_node(impl_index) {
+                return false;
+            }
+            let impl_node: AstNode = unsafe { *(self.nodes + impl_index) };
+            if self.source_slice_equals(typ.str_offset, typ.str_len, "&Self", 5) {
+                if !self.write_str("const ", 6) {
+                    return false;
+                }
+            } else if !self.source_slice_equals(
+                typ.str_offset, typ.str_len, "&mut Self", 9
+            ) {
+                return false;
+            }
+            if !self.write_source_slice(impl_node.str_offset, impl_node.str_len)
+                || !self.write_str(" *", 2) {
+                return false;
+            }
+        } else if !self.emit_c_type(type_index) {
             return false;
         }
         if !self.write_byte(32) {
@@ -2159,8 +2671,7 @@ impl CEmitter {
         if function_node.parent != 0 && self.valid_node(function_node.parent) {
             let parent: AstNode = unsafe { *(self.nodes + function_node.parent) };
             if parent.kind == AstKind::ImplDecl {
-                if self.static_impl_method_has_receiver(fn_index)
-                    || !self.emit_static_impl_symbol(fn_index) {
+                if !self.emit_static_impl_symbol(fn_index) {
                     return false;
                 }
             } else if !self.write_source_slice(
@@ -2618,8 +3129,9 @@ impl CEmitter {
                 return false;
             }
             let method: AstNode = unsafe { *(self.nodes + method_index) };
+            self.error_line = method.span.line;
+            self.error_col = method.span.col;
             if method.kind != AstKind::FnDecl || method.parent != impl_index
-                || self.static_impl_method_has_receiver(method_index)
                 || !self.static_method_is_unique(
                     module_index, impl_index, method_index
                 ) {
@@ -2648,6 +3160,8 @@ impl CEmitter {
                 return false;
             }
             let node: AstNode = unsafe { *(self.nodes + child) };
+            self.error_line = node.span.line;
+            self.error_col = node.span.col;
 
             if node.kind == AstKind::Import {
                 // Native imports are resolved by the compiler/module graph;

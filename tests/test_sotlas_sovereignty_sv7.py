@@ -168,6 +168,47 @@ pub fn _start() -> u32 {
         e_entry = struct.unpack_from("<Q", bin_data, 24)[0]
         self.assertGreaterEqual(e_entry, 0x100000)
 
+    def test_sv7_stage1_emits_unsafe_pointer_dereference(self):
+        """The native frontend accepts and emits pointer writes only inside unsafe."""
+        source = self.root / "pointer_write.sotlas"
+        source.write_text(
+            """module test::pointer_write;
+pub fn write_byte(out_buf: *mut u8, value: u8) -> u8 {
+    unsafe {
+        *out_buf = value;
+    }
+    return value;
+}
+""",
+            encoding="utf-8",
+        )
+        output = self.root / "pointer_write.c"
+        emitted = subprocess.run(
+            [str(self.stage1_exe), "--emit-c", str(source), str(output)],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(emitted.returncode, 0, emitted.stderr)
+        self.assertIn("*(out_buf) = value;", output.read_text(encoding="utf-8"))
+
+        unsafe_source = self.root / "pointer_write_safe.sotlas"
+        unsafe_source.write_text(
+            """module test::pointer_write_safe;
+pub fn write_byte(out_buf: *mut u8, value: u8) -> u8 {
+    *out_buf = value;
+    return value;
+}
+""",
+            encoding="utf-8",
+        )
+        rejected = subprocess.run(
+            [str(self.stage1_exe), "--emit-c", str(unsafe_source), str(self.root / "bad_pointer.c")],
+            capture_output=True,
+            text=True,
+        )
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn("err line", rejected.stderr)
+
     def test_sv7_stage1_verification_cycle_and_run(self):
         """SV7.4: verify_stage1_compiler passes and run subcommand executes successfully."""
         ok = verify_stage1_compiler(self.stage1_exe)

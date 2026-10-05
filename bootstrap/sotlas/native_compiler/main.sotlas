@@ -624,6 +624,10 @@ pub fn sotlas_native_compile_diagnostic(
         return 0;
     }
     if !emitter.emit_module(module_node) {
+        unsafe {
+            *(g_err_line as *mut u32) = emitter.error_line;
+            *(g_err_col as *mut u32) = emitter.error_col;
+        }
         return 0;
     }
 
@@ -639,7 +643,12 @@ pub fn sotlas_native_compile(
     max_out: usize
 ) -> usize {
     return sotlas_native_compile_diagnostic(
-        source, len, out_buf, max_out, null, null
+        source,
+        len,
+        out_buf,
+        max_out,
+        unsafe { g_err_line as *mut u32 },
+        unsafe { g_err_col as *mut u32 }
     );
 }
 
