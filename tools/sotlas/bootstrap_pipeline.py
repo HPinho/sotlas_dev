@@ -1835,19 +1835,56 @@ def build_self_hosted_compiler(
     output_exe: Optional[Path] = None,
     verbose: bool = True
 ) -> Path:
-    """Build the current native Stage 1 compiler under the legacy artifact name.
+    """Build the compatibility self-hosted compiler from the Sotlas-lite tree.
 
-    The old Sotlas-lite entry point does not export the project/object/link
-    functions required by ``NATIVE_DRIVER_C``. Reuse the validated Stage 1
-    source set so this compatibility API cannot link the wrong compiler.
+    Keep this legacy API on the last green compatibility path while the newer
+    native Stage 1 frontend grows toward full language parity. Sovereignty
+    milestones use build_stage1_native_compiler() explicitly and therefore do
+    not depend on this compatibility entry point.
     """
+    if not default_toolchain.is_available():
+        raise LLVMToolchainError("Toolchain LLVM / Clang necessária para o bootstrap não foi encontrada.")
+
     if output_exe is None:
         build_dir = _ROOT / "build"
         build_dir.mkdir(parents=True, exist_ok=True)
         exe_suffix = ".exe" if os.name == "nt" else ""
         output_exe = build_dir / f"sotlas_native{exe_suffix}"
-    return build_stage1_native_compiler(output_exe=output_exe, verbose=verbose)
 
+    output_exe = output_exe.resolve()
+    output_exe.parent.mkdir(parents=True, exist_ok=True)
+
+    from sotlas_compile import bootstrap as stage0
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_dir_path = Path(tmpdir)
+        compiler_c = tmp_dir_path / "sotlas_compiler_lite.c"
+        driver_c = tmp_dir_path / "sotlas_native_driver.c"
+
+        if verbose:
+            print(f"sotlas bootstrap: compilando {BOOTSTRAP_ENTRY}...")
+
+        stage0.emit_c_project(BOOTSTRAP_ENTRY, compiler_c)
+        driver_c.write_text(NATIVE_DRIVER_C, encoding="utf-8")
+
+        compiler_obj = tmp_dir_path / "compiler.obj"
+        driver_obj = tmp_dir_path / "driver.obj"
+
+        if verbose:
+            print("sotlas bootstrap: compilando objetos nativos via Clang...")
+
+        default_toolchain.compile_c_to_obj(compiler_c, compiler_obj, opt_level=2)
+        default_toolchain.compile_c_to_obj(driver_c, driver_obj, opt_level=2)
+
+        if verbose:
+            print(f"sotlas bootstrap: linkedição final -> {output_exe}...")
+
+        default_toolchain.link_native_binary([compiler_obj, driver_obj], output_exe)
+
+    if verbose:
+        print(f"sotlas bootstrap: compilador auto-hospedado gerado com sucesso em {output_exe}")
+
+    return output_exe
 
 def verify_self_hosted_compiler(compiler_exe: Path) -> bool:
     """Verifica a funcionalidade do compilador auto-hospedado executando um teste de compilação."""
