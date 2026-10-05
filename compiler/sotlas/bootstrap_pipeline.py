@@ -2238,7 +2238,8 @@ pub fn _start() -> u32 {
         h_compiler_c2 = hashlib.sha256(compiler_c2.encode("utf-8")).hexdigest()
         results["hashes"]["compiler_c1"] = h_compiler_c1
         results["hashes"]["compiler_c2"] = h_compiler_c2
-        results["c_source_fixed_point"] = h_compiler_c1 == h_compiler_c2
+        results["compiler_source_deterministic"] = h_compiler_c1 == h_compiler_c2
+        results["c_source_fixed_point"] = False
 
         # 1. Differential C emission for a representative application.
         c1 = tmp / "app1.c"
