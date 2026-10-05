@@ -209,6 +209,7 @@ pub fn _start() -> u32 {
         )
         self.assertTrue(report["c_source_fixed_point"])
         self.assertTrue(report["compiler_source_deterministic"])
+        self.assertTrue(report["stage3_compiler_source_fixed_point"])
         self.assertTrue(report["app_obj_deterministic"])
         self.assertTrue(report["kernel_obj_deterministic"])
         self.assertTrue(report["app_exe_deterministic"])
