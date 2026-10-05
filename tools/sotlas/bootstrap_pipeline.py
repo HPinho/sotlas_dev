@@ -159,6 +159,15 @@ static void make_dir(const char *path) {
 #endif
 }
 
+static bool make_output_executable(const char *path) {
+#if defined(_WIN32)
+    (void)path;
+    return true;
+#else
+    return chmod(path, 0755) == 0;
+#endif
+}
+
 static void make_dir_recursive(const char *path) {
     char temp[512];
     strncpy(temp, path, 511);
@@ -1509,6 +1518,11 @@ int main(int argc, char **argv) {
         if (!f_out) { fprintf(stderr, "sotlas: cannot open output '%s'\n", argv[3]); free(exe_buf); return 1; }
         fwrite(exe_buf, 1, exe_len, f_out);
         fclose(f_out);
+        if (!make_output_executable(argv[3])) {
+            fprintf(stderr, "sotlas: cannot mark output executable '%s'\n", argv[3]);
+            free(exe_buf);
+            return 1;
+        }
         free(exe_buf);
         return 0;
     }
@@ -1553,6 +1567,11 @@ int main(int argc, char **argv) {
         if (!f_out) { fprintf(stderr, "sotlas: cannot open output '%s'\n", out_path); free(exe_buf); return 1; }
         fwrite(exe_buf, 1, exe_len, f_out);
         fclose(f_out);
+        if (!make_output_executable(out_path)) {
+            fprintf(stderr, "sotlas: cannot mark output executable '%s'\n", out_path);
+            free(exe_buf);
+            return 1;
+        }
         free(exe_buf);
         return 0;
     }
@@ -1597,6 +1616,11 @@ int main(int argc, char **argv) {
         if (!f_out) { fprintf(stderr, "sotlas: cannot open output '%s'\n", out_path); free(exe_buf); return 1; }
         fwrite(exe_buf, 1, exe_len, f_out);
         fclose(f_out);
+        if (!make_output_executable(out_path)) {
+            fprintf(stderr, "sotlas: cannot mark output executable '%s'\n", out_path);
+            free(exe_buf);
+            return 1;
+        }
         free(exe_buf);
         return 0;
     }
