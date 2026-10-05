@@ -469,21 +469,21 @@ pub fn target_module_validate_cfg(
     if target_module == null {
         return false;
     }
-    let target: TargetModule = unsafe { *target_module };
-    if target.version != TARGET_IR_VERSION
-        || (target.function_count != 0 && functions == null)
-        || (target.parameter_count != 0 && parameters == null)
-        || (target.value_count != 0 && values == null)
-        || (target.block_count != 0 && blocks == null)
-        || (target.instruction_count != 0 && instructions == null)
-        || (target.operand_count != 0 && operands == null)
-        || (target.phi_input_count != 0 && phi_inputs == null)
-        || (target.target_count != 0 && targets == null) {
+    let target_section: TargetModule = unsafe { *target_module };
+    if target_section.version != TARGET_IR_VERSION
+        || (target_section.function_count != 0 && functions == null)
+        || (target_section.parameter_count != 0 && parameters == null)
+        || (target_section.value_count != 0 && values == null)
+        || (target_section.block_count != 0 && blocks == null)
+        || (target_section.instruction_count != 0 && instructions == null)
+        || (target_section.operand_count != 0 && operands == null)
+        || (target_section.phi_input_count != 0 && phi_inputs == null)
+        || (target_section.target_count != 0 && targets == null) {
         return false;
     }
 
     let mut value_index: u32 = 0;
-    while value_index < target.value_count {
+    while value_index < target_section.value_count {
         let value: TargetValue = unsafe { *(values + value_index) };
         if value.id != value_index + 1 || value.type_tag == TargetTypeTag::Invalid {
             return false;
@@ -492,7 +492,7 @@ pub fn target_module_validate_cfg(
     }
 
     let mut function_index: u32 = 0;
-    while function_index < target.function_count {
+    while function_index < target_section.function_count {
         let function: TargetFunction = unsafe { *(functions + function_index) };
         if (function.flags & TARGET_FUNCTION_EXTERNAL) != 0 {
             if function.flags != TARGET_FUNCTION_EXTERNAL
@@ -501,7 +501,7 @@ pub fn target_module_validate_cfg(
                 || function.name.length == 0
                 || function.name.offset > 536870911
                 || !target_range_is_valid(
-                    function.first_parameter, function.parameter_count, target.parameter_count
+                    function.first_parameter, function.parameter_count, target_section.parameter_count
                 ) {
                 return false;
             }
@@ -523,10 +523,10 @@ pub fn target_module_validate_cfg(
             || function.return_type == TargetTypeTag::Invalid
             || !target_range_is_valid(
                 function.first_parameter, function.parameter_count,
-                target.parameter_count
+                target_section.parameter_count
             )
             || !target_range_is_valid(
-                function.first_block, function.block_count, target.block_count
+                function.first_block, function.block_count, target_section.block_count
             ) {
             return false;
         }
@@ -537,9 +537,9 @@ pub fn target_module_validate_cfg(
                 *(parameters + function.first_parameter + parameter_offset)
             };
             if parameter.value_id == TARGET_VALUE_NONE
-                || parameter.value_id > target.value_count
+                || parameter.value_id > target_section.value_count
                 || !target_value_matches(
-                    values, target.value_count, parameter.value_id, parameter.type_tag
+                    values, target_section.value_count, parameter.value_id, parameter.type_tag
                 ) {
                 return false;
             }
@@ -562,7 +562,7 @@ pub fn target_module_validate_cfg(
             if block.id == TARGET_BLOCK_NONE || block.instruction_count == 0
                 || !target_range_is_valid(
                     block.first_instruction, block.instruction_count,
-                    target.instruction_count
+                    target_section.instruction_count
                 ) {
                 return false;
             }
@@ -605,18 +605,18 @@ pub fn target_module_validate_cfg(
                     || instruction.opcode == TargetOpcode::Invalid
                     || !target_range_is_valid(
                         instruction.first_operand, instruction.operand_count,
-                        target.operand_count
+                        target_section.operand_count
                     )
                     || !target_range_is_valid(
                         instruction.first_phi_input, instruction.phi_input_count,
-                        target.phi_input_count
+                        target_section.phi_input_count
                     )
                     || !target_range_is_valid(
                         instruction.first_target, instruction.target_count,
-                        target.target_count
+                        target_section.target_count
                     )
                     || (instruction.result_value != TARGET_VALUE_NONE
-                        && instruction.result_value > target.value_count) {
+                        && instruction.result_value > target_section.value_count) {
                     return false;
                 }
                 if instruction.opcode == TargetOpcode::Phi {
@@ -628,7 +628,7 @@ pub fn target_module_validate_cfg(
                 if instruction.result_value != TARGET_VALUE_NONE {
                     if instruction.type_tag == TargetTypeTag::Invalid
                         || !target_value_matches(
-                            values, target.value_count,
+                            values, target_section.value_count,
                             instruction.result_value, instruction.type_tag
                         ) {
                         return false;
@@ -636,18 +636,20 @@ pub fn target_module_validate_cfg(
                     let mut prior_function: u32 = 0;
                     while prior_function <= function_index {
                         let prior_fn: TargetFunction = unsafe { *(functions + prior_function) };
-                        let prior_block_end: u32 = if prior_function == function_index {
-                            block_offset
-                        } else { prior_fn.block_count };
+                        let mut prior_block_end: u32 = prior_fn.block_count;
+                        if prior_function == function_index {
+                            prior_block_end = block_offset;
+                        }
                         let mut prior_block_offset: u32 = 0;
                         while prior_block_offset < prior_block_end {
                             let prior_block: TargetBlock = unsafe {
                                 *(blocks + prior_fn.first_block + prior_block_offset)
                             };
-                            let prior_instruction_end: u32 = if prior_function == function_index
+                            let mut prior_instruction_end: u32 = prior_block.instruction_count;
+                            if prior_function == function_index
                                 && prior_block_offset == block_offset {
-                                instruction_offset
-                            } else { prior_block.instruction_count };
+                                prior_instruction_end = instruction_offset;
+                            }
                             let mut prior_instruction_offset: u32 = 0;
                             while prior_instruction_offset < prior_instruction_end {
                                 let prior_instruction: TargetInstruction = unsafe {
@@ -666,14 +668,8 @@ pub fn target_module_validate_cfg(
                     let mut parameter_fn: u32 = 0;
                     while parameter_fn <= function_index {
                         let prior_fn: TargetFunction = unsafe { *(functions + parameter_fn) };
-                        let parameter_end: u32 = if parameter_fn == function_index {
-                            function.parameter_count
-                        } else { prior_fn.parameter_count };
-                        let parameter_start: u32 = if parameter_fn == function_index {
-                            0
-                        } else { 0 };
-                        let mut prior_parameter: u32 = parameter_start;
-                        while prior_parameter < parameter_end {
+                        let mut prior_parameter: u32 = 0;
+                        while prior_parameter < prior_fn.parameter_count {
                             if unsafe {
                                 (*(parameters + prior_fn.first_parameter + prior_parameter)).value_id
                             } == instruction.result_value {
@@ -691,7 +687,7 @@ pub fn target_module_validate_cfg(
                         *(operands + instruction.first_operand + operand_offset)
                     };
                     if operand.value_id == TARGET_VALUE_NONE
-                        || operand.value_id > target.value_count
+                        || operand.value_id > target_section.value_count
                         || !target_function_defines_value(
                             &function, parameters, blocks, instructions, operand.value_id
                         ) {
@@ -717,7 +713,7 @@ pub fn target_module_validate_cfg(
                     };
                     if condition.value_id == TARGET_VALUE_NONE
                         || !target_value_matches(
-                            values, target.value_count, condition.value_id,
+                            values, target_section.value_count, condition.value_id,
                             TargetTypeTag::Bool
                         ) {
                         return false;
@@ -738,7 +734,7 @@ pub fn target_module_validate_cfg(
                             *(operands + instruction.first_operand)
                         };
                         if !target_value_matches(
-                            values, target.value_count, returned.value_id,
+                            values, target_section.value_count, returned.value_id,
                             function.return_type
                         ) { return false; }
                     }
@@ -770,13 +766,13 @@ pub fn target_module_validate_cfg(
                             *(phi_inputs + instruction.first_phi_input + phi_offset)
                         };
                         if incoming.value_id == TARGET_VALUE_NONE
-                            || incoming.value_id > target.value_count
+                            || incoming.value_id > target_section.value_count
                             || !target_function_defines_value(
                                 &function, parameters, blocks, instructions,
                                 incoming.value_id
                             )
                             || !target_value_matches(
-                                values, target.value_count, incoming.value_id,
+                                values, target_section.value_count, incoming.value_id,
                                 instruction.type_tag
                             )
                             || !target_cfg_has_block(
@@ -839,9 +835,9 @@ pub fn target_module_validate_cfg(
                         *(operands + instruction.first_operand + 1)
                     };
                     if !target_value_matches(
-                        values, target.value_count, left.value_id, instruction.type_tag
+                        values, target_section.value_count, left.value_id, instruction.type_tag
                     ) || !target_value_matches(
-                        values, target.value_count, right.value_id, instruction.type_tag
+                        values, target_section.value_count, right.value_id, instruction.type_tag
                     ) { return false; }
                 } else if instruction.opcode == TargetOpcode::Compare {
                     if instruction.result_value == TARGET_VALUE_NONE
@@ -857,7 +853,7 @@ pub fn target_module_validate_cfg(
                         *(operands + instruction.first_operand + 1)
                     };
                     if left.value_id == TARGET_VALUE_NONE || right.value_id == TARGET_VALUE_NONE
-                        || left.value_id > target.value_count || right.value_id > target.value_count {
+                        || left.value_id > target_section.value_count || right.value_id > target_section.value_count {
                         return false;
                     }
                     let left_type: TargetTypeTag = unsafe {
@@ -895,7 +891,7 @@ pub fn target_module_validate_cfg(
                     let ptr_op: TargetOperand = unsafe { *(operands + instruction.first_operand) };
                     let val_op: TargetOperand = unsafe { *(operands + instruction.first_operand + 1) };
                     if ptr_op.value_id == TARGET_VALUE_NONE || val_op.value_id == TARGET_VALUE_NONE
-                        || ptr_op.value_id > target.value_count || val_op.value_id > target.value_count {
+                        || ptr_op.value_id > target_section.value_count || val_op.value_id > target_section.value_count {
                         return false;
                     }
                     let ptr_type: TargetTypeTag = unsafe { (*(values + ptr_op.value_id as usize - 1)).type_tag };
@@ -909,7 +905,7 @@ pub fn target_module_validate_cfg(
                         return false;
                     }
                     let ptr_op: TargetOperand = unsafe { *(operands + instruction.first_operand) };
-                    if ptr_op.value_id == TARGET_VALUE_NONE || ptr_op.value_id > target.value_count {
+                    if ptr_op.value_id == TARGET_VALUE_NONE || ptr_op.value_id > target_section.value_count {
                         return false;
                     }
                     let ptr_type: TargetTypeTag = unsafe { (*(values + ptr_op.value_id as usize - 1)).type_tag };
@@ -969,9 +965,9 @@ pub fn target_module_validate_calls(
         ) {
         return false;
     }
-    let target: TargetModule = unsafe { *target_module };
+    let target_section: TargetModule = unsafe { *target_module };
     let mut function_index: u32 = 0;
-    while function_index < target.function_count {
+    while function_index < target_section.function_count {
         let caller: TargetFunction = unsafe { *(functions + function_index) };
         let mut block_offset: u32 = 0;
         while block_offset < caller.block_count {
@@ -987,7 +983,7 @@ pub fn target_module_validate_calls(
                         return false;
                     }
                     let mut callee_index: u32 = 0;
-                    while callee_index < target.function_count {
+                    while callee_index < target_section.function_count {
                         let callee: TargetFunction = unsafe { *(functions + callee_index) };
                         if callee.name.length == instruction.symbol.length
                             && callee.name.offset <= source_len
@@ -1006,7 +1002,7 @@ pub fn target_module_validate_calls(
                         }
                         callee_index = callee_index + 1;
                     }
-                    if callee_index >= target.function_count { return false; }
+                    if callee_index >= target_section.function_count { return false; }
                     let callee: TargetFunction = unsafe { *(functions + callee_index) };
                     if callee.return_type != instruction.type_tag
                         || callee.parameter_count != instruction.operand_count {
@@ -1056,9 +1052,9 @@ pub fn target_module_validate_ssa_dominance(
         target_module, functions, parameters, values, blocks, instructions,
         operands, phi_inputs, targets
     ) { return false; }
-    let target: TargetModule = unsafe { *target_module };
+    let target_section: TargetModule = unsafe { *target_module };
     let mut function_index: u32 = 0;
-    while function_index < target.function_count {
+    while function_index < target_section.function_count {
         let function: TargetFunction = unsafe { *(functions + function_index) };
         let block_count: usize = function.block_count as usize;
         if block_count > 4096 { return false; }

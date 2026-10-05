@@ -47,6 +47,9 @@ pub fn sotlas_native_compile_object(
 ) -> bool {
     if out_length == null { return false; }
     unsafe { *out_length = 0; }
+    if source == null && len == 0 && output == null && capacity == 0 {
+        return false;
+    }
     return false;
 }
 
@@ -64,6 +67,11 @@ pub fn sotlas_native_link_executable(
 ) -> bool {
     if out_length == null { return false; }
     unsafe { *out_length = 0; }
+    if object == null && object_len == 0 && entry_name == null
+        && entry_name_len == 0 && !freestanding && output == null
+        && capacity == 0 {
+        return false;
+    }
     return false;
 }
 
@@ -95,6 +103,11 @@ pub fn sotlas_native_link_objects(
 ) -> bool {
     if out_length == null { return false; }
     unsafe { *out_length = 0; }
+    if object_data == null && object_offsets == null && object_lengths == null
+        && object_count == 0 && entry_name == null && entry_name_len == 0
+        && !freestanding && output == null && capacity == 0 {
+        return false;
+    }
     return false;
 }
 

@@ -289,8 +289,20 @@ impl Lexer {
         if ch == 42 { return self.token_from_span(TokenKind::Star, start_line, start_col, start_offset); }
         if ch == 47 { return self.token_from_span(TokenKind::Slash, start_line, start_col, start_offset); }
         if ch == 37 { return self.token_from_span(TokenKind::Percent, start_line, start_col, start_offset); }
-        if ch == 38 { return self.token_from_span(TokenKind::Amp, start_line, start_col, start_offset); }
-        if ch == 124 { return self.token_from_span(TokenKind::Pipe, start_line, start_col, start_offset); }
+        if ch == 38 {
+            if self.peek() == 38 {
+                self.advance();
+                return self.token_from_span(TokenKind::LogicalAnd, start_line, start_col, start_offset);
+            }
+            return self.token_from_span(TokenKind::Amp, start_line, start_col, start_offset);
+        }
+        if ch == 124 {
+            if self.peek() == 124 {
+                self.advance();
+                return self.token_from_span(TokenKind::LogicalOr, start_line, start_col, start_offset);
+            }
+            return self.token_from_span(TokenKind::Pipe, start_line, start_col, start_offset);
+        }
         if ch == 94 { return self.token_from_span(TokenKind::Caret, start_line, start_col, start_offset); }
         if ch == 126 { return self.token_from_span(TokenKind::Tilde, start_line, start_col, start_offset); }
         if ch == 59 { return self.token_from_span(TokenKind::SemiColon, start_line, start_col, start_offset); }
@@ -378,11 +390,11 @@ impl Lexer {
         return TokenKind::Ident;
     }
 
-    pub fn matches_str(self: &Self, offset: usize, len: usize, target: *const u8) -> bool {
+    pub fn matches_str(self: &Self, offset: usize, len: usize, needle: *const u8) -> bool {
         let mut i: usize = 0;
         while i < len {
             let a: u8 = unsafe { *(self.source + offset + i) };
-            let b: u8 = unsafe { *(target + i) };
+            let b: u8 = unsafe { *(needle + i) };
             if a != b {
                 return false;
             }

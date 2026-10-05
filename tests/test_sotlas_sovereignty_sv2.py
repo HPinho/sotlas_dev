@@ -368,10 +368,9 @@ class TestSotlasSovereigntySV2(unittest.TestCase):
         r_link = subprocess.run([str(self.stage1), "--link-exe", str(out_obj), str(out_bin), "run_counter"], capture_output=True, text=True)
         self.assertEqual(r_link.returncode, 0, r_link.stderr)
         self.assertTrue(out_bin.is_file())
-        drive = out_bin.drive[0].lower()
-        wsl_bin = f"/mnt/{drive}" + str(out_bin)[2:].replace("\\", "/")
-        r_run = subprocess.run(["wsl", wsl_bin])
-        self.assertEqual(r_run.returncode, 42)
+        if sys.platform.startswith("linux"):
+            r_run = subprocess.run([str(out_bin)])
+            self.assertEqual(r_run.returncode, 42)
 
 
 if __name__ == "__main__":

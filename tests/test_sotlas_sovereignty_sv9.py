@@ -265,6 +265,9 @@ class TestSotlasSovereigntySV9(unittest.TestCase):
         with patch(
             "sotlas.bootstrap_pipeline.build_stage1_native_compiler",
             side_effect=RuntimeError("bootstrap unavailable"),
+        ), patch(
+            "sotlas.bootstrap_pipeline._ROOT",
+            self.root / "no_cached_stage1",
         ), patch.object(cli, "compile_source") as compile_source, \
              patch("sotlas.llvm_toolchain.LLVMToolchain.compile_c11_source") as compile_c11:
             stderr_buf = io.StringIO()

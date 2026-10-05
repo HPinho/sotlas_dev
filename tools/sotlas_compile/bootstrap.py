@@ -2702,14 +2702,31 @@ def compile_source(source: str, filename: str | None = None,
             search_dirs.extend([p, p / "src", p / "bootstrap" / "sotlas" / "native_compiler"])
         loaded_mods: list[Module] = []
         for imp in module.imports:
-            mod_name = imp.split("::")[-1] if isinstance(imp, str) else imp[-1]
+            parts = tuple(
+                part for part in (imp.split("::") if isinstance(imp, str) else imp)
+                if part and part != "*"
+            )
+            if not parts:
+                continue
+            relative_candidates = tuple(
+                Path(*parts[index:]).with_suffix(".sotlas")
+                for index in range(len(parts))
+            )
+            found = False
             for d in search_dirs:
-                cand = d / f"{mod_name}.sotlas"
-                if cand.is_file() and cand != cur_file:
+                for relative in relative_candidates:
+                    cand = d / relative
+                    if not cand.is_file() or cand == cur_file:
+                        continue
                     try:
-                        loaded_mods.append(parse(cand.read_text(encoding="utf-8"), filename=str(cand)))
+                        loaded_mods.append(
+                            parse(cand.read_text(encoding="utf-8"), filename=str(cand))
+                        )
+                        found = True
+                        break
                     except Exception:
-                        pass
+                        continue
+                if found:
                     break
         imported_modules = loaded_mods
     return compile_module(module, imported_modules, include_import_headers)
