@@ -234,6 +234,51 @@ class TestSotlasSovereigntySV9(unittest.TestCase):
                     cli.main()
                 self.assertEqual(cm.exception.code, 2)
 
+    def test_sv9_native_compile_failure_never_falls_back(self):
+        """A rejected native input must not proceed through LLVM or C11."""
+        stage1 = self.root / "stage1.exe"
+        stage1.write_bytes(b"test executable placeholder")
+        output = self.root / "rejected.o"
+        failure = subprocess.CompletedProcess([], 1, stdout="", stderr="unsupported native form")
+
+        with patch("sotlas.bootstrap_pipeline.build_stage1_native_compiler", return_value=stage1), \
+             patch("sotlas.cli.subprocess.run", return_value=failure) as run, \
+             patch.object(cli, "compile_source") as compile_source, \
+             patch("sotlas.llvm_toolchain.LLVMToolchain.compile_c11_source") as compile_c11:
+            stderr_buf = io.StringIO()
+            with patch.object(
+                sys, "argv",
+                ["sotlas", "compile", str(self.app_src), "--emit-obj", "-o", str(output)],
+            ), redirect_stderr(stderr_buf):
+                ret = cli.main()
+
+        self.assertEqual(ret, 1)
+        self.assertFalse(output.exists())
+        self.assertIn("unsupported native form", stderr_buf.getvalue())
+        self.assertIn("nenhum fallback implicito", stderr_buf.getvalue())
+        run.assert_called_once()
+        compile_source.assert_not_called()
+        compile_c11.assert_not_called()
+
+    def test_sv9_native_stage1_build_failure_never_falls_back(self):
+        """A failed Stage 1 bootstrap must stop before reference backends run."""
+        with patch(
+            "sotlas.bootstrap_pipeline.build_stage1_native_compiler",
+            side_effect=RuntimeError("bootstrap unavailable"),
+        ), patch.object(cli, "compile_source") as compile_source, \
+             patch("sotlas.llvm_toolchain.LLVMToolchain.compile_c11_source") as compile_c11:
+            stderr_buf = io.StringIO()
+            with patch.object(
+                sys, "argv", ["sotlas", "compile", str(self.app_src), "--emit-obj"]
+            ), redirect_stderr(stderr_buf):
+                ret = cli.main()
+
+        self.assertEqual(ret, 1)
+        self.assertIn("bootstrap unavailable", stderr_buf.getvalue())
+        self.assertIn("nenhum fallback implicito", stderr_buf.getvalue())
+        compile_source.assert_not_called()
+        compile_c11.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

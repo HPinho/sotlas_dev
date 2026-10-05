@@ -1033,50 +1033,117 @@ def _run_compile(args) -> int:
         if not stage1_path.is_file():
             try:
                 stage1_path = build_stage1_native_compiler(output_exe=stage1_path, verbose=False)
-            except Exception:
-                stage1_path = None
-
-        if stage1_path and stage1_path.is_file():
-            if emit_type == "obj":
-                out_path = Path(output_arg) if output_arg else src.with_suffix(".o")
-                out_path.parent.mkdir(parents=True, exist_ok=True)
-                res = subprocess.run([str(stage1_path), "--compile-obj", str(src), str(out_path)], capture_output=True, text=True)
-                if res.returncode == 0 and out_path.is_file():
-                    print(f"sotlas: objeto ELF64 nativo emitido em {out_path}")
-                    return 0
-            elif emit_type == "c":
-                out_path = Path(output_arg) if output_arg else src.with_suffix(".c")
-                out_path.parent.mkdir(parents=True, exist_ok=True)
-                res = subprocess.run([str(stage1_path), "--emit-c", str(src), str(out_path)], capture_output=True, text=True)
-                if res.returncode == 0 and out_path.is_file():
-                    print(f"sotlas: C11 emitido pelo compilador nativo em {out_path}")
-                    return 0
-            elif emit_type == "exe":
-                is_freestanding = getattr(args, "target", "host") in (
-                    "x86_64-freestanding", "x86_64-unknown-none-elf",
-                    "aarch64-freestanding", "aarch64-unknown-none-elf",
+            except Exception as error:
+                print(
+                    "sotlas: backend nativo indisponivel: nao foi possivel construir "
+                    f"o compilador Stage 1: {error}",
+                    file=sys.stderr,
                 )
-                out_path = Path(output_arg) if output_arg else src.with_suffix(".exe" if sys.platform == "win32" else ".bin")
-                out_path.parent.mkdir(parents=True, exist_ok=True)
-                with tempfile.TemporaryDirectory() as tmpdir:
-                    tmp_obj = Path(tmpdir) / "mod.o"
-                    res_obj = subprocess.run([str(stage1_path), "--compile-obj", str(src), str(tmp_obj)], capture_output=True, text=True)
-                    if res_obj.returncode == 0 and tmp_obj.is_file():
-                        entry_arg = getattr(args, "entry", None)
-                        if entry_arg:
-                            candidate_entries = [entry_arg]
-                        elif is_freestanding:
-                            candidate_entries = ["_start", "kernel_main"]
-                        else:
-                            candidate_entries = ["main_entry", "main"]
-                        for sym in candidate_entries:
-                            cmd = [str(stage1_path), "--link-exe", str(tmp_obj), str(out_path), sym]
-                            if is_freestanding:
-                                cmd.append("--freestanding")
-                            res_link = subprocess.run(cmd, capture_output=True, text=True)
-                            if res_link.returncode == 0 and out_path.is_file():
-                                print(f"sotlas: executável nativo gerado com sucesso em {out_path}")
-                                return 0
+                print(
+                    "sotlas: nenhum fallback implicito para C11 ou LLVM foi executado; "
+                    "selecione --backend c11 ou --backend llvm explicitamente",
+                    file=sys.stderr,
+                )
+                return 1
+
+        if not stage1_path.is_file():
+            print(
+                f"sotlas: backend nativo indisponivel: Stage 1 nao encontrado em {stage1_path}",
+                file=sys.stderr,
+            )
+            return 1
+
+        def report_native_failure(action: str, result=None) -> int:
+            detail = ""
+            if result is not None:
+                detail = (result.stderr or result.stdout or "").strip()
+            suffix = f":\n{detail}" if detail else ""
+            print(f"sotlas: backend nativo falhou ao {action}{suffix}", file=sys.stderr)
+            print(
+                "sotlas: nenhum fallback implicito para C11 ou LLVM foi executado",
+                file=sys.stderr,
+            )
+            return 1
+
+        if emit_type == "obj":
+            out_path = Path(output_arg) if output_arg else src.with_suffix(".o")
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            res = subprocess.run(
+                [str(stage1_path), "--compile-obj", str(src), str(out_path)],
+                capture_output=True,
+                text=True,
+            )
+            if res.returncode != 0 or not out_path.is_file():
+                return report_native_failure("emitir o objeto ELF64", res)
+            print(f"sotlas: objeto ELF64 nativo emitido em {out_path}")
+            return 0
+
+        if emit_type == "c":
+            out_path = Path(output_arg) if output_arg else src.with_suffix(".c")
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            res = subprocess.run(
+                [str(stage1_path), "--emit-c", str(src), str(out_path)],
+                capture_output=True,
+                text=True,
+            )
+            if res.returncode != 0 or not out_path.is_file():
+                return report_native_failure("emitir C11 explicitamente", res)
+            print(f"sotlas: C11 emitido pelo compilador nativo em {out_path}")
+            return 0
+
+        if emit_type == "exe":
+            is_freestanding = getattr(args, "target", "host") in (
+                "x86_64-freestanding", "x86_64-unknown-none-elf",
+                "aarch64-freestanding", "aarch64-unknown-none-elf",
+            )
+            out_path = Path(output_arg) if output_arg else src.with_suffix(".exe" if sys.platform == "win32" else ".bin")
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.TemporaryDirectory() as tmpdir:
+                tmp_obj = Path(tmpdir) / "mod.o"
+                res_obj = subprocess.run(
+                    [str(stage1_path), "--compile-obj", str(src), str(tmp_obj)],
+                    capture_output=True,
+                    text=True,
+                )
+                if res_obj.returncode != 0 or not tmp_obj.is_file():
+                    return report_native_failure("compilar o objeto intermediario", res_obj)
+
+                entry_arg = getattr(args, "entry", None)
+                if entry_arg:
+                    candidate_entries = [entry_arg]
+                elif is_freestanding:
+                    candidate_entries = ["_start", "kernel_main"]
+                else:
+                    candidate_entries = ["main_entry", "main"]
+
+                link_failures = []
+                for sym in candidate_entries:
+                    cmd = [str(stage1_path), "--link-exe", str(tmp_obj), str(out_path), sym]
+                    if is_freestanding:
+                        cmd.append("--freestanding")
+                    res_link = subprocess.run(cmd, capture_output=True, text=True)
+                    if res_link.returncode == 0 and out_path.is_file():
+                        print(f"sotlas: executável nativo gerado com sucesso em {out_path}")
+                        return 0
+                    detail = (res_link.stderr or res_link.stdout or "").strip()
+                    link_failures.append(f"{sym}: {detail or 'falha sem diagnostico'}")
+
+                print(
+                    "sotlas: backend nativo nao encontrou um entrypoint linkavel:\n  "
+                    + "\n  ".join(link_failures),
+                    file=sys.stderr,
+                )
+                print(
+                    "sotlas: nenhum fallback implicito para C11 ou LLVM foi executado",
+                    file=sys.stderr,
+                )
+                return 1
+
+        print(
+            f"sotlas: backend nativo nao suporta o formato de saida {emit_type!r}",
+            file=sys.stderr,
+        )
+        return 2
 
     if backend == "sotlas-x86_64" and emit_type not in ("asm", "obj"):
         print(
