@@ -855,7 +855,7 @@ impl ScalarLowering {
             }
             let callee: AstNode = unsafe { *(self.nodes + expression.first_child) };
             let mut callee_symbol: TargetSourceSlice = TargetSourceSlice::empty();
-            let first_operand: u32 = self.operand_count as u32;
+            let mut argument_values: [u32; 6] = 0;
             let mut argument_count: u32 = 0;
             let mut argument_index: usize = callee.next_sibling;
 
@@ -901,8 +901,8 @@ impl ScalarLowering {
                 let m_off: usize = callee.str_offset;
                 let m_len: usize = callee.str_len;
                 callee_symbol = self.append_mangled_name(s_off, s_len, m_off, m_len);
-                if !self.append_operand(base_ptr) { return TARGET_VALUE_NONE; }
-                argument_count = argument_count + 1;
+                argument_values[0] = base_ptr;
+                argument_count = 1;
             } else {
                 return TARGET_VALUE_NONE;
             }
@@ -914,12 +914,26 @@ impl ScalarLowering {
                 let argument_value: u32 = self.lower_expression(
                     argument_index, TargetTypeTag::U32, first_parameter, parameter_count
                 );
-                if argument_value == TARGET_VALUE_NONE || !self.append_operand(argument_value) {
+                if argument_value == TARGET_VALUE_NONE {
                     return TARGET_VALUE_NONE;
                 }
+                argument_values[argument_count as usize] = argument_value;
                 argument_count = argument_count + 1;
                 argument_index = unsafe { (*(self.nodes + argument_index)).next_sibling };
             }
+
+            // Lowering an argument can itself append operands (for example n - 1).
+            // Publish call operands only after every argument value is finalized so
+            // first_operand always points at one contiguous call-argument range.
+            let first_operand: u32 = self.operand_count as u32;
+            let mut publish_index: u32 = 0;
+            while publish_index < argument_count {
+                if !self.append_operand(argument_values[publish_index as usize]) {
+                    return TARGET_VALUE_NONE;
+                }
+                publish_index = publish_index + 1;
+            }
+
             let mut actual_type: TargetTypeTag = type_tag;
             if type_tag == TargetTypeTag::Invalid || type_tag == TargetTypeTag::Void {
                 actual_type = TargetTypeTag::U32;
