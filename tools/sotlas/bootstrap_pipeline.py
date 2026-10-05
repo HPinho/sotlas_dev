@@ -210,6 +210,10 @@ static bool try_resolve_and_load(const char *base_dir, const char *imp_path, uin
 
 static bool load_source_file(const char *path, uint8_t *dest, size_t *pos, size_t max_size) {
     if (is_file_loaded(path)) return true;
+    if (g_num_loaded_files >= MAX_LOADED_FILES) {
+        fprintf(stderr, "sotlas: module import limit exceeded while loading '%s'\n", path);
+        return false;
+    }
 
     FILE *f = fopen(path, "rb");
     if (!f) return false;
@@ -217,6 +221,11 @@ static bool load_source_file(const char *path, uint8_t *dest, size_t *pos, size_
     fseek(f, 0, SEEK_END);
     long fsize = ftell(f);
     fseek(f, 0, SEEK_SET);
+    if (fsize > 0 && (size_t)fsize >= max_size - *pos) {
+        fprintf(stderr, "sotlas: source module '%s' exceeds the remaining source buffer\n", path);
+        fclose(f);
+        return false;
+    }
     if (fsize <= 0) {
         fclose(f);
         mark_file_loaded(path);
@@ -247,18 +256,23 @@ static bool load_source_file(const char *path, uint8_t *dest, size_t *pos, size_
         if (k >= 3 && strcmp(imp_name + k - 3, "::*") == 0) {
             imp_name[k - 3] = 0;
         }
-        if (imp_name[0]) {
-            try_resolve_and_load(dir, imp_name, dest, pos, max_size);
+        if (imp_name[0] && !try_resolve_and_load(dir, imp_name, dest, pos, max_size)) {
+            fprintf(stderr, "sotlas: could not resolve imported module '%s' from '%s'\n", imp_name, path);
+            free(buf);
+            return false;
         }
     }
 
-    if (*pos + rd + 2 < max_size) {
-        memcpy(dest + *pos, buf, rd);
-        *pos += rd;
-        dest[*pos] = '\n';
-        *pos += 1;
-        dest[*pos] = 0;
+    if (*pos + rd + 2 >= max_size) {
+        fprintf(stderr, "sotlas: source buffer exhausted while loading '%s'\n", path);
+        free(buf);
+        return false;
     }
+    memcpy(dest + *pos, buf, rd);
+    *pos += rd;
+    dest[*pos] = '\n';
+    *pos += 1;
+    dest[*pos] = 0;
     free(buf);
     return true;
 }
@@ -1914,6 +1928,23 @@ NATIVE_COMPILER_MODULES = (
     "token", "ast", "lexer", "parser", "sema", "emitter_c",
     "target_ir", "lower_scalar", "x86_64_scalar", "main",
 )
+NATIVE_COMPILER_ENTRY = NATIVE_COMPILER_DIR / "main.sotlas"
+
+
+def _emit_native_compiler_c(stage_exe: Path, output_c: Path, stage_name: str) -> None:
+    """Ask a compiled Sotlas stage to emit C for the complete compiler tree."""
+    result = subprocess.run(
+        [str(stage_exe), str(NATIVE_COMPILER_ENTRY), "--emit-c", "-o", str(output_c)],
+        capture_output=True,
+        text=True,
+        cwd=str(_ROOT),
+    )
+    if result.returncode != 0 or not output_c.is_file():
+        details = (result.stderr or result.stdout or "").strip()
+        raise RuntimeError(
+            f"{stage_name} could not emit the native compiler C source"
+            + (f":\n{details}" if details else "")
+        )
 
 
 def compile_native_compiler_sources(verbose: bool = False) -> str:
@@ -2095,7 +2126,11 @@ def build_stage2_native_compiler(
     output_exe: Optional[Path] = None,
     verbose: bool = True
 ) -> Path:
-    """Milestone SV8: Stage 1 compila o compilador gerando o executável Stage 2."""
+    """Build Stage 2 from compiler C emitted by Stage 1.
+
+    Clang and the C host driver still link the executable, so this is a
+    self-hosted frontend step rather than a C-free build chain.
+    """
     if not stage1_exe.is_file():
         raise FileNotFoundError(f"Compilador Stage 1 não encontrado em {stage1_exe}")
 
@@ -2114,10 +2149,9 @@ def build_stage2_native_compiler(
         driver_c = tmp / "stage2_driver.c"
 
         if verbose:
-            print("sotlas bootstrap (SV8): Stage 1 gerando código do Stage 2...")
+            print("sotlas bootstrap (SV8): Stage 1 emitindo os fontes do Stage 2...")
 
-        c_source = compile_native_compiler_sources(verbose=verbose)
-        stage2_c.write_text(c_source, encoding="utf-8")
+        _emit_native_compiler_c(stage1_exe.resolve(), stage2_c, "Stage 1")
         driver_c.write_text(NATIVE_DRIVER_C, encoding="utf-8")
 
         compiler_obj = tmp / "compiler.obj"
@@ -2138,7 +2172,10 @@ def build_stage3_native_compiler(
     output_exe: Optional[Path] = None,
     verbose: bool = True
 ) -> Path:
-    """Milestone SV8: Stage 2 compila o compilador gerando o executável Stage 3."""
+    """Build Stage 3 from compiler C emitted by Stage 2.
+
+    Clang and the C host driver still link the executable.
+    """
     if not stage2_exe.is_file():
         raise FileNotFoundError(f"Compilador Stage 2 não encontrado em {stage2_exe}")
 
@@ -2157,10 +2194,9 @@ def build_stage3_native_compiler(
         driver_c = tmp / "stage3_driver.c"
 
         if verbose:
-            print("sotlas bootstrap (SV8): Stage 2 gerando código do Stage 3...")
+            print("sotlas bootstrap (SV8): Stage 2 emitindo os fontes do Stage 3...")
 
-        c_source = compile_native_compiler_sources(verbose=verbose)
-        stage3_c.write_text(c_source, encoding="utf-8")
+        _emit_native_compiler_c(stage2_exe.resolve(), stage3_c, "Stage 2")
         driver_c.write_text(NATIVE_DRIVER_C, encoding="utf-8")
 
         compiler_obj = tmp / "compiler.obj"
@@ -2185,6 +2221,10 @@ def verify_stage_fixed_point(
     import hashlib
 
     results = {
+        "build_chain_self_hosted": False,
+        "compiler_frontend_self_hosted": False,
+        "build_provenance": "stage1-stage2-sotlas-c-emission-clang-c-driver",
+        "compiler_source_deterministic": False,
         "c_source_fixed_point": False,
         "app_obj_deterministic": False,
         "kernel_obj_deterministic": False,
@@ -2217,7 +2257,22 @@ pub fn _start() -> u32 {
 }
 """, encoding="utf-8")
 
-        # 1. Gate de Emissão C da Aplicação
+        # Compare compiler source emitted by the actual Stage 1 and Stage 2
+        # executables. This proves frontend fixed-point behavior, not a C-free
+        # executable build chain (both stages still use Clang and the C driver).
+        compiler_c1 = tmp / "compiler_stage1.c"
+        compiler_c2 = tmp / "compiler_stage2.c"
+        _emit_native_compiler_c(stage1_exe.resolve(), compiler_c1, "Stage 1")
+        _emit_native_compiler_c(stage2_exe.resolve(), compiler_c2, "Stage 2")
+        h_compiler_c1 = hashlib.sha256(compiler_c1.read_bytes()).hexdigest()
+        h_compiler_c2 = hashlib.sha256(compiler_c2.read_bytes()).hexdigest()
+        results["hashes"]["compiler_c1"] = h_compiler_c1
+        results["hashes"]["compiler_c2"] = h_compiler_c2
+        results["compiler_source_deterministic"] = h_compiler_c1 == h_compiler_c2
+        results["c_source_fixed_point"] = h_compiler_c1 == h_compiler_c2
+        results["compiler_frontend_self_hosted"] = results["c_source_fixed_point"]
+
+        # 1. Differential C emission for a representative application.
         c1 = tmp / "app1.c"
         c2 = tmp / "app2.c"
         subprocess.run([str(stage1_exe), "--emit-c", str(app_file), str(c1)], check=True)
@@ -2227,7 +2282,6 @@ pub fn _start() -> u32 {
         results["hashes"]["app_c1"] = h_c1
         results["hashes"]["app_c2"] = h_c2
         results["app_c_deterministic"] = (h_c1 == h_c2)
-        results["c_source_fixed_point"] = (h_c1 == h_c2)
 
         # 2. Gate de Objetos ELF da Aplicação
         app_o1 = tmp / "app1.o"

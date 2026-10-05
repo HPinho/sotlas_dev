@@ -17,19 +17,20 @@ system services.
 | Native code generation | C11 emitted by Sotlas | Transitional |
 
 The Stage 1 compiler can compile Sotlas programs without starting Python once
-it has been built. However, the current `build_stage2_native_compiler` and
-`build_stage3_native_compiler` functions call the Stage 0 Python compiler for
-each artifact; their names do not describe the actual producer. Separately,
-the C driver's `selfhost` command targets `bootstrap/sotlas/sotlas_lite`, while
-the SV7 native compiler is assembled from the multi-module
-`bootstrap/sotlas/native_compiler` tree. These paths have not yet been joined
-into a whole-compiler Stage 1 → Stage 2 build. The SV8 report now labels the
-current deterministic Stage 0 output as parity evidence, not self-hosting.
+it has been built. Stage 1 and Stage 2 now emit the full compiler source tree
+from `bootstrap/sotlas/native_compiler/main.sotlas`; the C host driver's
+recursive import loader supplies the modules before invoking the native
+frontend. The build orchestrator then uses Clang and the C host driver to link
+the next executable. SV8 compares Stage 1 and Stage 2 compiler C byte-for-byte,
+but this does not yet remove C from the executable build chain. The separate
+C driver's `selfhost` command still targets `bootstrap/sotlas/sotlas_lite` and
+is not used by this pipeline.
 
 Building Stage 1 still uses the Python compiler, and Python still coordinates
-the bootstrap. The current Stage 0 source determinism check does not establish
-full frontend parity or prove that Python can be removed from production
-builds.
+the bootstrap. Flattening imported modules into one source buffer also leaves
+module identity, symbol collisions, and source-span fidelity to be hardened.
+This fixed point is frontend self-hosting evidence, not proof that Python/C can
+be removed from production builds.
 
 ## Sotlas-owned assembly preview
 
