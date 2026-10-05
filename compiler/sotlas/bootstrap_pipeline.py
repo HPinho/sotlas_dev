@@ -2095,7 +2095,12 @@ def build_stage2_native_compiler(
     output_exe: Optional[Path] = None,
     verbose: bool = True
 ) -> Path:
-    """Milestone SV8: Stage 1 compila o compilador gerando o executável Stage 2."""
+    """Build the Stage 2 artifact using the current Stage 0 source pipeline.
+
+    Despite the milestone name, this builder does not yet ask Stage 1 to
+    compile its own source tree. Keep this limitation explicit until native
+    multi-module compilation can reproduce the complete compiler artifact.
+    """
     if not stage1_exe.is_file():
         raise FileNotFoundError(f"Compilador Stage 1 não encontrado em {stage1_exe}")
 
@@ -2138,7 +2143,11 @@ def build_stage3_native_compiler(
     output_exe: Optional[Path] = None,
     verbose: bool = True
 ) -> Path:
-    """Milestone SV8: Stage 2 compila o compilador gerando o executável Stage 3."""
+    """Build the Stage 3 artifact using the current Stage 0 source pipeline.
+
+    This is a parity sample, not a self-hosting transition: Stage 2 does not
+    produce the compiler source used below yet.
+    """
     if not stage2_exe.is_file():
         raise FileNotFoundError(f"Compilador Stage 2 não encontrado em {stage2_exe}")
 
@@ -2185,6 +2194,9 @@ def verify_stage_fixed_point(
     import hashlib
 
     results = {
+        "build_chain_self_hosted": False,
+        "compiler_frontend_self_hosted": False,
+        "build_provenance": "stage0-python-c-bootstrap",
         "c_source_fixed_point": False,
         "app_obj_deterministic": False,
         "kernel_obj_deterministic": False,
@@ -2217,7 +2229,18 @@ pub fn _start() -> u32 {
 }
 """, encoding="utf-8")
 
-        # 1. Gate de Emissão C da Aplicação
+        # The current builders use Stage 0 to create both compiler artifacts.
+        # This only records deterministic compiler-source generation; it must
+        # not be interpreted as Stage 1/Stage 2 self-hosting evidence.
+        compiler_c1 = compile_native_compiler_sources(verbose=False)
+        compiler_c2 = compile_native_compiler_sources(verbose=False)
+        h_compiler_c1 = hashlib.sha256(compiler_c1.encode("utf-8")).hexdigest()
+        h_compiler_c2 = hashlib.sha256(compiler_c2.encode("utf-8")).hexdigest()
+        results["hashes"]["compiler_c1"] = h_compiler_c1
+        results["hashes"]["compiler_c2"] = h_compiler_c2
+        results["c_source_fixed_point"] = h_compiler_c1 == h_compiler_c2
+
+        # 1. Differential C emission for a representative application.
         c1 = tmp / "app1.c"
         c2 = tmp / "app2.c"
         subprocess.run([str(stage1_exe), "--emit-c", str(app_file), str(c1)], check=True)
@@ -2227,7 +2250,6 @@ pub fn _start() -> u32 {
         results["hashes"]["app_c1"] = h_c1
         results["hashes"]["app_c2"] = h_c2
         results["app_c_deterministic"] = (h_c1 == h_c2)
-        results["c_source_fixed_point"] = (h_c1 == h_c2)
 
         # 2. Gate de Objetos ELF da Aplicação
         app_o1 = tmp / "app1.o"

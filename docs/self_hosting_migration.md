@@ -17,15 +17,19 @@ system services.
 | Native code generation | C11 emitted by Sotlas | Transitional |
 
 The Stage 1 compiler can compile Sotlas programs without starting Python once
-it has been built. The `selfhost` command now builds Stage 2, asks the Stage 2
-executable to emit the compiler again, and requires the Stage 1 and Stage 2 C
-artifacts to be byte-identical before reporting success. A native integration
-test exercises that command and checks the artifacts directly.
+it has been built. However, the current `build_stage2_native_compiler` and
+`build_stage3_native_compiler` functions call the Stage 0 Python compiler for
+each artifact; their names do not describe the actual producer. Separately,
+the C driver's `selfhost` command targets `bootstrap/sotlas/sotlas_lite`, while
+the SV7 native compiler is assembled from the multi-module
+`bootstrap/sotlas/native_compiler` tree. These paths have not yet been joined
+into a whole-compiler Stage 1 → Stage 2 build. The SV8 report now labels the
+current deterministic Stage 0 output as parity evidence, not self-hosting.
 
 Building Stage 1 still uses the Python compiler, and Python still coordinates
-the bootstrap. This fixed point validates only the checked-in `sotlas_lite`
-subset; it does not establish full frontend parity or prove that Python can be
-removed from production builds.
+the bootstrap. The current Stage 0 source determinism check does not establish
+full frontend parity or prove that Python can be removed from production
+builds.
 
 ## Sotlas-owned assembly preview
 
