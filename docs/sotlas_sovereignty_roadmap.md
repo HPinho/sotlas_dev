@@ -61,8 +61,14 @@ path stops depending on them, but they are not part of the sovereignty target.
 | **SV5** | Sotlas-owned object emission and freestanding/native linking for supported targets | 🟡 IN PROGRESS (ELF64 multi-object linking certified in `tests/test_sotlas_sovereignty_sv5.py`; Windows PE/COFF, macOS Mach-O and archives pending) |
 | **SV6** | Compile a real application and the minimal kernel without the C11 backend | ✅ CERTIFIED (`tests/test_sotlas_sovereignty_sv6.py`) |
 | **SV7** | Build the Sotlas compiler Stage 1 from Sotlas sources using Stage 0 | ✅ CERTIFIED (`tests/test_sotlas_sovereignty_sv7.py`) |
-| **SV8** | Stage 1 builds Stage 2 with deterministic fixed-point/equivalence gates | ✅ CERTIFIED (`tests/test_sotlas_sovereignty_sv8.py`) |
-| **SV9** | Make the native compiler/backend the normal installed path; Python/C become optional legacy/reference tooling | ✅ CERTIFIED (`tests/test_sotlas_sovereignty_sv9.py`) |
+| **SV8** | Stage 1 builds Stage 2 with deterministic fixed-point/equivalence gates | 🟡 IN PROGRESS (the current Python/Stage 0 builder emits Stage 1/2/3 artifacts; the SV8 gate now reports deterministic source output separately and does not claim a native build chain) |
+| **SV9** | Make the native compiler/backend the normal installed path; Python/C become optional legacy/reference tooling | 🟡 IN PROGRESS (the CLI defaults to the bounded native backend and fails closed, but packaging/bootstrap still depend on Python, Clang and the C host driver) |
+
+The current Stage 1 executable compiles one Sotlas source file at a time. The
+native compiler itself spans imported modules under `bootstrap/sotlas/native_compiler`,
+while the C `selfhost` command targets the separate `sotlas_lite` tree. Until
+native module loading and whole-compiler source emission are unified, these
+paths do not constitute a Stage 1 → Stage 2 compiler build.
 
 ## SV1 contract
 
