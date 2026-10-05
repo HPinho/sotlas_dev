@@ -37,7 +37,7 @@ Sotlas uses explicit maturity labels so documentation does not outrun implementa
 | **DESIGNED** | Specified, but not yet implemented end-to-end |
 | **PLANNED** | Roadmap item |
 
-The installed compiler uses the canonical frontend in `compiler/sotlas_compile`. `sotlas compile --backend c11` emits C11 from that verified source pipeline. `sotlas compile --backend llvm` lowers the certified source subset through checked SIR directly to LLVM; this path rejects unsupported constructs. The default backend is LLVM when the required toolchain is available. `dump-sir` remains a prototype SIR view, while `sir-report` inventories validated canonical SIR. The exact supported subsets and preview features are listed in the [1.0 release scope](docs/sotlas_1_0_release_scope.md) and [implementation status](docs/sotlas_implementation_status.md).
+The CLI defaults to the bounded native Stage 1 backend; unsupported native forms fail closed and do not fall back implicitly to C11 or LLVM. Select `--backend c11` or `--backend llvm` explicitly to use those reference paths. Building Stage 1 still depends on the Python/C bootstrap, so this default does not yet make the distributed toolchain self-hosted. `dump-sir` remains a prototype SIR view, while `sir-report` inventories validated canonical SIR. The exact supported subsets and preview features are listed in the [1.0 release scope](docs/sotlas_1_0_release_scope.md) and [implementation status](docs/sotlas_implementation_status.md).
 
 ### Sotlas-specific ownership support in 1.0
 
