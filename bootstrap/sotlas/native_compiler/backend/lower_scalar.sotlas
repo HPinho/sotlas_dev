@@ -855,7 +855,12 @@ impl ScalarLowering {
             }
             let callee: AstNode = unsafe { *(self.nodes + expression.first_child) };
             let mut callee_symbol: TargetSourceSlice = TargetSourceSlice::empty();
-            let mut argument_values: [u32; 6] = 0;
+            let mut argument_value0: u32 = TARGET_VALUE_NONE;
+            let mut argument_value1: u32 = TARGET_VALUE_NONE;
+            let mut argument_value2: u32 = TARGET_VALUE_NONE;
+            let mut argument_value3: u32 = TARGET_VALUE_NONE;
+            let mut argument_value4: u32 = TARGET_VALUE_NONE;
+            let mut argument_value5: u32 = TARGET_VALUE_NONE;
             let mut argument_count: u32 = 0;
             let mut argument_index: usize = callee.next_sibling;
 
@@ -901,7 +906,7 @@ impl ScalarLowering {
                 let m_off: usize = callee.str_offset;
                 let m_len: usize = callee.str_len;
                 callee_symbol = self.append_mangled_name(s_off, s_len, m_off, m_len);
-                argument_values[0] = base_ptr;
+                argument_value0 = base_ptr;
                 argument_count = 1;
             } else {
                 return TARGET_VALUE_NONE;
@@ -917,7 +922,12 @@ impl ScalarLowering {
                 if argument_value == TARGET_VALUE_NONE {
                     return TARGET_VALUE_NONE;
                 }
-                argument_values[argument_count as usize] = argument_value;
+                if argument_count == 0 { argument_value0 = argument_value; }
+                else if argument_count == 1 { argument_value1 = argument_value; }
+                else if argument_count == 2 { argument_value2 = argument_value; }
+                else if argument_count == 3 { argument_value3 = argument_value; }
+                else if argument_count == 4 { argument_value4 = argument_value; }
+                else { argument_value5 = argument_value; }
                 argument_count = argument_count + 1;
                 argument_index = unsafe { (*(self.nodes + argument_index)).next_sibling };
             }
@@ -926,13 +936,12 @@ impl ScalarLowering {
             // Publish call operands only after every argument value is finalized so
             // first_operand always points at one contiguous call-argument range.
             let first_operand: u32 = self.operand_count as u32;
-            let mut publish_index: u32 = 0;
-            while publish_index < argument_count {
-                if !self.append_operand(argument_values[publish_index as usize]) {
-                    return TARGET_VALUE_NONE;
-                }
-                publish_index = publish_index + 1;
-            }
+            if argument_count > 0 && !self.append_operand(argument_value0) { return TARGET_VALUE_NONE; }
+            if argument_count > 1 && !self.append_operand(argument_value1) { return TARGET_VALUE_NONE; }
+            if argument_count > 2 && !self.append_operand(argument_value2) { return TARGET_VALUE_NONE; }
+            if argument_count > 3 && !self.append_operand(argument_value3) { return TARGET_VALUE_NONE; }
+            if argument_count > 4 && !self.append_operand(argument_value4) { return TARGET_VALUE_NONE; }
+            if argument_count > 5 && !self.append_operand(argument_value5) { return TARGET_VALUE_NONE; }
 
             let mut actual_type: TargetTypeTag = type_tag;
             if type_tag == TargetTypeTag::Invalid || type_tag == TargetTypeTag::Void {
