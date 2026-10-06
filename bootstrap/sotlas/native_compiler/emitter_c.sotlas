@@ -575,12 +575,26 @@ impl CEmitter {
                 return false;
             }
             let field_receiver: AstNode = unsafe { *(self.nodes + node.first_child) };
-            if field_receiver.kind == AstKind::ExprIdent
-                && self.source_slice_equals(
+            let mut indirect: bool = false;
+            if field_receiver.kind == AstKind::ExprIdent {
+                indirect = self.source_slice_equals(
                     field_receiver.str_offset, field_receiver.str_len, "self", 4
-                ) {
+                ) || self.receiver_binding_is_indirect(node.first_child);
+            } else if field_receiver.kind == AstKind::ExprBinary
+                && (field_receiver.int_value == 80 || field_receiver.int_value == 81)
+                && self.valid_node(field_receiver.first_child) {
+                indirect = self.receiver_binding_is_indirect(field_receiver.first_child);
+            }
+            if indirect {
                 return self.emit_expression(node.first_child)
                     && self.write_str("->", 2)
+                    && self.write_source_slice(node.str_offset, node.str_len);
+            }
+            if field_receiver.kind == AstKind::ExprUnary {
+                return self.write_byte(40)
+                    && self.emit_expression(node.first_child)
+                    && self.write_byte(41)
+                    && self.write_byte(46)
                     && self.write_source_slice(node.str_offset, node.str_len);
             }
             return self.emit_expression(node.first_child)
@@ -2646,7 +2660,7 @@ impl CEmitter {
         return self.write_str(";\n", 2);
     }
 
-    pub fn emit_function(mut self: &mut Self, fn_index: usize) -> bool {
+    pub fn emit_function_signature(mut self: &mut Self, fn_index: usize) -> bool {
         if !self.valid_node(fn_index) {
             return false;
         }
@@ -2710,11 +2724,23 @@ impl CEmitter {
             child = node.next_sibling;
         }
 
+        return self.write_byte(41);
+    }
+
+    pub fn emit_function_prototype(mut self: &mut Self, fn_index: usize) -> bool {
+        return self.emit_function_signature(fn_index)
+            && self.write_str(";\n", 2);
+    }
+
+    pub fn emit_function(mut self: &mut Self, fn_index: usize) -> bool {
+        if !self.emit_function_signature(fn_index) {
+            return false;
+        }
         let body_index: usize = self.find_function_body(fn_index);
         if body_index == 0 {
-            return self.write_str(");\n", 3);
+            return self.write_str(";\n", 2);
         }
-        if !self.write_str(") ", 2) {
+        if !self.write_byte(32) {
             return false;
         }
         return self.emit_braced_block(body_index);
@@ -3154,7 +3180,52 @@ impl CEmitter {
             return false;
         }
 
+        // Emit types and signatures before any function body may call them.
         let mut child: usize = module_node.first_child;
+        while child != 0 {
+            if !self.valid_node(child) {
+                return false;
+            }
+            let node: AstNode = unsafe { *(self.nodes + child) };
+            if node.kind == AstKind::EnumDecl {
+                if !self.emit_enum(child) || !self.write_byte(10) {
+                    return false;
+                }
+            } else if node.kind == AstKind::StructDecl {
+                if !self.emit_struct(child) || !self.write_byte(10) {
+                    return false;
+                }
+            }
+            child = node.next_sibling;
+        }
+        child = module_node.first_child;
+        while child != 0 {
+            if !self.valid_node(child) {
+                return false;
+            }
+            let node: AstNode = unsafe { *(self.nodes + child) };
+            if node.kind == AstKind::FnDecl {
+                if !self.emit_function_prototype(child) {
+                    return false;
+                }
+            } else if node.kind == AstKind::ImplDecl {
+                let mut method_index: usize = node.first_child;
+                while method_index != 0 {
+                    if !self.valid_node(method_index) {
+                        return false;
+                    }
+                    let method: AstNode = unsafe { *(self.nodes + method_index) };
+                    if method.kind == AstKind::FnDecl
+                        && !self.emit_function_prototype(method_index) {
+                        return false;
+                    }
+                    method_index = method.next_sibling;
+                }
+            }
+            child = node.next_sibling;
+        }
+
+        child = module_node.first_child;
         while child != 0 {
             if !self.valid_node(child) {
                 return false;
@@ -3167,19 +3238,9 @@ impl CEmitter {
                 // Native imports are resolved by the compiler/module graph;
                 // they do not become textual C preprocessor includes here.
             } else if node.kind == AstKind::EnumDecl {
-                if !self.emit_enum(child) {
-                    return false;
-                }
-                if !self.write_byte(10) {
-                    return false;
-                }
+                // Emitted in the type pass above.
             } else if node.kind == AstKind::StructDecl {
-                if !self.emit_struct(child) {
-                    return false;
-                }
-                if !self.write_byte(10) {
-                    return false;
-                }
+                // Emitted in the type pass above.
             } else if node.kind == AstKind::FnDecl {
                 if !self.emit_function(child) {
                     return false;

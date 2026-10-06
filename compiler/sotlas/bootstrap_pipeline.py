@@ -22,6 +22,9 @@ BOOTSTRAP_ENTRY = BOOTSTRAP_SOURCE_DIR / "main.sotlas"
 
 
 NATIVE_DRIVER_C = r"""/* Sotlas Native Toolchain Driver */
+#ifndef _WIN32
+#define _XOPEN_SOURCE 700
+#endif
 #define _CRT_SECURE_NO_WARNINGS
 #include <stdio.h>
 #include <stdlib.h>
@@ -189,6 +192,21 @@ static void make_dir_recursive(const char *path) {
 static char g_loaded_files[MAX_LOADED_FILES][512];
 static int g_num_loaded_files = 0;
 
+static bool canonical_source_path(const char *path, char *resolved, size_t capacity) {
+    if (!path || !resolved || capacity == 0) return false;
+#if defined(_WIN32)
+    return _fullpath(resolved, path, capacity) != NULL;
+#else
+    char *absolute = realpath(path, NULL);
+    if (!absolute) return false;
+    size_t length = strlen(absolute);
+    bool fits = length < capacity;
+    if (fits) memcpy(resolved, absolute, length + 1);
+    free(absolute);
+    return fits;
+#endif
+}
+
 static bool is_file_loaded(const char *path) {
     for (int i = 0; i < g_num_loaded_files; i++) {
         if (strcmp(g_loaded_files[i], path) == 0) return true;
@@ -218,13 +236,15 @@ static void get_dir_of_file(const char *file_path, char *dir_buf, size_t max_len
 static bool try_resolve_and_load(const char *base_dir, const char *imp_path, uint8_t *dest, size_t *pos, size_t max_size);
 
 static bool load_source_file(const char *path, uint8_t *dest, size_t *pos, size_t max_size) {
-    if (is_file_loaded(path)) return true;
+    char canonical_path[512];
+    if (!canonical_source_path(path, canonical_path, sizeof(canonical_path))) return false;
+    if (is_file_loaded(canonical_path)) return true;
     if (g_num_loaded_files >= MAX_LOADED_FILES) {
         fprintf(stderr, "sotlas: module import limit exceeded while loading '%s'\n", path);
         return false;
     }
 
-    FILE *f = fopen(path, "rb");
+    FILE *f = fopen(canonical_path, "rb");
     if (!f) return false;
 
     fseek(f, 0, SEEK_END);
@@ -237,7 +257,7 @@ static bool load_source_file(const char *path, uint8_t *dest, size_t *pos, size_
     }
     if (fsize <= 0) {
         fclose(f);
-        mark_file_loaded(path);
+        mark_file_loaded(canonical_path);
         return true;
     }
 
@@ -247,10 +267,10 @@ static bool load_source_file(const char *path, uint8_t *dest, size_t *pos, size_
     buf[rd] = 0;
     fclose(f);
 
-    mark_file_loaded(path);
+    mark_file_loaded(canonical_path);
 
     char dir[512];
-    get_dir_of_file(path, dir, sizeof(dir));
+    get_dir_of_file(canonical_path, dir, sizeof(dir));
 
     char *p = buf;
     while ((p = strstr(p, "import ")) != NULL) {

@@ -247,7 +247,10 @@ impl Sema {
         while node_index < node_count {
             let node: AstNode = unsafe { *(nodes + node_index) };
             if node.kind == AstKind::ExprUnary && node.int_value == 82
-                && !self.is_in_unsafe_block(nodes, node_count, node_index) {
+                && !self.is_in_unsafe_block(nodes, node_count, node_index)
+                && !self.expression_is_borrow_deref(
+                    nodes, node_count, node_index, source, source_len
+                ) {
                 self.error_count = self.error_count + 1;
                 self.error_line = node.span.line;
                 self.error_col = node.span.col;
@@ -338,11 +341,18 @@ impl Sema {
                         self.error_col = assignment_target.span.col;
                         return false;
                     }
+                    if !self.is_in_unsafe_block(nodes, node_count, target_index)
+                        && !self.expression_is_mutable_borrow_deref(
+                            nodes, node_count, target_index, source, source_len
+                        ) {
+                        return self.reject_node(assignment_target);
+                    }
                 } else {
                     let mut base_ident_index: usize = target_index;
                     let mut base_node: AstNode = assignment_target;
                     let mut field_depth: usize = 0;
-                    while base_node.kind == AstKind::ExprFieldAccess {
+                    while base_node.kind == AstKind::ExprFieldAccess
+                        || base_node.kind == AstKind::ExprIndex {
                         base_ident_index = base_node.first_child;
                         if base_ident_index == 0 || base_ident_index >= node_count
                             || field_depth >= node_count {
@@ -354,27 +364,46 @@ impl Sema {
                         base_node = unsafe { *(nodes + base_ident_index) };
                         field_depth = field_depth + 1;
                     }
-                    if base_node.kind != AstKind::ExprIdent {
-                        self.error_count = self.error_count + 1;
-                        self.error_line = assignment_target.span.line;
-                        self.error_col = assignment_target.span.col;
-                        return false;
-                    }
-                    let binding_index: usize = self.find_visible_binding(
-                        nodes, node_count, base_ident_index, source, source_len
-                    );
-                    if binding_index == 0 || binding_index >= node_count {
-                        self.error_count = self.error_count + 1;
-                        self.error_line = assignment_target.span.line;
-                        self.error_col = assignment_target.span.col;
-                        return false;
-                    }
-                    let binding: AstNode = unsafe { *(nodes + binding_index) };
-                    if binding.int_value != 1 {
-                        self.error_count = self.error_count + 1;
-                        self.error_line = assignment_target.span.line;
-                        self.error_col = assignment_target.span.col;
-                        return false;
+                    if base_node.kind == AstKind::ExprUnary && base_node.int_value == 82 {
+                        if base_node.first_child == 0 || base_node.first_child >= node_count {
+                            self.error_count = self.error_count + 1;
+                            self.error_line = assignment_target.span.line;
+                            self.error_col = assignment_target.span.col;
+                            return false;
+                        }
+                        if !self.is_in_unsafe_block(nodes, node_count, base_ident_index)
+                            && !self.expression_is_mutable_borrow_deref(
+                                nodes, node_count, base_ident_index, source, source_len
+                            ) {
+                            return self.reject_node(assignment_target);
+                        }
+                    } else {
+                        if base_node.kind != AstKind::ExprIdent {
+                            self.error_count = self.error_count + 1;
+                            self.error_line = assignment_target.span.line;
+                            self.error_col = assignment_target.span.col;
+                            return false;
+                        }
+                        let binding_index: usize = self.find_visible_binding(
+                            nodes, node_count, base_ident_index, source, source_len
+                        );
+                        if binding_index == 0 || binding_index >= node_count {
+                            self.error_count = self.error_count + 1;
+                            self.error_line = assignment_target.span.line;
+                            self.error_col = assignment_target.span.col;
+                            return false;
+                        }
+                        let binding: AstNode = unsafe { *(nodes + binding_index) };
+                        if binding.int_value != 1
+                            && (field_depth == 0 || binding.kind != AstKind::ParamDecl
+                                || !self.binding_is_mutable_borrow(
+                                    nodes, node_count, binding_index, source, source_len
+                                )) {
+                            self.error_count = self.error_count + 1;
+                            self.error_line = assignment_target.span.line;
+                            self.error_col = assignment_target.span.col;
+                            return false;
+                        }
                     }
                 }
             }
@@ -1648,7 +1677,10 @@ impl Sema {
                 if expected_type != 0 && actual_type != 0 {
                     let expected: AstNode = unsafe { *(nodes + expected_type) };
                     let actual: AstNode = unsafe { *(nodes + actual_type) };
-                    if !self.same_source_text(source, source_len, expected, actual) {
+                    if !self.same_source_text(source, source_len, expected, actual)
+                        && !self.mutable_pointer_to_const_matches(
+                            source, source_len, actual, expected
+                        ) {
                         return self.reject_node(argument);
                     }
                 }
@@ -2160,6 +2192,158 @@ impl Sema {
             return self.reject_node(literal);
         }
         return true;
+    }
+
+    pub fn expression_is_borrow_deref(
+        self: &Self,
+        nodes: *const AstNode,
+        node_count: usize,
+        expression_index: usize,
+        source: *const u8,
+        source_len: usize
+    ) -> bool {
+        let expression: AstNode = unsafe { *(nodes + expression_index) };
+        if expression.first_child == 0 || expression.first_child >= node_count {
+            return false;
+        }
+        let operand: AstNode = unsafe { *(nodes + expression.first_child) };
+        if operand.kind != AstKind::ExprIdent {
+            return false;
+        }
+        let binding_index: usize = self.find_visible_binding(
+            nodes, node_count, expression.first_child, source, source_len
+        );
+        let type_index: usize = self.binding_type_ref(nodes, node_count, binding_index);
+        if type_index == 0 || source == null {
+            return false;
+        }
+        let typ: AstNode = unsafe { *(nodes + type_index) };
+        if typ.str_offset > source_len || typ.str_len > source_len - typ.str_offset {
+            return false;
+        }
+        let mut offset: usize = typ.str_offset;
+        let end: usize = offset + typ.str_len;
+        while offset < end && unsafe { *(source + offset) } == 32 {
+            offset = offset + 1;
+        }
+        return offset < end && unsafe { *(source + offset) } == 38;
+    }
+
+    pub fn indexed_element_matches(
+        self: &Self,
+        source: *const u8,
+        source_len: usize,
+        array_type: AstNode,
+        element_type: AstNode
+    ) -> bool {
+        if source == null || array_type.str_offset > source_len
+            || array_type.str_len > source_len - array_type.str_offset
+            || array_type.str_len < 4 {
+            return false;
+        }
+        let mut start: usize = array_type.str_offset;
+        let end: usize = start + array_type.str_len;
+        if unsafe { *(source + start) } != 91 { // '['
+            return false;
+        }
+        start = start + 1;
+        while start < end && unsafe { *(source + start) } == 32 {
+            start = start + 1;
+        }
+        let element_start: usize = start;
+        while start < end && unsafe { *(source + start) } != 59 { // ';'
+            start = start + 1;
+        }
+        if start >= end {
+            return false;
+        }
+        while start > element_start && unsafe { *(source + start - 1) } == 32 {
+            start = start - 1;
+        }
+        return self.source_slices_equal(
+            source, source_len, element_start, start - element_start,
+            element_type.str_offset, element_type.str_len
+        );
+    }
+
+    pub fn mutable_pointer_to_const_matches(
+        self: &Self,
+        source: *const u8,
+        source_len: usize,
+        mutable_type: AstNode,
+        const_type: AstNode
+    ) -> bool {
+        if mutable_type.str_len <= 5 || const_type.str_len <= 7 {
+            return false;
+        }
+        if !self.source_slice_equals(
+            source, source_len, mutable_type.str_offset, 5, "*mut ", 5
+        ) || !self.source_slice_equals(
+            source, source_len, const_type.str_offset, 7, "*const ", 7
+        ) {
+            return false;
+        }
+        return self.source_slices_equal(
+            source, source_len,
+            mutable_type.str_offset + 5, mutable_type.str_len - 5,
+            const_type.str_offset + 7, const_type.str_len - 7
+        );
+    }
+
+    pub fn expression_is_mutable_borrow_deref(
+        self: &Self,
+        nodes: *const AstNode,
+        node_count: usize,
+        expression_index: usize,
+        source: *const u8,
+        source_len: usize
+    ) -> bool {
+        let expression: AstNode = unsafe { *(nodes + expression_index) };
+        if expression.first_child == 0 || expression.first_child >= node_count {
+            return false;
+        }
+        let operand: AstNode = unsafe { *(nodes + expression.first_child) };
+        if operand.kind != AstKind::ExprIdent {
+            return false;
+        }
+        let binding_index: usize = self.find_visible_binding(
+            nodes, node_count, expression.first_child, source, source_len
+        );
+        return self.binding_is_mutable_borrow(
+            nodes, node_count, binding_index, source, source_len
+        );
+    }
+
+    pub fn binding_is_mutable_borrow(
+        self: &Self,
+        nodes: *const AstNode,
+        node_count: usize,
+        binding_index: usize,
+        source: *const u8,
+        source_len: usize
+    ) -> bool {
+        let type_index: usize = self.binding_type_ref(nodes, node_count, binding_index);
+        if type_index == 0 || source == null {
+            return false;
+        }
+        let typ: AstNode = unsafe { *(nodes + type_index) };
+        if typ.str_offset > source_len || typ.str_len > source_len - typ.str_offset {
+            return false;
+        }
+        let mut offset: usize = typ.str_offset;
+        let end: usize = offset + typ.str_len;
+        while offset < end && unsafe { *(source + offset) } == 32 {
+            offset = offset + 1;
+        }
+        if offset >= end || unsafe { *(source + offset) } != 38 {
+            return false;
+        }
+        offset = offset + 1;
+        while offset < end && unsafe { *(source + offset) } == 32 {
+            offset = offset + 1;
+        }
+        return offset + 3 <= end
+            && self.source_slice_equals(source, source_len, offset, 3, "mut", 3);
     }
 
     pub fn binding_type_ref(
@@ -2679,23 +2863,36 @@ impl Sema {
                     let mut types_match: bool = self.same_source_text(
                         source, source_len, expected, actual
                     );
+                    if !types_match && argument.kind == AstKind::ExprIndex {
+                        types_match = self.indexed_element_matches(
+                            source, source_len, actual, expected
+                        );
+                    }
+                    if !types_match {
+                        types_match = self.mutable_pointer_to_const_matches(
+                            source, source_len, actual, expected
+                        );
+                    }
                     if !types_match && argument.kind == AstKind::ExprUnary
                         && argument.int_value == 92 && expected.str_len > 1
                         && expected.str_offset < source_len
                         && unsafe { *(source + expected.str_offset) } == 38 {
                         let mut referenced_type: AstNode = expected;
-                        let mut prefix_len: usize = 1;
-                        if expected.str_len > 5
-                            && unsafe { *(source + expected.str_offset + 1) } == 109
-                            && unsafe { *(source + expected.str_offset + 2) } == 117
-                            && unsafe { *(source + expected.str_offset + 3) } == 116 {
-                            prefix_len = 4;
-                            if unsafe { *(source + expected.str_offset + 4) } == 32 {
-                                prefix_len = 5;
-                            }
+                        let end: usize = expected.str_offset + expected.str_len;
+                        let mut start: usize = expected.str_offset + 1;
+                        while start < end && unsafe { *(source + start) } == 32 {
+                            start = start + 1;
                         }
-                        referenced_type.str_offset = referenced_type.str_offset + prefix_len;
-                        referenced_type.str_len = referenced_type.str_len - prefix_len;
+                        if start + 3 <= end && self.source_slice_equals(
+                            source, source_len, start, 3, "mut", 3
+                        ) {
+                            start = start + 3;
+                        }
+                        while start < end && unsafe { *(source + start) } == 32 {
+                            start = start + 1;
+                        }
+                        referenced_type.str_offset = start;
+                        referenced_type.str_len = end - start;
                         types_match = self.same_source_text(
                             source, source_len, referenced_type, actual
                         );

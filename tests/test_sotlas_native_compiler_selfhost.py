@@ -2427,10 +2427,13 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         )
         text = emitter_file.read_text(encoding="utf-8")
         self.assertIn("let body_index: usize = self.find_function_body(fn_index);", text)
-        self.assertIn('return self.write_str(");\\n", 3);', text)
-        prototype_at = text.index('return self.write_str(");\\n", 3);')
-        body_at = text.index("return self.emit_braced_block(body_index);", prototype_at)
-        self.assertLess(prototype_at, body_at)
+        self.assertIn("pub fn emit_function_prototype", text)
+        self.assertIn('self.write_str(";\\n", 2)', text)
+        self.assertIn("self.emit_function_prototype(method_index)", text)
+        self.assertLess(
+            text.index("self.emit_function_prototype(method_index)"),
+            text.index("self.emit_impl(child)"),
+        )
 
     def test_native_emitter_lowers_function_signature_and_body(self):
         emitter_file = (
