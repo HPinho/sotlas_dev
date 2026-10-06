@@ -1176,6 +1176,75 @@ impl ScalarLowering {
             }
             return TARGET_VALUE_NONE;
         }
+        if expression.kind == AstKind::ExprCast {
+            let value_index: usize = expression.first_child;
+            if value_index == 0 || value_index >= self.node_count {
+                return TARGET_VALUE_NONE;
+            }
+            let value_node: AstNode = unsafe { *(self.nodes + value_index) };
+            let cast_type_index: usize = value_node.next_sibling;
+            if cast_type_index == 0 || cast_type_index >= self.node_count
+                || unsafe { (*(self.nodes + cast_type_index)).next_sibling } != 0 {
+                return TARGET_VALUE_NONE;
+            }
+            let cast_type: TargetTypeTag = self.type_tag_for(cast_type_index);
+            if cast_type != TargetTypeTag::U32
+                && cast_type != TargetTypeTag::U64
+                && cast_type != TargetTypeTag::I64 {
+                return TARGET_VALUE_NONE;
+            }
+            if type_tag != TargetTypeTag::Invalid && type_tag != TargetTypeTag::Void
+                && type_tag != cast_type {
+                return TARGET_VALUE_NONE;
+            }
+
+            let mut source_type: TargetTypeTag = TargetTypeTag::Invalid;
+            let mut sem: Sema = Sema::new();
+            let source_type_ref: usize = sem.infer_expression_type_ref(
+                self.nodes,
+                self.node_count,
+                value_index,
+                self.source,
+                self.source_len
+            );
+            if source_type_ref != 0 {
+                source_type = self.type_tag_for(source_type_ref);
+            } else if sem.expression_is_integer_literal(
+                self.nodes,
+                self.node_count,
+                value_index,
+                self.source,
+                self.source_len
+            ) {
+                source_type = cast_type;
+            }
+            if source_type != TargetTypeTag::U32
+                && source_type != TargetTypeTag::U64
+                && source_type != TargetTypeTag::I64 {
+                return TARGET_VALUE_NONE;
+            }
+            let source_value: u32 = self.lower_expression(
+                value_index, source_type, first_parameter, parameter_count
+            );
+            if source_value == TARGET_VALUE_NONE {
+                return TARGET_VALUE_NONE;
+            }
+            if source_type == cast_type {
+                return source_value;
+            }
+            let first_operand: u32 = self.operand_count as u32;
+            if !self.append_operand(source_value) {
+                return TARGET_VALUE_NONE;
+            }
+            let result: u32 = self.append_value(cast_type, 0, 0);
+            if result == TARGET_VALUE_NONE || !self.append_instruction(
+                TargetOpcode::IntCast, result, cast_type,
+                first_operand, 1, expression_index
+            ) {
+                return TARGET_VALUE_NONE;
+            }
+            return result;
+        }
         if expression.kind == AstKind::ExprCall {
             if expression.first_child == 0 || expression.first_child >= self.node_count {
                 return TARGET_VALUE_NONE;

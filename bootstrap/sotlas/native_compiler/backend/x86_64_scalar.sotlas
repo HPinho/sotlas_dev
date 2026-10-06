@@ -1639,6 +1639,11 @@ fn object_unsigned_integer_type(type_tag: TargetTypeTag) -> bool {
         || type_tag == TargetTypeTag::Usize;
 }
 
+fn object_integer_cast_type(type_tag: TargetTypeTag) -> bool {
+    return type_tag == TargetTypeTag::U32 || type_tag == TargetTypeTag::U64
+        || type_tag == TargetTypeTag::I64 || type_tag == TargetTypeTag::Usize;
+}
+
 fn append_object_slot_load_typed(
     output: *mut u8,
     capacity: usize,
@@ -1943,6 +1948,39 @@ pub fn emit_elf64_module_object(
                             || !append_object_slot_store(output, capacity, &mut code, instruction.result_value) {
                             return false;
                         }
+                    }
+                } else if instruction.opcode == TargetOpcode::IntCast {
+                    if instruction.operand_count != 1
+                        || instruction.type_tag != result_type
+                        || !object_integer_cast_type(result_type) {
+                        return false;
+                    }
+                    let source: TargetOperand = unsafe {
+                        *(operands + instruction.first_operand)
+                    };
+                    let source_type: TargetTypeTag = object_value_type(
+                        values, ir.value_count, source.value_id
+                    );
+                    if !object_integer_cast_type(source_type)
+                        || !append_object_slot_load_typed(
+                            output, capacity, &mut code, source.value_id, source_type
+                        ) {
+                        return false;
+                    }
+                    if object_type_is_64(result_type) {
+                        if !append_object_slot_store64(
+                            output, capacity, &mut code, instruction.result_value
+                        ) {
+                            return false;
+                        }
+                    } else if result_type == TargetTypeTag::U32 {
+                        if !append_object_slot_store(
+                            output, capacity, &mut code, instruction.result_value
+                        ) {
+                            return false;
+                        }
+                    } else {
+                        return false;
                     }
                 } else if instruction.opcode == TargetOpcode::Add
                     || instruction.opcode == TargetOpcode::Sub

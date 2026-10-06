@@ -66,7 +66,8 @@ pub enum TargetOpcode {
     ShiftLeft = 31,
     ShiftRight = 32,
     Div = 33,
-    Mod = 34
+    Mod = 34,
+    IntCast = 35
 }
 
 pub struct TargetSourceSlice {
@@ -827,6 +828,22 @@ pub fn target_module_validate_cfg(
                     if instruction.result_value == TARGET_VALUE_NONE
                         || !target_type_is_integer(instruction.type_tag)
                         || instruction.operand_count != 0 {
+                        return false;
+                    }
+                } else if instruction.opcode == TargetOpcode::IntCast {
+                    if instruction.result_value == TARGET_VALUE_NONE
+                        || !target_type_is_integer(instruction.type_tag)
+                        || instruction.operand_count != 1 {
+                        return false;
+                    }
+                    let source: TargetOperand = unsafe {
+                        *(operands + instruction.first_operand)
+                    };
+                    if source.value_id == TARGET_VALUE_NONE
+                        || source.value_id > target_section.value_count
+                        || !target_type_is_integer(unsafe {
+                            (*(values + source.value_id as usize - 1)).type_tag
+                        }) {
                         return false;
                     }
                 } else if instruction.opcode == TargetOpcode::Add
