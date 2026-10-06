@@ -307,6 +307,59 @@ pub fn rejected_guard(a: u32) -> u32 {
 """
 
 
+SV4_INTEGER_OPS_SRC = """module sv4::integer_ops;
+
+fn bitwise_mix(value: u32) -> u32 {
+    return ((value & 15) | 32) ^ 3;
+}
+
+fn shift_mix(value: usize) -> usize {
+    return (value << 3) >> 1;
+}
+
+fn divmod_mix(value: usize) -> usize {
+    return value / 7 + value % 7;
+}
+
+pub fn case_bitwise() -> u32 {
+    return bitwise_mix(23);
+}
+
+pub fn case_shift() -> u32 {
+    if shift_mix(5) == 20 {
+        return 20;
+    } else {
+        return 1;
+    }
+}
+
+pub fn case_divmod() -> u32 {
+    if divmod_mix(100) == 16 {
+        return 16;
+    } else {
+        return 1;
+    }
+}
+"""
+
+SV4_SIGNED_DIV_REJECT_SRC = """module sv4::signed_div_reject;
+
+pub fn rejected_signed(value: i64) -> i64 {
+    return value / 3;
+}
+"""
+
+SV4_SHORT_CIRCUIT_DIV_REJECT_SRC = """module sv4::short_circuit_div_reject;
+
+pub fn rejected_trap_guard(value: u32) -> u32 {
+    if value == 0 || 10 / value > 1 {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+"""
+
 class TestSotlasSovereigntySV2(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -364,7 +417,11 @@ class TestSotlasSovereigntySV2(unittest.TestCase):
         mod = parse(src, filename=str(lower_path))
         check(mod, *_public_import_maps(imported))
 
-        for op in ("ConstInt", "Add", "Sub", "Mul", "Compare", "Call", "Return", "Branch", "CondBranch", "AllocStack", "Store", "Load"):
+        for op in (
+            "ConstInt", "Add", "Sub", "Mul", "BitAnd", "BitOr", "BitXor",
+            "ShiftLeft", "ShiftRight", "Div", "Mod", "Compare", "Call",
+            "Return", "Branch", "CondBranch", "AllocStack", "Store", "Load",
+        ):
             self.assertIn(f"TargetOpcode::{op}", src)
 
     def test_sv2_lowering_arithmetic_pipeline(self):
@@ -740,6 +797,25 @@ class TestSotlasSovereigntySV2(unittest.TestCase):
         self.assertNotIn("expression.int_value == 116", lower_src)
         self.assertNotIn("expression.int_value == 117", lower_src)
 
+    def test_sv4_integer_operator_ast_tag_contract(self):
+        """SV4.7 regression guard: native lowering follows Parser::operator_tag values."""
+        parser_src = (NATIVE_DIR / "parser.sotlas").read_text(encoding="utf-8")
+        lower_src = (
+            NATIVE_DIR / "backend" / "lower_scalar.sotlas"
+        ).read_text(encoding="utf-8")
+        expected = {
+            "Slash": 83,
+            "Percent": 84,
+            "Amp": 92,
+            "Pipe": 93,
+            "Caret": 94,
+            "Shl": 96,
+            "Shr": 97,
+        }
+        for token, tag in expected.items():
+            self.assertIn(f"TokenKind::{token} {{ return {tag}; }}", parser_src)
+            self.assertIn(f"expression.int_value == {tag}", lower_src)
+
     def test_sv4_pure_boolean_composition_is_native(self):
         """SV4.6: Pure &&/|| conditions lower to typed Bool IR and native x86-64."""
         src_path = self.root / "pure_bool_composition.sotlas"
@@ -797,6 +873,89 @@ class TestSotlasSovereigntySV2(unittest.TestCase):
         src_path = self.root / "impure_bool_composition.sotlas"
         src_path.write_text(IMPURE_BOOL_COMPOSITION_SRC, encoding="utf-8")
         out_obj = self.root / "impure_bool_composition.o"
+        compiled = subprocess.run(
+            [str(self.stage1), "--compile-obj", str(src_path), str(out_obj)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertNotEqual(compiled.returncode, 0)
+        self.assertFalse(out_obj.exists())
+
+    def test_sv4_integer_bitwise_shift_divmod_are_native(self):
+        """SV4.7: Typed U32/U64 integer bitwise, shift, division and modulo reach native x86-64."""
+        src_path = self.root / "integer_ops.sotlas"
+        src_path.write_text(SV4_INTEGER_OPS_SRC, encoding="utf-8")
+        out_obj = self.root / "integer_ops.o"
+        compiled = subprocess.run(
+            [str(self.stage1), "--compile-obj", str(src_path), str(out_obj)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(compiled.returncode, 0, compiled.stderr)
+        self.assertTrue(out_obj.is_file())
+
+        data = out_obj.read_bytes()
+        self.assertEqual(data[:4], b"\x7fELF")
+        for symbol in (
+            b"bitwise_mix\x00",
+            b"shift_mix\x00",
+            b"divmod_mix\x00",
+            b"case_bitwise\x00",
+            b"case_shift\x00",
+            b"case_divmod\x00",
+        ):
+            self.assertIn(symbol, data)
+        self.assertIn(b"\x23\x85", data)  # and r32, [rbp+disp32]
+        self.assertIn(b"\x0b\x85", data)  # or r32, [rbp+disp32]
+        self.assertIn(b"\x33\x85", data)  # xor r32, [rbp+disp32]
+        self.assertIn(b"\xd3\xe0", data)  # shl eax/rax, cl
+        self.assertIn(b"\xd3\xe8", data)  # shr eax/rax, cl
+        self.assertIn(b"\xf7\xb5", data)  # div [rbp+disp32]
+
+        if sys.platform.startswith("linux"):
+            for index, (entry, expected) in enumerate(
+                (("case_bitwise", 36), ("case_shift", 20), ("case_divmod", 16))
+            ):
+                out_bin = self.root / f"integer_ops_{index}.bin"
+                linked = subprocess.run(
+                    [
+                        str(self.stage1),
+                        "--link-exe",
+                        str(out_obj),
+                        str(out_bin),
+                        entry,
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(linked.returncode, 0, linked.stderr)
+                executed = subprocess.run(
+                    [str(out_bin)], capture_output=True, text=True, check=False
+                )
+                self.assertEqual(executed.returncode, expected, executed.stderr)
+
+    def test_sv4_short_circuit_trap_capable_rhs_fails_closed(self):
+        """SV4.6/SV4.7 guard: eager logical composition rejects trap-capable div/mod operands."""
+        src_path = self.root / "short_circuit_div_reject.sotlas"
+        src_path.write_text(SV4_SHORT_CIRCUIT_DIV_REJECT_SRC, encoding="utf-8")
+        out_obj = self.root / "short_circuit_div_reject.o"
+        compiled = subprocess.run(
+            [str(self.stage1), "--compile-obj", str(src_path), str(out_obj)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertNotEqual(compiled.returncode, 0)
+        self.assertFalse(out_obj.exists())
+
+    def test_sv4_signed_division_fails_closed(self):
+        """SV4.7 negative gate: signed division stays rejected until idiv semantics are certified."""
+        src_path = self.root / "signed_div_reject.sotlas"
+        src_path.write_text(SV4_SIGNED_DIV_REJECT_SRC, encoding="utf-8")
+        out_obj = self.root / "signed_div_reject.o"
         compiled = subprocess.run(
             [str(self.stage1), "--compile-obj", str(src_path), str(out_obj)],
             capture_output=True,

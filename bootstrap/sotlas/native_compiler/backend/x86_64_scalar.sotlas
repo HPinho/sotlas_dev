@@ -1634,6 +1634,11 @@ fn object_integer_arithmetic_type(type_tag: TargetTypeTag) -> bool {
         || type_tag == TargetTypeTag::I64 || type_tag == TargetTypeTag::Usize;
 }
 
+fn object_unsigned_integer_type(type_tag: TargetTypeTag) -> bool {
+    return type_tag == TargetTypeTag::U32 || type_tag == TargetTypeTag::U64
+        || type_tag == TargetTypeTag::Usize;
+}
+
 fn append_object_slot_load_typed(
     output: *mut u8,
     capacity: usize,
@@ -1941,7 +1946,10 @@ pub fn emit_elf64_module_object(
                     }
                 } else if instruction.opcode == TargetOpcode::Add
                     || instruction.opcode == TargetOpcode::Sub
-                    || instruction.opcode == TargetOpcode::Mul {
+                    || instruction.opcode == TargetOpcode::Mul
+                    || instruction.opcode == TargetOpcode::BitAnd
+                    || instruction.opcode == TargetOpcode::BitOr
+                    || instruction.opcode == TargetOpcode::BitXor {
                     if instruction.operand_count != 2
                         || instruction.type_tag != result_type
                         || !object_integer_arithmetic_type(result_type) {
@@ -1962,13 +1970,116 @@ pub fn emit_elf64_module_object(
                     } else if instruction.opcode == TargetOpcode::Sub {
                         if !append_object_byte(output, capacity, &mut code, 43)
                             || !append_object_byte(output, capacity, &mut code, 133) { return false; }
-                    } else if !append_object_byte(output, capacity, &mut code, 15)
-                        || !append_object_byte(output, capacity, &mut code, 175)
+                    } else if instruction.opcode == TargetOpcode::Mul {
+                        if !append_object_byte(output, capacity, &mut code, 15)
+                            || !append_object_byte(output, capacity, &mut code, 175)
+                            || !append_object_byte(output, capacity, &mut code, 133) { return false; }
+                    } else if instruction.opcode == TargetOpcode::BitAnd {
+                        if !append_object_byte(output, capacity, &mut code, 35)
+                            || !append_object_byte(output, capacity, &mut code, 133) { return false; }
+                    } else if instruction.opcode == TargetOpcode::BitOr {
+                        if !append_object_byte(output, capacity, &mut code, 11)
+                            || !append_object_byte(output, capacity, &mut code, 133) { return false; }
+                    } else if !append_object_byte(output, capacity, &mut code, 51)
                         || !append_object_byte(output, capacity, &mut code, 133) {
                         return false;
                     }
                     if !append_object_u32(output, capacity, &mut code, 0 as u32 - right.value_id * 8)
                         || !append_object_slot_store_typed(output, capacity, &mut code, instruction.result_value, result_type) {
+                        return false;
+                    }
+                } else if instruction.opcode == TargetOpcode::ShiftLeft
+                    || instruction.opcode == TargetOpcode::ShiftRight {
+                    if instruction.operand_count != 2
+                        || instruction.type_tag != result_type
+                        || !object_integer_arithmetic_type(result_type)
+                        || (instruction.opcode == TargetOpcode::ShiftRight
+                            && result_type == TargetTypeTag::I64) {
+                        return false;
+                    }
+                    let left: TargetOperand = unsafe {
+                        *(operands + instruction.first_operand)
+                    };
+                    let right: TargetOperand = unsafe {
+                        *(operands + instruction.first_operand + 1)
+                    };
+                    if object_value_type(values, ir.value_count, left.value_id) != result_type
+                        || object_value_type(values, ir.value_count, right.value_id) != result_type
+                        || !append_object_slot_load_typed(
+                            output, capacity, &mut code, left.value_id, result_type
+                        )
+                        || !append_object_byte(output, capacity, &mut code, 139)
+                        || !append_object_byte(output, capacity, &mut code, 141)
+                        || !append_object_u32(
+                            output, capacity, &mut code, 0 as u32 - right.value_id * 8
+                        ) {
+                        return false;
+                    }
+                    if object_type_is_64(result_type)
+                        && !append_object_byte(output, capacity, &mut code, 72) {
+                        return false;
+                    }
+                    let mut shift_modrm: u8 = 224 as u8;
+                    if instruction.opcode == TargetOpcode::ShiftRight {
+                        shift_modrm = 232 as u8;
+                    }
+                    if !append_object_byte(output, capacity, &mut code, 211)
+                        || !append_object_byte(output, capacity, &mut code, shift_modrm)
+                        || !append_object_slot_store_typed(
+                            output, capacity, &mut code, instruction.result_value, result_type
+                        ) {
+                        return false;
+                    }
+                } else if instruction.opcode == TargetOpcode::Div
+                    || instruction.opcode == TargetOpcode::Mod {
+                    if instruction.operand_count != 2
+                        || instruction.type_tag != result_type
+                        || !object_unsigned_integer_type(result_type) {
+                        return false;
+                    }
+                    let left: TargetOperand = unsafe {
+                        *(operands + instruction.first_operand)
+                    };
+                    let right: TargetOperand = unsafe {
+                        *(operands + instruction.first_operand + 1)
+                    };
+                    if object_value_type(values, ir.value_count, left.value_id) != result_type
+                        || object_value_type(values, ir.value_count, right.value_id) != result_type
+                        || !append_object_slot_load_typed(
+                            output, capacity, &mut code, left.value_id, result_type
+                        ) {
+                        return false;
+                    }
+                    let wide_div: bool = object_type_is_64(result_type);
+                    if wide_div && !append_object_byte(output, capacity, &mut code, 72) {
+                        return false;
+                    }
+                    if !append_object_byte(output, capacity, &mut code, 49)
+                        || !append_object_byte(output, capacity, &mut code, 210) {
+                        return false;
+                    }
+                    if wide_div && !append_object_byte(output, capacity, &mut code, 72) {
+                        return false;
+                    }
+                    if !append_object_byte(output, capacity, &mut code, 247)
+                        || !append_object_byte(output, capacity, &mut code, 181)
+                        || !append_object_u32(
+                            output, capacity, &mut code, 0 as u32 - right.value_id * 8
+                        ) {
+                        return false;
+                    }
+                    if instruction.opcode == TargetOpcode::Mod {
+                        if wide_div && !append_object_byte(output, capacity, &mut code, 72) {
+                            return false;
+                        }
+                        if !append_object_byte(output, capacity, &mut code, 137)
+                            || !append_object_byte(output, capacity, &mut code, 208) {
+                            return false;
+                        }
+                    }
+                    if !append_object_slot_store_typed(
+                        output, capacity, &mut code, instruction.result_value, result_type
+                    ) {
                         return false;
                     }
                 } else if instruction.opcode == TargetOpcode::AllocStack {
