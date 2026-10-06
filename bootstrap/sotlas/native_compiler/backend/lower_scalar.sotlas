@@ -689,6 +689,74 @@ impl ScalarLowering {
         return TargetTypeTag::Invalid;
     }
 
+    pub fn pointer_pointee_struct_id(
+        self: &Self,
+        type_index: usize
+    ) -> u32 {
+        if self.nodes == null || self.source == null || type_index == 0
+            || type_index >= self.node_count {
+            return 0;
+        }
+        let type_node: AstNode = unsafe { *(self.nodes + type_index) };
+        if type_node.kind != AstKind::TypeRef || type_node.str_len < 2
+            || type_node.str_offset > self.source_len
+            || type_node.str_len > self.source_len - type_node.str_offset {
+            return 0;
+        }
+        let mut start: usize = 0;
+        while start < type_node.str_len {
+            let ch: u8 = unsafe { *(self.source + type_node.str_offset + start) };
+            if ch == 32 || ch == 9 || ch == 10 || ch == 13 {
+                start = start + 1;
+            } else {
+                break;
+            }
+        }
+        if start >= type_node.str_len
+            || unsafe { *(self.source + type_node.str_offset + start) } != 42 {
+            return 0;
+        }
+        start = start + 1;
+        while start < type_node.str_len {
+            let ch: u8 = unsafe { *(self.source + type_node.str_offset + start) };
+            if ch == 32 || ch == 9 || ch == 10 || ch == 13 {
+                start = start + 1;
+            } else {
+                break;
+            }
+        }
+
+        let mut sem: Sema = Sema::new();
+        if start + 5 <= type_node.str_len && sem.source_slice_equals(
+            self.source, self.source_len,
+            type_node.str_offset + start, 5, "const", 5
+        ) {
+            start = start + 5;
+        } else if start + 3 <= type_node.str_len && sem.source_slice_equals(
+            self.source, self.source_len,
+            type_node.str_offset + start, 3, "mut", 3
+        ) {
+            start = start + 3;
+        } else {
+            return 0;
+        }
+        while start < type_node.str_len {
+            let ch: u8 = unsafe { *(self.source + type_node.str_offset + start) };
+            if ch == 32 || ch == 9 || ch == 10 || ch == 13 {
+                start = start + 1;
+            } else {
+                break;
+            }
+        }
+        if start >= type_node.str_len {
+            return 0;
+        }
+        return self.find_struct(
+            type_node.str_offset + start,
+            type_node.str_len - start
+        );
+    }
+
     pub fn pointer_pointee_stride(
         self: &Self,
         type_index: usize
@@ -706,6 +774,10 @@ impl ScalarLowering {
         if pointee == TargetTypeTag::U64 || pointee == TargetTypeTag::I64
             || pointee == TargetTypeTag::Pointer {
             return 8;
+        }
+        let struct_id: u32 = self.pointer_pointee_struct_id(type_index);
+        if struct_id != 0 && struct_id as usize <= self.struct_count {
+            return self.struct_sizes[(struct_id - 1) as usize] as usize;
         }
         return 0;
     }
@@ -927,6 +999,24 @@ impl ScalarLowering {
         }
         unsafe { *(self.targets + self.target_count) = block_id; }
         self.target_count = self.target_count + 1;
+        return true;
+    }
+
+    pub fn append_phi_input(
+        mut self: &mut Self,
+        value_id: u32,
+        block_id: u32
+    ) -> bool {
+        if self.phi_inputs == null || self.phi_input_count >= self.phi_input_capacity
+            || value_id == TARGET_VALUE_NONE || block_id == TARGET_BLOCK_NONE {
+            return false;
+        }
+        unsafe {
+            *(self.phi_inputs + self.phi_input_count) = TargetPhiInput::new(
+                value_id, block_id
+            );
+        }
+        self.phi_input_count = self.phi_input_count + 1;
         return true;
     }
 
@@ -1899,6 +1989,25 @@ impl ScalarLowering {
                     base_expr_index, TargetTypeTag::Pointer, first_parameter, parameter_count
                 );
                 struct_id = self.find_struct(base_node.str_offset, base_node.str_len);
+            } else if base_node.kind == AstKind::ExprUnary
+                && base_node.int_value == 82 {
+                let pointer_expression: usize = base_node.first_child;
+                if pointer_expression == 0 || pointer_expression >= self.node_count
+                    || unsafe { (*(self.nodes + pointer_expression)).next_sibling } != 0 {
+                    return TARGET_VALUE_NONE;
+                }
+                let mut sem: Sema = Sema::new();
+                let pointer_type_ref: usize = sem.infer_expression_type_ref(
+                    self.nodes, self.node_count, pointer_expression,
+                    self.source, self.source_len
+                );
+                struct_id = self.pointer_pointee_struct_id(pointer_type_ref);
+                if struct_id != 0 {
+                    base_ptr_val = self.lower_expression(
+                        pointer_expression, TargetTypeTag::Pointer,
+                        first_parameter, parameter_count
+                    );
+                }
             }
             if struct_id == 0 || base_ptr_val == TARGET_VALUE_NONE {
                 return TARGET_VALUE_NONE;
@@ -2610,6 +2719,320 @@ impl ScalarLowering {
             };
         }
         self.block_count = self.block_count + 3;
+        return true;
+    }
+
+    // Lower a search loop with one loop-carried scalar local:
+    // while condition { if condition { return value; } local = expr; } return value;
+    // The loop-carried local is represented by a real Phi at the loop header.
+    pub fn lower_while_search_then_return(
+        mut self: &mut Self,
+        while_index: usize,
+        return_index: usize,
+        return_type: TargetTypeTag,
+        first_parameter: usize,
+        parameter_count: usize,
+        entry_first_instruction: usize
+    ) -> bool {
+        if while_index == 0 || while_index >= self.node_count
+            || return_index == 0 || return_index >= self.node_count
+            || self.blocks == null || self.targets == null
+            || self.phi_inputs == null
+            || self.block_count + 6 > self.block_capacity {
+            return false;
+        }
+        let while_node: AstNode = unsafe { *(self.nodes + while_index) };
+        let final_return: AstNode = unsafe { *(self.nodes + return_index) };
+        if while_node.kind != AstKind::WhileStmt
+            || while_node.next_sibling != return_index
+            || final_return.kind != AstKind::ReturnStmt
+            || final_return.next_sibling != 0
+            || while_node.first_child == 0
+            || while_node.first_child >= self.node_count {
+            return false;
+        }
+
+        let condition_index: usize = while_node.first_child;
+        let condition_node: AstNode = unsafe { *(self.nodes + condition_index) };
+        let body_index: usize = condition_node.next_sibling;
+        if body_index == 0 || body_index >= self.node_count
+            || unsafe { (*(self.nodes + body_index)).next_sibling } != 0 {
+            return false;
+        }
+        let body: AstNode = unsafe { *(self.nodes + body_index) };
+        let if_index: usize = body.first_child;
+        if body.kind != AstKind::Block || if_index == 0
+            || if_index >= self.node_count {
+            return false;
+        }
+        let if_node: AstNode = unsafe { *(self.nodes + if_index) };
+        let assignment_index: usize = if_node.next_sibling;
+        if if_node.kind != AstKind::IfStmt || assignment_index == 0
+            || assignment_index >= self.node_count
+            || unsafe { (*(self.nodes + assignment_index)).next_sibling } != 0 {
+            return false;
+        }
+
+        let test_index: usize = if_node.first_child;
+        if test_index == 0 || test_index >= self.node_count {
+            return false;
+        }
+        let test_node: AstNode = unsafe { *(self.nodes + test_index) };
+        let then_index: usize = test_node.next_sibling;
+        if then_index == 0 || then_index >= self.node_count
+            || unsafe { (*(self.nodes + then_index)).next_sibling } != 0 {
+            return false;
+        }
+        let then_block: AstNode = unsafe { *(self.nodes + then_index) };
+        let found_return_index: usize = then_block.first_child;
+        if then_block.kind != AstKind::Block || found_return_index == 0
+            || found_return_index >= self.node_count
+            || unsafe { (*(self.nodes + found_return_index)).kind }
+                != AstKind::ReturnStmt
+            || unsafe { (*(self.nodes + found_return_index)).next_sibling } != 0 {
+            return false;
+        }
+
+        let assignment: AstNode = unsafe { *(self.nodes + assignment_index) };
+        let local_index: usize = assignment.first_child;
+        if assignment.kind != AstKind::AssignStmt || local_index == 0
+            || local_index >= self.node_count {
+            return false;
+        }
+        let local_node: AstNode = unsafe { *(self.nodes + local_index) };
+        let update_index: usize = local_node.next_sibling;
+        if local_node.kind != AstKind::ExprIdent || update_index == 0
+            || update_index >= self.node_count
+            || unsafe { (*(self.nodes + update_index)).next_sibling } != 0 {
+            return false;
+        }
+
+        let initial_value: u32 = self.find_parameter_value(
+            first_parameter, parameter_count,
+            local_node.str_offset, local_node.str_len
+        );
+        if initial_value == TARGET_VALUE_NONE || self.values == null {
+            return false;
+        }
+        let local_type: TargetTypeTag = unsafe {
+            (*(self.values + initial_value as usize - 1)).type_tag
+        };
+        if local_type != TargetTypeTag::U32
+            && local_type != TargetTypeTag::U64 {
+            return false;
+        }
+
+        let first_block: usize = self.block_count;
+        let preheader_id: u32 = first_block as u32 + 1;
+        let header_id: u32 = preheader_id + 1;
+        let body_id: u32 = preheader_id + 2;
+        let found_id: u32 = preheader_id + 3;
+        let latch_id: u32 = preheader_id + 4;
+        let exit_id: u32 = preheader_id + 5;
+
+        // Preheader: all straight-line instructions emitted before the while,
+        // followed by an explicit edge to the loop header.
+        if !self.append_instruction(
+            TargetOpcode::Branch, TARGET_VALUE_NONE, TargetTypeTag::Invalid,
+            self.operand_count as u32, 0, while_index
+        ) {
+            return false;
+        }
+        let preheader_branch_index: usize = self.instruction_count - 1;
+        let preheader_target: u32 = self.target_count as u32;
+        if !self.append_target(header_id) { return false; }
+        let mut preheader_branch: TargetInstruction = unsafe {
+            *(self.instructions + preheader_branch_index)
+        };
+        preheader_branch.first_target = preheader_target;
+        preheader_branch.target_count = 1;
+        unsafe { *(self.instructions + preheader_branch_index) = preheader_branch; }
+        unsafe {
+            *(self.blocks + first_block) = TargetBlock {
+                id: preheader_id,
+                label: TargetSourceSlice::empty(),
+                first_instruction: entry_first_instruction as u32,
+                instruction_count:
+                    (self.instruction_count - entry_first_instruction) as u32
+            };
+        }
+
+        // Header Phi. Inputs are attached after the latch value is created.
+        let header_first_instruction: usize = self.instruction_count;
+        let phi_value: u32 = self.append_value(
+            local_type, local_node.str_offset, local_node.str_len
+        );
+        if phi_value == TARGET_VALUE_NONE || !self.append_instruction(
+            TargetOpcode::Phi, phi_value, local_type,
+            self.operand_count as u32, 0, while_index
+        ) {
+            return false;
+        }
+        let phi_instruction_index: usize = self.instruction_count - 1;
+
+        if self.local_count >= 128 { return false; }
+        self.local_name_offsets[self.local_count] = local_node.str_offset;
+        self.local_name_lens[self.local_count] = local_node.str_len;
+        self.local_value_ids[self.local_count] = phi_value;
+        self.local_struct_ids[self.local_count] = 0;
+        self.local_count = self.local_count + 1;
+
+        let while_value: u32 = self.lower_condition_expression(
+            condition_index, first_parameter, parameter_count
+        );
+        if while_value == TARGET_VALUE_NONE
+            || unsafe { (*(self.values + while_value as usize - 1)).type_tag }
+                != TargetTypeTag::Bool {
+            return false;
+        }
+        let header_operand: u32 = self.operand_count as u32;
+        if !self.append_operand(while_value)
+            || !self.append_instruction(
+                TargetOpcode::CondBranch, TARGET_VALUE_NONE, TargetTypeTag::Bool,
+                header_operand, 1, while_index
+            ) {
+            return false;
+        }
+        let header_branch_index: usize = self.instruction_count - 1;
+        let header_targets: u32 = self.target_count as u32;
+        if !self.append_target(body_id) || !self.append_target(exit_id) {
+            return false;
+        }
+        let mut header_branch: TargetInstruction = unsafe {
+            *(self.instructions + header_branch_index)
+        };
+        header_branch.first_target = header_targets;
+        header_branch.target_count = 2;
+        unsafe { *(self.instructions + header_branch_index) = header_branch; }
+        unsafe {
+            *(self.blocks + first_block + 1) = TargetBlock {
+                id: header_id,
+                label: TargetSourceSlice::empty(),
+                first_instruction: header_first_instruction as u32,
+                instruction_count:
+                    (self.instruction_count - header_first_instruction) as u32
+            };
+        }
+
+        // Body: the search predicate chooses found-return vs latch/update.
+        let body_first_instruction: usize = self.instruction_count;
+        let test_value: u32 = self.lower_condition_expression(
+            test_index, first_parameter, parameter_count
+        );
+        if test_value == TARGET_VALUE_NONE
+            || unsafe { (*(self.values + test_value as usize - 1)).type_tag }
+                != TargetTypeTag::Bool {
+            return false;
+        }
+        let body_operand: u32 = self.operand_count as u32;
+        if !self.append_operand(test_value)
+            || !self.append_instruction(
+                TargetOpcode::CondBranch, TARGET_VALUE_NONE, TargetTypeTag::Bool,
+                body_operand, 1, if_index
+            ) {
+            return false;
+        }
+        let body_branch_index: usize = self.instruction_count - 1;
+        let body_targets: u32 = self.target_count as u32;
+        if !self.append_target(found_id) || !self.append_target(latch_id) {
+            return false;
+        }
+        let mut body_branch: TargetInstruction = unsafe {
+            *(self.instructions + body_branch_index)
+        };
+        body_branch.first_target = body_targets;
+        body_branch.target_count = 2;
+        unsafe { *(self.instructions + body_branch_index) = body_branch; }
+        unsafe {
+            *(self.blocks + first_block + 2) = TargetBlock {
+                id: body_id,
+                label: TargetSourceSlice::empty(),
+                first_instruction: body_first_instruction as u32,
+                instruction_count:
+                    (self.instruction_count - body_first_instruction) as u32
+            };
+        }
+
+        let found_first_instruction: usize = self.instruction_count;
+        if !self.lower_return_statement(
+            found_return_index, return_type, first_parameter, parameter_count
+        ) {
+            return false;
+        }
+        unsafe {
+            *(self.blocks + first_block + 3) = TargetBlock {
+                id: found_id,
+                label: TargetSourceSlice::empty(),
+                first_instruction: found_first_instruction as u32,
+                instruction_count:
+                    (self.instruction_count - found_first_instruction) as u32
+            };
+        }
+
+        // Latch/update uses the Phi mapping installed above.
+        let latch_first_instruction: usize = self.instruction_count;
+        let next_value: u32 = self.lower_expression(
+            update_index, local_type, first_parameter, parameter_count
+        );
+        if next_value == TARGET_VALUE_NONE {
+            return false;
+        }
+        if !self.append_instruction(
+            TargetOpcode::Branch, TARGET_VALUE_NONE, TargetTypeTag::Invalid,
+            self.operand_count as u32, 0, assignment_index
+        ) {
+            return false;
+        }
+        let latch_branch_index: usize = self.instruction_count - 1;
+        let latch_target: u32 = self.target_count as u32;
+        if !self.append_target(header_id) { return false; }
+        let mut latch_branch: TargetInstruction = unsafe {
+            *(self.instructions + latch_branch_index)
+        };
+        latch_branch.first_target = latch_target;
+        latch_branch.target_count = 1;
+        unsafe { *(self.instructions + latch_branch_index) = latch_branch; }
+        unsafe {
+            *(self.blocks + first_block + 4) = TargetBlock {
+                id: latch_id,
+                label: TargetSourceSlice::empty(),
+                first_instruction: latch_first_instruction as u32,
+                instruction_count:
+                    (self.instruction_count - latch_first_instruction) as u32
+            };
+        }
+
+        let first_phi_input: u32 = self.phi_input_count as u32;
+        if !self.append_phi_input(initial_value, preheader_id)
+            || !self.append_phi_input(next_value, latch_id) {
+            return false;
+        }
+        let mut phi_instruction: TargetInstruction = unsafe {
+            *(self.instructions + phi_instruction_index)
+        };
+        phi_instruction.first_phi_input = first_phi_input;
+        phi_instruction.phi_input_count = 2;
+        unsafe {
+            *(self.instructions + phi_instruction_index) = phi_instruction;
+        }
+
+        let exit_first_instruction: usize = self.instruction_count;
+        if !self.lower_return_statement(
+            return_index, return_type, first_parameter, parameter_count
+        ) {
+            return false;
+        }
+        unsafe {
+            *(self.blocks + first_block + 5) = TargetBlock {
+                id: exit_id,
+                label: TargetSourceSlice::empty(),
+                first_instruction: exit_first_instruction as u32,
+                instruction_count:
+                    (self.instruction_count - exit_first_instruction) as u32
+            };
+        }
+
+        self.block_count = self.block_count + 6;
         return true;
     }
 
@@ -3430,10 +3853,16 @@ impl ScalarLowering {
                     && unsafe { (*(self.nodes + first_body_statement)).kind } == AstKind::IfStmt;
                 let mut loop_lowered: bool = false;
                 if body_is_if {
-                    loop_lowered = self.lower_while_if_jumps_then_return(
+                    loop_lowered = self.lower_while_search_then_return(
                         statement_index, return_index, return_type, first_parameter,
                         function_param_count, first_instruction
                     );
+                    if !loop_lowered {
+                        loop_lowered = self.lower_while_if_jumps_then_return(
+                            statement_index, return_index, return_type, first_parameter,
+                            function_param_count, first_instruction
+                        );
+                    }
                 } else {
                     loop_lowered = self.lower_while_jump_then_return(
                         statement_index, return_index, return_type, first_parameter,

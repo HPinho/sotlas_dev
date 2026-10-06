@@ -3,7 +3,7 @@
 **Status:** active implementation track  
 **Started:** 2026-10-03 (America/Fortaleza)  
 **Green baseline at track start:** `7162167dec6fd5fa0a216121b147335d222e43f1` / CI #1063  
-**Current certified baseline:** `36445a7238ab6ec98a39fc8ee0080da1937e5823` / CI #1113
+**Current certified baseline:** `092b6a1ec992c20c44247cc9cf5dd2e669390199` / CI #1115
 
 ## Goal
 
@@ -358,9 +358,9 @@ Milestone **SV7** proves that the Stage 0 compiler builds the Sotlas Stage 1 com
 Milestone **SV8** currently certifies deterministic Stage1/Stage2/Stage3 frontend and native-output equivalence, but **does not yet certify a C/Python-free compiler build chain**. Stage2 and Stage3 executables are still produced from emitted C with Clang plus the C host driver.
 
 ### Active implementation queue
-- **Current item — SV8.7b:** CI #1114 established the first real bootstrap blocker at `target_ir.sotlas:289:5` (`target_cfg_has_block`). The real-module probe remains active in CI as a blocker lock: it must fail closed at exactly that location until the construct is implemented, so exploratory bootstrap work never turns the certified main baseline red.
-- **Next item — SV8.7b1:** implement the control-flow/pointer-to-struct subset needed by `target_cfg_has_block`, then flip the blocker lock to the next exact failure reported by the real module (or to positive ELF success if no blocker remains).
-- **Following gate — SV8.7:** repeat blocker-by-blocker until the same real-module probe succeeds and Stage1 emits the native ELF object for `target_ir.sotlas` without C emission. Bracket-form raw-pointer indexing (`ptr[index]`) remains rejected unless a real bootstrap blocker proves it necessary.
+- **Current item — SV8.7b1:** close the certified `target_ir.sotlas:289:5` blocker with real SSA loop lowering. The new subset carries one mutable U32/U64 loop local through a `Phi`, supports an in-loop conditional return plus latch update, derives stride for pointer-to-struct arithmetic, and loads fields directly through `(*ptr_to_struct).field`.
+- **Next item — SV8.7b2:** use the same real-module probe to capture the first blocker after line 289. CI accepts either full ELF success or a strictly later fail-closed diagnostic; any move back to line 289 or earlier is a regression.
+- **Following gate — SV8.7:** repeat blocker-by-blocker until Stage1 emits the native ELF object for the real `target_ir.sotlas` without C emission. Bracket-form raw-pointer indexing remains rejected unless a real bootstrap blocker proves it necessary.
 - **Sovereignty metric:** application/kernel native gates are C/Python-free; compiler bootstrap gates remain hosted. Current tracked reduction is 40% eliminated / 60% remaining for both Python and C until a native Stage1→Stage2 build gate closes.
 
 The hosted fixed-point evidence below remains a regression oracle while native build-chain closure is implemented.
