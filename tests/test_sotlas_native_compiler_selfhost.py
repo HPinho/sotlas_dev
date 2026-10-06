@@ -1801,7 +1801,12 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
                 check=False,
             )
             self.assertEqual(arity_emit.returncode, 0, arity_emit.stderr)
-            self.assertEqual(arity_assembly.read_text(encoding="utf-8").count("call sum_args"), 1)
+            arity_text = arity_assembly.read_text(encoding="utf-8")
+            sum_args_symbol = host_asm_symbol("sum_args")
+            forward_symbol = host_asm_symbol("forward")
+            self.assertEqual(arity_text.count(f"call {sum_args_symbol}"), 1)
+            self.assertIn(f".globl {forward_symbol}", arity_text)
+            self.assertIn(f"{forward_symbol}:", arity_text)
             arity_obj = root / "call_arity_target.obj"
             arity_assemble = subprocess.run(
                 [str(clang), "-c", str(arity_assembly), "-o", str(arity_obj)],
@@ -2441,6 +2446,15 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
             text.index("self.emit_function_prototype(method_index)"),
             text.index("self.emit_impl(child)"),
         )
+
+    def test_native_emitter_preserves_zero_initialization_for_local_fixed_arrays(self):
+        emitter_file = (
+            ROOT / "bootstrap" / "sotlas" / "native_compiler" / "emitter_c.sotlas"
+        )
+        text = emitter_file.read_text(encoding="utf-8")
+        self.assertIn('return self.write_str(" = {0};\\n", 8);', text)
+        self.assertIn("if !zero_initialized", text)
+        self.assertIn("return false;", text[text.index("if !zero_initialized"):])
 
     def test_native_emitter_lowers_function_signature_and_body(self):
         emitter_file = (

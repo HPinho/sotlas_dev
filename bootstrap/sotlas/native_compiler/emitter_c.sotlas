@@ -2210,10 +2210,31 @@ impl CEmitter {
             || !self.write_source_slice(field.str_offset, field.str_len)
             || !self.write_byte(91)
             || !self.write_source_slice(typ.str_offset + count_start, count_len)
-            || !self.write_str("];\n", 3) {
+            || !self.write_byte(93) {
             return false;
         }
-        return true;
+
+        if field.kind == AstKind::LetStmt {
+            let init_index: usize = typ.next_sibling;
+            if !self.valid_node(init_index) {
+                return false;
+            }
+            let init: AstNode = unsafe { *(self.nodes + init_index) };
+            let mut zero_initialized: bool = false;
+            if init.kind == AstKind::ExprLiteral
+                && self.source_slice_equals(init.str_offset, init.str_len, "0", 1) {
+                zero_initialized = true;
+            } else if init.kind == AstKind::ExprArrayRepeat
+                && self.fixed_array_type_matches_zero_repeat(type_index, init_index) {
+                zero_initialized = true;
+            }
+            if !zero_initialized {
+                return false;
+            }
+            return self.write_str(" = {0};\n", 8);
+        }
+
+        return self.write_str(";\n", 2);
     }
 
     pub fn emit_c_type(mut self: &mut Self, type_index: usize) -> bool {
