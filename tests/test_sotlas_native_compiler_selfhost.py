@@ -911,8 +911,25 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
             self.assertEqual(wide_emit.returncode, 0, wide_emit.stderr)
             wide_bytes = wide_object.read_bytes()
             wide_shoff = struct.unpack_from("<Q", wide_bytes, 40)[0]
-            self.assertGreaterEqual(struct.unpack_from("<H", wide_bytes, 60)[0], 8)
-            wide_text = struct.unpack_from("<IIQQQQIIQQ", wide_bytes, wide_shoff + 64)
+            wide_section_count = struct.unpack_from("<H", wide_bytes, 60)[0]
+            wide_shstrndx = struct.unpack_from("<H", wide_bytes, 62)[0]
+            self.assertEqual(wide_section_count, 7)
+            self.assertEqual(wide_shstrndx, 4)
+            wide_headers = [
+                struct.unpack_from("<IIQQQQIIQQ", wide_bytes, wide_shoff + index * 64)
+                for index in range(wide_section_count)
+            ]
+            self.assertEqual([header[1] for header in wide_headers], [0, 1, 2, 3, 3, 7, 4])
+            self.assertEqual(wide_headers[1][2], 6)
+            self.assertEqual(wide_headers[1][8], 16)
+            self.assertEqual(wide_headers[2][6], 3)
+            self.assertEqual(wide_headers[2][7], 1)
+            self.assertEqual(wide_headers[2][9], 24)
+            self.assertEqual(wide_headers[5][8], 4)
+            self.assertEqual(wide_headers[6][6], 2)
+            self.assertEqual(wide_headers[6][7], 1)
+            self.assertEqual(wide_headers[6][9], 24)
+            wide_text = wide_headers[1]
             wide_code = wide_bytes[wide_text[4]:wide_text[4] + wide_text[5]]
             self.assertIn(b"\x48\xb8\x01\x00\x00\x00\x01\x00\x00\x00", wide_code)
             self.assertIn(b"\x48\x0f\xaf\x85", wide_code)
