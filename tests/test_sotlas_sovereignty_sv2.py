@@ -727,6 +727,19 @@ class TestSotlasSovereigntySV2(unittest.TestCase):
             )
             self.assertEqual(executed.returncode, 17, executed.stderr)
 
+    def test_sv4_logical_operator_ast_tag_contract(self):
+        """SV4.6 regression guard: lowerer must use parser operator_tag values, not TokenKind ids."""
+        parser_src = (NATIVE_DIR / "parser.sotlas").read_text(encoding="utf-8")
+        lower_src = (
+            NATIVE_DIR / "backend" / "lower_scalar.sotlas"
+        ).read_text(encoding="utf-8")
+        self.assertIn("TokenKind::LogicalAnd { return 110; }", parser_src)
+        self.assertIn("TokenKind::LogicalOr { return 111; }", parser_src)
+        self.assertIn("expression.int_value == 110", lower_src)
+        self.assertIn("expression.int_value == 111", lower_src)
+        self.assertNotIn("expression.int_value == 116", lower_src)
+        self.assertNotIn("expression.int_value == 117", lower_src)
+
     def test_sv4_pure_boolean_composition_is_native(self):
         """SV4.6: Pure &&/|| conditions lower to typed Bool IR and native x86-64."""
         src_path = self.root / "pure_bool_composition.sotlas"

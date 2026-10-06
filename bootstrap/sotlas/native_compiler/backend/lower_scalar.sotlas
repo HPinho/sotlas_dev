@@ -1526,7 +1526,7 @@ impl ScalarLowering {
         if expression.kind == AstKind::ExprBinary
             && type_tag == TargetTypeTag::Bool
             && ((expression.int_value >= 86 && expression.int_value <= 91)
-                || expression.int_value == 116 || expression.int_value == 117) {
+                || expression.int_value == 110 || expression.int_value == 111) {
             return self.lower_condition_expression(
                 expression_index, first_parameter, parameter_count
             );
@@ -1791,7 +1791,7 @@ impl ScalarLowering {
         }
         if (expression.int_value < 80 || expression.int_value > 82)
             && (expression.int_value < 86 || expression.int_value > 91)
-            && expression.int_value != 116 && expression.int_value != 117 {
+            && expression.int_value != 110 && expression.int_value != 111 {
             return false;
         }
         let left_index: usize = expression.first_child;
@@ -1834,7 +1834,7 @@ impl ScalarLowering {
             || unsafe { (*(self.nodes + right_index)).next_sibling } != 0 {
             return TARGET_VALUE_NONE;
         }
-        if expression.int_value == 116 || expression.int_value == 117 {
+        if expression.int_value == 110 || expression.int_value == 111 {
             if !self.pure_condition_expression(left_index)
                 || !self.pure_condition_expression(right_index) {
                 return TARGET_VALUE_NONE;
@@ -1861,7 +1861,7 @@ impl ScalarLowering {
             }
             let result: u32 = self.append_value(TargetTypeTag::Bool, 0, 0);
             let mut bool_opcode: TargetOpcode = TargetOpcode::BoolAnd;
-            if expression.int_value == 117 {
+            if expression.int_value == 111 {
                 bool_opcode = TargetOpcode::BoolOr;
             }
             if result == TARGET_VALUE_NONE || !self.append_instruction(
