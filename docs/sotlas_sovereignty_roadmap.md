@@ -3,7 +3,7 @@
 **Status:** active implementation track  
 **Started:** 2026-10-03 (America/Fortaleza)  
 **Green baseline at track start:** `7162167dec6fd5fa0a216121b147335d222e43f1` / CI #1063  
-**Current certified baseline:** `d04209b66e1ac33e2694badbd4d71710de9a874c` / CI #1101
+**Current certified baseline:** `a2381cc12c33fa617555d70159275339ca2199ec` / CI #1103
 
 ## Goal
 
@@ -358,9 +358,8 @@ Milestone **SV7** proves that the Stage 0 compiler builds the Sotlas Stage 1 com
 Milestone **SV8** currently certifies deterministic Stage1/Stage2/Stage3 frontend and native-output equivalence, but **does not yet certify a C/Python-free compiler build chain**. Stage2 and Stage3 executables are still produced from emitted C with Clang plus the C host driver.
 
 ### Active implementation queue
-- **Current item — SV4.6 / SV8 prerequisite:** pure boolean composition (`&&` / `||`) in native Target IR/lowering/x86-64 for side-effect-free conditions used by compiler validators. The lowerer structurally rejects calls/unsafe/effectful operands so eager Bool composition cannot violate observable short-circuit semantics.
-  - Parser contract: AST logical operator tags are `110` / `111` (from `Parser::operator_tag`), distinct from the `TokenKind` discriminants `116` / `117`. CI #1102 exposed this boundary and the regression guard now locks it.
-- **Next item — SV4.7 / SV8 prerequisite:** integer bitwise, shift, division and modulo operations required by `backend/target_ir.sotlas`.
+- **Current item — SV4.7 / SV8 prerequisite:** typed integer bitwise (`& | ^`), shifts (`<< >>`), division and modulo (`/ %`) in Target IR/lowering/x86-64. The certified subset is U32/U64/usize; signed right shift/division/modulo remain fail-closed until `sar/idiv` semantics are certified. Division/modulo are also rejected inside the eager SV4.6 logical-composition subset because a divide-by-zero trap would make short-circuit behavior observable.
+- **Next item — SV4.8 / SV8 prerequisite:** explicit integer casts plus fixed-array/pointer indexing needed by `backend/target_ir.sotlas`, while preserving bounds/type checks.
 - **Following gate — SV8.7:** Stage1 compiles the real `bootstrap/sotlas/native_compiler/backend/target_ir.sotlas` module to a native ELF object without C emission.
 - **Sovereignty metric:** application/kernel native gates are C/Python-free; compiler bootstrap gates remain hosted. Current tracked reduction is 40% eliminated / 60% remaining for both Python and C until a native Stage1→Stage2 build gate closes.
 

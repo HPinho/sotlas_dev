@@ -59,7 +59,14 @@ pub enum TargetOpcode {
     SemanticDeferUse = 24,
     SemanticStateTransition = 25,
     BoolAnd = 26,
-    BoolOr = 27
+    BoolOr = 27,
+    BitAnd = 28,
+    BitOr = 29,
+    BitXor = 30,
+    ShiftLeft = 31,
+    ShiftRight = 32,
+    Div = 33,
+    Mod = 34
 }
 
 pub struct TargetSourceSlice {
@@ -824,7 +831,14 @@ pub fn target_module_validate_cfg(
                     }
                 } else if instruction.opcode == TargetOpcode::Add
                     || instruction.opcode == TargetOpcode::Sub
-                    || instruction.opcode == TargetOpcode::Mul {
+                    || instruction.opcode == TargetOpcode::Mul
+                    || instruction.opcode == TargetOpcode::BitAnd
+                    || instruction.opcode == TargetOpcode::BitOr
+                    || instruction.opcode == TargetOpcode::BitXor
+                    || instruction.opcode == TargetOpcode::ShiftLeft
+                    || instruction.opcode == TargetOpcode::ShiftRight
+                    || instruction.opcode == TargetOpcode::Div
+                    || instruction.opcode == TargetOpcode::Mod {
                     if instruction.result_value == TARGET_VALUE_NONE
                         || !target_type_is_integer(instruction.type_tag)
                         || instruction.operand_count != 2 {

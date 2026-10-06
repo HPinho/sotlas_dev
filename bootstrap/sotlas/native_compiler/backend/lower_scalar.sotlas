@@ -1563,7 +1563,33 @@ impl ScalarLowering {
             opcode = TargetOpcode::Sub;
         } else if expression.int_value == 82 {
             opcode = TargetOpcode::Mul;
+        } else if expression.int_value == 83 {
+            opcode = TargetOpcode::Div;
+        } else if expression.int_value == 84 {
+            opcode = TargetOpcode::Mod;
+        } else if expression.int_value == 92 {
+            opcode = TargetOpcode::BitAnd;
+        } else if expression.int_value == 93 {
+            opcode = TargetOpcode::BitOr;
+        } else if expression.int_value == 94 {
+            opcode = TargetOpcode::BitXor;
+        } else if expression.int_value == 96 {
+            opcode = TargetOpcode::ShiftLeft;
+        } else if expression.int_value == 97 {
+            opcode = TargetOpcode::ShiftRight;
         } else {
+            return TARGET_VALUE_NONE;
+        }
+        if type_tag != TargetTypeTag::U32
+            && type_tag != TargetTypeTag::U64
+            && type_tag != TargetTypeTag::Usize
+            && type_tag != TargetTypeTag::I64 {
+            return TARGET_VALUE_NONE;
+        }
+        if type_tag == TargetTypeTag::I64
+            && (opcode == TargetOpcode::ShiftRight
+                || opcode == TargetOpcode::Div
+                || opcode == TargetOpcode::Mod) {
             return TARGET_VALUE_NONE;
         }
         let first_operand: u32 = self.operand_count as u32;
@@ -1790,7 +1816,8 @@ impl ScalarLowering {
             return false;
         }
         if (expression.int_value < 80 || expression.int_value > 82)
-            && (expression.int_value < 86 || expression.int_value > 91)
+            && (expression.int_value < 86 || expression.int_value > 94)
+            && (expression.int_value < 96 || expression.int_value > 97)
             && expression.int_value != 110 && expression.int_value != 111 {
             return false;
         }
