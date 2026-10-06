@@ -737,6 +737,114 @@ impl ScalarLowering {
         return value_id;
     }
 
+    pub fn find_top_level_function_decl(
+        self: &Self,
+        name_offset: usize,
+        name_length: usize
+    ) -> usize {
+        if self.nodes == null || self.source == null || name_length == 0 {
+            return 0;
+        }
+        let mut node_index: usize = 1;
+        while node_index < self.node_count {
+            let node: AstNode = unsafe { *(self.nodes + node_index) };
+            if (node.kind == AstKind::FnDecl || node.kind == AstKind::TrapfnDecl)
+                && node.parent != 0 && node.parent < self.node_count
+                && self.source_name_equals(
+                    node.str_offset, node.str_len, name_offset, name_length
+                ) {
+                let parent: AstNode = unsafe { *(self.nodes + node.parent) };
+                if parent.kind == AstKind::Module {
+                    return node_index;
+                }
+            }
+            node_index = node_index + 1;
+        }
+        return 0;
+    }
+
+    pub fn function_parameter_count_from_ast(
+        self: &Self,
+        function_index: usize
+    ) -> u32 {
+        if self.nodes == null || function_index == 0 || function_index >= self.node_count {
+            return 0;
+        }
+        let function: AstNode = unsafe { *(self.nodes + function_index) };
+        if function.kind != AstKind::FnDecl && function.kind != AstKind::TrapfnDecl {
+            return 0;
+        }
+        let mut count: u32 = 0;
+        let mut child_index: usize = function.first_child;
+        while child_index != 0 {
+            if child_index >= self.node_count { return 0; }
+            let child: AstNode = unsafe { *(self.nodes + child_index) };
+            if child.kind == AstKind::ParamDecl {
+                count = count + 1;
+            }
+            child_index = child.next_sibling;
+        }
+        return count;
+    }
+
+    pub fn function_parameter_type_from_ast(
+        self: &Self,
+        function_index: usize,
+        parameter_index: u32
+    ) -> TargetTypeTag {
+        if self.nodes == null || function_index == 0 || function_index >= self.node_count {
+            return TargetTypeTag::Invalid;
+        }
+        let function: AstNode = unsafe { *(self.nodes + function_index) };
+        if function.kind != AstKind::FnDecl && function.kind != AstKind::TrapfnDecl {
+            return TargetTypeTag::Invalid;
+        }
+        let mut current: u32 = 0;
+        let mut child_index: usize = function.first_child;
+        while child_index != 0 {
+            if child_index >= self.node_count {
+                return TargetTypeTag::Invalid;
+            }
+            let child: AstNode = unsafe { *(self.nodes + child_index) };
+            if child.kind == AstKind::ParamDecl {
+                if current == parameter_index {
+                    if child.first_child == 0 || child.first_child >= self.node_count {
+                        return TargetTypeTag::Invalid;
+                    }
+                    return self.type_tag_for(child.first_child);
+                }
+                current = current + 1;
+            }
+            child_index = child.next_sibling;
+        }
+        return TargetTypeTag::Invalid;
+    }
+
+    pub fn function_return_type_from_ast(
+        self: &Self,
+        function_index: usize
+    ) -> TargetTypeTag {
+        if self.nodes == null || function_index == 0 || function_index >= self.node_count {
+            return TargetTypeTag::Invalid;
+        }
+        let function: AstNode = unsafe { *(self.nodes + function_index) };
+        if function.kind != AstKind::FnDecl && function.kind != AstKind::TrapfnDecl {
+            return TargetTypeTag::Invalid;
+        }
+        let mut child_index: usize = function.first_child;
+        while child_index != 0 {
+            if child_index >= self.node_count {
+                return TargetTypeTag::Invalid;
+            }
+            let child: AstNode = unsafe { *(self.nodes + child_index) };
+            if child.kind == AstKind::TypeRef {
+                return self.type_tag_for(child_index);
+            }
+            child_index = child.next_sibling;
+        }
+        return TargetTypeTag::Void;
+    }
+
     pub fn find_parameter_value(
         self: &Self,
         first_parameter: usize,
@@ -866,6 +974,7 @@ impl ScalarLowering {
             let mut argument_value5: u32 = TARGET_VALUE_NONE;
             let mut argument_count: u32 = 0;
             let mut argument_index: usize = callee.next_sibling;
+            let mut callee_decl: usize = 0;
 
             if callee.kind == AstKind::ExprIdent {
                 if callee.str_len == 0
@@ -877,6 +986,15 @@ impl ScalarLowering {
                     offset: callee.str_offset,
                     length: callee.str_len
                 };
+                callee_decl = self.find_top_level_function_decl(
+                    callee.str_offset, callee.str_len
+                );
+                if callee_decl == 0 {
+                    return TARGET_VALUE_NONE;
+                }
+                if self.function_parameter_count_from_ast(callee_decl) > 6 {
+                    return TARGET_VALUE_NONE;
+                }
             } else if callee.kind == AstKind::ExprPath {
                 let mut sep: usize = 0;
                 let mut i: usize = 0;
@@ -919,8 +1037,17 @@ impl ScalarLowering {
                 if argument_index >= self.node_count || argument_count >= 6 {
                     return TARGET_VALUE_NONE;
                 }
+                let mut argument_type: TargetTypeTag = TargetTypeTag::U32;
+                if callee_decl != 0 {
+                    argument_type = self.function_parameter_type_from_ast(
+                        callee_decl, argument_count
+                    );
+                    if argument_type == TargetTypeTag::Invalid {
+                        return TARGET_VALUE_NONE;
+                    }
+                }
                 let argument_value: u32 = self.lower_expression(
-                    argument_index, TargetTypeTag::U32, first_parameter, parameter_count
+                    argument_index, argument_type, first_parameter, parameter_count
                 );
                 if argument_value == TARGET_VALUE_NONE {
                     return TARGET_VALUE_NONE;
@@ -933,6 +1060,10 @@ impl ScalarLowering {
                 else { argument_value5 = argument_value; }
                 argument_count = argument_count + 1;
                 argument_index = unsafe { (*(self.nodes + argument_index)).next_sibling };
+            }
+            if callee_decl != 0
+                && argument_count != self.function_parameter_count_from_ast(callee_decl) {
+                return TARGET_VALUE_NONE;
             }
 
             // Lowering an argument can itself append operands (for example n - 1).
@@ -947,7 +1078,17 @@ impl ScalarLowering {
             if argument_count > 5 && !self.append_operand(argument_value5) { return TARGET_VALUE_NONE; }
 
             let mut actual_type: TargetTypeTag = type_tag;
-            if type_tag == TargetTypeTag::Invalid || type_tag == TargetTypeTag::Void {
+            if callee_decl != 0 {
+                let declared_return: TargetTypeTag = self.function_return_type_from_ast(callee_decl);
+                if declared_return == TargetTypeTag::Invalid || declared_return == TargetTypeTag::Void {
+                    return TARGET_VALUE_NONE;
+                }
+                if type_tag != TargetTypeTag::Invalid && type_tag != TargetTypeTag::Void
+                    && type_tag != declared_return {
+                    return TARGET_VALUE_NONE;
+                }
+                actual_type = declared_return;
+            } else if type_tag == TargetTypeTag::Invalid || type_tag == TargetTypeTag::Void {
                 actual_type = TargetTypeTag::U32;
             }
             let result: u32 = self.append_value(actual_type, 0, 0);

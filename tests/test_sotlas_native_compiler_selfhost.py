@@ -956,6 +956,55 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
                 )
                 self.assertEqual(wide_run.returncode, 0, wide_run.stderr)
 
+            wide_call_source = root / "wide_call_object.sotlas"
+            wide_call_source.write_text(
+                "module test::wide_call_object;\n"
+                "fn forward_wide(value: usize) -> usize { "
+                "return add_wide(value, 4294967297); }\n"
+                "fn add_wide(left: usize, right: usize) -> usize { "
+                "return left * 3 + right; }\n",
+                encoding="utf-8",
+            )
+            wide_call_object = root / "wide_call_object.o"
+            wide_call_emit = subprocess.run(
+                [str(compiler_exe), "--obj-unified", str(wide_call_source), str(wide_call_object)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(wide_call_emit.returncode, 0, wide_call_emit.stderr)
+            wide_call_bytes = wide_call_object.read_bytes()
+            wide_call_shoff = struct.unpack_from("<Q", wide_call_bytes, 40)[0]
+            wide_call_count = struct.unpack_from("<H", wide_call_bytes, 60)[0]
+            wide_call_headers = [
+                struct.unpack_from("<IIQQQQIIQQ", wide_call_bytes, wide_call_shoff + index * 64)
+                for index in range(wide_call_count)
+            ]
+            self.assertEqual(wide_call_count, 7)
+            self.assertGreater(wide_call_headers[6][5], 0)
+            self.assertIn(b"forward_wide\x00", wide_call_bytes)
+            self.assertIn(b"add_wide\x00", wide_call_bytes)
+            if sys.platform.startswith("linux"):
+                wide_call_caller = root / "wide_call_caller.c"
+                wide_call_caller.write_text(
+                    "#include <stddef.h>\nextern size_t forward_wide(size_t);\n"
+                    "int main(void) { return forward_wide((size_t)5) == "
+                    "(size_t)4294967312ULL ? 0 : 1; }\n",
+                    encoding="utf-8",
+                )
+                wide_call_exe = root / "wide_call_native"
+                wide_call_link = subprocess.run(
+                    [str(clang), str(wide_call_caller), str(wide_call_object), "-o", str(wide_call_exe)],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(wide_call_link.returncode, 0, wide_call_link.stderr)
+                wide_call_run = subprocess.run(
+                    [str(wide_call_exe)], capture_output=True, text=True, check=False
+                )
+                self.assertEqual(wide_call_run.returncode, 0, wide_call_run.stderr)
+
             parameter_object_source = root / "parameter_object.sotlas"
             parameter_object_source.write_text(
                 "module test::parameter_object;\n"
