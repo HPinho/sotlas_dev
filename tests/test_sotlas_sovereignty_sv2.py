@@ -1244,6 +1244,30 @@ class TestSotlasSovereigntySV2(unittest.TestCase):
         self.assertIn(b"\x89\x81", data)  # scalar u32 store
         self.assertIn(b"\x0f\xb6\x81", data)  # scalar u8 load
 
+    def test_sv8_stage1_compiles_real_target_ir_to_elf(self):
+        """SV8.7a: Stage1 must compile the real Target IR module directly to ELF."""
+        src_path = NATIVE_DIR / "backend" / "target_ir.sotlas"
+        out_obj = self.root / "target_ir_real.o"
+        compiled = subprocess.run(
+            [str(self.stage1), "--compile-obj", str(src_path), str(out_obj)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(
+            compiled.returncode,
+            0,
+            "SV8.7a real target_ir.sotlas blocker:\n" + compiled.stderr,
+        )
+        self.assertTrue(out_obj.is_file())
+        data = out_obj.read_bytes()
+        self.assertEqual(data[:4], b"\x7fELF")
+        for symbol in (
+            b"target_module_validate_cfg\x00",
+            b"target_module_validate_ssa_dominance\x00",
+        ):
+            self.assertIn(symbol, data)
+
     def test_sv4_raw_pointer_deref_requires_unsafe(self):
         """SV4.8c2 negative gate: dereference outside unsafe remains rejected."""
         src_path = self.root / "raw_pointer_deref_reject.sotlas"
