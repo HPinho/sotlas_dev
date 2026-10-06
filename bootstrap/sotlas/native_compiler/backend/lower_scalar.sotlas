@@ -1443,6 +1443,106 @@ impl ScalarLowering {
         return result;
     }
 
+    pub fn lower_direct_void_call_statement(
+        mut self: &mut Self,
+        expression_index: usize,
+        first_parameter: usize,
+        parameter_count: usize
+    ) -> bool {
+        if self.nodes == null || expression_index == 0
+            || expression_index >= self.node_count {
+            return false;
+        }
+        let expression: AstNode = unsafe { *(self.nodes + expression_index) };
+        if expression.kind != AstKind::ExprCall || expression.first_child == 0
+            || expression.first_child >= self.node_count {
+            return false;
+        }
+        let callee_index: usize = expression.first_child;
+        let callee: AstNode = unsafe { *(self.nodes + callee_index) };
+        if callee.kind != AstKind::ExprIdent || callee.str_len == 0
+            || callee.str_offset > self.source_len
+            || callee.str_len > self.source_len - callee.str_offset {
+            return false;
+        }
+
+        let callee_decl: usize = self.find_top_level_function_decl(
+            callee.str_offset, callee.str_len
+        );
+        if callee_decl == 0
+            || self.function_return_type_from_ast(callee_decl) != TargetTypeTag::Void {
+            return false;
+        }
+        let expected_count: u32 = self.function_parameter_count_from_ast(callee_decl);
+        if expected_count > 6 {
+            return false;
+        }
+
+        let mut argument_value0: u32 = TARGET_VALUE_NONE;
+        let mut argument_value1: u32 = TARGET_VALUE_NONE;
+        let mut argument_value2: u32 = TARGET_VALUE_NONE;
+        let mut argument_value3: u32 = TARGET_VALUE_NONE;
+        let mut argument_value4: u32 = TARGET_VALUE_NONE;
+        let mut argument_value5: u32 = TARGET_VALUE_NONE;
+        let mut argument_count: u32 = 0;
+        let mut argument_index: usize = callee.next_sibling;
+        while argument_index != 0 {
+            if argument_index >= self.node_count || argument_count >= expected_count {
+                return false;
+            }
+            let argument_type: TargetTypeTag = self.function_parameter_type_from_ast(
+                callee_decl, argument_count
+            );
+            if argument_type == TargetTypeTag::Invalid || argument_type == TargetTypeTag::Void {
+                return false;
+            }
+            let argument_value: u32 = self.lower_expression(
+                argument_index, argument_type, first_parameter, parameter_count
+            );
+            if argument_value == TARGET_VALUE_NONE {
+                return false;
+            }
+            if argument_count == 0 { argument_value0 = argument_value; }
+            else if argument_count == 1 { argument_value1 = argument_value; }
+            else if argument_count == 2 { argument_value2 = argument_value; }
+            else if argument_count == 3 { argument_value3 = argument_value; }
+            else if argument_count == 4 { argument_value4 = argument_value; }
+            else { argument_value5 = argument_value; }
+            argument_count = argument_count + 1;
+            argument_index = unsafe { (*(self.nodes + argument_index)).next_sibling };
+        }
+        if argument_count != expected_count {
+            return false;
+        }
+
+        let first_operand: u32 = self.operand_count as u32;
+        if argument_count > 0 && !self.append_operand(argument_value0) { return false; }
+        if argument_count > 1 && !self.append_operand(argument_value1) { return false; }
+        if argument_count > 2 && !self.append_operand(argument_value2) { return false; }
+        if argument_count > 3 && !self.append_operand(argument_value3) { return false; }
+        if argument_count > 4 && !self.append_operand(argument_value4) { return false; }
+        if argument_count > 5 && !self.append_operand(argument_value5) { return false; }
+
+        if !self.append_instruction(
+            TargetOpcode::Call,
+            TARGET_VALUE_NONE,
+            TargetTypeTag::Void,
+            first_operand,
+            argument_count,
+            expression_index
+        ) {
+            return false;
+        }
+        let call_index: usize = self.instruction_count - 1;
+        let mut call: TargetInstruction = unsafe { *(self.instructions + call_index) };
+        call.symbol = TargetSourceSlice {
+            offset: callee.str_offset,
+            length: callee.str_len
+        };
+        unsafe { *(self.instructions + call_index) = call; }
+        return true;
+    }
+
     pub fn lower_return_statement(
         mut self: &mut Self,
         return_index: usize,
@@ -1454,9 +1554,23 @@ impl ScalarLowering {
             return false;
         }
         let return_node: AstNode = unsafe { *(self.nodes + return_index) };
-        if return_node.kind != AstKind::ReturnStmt || return_node.first_child == 0
-            || return_node.first_child >= self.node_count
-            || return_node.next_sibling != 0 {
+        if return_node.kind != AstKind::ReturnStmt || return_node.next_sibling != 0 {
+            return false;
+        }
+        if return_type == TargetTypeTag::Void {
+            if return_node.first_child != 0 {
+                return false;
+            }
+            return self.append_instruction(
+                TargetOpcode::Return,
+                TARGET_VALUE_NONE,
+                TargetTypeTag::Void,
+                0,
+                0,
+                return_index
+            );
+        }
+        if return_node.first_child == 0 || return_node.first_child >= self.node_count {
             return false;
         }
         let expression_index: usize = return_node.first_child;
@@ -2323,13 +2437,36 @@ impl ScalarLowering {
                 statement_index = statement.next_sibling;
                 continue;
             } else if statement.kind == AstKind::ExprCall {
-                let call_val: u32 = self.lower_expression(
-                    statement_index,
-                    TargetTypeTag::Invalid,
-                    first_parameter,
-                    function_param_count
-                );
-                if call_val == TARGET_VALUE_NONE { return self.reject(statement_index); }
+                let mut lowered_call: bool = false;
+                if statement.first_child != 0 && statement.first_child < self.node_count {
+                    let callee_node: AstNode = unsafe { *(self.nodes + statement.first_child) };
+                    if callee_node.kind == AstKind::ExprIdent {
+                        let callee_decl: usize = self.find_top_level_function_decl(
+                            callee_node.str_offset, callee_node.str_len
+                        );
+                        if callee_decl != 0
+                            && self.function_return_type_from_ast(callee_decl)
+                                == TargetTypeTag::Void {
+                            lowered_call = self.lower_direct_void_call_statement(
+                                statement_index, first_parameter, function_param_count
+                            );
+                            if !lowered_call {
+                                return self.reject(statement_index);
+                            }
+                        }
+                    }
+                }
+                if !lowered_call {
+                    let call_val: u32 = self.lower_expression(
+                        statement_index,
+                        TargetTypeTag::Invalid,
+                        first_parameter,
+                        function_param_count
+                    );
+                    if call_val == TARGET_VALUE_NONE {
+                        return self.reject(statement_index);
+                    }
+                }
                 statement_index = statement.next_sibling;
                 continue;
             } else if statement.kind == AstKind::ReturnStmt {
