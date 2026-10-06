@@ -222,6 +222,18 @@ fn identity_wide(value: usize) -> usize {
 }
 """
 
+DISCARDED_WIDE_CALL_SRC = """module sv2::discarded_wide_call;
+
+pub fn run_discarded_wide() -> u32 {
+    identity_wide(4294967297);
+    return 7;
+}
+
+fn identity_wide(value: usize) -> usize {
+    return value;
+}
+"""
+
 
 class TestSotlasSovereigntySV2(unittest.TestCase):
     @classmethod
@@ -504,6 +516,52 @@ class TestSotlasSovereigntySV2(unittest.TestCase):
                 [str(exe)], capture_output=True, text=True, check=False
             )
             self.assertEqual(executed.returncode, 0, executed.stderr)
+
+    def test_sv2_call_statement_uses_declared_wide_return_type(self):
+        """SV2.18: Discarding a usize call result must not force the call through U32."""
+        src_path = self.root / "discarded_wide_call.sotlas"
+        src_path.write_text(DISCARDED_WIDE_CALL_SRC, encoding="utf-8")
+        out_obj = self.root / "discarded_wide_call.o"
+        out_bin = self.root / "discarded_wide_call.bin"
+
+        compiled = subprocess.run(
+            [str(self.stage1), "--compile-obj", str(src_path), str(out_obj)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(compiled.returncode, 0, compiled.stderr)
+        self.assertTrue(out_obj.is_file())
+
+        data = out_obj.read_bytes()
+        self.assertEqual(data[:4], b"\x7fELF")
+        self.assertIn(b"run_discarded_wide\x00", data)
+        self.assertIn(b"identity_wide\x00", data)
+        self.assertIn(
+            b"\x48\xb8\x01\x00\x00\x00\x01\x00\x00\x00",
+            data,
+        )
+
+        linked = subprocess.run(
+            [
+                str(self.stage1),
+                "--link-exe",
+                str(out_obj),
+                str(out_bin),
+                "run_discarded_wide",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(linked.returncode, 0, linked.stderr)
+        self.assertTrue(out_bin.is_file())
+
+        if sys.platform.startswith("linux"):
+            executed = subprocess.run(
+                [str(out_bin)], capture_output=True, text=True, check=False
+            )
+            self.assertEqual(executed.returncode, 7, executed.stderr)
 
     def test_sv2_lowering_struct_methods_preserves_wide_argument_type(self):
         """SV2.16: Receiver calls preserve declared usize argument/return types through native ELF."""
