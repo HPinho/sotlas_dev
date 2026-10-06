@@ -234,6 +234,18 @@ fn identity_wide(value: usize) -> usize {
 }
 """
 
+VOID_CALL_SRC = """module sv2::void_call;
+
+pub fn run_void_call() -> u32 {
+    sink_wide(4294967297);
+    return 9;
+}
+
+fn sink_wide(value: usize) {
+    return;
+}
+"""
+
 
 class TestSotlasSovereigntySV2(unittest.TestCase):
     @classmethod
@@ -562,6 +574,52 @@ class TestSotlasSovereigntySV2(unittest.TestCase):
                 [str(out_bin)], capture_output=True, text=True, check=False
             )
             self.assertEqual(executed.returncode, 7, executed.stderr)
+
+    def test_sv2_direct_void_call_statement_is_native(self):
+        """SV2.19: Direct void call statements lower without inventing an SSA result."""
+        src_path = self.root / "void_call.sotlas"
+        src_path.write_text(VOID_CALL_SRC, encoding="utf-8")
+        out_obj = self.root / "void_call.o"
+        out_bin = self.root / "void_call.bin"
+
+        compiled = subprocess.run(
+            [str(self.stage1), "--compile-obj", str(src_path), str(out_obj)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(compiled.returncode, 0, compiled.stderr)
+        self.assertTrue(out_obj.is_file())
+
+        data = out_obj.read_bytes()
+        self.assertEqual(data[:4], b"\x7fELF")
+        self.assertIn(b"run_void_call\x00", data)
+        self.assertIn(b"sink_wide\x00", data)
+        self.assertIn(
+            b"\x48\xb8\x01\x00\x00\x00\x01\x00\x00\x00",
+            data,
+        )
+
+        linked = subprocess.run(
+            [
+                str(self.stage1),
+                "--link-exe",
+                str(out_obj),
+                str(out_bin),
+                "run_void_call",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(linked.returncode, 0, linked.stderr)
+        self.assertTrue(out_bin.is_file())
+
+        if sys.platform.startswith("linux"):
+            executed = subprocess.run(
+                [str(out_bin)], capture_output=True, text=True, check=False
+            )
+            self.assertEqual(executed.returncode, 9, executed.stderr)
 
     def test_sv2_lowering_struct_methods_preserves_wide_argument_type(self):
         """SV2.16: Receiver calls preserve declared usize argument/return types through native ELF."""
