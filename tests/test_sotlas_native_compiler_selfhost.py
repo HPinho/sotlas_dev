@@ -111,6 +111,10 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
                 "const struct TargetModule *, const struct TargetFunction *, const struct TargetParameter *, const struct TargetValue *, "
                 "const struct TargetBlock *, const struct TargetInstruction *, const struct TargetOperand *, "
                 "uint8_t *, size_t, size_t *);\n"
+                "extern bool emit_elf64_module_object(const uint8_t *, size_t, "
+                "const struct TargetModule *, const struct TargetFunction *, const struct TargetParameter *, const struct TargetValue *, "
+                "const struct TargetBlock *, const struct TargetInstruction *, const struct TargetOperand *, "
+                "const struct TargetPhiInput *, const uint32_t *, uint8_t *, size_t, size_t *);\n"
                 "extern bool link_elf64_scalar_executable(const uint8_t *, size_t, "
                 "const uint32_t *, uint32_t, uint8_t *, size_t, size_t *);\n"
                 "extern bool target_module_validate_cfg(const struct TargetModule *, "
@@ -357,7 +361,7 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
                 "    FILE *dest = fopen(argv[3], \"wb\"); if (!dest) return 70;\n"
                 "    size_t written = fwrite(assembly, 1, asm_len, dest); fclose(dest); return written == asm_len ? 0 : 71;\n"
                 "  }\n"
-                "  if (argc == 4 && (strcmp(argv[1], \"--obj\") == 0 || strcmp(argv[1], \"--bad-object-type\") == 0 || strcmp(argv[1], \"--bad-object-target\") == 0 || strcmp(argv[1], \"--bad-object-call\") == 0 || strcmp(argv[1], \"--bad-object-call-type\") == 0)) {\n"
+                "  if (argc == 4 && (strcmp(argv[1], \"--obj\") == 0 || strcmp(argv[1], \"--obj-unified\") == 0 || strcmp(argv[1], \"--bad-object-type\") == 0 || strcmp(argv[1], \"--bad-object-target\") == 0 || strcmp(argv[1], \"--bad-object-call\") == 0 || strcmp(argv[1], \"--bad-object-call-type\") == 0)) {\n"
                 "    static uint8_t input[65536], object[8192];\n"
                 "    _Alignas(max_align_t) unsigned char values[16384], parameters[16384], "
                 "blocks[8192], functions[8192]; uint32_t targets[128];\n"
@@ -372,7 +376,14 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
                 "    if (strcmp(argv[1], \"--bad-object-target\") == 0) targets[0] = module.block_count + 1;\n"
                 "    if (strcmp(argv[1], \"--bad-object-call\") == 0) for (uint32_t i = 0; i < module.instruction_count; ++i) if (instructions[i].opcode == 10) instructions[i].symbol.offset = len + 1;\n"
                 "    if (strcmp(argv[1], \"--bad-object-call-type\") == 0) for (uint32_t i = 0; i < module.instruction_count; ++i) if (instructions[i].opcode == 10 && instructions[i].operand_count != 0) ((struct TargetValue *)values)[operands[instructions[i].first_operand].value_id - 1].type_tag = 1;\n"
-                "    bool object_emitted = module.function_count > 1 ? "
+                "    bool object_emitted = false;\n"
+                "    if (strcmp(argv[1], \"--obj-unified\") == 0) {\n"
+                "      object_emitted = emit_elf64_module_object(input, len, &module, "
+                "(const struct TargetFunction *)functions, (const struct TargetParameter *)parameters, (const struct TargetValue *)values, "
+                "(const struct TargetBlock *)blocks, instructions, (const struct TargetOperand *)operands, "
+                "phi_inputs, targets, object, sizeof(object), &obj_len);\n"
+                "    } else {\n"
+                "      object_emitted = module.function_count > 1 ? "
                 "emit_elf64_scalar_module_object(input, len, &module, "
                 "(const struct TargetFunction *)functions, (const struct TargetParameter *)parameters, (const struct TargetValue *)values, "
                 "(const struct TargetBlock *)blocks, instructions, (const struct TargetOperand *)operands, "
@@ -380,6 +391,7 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
                 "emit_elf64_scalar_function_object(input, len, &module, "
                 "(const struct TargetFunction *)functions, (const struct TargetParameter *)parameters, (const struct TargetValue *)values, (const struct TargetBlock *)blocks, "
                 "instructions, (const struct TargetOperand *)operands, phi_inputs, targets, object, sizeof(object), &obj_len);\n"
+                "    }\n"
                 "    if (strcmp(argv[1], \"--bad-object-type\") == 0) return object_emitted ? 77 : 0;\n"
                 "    if (strcmp(argv[1], \"--bad-object-target\") == 0) return object_emitted ? 78 : 0;\n"
                 "    if (strcmp(argv[1], \"--bad-object-call\") == 0) return object_emitted ? 79 : 0;\n"
@@ -891,7 +903,7 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
             )
             wide_object = root / "wide_object.o"
             wide_emit = subprocess.run(
-                [str(compiler_exe), "--obj", str(wide_object_source), str(wide_object)],
+                [str(compiler_exe), "--obj-unified", str(wide_object_source), str(wide_object)],
                 capture_output=True,
                 text=True,
                 check=False,
@@ -899,6 +911,7 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
             self.assertEqual(wide_emit.returncode, 0, wide_emit.stderr)
             wide_bytes = wide_object.read_bytes()
             wide_shoff = struct.unpack_from("<Q", wide_bytes, 40)[0]
+            self.assertGreaterEqual(struct.unpack_from("<H", wide_bytes, 60)[0], 8)
             wide_text = struct.unpack_from("<IIQQQQIIQQ", wide_bytes, wide_shoff + 64)
             wide_code = wide_bytes[wide_text[4]:wide_text[4] + wide_text[5]]
             self.assertIn(b"\x48\xb8\x01\x00\x00\x00\x01\x00\x00\x00", wide_code)
