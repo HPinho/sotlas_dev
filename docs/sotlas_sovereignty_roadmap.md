@@ -358,7 +358,7 @@ Milestone **SV7** proves that the Stage 0 compiler builds the Sotlas Stage 1 com
 Milestone **SV8** currently certifies deterministic Stage1/Stage2/Stage3 frontend and native-output equivalence, but **does not yet certify a C/Python-free compiler build chain**. Stage2 and Stage3 executables are still produced from emitted C with Clang plus the C host driver.
 
 ### Active implementation queue
-- **Current item — SV4.8b / SV8 prerequisite:** checked dynamic reads from global fixed arrays using native `base + index * stride` addressing. Element type/stride/count are preserved in BSS metadata and out-of-bounds access traps before memory is touched.
+- **Current item — SV4.8b / SV8 prerequisite:** checked dynamic reads from global fixed arrays using native `base + index * stride` addressing. Element type/stride/count are preserved in BSS metadata and out-of-bounds access traps before memory is touched. CI #1107 exposed and the follow-up fixes the ELF narrow-return whitelist plus base-register preservation in indexed addressing; #1106 remains the certified baseline until the repair workflow is green.
 - **Next item — SV4.8c / SV8 prerequisite:** indexed stores plus raw-pointer indexing/provenance rules; unsupported pointer shapes remain fail-closed.
 - **Following gate — SV8.7:** Stage1 compiles the real `bootstrap/sotlas/native_compiler/backend/target_ir.sotlas` module to a native ELF object without C emission.
 - **Sovereignty metric:** application/kernel native gates are C/Python-free; compiler bootstrap gates remain hosted. Current tracked reduction is 40% eliminated / 60% remaining for both Python and C until a native Stage1→Stage2 build gate closes.
