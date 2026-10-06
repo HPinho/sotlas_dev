@@ -1263,6 +1263,7 @@ class TestSotlasSovereigntySV2(unittest.TestCase):
             return
 
         self.assertFalse(out_obj.exists())
+        print("SV8.7 real target_ir blocker:", compiled.stderr.strip())
         marker = "err line "
         self.assertIn(marker, compiled.stderr, compiled.stderr)
         tail = compiled.stderr.split(marker, 1)[1]
