@@ -845,6 +845,94 @@ impl ScalarLowering {
         return TargetTypeTag::Void;
     }
 
+    pub fn find_instance_impl_method_decl(
+        self: &Self,
+        call_index: usize,
+        struct_id: u32,
+        method_offset: usize,
+        method_length: usize
+    ) -> usize {
+        if self.nodes == null || self.source == null || call_index == 0
+            || call_index >= self.node_count || struct_id == 0
+            || struct_id as usize > self.struct_count || method_length == 0 {
+            return 0;
+        }
+
+        let struct_index: usize = (struct_id - 1) as usize;
+        let struct_name_offset: usize = self.struct_name_offsets[struct_index];
+        let struct_name_length: usize = self.struct_name_lens[struct_index];
+
+        let mut sem: Sema = Sema::new();
+        let module_index: usize = sem.find_enclosing_module(
+            self.nodes, self.node_count, call_index
+        );
+        if module_index == 0 || module_index >= self.node_count {
+            return 0;
+        }
+
+        let module_node: AstNode = unsafe { *(self.nodes + module_index) };
+        let mut found: usize = 0;
+        let mut declaration_index: usize = module_node.first_child;
+        while declaration_index != 0 {
+            if declaration_index >= self.node_count {
+                return 0;
+            }
+            let declaration: AstNode = unsafe { *(self.nodes + declaration_index) };
+            if declaration.kind == AstKind::ImplDecl
+                && self.source_name_equals(
+                    declaration.str_offset,
+                    declaration.str_len,
+                    struct_name_offset,
+                    struct_name_length
+                ) {
+                let mut method_index: usize = declaration.first_child;
+                while method_index != 0 {
+                    if method_index >= self.node_count {
+                        return 0;
+                    }
+                    let method: AstNode = unsafe { *(self.nodes + method_index) };
+                    if method.kind == AstKind::FnDecl
+                        && self.source_name_equals(
+                            method.str_offset,
+                            method.str_len,
+                            method_offset,
+                            method_length
+                        ) {
+                        let receiver_index: usize = sem.static_impl_receiver_index(
+                            self.nodes,
+                            self.node_count,
+                            method_index,
+                            self.source,
+                            self.source_len
+                        );
+                        let mut first_parameter_index: usize = method.first_child;
+                        while first_parameter_index != 0
+                            && first_parameter_index < self.node_count
+                            && unsafe { (*(self.nodes + first_parameter_index)).kind }
+                                != AstKind::ParamDecl {
+                            first_parameter_index = unsafe {
+                                (*(self.nodes + first_parameter_index)).next_sibling
+                            };
+                        }
+                        if receiver_index != 0
+                            && receiver_index == first_parameter_index
+                            && self.function_parameter_type_from_ast(
+                                method_index, 0
+                            ) == TargetTypeTag::Pointer {
+                            if found != 0 {
+                                return 0;
+                            }
+                            found = method_index;
+                        }
+                    }
+                    method_index = method.next_sibling;
+                }
+            }
+            declaration_index = declaration.next_sibling;
+        }
+        return found;
+    }
+
     pub fn find_parameter_value(
         self: &Self,
         first_parameter: usize,
@@ -1048,6 +1136,19 @@ impl ScalarLowering {
                 let s_len: usize = self.struct_name_lens[s_idx];
                 let m_off: usize = callee.str_offset;
                 let m_len: usize = callee.str_len;
+                callee_decl = self.find_instance_impl_method_decl(
+                    expression_index, struct_id, m_off, m_len
+                );
+                if callee_decl == 0
+                    || self.function_parameter_count_from_ast(callee_decl) > 6
+                    || self.function_parameter_type_from_ast(callee_decl, 0)
+                        != TargetTypeTag::Pointer
+                    || self.values == null || base_ptr == 0
+                    || base_ptr as usize > self.value_count
+                    || unsafe { (*(self.values + base_ptr as usize - 1)).type_tag }
+                        != TargetTypeTag::Pointer {
+                    return TARGET_VALUE_NONE;
+                }
                 callee_symbol = self.append_mangled_name(s_off, s_len, m_off, m_len);
                 argument_value0 = base_ptr;
                 argument_count = 1;
