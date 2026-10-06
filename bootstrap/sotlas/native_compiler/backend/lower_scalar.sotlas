@@ -1475,6 +1475,50 @@ impl ScalarLowering {
             );
     }
 
+    pub fn condition_expression_type(
+        self: &Self,
+        expression_index: usize,
+        first_parameter: usize,
+        parameter_count: usize
+    ) -> TargetTypeTag {
+        if self.nodes == null || self.values == null || expression_index == 0
+            || expression_index >= self.node_count {
+            return TargetTypeTag::Invalid;
+        }
+        let expression: AstNode = unsafe { *(self.nodes + expression_index) };
+
+        if expression.kind == AstKind::ExprIdent {
+            let value_id: u32 = self.find_parameter_value(
+                first_parameter,
+                parameter_count,
+                expression.str_offset,
+                expression.str_len
+            );
+            if value_id == TARGET_VALUE_NONE || value_id == 0
+                || value_id as usize > self.value_count {
+                return TargetTypeTag::Invalid;
+            }
+            return unsafe { (*(self.values + value_id as usize - 1)).type_tag };
+        }
+
+        if expression.kind == AstKind::ExprLiteral {
+            return TargetTypeTag::Invalid;
+        }
+
+        let mut sem: Sema = Sema::new();
+        let type_ref: usize = sem.infer_expression_type_ref(
+            self.nodes,
+            self.node_count,
+            expression_index,
+            self.source,
+            self.source_len
+        );
+        if type_ref == 0 {
+            return TargetTypeTag::Invalid;
+        }
+        return self.type_tag_for(type_ref);
+    }
+
     pub fn lower_condition_expression(
         mut self: &mut Self,
         expression_index: usize,
@@ -1506,13 +1550,49 @@ impl ScalarLowering {
             || unsafe { (*(self.nodes + right_index)).next_sibling } != 0 {
             return TARGET_VALUE_NONE;
         }
+        let left_type: TargetTypeTag = self.condition_expression_type(
+            left_index, first_parameter, parameter_count
+        );
+        let right_type: TargetTypeTag = self.condition_expression_type(
+            right_index, first_parameter, parameter_count
+        );
+        let mut compare_type: TargetTypeTag = TargetTypeTag::Invalid;
+        if left_type != TargetTypeTag::Invalid {
+            compare_type = left_type;
+        }
+        if right_type != TargetTypeTag::Invalid {
+            if compare_type != TargetTypeTag::Invalid && compare_type != right_type {
+                return TARGET_VALUE_NONE;
+            }
+            compare_type = right_type;
+        }
+        if compare_type == TargetTypeTag::Invalid {
+            compare_type = TargetTypeTag::U32;
+        }
+        if compare_type != TargetTypeTag::U32
+            && compare_type != TargetTypeTag::U64
+            && compare_type != TargetTypeTag::I64 {
+            return TARGET_VALUE_NONE;
+        }
+        if compare_type == TargetTypeTag::I64 && expression.int_value > 87 {
+            return TARGET_VALUE_NONE;
+        }
+
         let left: u32 = self.lower_expression(
-            left_index, TargetTypeTag::U32, first_parameter, parameter_count
+            left_index, compare_type, first_parameter, parameter_count
         );
         let right: u32 = self.lower_expression(
-            right_index, TargetTypeTag::U32, first_parameter, parameter_count
+            right_index, compare_type, first_parameter, parameter_count
         );
-        if left == TARGET_VALUE_NONE || right == TARGET_VALUE_NONE { return TARGET_VALUE_NONE; }
+        if left == TARGET_VALUE_NONE || right == TARGET_VALUE_NONE || self.values == null {
+            return TARGET_VALUE_NONE;
+        }
+        if left == 0 || right == 0
+            || left as usize > self.value_count || right as usize > self.value_count
+            || unsafe { (*(self.values + left as usize - 1)).type_tag } != compare_type
+            || unsafe { (*(self.values + right as usize - 1)).type_tag } != compare_type {
+            return TARGET_VALUE_NONE;
+        }
         let first_operand: u32 = self.operand_count as u32;
         if !self.append_operand(left) || !self.append_operand(right) {
             return TARGET_VALUE_NONE;
