@@ -57,7 +57,9 @@ pub enum TargetOpcode {
     SemanticOwnershipPoint = 22,
     SemanticSharedOwnershipPoint = 23,
     SemanticDeferUse = 24,
-    SemanticStateTransition = 25
+    SemanticStateTransition = 25,
+    BoolAnd = 26,
+    BoolOr = 27
 }
 
 pub struct TargetSourceSlice {
@@ -863,6 +865,26 @@ pub fn target_module_validate_cfg(
                         (*(values + right.value_id as usize - 1)).type_tag
                     };
                     if left_type != right_type || !target_type_is_integer(left_type) {
+                        return false;
+                    }
+                } else if instruction.opcode == TargetOpcode::BoolAnd
+                    || instruction.opcode == TargetOpcode::BoolOr {
+                    if instruction.result_value == TARGET_VALUE_NONE
+                        || instruction.type_tag != TargetTypeTag::Bool
+                        || instruction.operand_count != 2 {
+                        return false;
+                    }
+                    let left: TargetOperand = unsafe {
+                        *(operands + instruction.first_operand)
+                    };
+                    let right: TargetOperand = unsafe {
+                        *(operands + instruction.first_operand + 1)
+                    };
+                    if !target_value_matches(
+                        values, target_section.value_count, left.value_id, TargetTypeTag::Bool
+                    ) || !target_value_matches(
+                        values, target_section.value_count, right.value_id, TargetTypeTag::Bool
+                    ) {
                         return false;
                     }
                 } else if instruction.opcode == TargetOpcode::Call {

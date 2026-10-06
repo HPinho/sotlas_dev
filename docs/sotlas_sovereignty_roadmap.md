@@ -2,7 +2,8 @@
 
 **Status:** active implementation track  
 **Started:** 2026-10-03 (America/Fortaleza)  
-**Green baseline at track start:** `7162167dec6fd5fa0a216121b147335d222e43f1` / CI #1063
+**Green baseline at track start:** `7162167dec6fd5fa0a216121b147335d222e43f1` / CI #1063  
+**Current certified baseline:** `d04209b66e1ac33e2694badbd4d71710de9a874c` / CI #1101
 
 ## Goal
 
@@ -55,13 +56,13 @@ path stops depending on them, but they are not part of the sovereignty target.
 |---|---|---|
 | **SV0** | Recover a green cross-platform baseline before sovereignty work | ✅ CERTIFIED (`7162167d`, CI #1063) |
 | **SV1** | Define backend-neutral Target IR in Sotlas, independent of C/Python containers | ✅ CERTIFIED |
-| **SV2** | Lower the Sotlas-written native frontend AST/sema subset into native Target IR | 🟡 IN PROGRESS (scalar & struct memory ops certified in `tests/test_sotlas_sovereignty_sv2.py`; enums/strings/methods pending) |
+| **SV2** | Lower the Sotlas-written native frontend AST/sema subset into native Target IR | 🟡 IN PROGRESS (scalar/struct memory, scalar enums, string literals, constrained static/receiver methods, wide calls/comparisons and integer module constants are certified; general arrays/slices, payload enums/match and richer compiler expressions remain open) |
 | **SV3** | Feed native Target IR into the Sotlas-owned x86-64 backend for scalar functions | ✅ CERTIFIED (single-block U32 subset) |
 | **SV4** | Native CFG, calls, aggregates, ownership/effects and ABI parity required by real apps | 🟡 IN PROGRESS (x86 backend emits validated scalar CFGs with backedges; source lowering covers return branches and a constrained `while`/`break`/`continue` subset; same-module direct `u32` calls execute on host ABI; aggregates and ownership/effects remain open) |
 | **SV5** | Sotlas-owned object emission and freestanding/native linking for supported targets | 🟡 IN PROGRESS (ELF64 multi-object linking certified in `tests/test_sotlas_sovereignty_sv5.py`; Windows PE/COFF, macOS Mach-O and archives pending) |
 | **SV6** | Compile a real application and the minimal kernel without the C11 backend | ✅ CERTIFIED (`tests/test_sotlas_sovereignty_sv6.py`) |
 | **SV7** | Build the Sotlas compiler Stage 1 from Sotlas sources using Stage 0 | ✅ CERTIFIED (`tests/test_sotlas_sovereignty_sv7.py`) |
-| **SV8** | Stage 1 builds Stage 2 with deterministic fixed-point/equivalence gates | 🟡 IN PROGRESS (Stage 1/2 now emit the complete imported compiler source tree for the next stage; Clang and the C host driver still link each executable, and end-to-end validation is pending) |
+| **SV8** | Stage 1 builds Stage 2 with deterministic fixed-point/equivalence gates | 🟡 IN PROGRESS (hosted Stage1/2/3 determinism is certified, but the compiler executables are still built through emitted C + Clang + C driver; native module-by-module self-compilation is the active frontier) |
 | **SV9** | Make the native compiler/backend the normal installed path; Python/C become optional legacy/reference tooling | 🟡 IN PROGRESS (the CLI defaults to the bounded native backend and fails closed, but packaging/bootstrap still depend on Python, Clang and the C host driver) |
 
 The Stage 1/2 path now starts at `native_compiler/main.sotlas`; its C host
@@ -258,14 +259,15 @@ Milestone **SV2** establishes native lowering from the Sotlas AST/sema frontend 
    - **Field Mutation:** Lowers field assignment (`pt.x = val`) to memory store (`TargetOpcode::Store`).
 6. **Target IR Invariants:** Deterministic numeric SSA value IDs, block IDs, and flat tables (`TargetInstruction`, `TargetOperand`, `TargetPhiInput`, `TargetBlock`), validated by `target_module_validate_cfg` and `target_module_validate_ssa_dominance`.
 7. **Fail-Closed Guards:** Undeclared variables, type mismatches, unsupported operations, and buffer overflows strictly fail closed.
-- **Validation Suite:** `tests/test_sotlas_sovereignty_sv2.py` (12/12 tests passing).
+- **Validation Suite:** `tests/test_sotlas_sovereignty_sv2.py`; current certified behavior is anchored to the green CI baseline recorded at the top of this roadmap.
 
 ### Open Gaps for Full Self-Hosting (SV2b):
-- **Enums & Match:** Definições de enum com payloads, variantes e expressões `match`.
-- **Arrays & Slices:** Indexação estática e dinâmica, fatiamento (`slice`).
-- **Strings:** Manipulação nativa de strings/slices de texto em memória (`source_slice_equals`).
-- **Impl & Métodos:** Chamada de métodos associados a tipos (`self.method()`).
-*Nota de Soberania:* O compilador Sotlas (`parser.sotlas`, `sema.sotlas`, `lexer.sotlas`) faz uso de enums, strings e métodos (`impl`). A remoção de Python/C só poderá ocorrer após a implementação completa desses itens remanescentes de SV2b.
+- **Enums:** enum declarations, scalar variants and path expressions are certified; payload variants and `match` remain open.
+- **Arrays & Slices:** fixed arrays exist in constrained bootstrap forms; general indexing/slicing and dynamic slice values remain open.
+- **Strings:** string literals and native `.rodata` symbols are certified; general string/slice manipulation remains open.
+- **Impl & Methods:** constrained static and receiver method calls are certified, including typed `usize` calls; broader receiver/value forms remain open.
+- **Module constants:** typed scalar integer `const` declarations now lower as immediates; non-integer/general constant evaluation remains open.
+*Nota de Soberania:* SV2b is no longer blocked by the basic existence of enums/strings/methods. The active blockers are the richer expression/control-flow and memory forms used by the compiler itself.
 
 ---
 
@@ -351,14 +353,22 @@ Milestone **SV7** proves that the Stage 0 compiler builds the Sotlas Stage 1 com
 
 ---
 
-## SV8 Certification: Deterministic Fixed-Point / Equivalence Gates
+## SV8 Status: Hosted Fixed-Point Certified; Native Build-Chain Closure In Progress
 
-Milestone **SV8** validates that Stage 1 builds Stage 2, Stage 2 builds Stage 3, and all outputs satisfy strict bit-for-bit equivalence and fixed-point closure.
+Milestone **SV8** currently certifies deterministic Stage1/Stage2/Stage3 frontend and native-output equivalence, but **does not yet certify a C/Python-free compiler build chain**. Stage2 and Stage3 executables are still produced from emitted C with Clang plus the C host driver.
+
+### Active implementation queue
+- **Current item — SV4.6 / SV8 prerequisite:** pure boolean composition (`&&` / `||`) in native Target IR/lowering/x86-64 for side-effect-free conditions used by compiler validators. The lowerer structurally rejects calls/unsafe/effectful operands so eager Bool composition cannot violate observable short-circuit semantics.
+- **Next item — SV4.7 / SV8 prerequisite:** integer bitwise, shift, division and modulo operations required by `backend/target_ir.sotlas`.
+- **Following gate — SV8.7:** Stage1 compiles the real `bootstrap/sotlas/native_compiler/backend/target_ir.sotlas` module to a native ELF object without C emission.
+- **Sovereignty metric:** application/kernel native gates are C/Python-free; compiler bootstrap gates remain hosted. Current tracked reduction is 40% eliminated / 60% remaining for both Python and C until a native Stage1→Stage2 build gate closes.
+
+The hosted fixed-point evidence below remains a regression oracle while native build-chain closure is implemented.
 
 ### Fixed-Point Equivalence Gates:
 1. **Source Emission Equivalence:**
    `hash(Stage 2 output) == hash(Stage 3 output)`
-   The emitted C and Target IR intermediate representations reach exact mathematical convergence.
+   The emitted C compiler source reaches exact convergence in the current hosted bootstrap; this is an oracle, not the final sovereignty proof.
 2. **Application Object Determinism:**
    `SHA256(Stage1.compile_obj(app)) == SHA256(Stage2.compile_obj(app)) == SHA256(Stage3.compile_obj(app))`
    Bit-for-bit identical ELF relocatable objects.

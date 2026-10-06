@@ -2071,6 +2071,40 @@ pub fn emit_elf64_module_object(
                         || !append_object_slot_store(output, capacity, &mut code, instruction.result_value) {
                         return false;
                     }
+                } else if instruction.opcode == TargetOpcode::BoolAnd
+                    || instruction.opcode == TargetOpcode::BoolOr {
+                    if instruction.operand_count != 2 || result_type != TargetTypeTag::Bool {
+                        return false;
+                    }
+                    let left: TargetOperand = unsafe {
+                        *(operands + instruction.first_operand)
+                    };
+                    let right: TargetOperand = unsafe {
+                        *(operands + instruction.first_operand + 1)
+                    };
+                    if object_value_type(values, ir.value_count, left.value_id)
+                            != TargetTypeTag::Bool
+                        || object_value_type(values, ir.value_count, right.value_id)
+                            != TargetTypeTag::Bool
+                        || !append_object_slot_load(
+                            output, capacity, &mut code, left.value_id
+                        ) {
+                        return false;
+                    }
+                    let mut opcode: u8 = 35 as u8;
+                    if instruction.opcode == TargetOpcode::BoolOr {
+                        opcode = 11 as u8;
+                    }
+                    if !append_object_byte(output, capacity, &mut code, opcode)
+                        || !append_object_byte(output, capacity, &mut code, 133)
+                        || !append_object_u32(
+                            output, capacity, &mut code, 0 as u32 - right.value_id * 8
+                        )
+                        || !append_object_slot_store(
+                            output, capacity, &mut code, instruction.result_value
+                        ) {
+                        return false;
+                    }
                 } else if instruction.opcode == TargetOpcode::Call {
                     let callee_index: u32 = object_find_function(
                         source, source_len, functions, ir.function_count, instruction.symbol
