@@ -200,6 +200,11 @@ jobs:
         python -m unittest discover -s tests -p "test_sotlas_flow_report_cli.py" -v
         python -m unittest discover -s tests -p "test_sotlas_sir_report_cli.py" -v
 
+    - name: Verify sovereignty SV8-SV9 native independence gates
+      run: |
+        python -m unittest discover -s tests -p "test_sotlas_sovereignty_sv8.py" -v
+        python -m unittest discover -s tests -p "test_sotlas_sovereignty_sv9.py" -v
+
   package-toolchain-snapshot:
     name: Package Nightly Toolchain Snapshot
     runs-on: ubuntu-latest

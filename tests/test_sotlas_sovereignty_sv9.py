@@ -283,5 +283,94 @@ class TestSotlasSovereigntySV9(unittest.TestCase):
         compile_c11.assert_not_called()
 
 
+    def _sealed_native_env(self) -> dict[str, str]:
+        """Environment that makes accidental external-toolchain escape fail."""
+        env = os.environ.copy()
+        env["PATH"] = ""
+        env["CLANG_PATH"] = str(self.root / "forbidden-clang")
+        env["CC"] = str(self.root / "forbidden-cc")
+        env["CXX"] = str(self.root / "forbidden-cxx")
+        env["LD"] = str(self.root / "forbidden-ld")
+        env["PYTHON"] = str(self.root / "forbidden-python")
+        env["PYTHONHOME"] = str(self.root / "forbidden-python-home")
+        env["PYTHONPATH"] = str(self.root / "forbidden-python-path")
+        return env
+
+    def _run_stage1_sealed(self, *args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [str(self.stage1_exe.resolve()), *args],
+            cwd=ROOT,
+            env=self._sealed_native_env(),
+            capture_output=True,
+            text=True,
+        )
+
+    def test_sv9_post_bootstrap_native_artifact_path_has_no_external_toolchain_dependency(self):
+        """SV9.8: Stage 1 emits and links a hosted ELF with external tools unavailable."""
+        obj = self.root / "sealed_app.o"
+        exe = self.root / "sealed_app.elf"
+
+        compiled = self._run_stage1_sealed(
+            "--compile-obj", str(self.app_src), str(obj)
+        )
+        self.assertEqual(
+            compiled.returncode,
+            0,
+            "native object emission escaped the Sotlas-owned path:\n"
+            + compiled.stdout
+            + "\n"
+            + compiled.stderr,
+        )
+        self.assertTrue(obj.is_file())
+        self.assertEqual(obj.read_bytes()[:4], b"\x7fELF")
+
+        linked = self._run_stage1_sealed(
+            "--link-exe", str(obj), str(exe), "main_entry"
+        )
+        self.assertEqual(
+            linked.returncode,
+            0,
+            "native executable linking escaped the Sotlas-owned path:\n"
+            + linked.stdout
+            + "\n"
+            + linked.stderr,
+        )
+        self.assertTrue(exe.is_file())
+        self.assertEqual(exe.read_bytes()[:4], b"\x7fELF")
+
+    def test_sv9_post_bootstrap_freestanding_path_has_no_external_toolchain_dependency(self):
+        """SV9.9: Stage 1 emits and links a kernel image with external tools unavailable."""
+        obj = self.root / "sealed_kernel.o"
+        image = self.root / "sealed_kernel.elf"
+
+        compiled = self._run_stage1_sealed(
+            "--compile-obj", str(self.kernel_src), str(obj)
+        )
+        self.assertEqual(
+            compiled.returncode,
+            0,
+            "freestanding object emission escaped the Sotlas-owned path:\n"
+            + compiled.stdout
+            + "\n"
+            + compiled.stderr,
+        )
+        self.assertTrue(obj.is_file())
+        self.assertEqual(obj.read_bytes()[:4], b"\x7fELF")
+
+        linked = self._run_stage1_sealed(
+            "--link-exe", str(obj), str(image), "_start", "--freestanding"
+        )
+        self.assertEqual(
+            linked.returncode,
+            0,
+            "freestanding linking escaped the Sotlas-owned path:\n"
+            + linked.stdout
+            + "\n"
+            + linked.stderr,
+        )
+        self.assertTrue(image.is_file())
+        self.assertEqual(image.read_bytes()[:4], b"\x7fELF")
+
+
 if __name__ == "__main__":
     unittest.main()
