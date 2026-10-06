@@ -1244,8 +1244,8 @@ class TestSotlasSovereigntySV2(unittest.TestCase):
         self.assertIn(b"\x89\x81", data)  # scalar u32 store
         self.assertIn(b"\x0f\xb6\x81", data)  # scalar u8 load
 
-    def test_sv8_real_target_ir_first_blocker_is_locked(self):
-        """SV8.7a: Keep the real-module probe in CI without making exploratory work regress main."""
+    def test_sv8_real_target_ir_progresses_past_cfg_has_block(self):
+        """SV8.7b1: The real-module probe must move past the 289:5 blocker or emit ELF."""
         src_path = NATIVE_DIR / "backend" / "target_ir.sotlas"
         out_obj = self.root / "target_ir_real.o"
         compiled = subprocess.run(
@@ -1254,18 +1254,27 @@ class TestSotlasSovereigntySV2(unittest.TestCase):
             text=True,
             check=False,
         )
-        self.assertNotEqual(
-            compiled.returncode,
-            0,
-            "SV8.7a blocker unexpectedly closed: promote this probe to the positive ELF gate.",
-        )
-        self.assertIn(
-            "err line 289, col 5",
-            compiled.stderr,
-            "SV8.7a first blocker moved; investigate before accepting a new failure surface.\n"
+        if compiled.returncode == 0:
+            self.assertTrue(out_obj.is_file())
+            data = out_obj.read_bytes()
+            self.assertEqual(data[:4], b"\x7fELF")
+            self.assertIn(b"target_cfg_has_block\x00", data)
+            self.assertIn(b"target_module_validate_cfg\x00", data)
+            return
+
+        self.assertFalse(out_obj.exists())
+        marker = "err line "
+        self.assertIn(marker, compiled.stderr, compiled.stderr)
+        tail = compiled.stderr.split(marker, 1)[1]
+        line_text = tail.split(",", 1)[0].strip()
+        self.assertTrue(line_text.isdigit(), compiled.stderr)
+        blocker_line = int(line_text)
+        self.assertGreater(
+            blocker_line,
+            289,
+            "SV8.7b1 regressed to or before the certified 289:5 blocker.\n"
             + compiled.stderr,
         )
-        self.assertFalse(out_obj.exists())
 
     def test_sv4_raw_pointer_deref_requires_unsafe(self):
         """SV4.8c2 negative gate: dereference outside unsafe remains rejected."""

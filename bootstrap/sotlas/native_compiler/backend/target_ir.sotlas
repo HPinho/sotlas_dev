@@ -900,8 +900,7 @@ pub fn target_module_validate_cfg(
                     }
                     let stride: u32 = instruction.immediate_bits as u32;
                     let subtract: u32 = (instruction.immediate_bits >> 32) as u32;
-                    if subtract > 1
-                        || (stride != 1 && stride != 2 && stride != 4 && stride != 8) {
+                    if subtract > 1 || stride == 0 || stride > 2147483647 {
                         return false;
                     }
                 } else if instruction.opcode == TargetOpcode::Add

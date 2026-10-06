@@ -2086,8 +2086,7 @@ pub fn emit_elf64_module_object(
                         || (index_type != TargetTypeTag::U32
                             && index_type != TargetTypeTag::U64
                             && index_type != TargetTypeTag::Usize)
-                        || subtract > 1
-                        || (stride != 1 && stride != 2 && stride != 4 && stride != 8)
+                        || subtract > 1 || stride == 0 || stride > 2147483647
                         || !append_object_slot_load_ptr_rcx(
                             output, capacity, &mut code, base.value_id
                         )
@@ -2115,6 +2114,13 @@ pub fn emit_elf64_module_object(
                             || !append_object_byte(output, capacity, &mut code, 193)
                             || !append_object_byte(output, capacity, &mut code, 224)
                             || !append_object_byte(output, capacity, &mut code, 3) {
+                            return false;
+                        }
+                    } else if stride != 1 {
+                        if !append_object_byte(output, capacity, &mut code, 72)
+                            || !append_object_byte(output, capacity, &mut code, 105)
+                            || !append_object_byte(output, capacity, &mut code, 192)
+                            || !append_object_u32(output, capacity, &mut code, stride) {
                             return false;
                         }
                     }
