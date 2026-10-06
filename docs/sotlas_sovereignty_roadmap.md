@@ -358,9 +358,9 @@ Milestone **SV7** proves that the Stage 0 compiler builds the Sotlas Stage 1 com
 Milestone **SV8** currently certifies deterministic Stage1/Stage2/Stage3 frontend and native-output equivalence, but **does not yet certify a C/Python-free compiler build chain**. Stage2 and Stage3 executables are still produced from emitted C with Clang plus the C host driver.
 
 ### Active implementation queue
-- **Current item — SV8.7a:** Stage1 now has an explicit sovereignty gate that compiles the real `bootstrap/sotlas/native_compiler/backend/target_ir.sotlas` directly with `--compile-obj` and requires an ELF object containing the real validation symbols. CI #1113 is the certified baseline for the SV4.8 prerequisite set.
-- **Next item — SV8.7b:** fix only the first fail-closed construct reported by the real-module gate, preserving all previously green SV4.8 casts/array/raw-pointer contracts.
-- **Following gate — SV8.7:** repeat the real-module gate blocker-by-blocker until Stage1 emits the native ELF object for `target_ir.sotlas` without C emission. Bracket-form raw-pointer indexing (`ptr[index]`) remains rejected unless a later real bootstrap blocker proves it necessary.
+- **Current item — SV8.7b:** CI #1114 established the first real bootstrap blocker at `target_ir.sotlas:289:5` (`target_cfg_has_block`). The real-module probe remains active in CI as a blocker lock: it must fail closed at exactly that location until the construct is implemented, so exploratory bootstrap work never turns the certified main baseline red.
+- **Next item — SV8.7b1:** implement the control-flow/pointer-to-struct subset needed by `target_cfg_has_block`, then flip the blocker lock to the next exact failure reported by the real module (or to positive ELF success if no blocker remains).
+- **Following gate — SV8.7:** repeat blocker-by-blocker until the same real-module probe succeeds and Stage1 emits the native ELF object for `target_ir.sotlas` without C emission. Bracket-form raw-pointer indexing (`ptr[index]`) remains rejected unless a real bootstrap blocker proves it necessary.
 - **Sovereignty metric:** application/kernel native gates are C/Python-free; compiler bootstrap gates remain hosted. Current tracked reduction is 40% eliminated / 60% remaining for both Python and C until a native Stage1→Stage2 build gate closes.
 
 The hosted fixed-point evidence below remains a regression oracle while native build-chain closure is implemented.
