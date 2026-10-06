@@ -68,7 +68,8 @@ pub enum TargetOpcode {
     Div = 33,
     Mod = 34,
     IntCast = 35,
-    IndexAddr = 36
+    IndexAddr = 36,
+    PtrOffset = 37
 }
 
 pub struct TargetSourceSlice {
@@ -872,6 +873,34 @@ pub fn target_module_validate_cfg(
                     let stride: u32 = instruction.immediate_bits as u32;
                     let count: u32 = (instruction.immediate_bits >> 32) as u32;
                     if count == 0
+                        || (stride != 1 && stride != 2 && stride != 4 && stride != 8) {
+                        return false;
+                    }
+                } else if instruction.opcode == TargetOpcode::PtrOffset {
+                    if instruction.result_value == TARGET_VALUE_NONE
+                        || instruction.type_tag != TargetTypeTag::Pointer
+                        || instruction.operand_count != 2 {
+                        return false;
+                    }
+                    let base: TargetOperand = unsafe {
+                        *(operands + instruction.first_operand)
+                    };
+                    let index: TargetOperand = unsafe {
+                        *(operands + instruction.first_operand + 1)
+                    };
+                    if !target_value_matches(
+                        values, target_section.value_count,
+                        base.value_id, TargetTypeTag::Pointer
+                    ) || index.value_id == TARGET_VALUE_NONE
+                        || index.value_id > target_section.value_count
+                        || !target_type_is_integer(unsafe {
+                            (*(values + index.value_id as usize - 1)).type_tag
+                        }) {
+                        return false;
+                    }
+                    let stride: u32 = instruction.immediate_bits as u32;
+                    let subtract: u32 = (instruction.immediate_bits >> 32) as u32;
+                    if subtract > 1
                         || (stride != 1 && stride != 2 && stride != 4 && stride != 8) {
                         return false;
                     }

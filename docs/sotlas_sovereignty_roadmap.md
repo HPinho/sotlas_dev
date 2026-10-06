@@ -3,7 +3,7 @@
 **Status:** active implementation track  
 **Started:** 2026-10-03 (America/Fortaleza)  
 **Green baseline at track start:** `7162167dec6fd5fa0a216121b147335d222e43f1` / CI #1063  
-**Current certified baseline:** `4cb00e6e612eed2fba98308458611298218851bc` / CI #1108
+**Current certified baseline:** `9857f331ec48fb3296236bf07fd62c59ddc3ec71` / CI #1109
 
 ## Goal
 
@@ -358,9 +358,9 @@ Milestone **SV7** proves that the Stage 0 compiler builds the Sotlas Stage 1 com
 Milestone **SV8** currently certifies deterministic Stage1/Stage2/Stage3 frontend and native-output equivalence, but **does not yet certify a C/Python-free compiler build chain**. Stage2 and Stage3 executables are still produced from emitted C with Clang plus the C host driver.
 
 ### Active implementation queue
-- **Current item — SV4.8c1 / SV8 prerequisite:** checked typed stores to global fixed arrays, reusing the certified `IndexAddr` bounds/stride path from SV4.8b. U8/U16/U32/U64 element widths use the existing typed Store emitter.
-- **Next item — SV4.8c2 / SV8 prerequisite:** raw-pointer indexing with explicit pointee/provenance rules. Raw-pointer indexing remains fail-closed in SV4.8c1.
-- **Following gate — SV8.7:** Stage1 compiles the real `bootstrap/sotlas/native_compiler/backend/target_ir.sotlas` module to a native ELF object without C emission.
+- **Current item — SV4.8c2 / SV8 prerequisite:** raw-pointer addressing for the bootstrap's real `*(ptr + offset)` pattern. The certified subset derives 1/2/4/8-byte stride from a known scalar pointee, lowers pointer +/- unsigned indices through `PtrOffset`, and uses typed Load/Store for dereference. Dereference remains subject to the existing `unsafe` sema rule.
+- **Next item — SV8.7a:** compile the real `bootstrap/sotlas/native_compiler/backend/target_ir.sotlas` with Stage1 and record the next fail-closed blocker. Bracket-form raw-pointer indexing (`ptr[index]`) remains rejected rather than bypassing `unsafe`/provenance.
+- **Following gate — SV8.7:** close the remaining blockers until Stage1 emits a native ELF object for the real `target_ir.sotlas` module without C emission.
 - **Sovereignty metric:** application/kernel native gates are C/Python-free; compiler bootstrap gates remain hosted. Current tracked reduction is 40% eliminated / 60% remaining for both Python and C until a native Stage1→Stage2 build gate closes.
 
 The hosted fixed-point evidence below remains a regression oracle while native build-chain closure is implemented.

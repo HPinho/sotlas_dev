@@ -2064,6 +2064,81 @@ pub fn emit_elf64_module_object(
                     } else {
                         return false;
                     }
+                } else if instruction.opcode == TargetOpcode::PtrOffset {
+                    if instruction.operand_count != 2
+                        || instruction.type_tag != TargetTypeTag::Pointer
+                        || result_type != TargetTypeTag::Pointer {
+                        return false;
+                    }
+                    let base: TargetOperand = unsafe {
+                        *(operands + instruction.first_operand)
+                    };
+                    let index: TargetOperand = unsafe {
+                        *(operands + instruction.first_operand + 1)
+                    };
+                    let index_type: TargetTypeTag = object_value_type(
+                        values, ir.value_count, index.value_id
+                    );
+                    let stride: u32 = instruction.immediate_bits as u32;
+                    let subtract: u32 = (instruction.immediate_bits >> 32) as u32;
+                    if object_value_type(values, ir.value_count, base.value_id)
+                            != TargetTypeTag::Pointer
+                        || (index_type != TargetTypeTag::U32
+                            && index_type != TargetTypeTag::U64
+                            && index_type != TargetTypeTag::Usize)
+                        || subtract > 1
+                        || (stride != 1 && stride != 2 && stride != 4 && stride != 8)
+                        || !append_object_slot_load_ptr_rcx(
+                            output, capacity, &mut code, base.value_id
+                        )
+                        || !append_object_slot_load_typed(
+                            output, capacity, &mut code, index.value_id, index_type
+                        ) {
+                        return false;
+                    }
+                    if stride == 2 {
+                        if !append_object_byte(output, capacity, &mut code, 72)
+                            || !append_object_byte(output, capacity, &mut code, 193)
+                            || !append_object_byte(output, capacity, &mut code, 224)
+                            || !append_object_byte(output, capacity, &mut code, 1) {
+                            return false;
+                        }
+                    } else if stride == 4 {
+                        if !append_object_byte(output, capacity, &mut code, 72)
+                            || !append_object_byte(output, capacity, &mut code, 193)
+                            || !append_object_byte(output, capacity, &mut code, 224)
+                            || !append_object_byte(output, capacity, &mut code, 2) {
+                            return false;
+                        }
+                    } else if stride == 8 {
+                        if !append_object_byte(output, capacity, &mut code, 72)
+                            || !append_object_byte(output, capacity, &mut code, 193)
+                            || !append_object_byte(output, capacity, &mut code, 224)
+                            || !append_object_byte(output, capacity, &mut code, 3) {
+                            return false;
+                        }
+                    }
+                    if subtract == 0 {
+                        if !append_object_byte(output, capacity, &mut code, 72)
+                            || !append_object_byte(output, capacity, &mut code, 1)
+                            || !append_object_byte(output, capacity, &mut code, 200) {
+                            return false;
+                        }
+                    } else {
+                        if !append_object_byte(output, capacity, &mut code, 72)
+                            || !append_object_byte(output, capacity, &mut code, 41)
+                            || !append_object_byte(output, capacity, &mut code, 193)
+                            || !append_object_byte(output, capacity, &mut code, 72)
+                            || !append_object_byte(output, capacity, &mut code, 137)
+                            || !append_object_byte(output, capacity, &mut code, 200) {
+                            return false;
+                        }
+                    }
+                    if !append_object_slot_store64(
+                        output, capacity, &mut code, instruction.result_value
+                    ) {
+                        return false;
+                    }
                 } else if instruction.opcode == TargetOpcode::IndexAddr {
                     if instruction.operand_count != 2
                         || instruction.type_tag != TargetTypeTag::Pointer
