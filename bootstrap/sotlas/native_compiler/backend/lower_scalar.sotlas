@@ -4147,6 +4147,9 @@ pub fn lower_scalar_module(
                         method_node.str_offset, method_node.str_len
                     );
                     if !lowering.lower_declared_function(method_node, method_index, fn_name, struct_id) {
+                        if lowering.error_node != 0 {
+                            return false;
+                        }
                         return lowering.reject(method_index);
                     }
                 }
@@ -4163,6 +4166,9 @@ pub fn lower_scalar_module(
             length: function_node.str_len
         };
         if !lowering.lower_declared_function(function_node, function_index, fn_name, 0) {
+            if lowering.error_node != 0 {
+                return false;
+            }
             return lowering.reject(function_index);
         }
         function_index = function_node.next_sibling;
