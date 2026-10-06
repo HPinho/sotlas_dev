@@ -3,7 +3,7 @@
 **Status:** active implementation track  
 **Started:** 2026-10-03 (America/Fortaleza)  
 **Green baseline at track start:** `7162167dec6fd5fa0a216121b147335d222e43f1` / CI #1063  
-**Current certified baseline:** `092b6a1ec992c20c44247cc9cf5dd2e669390199` / CI #1115
+**Current certified baseline:** `250cc30fbefb9e54572da452105bd1f879594b2f` / CI #1118
 
 ## Goal
 
@@ -359,7 +359,7 @@ Milestone **SV8** currently certifies deterministic Stage1/Stage2/Stage3 fronten
 
 ### Active implementation queue
 - **Current item — SV8.7b1:** close the certified `target_ir.sotlas:289:5` blocker with real SSA loop lowering. CI #1116/#1117 still appeared pinned at `289:5`, but inspection found the outer module loop was overwriting every inner lowering diagnostic with the enclosing function node. The repair preserves the first `error_node` emitted by `lower_declared_function`, so the real-module probe can expose the actual blocker instead of repeatedly reporting the function declaration. Nested pointer provenance support remains in place and will be evaluated against that precise diagnostic.
-- **Next item — SV8.7b2:** use the same real-module probe to capture the first blocker after line 289. CI accepts either full ELF success or a strictly later fail-closed diagnostic; any move back to line 289 or earlier is a regression.
+- **Next item — SV8.7b2:** use the same real-module probe to capture the first blocker after line 289. CI now prints the preserved native diagnostic when the module still fails, so the next patch can target one exact construct instead of inferring from the enclosing function. CI accepts either full ELF success or a strictly later fail-closed diagnostic; any move back to line 289 or earlier is a regression.
 - **Following gate — SV8.7:** repeat blocker-by-blocker until Stage1 emits the native ELF object for the real `target_ir.sotlas` without C emission. Bracket-form raw-pointer indexing remains rejected unless a real bootstrap blocker proves it necessary.
 - **Sovereignty metric:** application/kernel native gates are C/Python-free; compiler bootstrap gates remain hosted. Current tracked reduction is 40% eliminated / 60% remaining for both Python and C until a native Stage1→Stage2 build gate closes.
 
