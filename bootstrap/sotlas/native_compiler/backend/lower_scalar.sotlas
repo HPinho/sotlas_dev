@@ -3450,6 +3450,31 @@ impl ScalarLowering {
             }
         }
 
+        if function_block_count == 0 {
+            if return_type != TargetTypeTag::Void
+                || self.block_count >= self.block_capacity
+                || !self.append_instruction(
+                    TargetOpcode::Return,
+                    TARGET_VALUE_NONE,
+                    TargetTypeTag::Void,
+                    self.operand_count as u32,
+                    0,
+                    body_index
+                ) {
+                return self.reject(function_index);
+            }
+            unsafe {
+                *(self.blocks + first_block) = TargetBlock {
+                    id: (first_block + 1) as u32,
+                    label: TargetSourceSlice::empty(),
+                    first_instruction: first_instruction as u32,
+                    instruction_count: (self.instruction_count - first_instruction) as u32
+                };
+            }
+            self.block_count = self.block_count + 1;
+            function_block_count = 1;
+        }
+
         let function: TargetFunction = TargetFunction {
             name: fn_name,
             return_type: return_type,
