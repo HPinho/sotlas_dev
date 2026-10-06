@@ -19,6 +19,9 @@ from sotlas_compile import compile_source as canonical_compile_source
 
 class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
     def test_native_compiler_parses_rejects_and_emits_executable_c(self):
+        def host_asm_symbol(name: str) -> str:
+            return f"_{name}" if sys.platform == "darwin" else name
+
         module_dir = ROOT / "bootstrap" / "sotlas" / "native_compiler"
         order = (
             "token", "ast", "lexer", "parser", "sema", "emitter_c",
@@ -694,12 +697,9 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
             )
             self.assertEqual(assembly_result.returncode, 0, assembly_result.stderr)
             assembly_text = assembly_file.read_text(encoding="utf-8")
-            if sys.platform == "darwin":
-                self.assertIn(".globl _constant", assembly_text)
-                self.assertIn("_constant:", assembly_text)
-            else:
-                self.assertIn(".globl constant", assembly_text)
-                self.assertIn("constant:", assembly_text)
+            constant_symbol = host_asm_symbol("constant")
+            self.assertIn(f".globl {constant_symbol}", assembly_text)
+            self.assertIn(f"{constant_symbol}:", assembly_text)
             self.assertIn("movl $7, %eax", assembly_text)
             self.assertIn("ret", assembly_text)
             clang = default_toolchain.find_tool("clang")
@@ -1323,7 +1323,9 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
             )
             self.assertEqual(arithmetic_emit.returncode, 0, arithmetic_emit.stderr)
             arithmetic_text = arithmetic_assembly.read_text(encoding="utf-8")
-            self.assertIn(".globl blend", arithmetic_text)
+            blend_symbol = host_asm_symbol("blend")
+            self.assertIn(f".globl {blend_symbol}", arithmetic_text)
+            self.assertIn(f"{blend_symbol}:", arithmetic_text)
             self.assertIn("imul", arithmetic_text)
             arithmetic_obj = root / "arithmetic_target.obj"
             assemble_result = subprocess.run(
@@ -1748,8 +1750,13 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
             )
             call_assembly_text = call_assembly.read_text(encoding="utf-8")
             self.assertIn("movl %eax, %ecx" if os.name == "nt" else "movl %eax, %edi", call_assembly_text)
-            self.assertIn("call triple", call_assembly_text)
-            self.assertIn("call combine", call_assembly_text)
+            wrapper_symbol = host_asm_symbol("wrapper")
+            triple_symbol = host_asm_symbol("triple")
+            combine_symbol = host_asm_symbol("combine")
+            self.assertIn(f".globl {wrapper_symbol}", call_assembly_text)
+            self.assertIn(f"{wrapper_symbol}:", call_assembly_text)
+            self.assertIn(f"call {triple_symbol}", call_assembly_text)
+            self.assertIn(f"call {combine_symbol}", call_assembly_text)
             call_obj = root / "external_call_target.obj"
             assemble_result = subprocess.run(
                 [str(clang), "-c", str(call_assembly), "-o", str(call_obj)],
