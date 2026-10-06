@@ -2831,6 +2831,108 @@ impl ScalarLowering {
                     return self.reject(statement_index);
                 }
                 let left_node: AstNode = unsafe { *(self.nodes + left_index) };
+                if left_node.kind == AstKind::ExprIndex {
+                    let base_index: usize = left_node.first_child;
+                    if base_index == 0 || base_index >= self.node_count {
+                        return self.reject(statement_index);
+                    }
+                    let base_node: AstNode = unsafe { *(self.nodes + base_index) };
+                    let index_index: usize = base_node.next_sibling;
+                    if base_node.kind != AstKind::ExprIdent || index_index == 0
+                        || index_index >= self.node_count
+                        || unsafe { (*(self.nodes + index_index)).next_sibling } != 0 {
+                        return self.reject(statement_index);
+                    }
+                    let global_index: isize = self.find_global_bss(
+                        base_node.str_offset, base_node.str_len
+                    );
+                    if global_index < 0 {
+                        return self.reject(statement_index);
+                    }
+                    let gi: usize = global_index as usize;
+                    if unsafe { g_bss_sym_is_array[gi] } == 0 {
+                        return self.reject(statement_index);
+                    }
+                    let element_type: TargetTypeTag = unsafe {
+                        g_bss_sym_element_types[gi] as TargetTypeTag
+                    };
+                    let stride: usize = unsafe { g_bss_sym_element_strides[gi] };
+                    let count: usize = unsafe { g_bss_sym_element_counts[gi] };
+                    if (element_type != TargetTypeTag::U8
+                            && element_type != TargetTypeTag::U16
+                            && element_type != TargetTypeTag::U32
+                            && element_type != TargetTypeTag::U64)
+                        || stride == 0 || count == 0
+                        || stride > 4294967295 || count > 2147483647 {
+                        return self.reject(statement_index);
+                    }
+
+                    let base_value: u32 = self.lower_expression(
+                        base_index, TargetTypeTag::Pointer,
+                        first_parameter, function_param_count
+                    );
+                    if base_value == TARGET_VALUE_NONE {
+                        return self.reject(statement_index);
+                    }
+                    let index_value: u32 = self.lower_expression(
+                        index_index, TargetTypeTag::U64,
+                        first_parameter, function_param_count
+                    );
+                    if index_value == TARGET_VALUE_NONE {
+                        return self.reject(statement_index);
+                    }
+                    let address_operand: u32 = self.operand_count as u32;
+                    if !self.append_operand(base_value)
+                        || !self.append_operand(index_value) {
+                        return self.reject(statement_index);
+                    }
+                    let address_value: u32 = self.append_value(
+                        TargetTypeTag::Pointer, 0, 0
+                    );
+                    if address_value == TARGET_VALUE_NONE
+                        || !self.append_instruction(
+                            TargetOpcode::IndexAddr,
+                            address_value,
+                            TargetTypeTag::Pointer,
+                            address_operand,
+                            2,
+                            left_index
+                        ) {
+                        return self.reject(statement_index);
+                    }
+                    let address_instruction: usize = self.instruction_count - 1;
+                    unsafe {
+                        (*(self.instructions + address_instruction)).immediate_bits =
+                            ((count as u64) << 32) | (stride as u64);
+                    }
+
+                    let expr_value: u32 = self.lower_expression(
+                        right_index, element_type,
+                        first_parameter, function_param_count
+                    );
+                    if expr_value == TARGET_VALUE_NONE {
+                        return self.reject(statement_index);
+                    }
+                    let store_operand: u32 = self.operand_count as u32;
+                    if !self.append_operand(address_value)
+                        || !self.append_operand(expr_value)
+                        || !self.append_instruction(
+                            TargetOpcode::Store,
+                            TARGET_VALUE_NONE,
+                            element_type,
+                            store_operand,
+                            2,
+                            statement_index
+                        ) {
+                        return self.reject(statement_index);
+                    }
+                    let store_index: usize = self.instruction_count - 1;
+                    unsafe {
+                        (*(self.instructions + store_index)).immediate_bits = 0;
+                    }
+                    statement_index = statement.next_sibling;
+                    continue;
+                }
                 if left_node.kind == AstKind::ExprFieldAccess {
                     let base_expr_idx: usize = left_node.first_child;
                     if base_expr_idx == 0 || base_expr_idx >= self.node_count { return self.reject(statement_index); }
