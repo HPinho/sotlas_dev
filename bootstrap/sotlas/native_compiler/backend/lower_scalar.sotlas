@@ -2323,7 +2323,12 @@ impl ScalarLowering {
                 statement_index = statement.next_sibling;
                 continue;
             } else if statement.kind == AstKind::ExprCall {
-                let call_val: u32 = self.lower_expression(statement_index, TargetTypeTag::U32, first_parameter, function_param_count);
+                let call_val: u32 = self.lower_expression(
+                    statement_index,
+                    TargetTypeTag::Invalid,
+                    first_parameter,
+                    function_param_count
+                );
                 if call_val == TARGET_VALUE_NONE { return self.reject(statement_index); }
                 statement_index = statement.next_sibling;
                 continue;
