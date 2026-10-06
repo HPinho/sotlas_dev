@@ -22,6 +22,66 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         def host_asm_symbol(name: str) -> str:
             return f"_{name}" if sys.platform == "darwin" else name
 
+        def assert_internal_rel32_call(
+            elf_bytes: bytes,
+            headers: list[tuple[int, ...]],
+            target_name: str,
+        ) -> None:
+            # Calls between functions defined in the same ELF object are patched
+            # directly. They must not leak an external relocation into .rela.text.
+            self.assertGreaterEqual(len(headers), 7)
+            self.assertEqual(headers[6][1], 4)
+            self.assertEqual(headers[6][5], 0)
+
+            text_header = headers[1]
+            symtab_header = headers[2]
+            strtab_header = headers[3]
+            self.assertEqual(text_header[1], 1)
+            self.assertEqual(symtab_header[1], 2)
+            self.assertEqual(strtab_header[1], 3)
+            self.assertEqual(symtab_header[9], 24)
+
+            text = elf_bytes[
+                text_header[4]:text_header[4] + text_header[5]
+            ]
+            symtab_offset = symtab_header[4]
+            symtab_size = symtab_header[5]
+            strtab_offset = strtab_header[4]
+            strtab_size = strtab_header[5]
+            target_bytes = target_name.encode("utf-8")
+            target_value = None
+            entry_offset = 0
+            while entry_offset < symtab_size:
+                symbol_offset = symtab_offset + entry_offset
+                name_offset = struct.unpack_from("<I", elf_bytes, symbol_offset)[0]
+                if name_offset < strtab_size:
+                    name_start = strtab_offset + name_offset
+                    name_end = elf_bytes.find(
+                        b"\x00", name_start, strtab_offset + strtab_size
+                    )
+                    if name_end >= 0 and elf_bytes[name_start:name_end] == target_bytes:
+                        target_value = struct.unpack_from(
+                            "<Q", elf_bytes, symbol_offset + 8
+                        )[0]
+                        break
+                entry_offset += 24
+
+            self.assertIsNotNone(target_value, target_name)
+            self.assertLess(target_value, len(text))
+
+            matched_call = False
+            for call_offset in range(0, max(0, len(text) - 4)):
+                if text[call_offset] != 0xE8:
+                    continue
+                displacement = struct.unpack_from("<i", text, call_offset + 1)[0]
+                if call_offset + 5 + displacement == target_value:
+                    matched_call = True
+                    break
+            self.assertTrue(
+                matched_call,
+                f"no internal rel32 call resolves exactly to {target_name}",
+            )
+
         module_dir = ROOT / "bootstrap" / "sotlas" / "native_compiler"
         order = (
             "token", "ast", "lexer", "parser", "sema", "emitter_c",
@@ -981,9 +1041,11 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
                 for index in range(wide_call_count)
             ]
             self.assertEqual(wide_call_count, 7)
-            self.assertGreater(wide_call_headers[6][5], 0)
             self.assertIn(b"forward_wide\x00", wide_call_bytes)
             self.assertIn(b"add_wide\x00", wide_call_bytes)
+            assert_internal_rel32_call(
+                wide_call_bytes, wide_call_headers, "add_wide"
+            )
             if sys.platform.startswith("linux"):
                 wide_call_caller = root / "wide_call_caller.c"
                 wide_call_caller.write_text(
@@ -1045,7 +1107,11 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
                 for index in range(static_impl_count)
             ]
             self.assertEqual(static_impl_count, 7)
-            self.assertGreater(static_impl_headers[6][5], 0)
+            assert_internal_rel32_call(
+                static_impl_wide_bytes,
+                static_impl_headers,
+                "WideOps_add_wide",
+            )
             if sys.platform.startswith("linux"):
                 static_impl_caller = root / "static_impl_wide_caller.c"
                 static_impl_caller.write_text(
