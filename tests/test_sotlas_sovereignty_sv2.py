@@ -393,6 +393,32 @@ pub fn case_store_oob() -> u32 {
 }
 """
 
+SV4_RAW_POINTER_ADDRESS_SRC = """module sv4::raw_pointer_address;
+
+pub fn read_u32(ptr: *const u32, index: usize) -> u32 {
+    return unsafe { *(ptr + index) };
+}
+
+pub fn read_u8(ptr: *const u8, index: usize) -> u8 {
+    return unsafe { *(ptr + index) };
+}
+
+pub fn write_u32(ptr: *mut u32, index: usize, value: u32) {
+    unsafe { *(ptr + index) = value; }
+}
+
+pub fn previous_u32(ptr: *const u32, index: usize) -> u32 {
+    return unsafe { *(ptr + index - 1) };
+}
+"""
+
+SV4_RAW_POINTER_DEREF_REJECT_SRC = """module sv4::raw_pointer_deref_reject;
+
+pub fn rejected_deref(ptr: *const u32) -> u32 {
+    return *ptr;
+}
+"""
+
 SV4_RAW_POINTER_INDEX_REJECT_SRC = """module sv4::raw_pointer_index_reject;
 
 pub fn rejected_raw_index(ptr: *const u32, index: usize) -> u32 {
@@ -507,7 +533,7 @@ class TestSotlasSovereigntySV2(unittest.TestCase):
 
         for op in (
             "ConstInt", "Add", "Sub", "Mul", "BitAnd", "BitOr", "BitXor",
-            "ShiftLeft", "ShiftRight", "Div", "Mod", "IntCast", "IndexAddr", "Compare", "Call",
+            "ShiftLeft", "ShiftRight", "Div", "Mod", "IntCast", "IndexAddr", "PtrOffset", "Compare", "Call",
             "Return", "Branch", "CondBranch", "AllocStack", "Store", "Load",
         ):
             self.assertIn(f"TargetOpcode::{op}", src)
@@ -1188,6 +1214,49 @@ class TestSotlasSovereigntySV2(unittest.TestCase):
                 [str(oob_bin)], capture_output=True, text=True, check=False
             )
             self.assertNotEqual(oob_run.returncode, 0)
+
+    def test_sv4_raw_pointer_addressing_is_native(self):
+        """SV4.8c2: unsafe pointer +/- index and scalar dereference lower natively."""
+        src_path = self.root / "raw_pointer_address.sotlas"
+        src_path.write_text(SV4_RAW_POINTER_ADDRESS_SRC, encoding="utf-8")
+        out_obj = self.root / "raw_pointer_address.o"
+        compiled = subprocess.run(
+            [str(self.stage1), "--compile-obj", str(src_path), str(out_obj)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(compiled.returncode, 0, compiled.stderr)
+        self.assertTrue(out_obj.is_file())
+        data = out_obj.read_bytes()
+        self.assertEqual(data[:4], b"\x7fELF")
+        for symbol in (
+            b"read_u32\x00",
+            b"read_u8\x00",
+            b"write_u32\x00",
+            b"previous_u32\x00",
+        ):
+            self.assertIn(symbol, data)
+        self.assertIn(b"\x48\xc1\xe0\x02", data)  # u32 pointee stride
+        self.assertIn(b"\x48\x01\xc8", data)  # base + scaled index
+        self.assertIn(b"\x48\x29\xc1", data)  # base - scaled index
+        self.assertIn(b"\x8b\x81", data)  # scalar u32 load
+        self.assertIn(b"\x89\x81", data)  # scalar u32 store
+        self.assertIn(b"\x0f\xb6\x81", data)  # scalar u8 load
+
+    def test_sv4_raw_pointer_deref_requires_unsafe(self):
+        """SV4.8c2 negative gate: dereference outside unsafe remains rejected."""
+        src_path = self.root / "raw_pointer_deref_reject.sotlas"
+        src_path.write_text(SV4_RAW_POINTER_DEREF_REJECT_SRC, encoding="utf-8")
+        out_obj = self.root / "raw_pointer_deref_reject.o"
+        compiled = subprocess.run(
+            [str(self.stage1), "--compile-obj", str(src_path), str(out_obj)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertNotEqual(compiled.returncode, 0)
+        self.assertFalse(out_obj.exists())
 
     def test_sv4_raw_pointer_indexing_stays_fail_closed(self):
         """SV4.8c1 negative gate: raw-pointer indexing waits for provenance rules."""
