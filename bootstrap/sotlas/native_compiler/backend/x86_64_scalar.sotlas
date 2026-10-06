@@ -80,6 +80,17 @@ fn append_object_u32(
         && append_object_byte(output, capacity, length, (value >> 24) as u8);
 }
 
+fn append_object_u64(
+    output: *mut u8,
+    capacity: usize,
+    length: &mut usize,
+    value: u64
+) -> bool {
+    return append_object_u32(output, capacity, length, value as u32)
+        && append_object_u32(output, capacity, length, (value >> 32) as u32);
+}
+
+
 fn append_object_slot_load(
     output: *mut u8,
     capacity: usize,
@@ -163,6 +174,31 @@ fn append_object_load_mem32(
         && append_object_byte(output, capacity, length, 129)
         && append_object_u32(output, capacity, length, offset);
 }
+
+fn append_object_store_mem64(
+    output: *mut u8,
+    capacity: usize,
+    length: &mut usize,
+    offset: u32
+) -> bool {
+    return append_object_byte(output, capacity, length, 72)
+        && append_object_byte(output, capacity, length, 137)
+        && append_object_byte(output, capacity, length, 129)
+        && append_object_u32(output, capacity, length, offset);
+}
+
+fn append_object_load_mem64(
+    output: *mut u8,
+    capacity: usize,
+    length: &mut usize,
+    offset: u32
+) -> bool {
+    return append_object_byte(output, capacity, length, 72)
+        && append_object_byte(output, capacity, length, 139)
+        && append_object_byte(output, capacity, length, 129)
+        && append_object_u32(output, capacity, length, offset);
+}
+
 
 fn append_object_sysv_parameter_store(
     output: *mut u8,
@@ -1588,6 +1624,49 @@ fn object_scalar_type(type_tag: TargetTypeTag) -> bool {
         || type_tag == TargetTypeTag::Pointer || type_tag == TargetTypeTag::Usize;
 }
 
+fn object_type_is_64(type_tag: TargetTypeTag) -> bool {
+    return type_tag == TargetTypeTag::U64 || type_tag == TargetTypeTag::I64
+        || type_tag == TargetTypeTag::Pointer || type_tag == TargetTypeTag::Usize;
+}
+
+fn object_integer_arithmetic_type(type_tag: TargetTypeTag) -> bool {
+    return type_tag == TargetTypeTag::U32 || type_tag == TargetTypeTag::U64
+        || type_tag == TargetTypeTag::I64 || type_tag == TargetTypeTag::Usize;
+}
+
+fn append_object_slot_load_typed(
+    output: *mut u8,
+    capacity: usize,
+    length: &mut usize,
+    value_id: u32,
+    type_tag: TargetTypeTag
+) -> bool {
+    if object_type_is_64(type_tag) {
+        return append_object_slot_load_rax64(output, capacity, length, value_id);
+    }
+    if type_tag == TargetTypeTag::U32 || type_tag == TargetTypeTag::Bool {
+        return append_object_slot_load(output, capacity, length, value_id);
+    }
+    return false;
+}
+
+fn append_object_slot_store_typed(
+    output: *mut u8,
+    capacity: usize,
+    length: &mut usize,
+    value_id: u32,
+    type_tag: TargetTypeTag
+) -> bool {
+    if object_type_is_64(type_tag) {
+        return append_object_slot_store64(output, capacity, length, value_id);
+    }
+    if type_tag == TargetTypeTag::U32 || type_tag == TargetTypeTag::Bool {
+        return append_object_slot_store(output, capacity, length, value_id);
+    }
+    return false;
+}
+
+
 fn object_find_function(
     source: *const u8,
     source_len: usize,
@@ -1644,8 +1723,8 @@ fn append_object_phi_copies(
             let incoming: TargetPhiInput = unsafe { *(phi_inputs + phi.first_phi_input + incoming_index) };
             if incoming.block_id == predecessor_id {
                 if object_value_type(values, value_count, incoming.value_id) != phi.type_tag
-                    || !append_object_slot_load(output, capacity, length, incoming.value_id)
-                    || !append_object_slot_store(output, capacity, length, scratch_base + phi_index + 1) {
+                    || !append_object_slot_load_typed(output, capacity, length, incoming.value_id, phi.type_tag)
+                    || !append_object_slot_store_typed(output, capacity, length, scratch_base + phi_index + 1, phi.type_tag) {
                     return false;
                 }
                 found = true;
@@ -1660,8 +1739,8 @@ fn append_object_phi_copies(
     phi_index = 0;
     while phi_index < phi_count {
         let phi: TargetInstruction = unsafe { *(instructions + destination.first_instruction + phi_index) };
-        if !append_object_slot_load(output, capacity, length, scratch_base + phi_index + 1)
-            || !append_object_slot_store(output, capacity, length, phi.result_value) {
+        if !append_object_slot_load_typed(output, capacity, length, scratch_base + phi_index + 1, phi.type_tag)
+            || !append_object_slot_store_typed(output, capacity, length, phi.result_value, phi.type_tag) {
             return false;
         }
         phi_index = phi_index + 1;
@@ -1670,7 +1749,7 @@ fn append_object_phi_copies(
 }
 
 // Unified ELF64 relocatable writer. It accepts any number of defined scalar
-// CFG functions (U32/Bool/Void results, up to six U32/Bool parameters),
+// CFG functions (U32/Bool/U64/I64/Usize/Pointer/Void results and up to six scalar parameters),
 // external function declarations, direct calls in both directions, Phi on
 // unconditional and conditional edges (conditional edges are split inside the
 // writer), and semantic-only ownership/effect markers, which have no runtime
@@ -1722,6 +1801,7 @@ pub fn emit_elf64_module_object(
                 && function.return_type != TargetTypeTag::U64
                 && function.return_type != TargetTypeTag::I64
                 && function.return_type != TargetTypeTag::Pointer
+                && function.return_type != TargetTypeTag::Usize
                 && function.return_type != TargetTypeTag::Bool
                 && function.return_type != TargetTypeTag::Void) {
             return false;
@@ -1819,9 +1899,7 @@ pub fn emit_elf64_module_object(
         let mut parameter_index: u32 = 0;
         while parameter_index < function.parameter_count {
             let parameter: TargetParameter = unsafe { *(parameters + function.first_parameter + parameter_index) };
-            let is_64: bool = parameter.type_tag == TargetTypeTag::Pointer
-                || parameter.type_tag == TargetTypeTag::U64
-                || parameter.type_tag == TargetTypeTag::I64;
+            let is_64: bool = object_type_is_64(parameter.type_tag);
             if !append_object_sysv_parameter_store(output, capacity, &mut code, parameter.value_id, parameter_index, is_64) {
                 return false;
             }
@@ -1843,24 +1921,41 @@ pub fn emit_elf64_module_object(
                     if !object_scalar_type(instruction.type_tag) || result_type != instruction.type_tag { return false; }
                 } else if instruction.opcode == TargetOpcode::ConstInt {
                     if !object_scalar_type(instruction.type_tag) || result_type != instruction.type_tag
-                        || instruction.immediate_bits > 4294967295
-                        || (instruction.type_tag == TargetTypeTag::Bool && instruction.immediate_bits > 1)
-                        || !append_object_byte(output, capacity, &mut code, 184)
-                        || !append_object_u32(output, capacity, &mut code, instruction.immediate_bits as u32)
-                        || !append_object_slot_store(output, capacity, &mut code, instruction.result_value) {
+                        || (instruction.type_tag == TargetTypeTag::Bool && instruction.immediate_bits > 1) {
                         return false;
+                    }
+                    if object_type_is_64(instruction.type_tag) {
+                        if !append_object_byte(output, capacity, &mut code, 72)
+                            || !append_object_byte(output, capacity, &mut code, 184)
+                            || !append_object_u64(output, capacity, &mut code, instruction.immediate_bits)
+                            || !append_object_slot_store64(output, capacity, &mut code, instruction.result_value) {
+                            return false;
+                        }
+                    } else {
+                        if instruction.immediate_bits > 4294967295
+                            || !append_object_byte(output, capacity, &mut code, 184)
+                            || !append_object_u32(output, capacity, &mut code, instruction.immediate_bits as u32)
+                            || !append_object_slot_store(output, capacity, &mut code, instruction.result_value) {
+                            return false;
+                        }
                     }
                 } else if instruction.opcode == TargetOpcode::Add
                     || instruction.opcode == TargetOpcode::Sub
                     || instruction.opcode == TargetOpcode::Mul {
-                    if instruction.operand_count != 2 || result_type != TargetTypeTag::U32 { return false; }
-                    let left: TargetOperand = unsafe { *(operands + instruction.first_operand) };
-                    let right: TargetOperand = unsafe { *(operands + instruction.first_operand + 1) };
-                    if object_value_type(values, ir.value_count, left.value_id) != TargetTypeTag::U32
-                        || object_value_type(values, ir.value_count, right.value_id) != TargetTypeTag::U32
-                        || !append_object_slot_load(output, capacity, &mut code, left.value_id) {
+                    if instruction.operand_count != 2
+                        || instruction.type_tag != result_type
+                        || !object_integer_arithmetic_type(result_type) {
                         return false;
                     }
+                    let left: TargetOperand = unsafe { *(operands + instruction.first_operand) };
+                    let right: TargetOperand = unsafe { *(operands + instruction.first_operand + 1) };
+                    if object_value_type(values, ir.value_count, left.value_id) != result_type
+                        || object_value_type(values, ir.value_count, right.value_id) != result_type
+                        || !append_object_slot_load_typed(output, capacity, &mut code, left.value_id, result_type) {
+                        return false;
+                    }
+                    let wide: bool = object_type_is_64(result_type);
+                    if wide && !append_object_byte(output, capacity, &mut code, 72) { return false; }
                     if instruction.opcode == TargetOpcode::Add {
                         if !append_object_byte(output, capacity, &mut code, 3)
                             || !append_object_byte(output, capacity, &mut code, 133) { return false; }
@@ -1873,7 +1968,7 @@ pub fn emit_elf64_module_object(
                         return false;
                     }
                     if !append_object_u32(output, capacity, &mut code, 0 as u32 - right.value_id * 8)
-                        || !append_object_slot_store(output, capacity, &mut code, instruction.result_value) {
+                        || !append_object_slot_store_typed(output, capacity, &mut code, instruction.result_value, result_type) {
                         return false;
                     }
                 } else if instruction.opcode == TargetOpcode::AllocStack {
@@ -1905,16 +2000,35 @@ pub fn emit_elf64_module_object(
                     let base_op: TargetOperand = unsafe { *(operands + instruction.first_operand) };
                     let val_op: TargetOperand = unsafe { *(operands + instruction.first_operand + 1) };
                     let mem_offset: u32 = instruction.immediate_bits as u32;
-                    if !append_object_slot_load_ptr(output, capacity, &mut code, base_op.value_id)
-                        || !append_object_slot_load(output, capacity, &mut code, val_op.value_id)
-                        || !append_object_store_mem32(output, capacity, &mut code, mem_offset) {
+                    if instruction.operand_count != 2
+                        || !object_scalar_type(instruction.type_tag)
+                        || object_value_type(values, ir.value_count, base_op.value_id) != TargetTypeTag::Pointer
+                        || object_value_type(values, ir.value_count, val_op.value_id) != instruction.type_tag
+                        || !append_object_slot_load_ptr(output, capacity, &mut code, base_op.value_id)
+                        || !append_object_slot_load_typed(output, capacity, &mut code, val_op.value_id, instruction.type_tag) {
+                        return false;
+                    }
+                    if object_type_is_64(instruction.type_tag) {
+                        if !append_object_store_mem64(output, capacity, &mut code, mem_offset) { return false; }
+                    } else if !append_object_store_mem32(output, capacity, &mut code, mem_offset) {
                         return false;
                     }
                 } else if instruction.opcode == TargetOpcode::Load {
                     let base_op: TargetOperand = unsafe { *(operands + instruction.first_operand) };
                     let mem_offset: u32 = instruction.immediate_bits as u32;
-                    if !append_object_slot_load_ptr(output, capacity, &mut code, base_op.value_id)
-                        || !append_object_load_mem32(output, capacity, &mut code, mem_offset)
+                    if instruction.operand_count != 1
+                        || !object_scalar_type(instruction.type_tag)
+                        || result_type != instruction.type_tag
+                        || object_value_type(values, ir.value_count, base_op.value_id) != TargetTypeTag::Pointer
+                        || !append_object_slot_load_ptr(output, capacity, &mut code, base_op.value_id) {
+                        return false;
+                    }
+                    if object_type_is_64(instruction.type_tag) {
+                        if !append_object_load_mem64(output, capacity, &mut code, mem_offset)
+                            || !append_object_slot_store64(output, capacity, &mut code, instruction.result_value) {
+                            return false;
+                        }
+                    } else if !append_object_load_mem32(output, capacity, &mut code, mem_offset)
                         || !append_object_slot_store(output, capacity, &mut code, instruction.result_value) {
                         return false;
                     }
@@ -1929,8 +2043,15 @@ pub fn emit_elf64_module_object(
                     if !object_scalar_type(left_type)
                         || object_value_type(values, ir.value_count, right.value_id) != left_type
                         || (left_type == TargetTypeTag::Bool && instruction.immediate_bits > 87)
-                        || !append_object_slot_load(output, capacity, &mut code, left.value_id)
-                        || !append_object_byte(output, capacity, &mut code, 59)
+                        || (left_type == TargetTypeTag::I64 && instruction.immediate_bits > 87)
+                        || !append_object_slot_load_typed(output, capacity, &mut code, left.value_id, left_type) {
+                        return false;
+                    }
+                    if object_type_is_64(left_type)
+                        && !append_object_byte(output, capacity, &mut code, 72) {
+                        return false;
+                    }
+                    if !append_object_byte(output, capacity, &mut code, 59)
                         || !append_object_byte(output, capacity, &mut code, 133)
                         || !append_object_u32(output, capacity, &mut code, 0 as u32 - right.value_id * 8) {
                         return false;
@@ -1969,9 +2090,7 @@ pub fn emit_elf64_module_object(
                         if object_value_type(values, ir.value_count, argument.value_id) != parameter.type_tag {
                             return false;
                         }
-                        let is_64: bool = parameter.type_tag == TargetTypeTag::Pointer
-                            || parameter.type_tag == TargetTypeTag::U64
-                            || parameter.type_tag == TargetTypeTag::I64;
+                        let is_64: bool = object_type_is_64(parameter.type_tag);
                         if is_64 {
                             if !append_object_slot_load_rax64(output, capacity, &mut code, argument.value_id)
                                 || !append_object_rax_to_argument(output, capacity, &mut code, argument_index) {
@@ -1991,7 +2110,9 @@ pub fn emit_elf64_module_object(
                     call_patch_count = call_patch_count + 1;
                     if !append_object_u32(output, capacity, &mut code, 0) { return false; }
                     if instruction.result_value != 0
-                        && !append_object_slot_store(output, capacity, &mut code, instruction.result_value) {
+                        && !append_object_slot_store_typed(
+                            output, capacity, &mut code, instruction.result_value, callee.return_type
+                        ) {
                         return false;
                     }
                 } else if instruction.opcode == TargetOpcode::Branch {
@@ -2061,9 +2182,7 @@ pub fn emit_elf64_module_object(
                         if object_value_type(values, ir.value_count, returned.value_id) != function.return_type {
                             return false;
                         }
-                        let is_64: bool = function.return_type == TargetTypeTag::Pointer
-                            || function.return_type == TargetTypeTag::U64
-                            || function.return_type == TargetTypeTag::I64;
+                        let is_64: bool = object_type_is_64(function.return_type);
                         if is_64 {
                             if !append_object_slot_load_rax64(output, capacity, &mut code, returned.value_id) {
                                 return false;
