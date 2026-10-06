@@ -8,7 +8,7 @@ Validates that:
    - Integer and boolean scalar parameters (u8..u64, i8..i64, usize, isize, bool).
    - Integer literals and constant expressions with range checks.
    - Local variable definitions (let) and assignments.
-   - Binary arithmetic expressions (+, -, *).
+   - Certified integer arithmetic, bitwise, shift, and unsigned div/mod expressions.
    - Comparison expressions (==, !=, <, <=, >, >=) with verified predicates.
    - Intra-module function calls and external declarations (@extern(C)).
    - Control flow branches (if/else returning branches).
@@ -104,7 +104,7 @@ pub fn invalid_return(a: u32) -> u32 {
 
 UNSUPPORTED_OP_SRC = """module sv2::bad_op;
 
-pub fn div_unsupported(a: u32, b: u32) -> u32 {
+pub fn div_unsupported(a: i64, b: i64) -> i64 {
     return a / b;
 }
 """
@@ -482,7 +482,7 @@ class TestSotlasSovereigntySV2(unittest.TestCase):
         self.assertFalse(out_obj.exists())
 
     def test_sv2_fail_closed_unsupported_operation(self):
-        """SV2.9: Unsupported binary operations (e.g. division in scalar lowering) fail closed."""
+        """SV2.9: Signed division remains fail-closed until native idiv semantics are certified."""
         src_path = self.root / "bad_op.sotlas"
         src_path.write_text(UNSUPPORTED_OP_SRC, encoding="utf-8")
         out_obj = self.root / "bad_op.o"

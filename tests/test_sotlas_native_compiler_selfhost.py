@@ -2114,7 +2114,7 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
             unsupported_source = root / "unsupported_target.sotlas"
             unsupported_source.write_text(
                 "module test::unsupported_target;\n"
-                "fn divide(left: u32, right: u32) -> u32 { "
+                "fn divide(left: i64, right: i64) -> i64 { "
                 "return left / right; }\n",
                 encoding="utf-8",
             )
