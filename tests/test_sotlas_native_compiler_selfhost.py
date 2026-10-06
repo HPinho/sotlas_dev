@@ -1005,6 +1005,81 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
                 )
                 self.assertEqual(wide_call_run.returncode, 0, wide_call_run.stderr)
 
+            static_impl_wide_source = root / "static_impl_wide_object.sotlas"
+            static_impl_wide_source.write_text(
+                "module test::static_impl_wide_object;\n"
+                "struct WideOps {}\n"
+                "fn call_wide(value: usize) -> usize { "
+                "return WideOps::add_wide(value, 4294967297); }\n"
+                "impl WideOps { "
+                "fn add_wide(left: usize, right: usize) -> usize { "
+                "return left * 3 + right; } }\n",
+                encoding="utf-8",
+            )
+            static_impl_wide_object = root / "static_impl_wide_object.o"
+            static_impl_wide_emit = subprocess.run(
+                [
+                    str(compiler_exe),
+                    "--obj-unified",
+                    str(static_impl_wide_source),
+                    str(static_impl_wide_object),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(
+                static_impl_wide_emit.returncode, 0, static_impl_wide_emit.stderr
+            )
+            static_impl_wide_bytes = static_impl_wide_object.read_bytes()
+            self.assertIn(b"call_wide\x00", static_impl_wide_bytes)
+            self.assertIn(b"WideOps_add_wide\x00", static_impl_wide_bytes)
+            static_impl_shoff = struct.unpack_from("<Q", static_impl_wide_bytes, 40)[0]
+            static_impl_count = struct.unpack_from("<H", static_impl_wide_bytes, 60)[0]
+            static_impl_headers = [
+                struct.unpack_from(
+                    "<IIQQQQIIQQ",
+                    static_impl_wide_bytes,
+                    static_impl_shoff + index * 64,
+                )
+                for index in range(static_impl_count)
+            ]
+            self.assertEqual(static_impl_count, 7)
+            self.assertGreater(static_impl_headers[6][5], 0)
+            if sys.platform.startswith("linux"):
+                static_impl_caller = root / "static_impl_wide_caller.c"
+                static_impl_caller.write_text(
+                    "#include <stddef.h>\nextern size_t call_wide(size_t);\n"
+                    "int main(void) { return call_wide((size_t)5) == "
+                    "(size_t)4294967312ULL ? 0 : 1; }\n",
+                    encoding="utf-8",
+                )
+                static_impl_exe = root / "static_impl_wide_native"
+                static_impl_link = subprocess.run(
+                    [
+                        str(clang),
+                        str(static_impl_caller),
+                        str(static_impl_wide_object),
+                        "-o",
+                        str(static_impl_exe),
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(
+                    static_impl_link.returncode, 0, static_impl_link.stderr
+                )
+                static_impl_run = subprocess.run(
+                    [str(static_impl_exe)],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(
+                    static_impl_run.returncode, 0, static_impl_run.stderr
+                )
+
             parameter_object_source = root / "parameter_object.sotlas"
             parameter_object_source.write_text(
                 "module test::parameter_object;\n"
