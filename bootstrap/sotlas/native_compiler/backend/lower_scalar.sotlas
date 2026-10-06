@@ -51,7 +51,7 @@ pub struct ScalarLowering {
     pub field_name_offsets: [usize; 128];
     pub field_name_lens: [usize; 128];
     pub field_offsets: [u32; 128];
-    pub field_type_tags: [TargetTypeTag; 128];
+    pub field_type_tags: [u32; 128];
     pub field_total_count: usize;
     pub enum_name_offsets: [usize; 32];
     pub enum_name_lens: [usize; 32];
@@ -336,7 +336,7 @@ impl ScalarLowering {
             field_name_offsets: [0; 128],
             field_name_lens: [0; 128],
             field_offsets: [0; 128],
-            field_type_tags: [TargetTypeTag::Invalid; 128],
+            field_type_tags: [0; 128],
             field_total_count: 0,
             enum_name_offsets: [0; 32],
             enum_name_lens: [0; 32],
@@ -519,7 +519,8 @@ impl ScalarLowering {
                 name_offset,
                 name_length
             ) {
-                return self.local_struct_ids[local_offset];
+                let local_struct_id: u32 = self.local_struct_ids[local_offset];
+                return local_struct_id;
             }
         }
         return 0;
@@ -586,7 +587,8 @@ impl ScalarLowering {
                 name_offset,
                 name_length
             ) {
-                return self.variant_values[v_idx];
+                let variant_value: u64 = self.variant_values[v_idx];
+                return variant_value;
             }
             i = i + 1;
         }
@@ -751,7 +753,8 @@ impl ScalarLowering {
                 name_offset,
                 name_length
             ) {
-                return self.local_value_ids[local_offset];
+                let local_value_id: u32 = self.local_value_ids[local_offset];
+                return local_value_id;
             }
         }
         if self.parameters == null || self.values == null
@@ -997,7 +1000,7 @@ impl ScalarLowering {
                     }
                     let f_idx: usize = (field_id - 1) as usize;
                     let f_offset: u32 = self.field_offsets[f_idx];
-                    let f_type: TargetTypeTag = self.field_type_tags[f_idx];
+                    let f_type: TargetTypeTag = self.field_type_tags[f_idx] as TargetTypeTag;
                     let val_expr_index: usize = init_node.first_child;
                     if val_expr_index == 0 || val_expr_index >= self.node_count {
                         return TARGET_VALUE_NONE;
@@ -1057,7 +1060,7 @@ impl ScalarLowering {
             }
             let f_idx: usize = (field_id - 1) as usize;
             let f_offset: u32 = self.field_offsets[f_idx];
-            let f_type: TargetTypeTag = self.field_type_tags[f_idx];
+            let f_type: TargetTypeTag = self.field_type_tags[f_idx] as TargetTypeTag;
             let first_op: u32 = self.operand_count as u32;
             if !self.append_operand(base_ptr_val) {
                 return TARGET_VALUE_NONE;
@@ -1104,7 +1107,10 @@ impl ScalarLowering {
                 return TARGET_VALUE_NONE;
             }
             let variant_val: u64 = self.find_variant(enum_id, variant_offset, variant_len);
-            let actual_type: TargetTypeTag = if type_tag != TargetTypeTag::Invalid { type_tag } else { TargetTypeTag::U32 };
+            let mut actual_type: TargetTypeTag = type_tag;
+            if actual_type == TargetTypeTag::Invalid {
+                actual_type = TargetTypeTag::U32;
+            }
             let val_id: u32 = self.append_value(actual_type, 0, 0);
             if val_id == TARGET_VALUE_NONE {
                 return TARGET_VALUE_NONE;
@@ -1458,7 +1464,8 @@ impl ScalarLowering {
 
         let body_first_instruction: usize = self.instruction_count;
         let jump_kind: AstKind = unsafe { (*(self.nodes + jump_index)).kind };
-        let body_target: u32 = if jump_kind == AstKind::BreakStmt { exit_id } else { entry_id };
+        let mut body_target: u32 = entry_id;
+        if jump_kind == AstKind::BreakStmt { body_target = exit_id; }
         if !self.append_instruction(
             TargetOpcode::Branch, TARGET_VALUE_NONE, TargetTypeTag::Invalid,
             self.operand_count as u32, 0, jump_index
@@ -1633,7 +1640,8 @@ impl ScalarLowering {
         }
 
         let then_first_instruction: usize = self.instruction_count;
-        let then_target: u32 = if then_kind == AstKind::BreakStmt { exit_id } else { entry_id };
+        let mut then_target: u32 = entry_id;
+        if then_kind == AstKind::BreakStmt { then_target = exit_id; }
         if !self.append_instruction(
             TargetOpcode::Branch, TARGET_VALUE_NONE, TargetTypeTag::Invalid,
             self.operand_count as u32, 0, then_jump
@@ -1654,7 +1662,8 @@ impl ScalarLowering {
         }
 
         let else_first_instruction: usize = self.instruction_count;
-        let else_target: u32 = if else_kind == AstKind::BreakStmt { exit_id } else { entry_id };
+        let mut else_target: u32 = entry_id;
+        if else_kind == AstKind::BreakStmt { else_target = exit_id; }
         if !self.append_instruction(
             TargetOpcode::Branch, TARGET_VALUE_NONE, TargetTypeTag::Invalid,
             self.operand_count as u32, 0, else_jump
@@ -1731,8 +1740,10 @@ impl ScalarLowering {
                     || (child.int_value != 0 && child.int_value != 1) {
                     return self.reject(child_index);
                 }
-                let value_id: u32 = if function_is_external { TARGET_VALUE_NONE }
-                    else { self.append_value(type_tag, child.str_offset, child.str_len) };
+                let mut value_id: u32 = TARGET_VALUE_NONE;
+                if !function_is_external {
+                    value_id = self.append_value(type_tag, child.str_offset, child.str_len);
+                }
                 if !function_is_external && value_id == TARGET_VALUE_NONE { return self.reject(child_index); }
                 unsafe {
                     *(self.parameters + self.parameter_count) = TargetParameter {
@@ -1886,7 +1897,7 @@ impl ScalarLowering {
                     if field_id == 0 { return self.reject(statement_index); }
                     let f_idx: usize = (field_id - 1) as usize;
                     let f_offset: u32 = self.field_offsets[f_idx];
-                    let f_type: TargetTypeTag = self.field_type_tags[f_idx];
+                    let f_type: TargetTypeTag = self.field_type_tags[f_idx] as TargetTypeTag;
                     let expr_value: u32 = self.lower_expression(right_index, f_type, first_parameter, function_param_count);
                     if expr_value == TARGET_VALUE_NONE { return self.reject(statement_index); }
                     let first_op: u32 = self.operand_count as u32;
@@ -1984,26 +1995,29 @@ impl ScalarLowering {
             } else if statement.kind == AstKind::WhileStmt {
                 let return_index: usize = statement.next_sibling;
                 let while_condition_index: usize = statement.first_child;
-                let while_body_index: usize = if while_condition_index == 0
-                    || while_condition_index >= self.node_count { 0 as usize }
-                    else { unsafe { (*(self.nodes + while_condition_index)).next_sibling } };
-                let first_body_statement: usize = if while_body_index == 0
-                    || while_body_index >= self.node_count { 0 as usize }
-                    else { unsafe { (*(self.nodes + while_body_index)).first_child } };
+                let mut while_body_index: usize = 0;
+                if while_condition_index != 0 && while_condition_index < self.node_count {
+                    while_body_index = unsafe { (*(self.nodes + while_condition_index)).next_sibling };
+                }
+                let mut first_body_statement: usize = 0;
+                if while_body_index != 0 && while_body_index < self.node_count {
+                    first_body_statement = unsafe { (*(self.nodes + while_body_index)).first_child };
+                }
                 let body_is_if: bool = first_body_statement != 0
                     && first_body_statement < self.node_count
                     && unsafe { (*(self.nodes + first_body_statement)).kind } == AstKind::IfStmt;
-                let loop_lowered: bool = if body_is_if {
-                    self.lower_while_if_jumps_then_return(
+                let mut loop_lowered: bool = false;
+                if body_is_if {
+                    loop_lowered = self.lower_while_if_jumps_then_return(
                         statement_index, return_index, return_type, first_parameter,
                         function_param_count, first_instruction
-                    )
+                    );
                 } else {
-                    self.lower_while_jump_then_return(
+                    loop_lowered = self.lower_while_jump_then_return(
                         statement_index, return_index, return_type, first_parameter,
                         function_param_count, first_instruction
-                    )
-                };
+                    );
+                }
                 if return_index == 0 || !loop_lowered {
                     return self.reject(statement_index);
                 }
@@ -2078,10 +2092,14 @@ pub fn lower_scalar_module(
                         let tt: TargetTypeTag = lowering.type_tag_for(decl_node.first_child);
                         if tt != TargetTypeTag::Invalid {
                             type_tag_val = tt as u32;
-                            var_size = if tt == TargetTypeTag::U64 || tt == TargetTypeTag::I64 || tt == TargetTypeTag::Pointer { 8 as usize }
-                                       else if tt == TargetTypeTag::U16 || tt == TargetTypeTag::I16 { 2 as usize }
-                                       else if tt == TargetTypeTag::U8 || tt == TargetTypeTag::I8 || tt == TargetTypeTag::Bool { 1 as usize }
-                                       else { 4 as usize };
+                            var_size = 4;
+                            if tt == TargetTypeTag::U64 || tt == TargetTypeTag::I64 || tt == TargetTypeTag::Pointer {
+                                var_size = 8;
+                            } else if tt == TargetTypeTag::U16 || tt == TargetTypeTag::I16 {
+                                var_size = 2;
+                            } else if tt == TargetTypeTag::U8 || tt == TargetTypeTag::I8 || tt == TargetTypeTag::Bool {
+                                var_size = 1;
+                            }
                         }
                     }
                 }
@@ -2124,11 +2142,15 @@ pub fn lower_scalar_module(
                             f_type = TargetTypeTag::U32;
                         }
                     }
-                    lowering.field_type_tags[f_idx] = f_type;
-                    let f_sz: u32 = if f_type == TargetTypeTag::U64 || f_type == TargetTypeTag::I64 || f_type == TargetTypeTag::Pointer { 8 }
-                                    else if f_type == TargetTypeTag::U16 || f_type == TargetTypeTag::I16 { 2 }
-                                    else if f_type == TargetTypeTag::U8 || f_type == TargetTypeTag::I8 || f_type == TargetTypeTag::Bool { 1 }
-                                    else { 4 };
+                    lowering.field_type_tags[f_idx] = f_type as u32;
+                    let mut f_sz: u32 = 4;
+                    if f_type == TargetTypeTag::U64 || f_type == TargetTypeTag::I64 || f_type == TargetTypeTag::Pointer {
+                        f_sz = 8;
+                    } else if f_type == TargetTypeTag::U16 || f_type == TargetTypeTag::I16 {
+                        f_sz = 2;
+                    } else if f_type == TargetTypeTag::U8 || f_type == TargetTypeTag::I8 || f_type == TargetTypeTag::Bool {
+                        f_sz = 1;
+                    }
                     cur_offset = cur_offset + f_sz;
                     lowering.field_total_count = lowering.field_total_count + 1;
                     f_cnt = f_cnt + 1;

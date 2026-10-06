@@ -76,7 +76,7 @@ class SotlasNativeTargetIRContractTests(unittest.TestCase):
         native_root = ROOT / "bootstrap" / "sotlas" / "native_compiler"
         dependency_names = (
             "token", "ast", "lexer", "parser", "sema", "emitter_c",
-            "target_ir", "lower_scalar",
+            "target_ir", "lower_scalar", "x86_64_scalar",
         )
         # Keep this gate at the checker boundary: it type-checks the Sotlas
         # modules but does not ask Stage-0 to generate C for the Target IR.

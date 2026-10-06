@@ -183,7 +183,8 @@ pub fn native_numeric_literal_kind(
     let is_hex: bool = expression.str_len >= 2 && first == 48
         && (unsafe { *(source + expression.str_offset + 1) } == 120
             || unsafe { *(source + expression.str_offset + 1) } == 88);
-    let mut index: usize = if is_hex { 2 } else { 0 };
+    let mut index: usize = 0;
+    if is_hex { index = 2; }
     let mut saw_digit: bool = false;
     let mut saw_dot: bool = false;
     let mut digit_before_dot: bool = false;
@@ -199,7 +200,7 @@ pub fn native_numeric_literal_kind(
         let hex_digit: bool = decimal_digit
             || (ch >= 65 && ch <= 70)
             || (ch >= 97 && ch <= 102);
-        if (if is_hex { hex_digit } else { decimal_digit }) {
+        if (is_hex && hex_digit) || (!is_hex && decimal_digit) {
             saw_digit = true;
             if !saw_dot {
                 digit_before_dot = true;
@@ -230,7 +231,7 @@ pub fn native_numeric_literal_kind(
 }
 
 pub fn native_numeric_type_domain(
-    sem: &Sema,
+    sem: &mut Sema,
     nodes: *const AstNode,
     node_count: usize,
     type_index: usize,
@@ -291,7 +292,7 @@ pub fn native_function_return_type(
 }
 
 pub fn native_call_argument_expected_type(
-    sem: &Sema,
+    sem: &mut Sema,
     nodes: *const AstNode,
     node_count: usize,
     call_index: usize,
@@ -372,7 +373,7 @@ pub fn native_call_argument_expected_type(
 }
 
 pub fn native_numeric_expected_type(
-    sem: &Sema,
+    sem: &mut Sema,
     nodes: *const AstNode,
     node_count: usize,
     expression_index: usize,
@@ -825,41 +826,6 @@ pub fn sotlas_native_lower_scalar_diagnostic(
     return true;
 }
 
-@extern(C)
-fn emit_elf64_module_object(
-    source: *const u8,
-    len: usize,
-    target_module: *const TargetModule,
-    functions: *const TargetFunction,
-    parameters: *const TargetParameter,
-    values: *const TargetValue,
-    blocks: *const TargetBlock,
-    instructions: *const TargetInstruction,
-    operands: *const TargetOperand,
-    phi_inputs: *const TargetPhiInput,
-    targets: *const u32,
-    output: *mut u8,
-    capacity: usize,
-    out_length: *mut usize
-) -> bool;
-
-@extern(C)
-fn link_elf64_executable(
-    object_data: *const u8,
-    object_offsets: *const usize,
-    object_lengths: *const usize,
-    object_count: u32,
-    entry_name: *const u8,
-    entry_name_length: usize,
-    entry_arguments: *const u32,
-    entry_argument_count: u32,
-    base_address: u64,
-    freestanding: bool,
-    output: *mut u8,
-    capacity: usize,
-    output_length: *mut usize
-) -> bool;
-
 // Compiles Sotlas source code directly to a freestanding or hosted ELF64 relocatable
 // object without invoking the C11 emitter or external assemblers.
 @export
@@ -914,7 +880,8 @@ pub fn sotlas_native_compile_object(
     }
 
     let ext_len: usize = sotlas_native_extended_source_len();
-    let total_src_len: usize = if ext_len > len { ext_len } else { len };
+    let mut total_src_len: usize = len;
+    if ext_len > len { total_src_len = ext_len; }
 
     return emit_elf64_module_object(
         unsafe { g_extended_source as *const u8 },
@@ -976,7 +943,8 @@ pub fn sotlas_native_link_executable(
         *(g_link_offset as *mut usize) = 0;
         *(g_link_length as *mut usize) = object_len;
     }
-    let base_addr: u64 = if freestanding { 1048576 } else { 4194304 };
+    let mut base_addr: u64 = 4194304;
+    if freestanding { base_addr = 1048576; }
     return link_elf64_executable(
         object,
         unsafe { g_link_offset as *const usize },
@@ -1018,7 +986,8 @@ pub fn sotlas_native_link_objects(
         || object_count == 0 || output == null || capacity == 0 {
         return false;
     }
-    let base_addr: u64 = if freestanding { 1048576 } else { 4194304 };
+    let mut base_addr: u64 = 4194304;
+    if freestanding { base_addr = 1048576; }
     return link_elf64_executable(
         object_data,
         object_offsets,
