@@ -112,3 +112,27 @@ pub fn sotlas_native_link_objects(
     return false;
 }
 
+
+@export
+@system
+pub fn sotlas_native_compile_project(
+    sources_data: *const u8,
+    source_offsets: *const usize,
+    source_lengths: *const usize,
+    source_count: u32,
+    entry_name: *const u8,
+    entry_name_len: usize,
+    freestanding: bool,
+    output: *mut u8,
+    capacity: usize,
+    out_length: *mut usize
+) -> bool {
+    if out_length == null { return false; }
+    unsafe { *out_length = 0; }
+    if sources_data == null && source_offsets == null && source_lengths == null
+        && source_count == 0 && entry_name == null && entry_name_len == 0
+        && !freestanding && output == null && capacity == 0 {
+        return false;
+    }
+    return false;
+}
