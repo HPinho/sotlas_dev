@@ -237,7 +237,7 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
                 "        found_call = true; break; } "
                 "      if (!found_call) return 76; }\n"
                 "    uint32_t abi = 1;\n"
-                "#if defined(_WIN32)\n    abi = 2;\n#endif\n"
+                "#if defined(_WIN32)\n    abi = 2;\n#elif defined(__APPLE__)\n    abi = 3;\n#endif\n"
                 "    bool emitted = module.function_count == 1\n"
                 "      ? emit_x86_64_scalar_function(abi, input, len, &module, "
                 "(const struct TargetFunction *)functions, (const struct TargetParameter *)parameters, "
@@ -282,7 +282,7 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
                 "    struct TargetOperand operands[6]={{3},{2},{4},{3},{5},{3}}; struct TargetPhiInput phi_inputs[2]={{1,1},{6,3}}; uint32_t targets[4]={2,3,4,2};\n"
                 "    if (!target_module_validate_cfg(&module,&fn,params,values,blocks,instructions,operands,phi_inputs,targets)) return 90; uint8_t scratch[128]={0};\n"
                 "    if (!target_module_validate_ssa_dominance(&module,&fn,params,values,blocks,instructions,operands,phi_inputs,targets,scratch,sizeof(scratch))) return 91;\n"
-                "    uint32_t abi=1;\n#if defined(_WIN32)\n    abi=2;\n#endif\n"
+                "    uint32_t abi=1;\n#if defined(_WIN32)\n    abi=2;\n#elif defined(__APPLE__)\n    abi=3;\n#endif\n"
                 "    if (!emit_x86_64_scalar_cfg(abi,source,sizeof(source)-1,&module,&fn,params,values,blocks,instructions,operands,phi_inputs,targets,assembly,sizeof(assembly),&asm_len)) return 92;\n"
                 "    FILE *dest=fopen(argv[2],\"wb\"); if(!dest) return 93; size_t written=fwrite(assembly,1,asm_len,dest); fclose(dest); return written==asm_len?0:94;\n"
                 "  }\n"
@@ -308,7 +308,7 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
                 "    else if (!target_module_validate_cfg(&module, &fn, params, values, blocks, instructions, operands, phi_inputs, targets)) return 84;\n"
                 "    if (bad_phi) { if (emit_x86_64_scalar_cfg(1, source, sizeof(source) - 1, &module, &fn, params, values, blocks, instructions, operands, phi_inputs, targets, assembly, sizeof(assembly), &asm_len)) return 89; if (emit_elf64_scalar_function_object(source, sizeof(source)-1, &module, &fn, params, values, blocks, instructions, operands, phi_inputs, targets, assembly, sizeof(assembly), &asm_len)) return 96; return 0; }\n"
                 "    uint8_t scratch[128] = {0}; if (!target_module_validate_ssa_dominance(&module, &fn, params, values, blocks, instructions, operands, phi_inputs, targets, scratch, sizeof(scratch))) return 85;\n"
-                "    uint32_t abi = 1;\n#if defined(_WIN32)\n    abi = 2;\n#endif\n"
+                "    uint32_t abi = 1;\n#if defined(_WIN32)\n    abi = 2;\n#elif defined(__APPLE__)\n    abi = 3;\n#endif\n"
                 "    if (!emit_x86_64_scalar_cfg(abi, source, sizeof(source) - 1, &module, &fn, params, values, blocks, instructions, operands, phi_inputs, targets, assembly, sizeof(assembly), &asm_len)) return 86;\n"
                 "    if (strcmp(argv[1], \"--cfg-phi-object\") == 0) { asm_len = 0; if (!emit_elf64_scalar_function_object(source, sizeof(source)-1, &module, &fn, params, values, blocks, instructions, operands, phi_inputs, targets, assembly, sizeof(assembly), &asm_len)) return 95; }\n"
                 "    FILE *dest = fopen(argv[2], \"wb\"); if (!dest) return 87; size_t written = fwrite(assembly, 1, asm_len, dest); fclose(dest); return written == asm_len ? 0 : 88;\n"
@@ -333,7 +333,7 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
                 "    else if (!target_module_validate_cfg(&module, &fn, params, values, blocks, instructions, operands, NULL, targets)) return 78;\n"
                 "    if (bad_cfg) { if (emit_x86_64_scalar_cfg(1, source, sizeof(source) - 1, &module, &fn, params, values, blocks, instructions, operands, NULL, targets, assembly, sizeof(assembly), &asm_len)) return 83; return 0; }\n"
                 "    if (!target_module_validate_ssa_dominance(&module, &fn, params, values, blocks, instructions, operands, NULL, targets, scratch, sizeof(scratch))) return 79;\n"
-                "    uint32_t abi = 1;\n#if defined(_WIN32)\n    abi = 2;\n#endif\n"
+                "    uint32_t abi = 1;\n#if defined(_WIN32)\n    abi = 2;\n#elif defined(__APPLE__)\n    abi = 3;\n#endif\n"
                 "    if (!emit_x86_64_scalar_cfg(abi, source, sizeof(source) - 1, &module, &fn, params, values, blocks, instructions, operands, NULL, targets, assembly, sizeof(assembly), &asm_len)) return 80;\n"
                 "    FILE *dest = fopen(argv[2], \"wb\"); if (!dest) return 81; size_t written = fwrite(assembly, 1, asm_len, dest); fclose(dest); return written == asm_len ? 0 : 82;\n"
                 "  }\n"
@@ -349,7 +349,7 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
                 "    if (!target_module_validate_cfg(&module, (const struct TargetFunction *)functions, (const struct TargetParameter *)parameters, (const struct TargetValue *)values, (const struct TargetBlock *)blocks, instructions, (const struct TargetOperand *)operands, phi_inputs, targets)) return 67;\n"
                 "    uint8_t scratch[4096] = {0};\n"
                 "    if (!target_module_validate_ssa_dominance(&module, (const struct TargetFunction *)functions, (const struct TargetParameter *)parameters, (const struct TargetValue *)values, (const struct TargetBlock *)blocks, instructions, (const struct TargetOperand *)operands, phi_inputs, targets, scratch, sizeof(scratch))) return 68;\n"
-                "    uint32_t abi = 1;\n#if defined(_WIN32)\n    abi = 2;\n#endif\n"
+                "    uint32_t abi = 1;\n#if defined(_WIN32)\n    abi = 2;\n#elif defined(__APPLE__)\n    abi = 3;\n#endif\n"
                 "    if (!emit_x86_64_scalar_cfg(abi, input, len, &module, (const struct TargetFunction *)functions, (const struct TargetParameter *)parameters, (const struct TargetValue *)values, (const struct TargetBlock *)blocks, instructions, operands, phi_inputs, targets, assembly, sizeof(assembly), &asm_len)) return 69;\n"
                 "    FILE *dest = fopen(argv[3], \"wb\"); if (!dest) return 70;\n"
                 "    size_t written = fwrite(assembly, 1, asm_len, dest); fclose(dest); return written == asm_len ? 0 : 71;\n"
@@ -694,7 +694,12 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
             )
             self.assertEqual(assembly_result.returncode, 0, assembly_result.stderr)
             assembly_text = assembly_file.read_text(encoding="utf-8")
-            self.assertIn(".globl constant", assembly_text)
+            if sys.platform == "darwin":
+                self.assertIn(".globl _constant", assembly_text)
+                self.assertIn("_constant:", assembly_text)
+            else:
+                self.assertIn(".globl constant", assembly_text)
+                self.assertIn("constant:", assembly_text)
             self.assertIn("movl $7, %eax", assembly_text)
             self.assertIn("ret", assembly_text)
             clang = default_toolchain.find_tool("clang")
