@@ -366,6 +366,28 @@ pub fn rejected_pointer(value: u64) -> u64 {
 }
 """
 
+SV4_FIXED_ARRAY_INDEX_SRC = """module sv4::fixed_array_index;
+
+pub static mut WORDS: [u32; 4] = 0;
+pub static mut BYTES: [u8; 8] = 0;
+
+fn read_word(index: usize) -> u32 {
+    return unsafe { WORDS[index] };
+}
+
+fn read_byte(index: usize) -> u8 {
+    return unsafe { BYTES[index] };
+}
+
+pub fn case_safe() -> u32 {
+    return read_word(2) + (read_byte(3) as u32);
+}
+
+pub fn case_oob() -> u32 {
+    return read_word(4);
+}
+"""
+
 SV4_SIGNED_DIV_REJECT_SRC = """module sv4::signed_div_reject;
 
 pub fn rejected_signed(value: i64) -> i64 {
@@ -443,7 +465,7 @@ class TestSotlasSovereigntySV2(unittest.TestCase):
 
         for op in (
             "ConstInt", "Add", "Sub", "Mul", "BitAnd", "BitOr", "BitXor",
-            "ShiftLeft", "ShiftRight", "Div", "Mod", "IntCast", "Compare", "Call",
+            "ShiftLeft", "ShiftRight", "Div", "Mod", "IntCast", "IndexAddr", "Compare", "Call",
             "Return", "Branch", "CondBranch", "AllocStack", "Store", "Load",
         ):
             self.assertIn(f"TargetOpcode::{op}", src)
@@ -995,6 +1017,69 @@ class TestSotlasSovereigntySV2(unittest.TestCase):
                 [str(out_bin)], capture_output=True, text=True, check=False
             )
             self.assertEqual(executed.returncode, 1, executed.stderr)
+
+    def test_sv4_fixed_array_dynamic_read_indexing_is_native(self):
+        """SV4.8b: Global fixed arrays use checked native base + index*stride addressing."""
+        src_path = self.root / "fixed_array_index.sotlas"
+        src_path.write_text(SV4_FIXED_ARRAY_INDEX_SRC, encoding="utf-8")
+        out_obj = self.root / "fixed_array_index.o"
+        compiled = subprocess.run(
+            [str(self.stage1), "--compile-obj", str(src_path), str(out_obj)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(compiled.returncode, 0, compiled.stderr)
+        self.assertTrue(out_obj.is_file())
+        data = out_obj.read_bytes()
+        self.assertEqual(data[:4], b"\x7fELF")
+        self.assertIn(b"read_word\x00", data)
+        self.assertIn(b"read_byte\x00", data)
+        self.assertIn(b"case_safe\x00", data)
+        self.assertIn(b"case_oob\x00", data)
+        self.assertIn(b"\x48\x3d", data)  # cmp rax, fixed-array length
+        self.assertIn(b"\x0f\x82\x02\x00\x00\x00\x0f\x0b", data)
+        self.assertIn(b"\x48\xc1\xe0\x02", data)  # u32 stride 4
+        self.assertIn(b"\x0f\xb6\x81", data)  # zero-extending u8 load
+
+        if sys.platform.startswith("linux"):
+            safe_bin = self.root / "fixed_array_safe.bin"
+            linked = subprocess.run(
+                [
+                    str(self.stage1),
+                    "--link-exe",
+                    str(out_obj),
+                    str(safe_bin),
+                    "case_safe",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(linked.returncode, 0, linked.stderr)
+            executed = subprocess.run(
+                [str(safe_bin)], capture_output=True, text=True, check=False
+            )
+            self.assertEqual(executed.returncode, 0, executed.stderr)
+
+            oob_bin = self.root / "fixed_array_oob.bin"
+            linked_oob = subprocess.run(
+                [
+                    str(self.stage1),
+                    "--link-exe",
+                    str(out_obj),
+                    str(oob_bin),
+                    "case_oob",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(linked_oob.returncode, 0, linked_oob.stderr)
+            oob_run = subprocess.run(
+                [str(oob_bin)], capture_output=True, text=True, check=False
+            )
+            self.assertNotEqual(oob_run.returncode, 0)
 
     def test_sv4_pointer_cast_stays_fail_closed(self):
         """SV4.8a negative gate: integer/pointer casts remain rejected until pointer provenance is certified."""

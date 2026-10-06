@@ -3,7 +3,7 @@
 **Status:** active implementation track  
 **Started:** 2026-10-03 (America/Fortaleza)  
 **Green baseline at track start:** `7162167dec6fd5fa0a216121b147335d222e43f1` / CI #1063  
-**Current certified baseline:** `ce9fe7925ded702323b65ec1d9f347d266d352a4` / CI #1105
+**Current certified baseline:** `a8605eb6cf276809248192dd02bccd7c12df4c1a` / CI #1106
 
 ## Goal
 
@@ -358,8 +358,8 @@ Milestone **SV7** proves that the Stage 0 compiler builds the Sotlas Stage 1 com
 Milestone **SV8** currently certifies deterministic Stage1/Stage2/Stage3 frontend and native-output equivalence, but **does not yet certify a C/Python-free compiler build chain**. Stage2 and Stage3 executables are still produced from emitted C with Clang plus the C host driver.
 
 ### Active implementation queue
-- **Current item — SV4.8a / SV8 prerequisite:** explicit native integer casts. The first certified subset is U32/U64 (with I64 bit-preserving/truncating paths in the IR emitter); integer↔pointer casts remain fail-closed until provenance semantics are certified.
-- **Next item — SV4.8b / SV8 prerequisite:** dynamic fixed-array/pointer indexing using a native indexed-address operation with preserved element type/stride metadata and fail-closed unsupported shapes.
+- **Current item — SV4.8b / SV8 prerequisite:** checked dynamic reads from global fixed arrays using native `base + index * stride` addressing. Element type/stride/count are preserved in BSS metadata and out-of-bounds access traps before memory is touched.
+- **Next item — SV4.8c / SV8 prerequisite:** indexed stores plus raw-pointer indexing/provenance rules; unsupported pointer shapes remain fail-closed.
 - **Following gate — SV8.7:** Stage1 compiles the real `bootstrap/sotlas/native_compiler/backend/target_ir.sotlas` module to a native ELF object without C emission.
 - **Sovereignty metric:** application/kernel native gates are C/Python-free; compiler bootstrap gates remain hosted. Current tracked reduction is 40% eliminated / 60% remaining for both Python and C until a native Stage1→Stage2 build gate closes.
 
