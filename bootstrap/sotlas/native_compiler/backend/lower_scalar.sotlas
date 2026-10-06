@@ -2202,12 +2202,32 @@ impl ScalarLowering {
                 }
                 if var_type == TargetTypeTag::Invalid {
                     let mut sem: Sema = Sema::new();
-                    if sem.expression_is_integer_literal(self.nodes, self.node_count, right_index, self.source, self.source_len) {
-                        var_type = TargetTypeTag::U32;
-                    } else if right_node.kind == AstKind::ExprPath {
-                        var_type = TargetTypeTag::U32;
-                    } else {
-                        var_type = TargetTypeTag::U32;
+                    if right_node.kind == AstKind::ExprCall {
+                        let inferred_type_ref: usize = sem.infer_expression_type_ref(
+                            self.nodes,
+                            self.node_count,
+                            right_index,
+                            self.source,
+                            self.source_len
+                        );
+                        if inferred_type_ref != 0 {
+                            var_type = self.type_tag_for(inferred_type_ref);
+                        }
+                    }
+                    if var_type == TargetTypeTag::Invalid {
+                        if sem.expression_is_integer_literal(
+                            self.nodes,
+                            self.node_count,
+                            right_index,
+                            self.source,
+                            self.source_len
+                        ) {
+                            var_type = TargetTypeTag::U32;
+                        } else if right_node.kind == AstKind::ExprPath {
+                            var_type = TargetTypeTag::U32;
+                        } else {
+                            var_type = TargetTypeTag::U32;
+                        }
                     }
                 }
                 let expr_value: u32 = self.lower_expression(right_index, var_type, first_parameter, function_param_count);
