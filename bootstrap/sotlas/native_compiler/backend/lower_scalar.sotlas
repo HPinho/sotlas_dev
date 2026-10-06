@@ -1013,6 +1013,28 @@ impl ScalarLowering {
                 let m_off: usize = callee.str_offset + sep + 2;
                 let m_len: usize = callee.str_len - (sep + 2);
                 callee_symbol = self.append_mangled_name(s_off, s_len, m_off, m_len);
+                let mut call_sema: Sema = Sema::new();
+                let module_index: usize = call_sema.find_enclosing_module(
+                    self.nodes, self.node_count, expression_index
+                );
+                if module_index == 0 {
+                    return TARGET_VALUE_NONE;
+                }
+                callee_decl = call_sema.find_static_impl_method_for_path(
+                    self.nodes,
+                    self.node_count,
+                    module_index,
+                    expression.first_child,
+                    self.source,
+                    self.source_len
+                );
+                if callee_decl == 0
+                    || call_sema.static_impl_receiver_index(
+                        self.nodes, self.node_count, callee_decl, self.source, self.source_len
+                    ) != 0
+                    || self.function_parameter_count_from_ast(callee_decl) > 6 {
+                    return TARGET_VALUE_NONE;
+                }
             } else if callee.kind == AstKind::ExprFieldAccess {
                 let base_index: usize = callee.first_child;
                 if base_index == 0 || base_index >= self.node_count { return TARGET_VALUE_NONE; }
