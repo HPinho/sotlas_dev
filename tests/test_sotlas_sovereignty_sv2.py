@@ -342,6 +342,30 @@ pub fn case_divmod() -> u32 {
 }
 """
 
+SV4_INTEGER_CAST_SRC = """module sv4::integer_casts;
+
+fn widen(value: u32) -> u64 {
+    return value as u64;
+}
+
+fn narrow(value: u64) -> u32 {
+    return value as u32;
+}
+
+pub fn case_cast() -> u32 {
+    let wide: u64 = widen(4294967295);
+    return narrow(wide + 2);
+}
+"""
+
+SV4_POINTER_CAST_REJECT_SRC = """module sv4::pointer_cast_reject;
+
+pub fn rejected_pointer(value: u64) -> u64 {
+    let ptr: *const u8 = value as *const u8;
+    return value;
+}
+"""
+
 SV4_SIGNED_DIV_REJECT_SRC = """module sv4::signed_div_reject;
 
 pub fn rejected_signed(value: i64) -> i64 {
@@ -419,7 +443,7 @@ class TestSotlasSovereigntySV2(unittest.TestCase):
 
         for op in (
             "ConstInt", "Add", "Sub", "Mul", "BitAnd", "BitOr", "BitXor",
-            "ShiftLeft", "ShiftRight", "Div", "Mod", "Compare", "Call",
+            "ShiftLeft", "ShiftRight", "Div", "Mod", "IntCast", "Compare", "Call",
             "Return", "Branch", "CondBranch", "AllocStack", "Store", "Load",
         ):
             self.assertIn(f"TargetOpcode::{op}", src)
@@ -936,6 +960,55 @@ class TestSotlasSovereigntySV2(unittest.TestCase):
                     [str(out_bin)], capture_output=True, text=True, check=False
                 )
                 self.assertEqual(executed.returncode, expected, executed.stderr)
+
+    def test_sv4_integer_casts_are_native(self):
+        """SV4.8a: Explicit U32/U64 integer casts lower to native x86-64 truncation/extension."""
+        src_path = self.root / "integer_casts.sotlas"
+        src_path.write_text(SV4_INTEGER_CAST_SRC, encoding="utf-8")
+        out_obj = self.root / "integer_casts.o"
+        compiled = subprocess.run(
+            [str(self.stage1), "--compile-obj", str(src_path), str(out_obj)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(compiled.returncode, 0, compiled.stderr)
+        self.assertTrue(out_obj.is_file())
+        self.assertEqual(out_obj.read_bytes()[:4], b"\x7fELF")
+
+        if sys.platform.startswith("linux"):
+            out_bin = self.root / "integer_casts.bin"
+            linked = subprocess.run(
+                [
+                    str(self.stage1),
+                    "--link-exe",
+                    str(out_obj),
+                    str(out_bin),
+                    "case_cast",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(linked.returncode, 0, linked.stderr)
+            executed = subprocess.run(
+                [str(out_bin)], capture_output=True, text=True, check=False
+            )
+            self.assertEqual(executed.returncode, 1, executed.stderr)
+
+    def test_sv4_pointer_cast_stays_fail_closed(self):
+        """SV4.8a negative gate: integer/pointer casts remain rejected until pointer provenance is certified."""
+        src_path = self.root / "pointer_cast_reject.sotlas"
+        src_path.write_text(SV4_POINTER_CAST_REJECT_SRC, encoding="utf-8")
+        out_obj = self.root / "pointer_cast_reject.o"
+        compiled = subprocess.run(
+            [str(self.stage1), "--compile-obj", str(src_path), str(out_obj)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertNotEqual(compiled.returncode, 0)
+        self.assertFalse(out_obj.exists())
 
     def test_sv4_short_circuit_trap_capable_rhs_fails_closed(self):
         """SV4.6/SV4.7 guard: eager logical composition rejects trap-capable div/mod operands."""
