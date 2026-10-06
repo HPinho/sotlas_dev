@@ -118,7 +118,86 @@ impl ScalarLowering {
         };
     }
 
-    pub fn parse_array_type_size(self: &Self, type_offset: usize, type_len: usize) -> usize {
+    pub fn parse_array_element_type(
+        self: &Self,
+        type_offset: usize,
+        type_len: usize
+    ) -> TargetTypeTag {
+        if self.source == null || type_len < 4 || type_offset > self.source_len
+            || type_len > self.source_len - type_offset
+            || unsafe { *(self.source + type_offset) } != 91 {
+            return TargetTypeTag::Invalid;
+        }
+        let mut start: usize = 1;
+        while start < type_len {
+            let ch: u8 = unsafe { *(self.source + type_offset + start) };
+            if ch == 32 || ch == 9 || ch == 10 || ch == 13 {
+                start = start + 1;
+            } else {
+                break;
+            }
+        }
+        let mut sep: usize = start;
+        while sep < type_len
+            && unsafe { *(self.source + type_offset + sep) } != 59 {
+            sep = sep + 1;
+        }
+        if sep >= type_len { return TargetTypeTag::Invalid; }
+        let mut finish: usize = sep;
+        while finish > start {
+            let ch: u8 = unsafe { *(self.source + type_offset + finish - 1) };
+            if ch == 32 || ch == 9 || ch == 10 || ch == 13 {
+                finish = finish - 1;
+            } else {
+                break;
+            }
+        }
+        if finish <= start { return TargetTypeTag::Invalid; }
+        let elem_len: usize = finish - start;
+        let mut sem: Sema = Sema::new();
+        let elem_offset: usize = type_offset + start;
+        if sem.source_slice_equals(
+            self.source, self.source_len, elem_offset, elem_len, "u8", 2
+        ) { return TargetTypeTag::U8; }
+        if sem.source_slice_equals(
+            self.source, self.source_len, elem_offset, elem_len, "u16", 3
+        ) { return TargetTypeTag::U16; }
+        if sem.source_slice_equals(
+            self.source, self.source_len, elem_offset, elem_len, "u32", 3
+        ) { return TargetTypeTag::U32; }
+        if sem.source_slice_equals(
+            self.source, self.source_len, elem_offset, elem_len, "u64", 3
+        ) { return TargetTypeTag::U64; }
+        if sem.source_slice_equals(
+            self.source, self.source_len, elem_offset, elem_len, "usize", 5
+        ) { return TargetTypeTag::U64; }
+        return TargetTypeTag::Invalid;
+    }
+
+    pub fn parse_array_element_stride(
+        self: &Self,
+        type_offset: usize,
+        type_len: usize
+    ) -> usize {
+        let elem_type: TargetTypeTag = self.parse_array_element_type(
+            type_offset, type_len
+        );
+        if elem_type == TargetTypeTag::U8 { return 1; }
+        if elem_type == TargetTypeTag::U16 { return 2; }
+        if elem_type == TargetTypeTag::U32 { return 4; }
+        if elem_type == TargetTypeTag::U64 { return 8; }
+        return 0;
+    }
+
+    pub fn parse_array_element_count(
+        self: &Self,
+        type_offset: usize,
+        type_len: usize
+    ) -> usize {
+        if self.source == null || type_offset > self.source_len
+            || type_len > self.source_len - type_offset {
+            return 0;
+        }
         let mut sep: usize = 0;
         let mut i: usize = 0;
         while i < type_len {
@@ -128,46 +207,29 @@ impl ScalarLowering {
             }
             i = i + 1;
         }
-        if sep == 0 { return 8 as usize; }
-        let mut elem_sz: usize = 4 as usize;
-        let mut j: usize = 0;
-        let mut saw_u8: bool = false;
-        let mut saw_64: bool = false;
-        let mut saw_16: bool = false;
-        while j < sep {
-            let c1: u8 = unsafe { *(self.source + type_offset + j) };
-            if j + 1 < sep {
-                let c2: u8 = unsafe { *(self.source + type_offset + j + 1) };
-                if (c1 == 117 || c1 == 105) && c2 == 56 {
-                    saw_u8 = true;
-                }
-                if (c1 == 117 || c1 == 105) && (c2 == 54 || c2 == 115) {
-                    saw_64 = true;
-                }
-                if (c1 == 117 || c1 == 105) && c2 == 49 {
-                    saw_16 = true;
-                }
-            }
-            if c1 == 42 {
-                saw_64 = true;
-            }
-            j = j + 1;
-        }
-        if saw_u8 { elem_sz = 1 as usize; }
-        else if saw_16 { elem_sz = 2 as usize; }
-        else if saw_64 { elem_sz = 8 as usize; }
-
+        if sep == 0 { return 0; }
         let mut count: usize = 0;
+        let mut saw_digit: bool = false;
         let mut k: usize = sep + 1;
         while k < type_len {
             let ch: u8 = unsafe { *(self.source + type_offset + k) };
             if ch >= 48 && ch <= 57 {
                 count = count * 10 + (ch - 48) as usize;
+                saw_digit = true;
+            } else if ch == 93 {
+                break;
             }
             k = k + 1;
         }
-        if count == 0 { count = 1 as usize; }
-        return elem_sz * count;
+        if !saw_digit { return 0; }
+        return count;
+    }
+
+    pub fn parse_array_type_size(self: &Self, type_offset: usize, type_len: usize) -> usize {
+        let stride: usize = self.parse_array_element_stride(type_offset, type_len);
+        let count: usize = self.parse_array_element_count(type_offset, type_len);
+        if stride == 0 || count == 0 { return 8; }
+        return stride * count;
     }
 
     pub fn module_let_is_const(self: &Self, node: AstNode) -> bool {
@@ -1109,6 +1171,16 @@ impl ScalarLowering {
             }
             return self.lower_integer_literal(expression_index, type_tag);
         }
+        if expression.kind == AstKind::UnsafeExpr {
+            if expression.first_child == 0
+                || expression.first_child >= self.node_count
+                || unsafe { (*(self.nodes + expression.first_child)).next_sibling } != 0 {
+                return TARGET_VALUE_NONE;
+            }
+            return self.lower_expression(
+                expression.first_child, type_tag, first_parameter, parameter_count
+            );
+        }
         if expression.kind == AstKind::ExprIdent {
             let local_val: u32 = self.find_parameter_value(
                 first_parameter,
@@ -1188,7 +1260,9 @@ impl ScalarLowering {
                 return TARGET_VALUE_NONE;
             }
             let cast_type: TargetTypeTag = self.type_tag_for(cast_type_index);
-            if cast_type != TargetTypeTag::U32
+            if cast_type != TargetTypeTag::U8
+                && cast_type != TargetTypeTag::U16
+                && cast_type != TargetTypeTag::U32
                 && cast_type != TargetTypeTag::U64
                 && cast_type != TargetTypeTag::I64 {
                 return TARGET_VALUE_NONE;
@@ -1218,7 +1292,9 @@ impl ScalarLowering {
             ) {
                 source_type = cast_type;
             }
-            if source_type != TargetTypeTag::U32
+            if source_type != TargetTypeTag::U8
+                && source_type != TargetTypeTag::U16
+                && source_type != TargetTypeTag::U32
                 && source_type != TargetTypeTag::U64
                 && source_type != TargetTypeTag::I64 {
                 return TARGET_VALUE_NONE;
@@ -1240,6 +1316,87 @@ impl ScalarLowering {
             if result == TARGET_VALUE_NONE || !self.append_instruction(
                 TargetOpcode::IntCast, result, cast_type,
                 first_operand, 1, expression_index
+            ) {
+                return TARGET_VALUE_NONE;
+            }
+            return result;
+        }
+        if expression.kind == AstKind::ExprIndex {
+            let base_index: usize = expression.first_child;
+            if base_index == 0 || base_index >= self.node_count {
+                return TARGET_VALUE_NONE;
+            }
+            let base_node: AstNode = unsafe { *(self.nodes + base_index) };
+            let index_index: usize = base_node.next_sibling;
+            if base_node.kind != AstKind::ExprIdent || index_index == 0
+                || index_index >= self.node_count
+                || unsafe { (*(self.nodes + index_index)).next_sibling } != 0 {
+                return TARGET_VALUE_NONE;
+            }
+            let global_index: isize = self.find_global_bss(
+                base_node.str_offset, base_node.str_len
+            );
+            if global_index < 0 {
+                return TARGET_VALUE_NONE;
+            }
+            let gi: usize = global_index as usize;
+            if unsafe { g_bss_sym_is_array[gi] } == 0 {
+                return TARGET_VALUE_NONE;
+            }
+            let element_type: TargetTypeTag = unsafe {
+                g_bss_sym_element_types[gi] as TargetTypeTag
+            };
+            let stride: usize = unsafe { g_bss_sym_element_strides[gi] };
+            let count: usize = unsafe { g_bss_sym_element_counts[gi] };
+            if (element_type != TargetTypeTag::U8
+                    && element_type != TargetTypeTag::U16
+                    && element_type != TargetTypeTag::U32
+                    && element_type != TargetTypeTag::U64)
+                || stride == 0 || count == 0
+                || stride > 4294967295 || count > 2147483647 {
+                return TARGET_VALUE_NONE;
+            }
+            if type_tag != TargetTypeTag::Invalid && type_tag != TargetTypeTag::Void
+                && type_tag != element_type {
+                return TARGET_VALUE_NONE;
+            }
+            let base_value: u32 = self.lower_expression(
+                base_index, TargetTypeTag::Pointer, first_parameter, parameter_count
+            );
+            if base_value == TARGET_VALUE_NONE {
+                return TARGET_VALUE_NONE;
+            }
+            let index_value: u32 = self.lower_expression(
+                index_index, TargetTypeTag::U64, first_parameter, parameter_count
+            );
+            if index_value == TARGET_VALUE_NONE {
+                return TARGET_VALUE_NONE;
+            }
+            let first_operand: u32 = self.operand_count as u32;
+            if !self.append_operand(base_value) || !self.append_operand(index_value) {
+                return TARGET_VALUE_NONE;
+            }
+            let address_value: u32 = self.append_value(TargetTypeTag::Pointer, 0, 0);
+            if address_value == TARGET_VALUE_NONE || !self.append_instruction(
+                TargetOpcode::IndexAddr, address_value, TargetTypeTag::Pointer,
+                first_operand, 2, expression_index
+            ) {
+                return TARGET_VALUE_NONE;
+            }
+            let address_instruction: usize = self.instruction_count - 1;
+            unsafe {
+                (*(self.instructions + address_instruction)).immediate_bits =
+                    ((count as u64) << 32) | (stride as u64);
+            }
+
+            let load_operand: u32 = self.operand_count as u32;
+            if !self.append_operand(address_value) {
+                return TARGET_VALUE_NONE;
+            }
+            let result: u32 = self.append_value(element_type, 0, 0);
+            if result == TARGET_VALUE_NONE || !self.append_instruction(
+                TargetOpcode::Load, result, element_type,
+                load_operand, 1, expression_index
             ) {
                 return TARGET_VALUE_NONE;
             }
@@ -2901,14 +3058,31 @@ pub fn lower_scalar_module(
             let mut var_size: usize = 8 as usize;
             let mut is_array: u8 = 0;
             let mut type_tag_val: u32 = 4;
+            let mut array_element_type: u32 = 0;
+            let mut array_element_stride: usize = 0;
+            let mut array_element_count: usize = 0;
             if decl_node.first_child != 0 && decl_node.first_child < lowering.node_count {
                 let type_node: AstNode = unsafe { *(lowering.nodes + decl_node.first_child) };
                 if type_node.str_len > 0 {
                     let first_c: u8 = unsafe { *(lowering.source + type_node.str_offset) };
                     if first_c == 91 {
                         is_array = 1;
-                        var_size = lowering.parse_array_type_size(type_node.str_offset, type_node.str_len);
-                        type_tag_val = 14;
+                        let element_type: TargetTypeTag = lowering.parse_array_element_type(
+                            type_node.str_offset, type_node.str_len
+                        );
+                        array_element_stride = lowering.parse_array_element_stride(
+                            type_node.str_offset, type_node.str_len
+                        );
+                        array_element_count = lowering.parse_array_element_count(
+                            type_node.str_offset, type_node.str_len
+                        );
+                        if element_type == TargetTypeTag::Invalid
+                            || array_element_stride == 0 || array_element_count == 0 {
+                            return lowering.reject(struct_scan_index);
+                        }
+                        array_element_type = element_type as u32;
+                        var_size = array_element_stride * array_element_count;
+                        type_tag_val = TargetTypeTag::Pointer as u32;
                     } else {
                         let tt: TargetTypeTag = lowering.type_tag_for(decl_node.first_child);
                         if tt != TargetTypeTag::Invalid {
@@ -2934,6 +3108,9 @@ pub fn lower_scalar_module(
                 g_bss_sym_sizes[b_idx] = var_size;
                 g_bss_sym_is_array[b_idx] = is_array;
                 g_bss_sym_types[b_idx] = type_tag_val;
+                g_bss_sym_element_types[b_idx] = array_element_type;
+                g_bss_sym_element_strides[b_idx] = array_element_stride;
+                g_bss_sym_element_counts[b_idx] = array_element_count;
                 g_bss_sym_count = b_idx + 1;
                 g_bss_total_size = bss_off + var_size;
             }

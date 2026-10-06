@@ -67,7 +67,8 @@ pub enum TargetOpcode {
     ShiftRight = 32,
     Div = 33,
     Mod = 34,
-    IntCast = 35
+    IntCast = 35,
+    IndexAddr = 36
 }
 
 pub struct TargetSourceSlice {
@@ -846,6 +847,34 @@ pub fn target_module_validate_cfg(
                         }) {
                         return false;
                     }
+                } else if instruction.opcode == TargetOpcode::IndexAddr {
+                    if instruction.result_value == TARGET_VALUE_NONE
+                        || instruction.type_tag != TargetTypeTag::Pointer
+                        || instruction.operand_count != 2 {
+                        return false;
+                    }
+                    let base: TargetOperand = unsafe {
+                        *(operands + instruction.first_operand)
+                    };
+                    let index: TargetOperand = unsafe {
+                        *(operands + instruction.first_operand + 1)
+                    };
+                    if !target_value_matches(
+                        values, target_section.value_count,
+                        base.value_id, TargetTypeTag::Pointer
+                    ) || index.value_id == TARGET_VALUE_NONE
+                        || index.value_id > target_section.value_count
+                        || !target_type_is_integer(unsafe {
+                            (*(values + index.value_id as usize - 1)).type_tag
+                        }) {
+                        return false;
+                    }
+                    let stride: u32 = instruction.immediate_bits as u32;
+                    let count: u32 = (instruction.immediate_bits >> 32) as u32;
+                    if count == 0
+                        || (stride != 1 && stride != 2 && stride != 4 && stride != 8) {
+                        return false;
+                    }
                 } else if instruction.opcode == TargetOpcode::Add
                     || instruction.opcode == TargetOpcode::Sub
                     || instruction.opcode == TargetOpcode::Mul
@@ -1311,6 +1340,9 @@ pub static mut g_bss_sym_places: [usize; 256] = 0;
 pub static mut g_bss_sym_sizes: [usize; 256] = 0;
 pub static mut g_bss_sym_is_array: [u8; 256] = 0;
 pub static mut g_bss_sym_types: [u32; 256] = 0;
+pub static mut g_bss_sym_element_types: [u32; 256] = 0;
+pub static mut g_bss_sym_element_strides: [usize; 256] = 0;
+pub static mut g_bss_sym_element_counts: [usize; 256] = 0;
 pub static mut g_bss_sym_count: usize = 0;
 
 @export

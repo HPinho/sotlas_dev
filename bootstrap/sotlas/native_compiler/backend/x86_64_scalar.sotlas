@@ -153,6 +153,53 @@ fn append_object_lea_rbp(
         && append_object_u32(output, capacity, length, 0 as u32 - offset_from_rbp);
 }
 
+fn append_object_store_mem8(
+    output: *mut u8,
+    capacity: usize,
+    length: &mut usize,
+    offset: u32
+) -> bool {
+    return append_object_byte(output, capacity, length, 136)
+        && append_object_byte(output, capacity, length, 129)
+        && append_object_u32(output, capacity, length, offset);
+}
+
+fn append_object_load_mem8(
+    output: *mut u8,
+    capacity: usize,
+    length: &mut usize,
+    offset: u32
+) -> bool {
+    return append_object_byte(output, capacity, length, 15)
+        && append_object_byte(output, capacity, length, 182)
+        && append_object_byte(output, capacity, length, 129)
+        && append_object_u32(output, capacity, length, offset);
+}
+
+fn append_object_store_mem16(
+    output: *mut u8,
+    capacity: usize,
+    length: &mut usize,
+    offset: u32
+) -> bool {
+    return append_object_byte(output, capacity, length, 102)
+        && append_object_byte(output, capacity, length, 137)
+        && append_object_byte(output, capacity, length, 129)
+        && append_object_u32(output, capacity, length, offset);
+}
+
+fn append_object_load_mem16(
+    output: *mut u8,
+    capacity: usize,
+    length: &mut usize,
+    offset: u32
+) -> bool {
+    return append_object_byte(output, capacity, length, 15)
+        && append_object_byte(output, capacity, length, 183)
+        && append_object_byte(output, capacity, length, 129)
+        && append_object_u32(output, capacity, length, offset);
+}
+
 fn append_object_store_mem32(
     output: *mut u8,
     capacity: usize,
@@ -1619,7 +1666,8 @@ fn object_value_type(values: *const TargetValue, value_count: u32, value_id: u32
 }
 
 fn object_scalar_type(type_tag: TargetTypeTag) -> bool {
-    return type_tag == TargetTypeTag::U32 || type_tag == TargetTypeTag::Bool
+    return type_tag == TargetTypeTag::U8 || type_tag == TargetTypeTag::U16
+        || type_tag == TargetTypeTag::U32 || type_tag == TargetTypeTag::Bool
         || type_tag == TargetTypeTag::U64 || type_tag == TargetTypeTag::I64
         || type_tag == TargetTypeTag::Pointer || type_tag == TargetTypeTag::Usize;
 }
@@ -1640,7 +1688,8 @@ fn object_unsigned_integer_type(type_tag: TargetTypeTag) -> bool {
 }
 
 fn object_integer_cast_type(type_tag: TargetTypeTag) -> bool {
-    return type_tag == TargetTypeTag::U32 || type_tag == TargetTypeTag::U64
+    return type_tag == TargetTypeTag::U8 || type_tag == TargetTypeTag::U16
+        || type_tag == TargetTypeTag::U32 || type_tag == TargetTypeTag::U64
         || type_tag == TargetTypeTag::I64 || type_tag == TargetTypeTag::Usize;
 }
 
@@ -1654,7 +1703,8 @@ fn append_object_slot_load_typed(
     if object_type_is_64(type_tag) {
         return append_object_slot_load_rax64(output, capacity, length, value_id);
     }
-    if type_tag == TargetTypeTag::U32 || type_tag == TargetTypeTag::Bool {
+    if type_tag == TargetTypeTag::U8 || type_tag == TargetTypeTag::U16
+        || type_tag == TargetTypeTag::U32 || type_tag == TargetTypeTag::Bool {
         return append_object_slot_load(output, capacity, length, value_id);
     }
     return false;
@@ -1670,7 +1720,8 @@ fn append_object_slot_store_typed(
     if object_type_is_64(type_tag) {
         return append_object_slot_store64(output, capacity, length, value_id);
     }
-    if type_tag == TargetTypeTag::U32 || type_tag == TargetTypeTag::Bool {
+    if type_tag == TargetTypeTag::U8 || type_tag == TargetTypeTag::U16
+        || type_tag == TargetTypeTag::U32 || type_tag == TargetTypeTag::Bool {
         return append_object_slot_store(output, capacity, length, value_id);
     }
     return false;
@@ -1967,7 +2018,23 @@ pub fn emit_elf64_module_object(
                         ) {
                         return false;
                     }
-                    if object_type_is_64(result_type) {
+                    if result_type == TargetTypeTag::U8 {
+                        if !append_object_byte(output, capacity, &mut code, 37)
+                            || !append_object_u32(output, capacity, &mut code, 255)
+                            || !append_object_slot_store(
+                                output, capacity, &mut code, instruction.result_value
+                            ) {
+                            return false;
+                        }
+                    } else if result_type == TargetTypeTag::U16 {
+                        if !append_object_byte(output, capacity, &mut code, 37)
+                            || !append_object_u32(output, capacity, &mut code, 65535)
+                            || !append_object_slot_store(
+                                output, capacity, &mut code, instruction.result_value
+                            ) {
+                            return false;
+                        }
+                    } else if object_type_is_64(result_type) {
                         if !append_object_slot_store64(
                             output, capacity, &mut code, instruction.result_value
                         ) {
@@ -1980,6 +2047,79 @@ pub fn emit_elf64_module_object(
                             return false;
                         }
                     } else {
+                        return false;
+                    }
+                } else if instruction.opcode == TargetOpcode::IndexAddr {
+                    if instruction.operand_count != 2
+                        || instruction.type_tag != TargetTypeTag::Pointer
+                        || result_type != TargetTypeTag::Pointer {
+                        return false;
+                    }
+                    let base: TargetOperand = unsafe {
+                        *(operands + instruction.first_operand)
+                    };
+                    let index: TargetOperand = unsafe {
+                        *(operands + instruction.first_operand + 1)
+                    };
+                    let index_type: TargetTypeTag = object_value_type(
+                        values, ir.value_count, index.value_id
+                    );
+                    let stride: u32 = instruction.immediate_bits as u32;
+                    let count: u32 = (instruction.immediate_bits >> 32) as u32;
+                    if object_value_type(values, ir.value_count, base.value_id)
+                            != TargetTypeTag::Pointer
+                        || (index_type != TargetTypeTag::U32
+                            && index_type != TargetTypeTag::U64
+                            && index_type != TargetTypeTag::Usize)
+                        || count == 0 || count > 2147483647
+                        || (stride != 1 && stride != 2 && stride != 4 && stride != 8)
+                        || !append_object_slot_load_ptr(
+                            output, capacity, &mut code, base.value_id
+                        )
+                        || !append_object_slot_load_typed(
+                            output, capacity, &mut code, index.value_id, index_type
+                        )
+                        || !append_object_byte(output, capacity, &mut code, 72)
+                        || !append_object_byte(output, capacity, &mut code, 61)
+                        || !append_object_u32(output, capacity, &mut code, count)
+                        || !append_object_byte(output, capacity, &mut code, 15)
+                        || !append_object_byte(output, capacity, &mut code, 130)
+                        || !append_object_u32(output, capacity, &mut code, 2)
+                        || !append_object_byte(output, capacity, &mut code, 15)
+                        || !append_object_byte(output, capacity, &mut code, 11) {
+                        return false;
+                    }
+                    if stride == 2 {
+                        if !append_object_byte(output, capacity, &mut code, 72)
+                            || !append_object_byte(output, capacity, &mut code, 193)
+                            || !append_object_byte(output, capacity, &mut code, 224)
+                            || !append_object_byte(output, capacity, &mut code, 1) {
+                            return false;
+                        }
+                    } else if stride == 4 {
+                        if !append_object_byte(output, capacity, &mut code, 72)
+                            || !append_object_byte(output, capacity, &mut code, 193)
+                            || !append_object_byte(output, capacity, &mut code, 224)
+                            || !append_object_byte(output, capacity, &mut code, 2) {
+                            return false;
+                        }
+                    } else if stride == 8 {
+                        if !append_object_byte(output, capacity, &mut code, 72)
+                            || !append_object_byte(output, capacity, &mut code, 193)
+                            || !append_object_byte(output, capacity, &mut code, 224)
+                            || !append_object_byte(output, capacity, &mut code, 3) {
+                            return false;
+                        }
+                    }
+                    if !append_object_byte(output, capacity, &mut code, 72)
+                        || !append_object_byte(output, capacity, &mut code, 1)
+                        || !append_object_byte(output, capacity, &mut code, 193)
+                        || !append_object_byte(output, capacity, &mut code, 72)
+                        || !append_object_byte(output, capacity, &mut code, 137)
+                        || !append_object_byte(output, capacity, &mut code, 200)
+                        || !append_object_slot_store64(
+                            output, capacity, &mut code, instruction.result_value
+                        ) {
                         return false;
                     }
                 } else if instruction.opcode == TargetOpcode::Add
@@ -2157,7 +2297,11 @@ pub fn emit_elf64_module_object(
                         || !append_object_slot_load_typed(output, capacity, &mut code, val_op.value_id, instruction.type_tag) {
                         return false;
                     }
-                    if object_type_is_64(instruction.type_tag) {
+                    if instruction.type_tag == TargetTypeTag::U8 {
+                        if !append_object_store_mem8(output, capacity, &mut code, mem_offset) { return false; }
+                    } else if instruction.type_tag == TargetTypeTag::U16 {
+                        if !append_object_store_mem16(output, capacity, &mut code, mem_offset) { return false; }
+                    } else if object_type_is_64(instruction.type_tag) {
                         if !append_object_store_mem64(output, capacity, &mut code, mem_offset) { return false; }
                     } else if !append_object_store_mem32(output, capacity, &mut code, mem_offset) {
                         return false;
@@ -2172,7 +2316,17 @@ pub fn emit_elf64_module_object(
                         || !append_object_slot_load_ptr(output, capacity, &mut code, base_op.value_id) {
                         return false;
                     }
-                    if object_type_is_64(instruction.type_tag) {
+                    if instruction.type_tag == TargetTypeTag::U8 {
+                        if !append_object_load_mem8(output, capacity, &mut code, mem_offset)
+                            || !append_object_slot_store(output, capacity, &mut code, instruction.result_value) {
+                            return false;
+                        }
+                    } else if instruction.type_tag == TargetTypeTag::U16 {
+                        if !append_object_load_mem16(output, capacity, &mut code, mem_offset)
+                            || !append_object_slot_store(output, capacity, &mut code, instruction.result_value) {
+                            return false;
+                        }
+                    } else if object_type_is_64(instruction.type_tag) {
                         if !append_object_load_mem64(output, capacity, &mut code, mem_offset)
                             || !append_object_slot_store64(output, capacity, &mut code, instruction.result_value) {
                             return false;
