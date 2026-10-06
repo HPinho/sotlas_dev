@@ -62,6 +62,11 @@ pub struct ScalarLowering {
     pub variant_name_lens: [usize; 256];
     pub variant_values: [u64; 256];
     pub variant_total_count: usize;
+    pub const_name_offsets: [usize; 64];
+    pub const_name_lens: [usize; 64];
+    pub const_type_tags: [u32; 64];
+    pub const_literal_nodes: [usize; 64];
+    pub const_count: usize;
 }
 
 fn align_val(value: usize, alignment: usize) -> usize {
@@ -163,6 +168,109 @@ impl ScalarLowering {
         }
         if count == 0 { count = 1 as usize; }
         return elem_sz * count;
+    }
+
+    pub fn module_let_is_const(self: &Self, node: AstNode) -> bool {
+        if self.source == null || node.kind != AstKind::LetStmt
+            || node.span.length != 5 || node.span.offset > self.source_len
+            || node.span.length > self.source_len - node.span.offset {
+            return false;
+        }
+        return unsafe {
+            *(self.source + node.span.offset) == 99
+                && *(self.source + node.span.offset + 1) == 111
+                && *(self.source + node.span.offset + 2) == 110
+                && *(self.source + node.span.offset + 3) == 115
+                && *(self.source + node.span.offset + 4) == 116
+        };
+    }
+
+    pub fn register_module_integer_const(
+        mut self: &mut Self,
+        decl_index: usize
+    ) -> bool {
+        if self.nodes == null || decl_index == 0 || decl_index >= self.node_count
+            || self.const_count >= 64 {
+            return false;
+        }
+        let decl: AstNode = unsafe { *(self.nodes + decl_index) };
+        if !self.module_let_is_const(decl) || decl.str_len == 0
+            || decl.first_child == 0 || decl.first_child >= self.node_count {
+            return false;
+        }
+        let type_index: usize = decl.first_child;
+        let type_node: AstNode = unsafe { *(self.nodes + type_index) };
+        let literal_index: usize = type_node.next_sibling;
+        if type_node.kind != AstKind::TypeRef || literal_index == 0
+            || literal_index >= self.node_count {
+            return false;
+        }
+        let literal: AstNode = unsafe { *(self.nodes + literal_index) };
+        if literal.kind != AstKind::ExprLiteral || literal.next_sibling != 0 {
+            return false;
+        }
+        let type_tag: TargetTypeTag = self.type_tag_for(type_index);
+        if type_tag != TargetTypeTag::U8 && type_tag != TargetTypeTag::U16
+            && type_tag != TargetTypeTag::U32 && type_tag != TargetTypeTag::U64
+            && type_tag != TargetTypeTag::I8 && type_tag != TargetTypeTag::I16
+            && type_tag != TargetTypeTag::I32 && type_tag != TargetTypeTag::I64 {
+            return false;
+        }
+
+        // Validate the literal now with the same decimal/range contract used
+        // by expression lowering, but do not publish an IR value yet.
+        if literal.str_len == 0 || literal.str_offset > self.source_len
+            || literal.str_len > self.source_len - literal.str_offset {
+            return false;
+        }
+        let mut value: u64 = 0;
+        let mut index: usize = 0;
+        let mut saw_digit: bool = false;
+        while index < literal.str_len {
+            let ch: u8 = unsafe { *(self.source + literal.str_offset + index) };
+            if ch == 95 {
+                index = index + 1;
+                continue;
+            }
+            if ch < 48 || ch > 57 {
+                return false;
+            }
+            let digit: u64 = (ch - 48) as u64;
+            if value > 1844674407370955161
+                || (value == 1844674407370955161 && digit > 5) {
+                return false;
+            }
+            value = value * 10 + digit;
+            saw_digit = true;
+            index = index + 1;
+        }
+        if !saw_digit || value > self.integer_type_max(type_tag) {
+            return false;
+        }
+
+        let slot: usize = self.const_count;
+        self.const_name_offsets[slot] = decl.str_offset;
+        self.const_name_lens[slot] = decl.str_len;
+        self.const_type_tags[slot] = type_tag as u32;
+        self.const_literal_nodes[slot] = literal_index;
+        self.const_count = self.const_count + 1;
+        return true;
+    }
+
+    pub fn find_module_const(self: &Self, offset: usize, len: usize) -> isize {
+        let mut index: usize = 0;
+        while index < self.const_count {
+            if self.source_name_equals(
+                self.const_name_offsets[index],
+                self.const_name_lens[index],
+                offset,
+                len
+            ) {
+                return index as isize;
+            }
+            index = index + 1;
+        }
+        return -1;
     }
 
     pub fn find_global_bss(self: &Self, offset: usize, len: usize) -> isize {
@@ -346,7 +454,12 @@ impl ScalarLowering {
             variant_name_offsets: [0; 256],
             variant_name_lens: [0; 256],
             variant_values: [0; 256],
-            variant_total_count: 0
+            variant_total_count: 0,
+            const_name_offsets: [0; 64],
+            const_name_lens: [0; 64],
+            const_type_tags: [0; 64],
+            const_literal_nodes: [0; 64],
+            const_count: 0
         };
     }
 
@@ -364,6 +477,7 @@ impl ScalarLowering {
         self.field_total_count = 0;
         self.enum_count = 0;
         self.variant_total_count = 0;
+        self.const_count = 0;
         self.next_value_id = 1;
         self.error_node = node_index;
         return false;
@@ -1005,6 +1119,20 @@ impl ScalarLowering {
             if local_val != TARGET_VALUE_NONE {
                 return local_val;
             }
+            let const_idx: isize = self.find_module_const(
+                expression.str_offset, expression.str_len
+            );
+            if const_idx >= 0 {
+                let ci: usize = const_idx as usize;
+                let const_type: TargetTypeTag = self.const_type_tags[ci] as TargetTypeTag;
+                if type_tag != TargetTypeTag::Invalid && type_tag != TargetTypeTag::Void
+                    && type_tag != const_type {
+                    return TARGET_VALUE_NONE;
+                }
+                return self.lower_integer_literal(
+                    self.const_literal_nodes[ci], const_type
+                );
+            }
             let g_idx: isize = self.find_global_bss(expression.str_offset, expression.str_len);
             if g_idx >= 0 {
                 let gi: usize = g_idx as usize;
@@ -1608,11 +1736,17 @@ impl ScalarLowering {
                 expression.str_offset,
                 expression.str_len
             );
-            if value_id == TARGET_VALUE_NONE || value_id == 0
-                || value_id as usize > self.value_count {
-                return TargetTypeTag::Invalid;
+            if value_id != TARGET_VALUE_NONE && value_id != 0
+                && value_id as usize <= self.value_count {
+                return unsafe { (*(self.values + value_id as usize - 1)).type_tag };
             }
-            return unsafe { (*(self.values + value_id as usize - 1)).type_tag };
+            let const_index: isize = self.find_module_const(
+                expression.str_offset, expression.str_len
+            );
+            if const_index >= 0 {
+                return self.const_type_tags[const_index as usize] as TargetTypeTag;
+            }
+            return TargetTypeTag::Invalid;
         }
 
         if expression.kind == AstKind::ExprLiteral {
@@ -2582,7 +2716,11 @@ pub fn lower_scalar_module(
             return lowering.reject(struct_scan_index);
         }
         let decl_node: AstNode = unsafe { *(lowering.nodes + struct_scan_index) };
-        if decl_node.kind == AstKind::LetStmt && unsafe { g_bss_sym_count } < 256 {
+        if decl_node.kind == AstKind::LetStmt && lowering.module_let_is_const(decl_node) {
+            if !lowering.register_module_integer_const(struct_scan_index) {
+                return lowering.reject(struct_scan_index);
+            }
+        } else if decl_node.kind == AstKind::LetStmt && unsafe { g_bss_sym_count } < 256 {
             let mut var_size: usize = 8 as usize;
             let mut is_array: u8 = 0;
             let mut type_tag_val: u32 = 4;
