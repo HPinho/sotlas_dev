@@ -210,6 +210,18 @@ pub fn choose_wide(value: usize) -> usize {
 }
 """
 
+INFERRED_WIDE_CALL_SRC = """module sv2::inferred_wide_call;
+
+pub fn inferred_wide() -> usize {
+    let inferred = identity_wide(4294967297);
+    return inferred;
+}
+
+fn identity_wide(value: usize) -> usize {
+    return value;
+}
+"""
+
 
 class TestSotlasSovereigntySV2(unittest.TestCase):
     @classmethod
@@ -436,6 +448,51 @@ class TestSotlasSovereigntySV2(unittest.TestCase):
                 encoding="utf-8",
             )
             exe = self.root / "wide_comparison_native"
+            linked = subprocess.run(
+                ["clang", str(caller), str(out_obj), "-o", str(exe)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(linked.returncode, 0, linked.stderr)
+            executed = subprocess.run(
+                [str(exe)], capture_output=True, text=True, check=False
+            )
+            self.assertEqual(executed.returncode, 0, executed.stderr)
+
+    def test_sv2_infers_wide_let_from_call_return_type(self):
+        """SV2.17: Untyped let bound to a call preserves the callee's usize return type."""
+        src_path = self.root / "inferred_wide_call.sotlas"
+        src_path.write_text(INFERRED_WIDE_CALL_SRC, encoding="utf-8")
+        out_obj = self.root / "inferred_wide_call.o"
+        r = subprocess.run(
+            [str(self.stage1), "--compile-obj", str(src_path), str(out_obj)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(out_obj.is_file())
+
+        data = out_obj.read_bytes()
+        self.assertEqual(data[:4], b"\x7fELF")
+        self.assertIn(b"inferred_wide\x00", data)
+        self.assertIn(b"identity_wide\x00", data)
+        self.assertIn(
+            b"\x48\xb8\x01\x00\x00\x00\x01\x00\x00\x00",
+            data,
+        )
+
+        if sys.platform.startswith("linux"):
+            caller = self.root / "inferred_wide_call_caller.c"
+            caller.write_text(
+                "#include <stddef.h>\n"
+                "extern size_t inferred_wide(void);\n"
+                "int main(void) { return inferred_wide() == "
+                "(size_t)4294967297ULL ? 0 : 1; }\n",
+                encoding="utf-8",
+            )
+            exe = self.root / "inferred_wide_call_native"
             linked = subprocess.run(
                 ["clang", str(caller), str(out_obj), "-o", str(exe)],
                 capture_output=True,
