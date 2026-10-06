@@ -358,6 +358,48 @@ pub fn case_cast() -> u32 {
 }
 """
 
+SV4_FIXED_ARRAY_STORE_SRC = """module sv4::fixed_array_store;
+
+pub static mut WORDS: [u32; 4] = 0;
+pub static mut BYTES: [u8; 8] = 0;
+
+fn write_word(index: usize, value: u32) -> u32 {
+    WORDS[index] = value;
+    return value;
+}
+
+fn write_byte(index: usize, value: u8) -> u8 {
+    BYTES[index] = value;
+    return value;
+}
+
+fn read_word(index: usize) -> u32 {
+    return unsafe { WORDS[index] };
+}
+
+fn read_byte(index: usize) -> u8 {
+    return unsafe { BYTES[index] };
+}
+
+pub fn case_store() -> u32 {
+    write_word(2, 37);
+    write_byte(3, 5);
+    return read_word(2) + (read_byte(3) as u32);
+}
+
+pub fn case_store_oob() -> u32 {
+    write_word(4, 1);
+    return 0;
+}
+"""
+
+SV4_RAW_POINTER_INDEX_REJECT_SRC = """module sv4::raw_pointer_index_reject;
+
+pub fn rejected_raw_index(ptr: *const u32, index: usize) -> u32 {
+    return unsafe { ptr[index] };
+}
+"""
+
 SV4_POINTER_CAST_REJECT_SRC = """module sv4::pointer_cast_reject;
 
 pub fn rejected_pointer(value: u64) -> u64 {
@@ -1080,6 +1122,86 @@ class TestSotlasSovereigntySV2(unittest.TestCase):
                 [str(oob_bin)], capture_output=True, text=True, check=False
             )
             self.assertNotEqual(oob_run.returncode, 0)
+
+    def test_sv4_fixed_array_dynamic_stores_are_native(self):
+        """SV4.8c1: Checked IndexAddr is reused for typed fixed-array stores."""
+        src_path = self.root / "fixed_array_store.sotlas"
+        src_path.write_text(SV4_FIXED_ARRAY_STORE_SRC, encoding="utf-8")
+        out_obj = self.root / "fixed_array_store.o"
+        compiled = subprocess.run(
+            [str(self.stage1), "--compile-obj", str(src_path), str(out_obj)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(compiled.returncode, 0, compiled.stderr)
+        self.assertTrue(out_obj.is_file())
+        data = out_obj.read_bytes()
+        self.assertEqual(data[:4], b"\x7fELF")
+        for symbol in (
+            b"write_word\x00",
+            b"write_byte\x00",
+            b"case_store\x00",
+            b"case_store_oob\x00",
+        ):
+            self.assertIn(symbol, data)
+        self.assertIn(b"\x48\x3d", data)  # bounds compare
+        self.assertIn(b"\x48\xc1\xe0\x02", data)  # u32 stride 4
+        self.assertIn(b"\x89\x81", data)  # typed u32 store through indexed RCX
+        self.assertIn(b"\x88\x81", data)  # typed u8 store through indexed RCX
+
+        if sys.platform.startswith("linux"):
+            safe_bin = self.root / "fixed_array_store_safe.bin"
+            linked = subprocess.run(
+                [
+                    str(self.stage1),
+                    "--link-exe",
+                    str(out_obj),
+                    str(safe_bin),
+                    "case_store",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(linked.returncode, 0, linked.stderr)
+            executed = subprocess.run(
+                [str(safe_bin)], capture_output=True, text=True, check=False
+            )
+            self.assertEqual(executed.returncode, 42, executed.stderr)
+
+            oob_bin = self.root / "fixed_array_store_oob.bin"
+            linked_oob = subprocess.run(
+                [
+                    str(self.stage1),
+                    "--link-exe",
+                    str(out_obj),
+                    str(oob_bin),
+                    "case_store_oob",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(linked_oob.returncode, 0, linked_oob.stderr)
+            oob_run = subprocess.run(
+                [str(oob_bin)], capture_output=True, text=True, check=False
+            )
+            self.assertNotEqual(oob_run.returncode, 0)
+
+    def test_sv4_raw_pointer_indexing_stays_fail_closed(self):
+        """SV4.8c1 negative gate: raw-pointer indexing waits for provenance rules."""
+        src_path = self.root / "raw_pointer_index_reject.sotlas"
+        src_path.write_text(SV4_RAW_POINTER_INDEX_REJECT_SRC, encoding="utf-8")
+        out_obj = self.root / "raw_pointer_index_reject.o"
+        compiled = subprocess.run(
+            [str(self.stage1), "--compile-obj", str(src_path), str(out_obj)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertNotEqual(compiled.returncode, 0)
+        self.assertFalse(out_obj.exists())
 
     def test_sv4_pointer_cast_stays_fail_closed(self):
         """SV4.8a negative gate: integer/pointer casts remain rejected until pointer provenance is certified."""
