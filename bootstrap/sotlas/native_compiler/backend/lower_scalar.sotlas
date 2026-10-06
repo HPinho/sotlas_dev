@@ -1523,6 +1523,14 @@ impl ScalarLowering {
             }
             return val_id;
         }
+        if expression.kind == AstKind::ExprBinary
+            && type_tag == TargetTypeTag::Bool
+            && ((expression.int_value >= 86 && expression.int_value <= 91)
+                || expression.int_value == 116 || expression.int_value == 117) {
+            return self.lower_condition_expression(
+                expression_index, first_parameter, parameter_count
+            );
+        }
         if expression.kind != AstKind::ExprBinary
             || expression.first_child == 0
             || expression.first_child >= self.node_count {
@@ -1767,6 +1775,35 @@ impl ScalarLowering {
         return self.type_tag_for(type_ref);
     }
 
+    pub fn pure_condition_expression(self: &Self, expression_index: usize) -> bool {
+        if self.nodes == null || expression_index == 0 || expression_index >= self.node_count {
+            return false;
+        }
+        let expression: AstNode = unsafe { *(self.nodes + expression_index) };
+        if expression.kind == AstKind::ExprIdent
+            || expression.kind == AstKind::ExprLiteral
+            || expression.kind == AstKind::ExprPath {
+            return true;
+        }
+        if expression.kind != AstKind::ExprBinary
+            || expression.first_child == 0 || expression.first_child >= self.node_count {
+            return false;
+        }
+        if (expression.int_value < 80 || expression.int_value > 82)
+            && (expression.int_value < 86 || expression.int_value > 91)
+            && expression.int_value != 116 && expression.int_value != 117 {
+            return false;
+        }
+        let left_index: usize = expression.first_child;
+        let right_index: usize = unsafe { (*(self.nodes + left_index)).next_sibling };
+        if right_index == 0 || right_index >= self.node_count
+            || unsafe { (*(self.nodes + right_index)).next_sibling } != 0 {
+            return false;
+        }
+        return self.pure_condition_expression(left_index)
+            && self.pure_condition_expression(right_index);
+    }
+
     pub fn lower_condition_expression(
         mut self: &mut Self,
         expression_index: usize,
@@ -1788,7 +1825,6 @@ impl ScalarLowering {
             return value_id;
         }
         if expression.kind != AstKind::ExprBinary
-            || (expression.int_value < 86 || expression.int_value > 91)
             || expression.first_child == 0 || expression.first_child >= self.node_count {
             return TARGET_VALUE_NONE;
         }
@@ -1796,6 +1832,51 @@ impl ScalarLowering {
         let right_index: usize = unsafe { (*(self.nodes + left_index)).next_sibling };
         if right_index == 0 || right_index >= self.node_count
             || unsafe { (*(self.nodes + right_index)).next_sibling } != 0 {
+            return TARGET_VALUE_NONE;
+        }
+        if expression.int_value == 116 || expression.int_value == 117 {
+            if !self.pure_condition_expression(left_index)
+                || !self.pure_condition_expression(right_index) {
+                return TARGET_VALUE_NONE;
+            }
+            let left_bool: u32 = self.lower_condition_expression(
+                left_index, first_parameter, parameter_count
+            );
+            let right_bool: u32 = self.lower_condition_expression(
+                right_index, first_parameter, parameter_count
+            );
+            if left_bool == TARGET_VALUE_NONE || right_bool == TARGET_VALUE_NONE
+                || self.values == null
+                || left_bool as usize > self.value_count
+                || right_bool as usize > self.value_count
+                || unsafe { (*(self.values + left_bool as usize - 1)).type_tag }
+                    != TargetTypeTag::Bool
+                || unsafe { (*(self.values + right_bool as usize - 1)).type_tag }
+                    != TargetTypeTag::Bool {
+                return TARGET_VALUE_NONE;
+            }
+            let first_operand: u32 = self.operand_count as u32;
+            if !self.append_operand(left_bool) || !self.append_operand(right_bool) {
+                return TARGET_VALUE_NONE;
+            }
+            let result: u32 = self.append_value(TargetTypeTag::Bool, 0, 0);
+            let mut bool_opcode: TargetOpcode = TargetOpcode::BoolAnd;
+            if expression.int_value == 117 {
+                bool_opcode = TargetOpcode::BoolOr;
+            }
+            if result == TARGET_VALUE_NONE || !self.append_instruction(
+                bool_opcode,
+                result,
+                TargetTypeTag::Bool,
+                first_operand,
+                2,
+                expression_index
+            ) {
+                return TARGET_VALUE_NONE;
+            }
+            return result;
+        }
+        if expression.int_value < 86 || expression.int_value > 91 {
             return TARGET_VALUE_NONE;
         }
         let left_type: TargetTypeTag = self.condition_expression_type(

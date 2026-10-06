@@ -264,6 +264,48 @@ pub fn check_module_const() -> u32 {
 }
 """
 
+PURE_BOOL_COMPOSITION_SRC = """module sv4::pure_bool_composition;
+
+fn composed_guard(a: u32, b: u32, c: u32) -> u32 {
+    if (a > 3 && b == 7) || c != 0 {
+        return 23;
+    } else {
+        return 4;
+    }
+}
+
+pub fn case_true_and() -> u32 {
+    return composed_guard(4, 7, 0);
+}
+
+pub fn case_false() -> u32 {
+    return composed_guard(1, 7, 0);
+}
+
+pub fn case_true_or() -> u32 {
+    return composed_guard(1, 2, 1);
+}
+
+pub fn bool_value(a: u32, b: u32) -> bool {
+    return a != 0 && b == 9;
+}
+"""
+
+IMPURE_BOOL_COMPOSITION_SRC = """module sv4::impure_bool_composition;
+
+fn probe_value() -> u32 {
+    return 1;
+}
+
+pub fn rejected_guard(a: u32) -> u32 {
+    if a != 0 && probe_value() > 0 {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+"""
+
 
 class TestSotlasSovereigntySV2(unittest.TestCase):
     @classmethod
@@ -684,6 +726,72 @@ class TestSotlasSovereigntySV2(unittest.TestCase):
                 [str(out_bin)], capture_output=True, text=True, check=False
             )
             self.assertEqual(executed.returncode, 17, executed.stderr)
+
+    def test_sv4_pure_boolean_composition_is_native(self):
+        """SV4.6: Pure &&/|| conditions lower to typed Bool IR and native x86-64."""
+        src_path = self.root / "pure_bool_composition.sotlas"
+        src_path.write_text(PURE_BOOL_COMPOSITION_SRC, encoding="utf-8")
+        out_obj = self.root / "pure_bool_composition.o"
+
+        compiled = subprocess.run(
+            [str(self.stage1), "--compile-obj", str(src_path), str(out_obj)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(compiled.returncode, 0, compiled.stderr)
+        self.assertTrue(out_obj.is_file())
+
+        data = out_obj.read_bytes()
+        self.assertEqual(data[:4], b"\x7fELF")
+        self.assertIn(b"composed_guard\x00", data)
+        self.assertIn(b"case_true_and\x00", data)
+        self.assertIn(b"case_false\x00", data)
+        self.assertIn(b"case_true_or\x00", data)
+        self.assertIn(b"bool_value\x00", data)
+        # AND r32,r/m32 (0x23) and OR r32,r/m32 (0x0b) over Bool slots.
+        self.assertIn(b"\x23\x85", data)
+        self.assertIn(b"\x0b\x85", data)
+
+        if sys.platform.startswith("linux"):
+            cases = (
+                ("case_true_and", 23),
+                ("case_false", 4),
+                ("case_true_or", 23),
+            )
+            for index, (entry, expected) in enumerate(cases):
+                out_bin = self.root / f"pure_bool_{index}.bin"
+                linked = subprocess.run(
+                    [
+                        str(self.stage1),
+                        "--link-exe",
+                        str(out_obj),
+                        str(out_bin),
+                        entry,
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(linked.returncode, 0, linked.stderr)
+                executed = subprocess.run(
+                    [str(out_bin)], capture_output=True, text=True, check=False
+                )
+                self.assertEqual(executed.returncode, expected, executed.stderr)
+
+    def test_sv4_impure_boolean_composition_fails_closed(self):
+        """SV4.6 negative gate: eager &&/|| rejects calls that would require short-circuit semantics."""
+        src_path = self.root / "impure_bool_composition.sotlas"
+        src_path.write_text(IMPURE_BOOL_COMPOSITION_SRC, encoding="utf-8")
+        out_obj = self.root / "impure_bool_composition.o"
+        compiled = subprocess.run(
+            [str(self.stage1), "--compile-obj", str(src_path), str(out_obj)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertNotEqual(compiled.returncode, 0)
+        self.assertFalse(out_obj.exists())
 
     def test_sv2_lowering_struct_methods_preserves_wide_argument_type(self):
         """SV2.16: Receiver calls preserve declared usize argument/return types through native ELF."""
