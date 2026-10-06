@@ -1265,6 +1265,77 @@ impl ScalarLowering {
         return TARGET_VALUE_NONE;
     }
 
+    pub fn lower_pointer_deref_store(
+        mut self: &mut Self,
+        statement_index: usize,
+        first_parameter: usize,
+        parameter_count: usize
+    ) -> bool {
+        if self.nodes == null || statement_index == 0
+            || statement_index >= self.node_count {
+            return false;
+        }
+        let statement: AstNode = unsafe { *(self.nodes + statement_index) };
+        if statement.kind != AstKind::AssignStmt || statement.first_child == 0
+            || statement.first_child >= self.node_count {
+            return false;
+        }
+        let left_index: usize = statement.first_child;
+        let left_node: AstNode = unsafe { *(self.nodes + left_index) };
+        let right_index: usize = left_node.next_sibling;
+        if left_node.kind != AstKind::ExprUnary || left_node.int_value != 82
+            || right_index == 0 || right_index >= self.node_count
+            || unsafe { (*(self.nodes + right_index)).next_sibling } != 0 {
+            return false;
+        }
+
+        let pointer_expression: usize = left_node.first_child;
+        if pointer_expression == 0 || pointer_expression >= self.node_count
+            || unsafe { (*(self.nodes + pointer_expression)).next_sibling } != 0 {
+            return false;
+        }
+        let mut sem: Sema = Sema::new();
+        let pointer_type_ref: usize = sem.infer_expression_type_ref(
+            self.nodes, self.node_count, pointer_expression,
+            self.source, self.source_len
+        );
+        let pointee_type: TargetTypeTag = self.pointer_pointee_type_tag(
+            pointer_type_ref
+        );
+        if pointee_type == TargetTypeTag::Invalid {
+            return false;
+        }
+
+        let pointer_value: u32 = self.lower_expression(
+            pointer_expression, TargetTypeTag::Pointer,
+            first_parameter, parameter_count
+        );
+        if pointer_value == TARGET_VALUE_NONE {
+            return false;
+        }
+        let expr_value: u32 = self.lower_expression(
+            right_index, pointee_type, first_parameter, parameter_count
+        );
+        if expr_value == TARGET_VALUE_NONE {
+            return false;
+        }
+
+        let first_operand: u32 = self.operand_count as u32;
+        if !self.append_operand(pointer_value)
+            || !self.append_operand(expr_value)
+            || !self.append_instruction(
+                TargetOpcode::Store, TARGET_VALUE_NONE,
+                pointee_type, first_operand, 2, statement_index
+            ) {
+            return false;
+        }
+        let store_index: usize = self.instruction_count - 1;
+        unsafe {
+            (*(self.instructions + store_index)).immediate_bits = 0;
+        }
+        return true;
+    }
+
     pub fn lower_expression(
         mut self: &mut Self,
         expression_index: usize,
@@ -3057,6 +3128,37 @@ impl ScalarLowering {
                 self.local_count = self.local_count + 1;
                 statement_index = statement.next_sibling;
                 continue;
+            } else if statement.kind == AstKind::UnsafeBlock {
+                let unsafe_body_index: usize = statement.first_child;
+                if unsafe_body_index == 0 || unsafe_body_index >= self.node_count {
+                    return self.reject(statement_index);
+                }
+                let unsafe_body: AstNode = unsafe {
+                    *(self.nodes + unsafe_body_index)
+                };
+                if unsafe_body.kind != AstKind::Block
+                    || unsafe_body.next_sibling != 0 {
+                    return self.reject(statement_index);
+                }
+                let mut unsafe_statement_index: usize = unsafe_body.first_child;
+                while unsafe_statement_index != 0 {
+                    if unsafe_statement_index >= self.node_count {
+                        return self.reject(statement_index);
+                    }
+                    let unsafe_statement: AstNode = unsafe {
+                        *(self.nodes + unsafe_statement_index)
+                    };
+                    if !self.lower_pointer_deref_store(
+                        unsafe_statement_index,
+                        first_parameter,
+                        function_param_count
+                    ) {
+                        return self.reject(unsafe_statement_index);
+                    }
+                    unsafe_statement_index = unsafe_statement.next_sibling;
+                }
+                statement_index = statement.next_sibling;
+                continue;
             } else if statement.kind == AstKind::AssignStmt {
                 let left_index: usize = statement.first_child;
                 let right_index: usize = unsafe { (*(self.nodes + left_index)).next_sibling };
@@ -3067,49 +3169,10 @@ impl ScalarLowering {
                 let left_node: AstNode = unsafe { *(self.nodes + left_index) };
                 if left_node.kind == AstKind::ExprUnary
                     && left_node.int_value == 82 {
-                    let pointer_expression: usize = left_node.first_child;
-                    if pointer_expression == 0
-                        || pointer_expression >= self.node_count
-                        || unsafe { (*(self.nodes + pointer_expression)).next_sibling } != 0 {
+                    if !self.lower_pointer_deref_store(
+                        statement_index, first_parameter, function_param_count
+                    ) {
                         return self.reject(statement_index);
-                    }
-                    let mut sem: Sema = Sema::new();
-                    let pointer_type_ref: usize = sem.infer_expression_type_ref(
-                        self.nodes, self.node_count, pointer_expression,
-                        self.source, self.source_len
-                    );
-                    let pointee_type: TargetTypeTag = self.pointer_pointee_type_tag(
-                        pointer_type_ref
-                    );
-                    if pointee_type == TargetTypeTag::Invalid {
-                        return self.reject(statement_index);
-                    }
-                    let pointer_value: u32 = self.lower_expression(
-                        pointer_expression, TargetTypeTag::Pointer,
-                        first_parameter, function_param_count
-                    );
-                    if pointer_value == TARGET_VALUE_NONE {
-                        return self.reject(statement_index);
-                    }
-                    let expr_value: u32 = self.lower_expression(
-                        right_index, pointee_type,
-                        first_parameter, function_param_count
-                    );
-                    if expr_value == TARGET_VALUE_NONE {
-                        return self.reject(statement_index);
-                    }
-                    let first_operand: u32 = self.operand_count as u32;
-                    if !self.append_operand(pointer_value)
-                        || !self.append_operand(expr_value)
-                        || !self.append_instruction(
-                            TargetOpcode::Store, TARGET_VALUE_NONE,
-                            pointee_type, first_operand, 2, statement_index
-                        ) {
-                        return self.reject(statement_index);
-                    }
-                    let store_index: usize = self.instruction_count - 1;
-                    unsafe {
-                        (*(self.instructions + store_index)).immediate_bits = 0;
                     }
                     statement_index = statement.next_sibling;
                     continue;
