@@ -689,6 +689,37 @@ impl ScalarLowering {
         return TargetTypeTag::Invalid;
     }
 
+    pub fn pointer_expression_type_ref(
+        self: &Self,
+        expression_index: usize
+    ) -> usize {
+        if self.nodes == null || expression_index == 0
+            || expression_index >= self.node_count {
+            return 0;
+        }
+        let mut sem: Sema = Sema::new();
+        let inferred: usize = sem.infer_expression_type_ref(
+            self.nodes, self.node_count, expression_index,
+            self.source, self.source_len
+        );
+        if inferred != 0 && self.type_tag_for(inferred) == TargetTypeTag::Pointer {
+            return inferred;
+        }
+
+        let expression: AstNode = unsafe { *(self.nodes + expression_index) };
+        if expression.kind == AstKind::UnsafeExpr
+            || (expression.kind == AstKind::ExprUnary && expression.int_value == 82) {
+            return self.pointer_expression_type_ref(expression.first_child);
+        }
+        if expression.kind == AstKind::ExprBinary
+            && (expression.int_value == 80 || expression.int_value == 81)
+            && expression.first_child != 0
+            && expression.first_child < self.node_count {
+            return self.pointer_expression_type_ref(expression.first_child);
+        }
+        return 0;
+    }
+
     pub fn pointer_pointee_struct_id(
         self: &Self,
         type_index: usize
@@ -1384,10 +1415,8 @@ impl ScalarLowering {
             || unsafe { (*(self.nodes + pointer_expression)).next_sibling } != 0 {
             return false;
         }
-        let mut sem: Sema = Sema::new();
-        let pointer_type_ref: usize = sem.infer_expression_type_ref(
-            self.nodes, self.node_count, pointer_expression,
-            self.source, self.source_len
+        let pointer_type_ref: usize = self.pointer_expression_type_ref(
+            pointer_expression
         );
         let pointee_type: TargetTypeTag = self.pointer_pointee_type_tag(
             pointer_type_ref
@@ -1529,10 +1558,8 @@ impl ScalarLowering {
                 || unsafe { (*(self.nodes + operand_index)).next_sibling } != 0 {
                 return TARGET_VALUE_NONE;
             }
-            let mut sem: Sema = Sema::new();
-            let pointer_type_ref: usize = sem.infer_expression_type_ref(
-                self.nodes, self.node_count, operand_index,
-                self.source, self.source_len
+            let pointer_type_ref: usize = self.pointer_expression_type_ref(
+                operand_index
             );
             if pointer_type_ref == 0 {
                 return TARGET_VALUE_NONE;
@@ -1996,10 +2023,8 @@ impl ScalarLowering {
                     || unsafe { (*(self.nodes + pointer_expression)).next_sibling } != 0 {
                     return TARGET_VALUE_NONE;
                 }
-                let mut sem: Sema = Sema::new();
-                let pointer_type_ref: usize = sem.infer_expression_type_ref(
-                    self.nodes, self.node_count, pointer_expression,
-                    self.source, self.source_len
+                let pointer_type_ref: usize = self.pointer_expression_type_ref(
+                    pointer_expression
                 );
                 struct_id = self.pointer_pointee_struct_id(pointer_type_ref);
                 if struct_id != 0 {
@@ -2106,10 +2131,7 @@ impl ScalarLowering {
             }
 
             let mut sem: Sema = Sema::new();
-            let pointer_type_ref: usize = sem.infer_expression_type_ref(
-                self.nodes, self.node_count, left_index,
-                self.source, self.source_len
-            );
+            let pointer_type_ref: usize = self.pointer_expression_type_ref(left_index);
             let stride: usize = self.pointer_pointee_stride(pointer_type_ref);
             if stride == 0 {
                 return TARGET_VALUE_NONE;
