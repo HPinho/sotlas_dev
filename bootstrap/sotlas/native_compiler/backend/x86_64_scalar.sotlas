@@ -128,6 +128,19 @@ fn append_object_slot_load_ptr(
         && append_object_u32(output, capacity, length, 0 as u32 - value_id * 8);
 }
 
+fn append_object_slot_load_ptr_rcx(
+    output: *mut u8,
+    capacity: usize,
+    length: &mut usize,
+    value_id: u32
+) -> bool {
+    if value_id == 0 || value_id > 536870911 { return false; }
+    return append_object_byte(output, capacity, length, 72)
+        && append_object_byte(output, capacity, length, 139)
+        && append_object_byte(output, capacity, length, 141)
+        && append_object_u32(output, capacity, length, 0 as u32 - value_id * 8);
+}
+
 fn append_object_slot_store64(
     output: *mut u8,
     capacity: usize,
@@ -1858,7 +1871,9 @@ pub fn emit_elf64_module_object(
             || function.name.length > source_len - function.name.offset
             || function.name.length > 4096
             || function.parameter_count > 6
-            || (function.return_type != TargetTypeTag::U32
+            || (function.return_type != TargetTypeTag::U8
+                && function.return_type != TargetTypeTag::U16
+                && function.return_type != TargetTypeTag::U32
                 && function.return_type != TargetTypeTag::U64
                 && function.return_type != TargetTypeTag::I64
                 && function.return_type != TargetTypeTag::Pointer
@@ -2073,7 +2088,7 @@ pub fn emit_elf64_module_object(
                             && index_type != TargetTypeTag::Usize)
                         || count == 0 || count > 2147483647
                         || (stride != 1 && stride != 2 && stride != 4 && stride != 8)
-                        || !append_object_slot_load_ptr(
+                        || !append_object_slot_load_ptr_rcx(
                             output, capacity, &mut code, base.value_id
                         )
                         || !append_object_slot_load_typed(
@@ -2113,9 +2128,6 @@ pub fn emit_elf64_module_object(
                     }
                     if !append_object_byte(output, capacity, &mut code, 72)
                         || !append_object_byte(output, capacity, &mut code, 1)
-                        || !append_object_byte(output, capacity, &mut code, 193)
-                        || !append_object_byte(output, capacity, &mut code, 72)
-                        || !append_object_byte(output, capacity, &mut code, 137)
                         || !append_object_byte(output, capacity, &mut code, 200)
                         || !append_object_slot_store64(
                             output, capacity, &mut code, instruction.result_value
