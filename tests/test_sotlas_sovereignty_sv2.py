@@ -199,6 +199,17 @@ pub fn run_wide_method() -> usize {
 }
 """
 
+WIDE_COMPARISON_SRC = """module sv2::wide_comparison;
+
+pub fn choose_wide(value: usize) -> usize {
+    if value > 4294967296 {
+        return value;
+    } else {
+        return 4294967296;
+    }
+}
+"""
+
 
 class TestSotlasSovereigntySV2(unittest.TestCase):
     @classmethod
@@ -390,8 +401,55 @@ class TestSotlasSovereigntySV2(unittest.TestCase):
             r_run = subprocess.run([str(out_bin)])
             self.assertEqual(r_run.returncode, 42)
 
+    def test_sv2_lowering_wide_comparison_preserves_operand_type(self):
+        """SV2.15: usize comparison keeps both operands 64-bit through CFG and ELF."""
+        src_path = self.root / "wide_comparison.sotlas"
+        src_path.write_text(WIDE_COMPARISON_SRC, encoding="utf-8")
+        out_obj = self.root / "wide_comparison.o"
+        r = subprocess.run(
+            [str(self.stage1), "--compile-obj", str(src_path), str(out_obj)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(out_obj.is_file())
+
+        data = out_obj.read_bytes()
+        self.assertEqual(data[:4], b"\x7fELF")
+        self.assertIn(b"choose_wide\x00", data)
+        self.assertIn(
+            b"\x48\xb8\x00\x00\x00\x00\x01\x00\x00\x00",
+            data,
+        )
+        self.assertIn(b"\x48\x3b\x85", data)
+
+        if sys.platform.startswith("linux"):
+            caller = self.root / "wide_comparison_caller.c"
+            caller.write_text(
+                "#include <stddef.h>\n"
+                "extern size_t choose_wide(size_t);\n"
+                "int main(void) { "
+                "if (choose_wide((size_t)4294967297ULL) != (size_t)4294967297ULL) return 1; "
+                "if (choose_wide((size_t)7) != (size_t)4294967296ULL) return 2; "
+                "return 0; }\n",
+                encoding="utf-8",
+            )
+            exe = self.root / "wide_comparison_native"
+            linked = subprocess.run(
+                ["clang", str(caller), str(out_obj), "-o", str(exe)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(linked.returncode, 0, linked.stderr)
+            executed = subprocess.run(
+                [str(exe)], capture_output=True, text=True, check=False
+            )
+            self.assertEqual(executed.returncode, 0, executed.stderr)
+
     def test_sv2_lowering_struct_methods_preserves_wide_argument_type(self):
-        """SV2.15: Receiver calls preserve declared usize argument/return types through native ELF."""
+        """SV2.16: Receiver calls preserve declared usize argument/return types through native ELF."""
         src_path = self.root / "methods_wide.sotlas"
         src_path.write_text(STRUCT_METHOD_WIDE_SRC, encoding="utf-8")
         out_obj = self.root / "methods_wide.o"
