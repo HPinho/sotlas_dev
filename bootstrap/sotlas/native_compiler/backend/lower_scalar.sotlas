@@ -1976,7 +1976,7 @@ impl ScalarLowering {
             let ptr_index: usize = self.instruction_count - 1;
             let mut immediate: u64 = stride as u64;
             if expression.int_value == 81 {
-                immediate = immediate | (1u64 << 32);
+                immediate = immediate | ((1 as u64) << 32);
             }
             unsafe {
                 (*(self.instructions + ptr_index)).immediate_bits = immediate;
