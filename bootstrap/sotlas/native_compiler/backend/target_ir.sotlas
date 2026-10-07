@@ -1025,8 +1025,10 @@ pub fn target_module_validate_cfg(
                     };
                     if left_type != right_type
                         || (!target_type_is_integer(left_type)
-                            && left_type != TargetTypeTag::Pointer)
-                        || (left_type == TargetTypeTag::Pointer
+                            && left_type != TargetTypeTag::Pointer
+                            && left_type != TargetTypeTag::Bool)
+                        || ((left_type == TargetTypeTag::Pointer
+                            || left_type == TargetTypeTag::Bool)
                             && instruction.immediate_bits > 87) {
                         return false;
                     }

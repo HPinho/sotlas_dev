@@ -465,6 +465,32 @@ pub fn contains(entries: *const Entry, count: u32, wanted: u32) -> bool {
 }
 """
 
+BOOL_NEGATION_SRC = """module sv4::bool_negation;
+
+pub fn negate(flag: bool) -> bool {
+    return !flag;
+}
+
+pub fn unequal(a: u32, b: u32) -> bool {
+    return !(a == b);
+}
+
+pub fn negate_or(a: bool, b: bool) -> bool {
+    return !(a || b);
+}
+
+pub fn guarded(a: bool, b: bool) -> bool {
+    return !a && b;
+}
+"""
+
+INVALID_BOOL_NEGATION_SRC = """module sv4::invalid_bool_negation;
+
+pub fn invalid(value: u32) -> bool {
+    return !value;
+}
+"""
+
 SV8_WIDE_LOCAL_SEARCH_LOOP_SRC = """module sv8::wide_local_search_loop;
 
 pub fn contains(values: *const u64, count: u32, wanted: u64) -> bool {
@@ -997,6 +1023,63 @@ class TestSotlasSovereigntySV2(unittest.TestCase):
         for token, tag in expected.items():
             self.assertIn(f"TokenKind::{token} {{ return {tag}; }}", parser_src)
             self.assertIn(f"expression.int_value == {tag}", lower_src)
+
+    def test_sv4_boolean_negation_is_native(self):
+        """Unary ! uses typed Bool equality and executes correctly for nested conditions."""
+        src_path = self.root / "bool_negation.sotlas"
+        src_path.write_text(BOOL_NEGATION_SRC, encoding="utf-8")
+        out_obj = self.root / "bool_negation.o"
+        compiled = subprocess.run(
+            [str(self.stage1), "--compile-obj", str(src_path), str(out_obj)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(compiled.returncode, 0, compiled.stderr)
+        data = out_obj.read_bytes()
+        self.assertEqual(data[:4], b"\x7fELF")
+        for symbol in (b"negate\x00", b"unequal\x00", b"negate_or\x00", b"guarded\x00"):
+            self.assertIn(symbol, data)
+        if sys.platform.startswith("linux"):
+            caller = self.root / "bool_negation_caller.c"
+            caller.write_text(
+                "#include <stdbool.h>\n#include <stdint.h>\n"
+                "extern bool negate(bool);\n"
+                "extern bool unequal(uint32_t, uint32_t);\n"
+                "extern bool negate_or(bool, bool);\n"
+                "extern bool guarded(bool, bool);\n"
+                "int main(void) { return negate(false) && !negate(true) "
+                "&& unequal(4, 5) && !unequal(4, 4) "
+                "&& negate_or(false, false) && !negate_or(true, false) "
+                "&& guarded(false, true) && !guarded(true, true) ? 0 : 1; }\n",
+                encoding="utf-8",
+            )
+            exe = self.root / "bool_negation_native"
+            linked = subprocess.run(
+                ["clang", str(caller), str(out_obj), "-o", str(exe)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(linked.returncode, 0, linked.stderr)
+            executed = subprocess.run(
+                [str(exe)], capture_output=True, text=True, check=False
+            )
+            self.assertEqual(executed.returncode, 0, executed.stderr)
+
+    def test_sv4_boolean_negation_rejects_integer(self):
+        """Unary ! never accepts an integer as a Bool operand."""
+        src_path = self.root / "invalid_bool_negation.sotlas"
+        src_path.write_text(INVALID_BOOL_NEGATION_SRC, encoding="utf-8")
+        out_obj = self.root / "invalid_bool_negation.o"
+        compiled = subprocess.run(
+            [str(self.stage1), "--compile-obj", str(src_path), str(out_obj)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertNotEqual(compiled.returncode, 0)
+        self.assertFalse(out_obj.exists())
 
     def test_sv4_pure_boolean_composition_is_native(self):
         """SV4.6: Pure &&/|| conditions lower to typed Bool IR and native x86-64."""
