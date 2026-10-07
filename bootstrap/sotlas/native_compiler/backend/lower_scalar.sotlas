@@ -743,8 +743,13 @@ impl ScalarLowering {
                 break;
             }
         }
-        if start >= type_node.str_len
-            || unsafe { *(self.source + type_node.str_offset + start) } != 42 {
+        if start >= type_node.str_len {
+            return 0;
+        }
+        let indirect_marker: u8 = unsafe {
+            *(self.source + type_node.str_offset + start)
+        };
+        if indirect_marker != 42 && indirect_marker != 38 {
             return 0;
         }
         start = start + 1;
@@ -758,18 +763,25 @@ impl ScalarLowering {
         }
 
         let mut sem: Sema = Sema::new();
-        if start + 5 <= type_node.str_len && sem.source_slice_equals(
-            self.source, self.source_len,
-            type_node.str_offset + start, 5, "const", 5
-        ) {
-            start = start + 5;
+        if indirect_marker == 42 {
+            if start + 5 <= type_node.str_len && sem.source_slice_equals(
+                self.source, self.source_len,
+                type_node.str_offset + start, 5, "const", 5
+            ) {
+                start = start + 5;
+            } else if start + 3 <= type_node.str_len && sem.source_slice_equals(
+                self.source, self.source_len,
+                type_node.str_offset + start, 3, "mut", 3
+            ) {
+                start = start + 3;
+            } else {
+                return 0;
+            }
         } else if start + 3 <= type_node.str_len && sem.source_slice_equals(
             self.source, self.source_len,
             type_node.str_offset + start, 3, "mut", 3
         ) {
             start = start + 3;
-        } else {
-            return 0;
         }
         while start < type_node.str_len {
             let ch: u8 = unsafe { *(self.source + type_node.str_offset + start) };
@@ -3611,14 +3623,27 @@ impl ScalarLowering {
                         && *(self.source + child.str_offset + 1) == 101
                         && *(self.source + child.str_offset + 2) == 108
                         && *(self.source + child.str_offset + 3) == 102 };
+                let mut parameter_struct_id: u32 = 0;
                 if is_first_param && impl_struct_id != 0 && is_self_param {
-                    if self.local_count < 128 {
-                        self.local_name_offsets[self.local_count] = child.str_offset;
-                        self.local_name_lens[self.local_count] = child.str_len;
-                        self.local_value_ids[self.local_count] = value_id;
-                        self.local_struct_ids[self.local_count] = impl_struct_id;
-                        self.local_count = self.local_count + 1;
+                    parameter_struct_id = impl_struct_id;
+                } else if !function_is_external {
+                    parameter_struct_id = self.pointer_pointee_struct_id(type_index);
+                    if parameter_struct_id == 0 && type_tag == TargetTypeTag::Pointer {
+                        let type_node: AstNode = unsafe { *(self.nodes + type_index) };
+                        parameter_struct_id = self.find_struct(
+                            type_node.str_offset, type_node.str_len
+                        );
                     }
+                }
+                if !function_is_external && parameter_struct_id != 0 {
+                    if self.local_count >= 128 {
+                        return self.reject(child_index);
+                    }
+                    self.local_name_offsets[self.local_count] = child.str_offset;
+                    self.local_name_lens[self.local_count] = child.str_len;
+                    self.local_value_ids[self.local_count] = value_id;
+                    self.local_struct_ids[self.local_count] = parameter_struct_id;
+                    self.local_count = self.local_count + 1;
                 }
                 is_first_param = false;
             } else if child.kind == AstKind::TypeRef {

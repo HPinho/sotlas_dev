@@ -3,7 +3,7 @@
 **Status:** active implementation track  
 **Started:** 2026-10-03 (America/Fortaleza)  
 **Green baseline at track start:** `7162167dec6fd5fa0a216121b147335d222e43f1` / CI #1063  
-**Current certified baseline:** `6ffc73b776cb62fd4990c00a3e93c19c5682be0e` / CI #1119
+**Current certified baseline:** `2a7a2c47ba597e42d4c21d2e681dee9cfd748516` / CI #1121
 
 ## Goal
 
@@ -359,7 +359,8 @@ Milestone **SV8** currently certifies deterministic Stage1/Stage2/Stage3 fronten
 
 ### Active implementation queue
 - **Current item — SV8.7b2:** CI #1119 confirmed monotonic progress: the real `target_ir.sotlas` blocker moved from the enclosing function at 289 to the actual guard clause at `295:5`. This cut adds leading guard-return CFG lowering plus contextual pointer-null equality/inequality; `null` is represented only as a zero Pointer constant, without enabling integer-to-pointer casts. CI #1120 showed the guard still stopped at 295 because `return false;` was incorrectly sent through decimal-integer literal lowering. The repair adds only certified Bool constants (`false=0`, `true=1`).
-- **Next item — SV8.7b3:** rerun the real-module probe and fix exactly the first diagnostic after line 295 (or promote the probe to positive ELF success if none remains).
+- **Current item — SV8.7b3:** CI #1121 advanced the real-module blocker from 295 to `target_ir.sotlas:314:5` in `target_cfg_block_has_edge`. The condition reads `block.instruction_count` from a `block: &TargetBlock` parameter; the lowering treated the reference as Pointer but did not retain the referenced struct identity for field lookup. This cut registers struct metadata for ordinary indirect struct parameters (`&T`, `&mut T`, `*const T`, `*mut T`) while preserving the existing impl-self contract.
+- **Next item — SV8.7b4:** rerun the same real-module probe and fix exactly the first diagnostic after line 314 (or promote to positive ELF success if none remains).
 - **Following gate — SV8.7:** repeat blocker-by-blocker until Stage1 emits the native ELF object for the real `target_ir.sotlas` without C emission. Bracket-form raw-pointer indexing remains rejected unless a real bootstrap blocker proves it necessary.
 - **Sovereignty metric:** application/kernel native gates are C/Python-free; compiler bootstrap gates remain hosted. Current tracked reduction is 40% eliminated / 60% remaining for both Python and C until a native Stage1→Stage2 build gate closes.
 
