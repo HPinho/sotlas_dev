@@ -2976,10 +2976,18 @@ impl ScalarLowering {
             return false;
         }
         let body: AstNode = unsafe { *(self.nodes + body_index) };
-        let if_index: usize = body.first_child;
+        let mut if_index: usize = body.first_child;
         if body.kind != AstKind::Block || if_index == 0
             || if_index >= self.node_count {
             return false;
+        }
+        let mut body_let_index: usize = 0;
+        if unsafe { (*(self.nodes + if_index)).kind } == AstKind::LetStmt {
+            body_let_index = if_index;
+            if_index = unsafe { (*(self.nodes + if_index)).next_sibling };
+            if if_index == 0 || if_index >= self.node_count {
+                return false;
+            }
         }
         let if_node: AstNode = unsafe { *(self.nodes + if_index) };
         let assignment_index: usize = if_node.next_sibling;
@@ -3132,6 +3140,35 @@ impl ScalarLowering {
 
         // Body: the search predicate chooses found-return vs latch/update.
         let body_first_instruction: usize = self.instruction_count;
+        let body_scope_local_count: usize = self.local_count;
+        if body_let_index != 0 {
+            let body_let: AstNode = unsafe { *(self.nodes + body_let_index) };
+            let type_index: usize = body_let.first_child;
+            if type_index == 0 || type_index >= self.node_count
+                || unsafe { (*(self.nodes + type_index)).kind } != AstKind::TypeRef
+                || self.type_tag_for(type_index) != TargetTypeTag::U32 {
+                return false;
+            }
+            let initializer_index: usize = unsafe {
+                (*(self.nodes + type_index)).next_sibling
+            };
+            if initializer_index == 0 || initializer_index >= self.node_count
+                || unsafe { (*(self.nodes + initializer_index)).next_sibling } != 0 {
+                return false;
+            }
+            let body_value: u32 = self.lower_expression(
+                initializer_index, TargetTypeTag::U32,
+                first_parameter, parameter_count
+            );
+            if body_value == TARGET_VALUE_NONE || self.local_count >= 128 {
+                return false;
+            }
+            self.local_name_offsets[self.local_count] = body_let.str_offset;
+            self.local_name_lens[self.local_count] = body_let.str_len;
+            self.local_value_ids[self.local_count] = body_value;
+            self.local_struct_ids[self.local_count] = 0;
+            self.local_count = self.local_count + 1;
+        }
         let test_value: u32 = self.lower_condition_expression(
             test_index, first_parameter, parameter_count
         );
@@ -3232,6 +3269,8 @@ impl ScalarLowering {
             *(self.instructions + phi_instruction_index) = phi_instruction;
         }
 
+        // The loop-body binding is unavailable on the loop's exit edge.
+        self.local_count = body_scope_local_count;
         let exit_first_instruction: usize = self.instruction_count;
         if !self.lower_return_statement(
             return_index, return_type, first_parameter, parameter_count
@@ -4141,13 +4180,23 @@ impl ScalarLowering {
                 let body_is_if: bool = first_body_statement != 0
                     && first_body_statement < self.node_count
                     && unsafe { (*(self.nodes + first_body_statement)).kind } == AstKind::IfStmt;
+                let mut body_is_search: bool = body_is_if;
+                if first_body_statement != 0 && first_body_statement < self.node_count
+                    && unsafe { (*(self.nodes + first_body_statement)).kind } == AstKind::LetStmt {
+                    let next_body_statement: usize = unsafe {
+                        (*(self.nodes + first_body_statement)).next_sibling
+                    };
+                    body_is_search = next_body_statement != 0
+                        && next_body_statement < self.node_count
+                        && unsafe { (*(self.nodes + next_body_statement)).kind } == AstKind::IfStmt;
+                }
                 let mut loop_lowered: bool = false;
-                if body_is_if {
+                if body_is_search {
                     loop_lowered = self.lower_while_search_then_return(
                         statement_index, return_index, return_type, first_parameter,
                         function_param_count, first_instruction
                     );
-                    if !loop_lowered {
+                    if !loop_lowered && body_is_if {
                         loop_lowered = self.lower_while_if_jumps_then_return(
                             statement_index, return_index, return_type, first_parameter,
                             function_param_count, first_instruction
