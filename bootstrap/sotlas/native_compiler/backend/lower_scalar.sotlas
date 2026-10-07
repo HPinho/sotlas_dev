@@ -1472,6 +1472,45 @@ impl ScalarLowering {
             if first_ch == 34 {
                 return self.lower_string_literal(expression_index);
             }
+            if type_tag == TargetTypeTag::Bool {
+                let mut sem_literal: Sema = Sema::new();
+                let mut bool_value: u64 = 2;
+                if sem_literal.source_slice_equals(
+                    self.source, self.source_len,
+                    expression.str_offset, expression.str_len,
+                    "false", 5
+                ) {
+                    bool_value = 0;
+                } else if sem_literal.source_slice_equals(
+                    self.source, self.source_len,
+                    expression.str_offset, expression.str_len,
+                    "true", 4
+                ) {
+                    bool_value = 1;
+                }
+                if bool_value <= 1 {
+                    let value_id: u32 = self.append_value(
+                        TargetTypeTag::Bool, 0, 0
+                    );
+                    if value_id == TARGET_VALUE_NONE
+                        || !self.append_instruction(
+                            TargetOpcode::ConstInt,
+                            value_id,
+                            TargetTypeTag::Bool,
+                            0,
+                            0,
+                            expression_index
+                        ) {
+                        return TARGET_VALUE_NONE;
+                    }
+                    let instruction_index: usize = self.instruction_count - 1;
+                    unsafe {
+                        (*(self.instructions + instruction_index)).immediate_bits =
+                            bool_value;
+                    }
+                    return value_id;
+                }
+            }
             return self.lower_integer_literal(expression_index, type_tag);
         }
         if expression.kind == AstKind::UnsafeExpr {
