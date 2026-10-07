@@ -943,7 +943,8 @@ impl ScalarLowering {
     ) -> u32 {
         let structured: isize = self.structured_find_local(name_offset, name_length);
         if structured >= 0 {
-            return self.structured_local_struct_ids[structured as usize];
+            let slot: usize = structured as usize;
+            return self.structured_local_struct_ids[slot];
         }
         let mut local_offset: usize = self.local_count;
         while local_offset > 0 {
@@ -997,7 +998,8 @@ impl ScalarLowering {
                 expression.str_offset, expression.str_len
             );
             if structured >= 0 {
-                return self.structured_local_struct_ids[structured as usize];
+                let slot: usize = structured as usize;
+                return self.structured_local_struct_ids[slot];
             }
             return self.find_local_struct_id(expression.str_offset, expression.str_len);
         }
@@ -1019,7 +1021,8 @@ impl ScalarLowering {
                 base_struct, expression.str_offset, expression.str_len
             );
             if field_id == 0 { return 0; }
-            return self.field_struct_ids[(field_id - 1) as usize];
+            let field_index: usize = (field_id - 1) as usize;
+            return self.field_struct_ids[field_index];
         }
         return 0;
     }
@@ -2664,8 +2667,8 @@ impl ScalarLowering {
                 expression.str_offset, expression.str_len
             );
             if structured >= 0 {
-                return self.structured_local_type_tags[structured as usize]
-                    as TargetTypeTag;
+                let slot: usize = structured as usize;
+                return self.structured_local_type_tags[slot] as TargetTypeTag;
             }
             let value_id: u32 = self.find_parameter_value(
                 first_parameter,
@@ -3936,6 +3939,7 @@ impl ScalarLowering {
     ) -> bool {
         if !self.structured_block_live || expression_index == 0
             || expression_index >= self.node_count {
+            if self.error_node == 0 { self.error_node = expression_index; }
             return false;
         }
         let expression: AstNode = unsafe { *(self.nodes + expression_index) };
@@ -3955,10 +3959,14 @@ impl ScalarLowering {
             };
             if right_index == 0 || right_index >= self.node_count
                 || unsafe { (*(self.nodes + right_index)).next_sibling } != 0 {
+                if self.error_node == 0 { self.error_node = expression_index; }
                 return false;
             }
             let middle_id: u32 = self.structured_reserve_block();
-            if middle_id == TARGET_BLOCK_NONE { return false; }
+            if middle_id == TARGET_BLOCK_NONE {
+                if self.error_node == 0 { self.error_node = expression_index; }
+                return false;
+            }
             if expression.int_value == 110 {
                 if !self.structured_emit_condition(
                     left_index, middle_id, false_id,
@@ -3987,6 +3995,7 @@ impl ScalarLowering {
             || condition_value as usize > self.value_count
             || unsafe { (*(self.values + condition_value as usize - 1)).type_tag }
                 != TargetTypeTag::Bool {
+            if self.error_node == 0 { self.error_node = expression_index; }
             return false;
         }
         let first_operand: u32 = self.operand_count as u32;
@@ -3995,11 +4004,13 @@ impl ScalarLowering {
                 TargetOpcode::CondBranch, TARGET_VALUE_NONE, TargetTypeTag::Bool,
                 first_operand, 1, expression_index
             ) {
+            if self.error_node == 0 { self.error_node = expression_index; }
             return false;
         }
         let branch_index: usize = self.instruction_count - 1;
         let first_target: u32 = self.target_count as u32;
         if !self.append_target(true_id) || !self.append_target(false_id) {
+            if self.error_node == 0 { self.error_node = expression_index; }
             return false;
         }
         unsafe {
@@ -4289,7 +4300,7 @@ impl ScalarLowering {
                         condition_index, then_id, else_id,
                         first_parameter, parameter_count
                     ) {
-                    self.error_node = condition_index;
+                    if self.error_node == 0 { self.error_node = condition_index; }
                     return false;
                 }
                 let saved_locals: usize = self.structured_local_count;
@@ -4363,7 +4374,7 @@ impl ScalarLowering {
                         condition_index, body_id, exit_id,
                         first_parameter, parameter_count
                     ) {
-                    self.error_node = condition_index;
+                    if self.error_node == 0 { self.error_node = condition_index; }
                     return false;
                 }
                 let saved_locals: usize = self.structured_local_count;
