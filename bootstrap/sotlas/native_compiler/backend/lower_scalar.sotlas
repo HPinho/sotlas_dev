@@ -1485,6 +1485,31 @@ impl ScalarLowering {
             );
         }
         if expression.kind == AstKind::ExprIdent {
+            let mut sem_ident: Sema = Sema::new();
+            if sem_ident.source_slice_equals(
+                self.source, self.source_len,
+                expression.str_offset, expression.str_len,
+                "null", 4
+            ) {
+                if type_tag != TargetTypeTag::Pointer {
+                    return TARGET_VALUE_NONE;
+                }
+                let null_value: u32 = self.append_value(
+                    TargetTypeTag::Pointer, 0, 0
+                );
+                if null_value == TARGET_VALUE_NONE
+                    || !self.append_instruction(
+                        TargetOpcode::ConstInt,
+                        null_value,
+                        TargetTypeTag::Pointer,
+                        0,
+                        0,
+                        expression_index
+                    ) {
+                    return TARGET_VALUE_NONE;
+                }
+                return null_value;
+            }
             let local_val: u32 = self.find_parameter_value(
                 first_parameter,
                 parameter_count,
@@ -2589,10 +2614,13 @@ impl ScalarLowering {
         }
         if compare_type != TargetTypeTag::U32
             && compare_type != TargetTypeTag::U64
-            && compare_type != TargetTypeTag::I64 {
+            && compare_type != TargetTypeTag::I64
+            && compare_type != TargetTypeTag::Pointer {
             return TARGET_VALUE_NONE;
         }
-        if compare_type == TargetTypeTag::I64 && expression.int_value > 87 {
+        if (compare_type == TargetTypeTag::I64
+                || compare_type == TargetTypeTag::Pointer)
+            && expression.int_value > 87 {
             return TARGET_VALUE_NONE;
         }
 
@@ -2741,6 +2769,113 @@ impl ScalarLowering {
             };
         }
         self.block_count = self.block_count + 3;
+        return true;
+    }
+
+    // Lower a leading guard clause:
+    // if condition { return value; } <continuation>
+    // The false edge targets the next block, which is published by subsequent
+    // straight-line/control-flow lowering.
+    pub fn lower_guard_return_prefix(
+        mut self: &mut Self,
+        if_index: usize,
+        return_type: TargetTypeTag,
+        first_parameter: usize,
+        parameter_count: usize,
+        entry_first_instruction: usize
+    ) -> bool {
+        if if_index == 0 || if_index >= self.node_count
+            || self.blocks == null || self.targets == null
+            || self.block_count + 2 > self.block_capacity {
+            return false;
+        }
+        let if_node: AstNode = unsafe { *(self.nodes + if_index) };
+        if if_node.kind != AstKind::IfStmt || if_node.next_sibling == 0
+            || if_node.first_child == 0 || if_node.first_child >= self.node_count {
+            return false;
+        }
+        let condition_index: usize = if_node.first_child;
+        let condition_node: AstNode = unsafe { *(self.nodes + condition_index) };
+        let then_index: usize = condition_node.next_sibling;
+        if then_index == 0 || then_index >= self.node_count {
+            return false;
+        }
+        let then_block: AstNode = unsafe { *(self.nodes + then_index) };
+        if then_block.kind != AstKind::Block || then_block.next_sibling != 0
+            || then_block.first_child == 0
+            || then_block.first_child >= self.node_count {
+            return false;
+        }
+        let return_index: usize = then_block.first_child;
+        let return_node: AstNode = unsafe { *(self.nodes + return_index) };
+        if return_node.kind != AstKind::ReturnStmt
+            || return_node.next_sibling != 0 {
+            return false;
+        }
+
+        let first_block: usize = self.block_count;
+        let entry_id: u32 = first_block as u32 + 1;
+        let return_id: u32 = entry_id + 1;
+        let continuation_id: u32 = entry_id + 2;
+
+        let condition_value: u32 = self.lower_condition_expression(
+            condition_index, first_parameter, parameter_count
+        );
+        if condition_value == TARGET_VALUE_NONE || self.values == null
+            || unsafe { (*(self.values + condition_value as usize - 1)).type_tag }
+                != TargetTypeTag::Bool {
+            return false;
+        }
+        let condition_operand: u32 = self.operand_count as u32;
+        if !self.append_operand(condition_value)
+            || !self.append_instruction(
+                TargetOpcode::CondBranch,
+                TARGET_VALUE_NONE,
+                TargetTypeTag::Bool,
+                condition_operand,
+                1,
+                if_index
+            ) {
+            return false;
+        }
+        let branch_index: usize = self.instruction_count - 1;
+        let first_target: u32 = self.target_count as u32;
+        if !self.append_target(return_id)
+            || !self.append_target(continuation_id) {
+            return false;
+        }
+        let mut branch: TargetInstruction = unsafe {
+            *(self.instructions + branch_index)
+        };
+        branch.first_target = first_target;
+        branch.target_count = 2;
+        unsafe { *(self.instructions + branch_index) = branch; }
+        unsafe {
+            *(self.blocks + first_block) = TargetBlock {
+                id: entry_id,
+                label: TargetSourceSlice::empty(),
+                first_instruction: entry_first_instruction as u32,
+                instruction_count:
+                    (self.instruction_count - entry_first_instruction) as u32
+            };
+        }
+
+        let return_first_instruction: usize = self.instruction_count;
+        if !self.lower_return_statement(
+            return_index, return_type, first_parameter, parameter_count
+        ) {
+            return false;
+        }
+        unsafe {
+            *(self.blocks + first_block + 1) = TargetBlock {
+                id: return_id,
+                label: TargetSourceSlice::empty(),
+                first_instruction: return_first_instruction as u32,
+                instruction_count:
+                    (self.instruction_count - return_first_instruction) as u32
+            };
+        }
+        self.block_count = self.block_count + 2;
         return true;
     }
 
@@ -3490,7 +3625,7 @@ impl ScalarLowering {
             return self.reject(function_index);
         }
         let first_block: usize = self.block_count;
-        let first_instruction: usize = self.instruction_count;
+        let mut first_instruction: usize = self.instruction_count;
         let mut statement_index: usize = unsafe { (*(self.nodes + body_index)).first_child };
         let mut function_block_count: u32 = 0;
         while statement_index != 0 {
@@ -3839,9 +3974,10 @@ impl ScalarLowering {
                     ) {
                     return self.reject(statement_index);
                 }
+                let current_block: usize = self.block_count;
                 unsafe {
-                    *(self.blocks + first_block) = TargetBlock {
-                        id: (first_block + 1) as u32,
+                    *(self.blocks + current_block) = TargetBlock {
+                        id: (current_block + 1) as u32,
                         label: TargetSourceSlice::empty(),
                         first_instruction: first_instruction as u32,
                         instruction_count: (self.instruction_count - first_instruction) as u32
@@ -3851,6 +3987,17 @@ impl ScalarLowering {
                 function_block_count = (self.block_count - first_block) as u32;
                 break;
             } else if statement.kind == AstKind::IfStmt {
+                if statement.next_sibling != 0 {
+                    if !self.lower_guard_return_prefix(
+                        statement_index, return_type, first_parameter,
+                        function_param_count, first_instruction
+                    ) {
+                        return self.reject(statement_index);
+                    }
+                    first_instruction = self.instruction_count;
+                    statement_index = statement.next_sibling;
+                    continue;
+                }
                 if !self.lower_if_return_branches(
                     statement_index, return_type, first_parameter,
                     function_param_count, first_instruction
@@ -3914,9 +4061,10 @@ impl ScalarLowering {
                 ) {
                 return self.reject(function_index);
             }
+            let current_block: usize = self.block_count;
             unsafe {
-                *(self.blocks + first_block) = TargetBlock {
-                    id: (first_block + 1) as u32,
+                *(self.blocks + current_block) = TargetBlock {
+                    id: (current_block + 1) as u32,
                     label: TargetSourceSlice::empty(),
                     first_instruction: first_instruction as u32,
                     instruction_count: (self.instruction_count - first_instruction) as u32

@@ -1245,7 +1245,7 @@ class TestSotlasSovereigntySV2(unittest.TestCase):
         self.assertIn(b"\x0f\xb6\x81", data)  # scalar u8 load
 
     def test_sv8_real_target_ir_progresses_past_cfg_has_block(self):
-        """SV8.7b1: The real-module probe must move past the 289:5 blocker or emit ELF."""
+        """SV8.7b2: The real-module probe must move past the 295:5 guard blocker or emit ELF."""
         src_path = NATIVE_DIR / "backend" / "target_ir.sotlas"
         out_obj = self.root / "target_ir_real.o"
         compiled = subprocess.run(
@@ -1272,8 +1272,8 @@ class TestSotlasSovereigntySV2(unittest.TestCase):
         blocker_line = int(line_text)
         self.assertGreater(
             blocker_line,
-            289,
-            "SV8.7b1 regressed to or before the certified 289:5 blocker.\n"
+            295,
+            "SV8.7b2 regressed to or before the certified 295:5 guard blocker.\n"
             + compiled.stderr,
         )
 
