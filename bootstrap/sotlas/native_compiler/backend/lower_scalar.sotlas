@@ -3149,10 +3149,6 @@ impl ScalarLowering {
                 return false;
             }
             let body_let_type: TargetTypeTag = self.type_tag_for(type_index);
-            if body_let_type != TargetTypeTag::U32
-                && body_let_type != TargetTypeTag::Bool {
-                return false;
-            }
             let initializer_index: usize = unsafe {
                 (*(self.nodes + type_index)).next_sibling
             };
@@ -3160,17 +3156,45 @@ impl ScalarLowering {
                 || unsafe { (*(self.nodes + initializer_index)).next_sibling } != 0 {
                 return false;
             }
-            let body_value: u32 = self.lower_expression(
-                initializer_index, body_let_type,
-                first_parameter, parameter_count
-            );
+            let mut body_struct_id: u32 = 0;
+            let mut body_value: u32 = TARGET_VALUE_NONE;
+            if body_let_type == TargetTypeTag::U32
+                || body_let_type == TargetTypeTag::Bool {
+                body_value = self.lower_expression(
+                    initializer_index, body_let_type,
+                    first_parameter, parameter_count
+                );
+            } else {
+                let type_node: AstNode = unsafe { *(self.nodes + type_index) };
+                body_struct_id = self.find_struct(type_node.str_offset, type_node.str_len);
+                let initializer: AstNode = unsafe { *(self.nodes + initializer_index) };
+                if body_struct_id == 0 || initializer.kind != AstKind::UnsafeExpr
+                    || initializer.first_child == 0
+                    || initializer.first_child >= self.node_count
+                    || unsafe { (*(self.nodes + initializer.first_child)).next_sibling } != 0 {
+                    return false;
+                }
+                let deref: AstNode = unsafe { *(self.nodes + initializer.first_child) };
+                if deref.kind != AstKind::ExprUnary || deref.int_value != 82
+                    || deref.first_child == 0 || deref.first_child >= self.node_count
+                    || unsafe { (*(self.nodes + deref.first_child)).next_sibling } != 0
+                    || self.pointer_pointee_struct_id(
+                        self.pointer_expression_type_ref(deref.first_child)
+                    ) != body_struct_id {
+                    return false;
+                }
+                body_value = self.lower_expression(
+                    deref.first_child, TargetTypeTag::Pointer,
+                    first_parameter, parameter_count
+                );
+            }
             if body_value == TARGET_VALUE_NONE || self.local_count >= 128 {
                 return false;
             }
             self.local_name_offsets[self.local_count] = body_let.str_offset;
             self.local_name_lens[self.local_count] = body_let.str_len;
             self.local_value_ids[self.local_count] = body_value;
-            self.local_struct_ids[self.local_count] = 0;
+            self.local_struct_ids[self.local_count] = body_struct_id;
             self.local_count = self.local_count + 1;
         }
         let test_value: u32 = self.lower_condition_expression(
