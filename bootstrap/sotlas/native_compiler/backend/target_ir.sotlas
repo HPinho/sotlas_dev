@@ -437,6 +437,44 @@ pub fn target_dom_contains(
     return masked != 0;
 }
 
+pub fn target_definition_block_offset(
+    function: &TargetFunction,
+    blocks: *const TargetBlock,
+    instructions: *const TargetInstruction,
+    value_id: u32
+) -> u32 {
+    let mut block_offset: u32 = 0;
+    while block_offset < function.block_count {
+        let found: bool = target_block_defines_value(
+            blocks, function.first_block + block_offset, instructions, value_id
+        );
+        if found {
+            return block_offset;
+        }
+        block_offset = block_offset + 1;
+    }
+    return function.block_count;
+}
+
+pub fn target_block_definition_instruction_offset(
+    blocks: *const TargetBlock,
+    block_index: u32,
+    instructions: *const TargetInstruction,
+    value_id: u32
+) -> u32 {
+    let block: TargetBlock = unsafe { *(blocks + block_index) };
+    let mut instruction_offset: u32 = 0;
+    while instruction_offset < block.instruction_count {
+        if unsafe {
+            (*(instructions + block.first_instruction + instruction_offset)).result_value
+        } == value_id {
+            return instruction_offset;
+        }
+        instruction_offset = instruction_offset + 1;
+    }
+    return block.instruction_count;
+}
+
 pub fn target_value_dominates_point(
     function: &TargetFunction,
     parameters: *const TargetParameter,
@@ -448,40 +486,23 @@ pub fn target_value_dominates_point(
     use_block_id: u32,
     use_instruction_offset: u32
 ) -> bool {
-    let mut parameter_offset: u32 = 0;
-    while parameter_offset < function.parameter_count {
-        if unsafe {
-            (*(parameters + function.first_parameter + parameter_offset)).value_id
-        } == value_id {
-            return true;
-        }
-        parameter_offset = parameter_offset + 1;
-    }
-
-    let mut definition_found: bool = false;
-    let mut definition_block_id: u32 = TARGET_BLOCK_NONE;
-    let mut definition_instruction_offset: u32 = 0;
-    let mut block_offset: u32 = 0;
-    while block_offset < function.block_count {
-        let block: TargetBlock = unsafe {
-            *(blocks + function.first_block + block_offset)
-        };
-        let mut instruction_offset: u32 = 0;
-        while instruction_offset < block.instruction_count {
-            if unsafe {
-                (*(instructions + block.first_instruction + instruction_offset)).result_value
-            } == value_id {
-                definition_found = true;
-                definition_block_id = block.id;
-                definition_instruction_offset = instruction_offset;
-            }
-            instruction_offset = instruction_offset + 1;
-        }
-        block_offset = block_offset + 1;
-    }
-    if !definition_found { return false; }
+    let in_parameters: bool = target_parameters_define_value(
+        function, parameters, value_id
+    );
+    if in_parameters { return true; }
+    // CFG validation requires a unique definition for each SSA value.
+    let definition_block_offset: u32 = target_definition_block_offset(
+        function, blocks, instructions, value_id
+    );
+    if definition_block_offset >= function.block_count { return false; }
+    let definition: TargetBlock = unsafe {
+        *(blocks + function.first_block + definition_block_offset)
+    };
+    let definition_instruction_offset: u32 = target_block_definition_instruction_offset(
+        blocks, function.first_block + definition_block_offset, instructions, value_id
+    );
     let definition_block: u32 = target_cfg_block_offset(
-        blocks, function, definition_block_id
+        blocks, function, definition.id
     );
     let use_block: u32 = target_cfg_block_offset(blocks, function, use_block_id);
     if definition_block >= function.block_count || use_block >= function.block_count {
@@ -491,6 +512,30 @@ pub fn target_value_dominates_point(
         return definition_instruction_offset < use_instruction_offset;
     }
     return target_dom_contains(dominators, stride, use_block, definition_block);
+}
+
+pub fn target_module_value_invalid(
+    values: *const TargetValue,
+    value_index: u32
+) -> bool {
+    let value: TargetValue = unsafe { *(values + value_index) };
+    return value.id != value_index + 1 || value.type_tag == TargetTypeTag::Invalid;
+}
+
+pub fn target_module_values_valid(
+    target_section: &TargetModule,
+    values: *const TargetValue
+) -> bool {
+    let value_count: u32 = target_section.value_count;
+    let mut value_index: u32 = 0;
+    while value_index < value_count {
+        let invalid: bool = target_module_value_invalid(values, value_index);
+        if invalid {
+            return false;
+        }
+        value_index = value_index + 1;
+    }
+    return true;
 }
 
 // Validate flat table ranges and the structural CFG contract before a backend
@@ -523,14 +568,7 @@ pub fn target_module_validate_cfg(
         return false;
     }
 
-    let mut value_index: u32 = 0;
-    while value_index < target_section.value_count {
-        let value: TargetValue = unsafe { *(values + value_index) };
-        if value.id != value_index + 1 || value.type_tag == TargetTypeTag::Invalid {
-            return false;
-        }
-        value_index = value_index + 1;
-    }
+    if !target_module_values_valid(&target_section, values) { return false; }
 
     let mut function_index: u32 = 0;
     while function_index < target_section.function_count {
