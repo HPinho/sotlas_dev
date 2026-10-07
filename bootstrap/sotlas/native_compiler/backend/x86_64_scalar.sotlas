@@ -1741,6 +1741,38 @@ fn append_object_slot_store_typed(
 }
 
 
+// Assign each stack allocation a stable, non-overlapping range across all
+// blocks of a function. Per-block instruction ordinals are not unique.
+fn object_stack_allocation_end(
+    blocks: *const TargetBlock,
+    instructions: *const TargetInstruction,
+    function: TargetFunction,
+    result_value: u32
+) -> u32 {
+    let mut total: u32 = 0;
+    let mut block_offset: u32 = 0;
+    while block_offset < function.block_count {
+        let block: TargetBlock = unsafe { *(blocks + function.first_block + block_offset) };
+        let mut local: u32 = 0;
+        while local < block.instruction_count {
+            let instruction: TargetInstruction = unsafe { *(instructions + block.first_instruction + local) };
+            if instruction.opcode == TargetOpcode::AllocStack && instruction.symbol.length == 0 {
+                if instruction.immediate_bits == 0 || instruction.immediate_bits > 536870895 {
+                    return 4294967295;
+                }
+                let size: u32 = ((instruction.immediate_bits as u32 + 15) / 16) * 16;
+                if size > 536870895 || total > 536870895 as u32 - size { return 4294967295; }
+                total = total + size;
+                if instruction.result_value == result_value { return total; }
+            }
+            local = local + 1;
+        }
+        block_offset = block_offset + 1;
+    }
+    if result_value != 0 { return 4294967295; }
+    return total;
+}
+
 fn object_find_function(
     source: *const u8,
     source_len: usize,
@@ -1962,6 +1994,8 @@ pub fn emit_elf64_module_object(
             continue;
         }
         function_offsets[function_index as usize] = code - text_offset;
+        let stack_bytes: u32 = object_stack_allocation_end(blocks, instructions, function, 0);
+        if stack_bytes == 4294967295 || frame_size > 536870895 as u32 - stack_bytes { return false; }
         if !append_object_byte(output, capacity, &mut code, 85)
             || !append_object_byte(output, capacity, &mut code, 72)
             || !append_object_byte(output, capacity, &mut code, 137)
@@ -1969,7 +2003,7 @@ pub fn emit_elf64_module_object(
             || !append_object_byte(output, capacity, &mut code, 72)
             || !append_object_byte(output, capacity, &mut code, 129)
             || !append_object_byte(output, capacity, &mut code, 236)
-            || !append_object_u32(output, capacity, &mut code, frame_size + 1024) {
+            || !append_object_u32(output, capacity, &mut code, frame_size + stack_bytes) {
             return false;
         }
         let mut parameter_index: u32 = 0;
@@ -2372,7 +2406,11 @@ pub fn emit_elf64_module_object(
                             data_patch_count = data_patch_count + 1;
                         }
                     } else {
-                        let alloc_off: u32 = frame_size + 16 + (local * 32);
+                        let allocation_end: u32 = object_stack_allocation_end(
+                            blocks, instructions, function, instruction.result_value
+                        );
+                        if allocation_end == 4294967295 { return false; }
+                        let alloc_off: u32 = frame_size + allocation_end;
                         if !append_object_lea_rbp(output, capacity, &mut code, alloc_off)
                             || !append_object_slot_store64(output, capacity, &mut code, instruction.result_value) {
                             return false;
@@ -2390,7 +2428,7 @@ pub fn emit_elf64_module_object(
                         || !append_object_slot_load_typed(output, capacity, &mut code, val_op.value_id, instruction.type_tag) {
                         return false;
                     }
-                    if instruction.type_tag == TargetTypeTag::U8 {
+                    if instruction.type_tag == TargetTypeTag::U8 || instruction.type_tag == TargetTypeTag::Bool {
                         if !append_object_store_mem8(output, capacity, &mut code, mem_offset) { return false; }
                     } else if instruction.type_tag == TargetTypeTag::U16 {
                         if !append_object_store_mem16(output, capacity, &mut code, mem_offset) { return false; }
@@ -2409,7 +2447,7 @@ pub fn emit_elf64_module_object(
                         || !append_object_slot_load_ptr(output, capacity, &mut code, base_op.value_id) {
                         return false;
                     }
-                    if instruction.type_tag == TargetTypeTag::U8 {
+                    if instruction.type_tag == TargetTypeTag::U8 || instruction.type_tag == TargetTypeTag::Bool {
                         if !append_object_load_mem8(output, capacity, &mut code, mem_offset)
                             || !append_object_slot_store(output, capacity, &mut code, instruction.result_value) {
                             return false;
