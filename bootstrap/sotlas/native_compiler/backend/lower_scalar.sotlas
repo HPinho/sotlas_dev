@@ -2261,6 +2261,13 @@ impl ScalarLowering {
             }
             return result;
         }
+        if expression.kind == AstKind::ExprUnary
+            && expression.int_value == 98
+            && type_tag == TargetTypeTag::Bool {
+            return self.lower_condition_expression(
+                expression_index, first_parameter, parameter_count
+            );
+        }
         if expression.kind == AstKind::ExprBinary
             && type_tag == TargetTypeTag::Bool
             && ((expression.int_value >= 86 && expression.int_value <= 91)
@@ -2557,6 +2564,13 @@ impl ScalarLowering {
             }
             return self.pure_condition_expression(expression.first_child);
         }
+        if expression.kind == AstKind::ExprUnary && expression.int_value == 98 {
+            if expression.first_child == 0 || expression.first_child >= self.node_count
+                || unsafe { (*(self.nodes + expression.first_child)).next_sibling } != 0 {
+                return false;
+            }
+            return self.pure_condition_expression(expression.first_child);
+        }
         if expression.kind != AstKind::ExprBinary
             || expression.first_child == 0 || expression.first_child >= self.node_count {
             return false;
@@ -2596,6 +2610,43 @@ impl ScalarLowering {
                 return TARGET_VALUE_NONE;
             }
             return value_id;
+        }
+        if expression.kind == AstKind::ExprUnary && expression.int_value == 98 {
+            let child_index: usize = expression.first_child;
+            if child_index == 0 || child_index >= self.node_count
+                || unsafe { (*(self.nodes + child_index)).next_sibling } != 0 {
+                return TARGET_VALUE_NONE;
+            }
+            let child_value: u32 = self.lower_condition_expression(
+                child_index, first_parameter, parameter_count
+            );
+            if child_value == TARGET_VALUE_NONE {
+                return TARGET_VALUE_NONE;
+            }
+            let false_value: u32 = self.append_value(TargetTypeTag::Bool, 0, 0);
+            if false_value == TARGET_VALUE_NONE
+                || !self.append_instruction(
+                    TargetOpcode::ConstInt, false_value, TargetTypeTag::Bool,
+                    self.operand_count as u32, 0, expression_index
+                ) {
+                return TARGET_VALUE_NONE;
+            }
+            let first_operand: u32 = self.operand_count as u32;
+            if !self.append_operand(child_value)
+                || !self.append_operand(false_value) {
+                return TARGET_VALUE_NONE;
+            }
+            let result: u32 = self.append_value(TargetTypeTag::Bool, 0, 0);
+            if result == TARGET_VALUE_NONE
+                || !self.append_instruction(
+                    TargetOpcode::Compare, result, TargetTypeTag::Bool,
+                    first_operand, 2, expression_index
+                ) {
+                return TARGET_VALUE_NONE;
+            }
+            let compare_index: usize = self.instruction_count - 1;
+            unsafe { (*(self.instructions + compare_index)).immediate_bits = 86; }
+            return result;
         }
         if expression.kind != AstKind::ExprBinary
             || expression.first_child == 0 || expression.first_child >= self.node_count {
