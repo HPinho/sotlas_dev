@@ -506,6 +506,27 @@ pub fn contains(values: *const u64, count: u32, wanted: u64) -> bool {
 }
 """
 
+SV8_NESTED_CFG_SRC = """module sv8::nested_cfg;
+
+pub fn nested_count(outer_limit: u32, inner_limit: u32) -> u32 {
+    let mut outer: u32 = 0;
+    let mut hits: u32 = 0;
+    while outer < outer_limit {
+        let mut inner: u32 = 0;
+        while inner < inner_limit {
+            if inner == 2 {
+                inner = inner + 1;
+                continue;
+            }
+            hits = hits + 1;
+            inner = inner + 1;
+        }
+        outer = outer + 1;
+    }
+    return hits;
+}
+"""
+
 SV8_NARROW_LOCAL_SEARCH_LOOP_SRC = """module sv8::narrow_local_search_loop;
 
 pub fn contains_byte(values: *const u8, count: u32, wanted: u8) -> bool {
@@ -1548,11 +1569,51 @@ class TestSotlasSovereigntySV2(unittest.TestCase):
             )
             self.assertEqual(executed.returncode, 0, executed.stderr)
 
+    def test_sv8_nested_cfg_lowers_to_native_object(self):
+        """Nested loops, mutable locals and continue lower through reusable CFG."""
+        src_path = self.root / "nested_cfg.sotlas"
+        src_path.write_text(SV8_NESTED_CFG_SRC, encoding="utf-8")
+        out_obj = self.root / "nested_cfg.o"
+        compiled = subprocess.run(
+            [str(self.stage1), "--compile-obj", str(src_path), str(out_obj)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(compiled.returncode, 0, compiled.stderr)
+        self.assertTrue(out_obj.is_file())
+        self.assertEqual(out_obj.read_bytes()[:4], b"\x7fELF")
+
+        if sys.platform.startswith("linux"):
+            caller = self.root / "nested_cfg_caller.c"
+            caller.write_text(
+                "#include <stdint.h>\n"
+                "extern uint32_t nested_count(uint32_t, uint32_t);\n"
+                "int main(void) { return nested_count(3, 4) == 9 ? 0 : 1; }\n",
+                encoding="utf-8",
+            )
+            exe = self.root / "nested_cfg_native"
+            linked = subprocess.run(
+                ["clang", str(caller), str(out_obj), "-o", str(exe)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(linked.returncode, 0, linked.stderr)
+            executed = subprocess.run(
+                [str(exe)], capture_output=True, text=True, check=False
+            )
+            self.assertEqual(executed.returncode, 0, executed.stderr)
+
     def test_sv8_real_target_ir_progresses_past_cfg_has_block(self):
         """The native probe must reach CFG validation or emit the full object."""
         src_path = NATIVE_DIR / "backend" / "target_ir.sotlas"
         source = src_path.read_text(encoding="utf-8")
-        cfg_boundary = source[:source.index("pub fn target_module_validate_cfg(")].count("\n") + 1
+        cfg_start = source.index("pub fn target_module_validate_cfg(")
+        instruction_scan = source.index(
+            "let mut instruction_offset: u32 = 0;", cfg_start
+        )
+        instruction_scan_boundary = source[:instruction_scan].count("\n") + 1
         out_obj = self.root / "target_ir_real.o"
         compiled = subprocess.run(
             [str(self.stage1), "--compile-obj", str(src_path), str(out_obj)],
@@ -1578,8 +1639,9 @@ class TestSotlasSovereigntySV2(unittest.TestCase):
         blocker_line = int(line_text)
         self.assertGreater(
             blocker_line,
-            cfg_boundary - 1,
-            "Native lowering regressed before the structural CFG validator.\n"
+            instruction_scan_boundary,
+            "Native lowering must pass the CFG instruction-scan boundary, "
+            "not merely move within the validator.\n"
             + compiled.stderr,
         )
 
