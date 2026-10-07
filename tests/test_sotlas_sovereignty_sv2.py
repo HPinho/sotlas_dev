@@ -446,6 +446,25 @@ pub fn contains(count: u32, wanted: u32) -> bool {
 }
 """
 
+SV8_STRUCT_LOCAL_SEARCH_LOOP_SRC = """module sv8::struct_local_search_loop;
+
+pub struct Entry {
+    pub value: u32;
+}
+
+pub fn contains(entries: *const Entry, count: u32, wanted: u32) -> bool {
+    let mut offset: u32 = 0;
+    while offset < count {
+        let entry: Entry = unsafe { *(entries + offset) };
+        if entry.value == wanted {
+            return true;
+        }
+        offset = offset + 1;
+    }
+    return false;
+}
+"""
+
 SV4_RAW_POINTER_DEREF_REJECT_SRC = """module sv4::raw_pointer_deref_reject;
 
 pub fn rejected_deref(ptr: *const u32) -> u32 {
@@ -1310,6 +1329,22 @@ class TestSotlasSovereigntySV2(unittest.TestCase):
         self.assertEqual(data[:4], b"\x7fELF")
         self.assertIn(b"contains\x00", data)
         self.assertIn(b"matches\x00", data)
+
+    def test_sv8_struct_local_search_loop_lowers_to_native_object(self):
+        """A typed struct alias in a search loop keeps pointee identity for field reads."""
+        src_path = self.root / "struct_local_search_loop.sotlas"
+        src_path.write_text(SV8_STRUCT_LOCAL_SEARCH_LOOP_SRC, encoding="utf-8")
+        out_obj = self.root / "struct_local_search_loop.o"
+        compiled = subprocess.run(
+            [str(self.stage1), "--compile-obj", str(src_path), str(out_obj)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(compiled.returncode, 0, compiled.stderr)
+        data = out_obj.read_bytes()
+        self.assertEqual(data[:4], b"\x7fELF")
+        self.assertIn(b"contains\x00", data)
 
     def test_sv8_real_target_ir_progresses_past_cfg_has_block(self):
         """The native probe must reach CFG validation or emit the full object."""
