@@ -830,6 +830,8 @@ pub fn target_module_validate_cfg(
                     if instruction.result_value == TARGET_VALUE_NONE
                         || instruction.operand_count != 0
                         || (!target_type_is_integer(instruction.type_tag)
+                            && !(instruction.type_tag == TargetTypeTag::Bool
+                                && instruction.immediate_bits <= 1)
                             && !(instruction.type_tag == TargetTypeTag::Pointer
                                 && instruction.immediate_bits == 0)) {
                         return false;
