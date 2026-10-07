@@ -3,7 +3,7 @@
 **Status:** active implementation track  
 **Started:** 2026-10-03 (America/Fortaleza)  
 **Green baseline at track start:** `7162167dec6fd5fa0a216121b147335d222e43f1` / CI #1063  
-**Current certified baseline:** `a56e5a3d56d4f0532d26d9c062ae8d07b32f9e49` / CI #1123
+**Current certified baseline:** `f963c933af39e5dba989594efb34bfbfdf535823` / [CI #1130](https://github.com/HPinho/sotlas_dev/actions/runs/37649186099) (completed successfully; verified 2026-10-07)
 
 ## Goal
 
@@ -49,6 +49,11 @@ path stops depending on them, but they are not part of the sovereignty target.
    evidence appropriate to its scope.
 7. The final removal of Python/C from the normal installed path happens only
    after Stage 1 -> Stage 2 fixed-point evidence and clean-install native tests.
+8. Commit implementation in substantive, validated blocks. Moving a diagnostic
+   to a later line is investigation evidence, not a completed milestone. Keep
+   incomplete implementation local until its agreed behavioral gate and the
+   existing regression checks pass. Do not rewrite or skip real validator logic
+   just to satisfy a source-line threshold.
 
 ## Sovereignty milestones
 
@@ -71,6 +76,53 @@ frontend. This is a real compiler-source generation chain, but it still
 flattens modules into one source buffer and uses Clang plus a C host driver to
 produce each executable. The separate C `selfhost` command still targets the
 `sotlas_lite` tree and is not the SV8 pipeline.
+
+## Sotlas 1.0 development strategy
+
+Native self-hosting is a structural release requirement. Development also needs
+a feature track that gives Sotlas its own systems-language identity; bootstrap
+progress alone is not a complete 1.0 release. The tracks share typed frontend,
+IR and backend contracts rather than introducing application-specific shortcuts.
+
+The feature priorities are explicit `@system`/`unsafe` boundaries, ownership and
+region lifetime guarantees, authority and device access, typed state transitions,
+and deterministic execution for systems programs. Existing frontend tests are
+evidence for their covered paths, not proof that all of these constructs already
+have native backend parity. Each proposed 1.0 feature needs a stated supported
+subset, positive execution examples, negative diagnostics and native lowering
+evidence before it is advertised as a release guarantee. Relevant regression
+oracles include `test_sotlas_unsafe_ffi.py`, `test_sotlas_ownership_soundness.py`,
+the region release gates, the authority gates and the state/flow suites.
+
+### Explicit bidirectional interoperability
+
+The interoperability target is an explicit, bidirectional C ABI: external
+programs can call exported Sotlas functions, and Sotlas can call explicitly
+declared external functions. Using that binary calling convention does not make
+a C compiler part of the normal Sotlas compilation path. Toolchains required to
+build an application's foreign library are dependencies of that integration,
+not evidence that Sotlas's compiler bootstrap is sovereign.
+
+| Integration priority | Planned boundary | Evidence required before certification |
+|---|---|---|
+| C and Assembly | Explicit exported/external symbols and target calling conventions | Real callers and callees in both directions; parameter/result, layout, relocation and symbol tests |
+| C++ | C-linkage bridge functions; C++ classes, templates and exceptions remain behind the bridge | Bidirectional bridge execution and explicit ownership/error handling; no unwinding across the boundary |
+| Rust | C-linkage functions and explicitly compatible data layout | Bidirectional execution, layout checks and documented ownership/allocation/freeing |
+| Objective-C | C ABI wrappers around Objective-C APIs and objects | macOS execution, object-lifetime contracts and platform symbol verification |
+| Java, hosted only | JNI or Foreign Function & Memory integration with a Sotlas library | JVM-hosted examples and explicit lifetime/error contracts; no JVM requirement in the compiler or kernel path |
+
+The ABI work must specify fixed-width scalars, Bool representation, aggregates,
+pointer validity, callback lifetimes, ownership transfer, allocator/freeing
+pairs and error propagation for each certified target. These are certification
+requirements, not a declaration that the ABI is currently frozen or general.
+The current FFI remains limited, as described in the READMEs and
+`docs/safety_and_ffi.md`; the stability language in
+`docs/interop_c_cpp_objc.md` describes the intended end state.
+
+Release work proceeds in substantive blocks: close the structural CFG gate,
+extend native module compilation, prove native Stage1 -> Stage2 -> Stage3,
+validate clean native installation, and certify the agreed 1.0 feature and ABI
+contracts. Reference Python/C paths may remain optional after native closure.
 
 ## SV1 contract
 
@@ -366,8 +418,74 @@ Milestone **SV8** currently certifies deterministic Stage1/Stage2/Stage3 fronten
 - **Completed locally — SV8.7b7:** definition lookup and the initial value-table scan are now separate Sotlas functions. The real-module probe reaches `target_module_validate_cfg` at its function-table loop. That validator, followed by call validation and SSA dominance, contains nested loops and mutable state beyond the current native CFG subset. Full native compilation of `target_ir.sotlas` is still open; this change does not claim Stage1 self-compilation.
 - **Completed locally — SV8.7b8:** the certified native search-loop body now accepts a `u64` or `usize` scalar local as well as the earlier `u32`, `bool`, and typed struct aliases. A `u64` payload search emits a native ELF object, with a host execution gate on Linux. The real `target_ir.sotlas` probe remains at the CFG function-table loop; general nested CFG lowering is still required for full-module compilation.
 - **Completed locally — SV8.7b9:** the native scalar path now lowers unary Boolean negation through a typed equality comparison and permits pure nested negations in `&&`/`||`. Search-loop payloads and comparisons also cover `u8` and `u16`, needed for dominator byte-buffer work. Positive native ELF and Linux execution gates plus a negative integer-negation gate cover these capabilities. The complete `target_ir.sotlas` native object still stops at the CFG function-table loop; nested CFG lowering remains the blocking work.
-- **Following gate — SV8.7:** repeat blocker-by-blocker until Stage1 emits the native ELF object for the real `target_ir.sotlas` without C emission. Bracket-form raw-pointer indexing remains rejected unless a real bootstrap blocker proves it necessary.
+- **Following substantive block — SV8.7 call ABI:** support arguments beyond the six register slots with validated caller/callee stack layout, pointer/scalar types and deterministic machine output. Exercise the real call to `target_module_validate_cfg` and advance through call validation as a complete block. Native emission of the full real `target_ir.sotlas` remains the final module gate. Bracket-form raw-pointer indexing remains rejected unless a real bootstrap requirement proves it necessary.
+- **Completed locally — SV8.7 structural CFG block (2026-10-07):** the real native object probe now traverses all of `target_module_validate_cfg`, including the nested instruction scan and its duplicate/range/terminator/Phi/operand checks. It next rejects the nine-argument call to that validator from `target_module_validate_calls` at `1149:13`; the bounded call ABI still accepts at most six arguments. This is a structural lowering milestone, not native emission of the complete module or a native Stage 2 build. The new recursive CFG path supplies short-circuit branch edges, typed stack storage for mutable scalars, lexical loop scopes and innermost break/continue targets. Nested field metadata includes natural alignment and inline aggregate fields, and the x86 emitter gives each local allocation a distinct function-wide stack range. Ten new gates cover native execution and rejection boundaries in `tests/test_sotlas_native_structured_cfg.py`, including explicit and implicit void returns and byte-sized Bool accesses that preserve adjacent fields. These ten gates and all six SV8 gates pass locally. The real-module regression gate now requires progress beyond the entire CFG validator, and SV8 checks identical nested-CFG objects across all three hosted stages. General aggregate return ABI and stable cross-language ABI are not certified by these tests. CI certification is pending.
 - **Sovereignty metric:** application/kernel native gates are C/Python-free; compiler bootstrap gates remain hosted. Current tracked reduction is 40% eliminated / 60% remaining for both Python and C until a native Stage1→Stage2 build gate closes.
+
+### Stage evidence and dependency accounting
+
+Local structural-block regression evidence (2026-10-07): the complete test
+suite passed **2,574 tests** with **33 skips** on Windows; the ten new structured
+CFG gates add no skips on Windows and execute isolated native machine code.
+Linux executes their objects through the Sotlas linker; macOS checks object
+emission. Cross-platform CI certification of this block is still pending.
+
+Stages are successive compiler generations, not independent percentages of
+completion. The following distinctions must remain visible in progress reports:
+
+| Generation | Evidence already available | Required native closure |
+|---|---|---|
+| Stage 1 | SV7 builds an executable from the compiler's Sotlas sources using Stage 0; the supported native subset emits objects and executables | Compile every compiler module through the native frontend, Target IR and machine backend; then replace the remaining hosted driver/install dependency |
+| Stage 2 | Hosted build and tested output equivalence with Stage 1 | Stage 1 must produce Stage 2 directly as native objects and a linked compiler executable, without emitted C, Clang or a C host driver |
+| Stage 3 | Hosted build, tested output equivalence and hosted source fixed point | Stage 2 must produce Stage 3 through the same fully native path, with an explicit native fixed-point comparison |
+
+The project estimate remains **40% eliminated / 60% remaining** for the
+mandatory Python and C dependencies until the native Stage1 -> Stage2 build
+gate closes. This estimate is not GitHub Linguist composition, lines of code,
+an independent percentage per stage, or a claim that the remaining compiler
+build already runs without those tools. Removing extensions or reclassifying
+files does not advance the metric.
+
+### SV8.7 structural CFG validation: acceptance contract
+
+The native object probe reproduced on the certified baseline fails at
+`target_ir.sotlas:571:5`, the helper-call guard immediately before the
+function-table loop in `target_module_validate_cfg`. The local structural CFG
+implementation now reaches the nine-argument call at `1149:13` in the following
+call validator; that progress is not yet CI-certified. The command uses Stage 1's `--compile-obj` path;
+successful C emission is not evidence for this milestone.
+
+The next commit gate is to traverse the actual nested validation logic through
+the instruction scan beginning near line 674, rather than merely move the
+diagnostic from 571 to another nearby statement. Locate the boundary by the
+validator and its `while instruction_offset < block.instruction_count` loop,
+not a hardcoded line number that changes when source is reformatted. Preserve
+the range, duplicate-ID, terminator, Phi and operand checks exercised by that
+scan. Full native emission of the real module is the stronger final SV8.7 gate;
+passing this intermediate block does not certify a native Stage 2 build.
+
+The current `lower_declared_function` dispatches to specialized terminal-loop
+helpers (`lower_while_search_then_return`, `lower_while_if_jumps_then_return`
+and `lower_while_jump_then_return`). Those helpers do not cover the validator's
+nested function/parameter/block/instruction loops. The implementation block
+therefore needs these connected capabilities:
+
+- Structured statement lowering with explicit loop headers, body blocks,
+  latches and exits; `break` and `continue` must target the innermost loop.
+- Correct mutable state across backedges and branch joins, with typed Phi
+  inputs or explicit typed storage, and lexical removal of inner-loop locals.
+- Conditional paths that return early or continue without emitting subsequent
+  statements on the terminated path. Preserve short-circuit evaluation when
+  a condition contains calls or potentially trapping memory reads.
+- Deterministic block and value identities, valid flat table ranges and SSA
+  dominance, plus fail-closed behavior on exhausted buffers and unsupported
+  forms. A failed lowering attempt must not publish partially built IR.
+
+Acceptance requires positive nested-loop and mutable-state execution cases,
+negative scope/CFG/capacity cases, and the unchanged real `target_ir.sotlas`
+native probe. Existing scalar-loop, machine-backend and hosted Stage1/2/3
+equivalence gates remain regression requirements. The baseline CI being green
+does not imply this new native milestone is already closed.
 
 The hosted fixed-point evidence below remains a regression oracle while native build-chain closure is implemented.
 

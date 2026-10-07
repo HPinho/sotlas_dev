@@ -106,6 +106,38 @@ pub fn main_entry() -> u32 {
         self.assertEqual(h1, h2, "Stage 1 and Stage 2 must produce bit-for-bit identical ELF object")
         self.assertEqual(h2, h3, "Stage 2 and Stage 3 must produce bit-for-bit identical ELF object")
 
+    def test_sv8_structured_cfg_object_determinism(self):
+        """All three hosted stages agree on nested mutable CFG machine output."""
+        source = self.root / "structured_cfg.sotlas"
+        source.write_text("""module sv8::structured;
+pub fn main_entry() -> u32 {
+    let mut total: u32 = 0;
+    let mut row: u32 = 0;
+    while row < 3 {
+        let mut column: u32 = 0;
+        while column < 3 {
+            column = column + 1;
+            if column == 2 { continue; }
+            total = total + row + column;
+            if row == 2 { break; }
+        }
+        row = row + 1;
+    }
+    return total;
+}
+""", encoding="utf-8")
+        objects = []
+        for index, stage in enumerate((self.s1_exe, self.s2_exe, self.s3_exe), 1):
+            output = self.root / f"structured_{index}.o"
+            result = subprocess.run([str(stage), "--compile-obj", str(source), str(output)],
+                                    capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            data = output.read_bytes()
+            self.assertEqual(data[:4], b"\x7fELF")
+            objects.append(data)
+        self.assertEqual(objects[0], objects[1])
+        self.assertEqual(objects[1], objects[2])
+
     def test_sv8_minimal_kernel_object_determinism(self):
         """SV8.3: Bit-for-bit identical freestanding kernel ELF objects across all stages."""
         kernel_file = self.root / "kernel_min.sotlas"
