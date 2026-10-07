@@ -346,11 +346,9 @@ pub fn target_value_matches(
     return value.id == value_id && value.type_tag == type_tag;
 }
 
-pub fn target_function_defines_value(
+pub fn target_parameters_define_value(
     function: &TargetFunction,
     parameters: *const TargetParameter,
-    blocks: *const TargetBlock,
-    instructions: *const TargetInstruction,
     value_id: u32
 ) -> bool {
     let mut parameter_offset: u32 = 0;
@@ -362,19 +360,48 @@ pub fn target_function_defines_value(
         }
         parameter_offset = parameter_offset + 1;
     }
+    return false;
+}
+
+pub fn target_block_defines_value(
+    blocks: *const TargetBlock,
+    block_index: u32,
+    instructions: *const TargetInstruction,
+    value_id: u32
+) -> bool {
+    let block: TargetBlock = unsafe { *(blocks + block_index) };
+    let mut instruction_offset: u32 = 0;
+    while instruction_offset < block.instruction_count {
+        if unsafe {
+            (*(instructions + block.first_instruction + instruction_offset)).result_value
+        } == value_id {
+            return true;
+        }
+        instruction_offset = instruction_offset + 1;
+    }
+    return false;
+}
+
+pub fn target_function_defines_value(
+    function: &TargetFunction,
+    parameters: *const TargetParameter,
+    blocks: *const TargetBlock,
+    instructions: *const TargetInstruction,
+    value_id: u32
+) -> bool {
+    let in_parameters: bool = target_parameters_define_value(
+        function, parameters, value_id
+    );
+    if in_parameters {
+        return true;
+    }
     let mut block_offset: u32 = 0;
     while block_offset < function.block_count {
-        let block: TargetBlock = unsafe {
-            *(blocks + function.first_block + block_offset)
-        };
-        let mut instruction_offset: u32 = 0;
-        while instruction_offset < block.instruction_count {
-            if unsafe {
-                (*(instructions + block.first_instruction + instruction_offset)).result_value
-            } == value_id {
-                return true;
-            }
-            instruction_offset = instruction_offset + 1;
+        let in_block: bool = target_block_defines_value(
+            blocks, function.first_block + block_offset, instructions, value_id
+        );
+        if in_block {
+            return true;
         }
         block_offset = block_offset + 1;
     }
@@ -405,7 +432,9 @@ pub fn target_dom_contains(
     let byte_offset: usize = block_offset as usize * stride
         + dominator_offset as usize / 8;
     let bit: u8 = (1 << (dominator_offset % 8)) as u8;
-    return unsafe { (*(dominators + byte_offset)) & bit } != 0;
+    let byte: u8 = unsafe { *(dominators + byte_offset) };
+    let masked: u32 = (byte as u32) & (bit as u32);
+    return masked != 0;
 }
 
 pub fn target_value_dominates_point(

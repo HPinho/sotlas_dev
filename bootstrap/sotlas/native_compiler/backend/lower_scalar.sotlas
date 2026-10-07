@@ -3145,8 +3145,12 @@ impl ScalarLowering {
             let body_let: AstNode = unsafe { *(self.nodes + body_let_index) };
             let type_index: usize = body_let.first_child;
             if type_index == 0 || type_index >= self.node_count
-                || unsafe { (*(self.nodes + type_index)).kind } != AstKind::TypeRef
-                || self.type_tag_for(type_index) != TargetTypeTag::U32 {
+                || unsafe { (*(self.nodes + type_index)).kind } != AstKind::TypeRef {
+                return false;
+            }
+            let body_let_type: TargetTypeTag = self.type_tag_for(type_index);
+            if body_let_type != TargetTypeTag::U32
+                && body_let_type != TargetTypeTag::Bool {
                 return false;
             }
             let initializer_index: usize = unsafe {
@@ -3157,7 +3161,7 @@ impl ScalarLowering {
                 return false;
             }
             let body_value: u32 = self.lower_expression(
-                initializer_index, TargetTypeTag::U32,
+                initializer_index, body_let_type,
                 first_parameter, parameter_count
             );
             if body_value == TARGET_VALUE_NONE || self.local_count >= 128 {
