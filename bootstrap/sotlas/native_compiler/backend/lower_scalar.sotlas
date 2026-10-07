@@ -3735,6 +3735,55 @@ impl ScalarLowering {
                     statement_index = statement.next_sibling;
                     continue;
                 }
+                if type_child != 0 {
+                    let declared_type: AstNode = unsafe { *(self.nodes + type_child) };
+                    let declared_struct_id: u32 = self.find_struct(
+                        declared_type.str_offset, declared_type.str_len
+                    );
+                    if declared_struct_id != 0
+                        && right_node.kind == AstKind::UnsafeExpr
+                        && right_node.first_child != 0
+                        && right_node.first_child < self.node_count
+                        && unsafe { (*(self.nodes + right_node.first_child)).next_sibling } == 0 {
+                        let deref_node: AstNode = unsafe {
+                            *(self.nodes + right_node.first_child)
+                        };
+                        if deref_node.kind == AstKind::ExprUnary
+                            && deref_node.int_value == 82
+                            && deref_node.first_child != 0
+                            && deref_node.first_child < self.node_count
+                            && unsafe {
+                                (*(self.nodes + deref_node.first_child)).next_sibling
+                            } == 0 {
+                            let pointer_type_ref: usize =
+                                self.pointer_expression_type_ref(deref_node.first_child);
+                            let pointee_struct_id: u32 =
+                                self.pointer_pointee_struct_id(pointer_type_ref);
+                            if pointee_struct_id != declared_struct_id {
+                                return self.reject(statement_index);
+                            }
+                            let ptr_val: u32 = self.lower_expression(
+                                deref_node.first_child,
+                                TargetTypeTag::Pointer,
+                                first_parameter,
+                                function_param_count
+                            );
+                            if ptr_val == TARGET_VALUE_NONE || self.local_count >= 128 {
+                                return self.reject(statement_index);
+                            }
+                            self.local_name_offsets[self.local_count] =
+                                statement.str_offset;
+                            self.local_name_lens[self.local_count] =
+                                statement.str_len;
+                            self.local_value_ids[self.local_count] = ptr_val;
+                            self.local_struct_ids[self.local_count] =
+                                declared_struct_id;
+                            self.local_count = self.local_count + 1;
+                            statement_index = statement.next_sibling;
+                            continue;
+                        }
+                    }
+                }
                 let mut var_type: TargetTypeTag = TargetTypeTag::Invalid;
                 if type_child != 0 && type_child < self.node_count {
                     var_type = self.type_tag_for(type_child);
