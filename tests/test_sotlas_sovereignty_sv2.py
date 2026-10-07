@@ -1312,8 +1312,10 @@ class TestSotlasSovereigntySV2(unittest.TestCase):
         self.assertIn(b"matches\x00", data)
 
     def test_sv8_real_target_ir_progresses_past_cfg_has_block(self):
-        """SV8.7b6: The real-module probe must move past the 436:5 bitmask or emit ELF."""
+        """The native probe must reach CFG validation or emit the full object."""
         src_path = NATIVE_DIR / "backend" / "target_ir.sotlas"
+        source = src_path.read_text(encoding="utf-8")
+        cfg_boundary = source[:source.index("pub fn target_module_validate_cfg(")].count("\n") + 1
         out_obj = self.root / "target_ir_real.o"
         compiled = subprocess.run(
             [str(self.stage1), "--compile-obj", str(src_path), str(out_obj)],
@@ -1339,8 +1341,8 @@ class TestSotlasSovereigntySV2(unittest.TestCase):
         blocker_line = int(line_text)
         self.assertGreater(
             blocker_line,
-            436,
-            "SV8.7b6 regressed to or before the certified 436:5 bitmask.\n"
+            cfg_boundary - 1,
+            "Native lowering regressed before the structural CFG validator.\n"
             + compiled.stderr,
         )
 
