@@ -2549,6 +2549,14 @@ impl ScalarLowering {
             || expression.kind == AstKind::ExprPath {
             return true;
         }
+        if expression.kind == AstKind::ExprFieldAccess {
+            if expression.first_child == 0
+                || expression.first_child >= self.node_count
+                || unsafe { (*(self.nodes + expression.first_child)).next_sibling } != 0 {
+                return false;
+            }
+            return self.pure_condition_expression(expression.first_child);
+        }
         if expression.kind != AstKind::ExprBinary
             || expression.first_child == 0 || expression.first_child >= self.node_count {
             return false;
