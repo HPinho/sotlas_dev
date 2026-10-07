@@ -3865,21 +3865,30 @@ impl ScalarLowering {
 
     pub fn cfg_required(self: &Self, function_index: usize) -> bool {
         let mut count: usize = 0;
+        let mut needs_cfg: bool = false;
         let mut i: usize = 1;
         while i < self.node_count {
             let node: AstNode = unsafe { *(self.nodes + i) };
-            if node.kind == AstKind::WhileStmt {
+            let is_loop: bool = node.kind == AstKind::WhileStmt;
+            let needs_lazy_condition: bool = node.kind == AstKind::ExprBinary
+                && (node.int_value == 110 || node.int_value == 111)
+                && !self.pure_condition_expression(i);
+            if is_loop || needs_lazy_condition {
                 let mut parent: usize = node.parent;
                 let mut depth: usize = 0;
                 while parent != 0 && parent < self.node_count && depth < self.node_count {
-                    if parent == function_index { count = count + 1; break; }
+                    if parent == function_index {
+                        if is_loop { count = count + 1; }
+                        if needs_lazy_condition { needs_cfg = true; }
+                        break;
+                    }
                     parent = unsafe { (*(self.nodes + parent)).parent };
                     depth = depth + 1;
                 }
             }
             i = i + 1;
         }
-        return count > 1;
+        return count > 1 || (count != 0 && needs_cfg);
     }
 
     pub fn cfg_reserve_block(mut self: &mut Self) -> u32 {

@@ -187,7 +187,7 @@ pub fn main_entry() -> u32 {
 """, 4)
 
     def test_short_circuit_preserves_narrow_raw_load_types(self):
-        """CFG short-circuit skips null dereference and reads u8/u16 at native width."""
+        """A single while loop must short-circuit unsafe u8/u16 reads natively."""
         result, output = self.compile("narrow_guard_loads", """
 pub fn byte_guard(data: *const u8, offset: usize, skip: u32) -> bool {
     let mut round: u32 = 0;
