@@ -412,6 +412,21 @@ pub fn previous_u32(ptr: *const u32, index: usize) -> u32 {
 }
 """
 
+SV4_LOCAL_SEARCH_LOOP_SRC = """module sv4::local_search_loop;
+
+pub fn contains(ptr: *const u32, count: u32, wanted: u32) -> bool {
+    let mut offset: u32 = 0;
+    while offset < count {
+        let actual: u32 = unsafe { *(ptr + offset) };
+        if actual == wanted {
+            return true;
+        }
+        offset = offset + 1;
+    }
+    return false;
+}
+"""
+
 SV4_RAW_POINTER_DEREF_REJECT_SRC = """module sv4::raw_pointer_deref_reject;
 
 pub fn rejected_deref(ptr: *const u32) -> u32 {
@@ -1244,8 +1259,24 @@ class TestSotlasSovereigntySV2(unittest.TestCase):
         self.assertIn(b"\x89\x81", data)  # scalar u32 store
         self.assertIn(b"\x0f\xb6\x81", data)  # scalar u8 load
 
+    def test_sv4_local_search_loop_lowers_to_native_object(self):
+        """A local loop counter and an explicit unsafe pointer load reach native ELF."""
+        src_path = self.root / "local_search_loop.sotlas"
+        src_path.write_text(SV4_LOCAL_SEARCH_LOOP_SRC, encoding="utf-8")
+        out_obj = self.root / "local_search_loop.o"
+        compiled = subprocess.run(
+            [str(self.stage1), "--compile-obj", str(src_path), str(out_obj)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(compiled.returncode, 0, compiled.stderr)
+        data = out_obj.read_bytes()
+        self.assertEqual(data[:4], b"\x7fELF")
+        self.assertIn(b"contains\x00", data)
+
     def test_sv8_real_target_ir_progresses_past_cfg_has_block(self):
-        """SV8.7b4: The real-module probe must move past the 318:5 struct-deref local blocker or emit ELF."""
+        """SV8.7b5: The real-module probe must move past the 324:5 local search loop or emit ELF."""
         src_path = NATIVE_DIR / "backend" / "target_ir.sotlas"
         out_obj = self.root / "target_ir_real.o"
         compiled = subprocess.run(
@@ -1272,8 +1303,8 @@ class TestSotlasSovereigntySV2(unittest.TestCase):
         blocker_line = int(line_text)
         self.assertGreater(
             blocker_line,
-            318,
-            "SV8.7b4 regressed to or before the certified 318:5 struct-deref local blocker.\n"
+            324,
+            "SV8.7b5 regressed to or before the certified 324:5 local search loop.\n"
             + compiled.stderr,
         )
 
