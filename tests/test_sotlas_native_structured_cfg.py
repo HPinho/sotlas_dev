@@ -110,6 +110,42 @@ pub fn main_entry() -> u32 {
 }
 """, 9)
 
+    def test_sysv_stack_arguments_preserve_order_and_alignment(self):
+        result, output = self.compile("sysv_stack_arguments", """
+fn identity(value: u32) -> u32 { return value; }
+fn weighted(a: u32, b: u32, c: u32, d: u32, e: u32,
+            f: u32, g: u32, h: u32, i: u32) -> u32 {
+    return a + b * 2 + c * 3 + d * 4 + e * 5
+        + f * 6 + g * 7 + h * 8 + i * 9;
+}
+pub fn main_entry() -> u32 {
+    return weighted(1, 2, 3, 4, 5, 6, identity(7), 8, 9);
+}
+""")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        blob = output.read_bytes()
+        self.assertEqual(blob[:4], b"\x7fELF")
+        # Three outgoing stack slots need 32 bytes to preserve 16-byte alignment.
+        self.assertIn(b"\x48\x81\xec\x20\x00\x00\x00", blob)
+        self.assertIn(b"\x48\x81\xc4\x20\x00\x00\x00", blob)
+        if sys.platform.startswith("linux"):
+            binary = self.directory / "sysv_stack_arguments"
+            link = subprocess.run([str(self.stage), "--link-exe", str(output),
+                                   str(binary), "main_entry"],
+                                  capture_output=True, text=True, timeout=30)
+            self.assertEqual(link.returncode, 0, link.stderr)
+            self.assertEqual(subprocess.run([str(binary)], timeout=15).returncode, 285 & 255)
+
+    def test_native_call_rejects_more_than_sixteen_arguments(self):
+        parameters = ", ".join(f"p{index}: u32" for index in range(17))
+        arguments = ", ".join(str(index) for index in range(17))
+        result, output = self.compile("too_many_arguments", f"""
+fn overloaded({parameters}) -> u32 {{ return p16; }}
+pub fn main_entry() -> u32 {{ return overloaded({arguments}); }}
+""")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(output.exists())
+
     def test_break_continue_and_branch_join_preserve_outer_state(self):
         self.assert_native_result("jumps", """
 pub fn main_entry() -> u32 {

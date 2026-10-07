@@ -418,7 +418,7 @@ Milestone **SV8** currently certifies deterministic Stage1/Stage2/Stage3 fronten
 - **Completed locally — SV8.7b7:** definition lookup and the initial value-table scan are now separate Sotlas functions. The real-module probe reaches `target_module_validate_cfg` at its function-table loop. That validator, followed by call validation and SSA dominance, contains nested loops and mutable state beyond the current native CFG subset. Full native compilation of `target_ir.sotlas` is still open; this change does not claim Stage1 self-compilation.
 - **Completed locally — SV8.7b8:** the certified native search-loop body now accepts a `u64` or `usize` scalar local as well as the earlier `u32`, `bool`, and typed struct aliases. A `u64` payload search emits a native ELF object, with a host execution gate on Linux. The real `target_ir.sotlas` probe remains at the CFG function-table loop; general nested CFG lowering is still required for full-module compilation.
 - **Completed locally — SV8.7b9:** the native scalar path now lowers unary Boolean negation through a typed equality comparison and permits pure nested negations in `&&`/`||`. Search-loop payloads and comparisons also cover `u8` and `u16`, needed for dominator byte-buffer work. Positive native ELF and Linux execution gates plus a negative integer-negation gate cover these capabilities. The complete `target_ir.sotlas` native object still stops at the CFG function-table loop; nested CFG lowering remains the blocking work.
-- **Following substantive block — SV8.7 call ABI:** support arguments beyond the six register slots with validated caller/callee stack layout, pointer/scalar types and deterministic machine output. Exercise the real call to `target_module_validate_cfg` and advance through call validation as a complete block. Native emission of the full real `target_ir.sotlas` remains the final module gate. Bracket-form raw-pointer indexing remains rejected unless a real bootstrap requirement proves it necessary.
+- **Completed locally — SV8.7 call ABI (2026-10-07):** the native lowerer retains up to 16 scalar or pointer call operands in source order, including nested argument expressions and void calls. The ELF x86-64 backend reads incoming SysV stack arguments, reserves an aligned outgoing area, writes arguments seven onward, and restores the stack after each call. The nine-argument `target_module_validate_cfg` call now lowers; the real `target_ir.sotlas` probe traverses call validation and stops in SSA dominance at the byte-buffer reachability check. Native emission of the full module and a native Stage 2 build remain open. The added test compiles a nine-argument nested call on Windows and runs it on Linux.
 - **Completed locally — SV8.7 structural CFG block (2026-10-07):** the real native object probe now traverses all of `target_module_validate_cfg`, including the nested instruction scan and its duplicate/range/terminator/Phi/operand checks. It next rejects the nine-argument call to that validator from `target_module_validate_calls` at `1149:13`; the bounded call ABI still accepts at most six arguments. This is a structural lowering milestone, not native emission of the complete module or a native Stage 2 build. The new recursive CFG path supplies short-circuit branch edges, typed stack storage for mutable scalars, lexical loop scopes and innermost break/continue targets. Nested field metadata includes natural alignment and inline aggregate fields, and the x86 emitter gives each local allocation a distinct function-wide stack range. Ten new gates cover native execution and rejection boundaries in `tests/test_sotlas_native_structured_cfg.py`, including explicit and implicit void returns and byte-sized Bool accesses that preserve adjacent fields. These ten gates and all six SV8 gates pass locally. The real-module regression gate now requires progress beyond the entire CFG validator, and SV8 checks identical nested-CFG objects across all three hosted stages. General aggregate return ABI and stable cross-language ABI are not certified by these tests. CI certification is pending.
 - **Sovereignty metric:** application/kernel native gates are C/Python-free; compiler bootstrap gates remain hosted. Current tracked reduction is 40% eliminated / 60% remaining for both Python and C until a native Stage1→Stage2 build gate closes.
 
@@ -450,19 +450,17 @@ files does not advance the metric.
 
 The native object probe reproduced on the certified baseline fails at
 `target_ir.sotlas:571:5`, the helper-call guard immediately before the
-function-table loop in `target_module_validate_cfg`. The local structural CFG
-implementation now reaches the nine-argument call at `1149:13` in the following
-call validator; that progress is not yet CI-certified. The command uses Stage 1's `--compile-obj` path;
+function-table loop in `target_module_validate_cfg`. The structural CFG block
+reached the nine-argument call at `1149:13`; the call ABI block now advances
+through call validation and into SSA dominance. This progress is not yet
+CI-certified. The command uses Stage 1's `--compile-obj` path;
 successful C emission is not evidence for this milestone.
 
-The next commit gate is to traverse the actual nested validation logic through
-the instruction scan beginning near line 674, rather than merely move the
-diagnostic from 571 to another nearby statement. Locate the boundary by the
-validator and its `while instruction_offset < block.instruction_count` loop,
-not a hardcoded line number that changes when source is reformatted. Preserve
-the range, duplicate-ID, terminator, Phi and operand checks exercised by that
-scan. Full native emission of the real module is the stronger final SV8.7 gate;
-passing this intermediate block does not certify a native Stage 2 build.
+The next gate is to traverse SSA dominance, including its reachability and
+dominator byte buffers, and emit the full real module. The regression test
+locates the call-validation boundary by function declaration rather than a
+hardcoded line number. A native Stage 2 build requires additional compiler
+modules and remains a separate gate.
 
 The current `lower_declared_function` dispatches to specialized terminal-loop
 helpers (`lower_while_search_then_return`, `lower_while_if_jumps_then_return`
