@@ -828,8 +828,10 @@ pub fn target_module_validate_cfg(
 
                 if instruction.opcode == TargetOpcode::ConstInt {
                     if instruction.result_value == TARGET_VALUE_NONE
-                        || !target_type_is_integer(instruction.type_tag)
-                        || instruction.operand_count != 0 {
+                        || instruction.operand_count != 0
+                        || (!target_type_is_integer(instruction.type_tag)
+                            && !(instruction.type_tag == TargetTypeTag::Pointer
+                                && instruction.immediate_bits == 0)) {
                         return false;
                     }
                 } else if instruction.opcode == TargetOpcode::IntCast {
@@ -952,7 +954,11 @@ pub fn target_module_validate_cfg(
                     let right_type: TargetTypeTag = unsafe {
                         (*(values + right.value_id as usize - 1)).type_tag
                     };
-                    if left_type != right_type || !target_type_is_integer(left_type) {
+                    if left_type != right_type
+                        || (!target_type_is_integer(left_type)
+                            && left_type != TargetTypeTag::Pointer)
+                        || (left_type == TargetTypeTag::Pointer
+                            && instruction.immediate_bits > 87) {
                         return false;
                     }
                 } else if instruction.opcode == TargetOpcode::BoolAnd
