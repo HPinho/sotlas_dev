@@ -2568,6 +2568,31 @@ impl ScalarLowering {
             return TargetTypeTag::Invalid;
         }
 
+        // Scalar dereferences carry the pointee type into comparisons.
+        // Do not infer an untyped unsafe byte load as U32: that would either
+        // reject valid CFG guards or silently widen the memory access.
+        if expression.kind == AstKind::UnsafeExpr {
+            let child_index: usize = expression.first_child;
+            if child_index == 0 || child_index >= self.node_count
+                || unsafe { (*(self.nodes + child_index)).next_sibling } != 0 {
+                return TargetTypeTag::Invalid;
+            }
+            return self.condition_expression_type(
+                child_index, first_parameter, parameter_count
+            );
+        }
+        if expression.kind == AstKind::ExprUnary && expression.int_value == 82 {
+            let pointer_index: usize = expression.first_child;
+            if pointer_index == 0 || pointer_index >= self.node_count
+                || unsafe { (*(self.nodes + pointer_index)).next_sibling } != 0 {
+                return TargetTypeTag::Invalid;
+            }
+            let pointer_type_ref: usize = self.pointer_expression_type_ref(
+                pointer_index
+            );
+            return self.pointer_pointee_type_tag(pointer_type_ref);
+        }
+
         if expression.kind == AstKind::ExprLiteral {
             return TargetTypeTag::Invalid;
         }

@@ -186,6 +186,58 @@ pub fn main_entry() -> u32 {
 }
 """, 4)
 
+    def test_short_circuit_preserves_narrow_raw_load_types(self):
+        """CFG short-circuit skips null dereference and reads u8/u16 at native width."""
+        result, output = self.compile("narrow_guard_loads", """
+pub fn byte_guard(data: *const u8, offset: usize, skip: u32) -> bool {
+    let mut round: u32 = 0;
+    while round < 1 {
+        if skip == 0 || unsafe { *(data + offset) } == 0 {
+            return true;
+        }
+        round = round + 1;
+    }
+    return false;
+}
+pub fn word_guard(data: *const u16, offset: usize, skip: u32) -> bool {
+    let mut round: u32 = 0;
+    while round < 1 {
+        if skip != 0 && unsafe { *(data + offset) } == 13 {
+            return true;
+        }
+        round = round + 1;
+    }
+    return false;
+}
+""")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(output.read_bytes()[:4], b"\\x7fELF")
+        self.assertIn(b"byte_guard\\x00", output.read_bytes())
+        self.assertIn(b"word_guard\\x00", output.read_bytes())
+        if sys.platform.startswith("linux"):
+            caller = self.directory / "narrow_guard_loads_caller.c"
+            caller.write_text(
+                "#include <stdbool.h>\\n#include <stdint.h>\\n#include <stddef.h>\\n"
+                "extern bool byte_guard(const uint8_t *, size_t, uint32_t);\\n"
+                "extern bool word_guard(const uint16_t *, size_t, uint32_t);\\n"
+                "int main(void) { uint8_t bytes[2] = {0, 9}; "
+                "uint16_t words[2] = {3, 13}; "
+                "return byte_guard((const uint8_t *)0, 0, 0) "
+                "&& byte_guard(bytes, 0, 1) "
+                "&& !byte_guard(bytes, 1, 1) "
+                "&& !word_guard((const uint16_t *)0, 0, 0) "
+                "&& word_guard(words, 1, 1) ? 0 : 1; }\\n",
+                encoding="utf-8",
+            )
+            binary = self.directory / "narrow_guard_loads"
+            linked = subprocess.run(
+                ["clang", str(caller), str(output), "-o", str(binary)],
+                capture_output=True, text=True, timeout=30,
+            )
+            self.assertEqual(linked.returncode, 0, linked.stderr)
+            executed = subprocess.run([str(binary)], capture_output=True, text=True, timeout=15)
+            self.assertEqual(executed.returncode, 0, executed.stderr)
+
     def test_early_return_exits_both_loops(self):
         self.assert_native_result("early_return", """
 pub fn main_entry() -> u32 {
