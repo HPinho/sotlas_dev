@@ -289,6 +289,43 @@ fn append_object_sysv_parameter_store(
         && append_object_u32(output, capacity, length, 0 as u32 - value_id * 8);
 }
 
+// SysV arguments after the sixth register arrive at rbp + 16, in
+// eight-byte slots. Normalize narrow values before entering the IR frame.
+fn append_object_sysv_stack_parameter_store(
+    output: *mut u8,
+    capacity: usize,
+    length: &mut usize,
+    value_id: u32,
+    parameter_index: u32,
+    type_tag: TargetTypeTag
+) -> bool {
+    if value_id == 0 || parameter_index < 6 || parameter_index >= 16
+        || !object_scalar_type(type_tag) { return false; }
+    let displacement: u32 = 16 + (parameter_index - 6) * 8;
+    if object_type_is_64(type_tag) {
+        if !append_object_byte(output, capacity, length, 72)
+            || !append_object_byte(output, capacity, length, 139)
+            || !append_object_byte(output, capacity, length, 133)
+            || !append_object_u32(output, capacity, length, displacement) {
+            return false;
+        }
+    } else if type_tag == TargetTypeTag::U8 || type_tag == TargetTypeTag::U16 {
+        let mut movzx_opcode: u8 = 182;
+        if type_tag == TargetTypeTag::U16 { movzx_opcode = 183; }
+        if !append_object_byte(output, capacity, length, 15)
+            || !append_object_byte(output, capacity, length, movzx_opcode)
+            || !append_object_byte(output, capacity, length, 133)
+            || !append_object_u32(output, capacity, length, displacement) {
+            return false;
+        }
+    } else if !append_object_byte(output, capacity, length, 139)
+        || !append_object_byte(output, capacity, length, 133)
+        || !append_object_u32(output, capacity, length, displacement) {
+        return false;
+    }
+    return append_object_slot_store_typed(output, capacity, length, value_id, type_tag);
+}
+
 fn object_value_defined_in_block(
     value_id: u32,
     block_id: u32,
@@ -1657,6 +1694,39 @@ fn append_object_rax_to_argument(
         && append_object_byte(output, capacity, length, modrm);
 }
 
+fn append_object_adjust_rsp(
+    output: *mut u8,
+    capacity: usize,
+    length: &mut usize,
+    bytes: u32,
+    reserve: bool
+) -> bool {
+    if bytes == 0 { return true; }
+    if (bytes & 15) != 0 || bytes > 80 { return false; }
+    let mut operation: u8 = 236;
+    if !reserve { operation = 196; }
+    return append_object_byte(output, capacity, length, 72)
+        && append_object_byte(output, capacity, length, 129)
+        && append_object_byte(output, capacity, length, operation)
+        && append_object_u32(output, capacity, length, bytes);
+}
+
+fn append_object_rax_to_stack_argument(
+    output: *mut u8,
+    capacity: usize,
+    length: &mut usize,
+    argument_index: u32
+) -> bool {
+    if argument_index < 6 || argument_index >= 16 { return false; }
+    // mov qword ptr [rsp + disp32], rax; rsp still points at the
+    // aligned outgoing-argument area until the call has returned.
+    return append_object_byte(output, capacity, length, 72)
+        && append_object_byte(output, capacity, length, 137)
+        && append_object_byte(output, capacity, length, 132)
+        && append_object_byte(output, capacity, length, 36)
+        && append_object_u32(output, capacity, length, (argument_index - 6) * 8);
+}
+
 fn object_block_offset(
     blocks: *const TargetBlock,
     first_block: u32,
@@ -1902,7 +1972,7 @@ pub fn emit_elf64_module_object(
         if function.name.length == 0 || function.name.offset > source_len
             || function.name.length > source_len - function.name.offset
             || function.name.length > 4096
-            || function.parameter_count > 6
+            || function.parameter_count > 16
             || (function.return_type != TargetTypeTag::U8
                 && function.return_type != TargetTypeTag::U16
                 && function.return_type != TargetTypeTag::U32
@@ -2010,9 +2080,13 @@ pub fn emit_elf64_module_object(
         while parameter_index < function.parameter_count {
             let parameter: TargetParameter = unsafe { *(parameters + function.first_parameter + parameter_index) };
             let is_64: bool = object_type_is_64(parameter.type_tag);
-            if !append_object_sysv_parameter_store(output, capacity, &mut code, parameter.value_id, parameter_index, is_64) {
-                return false;
-            }
+            if parameter_index < 6 {
+                if !append_object_sysv_parameter_store(
+                    output, capacity, &mut code, parameter.value_id, parameter_index, is_64
+                ) { return false; }
+            } else if !append_object_sysv_stack_parameter_store(
+                output, capacity, &mut code, parameter.value_id, parameter_index, parameter.type_tag
+            ) { return false; }
             parameter_index = parameter_index + 1;
         }
         let mut block_offsets: [usize; 128] = 0;
@@ -2545,10 +2619,17 @@ pub fn emit_elf64_module_object(
                     );
                     if callee_index >= ir.function_count || call_patch_count >= 512 { return false; }
                     let callee: TargetFunction = unsafe { *(functions + callee_index) };
-                    if callee.parameter_count != instruction.operand_count || instruction.operand_count > 6 { return false; }
+                    if callee.parameter_count != instruction.operand_count || instruction.operand_count > 16 { return false; }
                     if callee.return_type == TargetTypeTag::Void {
                         if instruction.result_value != 0 { return false; }
                     } else if result_type != callee.return_type || instruction.type_tag != callee.return_type {
+                        return false;
+                    }
+                    let mut outgoing_bytes: u32 = 0;
+                    if instruction.operand_count > 6 {
+                        outgoing_bytes = (((instruction.operand_count - 6) * 8) + 15) & (0 as u32 - 16);
+                    }
+                    if !append_object_adjust_rsp(output, capacity, &mut code, outgoing_bytes, true) {
                         return false;
                     }
                     let mut argument_index: u32 = 0;
@@ -2561,12 +2642,18 @@ pub fn emit_elf64_module_object(
                         let is_64: bool = object_type_is_64(parameter.type_tag);
                         if is_64 {
                             if !append_object_slot_load_rax64(output, capacity, &mut code, argument.value_id)
-                                || !append_object_rax_to_argument(output, capacity, &mut code, argument_index) {
+                                || (argument_index < 6
+                                    && !append_object_rax_to_argument(output, capacity, &mut code, argument_index))
+                                || (argument_index >= 6
+                                    && !append_object_rax_to_stack_argument(output, capacity, &mut code, argument_index)) {
                                 return false;
                             }
                         } else {
                             if !append_object_slot_load(output, capacity, &mut code, argument.value_id)
-                                || !append_object_eax_to_argument(output, capacity, &mut code, argument_index) {
+                                || (argument_index < 6
+                                    && !append_object_eax_to_argument(output, capacity, &mut code, argument_index))
+                                || (argument_index >= 6
+                                    && !append_object_rax_to_stack_argument(output, capacity, &mut code, argument_index)) {
                                 return false;
                             }
                         }
@@ -2577,6 +2664,9 @@ pub fn emit_elf64_module_object(
                     call_patch_functions[call_patch_count as usize] = callee_index;
                     call_patch_count = call_patch_count + 1;
                     if !append_object_u32(output, capacity, &mut code, 0) { return false; }
+                    if !append_object_adjust_rsp(output, capacity, &mut code, outgoing_bytes, false) {
+                        return false;
+                    }
                     if instruction.result_value != 0
                         && !append_object_slot_store_typed(
                             output, capacity, &mut code, instruction.result_value, callee.return_type

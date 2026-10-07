@@ -1178,8 +1178,13 @@ pub fn target_module_validate_calls(
                             let mut name_index: usize = 0;
                             let mut names_match: bool = true;
                             while name_index < callee.name.length {
-                                if unsafe { *(source + callee.name.offset + name_index) }
-                                    != unsafe { *(source + instruction.symbol.offset + name_index) } {
+                                let callee_byte: u8 = unsafe {
+                                    *(source + callee.name.offset + name_index)
+                                };
+                                let symbol_byte: u8 = unsafe {
+                                    *(source + instruction.symbol.offset + name_index)
+                                };
+                                if callee_byte != symbol_byte {
                                     names_match = false;
                                     break;
                                 }
@@ -1265,7 +1270,10 @@ pub fn target_module_validate_ssa_dominance(
             reach_changed = false;
             let mut destination_offset: u32 = 1;
             while destination_offset < function.block_count {
-                if unsafe { *(reachable + destination_offset as usize) } == 0 {
+                let destination_reachable: u8 = unsafe {
+                    *(reachable + destination_offset as usize)
+                };
+                if destination_reachable == 0 {
                     let destination: TargetBlock = unsafe {
                         *(blocks + function.first_block + destination_offset)
                     };
@@ -1274,7 +1282,10 @@ pub fn target_module_validate_ssa_dominance(
                         let predecessor: TargetBlock = unsafe {
                             *(blocks + function.first_block + predecessor_offset)
                         };
-                        if unsafe { *(reachable + predecessor_offset as usize) } != 0
+                        let predecessor_reachable: u8 = unsafe {
+                            *(reachable + predecessor_offset as usize)
+                        };
+                        if predecessor_reachable != 0
                             && target_cfg_block_has_edge(
                                 &predecessor, instructions, targets, destination.id
                             ) {

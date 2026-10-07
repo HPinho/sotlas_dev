@@ -1871,12 +1871,7 @@ impl ScalarLowering {
             }
             let callee: AstNode = unsafe { *(self.nodes + expression.first_child) };
             let mut callee_symbol: TargetSourceSlice = TargetSourceSlice::empty();
-            let mut argument_value0: u32 = TARGET_VALUE_NONE;
-            let mut argument_value1: u32 = TARGET_VALUE_NONE;
-            let mut argument_value2: u32 = TARGET_VALUE_NONE;
-            let mut argument_value3: u32 = TARGET_VALUE_NONE;
-            let mut argument_value4: u32 = TARGET_VALUE_NONE;
-            let mut argument_value5: u32 = TARGET_VALUE_NONE;
+            let mut argument_values: [u32; 16] = 0;
             let mut argument_count: u32 = 0;
             let mut argument_index: usize = callee.next_sibling;
             let mut callee_decl: usize = 0;
@@ -1897,7 +1892,7 @@ impl ScalarLowering {
                 if callee_decl == 0 {
                     return TARGET_VALUE_NONE;
                 }
-                if self.function_parameter_count_from_ast(callee_decl) > 6 {
+                if self.function_parameter_count_from_ast(callee_decl) > 16 {
                     return TARGET_VALUE_NONE;
                 }
             } else if callee.kind == AstKind::ExprPath {
@@ -1937,7 +1932,7 @@ impl ScalarLowering {
                     || call_sema.static_impl_receiver_index(
                         self.nodes, self.node_count, callee_decl, self.source, self.source_len
                     ) != 0
-                    || self.function_parameter_count_from_ast(callee_decl) > 6 {
+                    || self.function_parameter_count_from_ast(callee_decl) > 16 {
                     return TARGET_VALUE_NONE;
                 }
             } else if callee.kind == AstKind::ExprFieldAccess {
@@ -1957,7 +1952,7 @@ impl ScalarLowering {
                     expression_index, struct_id, m_off, m_len
                 );
                 if callee_decl == 0
-                    || self.function_parameter_count_from_ast(callee_decl) > 6
+                    || self.function_parameter_count_from_ast(callee_decl) > 16
                     || self.function_parameter_type_from_ast(callee_decl, 0)
                         != TargetTypeTag::Pointer
                     || self.values == null || base_ptr == 0
@@ -1967,14 +1962,14 @@ impl ScalarLowering {
                     return TARGET_VALUE_NONE;
                 }
                 callee_symbol = self.append_mangled_name(s_off, s_len, m_off, m_len);
-                argument_value0 = base_ptr;
+                argument_values[0] = base_ptr;
                 argument_count = 1;
             } else {
                 return TARGET_VALUE_NONE;
             }
 
             while argument_index != 0 {
-                if argument_index >= self.node_count || argument_count >= 6 {
+                if argument_index >= self.node_count || argument_count >= 16 {
                     return TARGET_VALUE_NONE;
                 }
                 let mut argument_type: TargetTypeTag = TargetTypeTag::U32;
@@ -1992,12 +1987,7 @@ impl ScalarLowering {
                 if argument_value == TARGET_VALUE_NONE {
                     return TARGET_VALUE_NONE;
                 }
-                if argument_count == 0 { argument_value0 = argument_value; }
-                else if argument_count == 1 { argument_value1 = argument_value; }
-                else if argument_count == 2 { argument_value2 = argument_value; }
-                else if argument_count == 3 { argument_value3 = argument_value; }
-                else if argument_count == 4 { argument_value4 = argument_value; }
-                else { argument_value5 = argument_value; }
+                argument_values[argument_count as usize] = argument_value;
                 argument_count = argument_count + 1;
                 argument_index = unsafe { (*(self.nodes + argument_index)).next_sibling };
             }
@@ -2010,12 +2000,13 @@ impl ScalarLowering {
             // Publish call operands only after every argument value is finalized so
             // first_operand always points at one contiguous call-argument range.
             let first_operand: u32 = self.operand_count as u32;
-            if argument_count > 0 && !self.append_operand(argument_value0) { return TARGET_VALUE_NONE; }
-            if argument_count > 1 && !self.append_operand(argument_value1) { return TARGET_VALUE_NONE; }
-            if argument_count > 2 && !self.append_operand(argument_value2) { return TARGET_VALUE_NONE; }
-            if argument_count > 3 && !self.append_operand(argument_value3) { return TARGET_VALUE_NONE; }
-            if argument_count > 4 && !self.append_operand(argument_value4) { return TARGET_VALUE_NONE; }
-            if argument_count > 5 && !self.append_operand(argument_value5) { return TARGET_VALUE_NONE; }
+            let mut published_argument: u32 = 0;
+            while published_argument < argument_count {
+                if !self.append_operand(argument_values[published_argument as usize]) {
+                    return TARGET_VALUE_NONE;
+                }
+                published_argument = published_argument + 1;
+            }
 
             let mut actual_type: TargetTypeTag = type_tag;
             if callee_decl != 0 {
@@ -2430,16 +2421,11 @@ impl ScalarLowering {
             return false;
         }
         let expected_count: u32 = self.function_parameter_count_from_ast(callee_decl);
-        if expected_count > 6 {
+        if expected_count > 16 {
             return false;
         }
 
-        let mut argument_value0: u32 = TARGET_VALUE_NONE;
-        let mut argument_value1: u32 = TARGET_VALUE_NONE;
-        let mut argument_value2: u32 = TARGET_VALUE_NONE;
-        let mut argument_value3: u32 = TARGET_VALUE_NONE;
-        let mut argument_value4: u32 = TARGET_VALUE_NONE;
-        let mut argument_value5: u32 = TARGET_VALUE_NONE;
+        let mut argument_values: [u32; 16] = 0;
         let mut argument_count: u32 = 0;
         let mut argument_index: usize = callee.next_sibling;
         while argument_index != 0 {
@@ -2458,12 +2444,7 @@ impl ScalarLowering {
             if argument_value == TARGET_VALUE_NONE {
                 return false;
             }
-            if argument_count == 0 { argument_value0 = argument_value; }
-            else if argument_count == 1 { argument_value1 = argument_value; }
-            else if argument_count == 2 { argument_value2 = argument_value; }
-            else if argument_count == 3 { argument_value3 = argument_value; }
-            else if argument_count == 4 { argument_value4 = argument_value; }
-            else { argument_value5 = argument_value; }
+            argument_values[argument_count as usize] = argument_value;
             argument_count = argument_count + 1;
             argument_index = unsafe { (*(self.nodes + argument_index)).next_sibling };
         }
@@ -2472,12 +2453,11 @@ impl ScalarLowering {
         }
 
         let first_operand: u32 = self.operand_count as u32;
-        if argument_count > 0 && !self.append_operand(argument_value0) { return false; }
-        if argument_count > 1 && !self.append_operand(argument_value1) { return false; }
-        if argument_count > 2 && !self.append_operand(argument_value2) { return false; }
-        if argument_count > 3 && !self.append_operand(argument_value3) { return false; }
-        if argument_count > 4 && !self.append_operand(argument_value4) { return false; }
-        if argument_count > 5 && !self.append_operand(argument_value5) { return false; }
+        let mut published_argument: u32 = 0;
+        while published_argument < argument_count {
+            if !self.append_operand(argument_values[published_argument as usize]) { return false; }
+            published_argument = published_argument + 1;
+        }
 
         if !self.append_instruction(
             TargetOpcode::Call,
