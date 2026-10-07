@@ -506,6 +506,29 @@ pub fn contains(values: *const u64, count: u32, wanted: u64) -> bool {
 }
 """
 
+SV8_NARROW_LOCAL_SEARCH_LOOP_SRC = """module sv8::narrow_local_search_loop;
+
+pub fn contains_byte(values: *const u8, count: u32, wanted: u8) -> bool {
+    let mut offset: u32 = 0;
+    while offset < count {
+        let actual: u8 = unsafe { *(values + offset) };
+        if actual == wanted { return true; }
+        offset = offset + 1;
+    }
+    return false;
+}
+
+pub fn contains_word(values: *const u16, count: u32, wanted: u16) -> bool {
+    let mut offset: u32 = 0;
+    while offset < count {
+        let actual: u16 = unsafe { *(values + offset) };
+        if actual == wanted { return true; }
+        offset = offset + 1;
+    }
+    return false;
+}
+"""
+
 SV4_RAW_POINTER_DEREF_REJECT_SRC = """module sv4::raw_pointer_deref_reject;
 
 pub fn rejected_deref(ptr: *const u32) -> u32 {
@@ -1443,6 +1466,48 @@ class TestSotlasSovereigntySV2(unittest.TestCase):
         data = out_obj.read_bytes()
         self.assertEqual(data[:4], b"\x7fELF")
         self.assertIn(b"contains\x00", data)
+
+    def test_sv8_narrow_local_search_loops_lower_to_native_object(self):
+        """u8 and u16 pointer loads and comparisons preserve their native widths."""
+        src_path = self.root / "narrow_local_search_loop.sotlas"
+        src_path.write_text(SV8_NARROW_LOCAL_SEARCH_LOOP_SRC, encoding="utf-8")
+        out_obj = self.root / "narrow_local_search_loop.o"
+        compiled = subprocess.run(
+            [str(self.stage1), "--compile-obj", str(src_path), str(out_obj)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(compiled.returncode, 0, compiled.stderr)
+        data = out_obj.read_bytes()
+        self.assertEqual(data[:4], b"\x7fELF")
+        self.assertIn(b"contains_byte\x00", data)
+        self.assertIn(b"contains_word\x00", data)
+        if sys.platform.startswith("linux"):
+            caller = self.root / "narrow_local_search_loop_caller.c"
+            caller.write_text(
+                "#include <stdbool.h>\n#include <stdint.h>\n"
+                "extern bool contains_byte(const uint8_t *, uint32_t, uint8_t);\n"
+                "extern bool contains_word(const uint16_t *, uint32_t, uint16_t);\n"
+                "int main(void) { uint8_t bytes[3] = {2, 201, 3}; "
+                "uint16_t words[3] = {4, 60001, 5}; "
+                "return contains_byte(bytes, 3, 201) && !contains_byte(bytes, 3, 202) "
+                "&& contains_word(words, 3, 60001) && !contains_word(words, 3, 60002) "
+                "? 0 : 1; }\n",
+                encoding="utf-8",
+            )
+            exe = self.root / "narrow_local_search_loop_native"
+            linked = subprocess.run(
+                ["clang", str(caller), str(out_obj), "-o", str(exe)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(linked.returncode, 0, linked.stderr)
+            executed = subprocess.run(
+                [str(exe)], capture_output=True, text=True, check=False
+            )
+            self.assertEqual(executed.returncode, 0, executed.stderr)
 
     def test_sv8_wide_local_search_loop_lowers_to_native_object(self):
         """A u64 payload search loop reaches native ELF without narrowing values."""

@@ -2722,7 +2722,9 @@ impl ScalarLowering {
         if compare_type == TargetTypeTag::Invalid {
             compare_type = TargetTypeTag::U32;
         }
-        if compare_type != TargetTypeTag::U32
+        if compare_type != TargetTypeTag::U8
+            && compare_type != TargetTypeTag::U16
+            && compare_type != TargetTypeTag::U32
             && compare_type != TargetTypeTag::U64
             && compare_type != TargetTypeTag::I64
             && compare_type != TargetTypeTag::Pointer {
@@ -3209,7 +3211,9 @@ impl ScalarLowering {
             }
             let mut body_struct_id: u32 = 0;
             let mut body_value: u32 = TARGET_VALUE_NONE;
-            if body_let_type == TargetTypeTag::U32
+            if body_let_type == TargetTypeTag::U8
+                || body_let_type == TargetTypeTag::U16
+                || body_let_type == TargetTypeTag::U32
                 || body_let_type == TargetTypeTag::U64
                 || body_let_type == TargetTypeTag::Usize
                 || body_let_type == TargetTypeTag::Bool {
