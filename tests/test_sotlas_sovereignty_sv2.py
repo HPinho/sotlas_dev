@@ -465,6 +465,21 @@ pub fn contains(entries: *const Entry, count: u32, wanted: u32) -> bool {
 }
 """
 
+SV8_WIDE_LOCAL_SEARCH_LOOP_SRC = """module sv8::wide_local_search_loop;
+
+pub fn contains(values: *const u64, count: u32, wanted: u64) -> bool {
+    let mut offset: u32 = 0;
+    while offset < count {
+        let actual: u64 = unsafe { *(values + offset) };
+        if actual == wanted {
+            return true;
+        }
+        offset = offset + 1;
+    }
+    return false;
+}
+"""
+
 SV4_RAW_POINTER_DEREF_REJECT_SRC = """module sv4::raw_pointer_deref_reject;
 
 pub fn rejected_deref(ptr: *const u32) -> u32 {
@@ -1345,6 +1360,45 @@ class TestSotlasSovereigntySV2(unittest.TestCase):
         data = out_obj.read_bytes()
         self.assertEqual(data[:4], b"\x7fELF")
         self.assertIn(b"contains\x00", data)
+
+    def test_sv8_wide_local_search_loop_lowers_to_native_object(self):
+        """A u64 payload search loop reaches native ELF without narrowing values."""
+        src_path = self.root / "wide_local_search_loop.sotlas"
+        src_path.write_text(SV8_WIDE_LOCAL_SEARCH_LOOP_SRC, encoding="utf-8")
+        out_obj = self.root / "wide_local_search_loop.o"
+        compiled = subprocess.run(
+            [str(self.stage1), "--compile-obj", str(src_path), str(out_obj)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(compiled.returncode, 0, compiled.stderr)
+        data = out_obj.read_bytes()
+        self.assertEqual(data[:4], b"\x7fELF")
+        self.assertIn(b"contains\x00", data)
+
+        if sys.platform.startswith("linux"):
+            caller = self.root / "wide_local_search_loop_caller.c"
+            caller.write_text(
+                "#include <stdbool.h>\n#include <stdint.h>\n"
+                "extern bool contains(const uint64_t *, uint32_t, uint64_t);\n"
+                "int main(void) { uint64_t values[3] = {7, (1ULL << 40) + 9, 11}; "
+                "return contains(values, 3, (1ULL << 40) + 9) "
+                "&& !contains(values, 3, (1ULL << 40) + 10) ? 0 : 1; }\n",
+                encoding="utf-8",
+            )
+            exe = self.root / "wide_local_search_loop_native"
+            linked = subprocess.run(
+                ["clang", str(caller), str(out_obj), "-o", str(exe)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(linked.returncode, 0, linked.stderr)
+            executed = subprocess.run(
+                [str(exe)], capture_output=True, text=True, check=False
+            )
+            self.assertEqual(executed.returncode, 0, executed.stderr)
 
     def test_sv8_real_target_ir_progresses_past_cfg_has_block(self):
         """The native probe must reach CFG validation or emit the full object."""

@@ -3159,6 +3159,8 @@ impl ScalarLowering {
             let mut body_struct_id: u32 = 0;
             let mut body_value: u32 = TARGET_VALUE_NONE;
             if body_let_type == TargetTypeTag::U32
+                || body_let_type == TargetTypeTag::U64
+                || body_let_type == TargetTypeTag::Usize
                 || body_let_type == TargetTypeTag::Bool {
                 body_value = self.lower_expression(
                     initializer_index, body_let_type,
