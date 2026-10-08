@@ -525,6 +525,16 @@ failures and 33 skips. Pointer qualifier, scalar reference and narrow-shift
 fixtures also executed as Sotlas-linked ELF binaries on Linux via WSL. This is
 not a claim that the full Linux or macOS workflow matrix ran locally.
 
+### SV8.15 — Bounded native local scalar arrays (2026-10-08)
+
+**Certified baseline:** CI #1148 on `c0e99af8d9776c759260ffacbe0d060a25f228e4` completed successfully on Linux, macOS and Windows, including Python 3.10–3.12, native gates, package builds and the nightly toolchain snapshot. The module-emission gate covers **six of ten** bootstrap manifest modules: Token, AST, Lexer, Parser, Sema and Target IR. This is **not** six of ten native bootstrap stages.
+
+**Current implementation cut:** bounded zero-initialized local arrays of scalar elements (`u8`, `u16`, `u32`, `u64` and `usize`, represented by the native U64 slot). They use a distinct `AllocStack` region and typed `IndexAddr` for both reads and writes; the object backend traps on out-of-range indices, including dynamic indices. Every element is explicitly initialized through typed native stores, so no uninitialized bytes are exposed as zero. Array metadata follows lexical local bindings, not global names. This initial contract accepts 1–256 elements initialized with `= 0`, and rejects nonzero fills, oversized arrays and unsupported element types without emitting an object. Existing struct inline arrays and global arrays retain their previous contracts.
+
+**Regression evidence for this cut:** `tests/test_sotlas_native_structured_cfg.py` now covers mutable `u8`/`u16` arrays in a structured loop, zeroed untouched elements, native execution on supported hosts, out-of-bounds read/write traps on Linux, and fail-closed initializers/counts. CI certification of this commit is pending; do not promote it until the whole matrix is green.
+
+**Next source closure:** native `lower_scalar.sotlas` still requires its `u8` digit arithmetic and any additional unsupported constructs exposed by the full-module object gate; native `x86_64_scalar.sotlas` still requires its writer's larger local tables, deterministic frame sizing and all remaining machine emission constructs. The current initial 256-element array limit is not a claim that those complete modules now compile. Keep the **Stage1→Stage2 native executable build and Stage2→Stage3 fixed-point** as subsequent distinct gates. Python/C elimination remains the roadmap estimate **40% completed / 60% remaining** pending actual native compiler bootstrap.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test
