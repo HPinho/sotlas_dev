@@ -1572,6 +1572,65 @@ class TestSotlasSovereigntySV2(unittest.TestCase):
         ):
             self.assertIn(symbol, data)
 
+    def test_sv2_native_object_resolves_imported_function(self):
+        """The native object path loads source dependencies before Sotlas lowering."""
+        helper = self.root / "native_helper.sotlas"
+        helper.write_text(
+            "module gate::native_helper;\npub fn add_two(value: u32) -> u32 { return value + 2; }\n",
+            encoding="utf-8",
+        )
+        entry = self.root / "native_entry.sotlas"
+        entry.write_text(
+            "module gate::native_entry;\n"
+            "import gate::native_helper::*;\n"
+            "pub fn imported_answer() -> u32 { return add_two(40); }\n",
+            encoding="utf-8",
+        )
+        output = self.root / "native_entry.o"
+        result = subprocess.run(
+            [str(self.stage1), "--compile-obj", str(entry), str(output)],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(output.is_file())
+        data = output.read_bytes()
+        self.assertIn(b"add_two\x00", data)
+        self.assertIn(b"imported_answer\x00", data)
+
+    def test_sv2_native_object_rejects_missing_import(self):
+        entry = self.root / "native_missing_import.sotlas"
+        entry.write_text(
+            "module gate::missing;\nimport gate::absent::*;\n"
+            "pub fn answer() -> u32 { return 42; }\n",
+            encoding="utf-8",
+        )
+        output = self.root / "native_missing_import.o"
+        result = subprocess.run(
+            [str(self.stage1), "--compile-obj", str(entry), str(output)],
+            capture_output=True, text=True,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("could not resolve imported module", result.stderr)
+        self.assertFalse(output.exists())
+
+    def test_sv2_native_object_imports_real_target_ir(self):
+        entry = self.root / "native_target_ir_import.sotlas"
+        entry.write_text(
+            "module gate::native_target_ir_import;\n"
+            "import sotlas::compiler::backend::target_ir::*;\n"
+            "pub fn native_import_probe() -> u32 { return 42; }\n",
+            encoding="utf-8",
+        )
+        output = self.root / "native_target_ir_import.o"
+        result = subprocess.run(
+            [str(self.stage1), "--compile-obj", str(entry), str(output)],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        data = output.read_bytes()
+        self.assertIn(b"target_module_validate_cfg\x00", data)
+        self.assertIn(b"native_import_probe\x00", data)
+
     def test_sv4_raw_pointer_deref_requires_unsafe(self):
         """SV4.8c2 negative gate: dereference outside unsafe remains rejected."""
         src_path = self.root / "raw_pointer_deref_reject.sotlas"
