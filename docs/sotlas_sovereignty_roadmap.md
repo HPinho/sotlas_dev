@@ -423,7 +423,7 @@ Milestone **SV8** currently certifies deterministic Stage1/Stage2/Stage3 fronten
 - **Certified green baseline (2026-10-07):** CI #1134 on `f3ed10ec7e6b846e36b4c7b23e2ef9975058bc6a` passed the complete Linux/Windows/macOS matrix. The real `target_ir.sotlas` Stage 1 probe reaches `target_module_validate_ssa_dominance` at `1313:68`, where a short-circuit compares a dereferenced `u8` reachability flag to zero. Stage 1 still has not emitted the complete real module or built Stage 2 by itself.
 - **Current item — SV8.7 SSA typed-memory guards:** resolve the exact scalar pointee type through an explicit `unsafe` expression when lowering a comparison. The new isolated native object+execution gate covers `u8` and `u16` pointer reads and verifies that `||`/`&&` skip a null pointer on the unused branch. Keep the complete real SSA-dominance verifier, including nested loops and byte-buffer operations, as the next substantive object gate; do not claim closure on the strength of one condition.
 - **SV8.7 CI regression correction (2026-10-07):** CI #1135 failed the newly added single-while `u8`/`u16` guard test on Linux, Windows and macOS at the loop statement, while the previously certified tests remained green. This was not an SSA gate regression: `cfg_required` selected the legacy eager search-loop lowerer because it counted only one `while`, despite `&&`/`||` containing a potentially trapping `unsafe` read. The repair selects structured CFG for a one-loop function when its Boolean guard is not pure, preserving branch-based short-circuit semantics. The original single-loop fixture and its native execution requirements remain; the test description is clarified, not relaxed. Keep CI #1134 / `f3ed10ec7e6b846e36b4c7b23e2ef9975058bc6a` as the certified green baseline until the repair's complete matrix succeeds.
-- **Completed locally — SV8.7 SSA verifier closure:** native `u8`/`u16` bitwise AND, OR and XOR keep the verifier's byte-buffer fixed-point update in the real structured CFG path. The Stage 1 object probe now traverses the complete CFG, call and SSA dominance validators and reaches the first exported global-access function after the global declarations. A native execution gate covers narrow bitwise values; narrow arithmetic remains rejected. The full real `target_ir.sotlas` ELF object, global data emission and native Stage 2 build remain open. CI certification is pending.
+- **Completed locally — SV8.7 real Target IR object:** Stage 1 now emits one ELF object for the complete `target_ir.sotlas` source, including CFG, call and SSA validators and its BSS globals. Global-array-to-pointer casts are limited to matching element types. The ELF emitter handles up to 1,024 blocks and 2,048 branch patches per function; the real validator uses 428 blocks. Tests require the complete object and cover a valid global array cast and a mismatched-pointee rejection. This certifies object emission locally, not linking the compiler as native Stage 2 or a fixed point. CI certification is pending.
 - **Sovereignty metric:** application/kernel native gates are C/Python-free; compiler bootstrap gates remain hosted. Current tracked reduction is 40% eliminated / 60% remaining for both Python and C until a native Stage1→Stage2 build gate closes.
 
 ### Stage evidence and dependency accounting
@@ -460,10 +460,10 @@ through call validation and into SSA dominance. This progress is not yet
 CI-certified. The command uses Stage 1's `--compile-obj` path;
 successful C emission is not evidence for this milestone.
 
-The SSA validator now lowers through its reachability and dominator byte
-buffers. The next gate is native global-data access and emission of the full
-real module. The regression test locates the boundary by the first global
-declaration rather than a hardcoded line number. A native Stage 2 build
+The SSA validator lowers through its reachability and dominator byte buffers.
+The native global-array cast and larger ELF branch tables now allow Stage 1 to
+emit the complete real Target IR module. The regression gate requires the ELF
+object and representative validator and global symbols. A native Stage 2 build
 requires additional compiler modules and remains a separate gate.
 
 The current `lower_declared_function` dispatches to specialized terminal-loop

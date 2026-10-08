@@ -1719,6 +1719,23 @@ impl ScalarLowering {
                 return TARGET_VALUE_NONE;
             }
             let cast_type: TargetTypeTag = self.type_tag_for(cast_type_index);
+            if cast_type == TargetTypeTag::Pointer && value_node.kind == AstKind::ExprIdent {
+                let global_index: isize = self.find_global_bss(
+                    value_node.str_offset, value_node.str_len
+                );
+                if global_index < 0 { return TARGET_VALUE_NONE; }
+                let global_slot: usize = global_index as usize;
+                let pointee_type: TargetTypeTag = self.pointer_pointee_type_tag(cast_type_index);
+                if unsafe { g_bss_sym_is_array[global_slot] } == 0
+                    || pointee_type == TargetTypeTag::Invalid
+                    || unsafe { g_bss_sym_element_types[global_slot] } != pointee_type as u32
+                    || (type_tag != TargetTypeTag::Invalid && type_tag != TargetTypeTag::Pointer) {
+                    return TARGET_VALUE_NONE;
+                }
+                return self.lower_expression(
+                    value_index, TargetTypeTag::Pointer, first_parameter, parameter_count
+                );
+            }
             if cast_type != TargetTypeTag::U8
                 && cast_type != TargetTypeTag::U16
                 && cast_type != TargetTypeTag::U32
