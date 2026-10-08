@@ -967,6 +967,115 @@ fn explicit_return() -> void { return; }
 fn implicit_return() -> void { }
 """, 4)
 
+    def test_same_pointee_pointer_cast_preserves_scalar_storage(self):
+        self.assert_native_result("pointer_qualifiers", """
+fn write(source: *const u32) -> u32 {
+    let writable: *mut u32 = source as *mut u32;
+    unsafe { *writable = 42; }
+    let readonly: *const u32 = writable as *const u32;
+    return unsafe { *readonly };
+}
+pub fn main_entry() -> u32 {
+    let mut value: u32 = 7;
+    let address: *const u32 = unsafe { (&value) as *const u32 };
+    let result: u32 = write(address);
+    if result == 42 && value == 42 { return 0; }
+    return 1;
+}
+""", 0)
+
+    def test_same_pointee_pointer_cast_preserves_struct_identity(self):
+        self.assert_native_result("struct_pointer_qualifiers", """
+struct Pair { first: u32; second: u32; }
+fn update(source: *const Pair) -> u32 {
+    let writable: *mut Pair = source as *mut Pair;
+    unsafe { *writable = Pair { first: 40, second: 2 }; }
+    let readonly: *const Pair = writable as *const Pair;
+    let result: Pair = unsafe { *readonly };
+    return result.first + result.second;
+}
+pub fn main_entry() -> u32 {
+    let mut pair: Pair = Pair { first: 1, second: 2 };
+    let address: *const Pair = unsafe { (&pair) as *const Pair };
+    return update(address);
+}
+""", 42)
+
+    def test_scalar_reference_load_store_and_guard(self):
+        self.assert_native_result("scalar_reference", """
+fn increment(counter: &mut usize, capacity: usize) -> bool {
+    if *counter >= capacity { return false; }
+    *counter = *counter + 1;
+    return true;
+}
+pub fn main_entry() -> u32 {
+    let mut counter: usize = 40;
+    let pointer: &mut usize = &counter;
+    if !increment(pointer, 42) || !increment(pointer, 42) { return 1; }
+    if increment(pointer, 42) || counter != 42 { return 2; }
+    return 0;
+}
+""", 0)
+
+    def test_pointer_casts_reject_reinterpretation(self):
+        for name, body in (
+            ("scalar", "fn invalid(p: *const u32) -> *mut u8 { return p as *mut u8; }"),
+            ("struct", "struct A { value: u32; } struct B { value: u32; } "
+             "fn invalid(p: *const A) -> *mut B { return p as *mut B; }"),
+            ("integer", "fn invalid(p: u64) -> *mut u8 { return p as *mut u8; }"),
+            ("nested", "fn invalid(p: *const *const u32) -> *mut *const u8 { return p as *mut *const u8; }"),
+        ):
+            with self.subTest(name=name):
+                result, output = self.compile("invalid_pointer_" + name, body)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(output.exists())
+
+    def test_real_object_writer_helpers_compile_and_execute(self):
+        writer = (ROOT / "bootstrap/sotlas/native_compiler/backend/x86_64_scalar.sotlas").read_text(encoding="utf-8")
+        prefix = writer.split("fn append_object_sysv_parameter_store(", 1)[0]
+        self.assertIn("fn append_object_load_mem64", prefix)
+        # These byte/storage helpers do not use Target IR types. Keep this
+        # execution fixture independent of the validator's large stack frames.
+        prefix = prefix.replace("import sotlas::compiler::backend::target_ir::*;", "")
+        self.assert_native_result("real_writer_helpers", prefix + """
+pub fn main_entry() -> u32 {
+    let mut byte: u8 = 0;
+    let buffer: *mut u8 = unsafe { (&byte) as *mut u8 };
+    let mut cursor: usize = 0;
+    let length: &mut usize = &cursor;
+    if !append_object_byte(buffer, 1, length, 42) { return 1; }
+    if byte != 42 || cursor != 1 { return 2; }
+    if append_object_byte(buffer, 1, length, 7) { return 3; }
+    if byte != 42 || cursor != 1 { return 4; }
+    if put_u16(buffer, 0, 0, 65535) || get_u16(buffer as *const u8, 1, 0) != 0 { return 5; }
+    if byte != 42 || align_to(17, 8) != 24 { return 6; }
+    return 0;
+}
+""", 0)
+
+    def test_narrow_constant_shifts_normalize_both_widths(self):
+        self.assert_native_result("narrow_shifts", """
+fn byte_left(value: u8) -> u8 { return value << 7; }
+fn byte_right(value: u8) -> u8 { return value >> 7; }
+fn word_left(value: u16) -> u16 { return value << 15; }
+fn word_right(value: u16) -> u16 { return value >> 15; }
+fn identity(value: u8) -> u8 { return value >> 0; }
+pub fn main_entry() -> u32 {
+    if byte_left(255) != 128 || byte_right(255) != 1 { return 1; }
+    if word_left(65535) != 32768 || word_right(65535) != 1 { return 2; }
+    if byte_left(2) != 0 || word_left(2) != 0 || identity(255) != 255 { return 3; }
+    return 0;
+}
+""", 0)
+
+    def test_narrow_shifts_reject_dynamic_and_out_of_range_counts(self):
+        for width, count in (("u8", "8"), ("u16", "16"), ("u8", "count"), ("u16", "count")):
+            with self.subTest(width=width, count=count):
+                result, output = self.compile("invalid_shift_" + width + "_" + count,
+                    f"fn invalid(value: {width}, count: {width}) -> {width} {{ return value >> {count}; }}")
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(output.exists())
+
     def test_void_function_cannot_return_a_value(self):
         result, output = self.compile("void_value_error", """
 pub fn main_entry() -> u32 { return 1; }

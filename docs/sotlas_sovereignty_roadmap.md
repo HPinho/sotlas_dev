@@ -486,6 +486,45 @@ the native Stage 2 compiler gate remains open. CI certification is pending.
 
 SV8.11 also preserves the textual assembly contract for its scalar subset: the emitter validates CFG ranges, follows each block's instruction slice instead of assuming physical block order, and accepts the canonical no-result conditional-branch marker while still requiring a Bool condition operand. Assembly gates retain native execution and verify the new loop-header backedges. The previous eager-only rejection fixtures now execute call-bearing and divide/modulo-bearing short-circuit expressions; signed division, incompatible pointer casts and unsupported narrow arithmetic remain rejection gates.
 
+### SV8.14 — Pointer qualifiers, scalar references and narrow shifts (2026-10-08)
+
+The native lowerer preserves addresses when changing pointer qualifiers with
+the same scalar pointee or exact struct identity. Cross-type reinterpretation,
+integer-to-pointer conversion and nested-pointer casts remain rejected. Native
+execution covers scalar and aggregate updates through the converted pointers;
+raw dereferences retain their unsafe requirement.
+
+Scalar reference types such as `&mut usize` now supply the correct pointee type
+for loads, stores, comparisons and pointer offsets. This closes the writer's
+cursor helpers without treating a reference-valued offset as an integer.
+Unsigned `u8` and `u16` shifts accept constant counts below their bit width.
+The object emitter independently checks the constant definition and normalizes
+both the input and output width. Dynamic counts and counts at or above the
+width fail closed; narrow addition and other unsupported arithmetic remain
+outside this contract.
+
+The native execution gate compiles the actual byte/storage helper definitions
+from `x86_64_scalar.sotlas`, exercising cursor updates and capacity failures.
+Its unused Target IR import is removed only in the isolated test fixture to
+avoid importing unrelated large validator frames. The complete helper slice
+with Target IR also linked and executed successfully on local Linux via WSL.
+Windows execution of that larger imported slice still needs stack-frame work:
+the backend currently reserves module-wide value storage in each function.
+
+The full writer probe now reaches the local `block_offsets` array in
+`emit_elf64_scalar_function_object` (source line 510). The full lowerer reaches
+its local digit array in `append_synthetic_str_symbol` (source line 115).
+General local-array storage and the digit helper's narrow addition remain
+connected blockers. Neither module
+is counted as complete: six of the ten manifest modules emit native objects,
+and the fully native Stage 1 -> Stage 2 build remains open. These are local
+results; certification of this commit belongs to the subsequent CI run.
+
+Local regression evidence: the full Windows suite ran 2,628 tests with no
+failures and 33 skips. Pointer qualifier, scalar reference and narrow-shift
+fixtures also executed as Sotlas-linked ELF binaries on Linux via WSL. This is
+not a claim that the full Linux or macOS workflow matrix ran locally.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test

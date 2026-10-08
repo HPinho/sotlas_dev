@@ -2374,9 +2374,11 @@ pub fn emit_elf64_module_object(
                     }
                 } else if instruction.opcode == TargetOpcode::ShiftLeft
                     || instruction.opcode == TargetOpcode::ShiftRight {
+                    let narrow_shift: bool = result_type == TargetTypeTag::U8
+                        || result_type == TargetTypeTag::U16;
                     if instruction.operand_count != 2
                         || instruction.type_tag != result_type
-                        || !object_integer_arithmetic_type(result_type)
+                        || (!narrow_shift && !object_integer_arithmetic_type(result_type))
                         || (instruction.opcode == TargetOpcode::ShiftRight
                             && result_type == TargetTypeTag::I64) {
                         return false;
@@ -2387,6 +2389,24 @@ pub fn emit_elf64_module_object(
                     let right: TargetOperand = unsafe {
                         *(operands + instruction.first_operand + 1)
                     };
+                    if narrow_shift {
+                        let mut width: u64 = 8;
+                        if result_type == TargetTypeTag::U16 { width = 16; }
+                        let mut constant_found: bool = false;
+                        let mut constant_index: u32 = 0;
+                        while constant_index < ir.instruction_count {
+                            let candidate: TargetInstruction = unsafe { *(instructions + constant_index) };
+                            if candidate.result_value == right.value_id {
+                                if candidate.opcode != TargetOpcode::ConstInt
+                                    || candidate.type_tag != result_type
+                                    || candidate.immediate_bits >= width { return false; }
+                                constant_found = true;
+                                break;
+                            }
+                            constant_index = constant_index + 1;
+                        }
+                        if !constant_found { return false; }
+                    }
                     if object_value_type(values, ir.value_count, left.value_id) != result_type
                         || object_value_type(values, ir.value_count, right.value_id) != result_type
                         || !append_object_slot_load_typed(
@@ -2399,6 +2419,13 @@ pub fn emit_elf64_module_object(
                         ) {
                         return false;
                     }
+                    if narrow_shift {
+                        let mut extension: u8 = 182 as u8;
+                        if result_type == TargetTypeTag::U16 { extension = 183 as u8; }
+                        if !append_object_byte(output, capacity, &mut code, 15)
+                            || !append_object_byte(output, capacity, &mut code, extension)
+                            || !append_object_byte(output, capacity, &mut code, 192) { return false; }
+                    }
                     if object_type_is_64(result_type)
                         && !append_object_byte(output, capacity, &mut code, 72) {
                         return false;
@@ -2408,8 +2435,15 @@ pub fn emit_elf64_module_object(
                         shift_modrm = 232 as u8;
                     }
                     if !append_object_byte(output, capacity, &mut code, 211)
-                        || !append_object_byte(output, capacity, &mut code, shift_modrm)
-                        || !append_object_slot_store_typed(
+                        || !append_object_byte(output, capacity, &mut code, shift_modrm) { return false; }
+                    if narrow_shift {
+                        let mut extension: u8 = 182 as u8;
+                        if result_type == TargetTypeTag::U16 { extension = 183 as u8; }
+                        if !append_object_byte(output, capacity, &mut code, 15)
+                            || !append_object_byte(output, capacity, &mut code, extension)
+                            || !append_object_byte(output, capacity, &mut code, 192) { return false; }
+                    }
+                    if !append_object_slot_store_typed(
                             output, capacity, &mut code, instruction.result_value, result_type
                         ) {
                         return false;
