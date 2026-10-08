@@ -1483,6 +1483,53 @@ impl ScalarLowering {
         return true;
     }
 
+    pub fn lower_field_assignment(
+        mut self: &mut Self,
+        statement_index: usize,
+        first_parameter: usize,
+        parameter_count: usize
+    ) -> bool {
+        if self.nodes == null || statement_index == 0 || statement_index >= self.node_count {
+            return false;
+        }
+        let statement: AstNode = unsafe { *(self.nodes + statement_index) };
+        let field_index: usize = statement.first_child;
+        if statement.kind != AstKind::AssignStmt || field_index == 0
+            || field_index >= self.node_count { return false; }
+        let field_node: AstNode = unsafe { *(self.nodes + field_index) };
+        let value_index: usize = field_node.next_sibling;
+        if field_node.kind != AstKind::ExprFieldAccess || value_index == 0
+            || value_index >= self.node_count { return false; }
+        let base_index: usize = field_node.first_child;
+        if base_index == 0 || base_index >= self.node_count { return false; }
+        let base_node: AstNode = unsafe { *(self.nodes + base_index) };
+        if base_node.kind != AstKind::ExprIdent { return false; }
+        let struct_id: u32 = self.find_local_struct_id(base_node.str_offset, base_node.str_len);
+        let base_ptr: u32 = self.find_parameter_value(
+            first_parameter, parameter_count, base_node.str_offset, base_node.str_len
+        );
+        if struct_id == 0 || base_ptr == TARGET_VALUE_NONE { return false; }
+        let field_id: u32 = self.find_field(struct_id, field_node.str_offset, field_node.str_len);
+        if field_id == 0 { return false; }
+        let field_slot: usize = (field_id - 1) as usize;
+        let field_type: TargetTypeTag = self.field_type_tags[field_slot] as TargetTypeTag;
+        let value: u32 = self.lower_expression(
+            value_index, field_type, first_parameter, parameter_count
+        );
+        if value == TARGET_VALUE_NONE { return false; }
+        let first_operand: u32 = self.operand_count as u32;
+        if !self.append_operand(base_ptr) || !self.append_operand(value)
+            || !self.append_instruction(
+                TargetOpcode::Store, TARGET_VALUE_NONE, field_type,
+                first_operand, 2, statement_index
+            ) { return false; }
+        unsafe {
+            (*(self.instructions + self.instruction_count - 1)).immediate_bits =
+                self.field_offsets[field_slot] as u64;
+        }
+        return true;
+    }
+
     pub fn lower_expression(
         mut self: &mut Self,
         expression_index: usize,
@@ -3884,9 +3931,25 @@ impl ScalarLowering {
         return result;
     }
 
+    pub fn cfg_expression_contains_unsafe(self: &Self, expression_index: usize, depth: usize) -> bool {
+        if self.nodes == null || expression_index == 0
+            || expression_index >= self.node_count || depth >= 64 { return false; }
+        let expression: AstNode = unsafe { *(self.nodes + expression_index) };
+        if expression.kind == AstKind::UnsafeExpr { return true; }
+        let mut child: usize = expression.first_child;
+        while child != 0 {
+            if child >= self.node_count { return false; }
+            if self.cfg_expression_contains_unsafe(child, depth + 1) { return true; }
+            child = unsafe { (*(self.nodes + child)).next_sibling };
+        }
+        return false;
+    }
+
     pub fn cfg_required(self: &Self, function_index: usize) -> bool {
         let mut count: usize = 0;
         let mut needs_cfg: bool = false;
+        let mut no_loop_unsafe: bool = false;
+        let mut nested_field_store: bool = false;
         let mut i: usize = 1;
         while i < self.node_count {
             let node: AstNode = unsafe { *(self.nodes + i) };
@@ -3894,14 +3957,29 @@ impl ScalarLowering {
             let needs_lazy_condition: bool = node.kind == AstKind::ExprBinary
                 && (node.int_value == 110 || node.int_value == 111)
                 && !self.pure_condition_expression(i);
-            if is_loop || needs_lazy_condition {
+            let mut is_field_assignment: bool = false;
+            if node.kind == AstKind::AssignStmt && node.first_child != 0
+                && node.first_child < self.node_count {
+                is_field_assignment = unsafe {
+                    (*(self.nodes + node.first_child)).kind
+                } == AstKind::ExprFieldAccess;
+            }
+            if is_loop || needs_lazy_condition || is_field_assignment {
                 let mut parent: usize = node.parent;
                 let mut depth: usize = 0;
+                let mut nested_in_if: bool = false;
                 while parent != 0 && parent < self.node_count && depth < self.node_count {
                     if parent == function_index {
                         if is_loop { count = count + 1; }
                         if needs_lazy_condition { needs_cfg = true; }
+                        if needs_lazy_condition && self.cfg_expression_contains_unsafe(i, 0) {
+                            no_loop_unsafe = true;
+                        }
+                        if is_field_assignment && nested_in_if { nested_field_store = true; }
                         break;
+                    }
+                    if unsafe { (*(self.nodes + parent)).kind } == AstKind::IfStmt {
+                        nested_in_if = true;
                     }
                     parent = unsafe { (*(self.nodes + parent)).parent };
                     depth = depth + 1;
@@ -3909,7 +3987,8 @@ impl ScalarLowering {
             }
             i = i + 1;
         }
-        return count > 1 || (count != 0 && needs_cfg);
+        return count > 1 || (count != 0 && needs_cfg)
+            || no_loop_unsafe || nested_field_store;
     }
 
     pub fn cfg_reserve_block(mut self: &mut Self) -> u32 {
@@ -4057,6 +4136,9 @@ impl ScalarLowering {
             let left: AstNode = unsafe { *(self.nodes + left_index) };
             if left.kind == AstKind::ExprUnary && left.int_value == 82 {
                 return self.lower_pointer_deref_store(index, first_parameter, parameter_count);
+            }
+            if left.kind == AstKind::ExprFieldAccess {
+                return self.lower_field_assignment(index, first_parameter, parameter_count);
             }
             if left.kind != AstKind::ExprIdent { return self.reject(index); }
             let slot: usize = self.cfg_find_local(left.str_offset, left.str_len);
@@ -4624,25 +4706,9 @@ impl ScalarLowering {
                     continue;
                 }
                 if left_node.kind == AstKind::ExprFieldAccess {
-                    let base_expr_idx: usize = left_node.first_child;
-                    if base_expr_idx == 0 || base_expr_idx >= self.node_count { return self.reject(statement_index); }
-                    let base_node: AstNode = unsafe { *(self.nodes + base_expr_idx) };
-                    if base_node.kind != AstKind::ExprIdent { return self.reject(statement_index); }
-                    let struct_id: u32 = self.find_local_struct_id(base_node.str_offset, base_node.str_len);
-                    let base_ptr: u32 = self.find_parameter_value(first_parameter, function_param_count, base_node.str_offset, base_node.str_len);
-                    if struct_id == 0 || base_ptr == TARGET_VALUE_NONE { return self.reject(statement_index); }
-                    let field_id: u32 = self.find_field(struct_id, left_node.str_offset, left_node.str_len);
-                    if field_id == 0 { return self.reject(statement_index); }
-                    let f_idx: usize = (field_id - 1) as usize;
-                    let f_offset: u32 = self.field_offsets[f_idx];
-                    let f_type: TargetTypeTag = self.field_type_tags[f_idx] as TargetTypeTag;
-                    let expr_value: u32 = self.lower_expression(right_index, f_type, first_parameter, function_param_count);
-                    if expr_value == TARGET_VALUE_NONE { return self.reject(statement_index); }
-                    let first_op: u32 = self.operand_count as u32;
-                    if !self.append_operand(base_ptr) || !self.append_operand(expr_value) { return self.reject(statement_index); }
-                    if !self.append_instruction(TargetOpcode::Store, TARGET_VALUE_NONE, f_type, first_op, 2, statement_index) { return self.reject(statement_index); }
-                    let store_idx: usize = self.instruction_count - 1;
-                    unsafe { (*(self.instructions + store_idx)).immediate_bits = f_offset as u64; }
+                    if !self.lower_field_assignment(
+                        statement_index, first_parameter, function_param_count
+                    ) { return self.reject(statement_index); }
                     statement_index = statement.next_sibling;
                     continue;
                 }
