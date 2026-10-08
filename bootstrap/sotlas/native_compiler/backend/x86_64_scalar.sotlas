@@ -2329,9 +2329,14 @@ pub fn emit_elf64_module_object(
                     || instruction.opcode == TargetOpcode::BitAnd
                     || instruction.opcode == TargetOpcode::BitOr
                     || instruction.opcode == TargetOpcode::BitXor {
+                    let narrow_bitwise: bool = (result_type == TargetTypeTag::U8
+                        || result_type == TargetTypeTag::U16)
+                        && (instruction.opcode == TargetOpcode::BitAnd
+                            || instruction.opcode == TargetOpcode::BitOr
+                            || instruction.opcode == TargetOpcode::BitXor);
                     if instruction.operand_count != 2
                         || instruction.type_tag != result_type
-                        || !object_integer_arithmetic_type(result_type) {
+                        || (!narrow_bitwise && !object_integer_arithmetic_type(result_type)) {
                         return false;
                     }
                     let left: TargetOperand = unsafe { *(operands + instruction.first_operand) };

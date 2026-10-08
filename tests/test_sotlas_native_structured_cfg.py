@@ -146,6 +146,34 @@ pub fn main_entry() -> u32 {{ return overloaded({arguments}); }}
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(output.exists())
 
+    def test_narrow_bitwise_values_execute_with_full_width_storage(self):
+        self.assert_native_result("narrow_bitwise", """
+pub fn main_entry() -> u32 {
+    let first: u8 = 170;
+    let second: u8 = 204;
+    let and_byte: u8 = first & second;
+    let or_byte: u8 = first | second;
+    let xor_byte: u8 = first ^ second;
+    let wide_first: u16 = 4660;
+    let wide_second: u16 = 255;
+    let and_word: u16 = wide_first & wide_second;
+    if and_byte == 136 && or_byte == 238 && xor_byte == 102
+        && and_word == 52 { return 73; }
+    return 1;
+}
+""", 73)
+
+    def test_narrow_arithmetic_remains_outside_native_bitwise_contract(self):
+        result, output = self.compile("narrow_arithmetic_reject", """
+pub fn main_entry() -> u8 {
+    let first: u8 = 2;
+    let second: u8 = 3;
+    return first + second;
+}
+""")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(output.exists())
+
     def test_break_continue_and_branch_join_preserve_outer_state(self):
         self.assert_native_result("jumps", """
 pub fn main_entry() -> u32 {
@@ -211,22 +239,22 @@ pub fn word_guard(data: *const u16, offset: usize, skip: u32) -> bool {
 }
 """)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(output.read_bytes()[:4], b"\\x7fELF")
-        self.assertIn(b"byte_guard\\x00", output.read_bytes())
-        self.assertIn(b"word_guard\\x00", output.read_bytes())
+        self.assertEqual(output.read_bytes()[:4], b"\x7fELF")
+        self.assertIn(b"byte_guard\x00", output.read_bytes())
+        self.assertIn(b"word_guard\x00", output.read_bytes())
         if sys.platform.startswith("linux"):
             caller = self.directory / "narrow_guard_loads_caller.c"
             caller.write_text(
-                "#include <stdbool.h>\\n#include <stdint.h>\\n#include <stddef.h>\\n"
-                "extern bool byte_guard(const uint8_t *, size_t, uint32_t);\\n"
-                "extern bool word_guard(const uint16_t *, size_t, uint32_t);\\n"
+                "#include <stdbool.h>\n#include <stdint.h>\n#include <stddef.h>\n"
+                "extern bool byte_guard(const uint8_t *, size_t, uint32_t);\n"
+                "extern bool word_guard(const uint16_t *, size_t, uint32_t);\n"
                 "int main(void) { uint8_t bytes[2] = {0, 9}; "
                 "uint16_t words[2] = {3, 13}; "
                 "return byte_guard((const uint8_t *)0, 0, 0) "
                 "&& byte_guard(bytes, 0, 1) "
                 "&& !byte_guard(bytes, 1, 1) "
                 "&& !word_guard((const uint16_t *)0, 0, 0) "
-                "&& word_guard(words, 1, 1) ? 0 : 1; }\\n",
+                "&& word_guard(words, 1, 1) ? 0 : 1; }\n",
                 encoding="utf-8",
             )
             binary = self.directory / "narrow_guard_loads"
