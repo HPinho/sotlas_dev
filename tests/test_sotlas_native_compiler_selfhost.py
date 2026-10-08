@@ -1827,7 +1827,9 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
                 check=False,
             )
             self.assertEqual(frontend_loop_emit.returncode, 0, frontend_loop_emit.stderr)
-            self.assertIn("jmp .Lfrontend_loop_bb1", frontend_loop_assembly.read_text(encoding="utf-8"))
+            frontend_loop_text = frontend_loop_assembly.read_text(encoding="utf-8")
+            self.assertIn(".Lfrontend_loop_bb2:", frontend_loop_text)
+            self.assertGreaterEqual(frontend_loop_text.count("jmp .Lfrontend_loop_bb2"), 2)
             frontend_loop_obj = root / "frontend_loop.obj"
             frontend_loop_assemble = subprocess.run(
                 [str(clang), "-c", str(frontend_loop_assembly), "-o", str(frontend_loop_obj)],
@@ -1859,7 +1861,7 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
             frontend_break_source.write_text(
                 "module test::frontend_break;\n"
                 "fn frontend_break(enabled: bool) -> u32 {\n"
-                "  while enabled { break; }\n"
+                "  while enabled { let item: u32 = 1; break; }\n"
                 "  return 9;\n"
                 "}\n",
                 encoding="utf-8",
@@ -1917,7 +1919,8 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
             )
             self.assertEqual(nested_loop_emit.returncode, 0, nested_loop_emit.stderr)
             nested_loop_text = nested_loop_assembly.read_text(encoding="utf-8")
-            self.assertIn("jmp .Lnested_loop_bb1", nested_loop_text)
+            self.assertIn(".Lnested_loop_bb2:", nested_loop_text)
+            self.assertGreaterEqual(nested_loop_text.count("jmp .Lnested_loop_bb2"), 2)
             nested_loop_obj = root / "nested_loop.obj"
             nested_loop_assemble = subprocess.run(
                 [str(clang), "-c", str(nested_loop_assembly), "-o", str(nested_loop_obj)],
@@ -1949,7 +1952,7 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
             unsupported_loop_source.write_text(
                 "module test::unsupported_loop;\n"
                 "fn unsupported_loop(enabled: bool) -> u32 {\n"
-                "  while enabled { let item: u32 = 1; }\n"
+                "  while enabled { let item: u8 = 1; let next: u8 = item + 1; }\n"
                 "  return 0;\n"
                 "}\n",
                 encoding="utf-8",

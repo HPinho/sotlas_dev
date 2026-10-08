@@ -268,6 +268,156 @@ pub fn main_entry() -> u32 { return 42; }
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(output.exists())
 
+    def test_lazy_boolean_values_skip_calls_and_unsafe_loads(self):
+        self.assert_native_result("lazy_values", """
+fn touch(counter: *mut u32) -> bool {
+    unsafe { *counter = *counter + 1; }
+    return true;
+}
+fn read_or(flag: bool, pointer: *const u8) -> bool {
+    return flag || unsafe { *pointer } == 7;
+}
+fn accept(flag: bool) -> u32 { if flag { return 42; } return 1; }
+pub fn main_entry() -> u32 {
+    let mut count: u32 = 0;
+    let pointer: *mut u32 = unsafe { (&count) as *mut u32 };
+    let skipped: bool = false && touch(pointer);
+    let mut selected: bool = true || touch(pointer);
+    selected = !skipped && touch(pointer);
+    let safe: bool = read_or(true, null);
+    if count == 1 && safe { return accept(selected || touch(pointer)); }
+    return 2;
+}
+""", 42)
+
+    def test_single_loop_compares_two_byte_bindings_and_returns_early(self):
+        self.assert_native_result("byte_search", """
+fn equal(left: *const u8, right: *const u8, count: usize) -> bool {
+    let mut index: usize = 0;
+    while index < count {
+        let lhs: u8 = unsafe { *(left + index) };
+        let rhs: u8 = unsafe { *(right + index) };
+        if lhs != rhs { return false; }
+        index = index + 1;
+    }
+    return true;
+}
+pub fn main_entry() -> u32 {
+    let mut left: u8 = 7;
+    let mut right: u8 = 9;
+    let a: *const u8 = unsafe { (&left) as *const u8 };
+    let b: *const u8 = unsafe { (&right) as *const u8 };
+    if equal(a, a, 1) && !equal(a, b, 1) && equal(null, null, 0) { return 42; }
+    return 1;
+}
+""", 42)
+
+    def test_nested_field_replacement_and_local_aggregate_assignment(self):
+        self.assert_native_result("aggregate_assignment", """
+pub struct Inner { pub value: u32; }
+pub struct Outer { pub inner: Inner; pub tail: u64; }
+pub fn main_entry() -> u32 {
+    let original: Outer = Outer { inner: Inner { value: 40 }, tail: 7 };
+    let mut changed: Outer = Outer { inner: Inner { value: 1 }, tail: 9 };
+    let mut i: u32 = 0;
+    while i < 1 {
+        changed = original;
+        changed.inner = Inner { value: 2 };
+        changed.inner.value = changed.inner.value + 1;
+        i = i + 1;
+    }
+    return original.inner.value + changed.inner.value - 1;
+}
+""", 42)
+
+    def test_void_method_call_and_narrow_method_comparison(self):
+        self.assert_native_result("void_method", """
+pub struct Cell { pub value: u8; pub count: u32; }
+impl Cell {
+    pub fn update(mut self: &mut Self, value: u8) { self.value = value; self.count = self.count + 1; }
+    pub fn read(self: &Self) -> u8 { return self.value; }
+}
+pub fn main_entry() -> u32 {
+    let mut cell: Cell = Cell { value: 1, count: 0 };
+    cell.update(42);
+    if cell.read() == 42 && cell.count == 1 { return 42; }
+    return 1;
+}
+""", 42)
+
+    def test_negative_i64_literals_preserve_extreme_value(self):
+        self.assert_native_result("negative_literals", """
+fn minimum() -> i64 { return -9223372036854775808; }
+fn invalid_digit() -> i64 { return -1; }
+pub fn main_entry() -> u32 {
+    if minimum() == -9223372036854775808 && invalid_digit() == -1 { return 42; }
+    return 1;
+}
+""", 42)
+
+    def test_negative_literal_rejects_unsigned_and_i64_overflow(self):
+        for typ, literal in (("u64", "-1"), ("i64", "-9223372036854775809")):
+            with self.subTest(typ=typ):
+                result, output = self.compile("negative_bad", f"fn value() -> {typ} {{ return {literal}; }}")
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(output.exists())
+
+    def test_real_lexer_module_emits_native_object(self):
+        source = ROOT / "bootstrap" / "sotlas" / "native_compiler" / "lexer.sotlas"
+        output = self.directory / "real_lexer.o"
+        result = subprocess.run([str(self.stage), "--compile-obj", str(source), str(output)],
+                                capture_output=True, text=True, timeout=30, cwd=ROOT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(output.read_bytes()[:4], b"\x7fELF")
+
+    def test_real_lexer_next_token_executes_natively(self):
+        self.assert_native_result("real_lexer_token", """
+import sotlas::compiler::lexer::*;
+pub fn main_entry() -> u32 {
+    let mut byte: u8 = 42;
+    let pointer: *const u8 = unsafe { (&byte) as *const u8 };
+    let mut lexer: Lexer = Lexer::new(pointer, 1);
+    let token: Token = lexer.next_token();
+    let eof: Token = lexer.next_token();
+    if token.kind == TokenKind::Star && token.span.length == 1 && token.span.offset == 0
+        && eof.kind == TokenKind::Eof && lexer.is_at_end() { return 42; }
+    return 1;
+}
+""", 42)
+
+    def test_real_sema_name_comparison_executes_natively(self):
+        source = (ROOT / "bootstrap" / "sotlas" / "native_compiler" / "sema.sotlas").read_text(encoding="utf-8")
+        # Keep the production declarations and method bodies through the first
+        # comparison loop; the remaining module is a separate native milestone.
+        prefix = source.split("    pub fn reject_node(", 1)[0] + "}\n"
+        self.assert_native_result("real_sema_names", prefix + """
+pub fn main_entry() -> u32 {
+    let mut byte: u8 = 42;
+    let pointer: *const u8 = unsafe { (&byte) as *const u8 };
+    let sema: Sema = Sema::new();
+    let span: Span = Span { line: 0, col: 0, offset: 0, length: 1 };
+    let mut left: AstNode = AstNode::new(AstKind::Block, span);
+    left.str_len = 1;
+    let mut right: AstNode = left;
+    right.str_len = 0;
+    if sema.same_declaration_name(pointer, 1, left, left)
+        && !sema.same_declaration_name(pointer, 1, left, right) { return 42; }
+    return 1;
+}
+""", 42)
+
+    def test_local_address_cast_rejects_mismatched_pointee(self):
+        result, output = self.compile("address_pointee_bad", """
+pub fn main_entry() -> u32 {
+    let mut byte: u8 = 42;
+    let pointer: *const u32 = unsafe { (&byte) as *const u32 };
+    while false { return 1; }
+    return 42;
+}
+""")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(output.exists())
+
     def test_nested_loop_accumulator_and_counter_reset(self):
         self.assert_native_result("nested", """
 pub fn main_entry() -> u32 {

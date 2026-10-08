@@ -4771,6 +4771,8 @@ pub fn emit_x86_64_scalar_cfg(
         || (abi == 2 && function.parameter_count > 4) {
         return false;
     }
+    if !target_module_validate_cfg(target_module, functions, parameters, values,
+        blocks, instructions, operands, phi_inputs, targets) { return false; }
     let mut name_index: usize = 0;
     while name_index < function.name.length {
         if !valid_symbol_byte(unsafe { *(source + function.name.offset + name_index) }, name_index == 0) {
@@ -4831,7 +4833,7 @@ pub fn emit_x86_64_scalar_cfg(
     let mut block_index: u32 = 0;
     while block_index < function.block_count {
         let block: TargetBlock = unsafe { *(blocks + block_index) };
-        if block.id != block_index + 1 || block.first_instruction != expected_first_instruction
+        if block.id != block_index + 1
             || block.instruction_count == 0
             || block.first_instruction > unsafe { (*target_module).instruction_count }
             || block.instruction_count > unsafe { (*target_module).instruction_count } - block.first_instruction {
@@ -5053,7 +5055,8 @@ pub fn emit_x86_64_scalar_cfg(
                 }
             } else if instruction.opcode == TargetOpcode::CondBranch {
                 saw_non_phi = true;
-                if !is_last || instruction.result_value != 0 || instruction.type_tag != TargetTypeTag::Bool
+                if !is_last || instruction.result_value != 0
+                    || (instruction.type_tag != TargetTypeTag::Bool && instruction.type_tag != TargetTypeTag::Invalid)
                     || instruction.operand_count != 1 || instruction.phi_input_count != 0
                     || instruction.target_count != 2
                     || instruction.first_operand >= unsafe { (*target_module).operand_count }
