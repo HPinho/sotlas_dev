@@ -208,6 +208,54 @@ pub fn bad() -> *const u16 {
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(output.exists())
 
+    def test_no_loop_short_circuit_skips_unsafe_read(self):
+        result, output = self.compile("no_loop_short_circuit", """
+pub fn guard(data: *const u8, skip: u32) -> bool {
+    if skip == 0 || unsafe { *data } == 0 { return true; }
+    return false;
+}
+""")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(output.read_bytes()[:4], b"\x7fELF")
+        if sys.platform.startswith("linux"):
+            caller = self.directory / "no_loop_short_circuit_caller.c"
+            caller.write_text(
+                "#include <stdbool.h>\n#include <stdint.h>\n"
+                "extern bool guard(const uint8_t *, uint32_t);\n"
+                "int main(void) { uint8_t value = 1; "
+                "return guard((const uint8_t *)0, 0) && !guard(&value, 1) ? 0 : 1; }\n",
+                encoding="utf-8",
+            )
+            binary = self.directory / "no_loop_short_circuit"
+            linked = subprocess.run(["clang", str(caller), str(output), "-o", str(binary)],
+                                    capture_output=True, text=True, timeout=30)
+            self.assertEqual(linked.returncode, 0, linked.stderr)
+            self.assertEqual(subprocess.run([str(binary)], timeout=15).returncode, 0)
+
+    def test_field_assignment_inside_branch_uses_structured_cfg(self):
+        result, output = self.compile("branch_field_store", """
+struct Counter { val: u32; }
+impl Counter {
+    pub fn add_if(mut self: &mut Self, delta: u32, enabled: bool) -> u32 {
+        if enabled { self.val = self.val + delta; }
+        return self.val;
+    }
+}
+pub fn main_entry() -> u32 {
+    let mut counter: Counter = Counter { val: 5 };
+    return counter.add_if(9, true);
+}
+""")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(output.read_bytes()[:4], b"\x7fELF")
+        if sys.platform.startswith("linux"):
+            binary = self.directory / "branch_field_store"
+            linked = subprocess.run([str(self.stage), "--link-exe", str(output),
+                                     str(binary), "main_entry"],
+                                    capture_output=True, text=True, timeout=30)
+            self.assertEqual(linked.returncode, 0, linked.stderr)
+            self.assertEqual(subprocess.run([str(binary)], timeout=15).returncode, 14)
+
     def test_break_continue_and_branch_join_preserve_outer_state(self):
         self.assert_native_result("jumps", """
 pub fn main_entry() -> u32 {
