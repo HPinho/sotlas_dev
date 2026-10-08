@@ -605,6 +605,20 @@ class TestSotlasSovereigntySV2(unittest.TestCase):
     def tearDownClass(cls):
         cls.tmp_dir.cleanup()
 
+    def assert_native_entry_exit(self, output: Path, expected: int):
+        if sys.platform == "win32":
+            harness = ROOT / "tests" / "test_sotlas_native_structured_cfg.py"
+            executed = subprocess.run([sys.executable, str(harness), "--execute", str(output)],
+                                      capture_output=True, text=True, timeout=15)
+            self.assertEqual(executed.returncode, 0, executed.stderr)
+            self.assertEqual(int(executed.stdout.strip()), expected)
+        elif sys.platform.startswith("linux"):
+            binary = output.with_suffix(".bin")
+            linked = subprocess.run([str(self.stage1), "--link-exe", str(output), str(binary), "main_entry"],
+                                    capture_output=True, text=True)
+            self.assertEqual(linked.returncode, 0, linked.stderr)
+            self.assertEqual(subprocess.run([str(binary)], timeout=15).returncode, expected)
+
     def test_sv2_target_ir_contract_source_purity(self):
         """SV2.1: Target IR contracts are expressed purely in Sotlas without C/Python glue."""
         target_ir_path = NATIVE_DIR / "backend" / "target_ir.sotlas"
@@ -1126,9 +1140,10 @@ class TestSotlasSovereigntySV2(unittest.TestCase):
         self.assertIn(b"case_false\x00", data)
         self.assertIn(b"case_true_or\x00", data)
         self.assertIn(b"bool_value\x00", data)
-        # AND r32,r/m32 (0x23) and OR r32,r/m32 (0x0b) over Bool slots.
-        self.assertIn(b"\x23\x85", data)
-        self.assertIn(b"\x0b\x85", data)
+        # Logical composition uses branches, including when it is a return value.
+        self.assertIn(b"\x0f\x84", data)
+        self.assertNotIn(b"\x23\x85", data)
+        self.assertNotIn(b"\x0b\x85", data)
 
         if sys.platform.startswith("linux"):
             cases = (
@@ -1156,10 +1171,10 @@ class TestSotlasSovereigntySV2(unittest.TestCase):
                 )
                 self.assertEqual(executed.returncode, expected, executed.stderr)
 
-    def test_sv4_impure_boolean_composition_fails_closed(self):
-        """SV4.6 negative gate: eager &&/|| rejects calls that would require short-circuit semantics."""
+    def test_sv4_impure_boolean_composition_short_circuits_calls(self):
+        """SV4.6: the original call-bearing fixture now uses certified lazy CFG."""
         src_path = self.root / "impure_bool_composition.sotlas"
-        src_path.write_text(IMPURE_BOOL_COMPOSITION_SRC, encoding="utf-8")
+        src_path.write_text(IMPURE_BOOL_COMPOSITION_SRC + "\npub fn main_entry() -> u32 { return rejected_guard(0) * 10 + rejected_guard(1); }\n", encoding="utf-8")
         out_obj = self.root / "impure_bool_composition.o"
         compiled = subprocess.run(
             [str(self.stage1), "--compile-obj", str(src_path), str(out_obj)],
@@ -1167,8 +1182,9 @@ class TestSotlasSovereigntySV2(unittest.TestCase):
             text=True,
             check=False,
         )
-        self.assertNotEqual(compiled.returncode, 0)
-        self.assertFalse(out_obj.exists())
+        self.assertEqual(compiled.returncode, 0, compiled.stderr)
+        self.assertTrue(out_obj.exists())
+        self.assert_native_entry_exit(out_obj, 1)
 
     def test_sv4_integer_bitwise_shift_divmod_are_native(self):
         """SV4.7: Typed U32/U64 integer bitwise, shift, division and modulo reach native x86-64."""
@@ -1675,10 +1691,19 @@ class TestSotlasSovereigntySV2(unittest.TestCase):
         self.assertNotEqual(compiled.returncode, 0)
         self.assertFalse(out_obj.exists())
 
-    def test_sv4_short_circuit_trap_capable_rhs_fails_closed(self):
-        """SV4.6/SV4.7 guard: eager logical composition rejects trap-capable div/mod operands."""
+    def test_sv4_short_circuit_skips_trap_capable_rhs(self):
+        """SV4.6/SV4.7: zero-divisor RHS expressions are skipped on true OR paths."""
         src_path = self.root / "short_circuit_div_reject.sotlas"
-        src_path.write_text(SV4_SHORT_CIRCUIT_DIV_REJECT_SRC, encoding="utf-8")
+        src_path.write_text(SV4_SHORT_CIRCUIT_DIV_REJECT_SRC + """
+fn modulo_guard(value: u32) -> u32 {
+    if value == 0 || 10 % value == 0 { return 1; }
+    return 0;
+}
+pub fn main_entry() -> u32 {
+    return rejected_trap_guard(0) + rejected_trap_guard(2) + rejected_trap_guard(20)
+        + modulo_guard(0) + modulo_guard(5) + modulo_guard(3);
+}
+""", encoding="utf-8")
         out_obj = self.root / "short_circuit_div_reject.o"
         compiled = subprocess.run(
             [str(self.stage1), "--compile-obj", str(src_path), str(out_obj)],
@@ -1686,8 +1711,9 @@ class TestSotlasSovereigntySV2(unittest.TestCase):
             text=True,
             check=False,
         )
-        self.assertNotEqual(compiled.returncode, 0)
-        self.assertFalse(out_obj.exists())
+        self.assertEqual(compiled.returncode, 0, compiled.stderr)
+        self.assertTrue(out_obj.exists())
+        self.assert_native_entry_exit(out_obj, 4)
 
     def test_sv4_signed_division_fails_closed(self):
         """SV4.7 negative gate: signed division stays rejected until idiv semantics are certified."""
