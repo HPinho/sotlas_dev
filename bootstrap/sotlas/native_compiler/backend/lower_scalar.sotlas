@@ -42,6 +42,8 @@ pub struct ScalarLowering {
     pub local_value_ids: [u32; 128];
     pub local_struct_ids: [u32; 128];
     pub local_storage_types: [u32; 128];
+    pub local_array_types: [u32; 128];
+    pub local_array_counts: [u32; 128];
     pub structured_cfg: bool;
     pub return_struct_id: u32;
     pub return_destination: u32;
@@ -546,6 +548,8 @@ impl ScalarLowering {
             local_value_ids: [0; 128],
             local_struct_ids: [0; 128],
             local_storage_types: [0; 128],
+            local_array_types: [0; 128],
+            local_array_counts: [0; 128],
             structured_cfg: false,
             return_struct_id: 0,
             return_destination: 0,
@@ -2049,6 +2053,27 @@ impl ScalarLowering {
             return result;
         }
         if expression.kind == AstKind::ExprIndex {
+            if self.structured_cfg && expression.first_child != 0
+                && expression.first_child < self.node_count {
+                let base: AstNode = unsafe { *(self.nodes + expression.first_child) };
+                if base.kind == AstKind::ExprIdent {
+                    let slot: usize = self.cfg_find_local(base.str_offset, base.str_len);
+                    if slot < self.local_count && self.local_array_counts[slot] != 0 {
+                        let elem: TargetTypeTag = self.local_array_types[slot] as TargetTypeTag;
+                        if type_tag != TargetTypeTag::Invalid && type_tag != elem { return 0; }
+                        let address: u32 = self.cfg_local_array_index_address(
+                            expression_index, first_parameter, parameter_count
+                        );
+                        let value: u32 = self.append_value(elem, 0, 0);
+                        let first: u32 = self.operand_count as u32;
+                        if address == 0 || value == 0 || !self.append_operand(address)
+                            || !self.append_instruction(
+                                TargetOpcode::Load, value, elem, first, 1, expression_index
+                            ) { return 0; }
+                        return value;
+                    }
+                }
+            }
             let field: u32 = self.indexed_array_field(expression_index);
             if self.structured_cfg && field != 0 {
                 let element: TargetTypeTag = self.field_array_types[field as usize - 1] as TargetTypeTag;
@@ -4253,6 +4278,46 @@ impl ScalarLowering {
         return result;
     }
 
+    pub fn cfg_local_array_index_address(mut self: &mut Self,
+        expression_index: usize, first_parameter: usize, parameter_count: usize) -> u32 {
+        if expression_index == 0 || expression_index >= self.node_count { return 0; }
+        let expression: AstNode = unsafe { *(self.nodes + expression_index) };
+        if expression.kind != AstKind::ExprIndex || expression.first_child == 0
+            || expression.first_child >= self.node_count { return 0; }
+        let base: AstNode = unsafe { *(self.nodes + expression.first_child) };
+        if base.kind != AstKind::ExprIdent { return 0; }
+        let slot: usize = self.cfg_find_local(base.str_offset, base.str_len);
+        if slot >= self.local_count || self.local_array_counts[slot] == 0 { return 0; }
+        let index_node: usize = base.next_sibling;
+        if index_node == 0 || index_node >= self.node_count
+            || unsafe { (*(self.nodes + index_node)).next_sibling } != 0 { return 0; }
+        let mut index_type: TargetTypeTag = self.condition_expression_type(
+            index_node, first_parameter, parameter_count
+        );
+        if index_type == TargetTypeTag::Invalid { index_type = TargetTypeTag::U64; }
+        if index_type != TargetTypeTag::U32 && index_type != TargetTypeTag::U64
+            && index_type != TargetTypeTag::Usize { return 0; }
+        let index_value: u32 = self.lower_expression(
+            index_node, index_type, first_parameter, parameter_count
+        );
+        let address: u32 = self.append_value(TargetTypeTag::Pointer, 0, 0);
+        let first: u32 = self.operand_count as u32;
+        if index_value == 0 || address == 0
+            || !self.append_operand(self.local_value_ids[slot])
+            || !self.append_operand(index_value)
+            || !self.append_instruction(
+                TargetOpcode::IndexAddr, address, TargetTypeTag::Pointer,
+                first, 2, expression_index
+            ) { return 0; }
+        let stride: u32 = self.scalar_memory_size(
+            self.local_array_types[slot] as TargetTypeTag
+        );
+        if stride == 0 { return 0; }
+        unsafe { (*(self.instructions + self.instruction_count - 1)).immediate_bits =
+            (self.local_array_counts[slot] as u64 << 32) | stride as u64; }
+        return address;
+    }
+
     pub fn cfg_call_declaration(self: &Self, expression_index: usize, depth: usize) -> usize {
         if expression_index == 0 || expression_index >= self.node_count || depth >= 64 { return 0; }
         let expression: AstNode = unsafe { *(self.nodes + expression_index) };
@@ -4378,10 +4443,18 @@ impl ScalarLowering {
         let mut no_loop_unsafe: bool = false;
         let mut nested_field_store: bool = false;
         let mut aggregate_call: bool = false;
+        let mut local_array_decl: bool = false;
         let mut i: usize = 1;
         while i < self.node_count {
             let node: AstNode = unsafe { *(self.nodes + i) };
             let is_loop: bool = node.kind == AstKind::WhileStmt;
+            let mut is_local_array: bool = false;
+            if node.kind == AstKind::LetStmt && node.first_child != 0
+                && node.first_child < self.node_count {
+                let first: AstNode = unsafe { *(self.nodes + node.first_child) };
+                is_local_array = first.kind == AstKind::TypeRef && first.str_len != 0
+                    && unsafe { *(self.source + first.str_offset) } == 91;
+            }
             let is_aggregate_call: bool = node.kind == AstKind::ExprCall && self.cfg_struct_id(i, 0) != 0;
             let needs_lazy_condition: bool = node.kind == AstKind::ExprBinary
                 && (node.int_value == 110 || node.int_value == 111);
@@ -4404,13 +4477,14 @@ impl ScalarLowering {
                     (*(self.nodes + node.first_child)).kind
                 } == AstKind::ExprFieldAccess;
             }
-            if is_loop || needs_lazy_condition || is_field_assignment || is_aggregate_call || unsafe_block || nested_field || method_call || array_index {
+            if is_loop || is_local_array || needs_lazy_condition || is_field_assignment || is_aggregate_call || unsafe_block || nested_field || method_call || array_index {
                 let mut parent: usize = node.parent;
                 let mut depth: usize = 0;
                 let mut nested_in_if: bool = false;
                 while parent != 0 && parent < self.node_count && depth < self.node_count {
                     if parent == function_index {
                         if is_loop { count = count + 1; }
+                        if is_local_array { local_array_decl = true; }
                         if is_aggregate_call { aggregate_call = true; }
                         if needs_lazy_condition || unsafe_block || nested_field || method_call || array_index { needs_cfg = true; }
                         if needs_lazy_condition && self.cfg_expression_contains_unsafe(i, 0) {
@@ -4428,7 +4502,7 @@ impl ScalarLowering {
             }
             i = i + 1;
         }
-        return count != 0 || needs_cfg
+        return count != 0 || needs_cfg || local_array_decl
             || no_loop_unsafe || nested_field_store || aggregate_call;
     }
 
@@ -4565,6 +4639,70 @@ impl ScalarLowering {
             if type_index != 0 {
                 let declared: AstNode = unsafe { *(self.nodes + type_index) };
                 struct_id = self.find_struct(declared.str_offset, declared.str_len);
+                if declared.str_len != 0
+                    && unsafe { *(self.source + declared.str_offset) } == 91 {
+                    let elem: TargetTypeTag = self.parse_array_element_type(
+                        declared.str_offset, declared.str_len
+                    );
+                    let stride: u32 = self.scalar_memory_size(elem);
+                    let count: usize = self.parse_array_element_count(
+                        declared.str_offset, declared.str_len
+                    );
+                    // This first local-array contract accepts bounded scalar
+                    // arrays initialized entirely to zero, never aggregate
+                    // elements or partially initialized stack memory.
+                    if stride == 0 || count == 0 || count > 256
+                        || value_node.kind != AstKind::ExprLiteral
+                        || value_node.str_len != 1
+                        || unsafe { *(self.source + value_node.str_offset) } != 48 {
+                        return self.reject(index);
+                    }
+                    let total: usize = stride as usize * count;
+                    let address: u32 = self.append_value(TargetTypeTag::Pointer, 0, 0);
+                    if address == 0 || !self.append_instruction(
+                        TargetOpcode::AllocStack, address, TargetTypeTag::Pointer,
+                        0, 0, index
+                    ) { return self.reject(index); }
+                    unsafe { (*(self.instructions + self.instruction_count - 1)).immediate_bits =
+                        total as u64; }
+                    let mut element: usize = 0;
+                    while element < count {
+                        let position: u32 = self.append_value(TargetTypeTag::U64, 0, 0);
+                        if position == 0 || !self.append_instruction(
+                            TargetOpcode::ConstInt, position, TargetTypeTag::U64,
+                            0, 0, index
+                        ) { return self.reject(index); }
+                        unsafe { (*(self.instructions + self.instruction_count - 1)).immediate_bits =
+                            element as u64; }
+                        let first_op: u32 = self.operand_count as u32;
+                        let element_address: u32 = self.append_value(TargetTypeTag::Pointer, 0, 0);
+                        if element_address == 0 || !self.append_operand(address)
+                            || !self.append_operand(position)
+                            || !self.append_instruction(
+                                TargetOpcode::IndexAddr, element_address,
+                                TargetTypeTag::Pointer, first_op, 2, index
+                            ) { return self.reject(index); }
+                        unsafe { (*(self.instructions + self.instruction_count - 1)).immediate_bits =
+                            (count as u64 << 32) | stride as u64; }
+                        let zero: u32 = self.append_value(elem, 0, 0);
+                        if zero == 0 || !self.append_instruction(
+                            TargetOpcode::ConstInt, zero, elem, 0, 0, index
+                        ) || !self.cfg_store(element_address, zero, elem, index) {
+                            return self.reject(index);
+                        }
+                        element = element + 1;
+                    }
+                    let slot: usize = self.local_count;
+                    self.local_name_offsets[slot] = stmt.str_offset;
+                    self.local_name_lens[slot] = stmt.str_len;
+                    self.local_struct_ids[slot] = 0;
+                    self.local_storage_types[slot] = 0;
+                    self.local_array_types[slot] = elem as u32;
+                    self.local_array_counts[slot] = count as u32;
+                    self.local_value_ids[slot] = address;
+                    self.local_count = self.local_count + 1;
+                    return true;
+                }
             }
             let mut typ: TargetTypeTag = TargetTypeTag::Invalid;
             let mut value: u32 = 0;
@@ -4608,6 +4746,8 @@ impl ScalarLowering {
             self.local_name_lens[slot] = stmt.str_len;
             self.local_struct_ids[slot] = struct_id;
             self.local_storage_types[slot] = 0;
+            self.local_array_types[slot] = 0;
+            self.local_array_counts[slot] = 0;
             if stmt.int_value == 1 && struct_id == 0 {
                 let address: u32 = self.append_value(TargetTypeTag::Pointer, 0, 0);
                 if address == 0 || !self.append_instruction(TargetOpcode::AllocStack, address,
@@ -4633,14 +4773,33 @@ impl ScalarLowering {
             if left.kind == AstKind::ExprIndex {
                 let field: u32 = self.indexed_array_field(left_index);
                 let mut typ: TargetTypeTag = TargetTypeTag::Invalid;
-                if field != 0 { typ = self.field_array_types[field as usize - 1] as TargetTypeTag; }
-                else {
-                    let base: AstNode = unsafe { *(self.nodes + left.first_child) };
+                let base: AstNode = unsafe { *(self.nodes + left.first_child) };
+                let mut local_slot: usize = self.local_count;
+                if base.kind == AstKind::ExprIdent {
+                    local_slot = self.cfg_find_local(base.str_offset, base.str_len);
+                }
+                let is_local: bool = local_slot < self.local_count
+                    && self.local_array_counts[local_slot] != 0;
+                if is_local {
+                    typ = self.local_array_types[local_slot] as TargetTypeTag;
+                } else if field != 0 {
+                    typ = self.field_array_types[field as usize - 1] as TargetTypeTag;
+                } else {
+                    if base.kind != AstKind::ExprIdent { return self.reject(index); }
                     let global: isize = self.find_global_bss(base.str_offset, base.str_len);
                     if global < 0 { return self.reject(index); }
                     typ = unsafe { g_bss_sym_element_types[global as usize] } as TargetTypeTag;
                 }
-                let address: u32 = self.cfg_field_array_index_address(left_index, field, first_parameter, parameter_count);
+                let mut address: u32 = 0;
+                if is_local {
+                    address = self.cfg_local_array_index_address(
+                        left_index, first_parameter, parameter_count
+                    );
+                } else {
+                    address = self.cfg_field_array_index_address(
+                        left_index, field, first_parameter, parameter_count
+                    );
+                }
                 let value: u32 = self.lower_expression(left.next_sibling, typ, first_parameter, parameter_count);
                 return self.cfg_store(address, value, typ, index);
             }
@@ -4800,6 +4959,8 @@ impl ScalarLowering {
         let mut reset_local: usize = 0;
         while reset_local < 128 {
             self.local_storage_types[reset_local] = 0;
+            self.local_array_types[reset_local] = 0;
+            self.local_array_counts[reset_local] = 0;
             reset_local = reset_local + 1;
         }
         let mut return_type: TargetTypeTag = TargetTypeTag::Invalid;

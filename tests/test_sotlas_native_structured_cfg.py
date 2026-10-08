@@ -643,6 +643,65 @@ pub fn main_entry() -> u32 {
 }
 """, 9)
 
+    def test_local_scalar_arrays_zero_initialize_and_keep_element_width(self):
+        """Local u8/u16 storage is separately bounded, initialized and typed."""
+        self.assert_native_result("local_scalar_arrays", """
+pub fn main_entry() -> u32 {
+    let mut bytes: [u8; 8] = 0;
+    let mut words: [u16; 4] = 0;
+    let mut index: u32 = 0;
+    while index < 4 {
+        bytes[index] = 3;
+        words[index] = 7;
+        index = index + 1;
+    }
+    return bytes[3] as u32 + words[2] as u32
+        + bytes[7] as u32 + words[0] as u32;
+}
+""", 17)
+
+    def test_local_scalar_array_index_out_of_bounds_traps(self):
+        """Both writes and reads must trap, not corrupt the adjacent stack."""
+        for suffix, operation in (
+            ("write", "data[4] = 1;"),
+            ("read", "let value: u8 = data[4];"),
+        ):
+            with self.subTest(operation=operation):
+                src = """
+pub fn main_entry() -> u32 {
+    let mut data: [u8; 4] = 0;
+    %s
+    return 0;
+}
+""" % operation
+                result, output = self.compile("local_bounds_" + suffix, src)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(output.read_bytes()[:4], b"\\x7fELF")
+                if sys.platform.startswith("linux"):
+                    binary = self.directory / ("local_bounds_" + suffix)
+                    linked = subprocess.run(
+                        [str(self.stage), "--link-exe", str(output), str(binary), "main_entry"],
+                        capture_output=True, text=True, timeout=30,
+                    )
+                    self.assertEqual(linked.returncode, 0, linked.stderr)
+                    executed = subprocess.run([str(binary)], capture_output=True, text=True, timeout=15)
+                    self.assertNotEqual(executed.returncode, 0)
+
+    def test_local_scalar_array_unsupported_initialization_fails_closed(self):
+        """Reject nonzero fills and local arrays beyond the certified 256 elements."""
+        for suffix, declaration in (
+            ("nonzero", "let mut data: [u8; 4] = 7;"),
+            ("oversized", "let mut data: [u8; 257] = 0;"),
+        ):
+            with self.subTest(suffix=suffix):
+                result, output = self.compile(
+                    "local_array_" + suffix,
+                    "pub fn main_entry() -> u32 { " + declaration
+                    + " return data[0] as u32; }",
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(output.exists())
+
     def test_sysv_stack_arguments_preserve_order_and_alignment(self):
         result, output = self.compile("sysv_stack_arguments", """
 fn identity(value: u32) -> u32 { return value; }
