@@ -1,0 +1,36 @@
+module sotlas::examples::frontend_native;
+
+import sotlas::compiler::token::*;
+import sotlas::compiler::ast::*;
+import sotlas::compiler::lexer::*;
+import sotlas::compiler::parser::*;
+import sotlas::compiler::sema::*;
+
+static mut tokens: [Token; 128] = 0;
+static mut nodes: [AstNode; 512] = 0;
+
+// The input is checked by the Lexer, Parser and Sema compiled into this image.
+// No host parser or semantic checker participates in execution.
+pub fn main_entry() -> u32 {
+    let source: *const u8 = "module demo; fn answer() -> u32 { return 42; }";
+    let source_length: usize = 46;
+    let token_buffer: *mut Token = unsafe { tokens as *mut Token };
+    let node_buffer: *mut AstNode = unsafe { nodes as *mut AstNode };
+    let mut lexer: Lexer = Lexer::new(source, source_length);
+    let mut token_count: usize = 0;
+    while token_count < 128 {
+        let token: Token = lexer.next_token();
+        unsafe { *(token_buffer + token_count) = token; }
+        token_count = token_count + 1;
+        if token.kind == TokenKind::Eof { break; }
+        if token.kind == TokenKind::Error { return 1; }
+    }
+    if lexer.error_count != 0 || token_count == 128 { return 2; }
+    let mut parser: Parser = Parser::new(token_buffer, token_count, node_buffer, 512);
+    let module_index: usize = parser.parse_module();
+    if module_index == 0 || parser.error_count != 0 { return 3; }
+    let mut sema: Sema = Sema::new();
+    if !sema.check_top_level_declarations(node_buffer, parser.node_count,
+        module_index, source, source_length) { return 4; }
+    return 0;
+}

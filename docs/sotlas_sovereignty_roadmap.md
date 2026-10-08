@@ -430,6 +430,38 @@ Milestone **SV8** currently certifies deterministic Stage1/Stage2/Stage3 fronten
 - **Completed locally — SV8.11 native Lexer and expression CFG (2026-10-08):** built on the user-confirmed green `f25c20b` baseline, Stage 1 now emits the complete real `lexer.sotlas` module as an ELF object. Native execution checks `next_token` on one punctuation byte followed by EOF, including token kind and source span. Every represented `while` uses structured CFG; `&&` and `||` also produce Boolean values for returns, locals, assignments and call arguments through branch stores and a typed join load. Tests verify skipped side effects and skipped null-pointer reads. Additional lowering covers nested field reads/stores, aggregate replacement, precise scalar method-result types, void instance/static calls, same-pointee casts of addresses of stack-backed locals, and bounded negative decimal `i64` literals including the minimum value. Direct aggregate call returns forward caller-owned output storage instead of creating and copying another aggregate at each return site. A production-source prefix of `sema.sotlas`, including `same_declaration_name`, executes natively; the full Sema probe now reaches its ordered signed comparison at `digit < 0`, which remains rejected. Complete native Sema/Parser/driver compilation and native Stage 2 bootstrap remain separate open gates. CI certification is pending.
 - **Sovereignty metric:** application/kernel native gates are C/Python-free; compiler bootstrap gates remain hosted. Current tracked reduction is 40% eliminated / 60% remaining for both Python and C until a native Stage1→Stage2 build gate closes.
 
+### SV8.12 — Native Parser/Sema and executable frontend (2026-10-08)
+
+Stage 1 emits complete ELF objects for both production `parser.sotlas` and
+`sema.sotlas`. Signed `i64` ordering uses x86 signed condition codes, including
+comparisons between the minimum and maximum values; unsigned ordering keeps its
+unsigned condition codes. Mixed signed/unsigned comparisons and ordered pointer
+comparisons remain rejected.
+
+Aggregate lowering now handles a returned pointer dereference, stores through
+typed aggregate pointers, fields of returned structures, and discarded aggregate
+call results. Struct-valued field bindings receive independent copies. Global
+zero-initialized struct arrays retain their exact element identity and stride;
+casts to another struct, nonzero initializers and overflowing sizes are rejected.
+The Parser needs larger bounded flat tables: 32,768 instructions, 65,536 operands
+and 2,048 call patches. Other existing resource limits remain active.
+
+`bootstrap/sotlas/native_examples/frontend_native.sotlas` compiles and
+links with the Sotlas-owned backend into an executable containing the real
+Lexer, Parser and Sema. It validates an embedded Sotlas program using native
+machine code. Local Ubuntu/WSL execution returned zero for valid source and four
+for a `u32` return overflow, without Python or a C runtime participating in that
+execution. The checked-in gates run these paths on Linux and compile/link them
+on the other CI hosts.
+
+Six of the ten modules in the current bootstrap source manifest now emit full
+native objects: Token, AST, Lexer, Parser, Sema and Target IR. This is a module
+emission count, not an effort percentage or native Stage 2 certification. The
+lowerer, machine/object/linker backend and driver still need native compilation
+and integration before Stage 1 can produce a compiler executable without the
+hosted bootstrap. The optional C emitter remains in the existing source manifest.
+CI certification for this change is pending.
+
 SV8.11 also preserves the textual assembly contract for its scalar subset: the emitter validates CFG ranges, follows each block's instruction slice instead of assuming physical block order, and accepts the canonical no-result conditional-branch marker while still requiring a Bool condition operand. Assembly gates retain native execution and verify the new loop-header backedges. The previous eager-only rejection fixtures now execute call-bearing and divide/modulo-bearing short-circuit expressions; signed division, incompatible pointer casts and unsupported narrow arithmetic remain rejection gates.
 
 ### Stage evidence and dependency accounting
