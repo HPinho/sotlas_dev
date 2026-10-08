@@ -1548,11 +1548,9 @@ class TestSotlasSovereigntySV2(unittest.TestCase):
             )
             self.assertEqual(executed.returncode, 0, executed.stderr)
 
-    def test_sv8_real_target_ir_progresses_past_ssa_validation(self):
-        """SV8.7: lower the complete real CFG, call and SSA validators."""
+    def test_sv8_real_target_ir_emits_complete_native_object(self):
+        """SV8.7: compile every Target IR function and global into one ELF object."""
         src_path = NATIVE_DIR / "backend" / "target_ir.sotlas"
-        source = src_path.read_text(encoding="utf-8")
-        next_boundary = source[:source.index("pub static mut g_rodata_buf:")].count("\n") + 1
         out_obj = self.root / "target_ir_real.o"
         compiled = subprocess.run(
             [str(self.stage1), "--compile-obj", str(src_path), str(out_obj)],
@@ -1560,28 +1558,19 @@ class TestSotlasSovereigntySV2(unittest.TestCase):
             text=True,
             check=False,
         )
-        if compiled.returncode == 0:
-            self.assertTrue(out_obj.is_file())
-            data = out_obj.read_bytes()
-            self.assertEqual(data[:4], b"\x7fELF")
-            self.assertIn(b"target_cfg_has_block\x00", data)
-            self.assertIn(b"target_module_validate_cfg\x00", data)
-            return
-
-        self.assertFalse(out_obj.exists())
-        print("SV8.7 real target_ir blocker:", compiled.stderr.strip())
-        marker = "err line "
-        self.assertIn(marker, compiled.stderr, compiled.stderr)
-        tail = compiled.stderr.split(marker, 1)[1]
-        line_text = tail.split(",", 1)[0].strip()
-        self.assertTrue(line_text.isdigit(), compiled.stderr)
-        blocker_line = int(line_text)
-        self.assertGreater(
-            blocker_line,
-            next_boundary - 1,
-            "Native lowering regressed inside CFG, call or SSA validation.\n"
-            + compiled.stderr,
-        )
+        self.assertEqual(compiled.returncode, 0, compiled.stderr)
+        self.assertTrue(out_obj.is_file())
+        data = out_obj.read_bytes()
+        self.assertEqual(data[:4], b"\x7fELF")
+        for symbol in (
+            b"target_cfg_has_block\x00",
+            b"target_module_validate_cfg\x00",
+            b"target_module_validate_calls\x00",
+            b"target_module_validate_ssa_dominance\x00",
+            b"sotlas_native_get_rodata_buffer\x00",
+            b"g_rodata_buf\x00",
+        ):
+            self.assertIn(symbol, data)
 
     def test_sv4_raw_pointer_deref_requires_unsafe(self):
         """SV4.8c2 negative gate: dereference outside unsafe remains rejected."""

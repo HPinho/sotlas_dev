@@ -174,6 +174,40 @@ pub fn main_entry() -> u8 {
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(output.exists())
 
+    def test_global_array_cast_emits_bss_address(self):
+        result, output = self.compile("global_array_cast", """
+pub static mut g_bytes: [u8; 16] = 0;
+pub fn buffer() -> *const u8 {
+    return unsafe { g_bytes as *const u8 };
+}
+pub fn main_entry() -> u32 {
+    let data: *const u8 = buffer();
+    if data == null { return 1; }
+    return 0;
+}
+""")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        blob = output.read_bytes()
+        self.assertEqual(blob[:4], b"\x7fELF")
+        self.assertIn(b"g_bytes\x00", blob)
+        if sys.platform.startswith("linux"):
+            binary = self.directory / "global_array_cast"
+            link = subprocess.run([str(self.stage), "--link-exe", str(output),
+                                   str(binary), "main_entry"],
+                                  capture_output=True, text=True, timeout=30)
+            self.assertEqual(link.returncode, 0, link.stderr)
+            self.assertEqual(subprocess.run([str(binary)], timeout=15).returncode, 0)
+
+    def test_global_array_cast_rejects_mismatched_pointee(self):
+        result, output = self.compile("global_array_cast_mismatch", """
+pub static mut g_bytes: [u8; 16] = 0;
+pub fn bad() -> *const u16 {
+    return unsafe { g_bytes as *const u16 };
+}
+""")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(output.exists())
+
     def test_break_continue_and_branch_join_preserve_outer_state(self):
         self.assert_native_result("jumps", """
 pub fn main_entry() -> u32 {
