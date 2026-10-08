@@ -1582,6 +1582,8 @@ class TestSotlasSovereigntySV2(unittest.TestCase):
         entry = self.root / "native_entry.sotlas"
         entry.write_text(
             "module gate::native_entry;\n"
+            "// import gate::missing_comment::*;\n"
+            "/* import gate::missing_block::*; */\n"
             "import gate::native_helper::*;\n"
             "pub fn imported_answer() -> u32 { return add_two(40); }\n",
             encoding="utf-8",
