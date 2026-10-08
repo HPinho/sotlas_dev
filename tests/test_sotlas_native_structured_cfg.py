@@ -418,6 +418,141 @@ pub fn main_entry() -> u32 {
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(output.exists())
 
+    def test_signed_i64_ordering_uses_overflow_aware_conditions(self):
+        self.assert_native_result("signed_ordering", """
+fn ordered(low: i64, high: i64) -> bool {
+    return low < high && low <= high && high > low && high >= low
+        && low <= low && high >= high && !(low > high) && !(high < low);
+}
+pub fn main_entry() -> u32 {
+    if ordered(-9223372036854775808, 9223372036854775807)
+        && ordered(-1, 0) && ordered(-2, -1) && ordered(0, 1) { return 42; }
+    return 1;
+}
+""", 42)
+
+    def test_unsigned_ordering_keeps_unsigned_conditions(self):
+        self.assert_native_result("unsigned_ordering", """
+fn ordered(low: u64, high: u64) -> bool {
+    return low < high && low <= high && high > low && high >= low;
+}
+pub fn main_entry() -> u32 {
+    if ordered(0, 18446744073709551615) && ordered(9223372036854775807, 9223372036854775808) { return 42; }
+    return 1;
+}
+""", 42)
+
+    def test_ordered_comparison_rejects_mixed_sign_and_pointers(self):
+        for name, args in (("mixed", "left: i64, right: u64"),
+                           ("pointer", "left: *const u8, right: *const u8")):
+            with self.subTest(name=name):
+                result, output = self.compile(name, f"fn less({args}) -> bool {{ return left < right; }}")
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(output.exists())
+
+    def test_aggregate_pointer_load_store_and_field_binding_copy(self):
+        self.assert_native_result("aggregate_pointer_copy", """
+pub struct Inner { pub value: i64; }
+pub struct Record { pub tag: u32; pub inner: Inner; }
+fn read(pointer: *const Record) -> Record { unsafe { return *pointer; } }
+fn write(pointer: *mut Record, value: Record) { unsafe { *pointer = value; } }
+pub fn main_entry() -> u32 {
+    let mut original: Record = Record { tag: 1, inner: Inner { value: 3 } };
+    let pointer: *mut Record = unsafe { (&original) as *mut Record };
+    let replacement: Record = Record { tag: 42, inner: Inner { value: -1 } };
+    write(pointer, replacement);
+    let saved: Record = read(pointer);
+    let inner: Inner = saved.inner;
+    original.inner.value = 7;
+    if saved.tag == 42 && inner.value < 0 && read(pointer).inner.value > 0 { return 42; }
+    return 1;
+}
+""", 42)
+
+    def test_discarded_aggregate_call_preserves_side_effect(self):
+        self.assert_native_result("discarded_aggregate", """
+pub struct Item { pub value: u32; }
+fn advance(pointer: *mut Item) -> Item {
+    let mut value: Item = unsafe { *pointer };
+    value.value = value.value + 1;
+    unsafe { *pointer = value; }
+    return value;
+}
+pub fn main_entry() -> u32 {
+    let mut value: Item = Item { value: 41 };
+    let pointer: *mut Item = unsafe { (&value) as *mut Item };
+    advance(pointer);
+    return value.value;
+}
+""", 42)
+
+    def test_aggregate_global_array_cast_requires_exact_struct(self):
+        result, output = self.compile("wrong_struct_array", """
+pub struct First { pub value: u32; }
+pub struct Second { pub value: u32; }
+static mut data: [First; 4] = 0;
+pub fn main_entry() -> u32 {
+    let pointer: *mut Second = unsafe { data as *mut Second };
+    return 0;
+}
+""")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(output.exists())
+
+    def test_real_sema_and_parser_modules_emit_native_objects(self):
+        for module, symbol in (("sema", b"Sema_check_top_level_declarations\0"),
+                               ("parser", b"Parser_parse_module\0")):
+            with self.subTest(module=module):
+                source = ROOT / "bootstrap" / "sotlas" / "native_compiler" / f"{module}.sotlas"
+                output = self.directory / f"real_{module}.o"
+                result = subprocess.run([str(self.stage), "--compile-obj", str(source), str(output)],
+                                        capture_output=True, text=True, timeout=30, cwd=ROOT)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                data = output.read_bytes()
+                self.assertEqual(data[:4], b"\x7fELF")
+                self.assertIn(symbol, data)
+
+    def test_aggregate_global_array_rejects_overflow_and_nonzero_initializer(self):
+        for count, initializer in (("18446744073709551615", "0"),
+                                   ("18446744073709551619", "0"), ("4", "1")):
+            with self.subTest(count=count, initializer=initializer):
+                result, output = self.compile("aggregate_array_invalid", f"""
+pub struct Record {{ pub value: u64; }}
+static mut data: [Record; {count}] = {initializer};
+pub fn main_entry() -> u32 {{ return 0; }}
+""")
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(output.exists())
+
+    def test_real_frontend_pipeline_compiles_and_links(self):
+        example = ROOT / "bootstrap" / "sotlas" / "native_examples" / "frontend_native.sotlas"
+        output = self.directory / "frontend_native.o"
+        result = subprocess.run([str(self.stage), "--compile-obj", str(example), str(output)],
+                                capture_output=True, text=True, timeout=30, cwd=ROOT)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        binary = output.with_suffix(".elf")
+        linked = subprocess.run([str(self.stage), "--link-exe", str(output), str(binary), "main_entry"],
+                                capture_output=True, text=True, timeout=30)
+        self.assertEqual(linked.returncode, 0, linked.stderr)
+        self.assertEqual(binary.read_bytes()[:4], b"\x7fELF")
+        if sys.platform.startswith("linux"):
+            self.assertEqual(subprocess.run([str(binary)], timeout=30).returncode, 0)
+
+    def test_native_frontend_pipeline_rejects_invalid_return(self):
+        example = ROOT / "bootstrap" / "sotlas" / "native_examples" / "frontend_native.sotlas"
+        source = example.read_text(encoding="utf-8")
+        valid = "module demo; fn answer() -> u32 { return 42; }"
+        invalid = "module demo; fn answer() -> u32 { return 4294967296; }"
+        source = source.replace(valid, invalid).replace("source_length: usize = 46", f"source_length: usize = {len(invalid)}")
+        result, output = self.compile("frontend_invalid", source)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        binary = output.with_suffix(".elf")
+        linked = subprocess.run([str(self.stage), "--link-exe", str(output), str(binary), "main_entry"],
+                                capture_output=True, text=True, timeout=30)
+        self.assertEqual(linked.returncode, 0, linked.stderr)
+        if sys.platform.startswith("linux"):
+            self.assertEqual(subprocess.run([str(binary)], timeout=30).returncode, 4)
+
     def test_nested_loop_accumulator_and_counter_reset(self):
         self.assert_native_result("nested", """
 pub fn main_entry() -> u32 {

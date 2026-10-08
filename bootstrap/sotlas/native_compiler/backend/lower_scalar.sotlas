@@ -128,6 +128,29 @@ impl ScalarLowering {
         };
     }
 
+    pub fn parse_array_element_struct(self: &Self, type_offset: usize, type_len: usize) -> u32 {
+        if self.source == null || type_len < 4 || type_offset > self.source_len
+            || type_len > self.source_len - type_offset
+            || unsafe { *(self.source + type_offset) } != 91 { return 0; }
+        let mut start: usize = 1;
+        while start < type_len {
+            let ch: u8 = unsafe { *(self.source + type_offset + start) };
+            if ch == 32 || ch == 9 || ch == 10 || ch == 13 { start = start + 1; }
+            else { break; }
+        }
+        let mut finish: usize = start;
+        while finish < type_len && unsafe { *(self.source + type_offset + finish) } != 59 {
+            finish = finish + 1;
+        }
+        if finish == type_len { return 0; }
+        while finish > start {
+            let ch: u8 = unsafe { *(self.source + type_offset + finish - 1) };
+            if ch == 32 || ch == 9 || ch == 10 || ch == 13 { finish = finish - 1; }
+            else { break; }
+        }
+        return self.find_struct(type_offset + start, finish - start);
+    }
+
     pub fn parse_array_element_type(
         self: &Self,
         type_offset: usize,
@@ -166,6 +189,7 @@ impl ScalarLowering {
         let elem_len: usize = finish - start;
         let mut sem: Sema = Sema::new();
         let elem_offset: usize = type_offset + start;
+        if self.find_struct(elem_offset, elem_len) != 0 { return TargetTypeTag::Aggregate; }
         if sem.source_slice_equals(
             self.source, self.source_len, elem_offset, elem_len, "u8", 2
         ) { return TargetTypeTag::U8; }
@@ -196,6 +220,10 @@ impl ScalarLowering {
         if elem_type == TargetTypeTag::U16 { return 2; }
         if elem_type == TargetTypeTag::U32 { return 4; }
         if elem_type == TargetTypeTag::U64 { return 8; }
+        if elem_type == TargetTypeTag::Aggregate {
+            let struct_id: u32 = self.parse_array_element_struct(type_offset, type_len);
+            if struct_id != 0 { return self.struct_sizes[struct_id as usize - 1] as usize; }
+        }
         return 0;
     }
 
@@ -224,6 +252,8 @@ impl ScalarLowering {
         while k < type_len {
             let ch: u8 = unsafe { *(self.source + type_offset + k) };
             if ch >= 48 && ch <= 57 {
+                if count > 1844674407370955161
+                    || (count == 1844674407370955161 && ch > 53) { return 0; }
                 count = count * 10 + (ch - 48) as usize;
                 saw_digit = true;
             } else if ch == 93 {
@@ -1357,9 +1387,8 @@ impl ScalarLowering {
             self.forwarded_return_call = 0;
             return destination == self.return_destination;
         }
-        let source_address: u32 = self.lower_expression(
-            expression, TargetTypeTag::Pointer, first_parameter, parameter_count
-        );
+        let source_address: u32 = self.cfg_struct_address(
+            expression, first_parameter, parameter_count, 0);
         return source_address != 0 && self.cfg_copy_fields(self.return_destination,
             source_address, self.return_struct_id, 0, 0, node, 0);
     }
@@ -1530,6 +1559,15 @@ impl ScalarLowering {
         let pointee_type: TargetTypeTag = self.pointer_pointee_type_tag(
             pointer_type_ref
         );
+        let pointee_struct: u32 = self.pointer_pointee_struct_id(pointer_type_ref);
+        if self.structured_cfg && pointee_struct != 0 {
+            if self.cfg_struct_id(right_index, 0) != pointee_struct { return false; }
+            let destination: u32 = self.lower_expression(pointer_expression,
+                TargetTypeTag::Pointer, first_parameter, parameter_count);
+            let source_address: u32 = self.cfg_struct_address(right_index, first_parameter, parameter_count, 0);
+            return destination != 0 && source_address != 0 && self.cfg_copy_fields(
+                destination, source_address, pointee_struct, 0, 0, statement_index, 0);
+        }
         if pointee_type == TargetTypeTag::Invalid {
             return false;
         }
@@ -1902,12 +1940,16 @@ impl ScalarLowering {
                 if global_index < 0 { return TARGET_VALUE_NONE; }
                 let global_slot: usize = global_index as usize;
                 let pointee_type: TargetTypeTag = self.pointer_pointee_type_tag(cast_type_index);
+                let pointee_struct: u32 = self.pointer_pointee_struct_id(cast_type_index);
+                let element_struct: u32 = unsafe { g_bss_sym_element_structs[global_slot] };
                 if unsafe { g_bss_sym_is_array[global_slot] } == 0
-                    || pointee_type == TargetTypeTag::Invalid
-                    || unsafe { g_bss_sym_element_types[global_slot] } != pointee_type as u32
                     || (type_tag != TargetTypeTag::Invalid && type_tag != TargetTypeTag::Pointer) {
                     return TARGET_VALUE_NONE;
                 }
+                if element_struct != 0 {
+                    if pointee_struct != element_struct { return 0; }
+                } else if pointee_type == TargetTypeTag::Invalid || pointee_struct != 0
+                    || unsafe { g_bss_sym_element_types[global_slot] } != pointee_type as u32 { return 0; }
                 return self.lower_expression(
                     value_index, TargetTypeTag::Pointer, first_parameter, parameter_count
                 );
@@ -2200,7 +2242,8 @@ impl ScalarLowering {
             let aggregate_return: u32 = self.function_return_struct_from_ast(callee_decl);
             let mut aggregate_destination: u32 = 0;
             if aggregate_return != 0 {
-                if argument_count >= 16 || type_tag != TargetTypeTag::Pointer { return 0; }
+                if argument_count >= 16
+                    || (type_tag != TargetTypeTag::Pointer && type_tag != TargetTypeTag::Invalid) { return 0; }
                 let declared: AstNode = unsafe { *(self.nodes + callee_decl) };
                 let mut body_scan: usize = declared.first_child;
                 let mut has_body: bool = false;
@@ -2383,11 +2426,11 @@ impl ScalarLowering {
                 base_ptr_val = self.find_parameter_value(
                     first_parameter, parameter_count, base_node.str_offset, base_node.str_len
                 );
-            } else if base_node.kind == AstKind::ExprStructLiteral {
+            } else if base_node.kind == AstKind::ExprStructLiteral || base_node.kind == AstKind::ExprCall {
                 base_ptr_val = self.lower_expression(
                     base_expr_index, TargetTypeTag::Pointer, first_parameter, parameter_count
                 );
-                struct_id = self.find_struct(base_node.str_offset, base_node.str_len);
+                struct_id = self.cfg_struct_id(base_expr_index, 0);
             } else if self.structured_cfg && base_node.kind == AstKind::ExprFieldAccess {
                 struct_id = self.cfg_struct_id(base_expr_index, 0);
                 base_ptr_val = self.cfg_struct_address(base_expr_index, first_parameter, parameter_count, 0);
@@ -2421,6 +2464,10 @@ impl ScalarLowering {
             let f_idx: usize = (field_id - 1) as usize;
             let f_offset: u32 = self.field_offsets[f_idx];
             let f_type: TargetTypeTag = self.field_type_tags[f_idx] as TargetTypeTag;
+            if self.field_struct_ids[f_idx] != 0 {
+                if type_tag != TargetTypeTag::Pointer && type_tag != TargetTypeTag::Invalid { return 0; }
+                return self.cfg_struct_address(expression_index, first_parameter, parameter_count, 0);
+            }
             let first_op: u32 = self.operand_count as u32;
             if !self.append_operand(base_ptr_val) {
                 return TARGET_VALUE_NONE;
@@ -3091,9 +3138,7 @@ impl ScalarLowering {
             && compare_type != TargetTypeTag::Pointer {
             return TARGET_VALUE_NONE;
         }
-        if (compare_type == TargetTypeTag::I64
-                || compare_type == TargetTypeTag::Pointer)
-            && expression.int_value > 87 {
+        if compare_type == TargetTypeTag::Pointer && expression.int_value > 87 {
             return TARGET_VALUE_NONE;
         }
 
@@ -4430,7 +4475,7 @@ impl ScalarLowering {
                 value = self.lower_expression(value_index, typ, first_parameter, parameter_count);
             }
             if value == 0 { return self.reject(index); }
-            if struct_id != 0 && (value_node.kind == AstKind::ExprIdent
+            if struct_id != 0 && (value_node.kind == AstKind::ExprIdent || value_node.kind == AstKind::ExprFieldAccess
                 || (stmt.int_value == 1 && value_node.kind != AstKind::ExprStructLiteral
                     && value_node.kind != AstKind::ExprCall)) {
                 let copy: u32 = self.allocate_struct(struct_id, index);
@@ -5334,6 +5379,7 @@ pub fn lower_scalar_module(
             let mut is_array: u8 = 0;
             let mut type_tag_val: u32 = 4;
             let mut array_element_type: u32 = 0;
+            let mut array_element_struct: u32 = 0;
             let mut array_element_stride: usize = 0;
             let mut array_element_count: usize = 0;
             if decl_node.first_child != 0 && decl_node.first_child < lowering.node_count {
@@ -5356,6 +5402,20 @@ pub fn lower_scalar_module(
                             return lowering.reject(struct_scan_index);
                         }
                         array_element_type = element_type as u32;
+                        array_element_struct = lowering.parse_array_element_struct(
+                            type_node.str_offset, type_node.str_len);
+                        if array_element_count > 18446744073709551615 / array_element_stride {
+                            return lowering.reject(struct_scan_index);
+                        }
+                        if array_element_struct != 0 {
+                            let initializer_index: usize = type_node.next_sibling;
+                            if initializer_index == 0 || initializer_index >= lowering.node_count { return lowering.reject(struct_scan_index); }
+                            let initializer: AstNode = unsafe { *(lowering.nodes + initializer_index) };
+                            if initializer.kind != AstKind::ExprLiteral || initializer.str_len != 1
+                                || unsafe { *(lowering.source + initializer.str_offset) } != 48 {
+                                return lowering.reject(struct_scan_index);
+                            }
+                        }
                         var_size = array_element_stride * array_element_count;
                         type_tag_val = TargetTypeTag::Pointer as u32;
                     } else {
@@ -5374,7 +5434,9 @@ pub fn lower_scalar_module(
                     }
                 }
             }
+            if unsafe { g_bss_total_size } > 18446744073709551608 { return lowering.reject(struct_scan_index); }
             let bss_off: usize = align_val(unsafe { g_bss_total_size }, 8);
+            if var_size > 18446744073709551615 - bss_off { return lowering.reject(struct_scan_index); }
             let b_idx: usize = unsafe { g_bss_sym_count };
             unsafe {
                 g_bss_sym_offsets[b_idx] = decl_node.str_offset;
@@ -5384,6 +5446,7 @@ pub fn lower_scalar_module(
                 g_bss_sym_is_array[b_idx] = is_array;
                 g_bss_sym_types[b_idx] = type_tag_val;
                 g_bss_sym_element_types[b_idx] = array_element_type;
+                g_bss_sym_element_structs[b_idx] = array_element_struct;
                 g_bss_sym_element_strides[b_idx] = array_element_stride;
                 g_bss_sym_element_counts[b_idx] = array_element_count;
                 g_bss_sym_count = b_idx + 1;

@@ -1457,6 +1457,7 @@ pub static mut g_bss_sym_sizes: [usize; 256] = 0;
 pub static mut g_bss_sym_is_array: [u8; 256] = 0;
 pub static mut g_bss_sym_types: [u32; 256] = 0;
 pub static mut g_bss_sym_element_types: [u32; 256] = 0;
+pub static mut g_bss_sym_element_structs: [u32; 256] = 0;
 pub static mut g_bss_sym_element_strides: [usize; 256] = 0;
 pub static mut g_bss_sym_element_counts: [usize; 256] = 0;
 pub static mut g_bss_sym_count: usize = 0;
