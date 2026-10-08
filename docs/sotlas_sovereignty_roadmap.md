@@ -462,6 +462,28 @@ and integration before Stage 1 can produce a compiler executable without the
 hosted bootstrap. The optional C emitter remains in the existing source manifest.
 CI certification for this change is pending.
 
+### SV8.13 — Inline integer-array fields (2026-10-08)
+
+The native subset now lowers inline fields containing 1–256 elements of `u8`,
+`u16`, `u32`, `u64` or `usize`. Zero-repeat initialization, natural alignment,
+typed copies and nested field addresses preserve each element's width and
+stride. Field-array reads and writes use checked `IndexAddr`; native execution
+gates require an illegal-instruction trap for both reads and writes past the
+bound, including an index larger than 32 bits. Method-based updates and copying
+the containing struct are execution gates as well.
+
+Boolean expressions inside `unsafe` wrappers use the same lazy CFG as other
+conditions, with gates covering comparison of raw byte loads and a skipped null
+dereference. Scalar global-array stores remain covered when structured CFG is
+selected. Floating-point fields, oversized inline arrays and general local
+array storage are still outside this native contract.
+
+This advances prerequisites for porting ScalarLowering's table fields. Full
+native emission of `lower_scalar.sotlas` is still blocked by pointer
+requalification in its source-writing helper; `x86_64_scalar.sotlas` reaches
+its narrow integer-shift helper. Neither module is counted as complete, and
+the native Stage 2 compiler gate remains open. CI certification is pending.
+
 SV8.11 also preserves the textual assembly contract for its scalar subset: the emitter validates CFG ranges, follows each block's instruction slice instead of assuming physical block order, and accepts the canonical no-result conditional-branch marker while still requiring a Bool condition operand. Assembly gates retain native execution and verify the new loop-header backedges. The previous eager-only rejection fixtures now execute call-bearing and divide/modulo-bearing short-circuit expressions; signed division, incompatible pointer casts and unsupported narrow arithmetic remain rejection gates.
 
 ### Stage evidence and dependency accounting

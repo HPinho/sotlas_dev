@@ -184,7 +184,7 @@ pub fn main_entry() -> u32 {
 """, 42)
 
     def test_aggregate_layout_rejects_unsupported_array_fields(self):
-        for typ in ("[u32; 4]", "[u8; 257]"):
+        for typ in ("[f64; 4]", "[u8; 257]"):
             with self.subTest(typ=typ):
                 result, output = self.compile("aggregate_layout_bad", f"""
 pub struct Unsupported {{ pub data: {typ}; }}
@@ -552,6 +552,79 @@ pub fn main_entry() -> u32 {{ return 0; }}
         self.assertEqual(linked.returncode, 0, linked.stderr)
         if sys.platform.startswith("linux"):
             self.assertEqual(subprocess.run([str(binary)], timeout=30).returncode, 4)
+
+    def test_inline_integer_arrays_preserve_width_stride_and_value_copy(self):
+        self.assert_native_result("integer_array_fields", """
+pub struct Table { pub bytes: [u8; 4]; pub short: [u16; 4]; pub words: [u32; 4]; pub wide: [u64; 4]; pub tail: u32; }
+fn make() -> Table { return Table { bytes: [0; 4], short: [0; 4], words: [0; 4], wide: [0; 4], tail: 7 }; }
+pub fn main_entry() -> u32 {
+    let mut table: Table = make();
+    table.bytes[0] = 255;
+    table.short[1] = 65535;
+    table.words[2] = 4000000000;
+    table.wide[3] = 9007199254740993;
+    let saved: Table = table;
+    table.words[2] = 0;
+    if saved.bytes[0] == 255 && saved.short[1] == 65535 && saved.words[2] == 4000000000
+        && saved.wide[3] == 9007199254740993 && saved.tail == 7 { return 42; }
+    return 1;
+}
+""", 42)
+
+    def test_inline_integer_array_nested_method_updates(self):
+        self.assert_native_result("nested_array_method", """
+pub struct Table { pub values: [usize; 4]; }
+pub struct Wrapper { pub table: Table; pub sentinel: u64; }
+impl Wrapper {
+    pub fn update(mut self: &mut Self, index: usize, value: usize) { self.table.values[index] = value; }
+}
+pub fn main_entry() -> u32 {
+    let mut value: Wrapper = Wrapper { table: Table { values: [0; 4] }, sentinel: 99 };
+    value.update(3, 42);
+    if value.table.values[3] == 42 && value.sentinel == 99 { return 42; }
+    return 1;
+}
+""", 42)
+
+    def test_unsafe_boolean_wrapper_keeps_short_circuit(self):
+        self.assert_native_result("unsafe_condition_wrapper", """
+fn safe(flag: bool, pointer: *const u8) -> bool { return unsafe { flag || *pointer == 7 }; }
+fn same(left: *const u8, right: *const u8) -> bool {
+    if unsafe { *left != *right } { return false; }
+    return true;
+}
+pub fn main_entry() -> u32 {
+    let mut byte: u8 = 7;
+    let pointer: *const u8 = unsafe { (&byte) as *const u8 };
+    if safe(true, null) && safe(false, pointer) && same(pointer, pointer) { return 42; }
+    return 1;
+}
+""", 42)
+
+    def test_inline_array_out_of_bounds_traps_before_read_or_write(self):
+        for index in (4, 4294967296):
+            for operation in ("table.values[index] = 42;", "let read: u32 = table.values[index];"):
+                with self.subTest(index=index, operation=operation):
+                    result, output = self.compile("field_array_bounds", f"""
+pub struct Table {{ pub values: [u32; 4]; }}
+pub fn main_entry() -> u32 {{
+    let mut table: Table = Table {{ values: [0; 4] }};
+    let index: usize = {index};
+    {operation}
+    return 1;
+}}
+""")
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    if sys.platform == "win32":
+                        executed = subprocess.run([sys.executable, str(Path(__file__).resolve()), "--execute", str(output)],
+                                                  capture_output=True, text=True, timeout=15)
+                        self.assertEqual(executed.returncode, 0xC000001D, executed.stderr)
+                    elif sys.platform.startswith("linux"):
+                        binary = output.with_suffix(".elf")
+                        linked = subprocess.run([str(self.stage), "--link-exe", str(output), str(binary), "main_entry"],
+                                                capture_output=True, text=True)
+                        self.assertEqual(linked.returncode, 0, linked.stderr)
+                        self.assertEqual(subprocess.run([str(binary)], timeout=15).returncode, -4)
 
     def test_nested_loop_accumulator_and_counter_reset(self):
         self.assert_native_result("nested", """
