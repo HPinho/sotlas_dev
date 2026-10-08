@@ -684,8 +684,9 @@ impl ScalarLowering {
                 break;
             }
         }
-        if start >= type_node.str_len
-            || unsafe { *(self.source + type_node.str_offset + start) } != 42 {
+        if start >= type_node.str_len { return TargetTypeTag::Invalid; }
+        let prefix: u8 = unsafe { *(self.source + type_node.str_offset + start) };
+        if prefix != 42 && prefix != 38 {
             return TargetTypeTag::Invalid;
         }
         start = start + 1;
@@ -709,7 +710,7 @@ impl ScalarLowering {
             type_node.str_offset + start, 3, "mut", 3
         ) {
             start = start + 3;
-        } else {
+        } else if prefix == 42 {
             return TargetTypeTag::Invalid;
         }
         while start < type_node.str_len {
@@ -1943,6 +1944,24 @@ impl ScalarLowering {
                     || self.pointer_pointee_type_tag(cast_type_index) != self.local_storage_types[slot] as TargetTypeTag { return 0; }
                 return self.local_value_ids[slot] as u32;
             }
+            if cast_type == TargetTypeTag::Pointer {
+                let source_ref: usize = self.pointer_expression_type_ref(value_index);
+                if source_ref != 0 {
+                    let source_struct: u32 = self.pointer_pointee_struct_id(source_ref);
+                    let target_struct: u32 = self.pointer_pointee_struct_id(cast_type_index);
+                    let source_element: TargetTypeTag = self.pointer_pointee_type_tag(source_ref);
+                    let target_element: TargetTypeTag = self.pointer_pointee_type_tag(cast_type_index);
+                    if (type_tag != TargetTypeTag::Invalid && type_tag != TargetTypeTag::Pointer)
+                        || source_struct != target_struct
+                        || (source_struct == 0 && (source_element == TargetTypeTag::Invalid
+                            || source_element == TargetTypeTag::Pointer
+                            || source_element != target_element)) { return TARGET_VALUE_NONE; }
+                    // Qualifier changes preserve the address and exact pointee identity.
+                    // Dereferencing the result still requires an unsafe expression.
+                    return self.lower_expression(value_index, TargetTypeTag::Pointer,
+                        first_parameter, parameter_count);
+                }
+            }
             if cast_type == TargetTypeTag::Pointer && value_node.kind == AstKind::ExprIdent {
                 let global_index: isize = self.find_global_bss(
                     value_node.str_offset, value_node.str_len
@@ -2598,6 +2617,9 @@ impl ScalarLowering {
             if right_type_ref != 0 {
                 right_type = self.type_tag_for(right_type_ref);
             }
+            let offset_type: TargetTypeTag = self.condition_expression_type(
+                right_index, first_parameter, parameter_count);
+            if offset_type != TargetTypeTag::Invalid { right_type = offset_type; }
             if right_type != TargetTypeTag::U32
                 && right_type != TargetTypeTag::U64 {
                 return TARGET_VALUE_NONE;
@@ -2698,7 +2720,16 @@ impl ScalarLowering {
             || type_tag == TargetTypeTag::U16)
             && (opcode == TargetOpcode::BitAnd || opcode == TargetOpcode::BitOr
                 || opcode == TargetOpcode::BitXor);
-        if !narrow_bitwise && type_tag != TargetTypeTag::U32
+        let narrow_shift: bool = (type_tag == TargetTypeTag::U8 || type_tag == TargetTypeTag::U16)
+            && (opcode == TargetOpcode::ShiftLeft || opcode == TargetOpcode::ShiftRight);
+        if narrow_shift {
+            let count: TargetInstruction = unsafe { *(self.instructions + self.instruction_count - 1) };
+            let mut width: u64 = 8;
+            if type_tag == TargetTypeTag::U16 { width = 16; }
+            if count.opcode != TargetOpcode::ConstInt || count.result_value != right
+                || count.immediate_bits >= width { return TARGET_VALUE_NONE; }
+        }
+        if !narrow_bitwise && !narrow_shift && type_tag != TargetTypeTag::U32
             && type_tag != TargetTypeTag::U64
             && type_tag != TargetTypeTag::Usize
             && type_tag != TargetTypeTag::I64 {
