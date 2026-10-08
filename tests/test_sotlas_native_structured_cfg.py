@@ -16,7 +16,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 from sotlas.bootstrap_pipeline import build_stage1_native_compiler
 
 
-def execute_windows_text(path: Path) -> int:
+def execute_windows_text(path: Path, aggregate_size: int = 0) -> int | bytes:
     """Run a zero-argument, relocation-free SysV entry in a child process.
 
     The wrapper preserves Windows' additional nonvolatile registers and aligns
@@ -26,33 +26,60 @@ def execute_windows_text(path: Path) -> int:
     section_headers = struct.unpack_from("<Q", data, 40)[0]
     section_size, section_count = struct.unpack_from("<HH", data, 58)
     text = None
+    text_index = None
     for index in range(section_count):
         header = section_headers + index * section_size
         flags = struct.unpack_from("<Q", data, header + 8)[0]
         if flags & 4:
             offset, length = struct.unpack_from("<QQ", data, header + 24)
             text = data[offset:offset + length]
+            text_index = index
             break
     if not text:
         raise RuntimeError("object has no executable text")
+    entry_offset = None
+    for index in range(section_count):
+        header = section_headers + index * section_size
+        if struct.unpack_from("<I", data, header + 4)[0] != 2:
+            continue
+        symbols_offset, symbols_length = struct.unpack_from("<QQ", data, header + 24)
+        strings_index = struct.unpack_from("<I", data, header + 40)[0]
+        strings_header = section_headers + strings_index * section_size
+        strings_offset = struct.unpack_from("<Q", data, strings_header + 24)[0]
+        for symbol in range(symbols_offset, symbols_offset + symbols_length, 24):
+            name = strings_offset + struct.unpack_from("<I", data, symbol)[0]
+            if data[name:data.index(b"\0", name)] == b"main_entry":
+                if struct.unpack_from("<H", data, symbol + 6)[0] != text_index:
+                    raise RuntimeError("entry is not defined in executable text")
+                entry_offset = struct.unpack_from("<Q", data, symbol + 8)[0]
+    if entry_offset is None or entry_offset >= len(text):
+        raise RuntimeError("object has no valid main_entry symbol")
     kernel = ctypes.WinDLL("kernel32", use_last_error=True)
     kernel.VirtualAlloc.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_uint32, ctypes.c_uint32]
     kernel.VirtualAlloc.restype = ctypes.c_void_p
     kernel.VirtualProtect.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32)]
     kernel.VirtualProtect.restype = ctypes.c_int
     kernel.VirtualFree.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_uint32]
-    size = len(text) + 25
+    wrapper_length = 25 + (10 if aggregate_size else 0)
+    size = len(text) + wrapper_length
     address = kernel.VirtualAlloc(None, size, 0x3000, 0x04)
     if not address:
         raise ctypes.WinError(ctypes.get_last_error())
     try:
-        wrapper = b"\x57\x56\x48\x83\xec\x28\x48\xb8" + struct.pack("<Q", address + 25)
+        destination = ctypes.create_string_buffer(bytes([165]) * (aggregate_size + 16)) if aggregate_size else None
+        wrapper = b"\x57\x56\x48\x83\xec\x28"
+        if destination is not None:
+            wrapper += b"\x48\xbf" + struct.pack("<Q", ctypes.addressof(destination) + 8)
+        wrapper += b"\x48\xb8" + struct.pack("<Q", address + wrapper_length + entry_offset)
         wrapper += b"\xff\xd0\x48\x83\xc4\x28\x5e\x5f\xc3"
         ctypes.memmove(address, wrapper + text, size)
         old = ctypes.c_uint32()
         if not kernel.VirtualProtect(address, size, 0x20, ctypes.byref(old)):
             raise ctypes.WinError(ctypes.get_last_error())
-        return ctypes.WINFUNCTYPE(ctypes.c_uint32)(address)()
+        result = ctypes.WINFUNCTYPE(ctypes.c_uint32)(address)()
+        if destination is not None:
+            return destination.raw[:aggregate_size + 16]
+        return result
     finally:
         kernel.VirtualFree(address, 0, 0x8000)
 
@@ -92,6 +119,154 @@ class NativeStructuredCFGTests(unittest.TestCase):
                                   capture_output=True, text=True, timeout=30)
             self.assertEqual(link.returncode, 0, link.stderr)
             self.assertEqual(subprocess.run([str(binary)], timeout=15).returncode, expected)
+
+    def test_aggregate_return_owns_caller_storage_across_calls(self):
+        self.assert_native_result("aggregate_calls", """
+pub struct Pair { pub left: u32; pub right: u64; }
+fn make(value: u32) -> Pair { return Pair { left: value, right: 100 }; }
+fn forward(value: u32) -> Pair { return make(value); }
+pub fn main_entry() -> u32 {
+    let mut first: Pair = forward(40);
+    let second: Pair = make(2);
+    first.left = first.left + second.left;
+    return first.left;
+}
+""", 42)
+
+    def test_aggregate_branch_returns_and_nested_fields(self):
+        self.assert_native_result("aggregate_branches", """
+pub struct Inner { pub value: u32; }
+pub struct Outer { pub inner: Inner; pub tail: u64; }
+fn choose(flag: bool) -> Outer {
+    if flag { return Outer { inner: Inner { value: 40 }, tail: 7 }; }
+    return Outer { inner: Inner { value: 2 }, tail: 9 };
+}
+pub fn main_entry() -> u32 {
+    let first: Outer = choose(true);
+    let second: Outer = choose(false);
+    return first.inner.value + second.inner.value;
+}
+""", 42)
+
+    def test_aggregate_value_parameter_does_not_alias_caller(self):
+        self.assert_native_result("aggregate_value_parameter", """
+pub struct Pair { pub left: u32; pub right: u32; }
+fn alter(mut value: Pair) -> Pair { value.left = 2; return value; }
+pub fn main_entry() -> u32 {
+    let original: Pair = Pair { left: 40, right: 1 };
+    let changed: Pair = alter(original);
+    return original.left + changed.left;
+}
+""", 42)
+
+    def test_aggregate_hidden_destination_uses_stack_argument(self):
+        self.assert_native_result("aggregate_stack_destination", """
+pub struct Pair { pub left: u32; pub right: u32; }
+fn make(a: u32, b: u32, c: u32, d: u32, e: u32, f: u32) -> Pair {
+    return Pair { left: a + b + c + d + e + f, right: 0 };
+}
+pub fn main_entry() -> u32 {
+    let value: Pair = make(1, 2, 3, 4, 5, 27);
+    return value.left;
+}
+""", 42)
+
+    def test_aggregate_local_binding_copies_value(self):
+        self.assert_native_result("aggregate_binding_copy", """
+pub struct Pair { pub left: u32; pub right: u32; }
+fn make() -> Pair { return Pair { left: 40, right: 1 }; }
+pub fn main_entry() -> u32 {
+    let original: Pair = make();
+    let mut copy: Pair = original;
+    copy.left = 2;
+    return original.left + copy.left;
+}
+""", 42)
+
+    def test_aggregate_layout_rejects_unsupported_array_fields(self):
+        for typ in ("[u32; 4]", "[u8; 257]"):
+            with self.subTest(typ=typ):
+                result, output = self.compile("aggregate_layout_bad", f"""
+pub struct Unsupported {{ pub data: {typ}; }}
+pub fn main_entry() -> u32 {{ return 42; }}
+""")
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(output.exists())
+
+    def test_real_token_and_ast_modules_emit_native_objects(self):
+        for module in ("token", "ast"):
+            with self.subTest(module=module):
+                source = ROOT / "bootstrap" / "sotlas" / "native_compiler" / f"{module}.sotlas"
+                output = self.directory / f"real_{module}.o"
+                result = subprocess.run([str(self.stage), "--compile-obj", str(source), str(output)],
+                                        capture_output=True, text=True, timeout=30, cwd=ROOT)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(output.read_bytes()[:4], b"\x7fELF")
+
+    def test_real_token_and_ast_constructors_execute_natively(self):
+        self.assert_native_result("real_constructors", """
+import sotlas::compiler::ast::*;
+pub fn main_entry() -> u32 {
+    let span: Span = Span { line: 40, col: 1, offset: 0, length: 3 };
+    let node: AstNode = AstNode::new(AstKind::Block, span);
+    let token: Token = Token::new(TokenKind::Ident, 7, 2);
+    return node.span.line + token.span.col;
+}
+""", 42)
+
+    def test_aggregate_byte_array_layout_and_copy(self):
+        result, output = self.compile("aggregate_bytes", """
+pub struct Bytes { pub head: u32; pub bytes: [u8; 128]; pub tail: u32; }
+fn make() -> Bytes { return Bytes { head: 40, bytes: [0; 128], tail: 2 }; }
+pub fn main_entry() -> Bytes { return make(); }
+""")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        expected = bytes([165]) * 8 + struct.pack("<I", 40) + bytes(128) + struct.pack("<I", 2) + bytes([165]) * 8
+        if sys.platform == "win32":
+            execution = subprocess.run([sys.executable, str(Path(__file__).resolve()),
+                                        "--execute-aggregate", str(output), "136"], capture_output=True, text=True, timeout=15)
+            self.assertEqual(execution.returncode, 0, execution.stderr)
+            self.assertEqual(bytes.fromhex(execution.stdout.strip()), expected)
+        elif sys.platform.startswith("linux"):
+            caller = self.directory / "aggregate_caller.c"
+            caller.write_text("""#include <stdint.h>
+#include <string.h>
+extern void main_entry(uint8_t *destination);
+int main(void) {
+    uint8_t result[152]; memset(result, 165, sizeof result);
+    main_entry(result + 8);
+    for (unsigned i = 0; i < 152; ++i) {
+        uint8_t expected = (i < 8 || i >= 144) ? 165 : 0;
+        if (i == 8) expected = 40;
+        if (i == 140) expected = 2;
+        if (result[i] != expected) return 1;
+    }
+    return 0;
+}
+""", encoding="utf-8")
+            binary = self.directory / "aggregate_caller"
+            linked = subprocess.run(["clang", str(caller), str(output), "-o", str(binary)], capture_output=True, text=True)
+            self.assertEqual(linked.returncode, 0, linked.stderr)
+            self.assertEqual(subprocess.run([str(binary)], timeout=15).returncode, 0)
+
+    def test_aggregate_return_rejects_foreign_abi(self):
+        result, output = self.compile("aggregate_ffi", """
+pub struct Pair { pub left: u32; pub right: u32; }
+@extern(C)
+fn foreign_pair() -> Pair;
+pub fn main_entry() -> u32 { return 42; }
+""")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(output.exists())
+
+    def test_aggregate_repeat_count_must_match_field(self):
+        result, output = self.compile("aggregate_repeat_bad", """
+pub struct Bytes { pub bytes: [u8; 128]; }
+fn make() -> Bytes { return Bytes { bytes: [0; 127] }; }
+pub fn main_entry() -> u32 { return 42; }
+""")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(output.exists())
 
     def test_nested_loop_accumulator_and_counter_reset(self):
         self.assert_native_result("nested", """
@@ -467,5 +642,7 @@ pub fn main_entry() -> u32 {
 if __name__ == "__main__":
     if len(sys.argv) == 3 and sys.argv[1] == "--execute":
         print(execute_windows_text(Path(sys.argv[2])))
+    elif len(sys.argv) == 4 and sys.argv[1] == "--execute-aggregate":
+        print(execute_windows_text(Path(sys.argv[2]), int(sys.argv[3])).hex())
     else:
         unittest.main()
