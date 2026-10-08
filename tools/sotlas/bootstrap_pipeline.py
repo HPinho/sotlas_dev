@@ -274,23 +274,52 @@ static bool load_source_file(const char *path, uint8_t *dest, size_t *pos, size_
     get_dir_of_file(canonical_path, dir, sizeof(dir));
 
     char *p = buf;
-    while ((p = strstr(p, "import ")) != NULL) {
-        p += 7;
-        while (*p == ' ' || *p == '\t') p++;
-        char imp_name[128];
-        size_t k = 0;
-        while (*p && *p != ';' && *p != ' ' && *p != '\t' && *p != '\n' && *p != '\r' && k < 127) {
-            imp_name[k++] = *p++;
+    while (*p) {
+        if (p[0] == '/' && p[1] == '/') {
+            p += 2;
+            while (*p && *p != '\n') p++;
+            continue;
         }
-        imp_name[k] = 0;
-        if (k >= 3 && strcmp(imp_name + k - 3, "::*") == 0) {
-            imp_name[k - 3] = 0;
+        if (p[0] == '/' && p[1] == '*') {
+            p += 2;
+            while (*p && !(p[0] == '*' && p[1] == '/')) p++;
+            if (*p) p += 2;
+            continue;
         }
-        if (imp_name[0] && !try_resolve_and_load(dir, imp_name, dest, pos, max_size)) {
-            fprintf(stderr, "sotlas: could not resolve imported module '%s' from '%s'\n", imp_name, path);
-            free(buf);
-            return false;
+        if (*p == '"' || *p == '\'') {
+            char quote = *p++;
+            while (*p && *p != quote) {
+                if (*p == '\\' && p[1]) p++;
+                p++;
+            }
+            if (*p) p++;
+            continue;
         }
+        if ((size_t)(p - buf) + 7 <= rd &&
+            (p == buf || !((*(p - 1) >= 'a' && *(p - 1) <= 'z') ||
+                           (*(p - 1) >= 'A' && *(p - 1) <= 'Z') ||
+                           (*(p - 1) >= '0' && *(p - 1) <= '9') || *(p - 1) == '_')) &&
+            strncmp(p, "import", 6) == 0 &&
+            (p[6] == ' ' || p[6] == '\t' || p[6] == '\n' || p[6] == '\r')) {
+            p += 6;
+            while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
+            char imp_name[128];
+            size_t k = 0;
+            while (*p && *p != ';' && *p != ' ' && *p != '\t' && *p != '\n' && *p != '\r' && k < 127) {
+                imp_name[k++] = *p++;
+            }
+            imp_name[k] = 0;
+            if (k >= 3 && strcmp(imp_name + k - 3, "::*") == 0) {
+                imp_name[k - 3] = 0;
+            }
+            if (imp_name[0] && !try_resolve_and_load(dir, imp_name, dest, pos, max_size)) {
+                fprintf(stderr, "sotlas: could not resolve imported module '%s' from '%s'\n", imp_name, path);
+                free(buf);
+                return false;
+            }
+            continue;
+        }
+        p++;
     }
 
     if (*pos + rd + 2 >= max_size) {
