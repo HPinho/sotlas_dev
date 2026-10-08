@@ -2365,7 +2365,11 @@ impl ScalarLowering {
         } else {
             return TARGET_VALUE_NONE;
         }
-        if type_tag != TargetTypeTag::U32
+        let narrow_bitwise: bool = (type_tag == TargetTypeTag::U8
+            || type_tag == TargetTypeTag::U16)
+            && (opcode == TargetOpcode::BitAnd || opcode == TargetOpcode::BitOr
+                || opcode == TargetOpcode::BitXor);
+        if !narrow_bitwise && type_tag != TargetTypeTag::U32
             && type_tag != TargetTypeTag::U64
             && type_tag != TargetTypeTag::Usize
             && type_tag != TargetTypeTag::I64 {

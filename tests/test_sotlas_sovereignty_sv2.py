@@ -1548,11 +1548,11 @@ class TestSotlasSovereigntySV2(unittest.TestCase):
             )
             self.assertEqual(executed.returncode, 0, executed.stderr)
 
-    def test_sv8_real_target_ir_progresses_past_call_validation(self):
-        """SV8.7: lower real CFG and call validation before the next blocker."""
+    def test_sv8_real_target_ir_progresses_past_ssa_validation(self):
+        """SV8.7: lower the complete real CFG, call and SSA validators."""
         src_path = NATIVE_DIR / "backend" / "target_ir.sotlas"
         source = src_path.read_text(encoding="utf-8")
-        next_boundary = source[:source.index("pub fn target_module_validate_ssa_dominance(")].count("\n") + 1
+        next_boundary = source[:source.index("pub static mut g_rodata_buf:")].count("\n") + 1
         out_obj = self.root / "target_ir_real.o"
         compiled = subprocess.run(
             [str(self.stage1), "--compile-obj", str(src_path), str(out_obj)],
@@ -1579,7 +1579,7 @@ class TestSotlasSovereigntySV2(unittest.TestCase):
         self.assertGreater(
             blocker_line,
             next_boundary - 1,
-            "Native lowering regressed inside CFG or call validation.\n"
+            "Native lowering regressed inside CFG, call or SSA validation.\n"
             + compiled.stderr,
         )
 
