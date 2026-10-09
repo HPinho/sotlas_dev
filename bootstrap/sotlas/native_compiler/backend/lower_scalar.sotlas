@@ -2950,6 +2950,15 @@ impl ScalarLowering {
             if field != 0 { return self.field_type_tags[field as usize - 1] as TargetTypeTag; }
         }
         if self.structured_cfg && expression.kind == AstKind::ExprIndex {
+            if expression.first_child != 0 && expression.first_child < self.node_count {
+                let base: AstNode = unsafe { *(self.nodes + expression.first_child) };
+                if base.kind == AstKind::ExprIdent {
+                    let slot: usize = self.cfg_find_local(base.str_offset, base.str_len);
+                    if slot < self.local_count && self.local_array_counts[slot] != 0 {
+                        return self.local_array_types[slot] as TargetTypeTag;
+                    }
+                }
+            }
             let field: u32 = self.indexed_array_field(expression_index);
             if field != 0 { return self.field_array_types[field as usize - 1] as TargetTypeTag; }
         }

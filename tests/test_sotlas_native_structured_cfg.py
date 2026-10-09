@@ -676,7 +676,7 @@ pub fn main_entry() -> u32 {
 """ % operation
                 result, output = self.compile("local_bounds_" + suffix, src)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(output.read_bytes()[:4], b"\\x7fELF")
+                self.assertEqual(output.read_bytes()[:4], b"\x7fELF")
                 if sys.platform.startswith("linux"):
                     binary = self.directory / ("local_bounds_" + suffix)
                     linked = subprocess.run(
