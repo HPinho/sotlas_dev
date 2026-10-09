@@ -250,6 +250,33 @@ class NativeLinuxDriverTests(unittest.TestCase):
         self.assertEqual(native.read_bytes(), hosted.read_bytes())
 
     @unittest.skipUnless(LINUX_X64, "execution requires Linux x86-64")
+    def test_resolved_project_accepts_contextual_keyword_segments(self):
+        """Keywords remain namespace identifiers; comments and strings are not imports."""
+        dependency = self.directory / "keyword_dependency.sotlas"
+        entry = self.directory / "keyword_entry.sotlas"
+        dependency.write_text(
+            "module system::gate;\n"
+            "// import missing::comment::*;\n"
+            'fn keyword_answer() -> u32 { let text: *const u8 = "import missing::string::*;"; return 42; }\n',
+            encoding="utf-8",
+        )
+        entry.write_text(
+            "module gate::system;\nimport system::gate::*;\n"
+            "pub fn main_entry() -> u32 { return keyword_answer(); }\n",
+            encoding="utf-8",
+        )
+        output = self.directory / "keyword_project"
+        environment = {"PATH": str(self.directory / "no-tools")}
+        self.run_tool([str(self.seed), "--project-resolve", str(output),
+                       str(entry), str(dependency)], 180, env=environment)
+        self.run_tool([str(output)], expected=42, env=environment)
+        dependency.write_text("module system::42; fn keyword_answer() -> u32 { return 42; }")
+        output.write_bytes(b"preserve invalid-path output")
+        self.run_tool([str(self.seed), "--project-resolve", str(output),
+                       str(entry), str(dependency)], expected=12, env=environment)
+        self.assertEqual(output.read_bytes(), b"preserve invalid-path output")
+
+    @unittest.skipUnless(LINUX_X64, "execution requires Linux x86-64")
     def test_resolved_project_rejects_broken_dependency_graph_without_writing(self):
         """Duplicate, missing, cyclic and unsupported imports are fail-closed."""
         output = self.directory / "resolved_preserved"

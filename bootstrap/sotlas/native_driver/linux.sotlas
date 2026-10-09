@@ -222,9 +222,27 @@ fn driver_compile_loaded(
 // SV8.21b1: parse a canonical, contiguous module path from lexer tokens.
 // Imports currently support only explicit glob declarations `import path::*;`.
 // The path excludes the import glob, and end_offset includes its semicolon.
+// Module paths use contextual identifiers. Words such as `gate` and `system`
+// are keywords in expression syntax but valid namespace segments. Validate
+// their spelling in this context instead of requiring TokenKind::Ident.
+fn driver_path_identifier(token: Token, source: *const u8, length: usize) -> bool {
+    let start: usize = token.span.offset;
+    let count: usize = token.span.length;
+    if source == null || count == 0 || start > length || count > length - start { return false; }
+    let mut index: usize = 0;
+    while index < count {
+        let ch: u8 = unsafe { *(source + start + index) };
+        let letter: bool = (ch >= 65 && ch <= 90) || (ch >= 97 && ch <= 122) || ch == 95;
+        let digit: bool = ch >= 48 && ch <= 57;
+        if !letter && (index == 0 || !digit) { return false; }
+        index = index + 1;
+    }
+    return true;
+}
+
 fn driver_read_module_path(mut lexer: &mut Lexer, import_path: bool) -> bool {
     let first: Token = lexer.next_token();
-    if first.kind != TokenKind::Ident { return false; }
+    if !driver_path_identifier(first, lexer.source, lexer.source_len) { return false; }
     let start: usize = first.span.offset;
     let mut finish: usize = start + first.span.length;
     let mut next: Token = lexer.next_token();
@@ -242,7 +260,7 @@ fn driver_read_module_path(mut lexer: &mut Lexer, import_path: bool) -> bool {
             }
             return true;
         }
-        if part.kind != TokenKind::Ident || part.span.offset != finish + 2 {
+        if !driver_path_identifier(part, lexer.source, lexer.source_len) || part.span.offset != finish + 2 {
             return false;
         }
         finish = part.span.offset + part.span.length;
