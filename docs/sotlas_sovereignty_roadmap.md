@@ -722,6 +722,16 @@ Repair candidate: split the Sotlas-written Linux driver into independent single-
 
 **Verification status:** this is a proposed source-level repair, not a new certified green baseline. The Linux execution and full cross-platform matrix must pass before SV8.21a is promoted. **Next: SV8.21b** — bounded native module identity/dependency graph, fail-closed duplicate/missing/cyclic import handling, and self-build from original modules without host premerging. No new sovereignty milestone or Python/C elimination percentage is credited by this repair.
 
+### SV8.21b1 — Linux native bounded import resolution and original-module self-build (2026-10-09)
+
+**Green reference:** [CI run #1159](https://github.com/HPinho/sotlas_dev/actions/runs/37969940811), commit `29df97e6c0bc9ce82ce672202f831822262062c2`, passed the Linux/Windows/macOS matrix after the SV8.21a linker regression repair. Do not move this certified baseline until the new native-resolution gate passes.
+
+**Implementation cut:** opt-in `--project-resolve` (plus object and compiler variants) reads two to 64 real files into bounded Sotlas-owned memory. Production lexer tokens, not text matching, identify each canonical module declaration and `import path::*;` edge; reject duplicate module names/imports, missing/self imports, unsupported import forms and nested imports. The native graph uses 64×64 bounded edges, stable topological order and deterministic source emission with only validated import declarations removed. The existing flat compilation/ELF-writing path then compiles and links the result. Existing single-file and `--project` commands remain unchanged.
+
+**Acceptance gate:** Linux native run with inputs deliberately reversed, linked program returns 42, exact ELF object parity against hosted reference of the deterministic import-free stream; fail-before-output fixtures for missing/duplicate/cyclic/unsupported dependencies; Stage 1 produces Stage 2 and Stage 2 produces identical Stage 3 **directly from the nine original files**, with PATH excluding host build tools. Windows/macOS continue verifying the native seed object path. These are new gates, not claims of verified success before CI.
+
+**Limits and next step — SV8.21b2:** this closes only a bounded *explicit-source glob-import* profile: native package discovery, import aliases, namespace visibility and independent-object linking are still open. Finish the safe module resolver API and explicit namespace semantics before declaring full native imports closed. Milestone score remains **6/10 (60% of milestones)** until all acceptance criteria pass; it does not quantify Python or C code elimination.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test
