@@ -93,10 +93,11 @@ supplied source files as the earlier project modes:
   bootstrap/sotlas/native_driver/linux.sotlas
 ```
 
-The resolved modes are matched by an exact, NUL-terminated CLI decoder using
-short literal fragments. This prevents the observed fallback to the
-single-file driver for the three long resolved flags and rejects every unknown
-suffix without opening an output file.
+The opt-in resolved modes use a separate exact ASCII-byte decoder without
+introducing additional CLI string literal relocations into the native image.
+Legacy flat-project modes dispatch first through the previously certified
+entry path; unknown calls with five or more argv entries reach the isolated
+resolver helper, and invalid suffixes fail without opening the output file.
 
 All inputs must begin with exactly one explicit `module path;` declaration.
 Imports are currently restricted to contiguous `import path::*;` declarations.

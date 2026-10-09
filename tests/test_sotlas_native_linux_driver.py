@@ -191,6 +191,31 @@ class NativeLinuxDriverTests(unittest.TestCase):
                 self.assertEqual(output.read_bytes(), sentinel)
 
     @unittest.skipUnless(LINUX_X64, "execution requires Linux x86-64")
+    def test_native_cli_legacy_paths_survive_resolved_dispatch(self):
+        """Certified flat project/executable/object modes remain fully functional."""
+        first = self.directory / "cli_math.sotlas"
+        second = self.directory / "cli_app.sotlas"
+        first.write_text("module gate::math; fn cli_answer() -> u32 { return 42; }")
+        second.write_text(
+            "module gate::app; pub fn main_entry() -> u32 { return cli_answer(); }"
+        )
+        env = {"PATH": str(self.directory / "no-tools")}
+        exe = self.directory / "cli_legacy_exe"
+        self.run_tool([str(self.seed), "--project", str(exe),
+                       str(first), str(second)], env=env)
+        self.run_tool([str(exe)], expected=42, env=env)
+        obj = self.directory / "cli_legacy.o"
+        self.run_tool([str(self.seed), "--project-object", str(obj),
+                       str(first), str(second)], env=env)
+        self.assertEqual(obj.read_bytes()[:4], b"\x7fELF")
+        output = self.directory / "cli_preserved"
+        output.write_bytes(b"keep artifact")
+        self.run_tool([str(self.seed), "--project", str(output),
+                       str(first), str(self.directory / "missing.sotlas")],
+                      expected=2, env=env)
+        self.assertEqual(output.read_bytes(), b"keep artifact")
+
+    @unittest.skipUnless(LINUX_X64, "execution requires Linux x86-64")
     def test_resolved_project_topological_sort_and_exact_native_object(self):
         """Native resolver orders forward references and strips only real import tokens."""
         math = self.directory / "resolve_math.sotlas"

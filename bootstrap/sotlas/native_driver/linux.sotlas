@@ -65,34 +65,69 @@ fn option_equals(option: *const u8, expected: *const u8, length: usize) -> bool 
     return true;
 }
 
-// Compare long CLI names in short, exact fragments. The native compiler's
-// string-literal lowering/ELF rodata path is kept out of the >16-byte
-// option-dispatch profile. Unlike prefix-only matching, this also checks
-// the terminating NUL so --project-resolve-unknown is always rejected.
-fn option_prefix_equals(option: *const u8, prefix: *const u8, length: usize) -> bool {
-    if option == null || prefix == null { return false; }
+// Exact, allocation-free option decoder; no new native string relocations.
+// Return 1/2/3 for resolved executable/object/compiler; 0 means unsupported.
+fn driver_resolve_mode(option: *const u8) -> u32 {
+    if option == null { return 0; }
     let mut index: usize = 0;
-    while index < length {
+    while index < 17 {
+        let mut expected: u8 = 0;
+        if index == 0 || index == 1 || index == 9 { expected = 45; }
+        else if index == 7 { expected = 99; }
+        else if index == 6 || index == 11 || index == 16 { expected = 101; }
+        else if index == 5 { expected = 106; }
+        else if index == 14 { expected = 108; }
+        else if index == 4 || index == 13 { expected = 111; }
+        else if index == 2 { expected = 112; }
+        else if index == 3 || index == 10 { expected = 114; }
+        else if index == 12 { expected = 115; }
+        else if index == 8 { expected = 116; }
+        else if index == 15 { expected = 118; }
         let actual: u8 = unsafe { *(option + index) };
-        if actual == 0 || actual != unsafe { *(prefix + index) } {
-            return false;
-        }
+        if actual != expected { return 0; }
         index = index + 1;
     }
-    return true;
+    let suffix: *const u8 = unsafe { option + 17 };
+    if unsafe { *suffix } == 0 { return 1; }
+    if unsafe { *suffix } != 45 { return 0; }
+    if unsafe { *(suffix + 1) } == 111 {
+        if unsafe { *(suffix + 2) } != 98 { return 0; }
+        if unsafe { *(suffix + 3) } != 106 { return 0; }
+        if unsafe { *(suffix + 4) } != 101 { return 0; }
+        if unsafe { *(suffix + 5) } != 99 { return 0; }
+        if unsafe { *(suffix + 6) } != 116 { return 0; }
+        if unsafe { *(suffix + 7) } == 0 { return 2; }
+        return 0;
+    }
+    if unsafe { *(suffix + 1) } == 99 {
+        if unsafe { *(suffix + 2) } != 111 { return 0; }
+        if unsafe { *(suffix + 3) } != 109 { return 0; }
+        if unsafe { *(suffix + 4) } != 112 { return 0; }
+        if unsafe { *(suffix + 5) } != 105 { return 0; }
+        if unsafe { *(suffix + 6) } != 108 { return 0; }
+        if unsafe { *(suffix + 7) } != 101 { return 0; }
+        if unsafe { *(suffix + 8) } != 114 { return 0; }
+        if unsafe { *(suffix + 9) } == 0 { return 3; }
+        return 0;
+    }
+    return 0;
 }
 
-// Return 1 for --project-resolve, 2 for -object and 3 for -compiler.
-// No single string literal in this decoder is longer than 9 bytes.
-fn driver_resolve_mode(option: *const u8) -> u32 {
-    if !option_prefix_equals(option, "--project", 9) { return 0; }
-    let middle: *const u8 = unsafe { option + 9 };
-    if !option_prefix_equals(middle, "-resolve", 8) { return 0; }
-    let suffix: *const u8 = unsafe { middle + 8 };
-    if unsafe { *suffix } == 0 { return 1; }
-    if option_equals(suffix, "-object", 7) { return 2; }
-    if option_equals(suffix, "-compiler", 9) { return 3; }
-    return 0;
+// Keep new-option dispatch isolated from the certified legacy control flow.
+fn driver_dispatch_resolved(
+    argc: u64, argv: *const *const u8, option: *const u8
+) -> u32 {
+    let mode: u32 = driver_resolve_mode(option);
+    if mode == 1 {
+        return driver_compile_project(argc, argv, false, false, true);
+    }
+    if mode == 2 {
+        return driver_compile_project(argc, argv, true, false, true);
+    }
+    if mode == 3 {
+        return driver_compile_project(argc, argv, false, true, true);
+    }
+    return fail(1);
 }
 
 // Keep filesystem/control-flow state outside the compiler pipeline.
@@ -557,15 +592,8 @@ pub fn sotlas_linux_main(argc: u64, argv: *const *const u8) -> u32 {
     if option_equals(first_option, "--project-compiler", 18) {
         return driver_compile_project(argc, argv, false, true, false);
     }
-    let resolve_mode: u32 = driver_resolve_mode(first_option);
-    if resolve_mode == 1 {
-        return driver_compile_project(argc, argv, false, false, true);
-    }
-    if resolve_mode == 2 {
-        return driver_compile_project(argc, argv, true, false, true);
-    }
-    if resolve_mode == 3 {
-        return driver_compile_project(argc, argv, false, true, true);
+    if argc > 4 {
+        return driver_dispatch_resolved(argc, argv, first_option);
     }
     return driver_compile_single(argc, argv);
 }
