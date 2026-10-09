@@ -170,6 +170,27 @@ class NativeLinuxDriverTests(unittest.TestCase):
         self.assertEqual(output.read_bytes(), sentinel)
 
     @unittest.skipUnless(LINUX_X64, "execution requires Linux x86-64")
+    def test_resolved_mode_rejects_unknown_suffixes_before_output(self):
+        """Every resolved option requires an exact terminator after the suffix."""
+        first = self.directory / "resolved_arg_first.sotlas"
+        second = self.directory / "resolved_arg_second.sotlas"
+        first.write_text("module gate::first; fn source_fn() -> u32 { return 42; }")
+        second.write_text(
+            "module gate::second; pub fn main_entry() -> u32 { return source_fn(); }"
+        )
+        output = self.directory / "resolved_arg_preserve"
+        sentinel = b"original output is never truncated on bad CLI spelling"
+        output.write_bytes(sentinel)
+        environment = {"PATH": str(self.directory / "no-tools")}
+        for option in ("--project-resolv", "--project-resolve-other",
+                       "--project-resolve-object-extra",
+                       "--project-resolve-compiler-extra"):
+            with self.subTest(option=option):
+                self.run_tool([str(self.seed), option, str(output),
+                               str(first), str(second)], expected=1, env=environment)
+                self.assertEqual(output.read_bytes(), sentinel)
+
+    @unittest.skipUnless(LINUX_X64, "execution requires Linux x86-64")
     def test_resolved_project_topological_sort_and_exact_native_object(self):
         """Native resolver orders forward references and strips only real import tokens."""
         math = self.directory / "resolve_math.sotlas"

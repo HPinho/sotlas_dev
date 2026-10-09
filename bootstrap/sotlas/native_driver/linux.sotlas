@@ -65,6 +65,36 @@ fn option_equals(option: *const u8, expected: *const u8, length: usize) -> bool 
     return true;
 }
 
+// Compare long CLI names in short, exact fragments. The native compiler's
+// string-literal lowering/ELF rodata path is kept out of the >16-byte
+// option-dispatch profile. Unlike prefix-only matching, this also checks
+// the terminating NUL so --project-resolve-unknown is always rejected.
+fn option_prefix_equals(option: *const u8, prefix: *const u8, length: usize) -> bool {
+    if option == null || prefix == null { return false; }
+    let mut index: usize = 0;
+    while index < length {
+        let actual: u8 = unsafe { *(option + index) };
+        if actual == 0 || actual != unsafe { *(prefix + index) } {
+            return false;
+        }
+        index = index + 1;
+    }
+    return true;
+}
+
+// Return 1 for --project-resolve, 2 for -object and 3 for -compiler.
+// No single string literal in this decoder is longer than 9 bytes.
+fn driver_resolve_mode(option: *const u8) -> u32 {
+    if !option_prefix_equals(option, "--project", 9) { return 0; }
+    let middle: *const u8 = unsafe { option + 9 };
+    if !option_prefix_equals(middle, "-resolve", 8) { return 0; }
+    let suffix: *const u8 = unsafe { middle + 8 };
+    if unsafe { *suffix } == 0 { return 1; }
+    if option_equals(suffix, "-object", 7) { return 2; }
+    if option_equals(suffix, "-compiler", 9) { return 3; }
+    return 0;
+}
+
 // Keep filesystem/control-flow state outside the compiler pipeline.
 // The ELF linker must not share the nested project file-reading CFG.
 fn driver_compile_loaded(
@@ -527,13 +557,14 @@ pub fn sotlas_linux_main(argc: u64, argv: *const *const u8) -> u32 {
     if option_equals(first_option, "--project-compiler", 18) {
         return driver_compile_project(argc, argv, false, true, false);
     }
-    if option_equals(first_option, "--project-resolve", 17) {
+    let resolve_mode: u32 = driver_resolve_mode(first_option);
+    if resolve_mode == 1 {
         return driver_compile_project(argc, argv, false, false, true);
     }
-    if option_equals(first_option, "--project-resolve-object", 24) {
+    if resolve_mode == 2 {
         return driver_compile_project(argc, argv, true, false, true);
     }
-    if option_equals(first_option, "--project-resolve-compiler", 26) {
+    if resolve_mode == 3 {
         return driver_compile_project(argc, argv, false, true, true);
     }
     return driver_compile_single(argc, argv);
