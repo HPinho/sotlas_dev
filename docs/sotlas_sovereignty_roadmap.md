@@ -740,6 +740,12 @@ Repair candidate: split the Sotlas-written Linux driver into independent single-
 
 **Acceptance:** Stage 1 must compile and link the driver on all three OSes; Linux must then execute the full positive, negative, equivalence and Stage 2→3 fixed-point gates, with the whole test matrix passing before this commit becomes the new baseline. CI success is **pending**, not implied by the commit. **Next SV item remains SV8.21b2**; no sovereignty milestone or Python/C percentage is advanced by this repair.
 
+### SV8.21b1 Ubuntu CLI-dispatch regression (2026-10-09)
+
+[CI run #1161](https://github.com/HPinho/sotlas_dev/actions/runs/37979287139) on `89a8185b42c89d96e6ceb701db613e833cf4c11e`: Linux x86-64 tests compile and self-build the legacy native compiler (including the Stage 2/3 fixed point), but all new `--project-resolve*` runtime commands returned **exit 1**, even when the broken module dependency graph should return exit 12. The shared failure occurs *before* resolver semantics: the driver falls back to its legacy single-file CLI. Windows and completed macOS jobs passed their seed/object gates; those platforms do not execute the Linux driver.
+
+**Repair candidate:** replace monolithic 17/24/26-byte CLI option comparisons with an explicit exact matcher assembled from shorter literals (`--project` + `-resolve` + optional `-object`/`-compiler`), checking the NUL terminator. No names or modes are removed, no resolver or backend tests are weakened; add negative CLI suffix gates. Keep the last certified full-matrix green baseline [#1159](https://github.com/HPinho/sotlas_dev/actions/runs/37969940811) at `29df97e6c0bc9ce82ce672202f831822262062c2`. New commit must pass Linux runtime resolution, original-module Stage2/3 identity, and the unchanged Windows/macOS matrix before green certification. **Next planned SV: SV8.21b2**; sovereignty checkpoints remain 6/10 until acceptance.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test
