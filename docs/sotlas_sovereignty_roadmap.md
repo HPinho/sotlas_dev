@@ -754,6 +754,28 @@ The corrective cut restores the three certified flat-project checks at the start
 
 **Status:** not certified until the new Linux CI and full Windows/macOS matrix complete successfully. The last green reference is [#1159](https://github.com/HPinho/sotlas_dev/actions/runs/37969940811) at `29df97e6c0bc9ce82ce672202f831822262062c2`. No SV milestone or Python/C dependency percentage is promoted. **Next: SV8.21b2 only after green.**
 
+### Ubuntu resolver regression repair — CI #1163
+
+The Ubuntu Python 3.10/3.11/3.12 lanes on `bfb5fb6` failed the same resolved
+project execution gate with exit 12. The production lexer classifies `gate`
+as `KwGate`, while the new module-path reader accepted only `Ident`. Valid
+namespaces such as `gate::app` therefore failed before graph ordering.
+
+The reader now validates ASCII identifier spelling in module-path context,
+including keyword namespace segments. Contiguous `::`, explicit glob imports,
+graph validation and output-preservation requirements remain unchanged.
+Numeric-leading segments remain rejected. A Linux execution gate covers
+`system::gate` and `gate::system`, comments and strings containing import text,
+and malformed names. The original failing test retains its exact native-object
+comparison and all dependency-graph rejection gates remain enabled.
+
+Local verification: 2,664 Windows-suite tests completed without failures
+(45 skips). The original Ubuntu failure, contextual keyword namespaces,
+invalid dependency graphs, option rejection and legacy CLI compilation passed
+through native Linux execution under WSL. The original-module native self-build
+gate also passed, including identical regenerated compiler images and execution
+of its Stage 3 sample. New CI certification remains pending.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test
