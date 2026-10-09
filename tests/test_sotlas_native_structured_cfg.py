@@ -1126,6 +1126,78 @@ pub fn main_entry() -> u32 {
                 self.assertNotEqual(result.returncode, 0)
                 self.assertFalse(output.exists())
 
+    def test_real_lowerer_symbol_writer_supports_all_usize_digits(self):
+        """Compile the actual production method; 64-bit IDs require 20 digits."""
+        source = (ROOT / "bootstrap/sotlas/native_compiler/backend/lower_scalar.sotlas").read_text(
+            encoding="utf-8"
+        )
+        method_start = "    pub fn append_synthetic_str_symbol("
+        method_end = "    pub fn scalar_memory_size("
+        self.assertEqual(source.count(method_start), 1)
+        self.assertEqual(source.count(method_end), 1)
+        method = method_start + source.split(method_start, 1)[1].split(method_end, 1)[0]
+        self.assertIn("let digits_start: usize", method)
+        self.assertNotIn("digits: [u8; 16]", method)
+        # Supply the production method with only its used state. The method
+        # body is unchanged; only unrelated ScalarLowering fields are omitted.
+        fixture = (
+            "import sotlas::compiler::backend::target_ir::*;\n"
+            "pub struct ScalarLowering { pub source: *const u8; }\n"
+            "pub static mut g_extended_len: usize = 0;\n"
+            "pub static mut scratch: [u8; 128] = 0;\n"
+            "impl ScalarLowering {\n" + method + "}\n"
+            """
+pub fn main_entry() -> u32 {
+    let raw: *const u8 = unsafe { scratch as *const u8 };
+    let mut writer: ScalarLowering = ScalarLowering { source: raw };
+    let zero: TargetSourceSlice = writer.append_synthetic_str_symbol(0);
+    let ordinary: TargetSourceSlice = writer.append_synthetic_str_symbol(12345);
+    let maximum: TargetSourceSlice =
+        writer.append_synthetic_str_symbol(18446744073709551615);
+    if zero.offset != 0 || zero.length != 6 { return 1; }
+    if ordinary.offset != 6 || ordinary.length != 10 { return 2; }
+    if maximum.offset != 16 || maximum.length != 25 { return 3; }
+    if unsafe { g_extended_len } != 41 { return 4; }
+    if unsafe { *(raw + 0) } != 95 || unsafe { *(raw + 5) } != 48 { return 5; }
+    if unsafe { *(raw + 11) } != 49 || unsafe { *(raw + 15) } != 53 { return 6; }
+    if unsafe { *(raw + 21) } != 49 || unsafe { *(raw + 22) } != 56
+        || unsafe { *(raw + 40) } != 53 { return 7; }
+    return 0;
+}
+"""
+        )
+        result, output = self.compile("real_lowerer_synthetic_names", fixture)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(output.read_bytes()[:4], b"\x7fELF")
+        if sys.platform.startswith("linux"):
+            binary = self.directory / "real_lowerer_synthetic_names"
+            linked = subprocess.run(
+                [str(self.stage), "--link-exe", str(output), str(binary), "main_entry"],
+                capture_output=True, text=True, timeout=30,
+            )
+            self.assertEqual(linked.returncode, 0, linked.stderr)
+            execution = subprocess.run(
+                [str(binary)], capture_output=True, text=True, timeout=15
+            )
+            self.assertEqual(execution.returncode, 0, execution.stderr)
+
+    def test_real_backend_modules_report_next_native_gate(self):
+        """Observe full-module blockers without equating fail-closed with completion."""
+        for module in ("lower_scalar", "x86_64_scalar"):
+            with self.subTest(module=module):
+                path = ROOT / "bootstrap/sotlas/native_compiler/backend" / (module + ".sotlas")
+                output = self.directory / ("probe_real_" + module + ".o")
+                result = subprocess.run(
+                    [str(self.stage), "--compile-obj", str(path), str(output)],
+                    capture_output=True, text=True, timeout=60, cwd=ROOT,
+                )
+                if result.returncode == 0:
+                    self.assertEqual(output.read_bytes()[:4], b"\x7fELF")
+                    print("SV8.17 full " + module + ": native ELF object emitted")
+                else:
+                    print("SV8.17 full " + module + " blocker: " + result.stderr.strip())
+                    self.assertFalse(output.exists(), result.stderr)
+
     def test_real_object_writer_helpers_compile_and_execute(self):
         writer = (ROOT / "bootstrap/sotlas/native_compiler/backend/x86_64_scalar.sotlas").read_text(encoding="utf-8")
         prefix = writer.split("fn append_object_sysv_parameter_store(", 1)[0]

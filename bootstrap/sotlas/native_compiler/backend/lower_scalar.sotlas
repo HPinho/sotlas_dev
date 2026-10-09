@@ -111,17 +111,28 @@ impl ScalarLowering {
             unsafe { *(src_mut + name_off + name_len) = 48; }
             name_len = name_len + 1;
         } else {
-            let mut digits: [u8; 16] = 0;
-            let mut d_count: usize = 0;
+            // Write the decimal digits in reverse order to their final
+            // destination, then reverse that range in place. This supports
+            // every 64-bit usize (up to 20 digits) without a bounded local
+            // digit array or out-of-bounds temporary writes.
+            let digits_start: usize = name_len;
             while temp > 0 {
-                digits[d_count] = ((temp % 10) as u8) + 48;
+                unsafe { *(src_mut + name_off + name_len) = ((temp % 10) as u8) + 48; }
                 temp = temp / 10;
-                d_count = d_count + 1;
-            }
-            while d_count > 0 {
-                d_count = d_count - 1;
-                unsafe { *(src_mut + name_off + name_len) = digits[d_count]; }
                 name_len = name_len + 1;
+            }
+            let mut left: usize = digits_start;
+            let mut right: usize = name_len;
+            while left < right {
+                right = right - 1;
+                if left >= right { break; }
+                let left_digit: u8 = unsafe { *(src_mut + name_off + left) };
+                let right_digit: u8 = unsafe { *(src_mut + name_off + right) };
+                unsafe {
+                    *(src_mut + name_off + left) = right_digit;
+                    *(src_mut + name_off + right) = left_digit;
+                }
+                left = left + 1;
             }
         }
         unsafe { g_extended_len = g_extended_len + name_len; }
