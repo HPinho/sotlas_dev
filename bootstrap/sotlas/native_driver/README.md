@@ -111,6 +111,12 @@ The 1 MiB combined-input bound and synthetic-symbol reservation remain.
 Release bootstrap closure, general native package discovery and true per-module
 linking are still pending.
 
+The resolver uses one-element static scratch slots for parsed token spans
+and the emitted source length. This is an intentionally non-reentrant
+single-compilation-per-process interface: the current native lowerer cannot
+yet lower helper calls passing several independent address-taken local scalar
+out-parameters. The import graph and input limits remain unchanged.
+
 The Linux gates validate out-of-order imported project execution, native/hosted
 object identity for an explicitly normalized reference source, error paths
 preserving existing output, and Stage 1→2→3 fixed point from the nine original

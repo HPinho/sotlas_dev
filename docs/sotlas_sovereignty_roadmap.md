@@ -732,6 +732,14 @@ Repair candidate: split the Sotlas-written Linux driver into independent single-
 
 **Limits and next step — SV8.21b2:** this closes only a bounded *explicit-source glob-import* profile: native package discovery, import aliases, namespace visibility and independent-object linking are still open. Finish the safe module resolver API and explicit namespace semantics before declaring full native imports closed. Milestone score remains **6/10 (60% of milestones)** until all acceptance criteria pass; it does not quantify Python or C code elimination.
 
+### SV8.21b1 compilation regression repair (2026-10-09)
+
+[CI run #1160](https://github.com/HPinho/sotlas_dev/actions/runs/37976045347) on `44213183c03374e274be4e0278cafbbdeb3abd0b` failed in the same native-driver Stage 1 compilation setup across Linux, Windows and macOS: exit 10, expanded-source diagnostic line **18916**, column **60**. The location maps to the first `&mut off` argument passed along with other address-taken scalar locals to `driver_read_module_path`. The existing native lowering profile does not yet support this helper-call form. It is *not* a platform-specific failure and none of the new runtime resolver tests were reached.
+
+**Repair:** keep the SV8.21b1 bounded graph, lexer-based identity validation, fail-closed imports, stable ordering and original-module self-build gates. Replace multi-scalar out-parameter references with four one-element, Sotlas-owned static scratch buffers for parsed module span and resolved source length. Their writers/readers remain bounds-checked, with no allocations or dependence on Python or C; the driver executes one compile per process, so scratch state is deliberately non-reentrant. Preserve all existing tests and the prior CI-green baseline `29df97e6c0bc9ce82ce672202f831822262062c2`.
+
+**Acceptance:** Stage 1 must compile and link the driver on all three OSes; Linux must then execute the full positive, negative, equivalence and Stage 2→3 fixed-point gates, with the whole test matrix passing before this commit becomes the new baseline. CI success is **pending**, not implied by the commit. **Next SV item remains SV8.21b2**; no sovereignty milestone or Python/C percentage is advanced by this repair.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test
