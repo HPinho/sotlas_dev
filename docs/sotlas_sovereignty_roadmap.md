@@ -563,6 +563,63 @@ not a claim that the full Linux or macOS workflow matrix ran locally.
 
 The non-promoting #1152 probes also recorded the full-module next blockers: `lower_scalar.sotlas:5282:33` and `x86_64_scalar.sotlas:2369:9`. The current certified regression baseline remains **CI #1151 / `a501e1ea474ef97fc430cfa18be7862cb9a3e0d8`** until the repair matrix completes successfully. Next item remains **SV8.18 native complete backend objects**, followed by native Stage 1 → Stage 2 and Stage 2 → Stage 3 fixed point. Mandatory Python/C dependency elimination stays estimated at **40% completed / 60% remaining**.
 
+### SV8.18 — Complete native lowerer and x86 writer (2026-10-09)
+
+Local Stage 1 now emits complete ELF64 objects for the actual
+`lower_scalar.sotlas` and `x86_64_scalar.sotlas` sources. The previous diagnostic
+probe is a mandatory regression gate: either failure rejects the change.
+Representative lowerer, object-writer and linker entry symbols must be present.
+This raises the locally verified manifest count from **6 to 8 of 10 modules**;
+CI certification of this advance is pending.
+
+The connected compiler changes are:
+
+- Aggregate metadata tracks 256 fields with explicit rejection on exhausted
+  field or struct budgets. Initialization tracking uses the same field budget;
+  fields are no longer silently omitted after the old limit of 128.
+- Declared pointer types are retained in field metadata. Stores through
+  dereferenced aggregate pointer fields and by-value aggregate arguments use
+  exact struct identity. Indexed scalar widths propagate through arithmetic,
+  casts and global-array reads; enum paths retain their U32 discriminant.
+- The native SysV contract accepts 24 machine parameters, including a hidden
+  aggregate result pointer. Register arguments, stack arguments, 16-byte call
+  alignment and ELF Boolean signature masks use the same bound. More than 24
+  parameters remain rejected.
+- Zero-initialized local scalar arrays accept up to 4,096 elements. Arrays
+  larger than 16 elements initialize through a bounded CFG loop instead of
+  unrolled element stores. Checked indexing and exact-pointee pointer casts
+  remain enforced. Inline struct arrays still have their separate 256-element
+  limit; general aggregate local arrays are not part of this contract.
+- Production machine frames use each function's value range rather than every
+  value in the module. Parameters, arithmetic, memory accesses, call results,
+  return values and Phi edge copies use the same relative slot mapping.
+  Large frames touch each stack page without a C runtime helper, preserving
+  SysV argument registers. Execution gates cover 512 recursive calls with many
+  unrelated functions and repeated initialization of 32 KiB local arrays.
+- IR buffer capacities and their physical storage grow together for the real
+  compiler workload. Production ELF tables accept 256 functions, 2,048 blocks
+  per function and 4,096 branch/call patches, with explicit capacity checks.
+- Nested branches select structured CFG. The existing scalar Boolean assembly
+  profile and hosted Stage 1/2/3 equivalence remain regression contracts.
+
+Execution fixtures compile the complete lowerer and invoke its actual
+20-parameter constructor, verifying late fields and zeroed metadata arrays.
+The complete writer fixture executes byte/word helpers and writes and reads
+an ELF section header. Both fixtures, large-array initialization and an
+aggregate-pointer update execute on Windows and as Sotlas-linked Linux ELF
+programs via WSL. macOS remains an object-emission gate for these fixtures.
+
+This closes native object emission for these two production modules, not the
+fully native compiler generation chain. The installed driver, the remaining
+manifest sources and a native Stage 1 -> Stage 2 executable still require
+closure. Stage 2 -> Stage 3 must then prove a native fixed point. The previous
+mandatory Python/C dependency reduction estimate remains unchanged until those
+build-chain gates pass; the hosted bootstrap is still required today.
+
+Local regression evidence: the final Windows suite ran **2,647 tests with no
+failures and 33 skips**. The four Linux ELF execution fixtures described above
+also passed via WSL. The full Linux/macOS CI matrix was not run locally.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test

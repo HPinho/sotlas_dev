@@ -691,7 +691,7 @@ pub fn main_entry() -> u32 {
         """Reject nonzero fills and local arrays beyond the certified 256 elements."""
         for suffix, declaration in (
             ("nonzero", "let mut data: [u8; 4] = 7;"),
-            ("oversized", "let mut data: [u8; 257] = 0;"),
+            ("oversized", "let mut data: [u8; 4097] = 0;"),
         ):
             with self.subTest(suffix=suffix):
                 result, output = self.compile(
@@ -728,11 +728,11 @@ pub fn main_entry() -> u32 {
             self.assertEqual(link.returncode, 0, link.stderr)
             self.assertEqual(subprocess.run([str(binary)], timeout=15).returncode, 285 & 255)
 
-    def test_native_call_rejects_more_than_sixteen_arguments(self):
-        parameters = ", ".join(f"p{index}: u32" for index in range(17))
-        arguments = ", ".join(str(index) for index in range(17))
+    def test_native_call_rejects_more_than_twenty_four_arguments(self):
+        parameters = ", ".join(f"p{index}: u32" for index in range(25))
+        arguments = ", ".join(str(index) for index in range(25))
         result, output = self.compile("too_many_arguments", f"""
-fn overloaded({parameters}) -> u32 {{ return p16; }}
+fn overloaded({parameters}) -> u32 {{ return p24; }}
 pub fn main_entry() -> u32 {{ return overloaded({arguments}); }}
 """)
         self.assertNotEqual(result.returncode, 0)
@@ -1221,8 +1221,8 @@ pub fn main_entry() -> u32 {
             )
             self.assertEqual(execution.returncode, 0, execution.stderr)
 
-    def test_real_backend_modules_report_next_native_gate(self):
-        """Observe full-module blockers without equating fail-closed with completion."""
+    def test_real_backend_modules_emit_complete_native_objects(self):
+        """Require whole production modules, including their exported entry points."""
         for module in ("lower_scalar", "x86_64_scalar"):
             with self.subTest(module=module):
                 path = ROOT / "bootstrap/sotlas/native_compiler/backend" / (module + ".sotlas")
@@ -1231,12 +1231,14 @@ pub fn main_entry() -> u32 {
                     [str(self.stage), "--compile-obj", str(path), str(output)],
                     capture_output=True, text=True, timeout=60, cwd=ROOT,
                 )
-                if result.returncode == 0:
-                    self.assertEqual(output.read_bytes()[:4], b"\x7fELF")
-                    print("SV8.17 full " + module + ": native ELF object emitted")
-                else:
-                    print("SV8.17 full " + module + " blocker: " + result.stderr.strip())
-                    self.assertFalse(output.exists(), result.stderr)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                blob = output.read_bytes()
+                self.assertEqual(blob[:6], b"\x7fELF\x02\x01")
+                self.assertEqual(struct.unpack_from("<HH", blob, 16), (1, 62))
+                symbols = ("ScalarLowering_lower_expression", "lower_scalar_module") if module == "lower_scalar" else (
+                    "emit_elf64_module_object", "link_elf64_executable")
+                for symbol in symbols:
+                    self.assertIn(symbol.encode("ascii") + b"\0", blob)
 
     def test_real_object_writer_helpers_compile_and_execute(self):
         writer = (ROOT / "bootstrap/sotlas/native_compiler/backend/x86_64_scalar.sotlas").read_text(encoding="utf-8")
@@ -1283,6 +1285,145 @@ pub fn main_entry() -> u32 {
                     f"fn invalid(value: {width}, count: {width}) -> {width} {{ return value >> {count}; }}")
                 self.assertNotEqual(result.returncode, 0)
                 self.assertFalse(output.exists())
+
+    def test_twenty_four_machine_arguments_preserve_stack_slots(self):
+        parameters = ", ".join(f"p{i}: u64" for i in range(24))
+        arguments = ", ".join(str(i + 1) for i in range(24))
+        expression = " + ".join(f"p{i} * {i + 1}" for i in range(24))
+        self.assert_native_result("wide_call_abi", f"""
+fn compute({parameters}) -> u64 {{ return {expression}; }}
+pub fn main_entry() -> u32 {{
+    if compute({arguments}) == 4900 {{ return 0; }}
+    return 1;
+}}
+""", 0)
+
+    def test_hidden_aggregate_result_uses_last_machine_argument(self):
+        parameters = ", ".join(f"p{i}: u32" for i in range(23))
+        arguments = ", ".join(str(i + 1) for i in range(23))
+        self.assert_native_result("wide_sret_abi", f"""
+struct Pair {{ first: u32; last: u32; }}
+fn compute({parameters}) -> Pair {{ return Pair {{ first: p0, last: p22 }}; }}
+pub fn main_entry() -> u32 {{
+    let result: Pair = compute({arguments});
+    if result.first == 1 && result.last == 23 {{ return 0; }}
+    return 1;
+}}
+""", 0)
+
+    def test_large_local_arrays_zero_initialize_on_every_iteration(self):
+        self.assert_native_result("large_local_array", """
+pub fn main_entry() -> u32 {
+    let mut round: u32 = 0;
+    while round < 3 {
+        let mut words: [u64; 4096] = 0;
+        let mut index: usize = 0;
+        while index < 4096 {
+            if words[index] != 0 { return 1; }
+            words[index] = 42;
+            index = index + 1;
+        }
+        if words[4095] != 42 { return 2; }
+        round = round + 1;
+    }
+    return 0;
+}
+""", 0)
+
+    def test_field_metadata_beyond_old_limit_preserves_layout(self):
+        declarations = []
+        for group in range(3):
+            fields = " ".join(f"f{i}: u32;" for i in range(80))
+            declarations.append(f"struct Group{group} {{ {fields} }}")
+        initializers = ", ".join(f"f{i}: {i}" for i in range(80))
+        self.assert_native_result("wide_field_metadata", "\n".join(declarations) + f"""
+pub fn main_entry() -> u32 {{
+    let mut value: Group2 = Group2 {{ {initializers} }};
+    value.f79 = 42;
+    if value.f0 == 0 && value.f78 == 78 && value.f79 == 42 {{ return 0; }}
+    return 1;
+}}
+""", 0)
+
+    def test_metadata_capacity_exhaustion_rejects_unused_declarations(self):
+        for count, fields in ((1, 257), (33, 1)):
+            declarations = "\n".join(
+                f"struct Group{group} {{ " + " ".join(f"f{i}: u32;" for i in range(fields)) + " }"
+                for group in range(count))
+            with self.subTest(structs=count, fields=fields):
+                result, output = self.compile(f"metadata_exhaustion_{count}",
+                    declarations + "\npub fn main_entry() -> u32 { return 0; }")
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(output.exists())
+
+    def test_aggregate_pointer_field_store_and_value_argument(self):
+        self.assert_native_result("aggregate_pointer_field", """
+struct Record { value: u64; }
+struct Cursor { entries: *mut Record; }
+fn read(copy: Record) -> u32 { return copy.value as u32; }
+fn update(cursor: Cursor) -> u32 {
+    unsafe { (*(cursor.entries + 0)).value = 42; }
+    return read(unsafe { *(cursor.entries + 0) });
+}
+pub fn main_entry() -> u32 {
+    let mut item: Record = Record { value: 7 };
+    let pointer: *mut Record = unsafe { (&item) as *mut Record };
+    return update(Cursor { entries: pointer });
+}
+""", 42)
+
+    def test_full_native_lowerer_constructs_its_own_state(self):
+        source = (ROOT / "bootstrap/sotlas/native_compiler/backend/lower_scalar.sotlas").read_text(encoding="utf-8")
+        self.assert_native_result("full_lowerer", source + """
+pub fn main_entry() -> u32 {
+    let mut compiler_state: ScalarLowering = ScalarLowering::new(null, 0, null, 0,
+        null, 0, null, 0, null, 0, null, 0, null, 0, null, 0, null, 0, null, 0);
+    if compiler_state.field_total_count != 0 || compiler_state.const_count != 0 { return 1; }
+    if compiler_state.field_type_refs[255] != 0 || compiler_state.local_array_counts[127] != 0 { return 2; }
+    compiler_state.const_count = 42;
+    return compiler_state.const_count as u32;
+}
+""", 42)
+
+    def test_full_native_writer_executes_byte_and_header_helpers(self):
+        source = (ROOT / "bootstrap/sotlas/native_compiler/backend/x86_64_scalar.sotlas").read_text(encoding="utf-8")
+        self.assert_native_result("full_writer", source + """
+pub fn main_entry() -> u32 {
+    let mut bytes: [u8; 4096] = 0;
+    let output: *mut u8 = unsafe { bytes as *mut u8 };
+    if !put_u16(output, 4096, 0, 65535) { return 1; }
+    if !put_u64(output, 4096, 8, 18446744073709551615) { return 2; }
+    if get_u16(output as *const u8, 4096, 0) != 65535 { return 3; }
+    if get_u64(output as *const u8, 4096, 8) != 18446744073709551615 { return 4; }
+    if !put_section_header(output, 4096, 64, 7, 1, 6, 128, 8, 0, 0, 8, 0) { return 5; }
+    if get_u32(output as *const u8, 4096, 64) != 7 { return 6; }
+    if get_u64(output as *const u8, 4096, 88) != 128 { return 7; }
+    if get_u64(output as *const u8, 4096, 112) != 8 { return 8; }
+    return 0;
+}
+""", 0)
+
+    def test_unrelated_functions_do_not_inflate_recursive_frames(self):
+        expression = " + ".join(str(i + 1) for i in range(20))
+        unused = "\n".join(f"fn unused{i}() -> u32 {{ return {expression}; }}" for i in range(60))
+        self.assert_native_result("function_local_frames", unused + """
+fn recurse(depth: u32) -> u32 {
+    if depth == 0 { return 42; }
+    return recurse(depth - 1);
+}
+pub fn main_entry() -> u32 { return recurse(512); }
+""", 42)
+
+    def test_local_array_pointer_cast_rejects_wrong_element_type(self):
+        result, output = self.compile("wrong_array_pointee", """
+pub fn main_entry() -> u32 {
+    let mut bytes: [u8; 32] = 0;
+    let pointer: *mut u16 = unsafe { bytes as *mut u16 };
+    return unsafe { *pointer } as u32;
+}
+""")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(output.exists())
 
     def test_void_function_cannot_return_a_value(self):
         result, output = self.compile("void_value_error", """

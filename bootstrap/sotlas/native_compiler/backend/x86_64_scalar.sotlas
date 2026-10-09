@@ -299,7 +299,7 @@ fn append_object_sysv_stack_parameter_store(
     parameter_index: u32,
     type_tag: TargetTypeTag
 ) -> bool {
-    if value_id == 0 || parameter_index < 6 || parameter_index >= 16
+    if value_id == 0 || parameter_index < 6 || parameter_index >= 24
         || !object_scalar_type(type_tag) { return false; }
     let displacement: u32 = 16 + (parameter_index - 6) * 8;
     if object_type_is_64(type_tag) {
@@ -1702,7 +1702,7 @@ fn append_object_adjust_rsp(
     reserve: bool
 ) -> bool {
     if bytes == 0 { return true; }
-    if (bytes & 15) != 0 || bytes > 80 { return false; }
+    if (bytes & 15) != 0 || bytes > 144 { return false; }
     let mut operation: u8 = 236;
     if !reserve { operation = 196; }
     return append_object_byte(output, capacity, length, 72)
@@ -1717,7 +1717,7 @@ fn append_object_rax_to_stack_argument(
     length: &mut usize,
     argument_index: u32
 ) -> bool {
-    if argument_index < 6 || argument_index >= 16 { return false; }
+    if argument_index < 6 || argument_index >= 24 { return false; }
     // mov qword ptr [rsp + disp32], rax; rsp still points at the
     // aligned outgoing-argument area until the call has returned.
     return append_object_byte(output, capacity, length, 72)
@@ -1886,7 +1886,8 @@ fn append_object_phi_copies(
     phi_inputs: *const TargetPhiInput,
     values: *const TargetValue,
     value_count: u32,
-    scratch_base: u32
+    scratch_base: u32,
+    slot_base: u32
 ) -> bool {
     let mut phi_index: u32 = 0;
     while phi_index < destination.instruction_count {
@@ -1899,7 +1900,7 @@ fn append_object_phi_copies(
             let incoming: TargetPhiInput = unsafe { *(phi_inputs + phi.first_phi_input + incoming_index) };
             if incoming.block_id == predecessor_id {
                 if object_value_type(values, value_count, incoming.value_id) != phi.type_tag
-                    || !append_object_slot_load_typed(output, capacity, length, incoming.value_id, phi.type_tag)
+                    || !append_object_slot_load_typed(output, capacity, length, incoming.value_id - slot_base, phi.type_tag)
                     || !append_object_slot_store_typed(output, capacity, length, scratch_base + phi_index + 1, phi.type_tag) {
                     return false;
                 }
@@ -1916,7 +1917,7 @@ fn append_object_phi_copies(
     while phi_index < phi_count {
         let phi: TargetInstruction = unsafe { *(instructions + destination.first_instruction + phi_index) };
         if !append_object_slot_load_typed(output, capacity, length, scratch_base + phi_index + 1, phi.type_tag)
-            || !append_object_slot_store_typed(output, capacity, length, phi.result_value, phi.type_tag) {
+            || !append_object_slot_store_typed(output, capacity, length, phi.result_value - slot_base, phi.type_tag) {
             return false;
         }
         phi_index = phi_index + 1;
@@ -1924,8 +1925,71 @@ fn append_object_phi_copies(
     return true;
 }
 
-// Unified ELF64 relocatable writer. It accepts any number of defined scalar
-// CFG functions (U32/Bool/U64/I64/Usize/Pointer/Void results and up to six scalar parameters),
+// Value IDs remain module-wide in Target IR. Machine stack slots are relative
+// to this function's value range; unrelated modules do not grow its frame.
+fn object_function_value_bound(parameters: *const TargetParameter,
+    blocks: *const TargetBlock, instructions: *const TargetInstruction,
+    function: TargetFunction, largest: bool) -> u32 {
+    let mut bound: u32 = 0;
+    let mut parameter_index: u32 = 0;
+    while parameter_index < function.parameter_count {
+        let id: u32 = unsafe { (*(parameters + function.first_parameter + parameter_index)).value_id };
+        if id != 0 && (bound == 0 || (largest && id > bound) || (!largest && id < bound)) { bound = id; }
+        parameter_index = parameter_index + 1;
+    }
+    let mut block_index: u32 = 0;
+    while block_index < function.block_count {
+        let block: TargetBlock = unsafe { *(blocks + function.first_block + block_index) };
+        let mut instruction_index: u32 = 0;
+        while instruction_index < block.instruction_count {
+            let id: u32 = unsafe { (*(instructions + block.first_instruction + instruction_index)).result_value };
+            if id != 0 && (bound == 0 || (largest && id > bound) || (!largest && id < bound)) { bound = id; }
+            instruction_index = instruction_index + 1;
+        }
+        block_index = block_index + 1;
+    }
+    return bound;
+}
+
+// Touch each stack page before descending further. This requires no host
+// runtime and preserves all six SysV argument registers on Windows and Linux.
+fn append_object_prologue(output: *mut u8, capacity: usize,
+    length: &mut usize, frame_size: u32) -> bool {
+    if !append_object_byte(output, capacity, length, 85)
+        || !append_object_byte(output, capacity, length, 72)
+        || !append_object_byte(output, capacity, length, 137)
+        || !append_object_byte(output, capacity, length, 229) { return false; }
+    if frame_size > 4096 {
+        // mov eax, size; sub rsp,4096; test byte [rsp],0; sub eax,4096;
+        // cmp eax,4096; jae -23; sub rsp,rax.
+        return append_object_byte(output, capacity, length, 184)
+            && append_object_u32(output, capacity, length, frame_size)
+            && append_object_byte(output, capacity, length, 72)
+            && append_object_byte(output, capacity, length, 129)
+            && append_object_byte(output, capacity, length, 236)
+            && append_object_u32(output, capacity, length, 4096)
+            && append_object_byte(output, capacity, length, 246)
+            && append_object_byte(output, capacity, length, 4)
+            && append_object_byte(output, capacity, length, 36)
+            && append_object_byte(output, capacity, length, 0)
+            && append_object_byte(output, capacity, length, 45)
+            && append_object_u32(output, capacity, length, 4096)
+            && append_object_byte(output, capacity, length, 61)
+            && append_object_u32(output, capacity, length, 4096)
+            && append_object_byte(output, capacity, length, 115)
+            && append_object_byte(output, capacity, length, 233)
+            && append_object_byte(output, capacity, length, 72)
+            && append_object_byte(output, capacity, length, 41)
+            && append_object_byte(output, capacity, length, 196);
+    }
+    return append_object_byte(output, capacity, length, 72)
+        && append_object_byte(output, capacity, length, 129)
+        && append_object_byte(output, capacity, length, 236)
+        && append_object_u32(output, capacity, length, frame_size);
+}
+
+// Unified ELF64 relocatable writer. It accepts up to 256 scalar CFG functions
+// (U32/Bool/U64/I64/Usize/Pointer/Void results and up to 24 machine parameters),
 // external function declarations, direct calls in both directions, Phi on
 // unconditional and conditional edges (conditional edges are split inside the
 // writer), and semantic-only ownership/effect markers, which have no runtime
@@ -1953,7 +2017,7 @@ pub fn emit_elf64_module_object(
     unsafe { *output_length = 0; }
     if source == null || target_module == null || functions == null || output == null { return false; }
     let ir: TargetModule = unsafe { *target_module };
-    if ir.version != 1 || ir.function_count == 0 || ir.function_count > 128
+    if ir.version != 1 || ir.function_count == 0 || ir.function_count > 256
         || ir.value_count > 536870000 {
         return false;
     }
@@ -1961,7 +2025,7 @@ pub fn emit_elf64_module_object(
         target_module, functions, parameters, values, blocks, instructions, operands, phi_inputs, targets
     ) { return false; }
 
-    let mut symbol_of_function: [u32; 128] = 0;
+    let mut symbol_of_function: [u32; 256] = 0;
     let mut defined_count: u32 = 0;
     let mut external_count: u32 = 0;
     let mut strings_size: usize = 1;
@@ -1972,7 +2036,7 @@ pub fn emit_elf64_module_object(
         if function.name.length == 0 || function.name.offset > source_len
             || function.name.length > source_len - function.name.offset
             || function.name.length > 4096
-            || function.parameter_count > 16
+            || function.parameter_count > 24
             || (function.return_type != TargetTypeTag::U8
                 && function.return_type != TargetTypeTag::U16
                 && function.return_type != TargetTypeTag::U32
@@ -2003,7 +2067,7 @@ pub fn emit_elf64_module_object(
         if (function.flags & TARGET_FUNCTION_EXTERNAL) != 0 {
             external_count = external_count + 1;
         } else {
-            if function.block_count > 1024 { return false; }
+            if function.block_count > 2048 { return false; }
             defined_count = defined_count + 1;
             let mut block_offset: u32 = 0;
             while block_offset < function.block_count {
@@ -2042,14 +2106,11 @@ pub fn emit_elf64_module_object(
         unsafe { *(output + clear_index) = 0; }
         clear_index = clear_index + 1;
     }
-    let scratch_base: u32 = ir.value_count;
-    let frame_slots: u32 = ir.value_count + max_phi;
-    let frame_size: u32 = (((frame_slots * 8) + 15) / 16) * 16;
     let mut code: usize = text_offset;
-    let mut function_offsets: [usize; 128] = 0;
-    let mut function_sizes: [usize; 128] = 0;
-    let mut call_patch_offsets: [usize; 2048] = 0;
-    let mut call_patch_functions: [u32; 2048] = 0;
+    let mut function_offsets: [usize; 256] = 0;
+    let mut function_sizes: [usize; 256] = 0;
+    let mut call_patch_offsets: [usize; 4096] = 0;
+    let mut call_patch_functions: [u32; 4096] = 0;
     let mut call_patch_count: u32 = 0;
     let mut data_patch_offsets: [usize; 512] = 0;
     let mut data_patch_sym_offsets: [usize; 512] = 0;
@@ -2064,16 +2125,20 @@ pub fn emit_elf64_module_object(
             continue;
         }
         function_offsets[function_index as usize] = code - text_offset;
+        let first_value: u32 = object_function_value_bound(parameters, blocks, instructions, function, false);
+        let last_value: u32 = object_function_value_bound(parameters, blocks, instructions, function, true);
+        let mut slot_base: u32 = 0;
+        let mut scratch_base: u32 = 0;
+        if first_value != 0 {
+            if last_value < first_value || last_value > ir.value_count { return false; }
+            slot_base = first_value - 1;
+            scratch_base = last_value - slot_base;
+        }
+        let frame_slots: u32 = scratch_base + max_phi;
+        let frame_size: u32 = (((frame_slots * 8) + 15) / 16) * 16;
         let stack_bytes: u32 = object_stack_allocation_end(blocks, instructions, function, 0);
         if stack_bytes == 4294967295 || frame_size > 536870895 as u32 - stack_bytes { return false; }
-        if !append_object_byte(output, capacity, &mut code, 85)
-            || !append_object_byte(output, capacity, &mut code, 72)
-            || !append_object_byte(output, capacity, &mut code, 137)
-            || !append_object_byte(output, capacity, &mut code, 229)
-            || !append_object_byte(output, capacity, &mut code, 72)
-            || !append_object_byte(output, capacity, &mut code, 129)
-            || !append_object_byte(output, capacity, &mut code, 236)
-            || !append_object_u32(output, capacity, &mut code, frame_size + stack_bytes) {
+        if !append_object_prologue(output, capacity, &mut code, frame_size + stack_bytes) {
             return false;
         }
         let mut parameter_index: u32 = 0;
@@ -2082,16 +2147,16 @@ pub fn emit_elf64_module_object(
             let is_64: bool = object_type_is_64(parameter.type_tag);
             if parameter_index < 6 {
                 if !append_object_sysv_parameter_store(
-                    output, capacity, &mut code, parameter.value_id, parameter_index, is_64
+                    output, capacity, &mut code, parameter.value_id - slot_base, parameter_index, is_64
                 ) { return false; }
             } else if !append_object_sysv_stack_parameter_store(
-                output, capacity, &mut code, parameter.value_id, parameter_index, parameter.type_tag
+                output, capacity, &mut code, parameter.value_id - slot_base, parameter_index, parameter.type_tag
             ) { return false; }
             parameter_index = parameter_index + 1;
         }
-        let mut block_offsets: [usize; 1024] = 0;
-        let mut branch_offsets: [usize; 2048] = 0;
-        let mut branch_blocks: [u32; 2048] = 0;
+        let mut block_offsets: [usize; 2048] = 0;
+        let mut branch_offsets: [usize; 4096] = 0;
+        let mut branch_blocks: [u32; 4096] = 0;
         let mut branch_count: u32 = 0;
         let mut block_offset: u32 = 0;
         while block_offset < function.block_count {
@@ -2112,14 +2177,14 @@ pub fn emit_elf64_module_object(
                         if !append_object_byte(output, capacity, &mut code, 72)
                             || !append_object_byte(output, capacity, &mut code, 184)
                             || !append_object_u64(output, capacity, &mut code, instruction.immediate_bits)
-                            || !append_object_slot_store64(output, capacity, &mut code, instruction.result_value) {
+                            || !append_object_slot_store64(output, capacity, &mut code, instruction.result_value - slot_base) {
                             return false;
                         }
                     } else {
                         if instruction.immediate_bits > 4294967295
                             || !append_object_byte(output, capacity, &mut code, 184)
                             || !append_object_u32(output, capacity, &mut code, instruction.immediate_bits as u32)
-                            || !append_object_slot_store(output, capacity, &mut code, instruction.result_value) {
+                            || !append_object_slot_store(output, capacity, &mut code, instruction.result_value - slot_base) {
                             return false;
                         }
                     }
@@ -2137,7 +2202,7 @@ pub fn emit_elf64_module_object(
                     );
                     if !object_integer_cast_type(source_type)
                         || !append_object_slot_load_typed(
-                            output, capacity, &mut code, source.value_id, source_type
+                            output, capacity, &mut code, source.value_id - slot_base, source_type
                         ) {
                         return false;
                     }
@@ -2145,7 +2210,7 @@ pub fn emit_elf64_module_object(
                         if !append_object_byte(output, capacity, &mut code, 37)
                             || !append_object_u32(output, capacity, &mut code, 255)
                             || !append_object_slot_store(
-                                output, capacity, &mut code, instruction.result_value
+                                output, capacity, &mut code, instruction.result_value - slot_base
                             ) {
                             return false;
                         }
@@ -2153,19 +2218,19 @@ pub fn emit_elf64_module_object(
                         if !append_object_byte(output, capacity, &mut code, 37)
                             || !append_object_u32(output, capacity, &mut code, 65535)
                             || !append_object_slot_store(
-                                output, capacity, &mut code, instruction.result_value
+                                output, capacity, &mut code, instruction.result_value - slot_base
                             ) {
                             return false;
                         }
                     } else if object_type_is_64(result_type) {
                         if !append_object_slot_store64(
-                            output, capacity, &mut code, instruction.result_value
+                            output, capacity, &mut code, instruction.result_value - slot_base
                         ) {
                             return false;
                         }
                     } else if result_type == TargetTypeTag::U32 {
                         if !append_object_slot_store(
-                            output, capacity, &mut code, instruction.result_value
+                            output, capacity, &mut code, instruction.result_value - slot_base
                         ) {
                             return false;
                         }
@@ -2196,10 +2261,10 @@ pub fn emit_elf64_module_object(
                             && index_type != TargetTypeTag::Usize)
                         || subtract > 1 || stride == 0 || stride > 2147483647
                         || !append_object_slot_load_ptr_rcx(
-                            output, capacity, &mut code, base.value_id
+                            output, capacity, &mut code, base.value_id - slot_base
                         )
                         || !append_object_slot_load_typed(
-                            output, capacity, &mut code, index.value_id, index_type
+                            output, capacity, &mut code, index.value_id - slot_base, index_type
                         ) {
                         return false;
                     }
@@ -2249,7 +2314,7 @@ pub fn emit_elf64_module_object(
                         }
                     }
                     if !append_object_slot_store64(
-                        output, capacity, &mut code, instruction.result_value
+                        output, capacity, &mut code, instruction.result_value - slot_base
                     ) {
                         return false;
                     }
@@ -2278,10 +2343,10 @@ pub fn emit_elf64_module_object(
                         || count == 0 || count > 2147483647
                         || (stride != 1 && stride != 2 && stride != 4 && stride != 8)
                         || !append_object_slot_load_ptr_rcx(
-                            output, capacity, &mut code, base.value_id
+                            output, capacity, &mut code, base.value_id - slot_base
                         )
                         || !append_object_slot_load_typed(
-                            output, capacity, &mut code, index.value_id, index_type
+                            output, capacity, &mut code, index.value_id - slot_base, index_type
                         )
                         || !append_object_byte(output, capacity, &mut code, 72)
                         || !append_object_byte(output, capacity, &mut code, 61)
@@ -2319,7 +2384,7 @@ pub fn emit_elf64_module_object(
                         || !append_object_byte(output, capacity, &mut code, 1)
                         || !append_object_byte(output, capacity, &mut code, 200)
                         || !append_object_slot_store64(
-                            output, capacity, &mut code, instruction.result_value
+                            output, capacity, &mut code, instruction.result_value - slot_base
                         ) {
                         return false;
                     }
@@ -2349,7 +2414,7 @@ pub fn emit_elf64_module_object(
                     let right: TargetOperand = unsafe { *(operands + instruction.first_operand + 1) };
                     if object_value_type(values, ir.value_count, left.value_id) != result_type
                         || object_value_type(values, ir.value_count, right.value_id) != result_type
-                        || !append_object_slot_load_typed(output, capacity, &mut code, left.value_id, result_type) {
+                        || !append_object_slot_load_typed(output, capacity, &mut code, left.value_id - slot_base, result_type) {
                         return false;
                     }
                     let wide: bool = object_type_is_64(result_type);
@@ -2374,7 +2439,7 @@ pub fn emit_elf64_module_object(
                         || !append_object_byte(output, capacity, &mut code, 133) {
                         return false;
                     }
-                    if !append_object_u32(output, capacity, &mut code, 0 as u32 - right.value_id * 8) {
+                    if !append_object_u32(output, capacity, &mut code, 0 as u32 - (right.value_id - slot_base) * 8) {
                         return false;
                     }
                     // addl/subl/imull and bitwise operators leave an EAX result.
@@ -2389,7 +2454,7 @@ pub fn emit_elf64_module_object(
                         }
                     }
                     if !append_object_slot_store_typed(
-                        output, capacity, &mut code, instruction.result_value, result_type
+                        output, capacity, &mut code, instruction.result_value - slot_base, result_type
                     ) {
                         return false;
                     }
@@ -2431,12 +2496,12 @@ pub fn emit_elf64_module_object(
                     if object_value_type(values, ir.value_count, left.value_id) != result_type
                         || object_value_type(values, ir.value_count, right.value_id) != result_type
                         || !append_object_slot_load_typed(
-                            output, capacity, &mut code, left.value_id, result_type
+                            output, capacity, &mut code, left.value_id - slot_base, result_type
                         )
                         || !append_object_byte(output, capacity, &mut code, 139)
                         || !append_object_byte(output, capacity, &mut code, 141)
                         || !append_object_u32(
-                            output, capacity, &mut code, 0 as u32 - right.value_id * 8
+                            output, capacity, &mut code, 0 as u32 - (right.value_id - slot_base) * 8
                         ) {
                         return false;
                     }
@@ -2465,7 +2530,7 @@ pub fn emit_elf64_module_object(
                             || !append_object_byte(output, capacity, &mut code, 192) { return false; }
                     }
                     if !append_object_slot_store_typed(
-                            output, capacity, &mut code, instruction.result_value, result_type
+                            output, capacity, &mut code, instruction.result_value - slot_base, result_type
                         ) {
                         return false;
                     }
@@ -2485,7 +2550,7 @@ pub fn emit_elf64_module_object(
                     if object_value_type(values, ir.value_count, left.value_id) != result_type
                         || object_value_type(values, ir.value_count, right.value_id) != result_type
                         || !append_object_slot_load_typed(
-                            output, capacity, &mut code, left.value_id, result_type
+                            output, capacity, &mut code, left.value_id - slot_base, result_type
                         ) {
                         return false;
                     }
@@ -2503,7 +2568,7 @@ pub fn emit_elf64_module_object(
                     if !append_object_byte(output, capacity, &mut code, 247)
                         || !append_object_byte(output, capacity, &mut code, 181)
                         || !append_object_u32(
-                            output, capacity, &mut code, 0 as u32 - right.value_id * 8
+                            output, capacity, &mut code, 0 as u32 - (right.value_id - slot_base) * 8
                         ) {
                         return false;
                     }
@@ -2517,7 +2582,7 @@ pub fn emit_elf64_module_object(
                         }
                     }
                     if !append_object_slot_store_typed(
-                        output, capacity, &mut code, instruction.result_value, result_type
+                        output, capacity, &mut code, instruction.result_value - slot_base, result_type
                     ) {
                         return false;
                     }
@@ -2530,7 +2595,7 @@ pub fn emit_elf64_module_object(
                         }
                         let patch_offset: usize = code;
                         if !append_object_u32(output, capacity, &mut code, 0)
-                            || !append_object_slot_store64(output, capacity, &mut code, instruction.result_value) {
+                            || !append_object_slot_store64(output, capacity, &mut code, instruction.result_value - slot_base) {
                             return false;
                         }
                         if data_patch_count < 512 {
@@ -2546,7 +2611,7 @@ pub fn emit_elf64_module_object(
                         if allocation_end == 4294967295 { return false; }
                         let alloc_off: u32 = frame_size + allocation_end;
                         if !append_object_lea_rbp(output, capacity, &mut code, alloc_off)
-                            || !append_object_slot_store64(output, capacity, &mut code, instruction.result_value) {
+                            || !append_object_slot_store64(output, capacity, &mut code, instruction.result_value - slot_base) {
                             return false;
                         }
                     }
@@ -2558,8 +2623,8 @@ pub fn emit_elf64_module_object(
                         || !object_scalar_type(instruction.type_tag)
                         || object_value_type(values, ir.value_count, base_op.value_id) != TargetTypeTag::Pointer
                         || object_value_type(values, ir.value_count, val_op.value_id) != instruction.type_tag
-                        || !append_object_slot_load_ptr(output, capacity, &mut code, base_op.value_id)
-                        || !append_object_slot_load_typed(output, capacity, &mut code, val_op.value_id, instruction.type_tag) {
+                        || !append_object_slot_load_ptr(output, capacity, &mut code, base_op.value_id - slot_base)
+                        || !append_object_slot_load_typed(output, capacity, &mut code, val_op.value_id - slot_base, instruction.type_tag) {
                         return false;
                     }
                     if instruction.type_tag == TargetTypeTag::U8 || instruction.type_tag == TargetTypeTag::Bool {
@@ -2578,26 +2643,26 @@ pub fn emit_elf64_module_object(
                         || !object_scalar_type(instruction.type_tag)
                         || result_type != instruction.type_tag
                         || object_value_type(values, ir.value_count, base_op.value_id) != TargetTypeTag::Pointer
-                        || !append_object_slot_load_ptr(output, capacity, &mut code, base_op.value_id) {
+                        || !append_object_slot_load_ptr(output, capacity, &mut code, base_op.value_id - slot_base) {
                         return false;
                     }
                     if instruction.type_tag == TargetTypeTag::U8 || instruction.type_tag == TargetTypeTag::Bool {
                         if !append_object_load_mem8(output, capacity, &mut code, mem_offset)
-                            || !append_object_slot_store(output, capacity, &mut code, instruction.result_value) {
+                            || !append_object_slot_store(output, capacity, &mut code, instruction.result_value - slot_base) {
                             return false;
                         }
                     } else if instruction.type_tag == TargetTypeTag::U16 {
                         if !append_object_load_mem16(output, capacity, &mut code, mem_offset)
-                            || !append_object_slot_store(output, capacity, &mut code, instruction.result_value) {
+                            || !append_object_slot_store(output, capacity, &mut code, instruction.result_value - slot_base) {
                             return false;
                         }
                     } else if object_type_is_64(instruction.type_tag) {
                         if !append_object_load_mem64(output, capacity, &mut code, mem_offset)
-                            || !append_object_slot_store64(output, capacity, &mut code, instruction.result_value) {
+                            || !append_object_slot_store64(output, capacity, &mut code, instruction.result_value - slot_base) {
                             return false;
                         }
                     } else if !append_object_load_mem32(output, capacity, &mut code, mem_offset)
-                        || !append_object_slot_store(output, capacity, &mut code, instruction.result_value) {
+                        || !append_object_slot_store(output, capacity, &mut code, instruction.result_value - slot_base) {
                         return false;
                     }
                 } else if instruction.opcode == TargetOpcode::Compare {
@@ -2612,7 +2677,7 @@ pub fn emit_elf64_module_object(
                         || object_value_type(values, ir.value_count, right.value_id) != left_type
                         || (left_type == TargetTypeTag::Bool && instruction.immediate_bits > 87)
                         || (left_type == TargetTypeTag::Pointer && instruction.immediate_bits > 87)
-                        || !append_object_slot_load_typed(output, capacity, &mut code, left.value_id, left_type) {
+                        || !append_object_slot_load_typed(output, capacity, &mut code, left.value_id - slot_base, left_type) {
                         return false;
                     }
                     if object_type_is_64(left_type)
@@ -2621,7 +2686,7 @@ pub fn emit_elf64_module_object(
                     }
                     if !append_object_byte(output, capacity, &mut code, 59)
                         || !append_object_byte(output, capacity, &mut code, 133)
-                        || !append_object_u32(output, capacity, &mut code, 0 as u32 - right.value_id * 8) {
+                        || !append_object_u32(output, capacity, &mut code, 0 as u32 - (right.value_id - slot_base) * 8) {
                         return false;
                     }
                     let mut setcc: u8 = 147 as u8;
@@ -2642,7 +2707,7 @@ pub fn emit_elf64_module_object(
                         || !append_object_byte(output, capacity, &mut code, 15)
                         || !append_object_byte(output, capacity, &mut code, 182)
                         || !append_object_byte(output, capacity, &mut code, 192)
-                        || !append_object_slot_store(output, capacity, &mut code, instruction.result_value) {
+                        || !append_object_slot_store(output, capacity, &mut code, instruction.result_value - slot_base) {
                         return false;
                     }
                 } else if instruction.opcode == TargetOpcode::BoolAnd
@@ -2661,7 +2726,7 @@ pub fn emit_elf64_module_object(
                         || object_value_type(values, ir.value_count, right.value_id)
                             != TargetTypeTag::Bool
                         || !append_object_slot_load(
-                            output, capacity, &mut code, left.value_id
+                            output, capacity, &mut code, left.value_id - slot_base
                         ) {
                         return false;
                     }
@@ -2672,10 +2737,10 @@ pub fn emit_elf64_module_object(
                     if !append_object_byte(output, capacity, &mut code, opcode)
                         || !append_object_byte(output, capacity, &mut code, 133)
                         || !append_object_u32(
-                            output, capacity, &mut code, 0 as u32 - right.value_id * 8
+                            output, capacity, &mut code, 0 as u32 - (right.value_id - slot_base) * 8
                         )
                         || !append_object_slot_store(
-                            output, capacity, &mut code, instruction.result_value
+                            output, capacity, &mut code, instruction.result_value - slot_base
                         ) {
                         return false;
                     }
@@ -2683,9 +2748,9 @@ pub fn emit_elf64_module_object(
                     let callee_index: u32 = object_find_function(
                         source, source_len, functions, ir.function_count, instruction.symbol
                     );
-                    if callee_index >= ir.function_count || call_patch_count >= 2048 { return false; }
+                    if callee_index >= ir.function_count || call_patch_count >= 4096 { return false; }
                     let callee: TargetFunction = unsafe { *(functions + callee_index) };
-                    if callee.parameter_count != instruction.operand_count || instruction.operand_count > 16 { return false; }
+                    if callee.parameter_count != instruction.operand_count || instruction.operand_count > 24 { return false; }
                     if callee.return_type == TargetTypeTag::Void {
                         if instruction.result_value != 0 { return false; }
                     } else if result_type != callee.return_type || instruction.type_tag != callee.return_type {
@@ -2707,7 +2772,7 @@ pub fn emit_elf64_module_object(
                         }
                         let is_64: bool = object_type_is_64(parameter.type_tag);
                         if is_64 {
-                            if !append_object_slot_load_rax64(output, capacity, &mut code, argument.value_id)
+                            if !append_object_slot_load_rax64(output, capacity, &mut code, argument.value_id - slot_base)
                                 || (argument_index < 6
                                     && !append_object_rax_to_argument(output, capacity, &mut code, argument_index))
                                 || (argument_index >= 6
@@ -2715,7 +2780,7 @@ pub fn emit_elf64_module_object(
                                 return false;
                             }
                         } else {
-                            if !append_object_slot_load(output, capacity, &mut code, argument.value_id)
+                            if !append_object_slot_load(output, capacity, &mut code, argument.value_id - slot_base)
                                 || (argument_index < 6
                                     && !append_object_eax_to_argument(output, capacity, &mut code, argument_index))
                                 || (argument_index >= 6
@@ -2735,18 +2800,18 @@ pub fn emit_elf64_module_object(
                     }
                     if instruction.result_value != 0
                         && !append_object_slot_store_typed(
-                            output, capacity, &mut code, instruction.result_value, callee.return_type
+                            output, capacity, &mut code, instruction.result_value - slot_base, callee.return_type
                         ) {
                         return false;
                     }
                 } else if instruction.opcode == TargetOpcode::Branch {
-                    if instruction.target_count != 1 || branch_count >= 2048 { return false; }
+                    if instruction.target_count != 1 || branch_count >= 4096 { return false; }
                     let destination_id: u32 = unsafe { *(targets + instruction.first_target) };
                     let destination: u32 = object_block_offset(blocks, function.first_block, function.block_count, destination_id);
                     if destination >= function.block_count
                         || !append_object_phi_copies(output, capacity, &mut code,
                             unsafe { *(blocks + function.first_block + destination) }, block.id,
-                            instructions, phi_inputs, values, ir.value_count, scratch_base)
+                            instructions, phi_inputs, values, ir.value_count, scratch_base, slot_base)
                         || !append_object_byte(output, capacity, &mut code, 233) {
                         return false;
                     }
@@ -2763,7 +2828,7 @@ pub fn emit_elf64_module_object(
                         unsafe { *(targets + instruction.first_target + 1) });
                     if yes >= function.block_count || no >= function.block_count
                         || object_value_type(values, ir.value_count, condition.value_id) != TargetTypeTag::Bool
-                        || !append_object_slot_load(output, capacity, &mut code, condition.value_id)
+                        || !append_object_slot_load(output, capacity, &mut code, condition.value_id - slot_base)
                         || !append_object_byte(output, capacity, &mut code, 133)
                         || !append_object_byte(output, capacity, &mut code, 192)
                         || !append_object_byte(output, capacity, &mut code, 15)
@@ -2774,7 +2839,7 @@ pub fn emit_elf64_module_object(
                     if !append_object_u32(output, capacity, &mut code, 0)
                         || !append_object_phi_copies(output, capacity, &mut code,
                             unsafe { *(blocks + function.first_block + yes) }, block.id,
-                            instructions, phi_inputs, values, ir.value_count, scratch_base)
+                            instructions, phi_inputs, values, ir.value_count, scratch_base, slot_base)
                         || !append_object_byte(output, capacity, &mut code, 233) {
                         return false;
                     }
@@ -2785,7 +2850,7 @@ pub fn emit_elf64_module_object(
                         || !put_u32(output, capacity, skip_offset, (code as u32) - (skip_offset as u32 + 4))
                         || !append_object_phi_copies(output, capacity, &mut code,
                             unsafe { *(blocks + function.first_block + no) }, block.id,
-                            instructions, phi_inputs, values, ir.value_count, scratch_base)
+                            instructions, phi_inputs, values, ir.value_count, scratch_base, slot_base)
                         || !append_object_byte(output, capacity, &mut code, 233) {
                         return false;
                     }
@@ -2808,11 +2873,11 @@ pub fn emit_elf64_module_object(
                         }
                         let is_64: bool = object_type_is_64(function.return_type);
                         if is_64 {
-                            if !append_object_slot_load_rax64(output, capacity, &mut code, returned.value_id) {
+                            if !append_object_slot_load_rax64(output, capacity, &mut code, returned.value_id - slot_base) {
                                 return false;
                             }
                         } else {
-                            if !append_object_slot_load(output, capacity, &mut code, returned.value_id) {
+                            if !append_object_slot_load(output, capacity, &mut code, returned.value_id - slot_base) {
                                 return false;
                             }
                         }

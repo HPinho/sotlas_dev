@@ -58,13 +58,14 @@ pub struct ScalarLowering {
     pub struct_field_starts: [u32; 32];
     pub struct_field_counts: [u32; 32];
     pub struct_count: usize;
-    pub field_name_offsets: [usize; 128];
-    pub field_name_lens: [usize; 128];
-    pub field_offsets: [u32; 128];
-    pub field_type_tags: [u32; 128];
-    pub field_struct_ids: [u32; 128];
-    pub field_byte_counts: [u32; 128];
-    pub field_array_types: [u32; 128];
+    pub field_name_offsets: [usize; 256];
+    pub field_name_lens: [usize; 256];
+    pub field_offsets: [u32; 256];
+    pub field_type_tags: [u32; 256];
+    pub field_struct_ids: [u32; 256];
+    pub field_byte_counts: [u32; 256];
+    pub field_array_types: [u32; 256];
+    pub field_type_refs: [usize; 256];
     pub field_total_count: usize;
     pub enum_name_offsets: [usize; 32];
     pub enum_name_lens: [usize; 32];
@@ -575,13 +576,14 @@ impl ScalarLowering {
             struct_field_starts: [0; 32],
             struct_field_counts: [0; 32],
             struct_count: 0,
-            field_name_offsets: [0; 128],
-            field_name_lens: [0; 128],
-            field_offsets: [0; 128],
-            field_type_tags: [0; 128],
-            field_struct_ids: [0; 128],
-            field_byte_counts: [0; 128],
-            field_array_types: [0; 128],
+            field_name_offsets: [0; 256],
+            field_name_lens: [0; 256],
+            field_offsets: [0; 256],
+            field_type_tags: [0; 256],
+            field_struct_ids: [0; 256],
+            field_byte_counts: [0; 256],
+            field_array_types: [0; 256],
+            field_type_refs: [0; 256],
             field_total_count: 0,
             enum_name_offsets: [0; 32],
             enum_name_lens: [0; 32],
@@ -777,6 +779,15 @@ impl ScalarLowering {
             || expression_index >= self.node_count {
             return 0;
         }
+        let expression: AstNode = unsafe { *(self.nodes + expression_index) };
+        if self.structured_cfg && expression.kind == AstKind::ExprFieldAccess {
+            let owner: u32 = self.cfg_struct_id(expression.first_child, 0);
+            let field: u32 = self.find_field(owner, expression.str_offset, expression.str_len);
+            if field != 0 {
+                let declared: usize = self.field_type_refs[field as usize - 1];
+                if declared != 0 && self.type_tag_for(declared) == TargetTypeTag::Pointer { return declared; }
+            }
+        }
         let mut sem: Sema = Sema::new();
         let inferred: usize = sem.infer_expression_type_ref(
             self.nodes, self.node_count, expression_index,
@@ -786,7 +797,6 @@ impl ScalarLowering {
             return inferred;
         }
 
-        let expression: AstNode = unsafe { *(self.nodes + expression_index) };
         if expression.kind == AstKind::UnsafeExpr
             || (expression.kind == AstKind::ExprUnary && expression.int_value == 82) {
             return self.pointer_expression_type_ref(expression.first_child);
@@ -1654,7 +1664,9 @@ impl ScalarLowering {
             struct_id = self.find_local_struct_id(base_node.str_offset, base_node.str_len);
             base_ptr = self.find_parameter_value(
                 first_parameter, parameter_count, base_node.str_offset, base_node.str_len);
-        } else if self.structured_cfg && base_node.kind == AstKind::ExprFieldAccess {
+        } else if self.structured_cfg && (base_node.kind == AstKind::ExprFieldAccess
+            || base_node.kind == AstKind::UnsafeExpr
+            || (base_node.kind == AstKind::ExprUnary && base_node.int_value == 82)) {
             struct_id = self.cfg_struct_id(base_index, 0);
             base_ptr = self.cfg_struct_address(base_index, first_parameter, parameter_count, 0);
         } else { return false; }
@@ -1899,6 +1911,10 @@ impl ScalarLowering {
             if pointer_type_ref == 0 {
                 return TARGET_VALUE_NONE;
             }
+            if self.structured_cfg && type_tag == TargetTypeTag::Pointer
+                && self.pointer_pointee_struct_id(pointer_type_ref) != 0 {
+                return self.cfg_struct_address(expression_index, first_parameter, parameter_count, 0);
+            }
             let pointee_type: TargetTypeTag = self.pointer_pointee_type_tag(
                 pointer_type_ref
             );
@@ -1960,6 +1976,19 @@ impl ScalarLowering {
                 return self.local_value_ids[slot] as u32;
             }
             if cast_type == TargetTypeTag::Pointer {
+                if self.structured_cfg && value_node.kind == AstKind::ExprIdent {
+                    let slot: usize = self.cfg_find_local(value_node.str_offset, value_node.str_len);
+                    if slot < self.local_count && self.local_array_counts[slot] != 0 {
+                        let pointee_tag: u32 = self.pointer_pointee_type_tag(cast_type_index) as u32;
+                        if (type_tag != TargetTypeTag::Invalid && type_tag != TargetTypeTag::Pointer)
+                            || self.pointer_pointee_struct_id(cast_type_index) != 0
+                            || pointee_tag != self.local_array_types[slot] {
+                            return TARGET_VALUE_NONE;
+                        }
+                        let address: u32 = self.local_value_ids[slot];
+                        return address;
+                    }
+                }
                 let source_ref: usize = self.pointer_expression_type_ref(value_index);
                 if source_ref != 0 {
                     let source_struct: u32 = self.pointer_pointee_struct_id(source_ref);
@@ -2182,7 +2211,7 @@ impl ScalarLowering {
             }
             let callee: AstNode = unsafe { *(self.nodes + expression.first_child) };
             let mut callee_symbol: TargetSourceSlice = TargetSourceSlice::empty();
-            let mut argument_values: [u32; 16] = 0;
+            let mut argument_values: [u32; 24] = 0;
             let mut argument_count: u32 = 0;
             let mut argument_index: usize = callee.next_sibling;
             let mut callee_decl: usize = 0;
@@ -2203,7 +2232,7 @@ impl ScalarLowering {
                 if callee_decl == 0 {
                     return TARGET_VALUE_NONE;
                 }
-                if self.function_parameter_count_from_ast(callee_decl) > 16 {
+                if self.function_parameter_count_from_ast(callee_decl) > 24 {
                     return TARGET_VALUE_NONE;
                 }
             } else if callee.kind == AstKind::ExprPath {
@@ -2243,7 +2272,7 @@ impl ScalarLowering {
                     || call_sema.static_impl_receiver_index(
                         self.nodes, self.node_count, callee_decl, self.source, self.source_len
                     ) != 0
-                    || self.function_parameter_count_from_ast(callee_decl) > 16 {
+                    || self.function_parameter_count_from_ast(callee_decl) > 24 {
                     return TARGET_VALUE_NONE;
                 }
             } else if callee.kind == AstKind::ExprFieldAccess {
@@ -2263,7 +2292,7 @@ impl ScalarLowering {
                     expression_index, struct_id, m_off, m_len
                 );
                 if callee_decl == 0
-                    || self.function_parameter_count_from_ast(callee_decl) > 16
+                    || self.function_parameter_count_from_ast(callee_decl) > 24
                     || self.function_parameter_type_from_ast(callee_decl, 0)
                         != TargetTypeTag::Pointer
                     || self.values == null || base_ptr == 0
@@ -2280,7 +2309,7 @@ impl ScalarLowering {
             }
 
             while argument_index != 0 {
-                if argument_index >= self.node_count || argument_count >= 16 {
+                if argument_index >= self.node_count || argument_count >= 24 {
                     return TARGET_VALUE_NONE;
                 }
                 let mut argument_type: TargetTypeTag = TargetTypeTag::U32;
@@ -2318,7 +2347,7 @@ impl ScalarLowering {
             let aggregate_return: u32 = self.function_return_struct_from_ast(callee_decl);
             let mut aggregate_destination: u32 = 0;
             if aggregate_return != 0 {
-                if argument_count >= 16
+                if argument_count >= 24
                     || (type_tag != TargetTypeTag::Pointer && type_tag != TargetTypeTag::Invalid) { return 0; }
                 let declared: AstNode = unsafe { *(self.nodes + callee_decl) };
                 let mut body_scan: usize = declared.first_child;
@@ -2408,7 +2437,7 @@ impl ScalarLowering {
             }
 
             let mut init_index: usize = expression.first_child;
-            let mut initialized: [u8; 128] = 0;
+            let mut initialized: [u8; 256] = 0;
             while init_index != 0 {
                 if init_index >= self.node_count {
                     return TARGET_VALUE_NONE;
@@ -2827,11 +2856,11 @@ impl ScalarLowering {
             return false;
         }
         let expected_count: u32 = self.function_parameter_count_from_ast(callee_decl);
-        if expected_count > 16 {
+        if expected_count > 24 {
             return false;
         }
 
-        let mut argument_values: [u32; 16] = 0;
+        let mut argument_values: [u32; 24] = 0;
         let mut argument_count: u32 = 0;
         let mut symbol: TargetSourceSlice = TargetSourceSlice { offset: callee.str_offset, length: callee.str_len };
         if callee.kind == AstKind::ExprPath || callee.kind == AstKind::ExprFieldAccess {
@@ -2968,6 +2997,9 @@ impl ScalarLowering {
             let field: u32 = self.find_field(owner, expression.str_offset, expression.str_len);
             if field != 0 { return self.field_type_tags[field as usize - 1] as TargetTypeTag; }
         }
+        // Enum paths lower to their validated U32 discriminant. Unknown paths
+        // still fail in lower_expression before publishing a value.
+        if expression.kind == AstKind::ExprPath { return TargetTypeTag::U32; }
         if self.structured_cfg && expression.kind == AstKind::ExprIndex {
             if expression.first_child != 0 && expression.first_child < self.node_count {
                 let base: AstNode = unsafe { *(self.nodes + expression.first_child) };
@@ -2975,6 +3007,12 @@ impl ScalarLowering {
                     let slot: usize = self.cfg_find_local(base.str_offset, base.str_len);
                     if slot < self.local_count && self.local_array_counts[slot] != 0 {
                         return self.local_array_types[slot] as TargetTypeTag;
+                    }
+                    if slot >= self.local_count {
+                        let global: isize = self.find_global_bss(base.str_offset, base.str_len);
+                        if global >= 0 && unsafe { g_bss_sym_is_array[global as usize] } != 0 {
+                            return unsafe { g_bss_sym_element_types[global as usize] } as TargetTypeTag;
+                        }
                     }
                 }
             }
@@ -2984,6 +3022,24 @@ impl ScalarLowering {
         if expression.kind == AstKind::ExprCall {
             let declaration: usize = self.cfg_call_declaration(expression_index, 0);
             if declaration != 0 { return self.function_return_type_from_ast(declaration); }
+        }
+        // Carry indexed/local field widths through arithmetic before a cast.
+        // The prototype Sema can infer an array declaration for its element;
+        // native storage metadata is authoritative for an executable value.
+        if expression.kind == AstKind::ExprBinary
+            && ((expression.int_value >= 80 && expression.int_value <= 84)
+                || (expression.int_value >= 92 && expression.int_value <= 97)) {
+            let left_index: usize = expression.first_child;
+            if left_index == 0 || left_index >= self.node_count { return TargetTypeTag::Invalid; }
+            let right_index: usize = unsafe { (*(self.nodes + left_index)).next_sibling };
+            if right_index == 0 || right_index >= self.node_count { return TargetTypeTag::Invalid; }
+            let left_type: TargetTypeTag = self.condition_expression_type(left_index, first_parameter, parameter_count);
+            let right_type: TargetTypeTag = self.condition_expression_type(right_index, first_parameter, parameter_count);
+            if left_type != TargetTypeTag::Pointer && right_type != TargetTypeTag::Pointer {
+                if left_type == TargetTypeTag::Invalid { return right_type; }
+                if right_type == TargetTypeTag::Invalid || left_type == right_type { return left_type; }
+                return TargetTypeTag::Invalid;
+            }
         }
         if expression.kind == AstKind::ExprIdent {
             if self.structured_cfg {
@@ -4482,6 +4538,7 @@ impl ScalarLowering {
         while i < self.node_count {
             let node: AstNode = unsafe { *(self.nodes + i) };
             let is_loop: bool = node.kind == AstKind::WhileStmt;
+            let is_branch: bool = node.kind == AstKind::IfStmt;
             let mut is_local_array: bool = false;
             if node.kind == AstKind::LetStmt && node.first_child != 0
                 && node.first_child < self.node_count {
@@ -4511,7 +4568,7 @@ impl ScalarLowering {
                     (*(self.nodes + node.first_child)).kind
                 } == AstKind::ExprFieldAccess;
             }
-            if is_loop || is_local_array || needs_lazy_condition || is_field_assignment || is_aggregate_call || unsafe_block || nested_field || method_call || array_index {
+            if is_loop || is_branch || is_local_array || needs_lazy_condition || is_field_assignment || is_aggregate_call || unsafe_block || nested_field || method_call || array_index {
                 let mut parent: usize = node.parent;
                 let mut depth: usize = 0;
                 let mut nested_in_if: bool = false;
@@ -4520,7 +4577,7 @@ impl ScalarLowering {
                         if is_loop { count = count + 1; }
                         if is_local_array { local_array_decl = true; }
                         if is_aggregate_call { aggregate_call = true; }
-                        if needs_lazy_condition || unsafe_block || nested_field || method_call || array_index { needs_cfg = true; }
+                        if (is_branch && nested_in_if) || needs_lazy_condition || unsafe_block || nested_field || method_call || array_index { needs_cfg = true; }
                         if needs_lazy_condition && self.cfg_expression_contains_unsafe(i, 0) {
                             no_loop_unsafe = true;
                         }
@@ -4659,6 +4716,71 @@ impl ScalarLowering {
             && self.append_instruction(TargetOpcode::Store, 0, typ, first, 2, node);
     }
 
+    // Initialize large local arrays with bounded executable CFG instead of
+    // duplicating four IR instructions for every element in compiler tables.
+    pub fn cfg_zero_array(mut self: &mut Self, address: u32, count: usize,
+        stride: u32, element_type: TargetTypeTag, node: usize) -> bool {
+        if address == 0 || count == 0 || count > 4096 || stride == 0 || self.cfg_current == 0 { return false; }
+        let counter: u32 = self.append_value(TargetTypeTag::Pointer, 0, 0);
+        if counter == 0 || !self.append_instruction(TargetOpcode::AllocStack, counter,
+            TargetTypeTag::Pointer, 0, 0, node) { return false; }
+        unsafe { (*(self.instructions + self.instruction_count - 1)).immediate_bits = 8; }
+        let start: u32 = self.append_value(TargetTypeTag::U64, 0, 0);
+        let limit: u32 = self.append_value(TargetTypeTag::U64, 0, 0);
+        let one: u32 = self.append_value(TargetTypeTag::U64, 0, 0);
+        let zero: u32 = self.append_value(element_type, 0, 0);
+        if start == 0 || limit == 0 || one == 0 || zero == 0
+            || !self.append_instruction(TargetOpcode::ConstInt, start, TargetTypeTag::U64, 0, 0, node)
+            || !self.cfg_store(counter, start, TargetTypeTag::U64, node)
+            || !self.append_instruction(TargetOpcode::ConstInt, limit, TargetTypeTag::U64, 0, 0, node) { return false; }
+        unsafe { (*(self.instructions + self.instruction_count - 1)).immediate_bits = count as u64; }
+        if !self.append_instruction(TargetOpcode::ConstInt, one, TargetTypeTag::U64, 0, 0, node) { return false; }
+        unsafe { (*(self.instructions + self.instruction_count - 1)).immediate_bits = 1; }
+        if !self.append_instruction(TargetOpcode::ConstInt, zero, element_type, 0, 0, node) { return false; }
+        let header: u32 = self.cfg_reserve_block();
+        let body: u32 = self.cfg_reserve_block();
+        let done: u32 = self.cfg_reserve_block();
+        if header == 0 || body == 0 || done == 0 || !self.cfg_jump(header, node) { return false; }
+        self.cfg_begin(header);
+        let position: u32 = self.append_value(TargetTypeTag::U64, 0, 0);
+        let load_operand: u32 = self.operand_count as u32;
+        if position == 0 || !self.append_operand(counter) || !self.append_instruction(
+            TargetOpcode::Load, position, TargetTypeTag::U64, load_operand, 1, node) { return false; }
+        let condition: u32 = self.append_value(TargetTypeTag::Bool, 0, 0);
+        let compare_operand: u32 = self.operand_count as u32;
+        if condition == 0 || !self.append_operand(position) || !self.append_operand(limit)
+            || !self.append_instruction(TargetOpcode::Compare, condition, TargetTypeTag::Bool,
+                compare_operand, 2, node) { return false; }
+        unsafe { (*(self.instructions + self.instruction_count - 1)).immediate_bits = 88; }
+        let branch_operand: u32 = self.operand_count as u32;
+        let branch_target: u32 = self.target_count as u32;
+        if !self.append_operand(condition) || !self.append_target(body) || !self.append_target(done)
+            || !self.append_instruction(TargetOpcode::CondBranch, 0, TargetTypeTag::Invalid,
+                branch_operand, 1, node) { return false; }
+        unsafe {
+            (*(self.instructions + self.instruction_count - 1)).first_target = branch_target;
+            (*(self.instructions + self.instruction_count - 1)).target_count = 2;
+        }
+        if !self.cfg_finish() { return false; }
+        self.cfg_begin(body);
+        let destination: u32 = self.append_value(TargetTypeTag::Pointer, 0, 0);
+        let address_operand: u32 = self.operand_count as u32;
+        if destination == 0 || !self.append_operand(address) || !self.append_operand(position)
+            || !self.append_instruction(TargetOpcode::IndexAddr, destination, TargetTypeTag::Pointer,
+                address_operand, 2, node) { return false; }
+        unsafe { (*(self.instructions + self.instruction_count - 1)).immediate_bits =
+            (count as u64 << 32) | stride as u64; }
+        if !self.cfg_store(destination, zero, element_type, node) { return false; }
+        let next: u32 = self.append_value(TargetTypeTag::U64, 0, 0);
+        let add_operand: u32 = self.operand_count as u32;
+        if next == 0 || !self.append_operand(position) || !self.append_operand(one)
+            || !self.append_instruction(TargetOpcode::Add, next, TargetTypeTag::U64,
+                add_operand, 2, node) || !self.cfg_store(counter, next, TargetTypeTag::U64, node)
+            || !self.cfg_jump(header, node) { return false; }
+        self.cfg_begin(done);
+        return true;
+    }
+
     pub fn cfg_simple(mut self: &mut Self, index: usize, first_parameter: usize, parameter_count: usize) -> bool {
         let stmt: AstNode = unsafe { *(self.nodes + index) };
         if stmt.kind == AstKind::LetStmt {
@@ -4685,7 +4807,7 @@ impl ScalarLowering {
                     // This first local-array contract accepts bounded scalar
                     // arrays initialized entirely to zero, never aggregate
                     // elements or partially initialized stack memory.
-                    if stride == 0 || count == 0 || count > 256
+                    if stride == 0 || count == 0 || count > 4096
                         || value_node.kind != AstKind::ExprLiteral
                         || value_node.str_len != 1
                         || unsafe { *(self.source + value_node.str_offset) } != 48 {
@@ -4699,7 +4821,11 @@ impl ScalarLowering {
                     ) { return self.reject(index); }
                     unsafe { (*(self.instructions + self.instruction_count - 1)).immediate_bits =
                         total as u64; }
+                    if count > 16 {
+                        if !self.cfg_zero_array(address, count, stride, elem, index) { return self.reject(index); }
+                    }
                     let mut element: usize = 0;
+                    if count > 16 { element = count; }
                     while element < count {
                         let position: u32 = self.append_value(TargetTypeTag::U64, 0, 0);
                         if position == 0 || !self.append_instruction(
@@ -5148,7 +5274,7 @@ impl ScalarLowering {
         }
         if self.return_struct_id != 0 {
             if function_is_external || self.parameter_count >= self.parameter_capacity
-                || self.parameter_count - first_parameter >= 16 { return self.reject(function_index); }
+                || self.parameter_count - first_parameter >= 24 { return self.reject(function_index); }
             self.return_destination = self.append_value(TargetTypeTag::Pointer, 0, 0);
             if self.return_destination == 0 { return self.reject(function_index); }
             unsafe {
@@ -5842,7 +5968,8 @@ pub fn lower_scalar_module(
                 g_bss_total_size = bss_off + var_size;
             }
         }
-        if decl_node.kind == AstKind::StructDecl && lowering.struct_count < 32 {
+        if decl_node.kind == AstKind::StructDecl {
+            if lowering.struct_count >= 32 { return lowering.reject(struct_scan_index); }
             let s_id: usize = lowering.struct_count;
             lowering.struct_name_offsets[s_id] = decl_node.str_offset;
             lowering.struct_name_lens[s_id] = decl_node.str_len;
@@ -5856,10 +5983,12 @@ pub fn lower_scalar_module(
                     return lowering.reject(f_scan);
                 }
                 let f_node: AstNode = unsafe { *(lowering.nodes + f_scan) };
-                if f_node.kind == AstKind::FieldDecl && lowering.field_total_count < 128 {
+                if f_node.kind == AstKind::FieldDecl {
+                    if lowering.field_total_count >= 256 { return lowering.reject(f_scan); }
                     let f_idx: usize = lowering.field_total_count;
                     lowering.field_name_offsets[f_idx] = f_node.str_offset;
                     lowering.field_name_lens[f_idx] = f_node.str_len;
+                    lowering.field_type_refs[f_idx] = f_node.first_child;
                     lowering.field_offsets[f_idx] = cur_offset;
                     let mut f_type: TargetTypeTag = TargetTypeTag::U32;
                     let mut field_struct: u32 = 0;
