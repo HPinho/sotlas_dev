@@ -42,6 +42,13 @@ static mut driver_module_lengths: [usize; 64] = 0;
 static mut driver_module_edges: [u8; 4096] = 0;
 static mut driver_module_selected: [u8; 64] = 0;
 static mut driver_module_order: [usize; 64] = 0;
+// Process-local resolver scratch. The native CFG currently cannot lower
+// multiple address-taken scalar locals in a helper call. The driver runs
+// one compilation per process; this storage is deliberately not reentrant.
+static mut driver_path_start: [usize; 1] = 0;
+static mut driver_path_length: [usize; 1] = 0;
+static mut driver_path_end: [usize; 1] = 0;
+static mut driver_resolved_length: [usize; 1] = 0;
 
 fn fail(code: u32) -> u32 {
     let message: *const u8 = "sotlas-native: compilation failed\n";
@@ -150,10 +157,7 @@ fn driver_compile_loaded(
 // SV8.21b1: parse a canonical, contiguous module path from lexer tokens.
 // Imports currently support only explicit glob declarations `import path::*;`.
 // The path excludes the import glob, and end_offset includes its semicolon.
-fn driver_read_module_path(
-    mut lexer: &mut Lexer, import_path: bool,
-    start_out: *mut usize, length_out: *mut usize, end_out: *mut usize
-) -> bool {
+fn driver_read_module_path(mut lexer: &mut Lexer, import_path: bool) -> bool {
     let first: Token = lexer.next_token();
     if first.kind != TokenKind::Ident { return false; }
     let start: usize = first.span.offset;
@@ -167,9 +171,9 @@ fn driver_read_module_path(
             let semi: Token = lexer.next_token();
             if semi.kind != TokenKind::SemiColon { return false; }
             unsafe {
-                *start_out = start;
-                *length_out = finish - start;
-                *end_out = semi.span.offset + semi.span.length;
+                *(driver_path_start as *mut usize) = start;
+                *(driver_path_length as *mut usize) = finish - start;
+                *(driver_path_end as *mut usize) = semi.span.offset + semi.span.length;
             }
             return true;
         }
@@ -181,9 +185,9 @@ fn driver_read_module_path(
     }
     if import_path || next.kind != TokenKind::SemiColon { return false; }
     unsafe {
-        *start_out = start;
-        *length_out = finish - start;
-        *end_out = next.span.offset + next.span.length;
+        *(driver_path_start as *mut usize) = start;
+        *(driver_path_length as *mut usize) = finish - start;
+        *(driver_path_end as *mut usize) = next.span.offset + next.span.length;
     }
     return true;
 }
@@ -217,12 +221,9 @@ fn driver_resolve_scan_file(source: *const u8, file: usize, file_count: usize) -
         if token.kind == TokenKind::Error { return false; }
         if token.kind == TokenKind::KwModule {
             if module_count != 0 || depth != 0 { return false; }
-            let mut off: usize = 0;
-            let mut size: usize = 0;
-            let mut finish: usize = 0;
-            if !driver_read_module_path(&mut lexer, false, &mut off, &mut size, &mut finish) {
-                return false;
-            }
+            if !driver_read_module_path(&mut lexer, false) { return false; }
+            let off: usize = unsafe { *(driver_path_start as *const usize) };
+            let size: usize = unsafe { *(driver_path_length as *const usize) };
             let own_name: usize = unsafe { *(driver_module_starts as *const usize + file) };
             let own_size: usize = unsafe { *(driver_module_lengths as *const usize + file) };
             if !driver_module_name_equals(source, start + off, size, own_name, own_size) {
@@ -231,12 +232,9 @@ fn driver_resolve_scan_file(source: *const u8, file: usize, file_count: usize) -
             module_count = module_count + 1;
         } else if token.kind == TokenKind::KwImport {
             if module_count != 1 || depth != 0 { return false; }
-            let mut off: usize = 0;
-            let mut size: usize = 0;
-            let mut finish: usize = 0;
-            if !driver_read_module_path(&mut lexer, true, &mut off, &mut size, &mut finish) {
-                return false;
-            }
+            if !driver_read_module_path(&mut lexer, true) { return false; }
+            let off: usize = unsafe { *(driver_path_start as *const usize) };
+            let size: usize = unsafe { *(driver_path_length as *const usize) };
             let mut found: bool = false;
             let mut dependency: usize = 0;
             while dependency < file_count {
@@ -316,12 +314,9 @@ fn driver_resolve_order(file_count: usize) -> bool {
     return true;
 }
 
-fn driver_copy_project_slice(
-    source: *const u8, first: usize, last: usize,
-    output_length: *mut usize
-) -> bool {
-    if first > last || output_length == null { return false; }
-    let position: usize = unsafe { *output_length };
+fn driver_copy_project_slice(source: *const u8, first: usize, last: usize) -> bool {
+    if first > last { return false; }
+    let position: usize = unsafe { *(driver_resolved_length as *const usize) };
     if position >= 1048576 || last - first >= 1048576 - position {
         return false;
     }
@@ -331,16 +326,14 @@ fn driver_copy_project_slice(
         unsafe { *(destination + position + cursor - first) = *(source + cursor); }
         cursor = cursor + 1;
     }
-    unsafe { *output_length = position + last - first; }
+    unsafe { *(driver_resolved_length as *mut usize) = position + last - first; }
     return true;
 }
 
 // Reuse the same lexer to remove only validated import declarations (not
 // comments, string contents, or similarly named identifiers). The full
 // original declarations remain available in the raw input for validation.
-fn driver_resolve_append_file(
-    source: *const u8, file: usize, output_length: *mut usize
-) -> bool {
+fn driver_resolve_append_file(source: *const u8, file: usize) -> bool {
     let start: usize = unsafe { *(driver_project_starts as *const usize + file) };
     let length: usize = unsafe { *(driver_project_lengths as *const usize + file) };
     let mut lexer: Lexer = Lexer::new(unsafe { source + start }, length);
@@ -349,29 +342,25 @@ fn driver_resolve_append_file(
     while token.kind != TokenKind::Eof {
         if token.kind == TokenKind::Error { return false; }
         if token.kind == TokenKind::KwImport {
-            let mut off: usize = 0;
-            let mut size: usize = 0;
-            let mut finish: usize = 0;
-            if !driver_read_module_path(&mut lexer, true, &mut off, &mut size, &mut finish)
-                || token.span.offset < copied {
-                return false;
-            }
+            if !driver_read_module_path(&mut lexer, true)
+                || token.span.offset < copied { return false; }
+            let finish: usize = unsafe { *(driver_path_end as *const usize) };
             if !driver_copy_project_slice(
-                source, start + copied, start + token.span.offset, output_length
+                source, start + copied, start + token.span.offset
             ) { return false; }
             copied = finish;
         }
         token = lexer.next_token();
     }
-    if !driver_copy_project_slice(source, start + copied, start + length, output_length) {
+    if !driver_copy_project_slice(source, start + copied, start + length) {
         return false;
     }
     let destination: *mut u8 = unsafe { driver_source_bytes as *mut u8 };
-    let position: usize = unsafe { *output_length };
+    let position: usize = unsafe { *(driver_resolved_length as *const usize) };
     if position >= 1048575 { return false; }
     unsafe {
         *(destination + position) = 10;
-        *output_length = position + 1;
+        *(driver_resolved_length as *mut usize) = position + 1;
     }
     return true;
 }
@@ -388,12 +377,9 @@ fn driver_resolve_project(file_count: usize) -> usize {
         let length: usize = unsafe { *(driver_project_lengths as *const usize + file) };
         let mut lexer: Lexer = Lexer::new(unsafe { source + start }, length);
         if lexer.next_token().kind != TokenKind::KwModule { return 0; }
-        let mut off: usize = 0;
-        let mut size: usize = 0;
-        let mut finish: usize = 0;
-        if !driver_read_module_path(&mut lexer, false, &mut off, &mut size, &mut finish) {
-            return 0;
-        }
+        if !driver_read_module_path(&mut lexer, false) { return 0; }
+        let off: usize = unsafe { *(driver_path_start as *const usize) };
+        let size: usize = unsafe { *(driver_path_length as *const usize) };
         unsafe {
             *(driver_module_starts as *mut usize + file) = start + off;
             *(driver_module_lengths as *mut usize + file) = size;
@@ -419,14 +405,14 @@ fn driver_resolve_project(file_count: usize) -> usize {
         file = file + 1;
     }
     if !driver_resolve_order(file_count) { return 0; }
-    let mut output_length: usize = 0;
+    unsafe { *(driver_resolved_length as *mut usize) = 0; }
     let mut ordered: usize = 0;
     while ordered < file_count {
         let index: usize = unsafe { *(driver_module_order as *const usize + ordered) };
-        if !driver_resolve_append_file(source, index, &mut output_length) { return 0; }
+        if !driver_resolve_append_file(source, index) { return 0; }
         ordered = ordered + 1;
     }
-    return output_length;
+    return unsafe { *(driver_resolved_length as *const usize) };
 }
 
 // Retain the certified single-file input byte stream, options and limits.
