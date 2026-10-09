@@ -71,6 +71,13 @@ no external tools on PATH and verify that failure preserves an old output
 artifact. The regular one-file invocation and the Stage 2/Stage 3 generation
 path are unchanged.
 
+The implementation keeps single-file reading, explicit multi-file reading, and
+the common native frontend/object/link pipeline in separate Sotlas functions.
+This isolates the ELF link call from nested project input loops and preserves
+the identical compiler core and fail-before-output contract for both modes.
+The Linux regression suite exercises all three project modes' argument bounds
+and empty-source rejection without modifying an existing artifact.
+
 ## Native self-build
 
 The self-build input concatenates these production sources in order:

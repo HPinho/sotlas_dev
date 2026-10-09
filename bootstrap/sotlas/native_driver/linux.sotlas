@@ -46,82 +46,15 @@ fn option_equals(option: *const u8, expected: *const u8, length: usize) -> bool 
     return true;
 }
 
-// Linux x86-64 commands:
-//   sotlas-native INPUT.sotlas OUTPUT [--object|--compiler]
-//   sotlas-native --project[-object|-compiler] OUTPUT INPUT1 INPUT2 ...
-// Explicit multi-file inputs are concatenated in caller order. Every import
-// remains fail-closed until native module resolution can validate its target.
-pub fn sotlas_linux_main(argc: u64, argv: *const *const u8) -> u32 {
-    if argc < 3 || argv == null { return fail(1); }
-    let mut project_mode: bool = false;
-    let mut object_only: bool = false;
-    let mut compiler_entry: bool = false;
-    let mut first_input: u64 = 1;
-    let mut output_name: *const u8 = unsafe { *(argv + 2) };
-    let first_option: *const u8 = unsafe { *(argv + 1) };
-    if option_equals(first_option, "--project", 9)
-        || option_equals(first_option, "--project-object", 16)
-        || option_equals(first_option, "--project-compiler", 18) {
-        if argc < 5 || argc > 67 { return fail(1); }
-        project_mode = true;
-        first_input = 3;
-        if option_equals(first_option, "--project-object", 16) {
-            object_only = true;
-        } else if option_equals(first_option, "--project-compiler", 18) {
-            compiler_entry = true;
-        }
-    } else {
-        if argc != 3 && argc != 4 { return fail(1); }
-        if argc == 4 {
-            let option: *const u8 = unsafe { *(argv + 3) };
-            if option_equals(option, "--object", 8) {
-                object_only = true;
-            } else if option_equals(option, "--compiler", 10) {
-                compiler_entry = true;
-            } else {
-                return fail(1);
-            }
-        }
-    }
+// Keep filesystem/control-flow state outside the compiler pipeline.
+// The ELF linker must not share the nested project file-reading CFG.
+fn driver_compile_loaded(
+    source_length: usize,
+    output_name: *const u8,
+    object_only: bool,
+    compiler_entry: bool
+) -> u32 {
     let source: *mut u8 = unsafe { driver_source_bytes as *mut u8 };
-    let mut source_length: usize = 0;
-    let mut input_index: u64 = first_input;
-    while input_index < argc {
-        if !project_mode && input_index != 1 { break; }
-        let input_name: *const u8 = unsafe { *(argv + input_index) };
-        if input_name == null { return fail(1); }
-        let opened: i64 = sotlas_linux_open(input_name, 0, 0);
-        if opened < 0 { return fail(2); }
-        let input_fd: u64 = opened as u64;
-        let before_file: usize = source_length;
-        while source_length < 1048576 {
-            let available: u64 = 1048576 - source_length;
-            let got: i64 = sotlas_linux_read(
-                input_fd, unsafe { source + source_length }, available
-            );
-            if got == -4 { continue; }
-            if got < 0 {
-                let closed_error: i64 = sotlas_linux_close(input_fd);
-                return fail(3);
-            }
-            if got == 0 { break; }
-            source_length = source_length + (got as usize);
-        }
-        let closed: i64 = sotlas_linux_close(input_fd);
-        if closed < 0 || source_length == before_file || source_length >= 1048576 {
-            return fail(3);
-        }
-        // Module boundaries must not merge tokens when a file has no trailing
-        // newline. Single-file builds retain their original byte stream so
-        // the existing native Stage 2/3 fixed-point hashes remain unchanged.
-        if project_mode {
-            if source_length >= 1048575 { return fail(3); }
-            unsafe { *(source + source_length) = 10; }
-            source_length = source_length + 1;
-        }
-        input_index = input_index + 1;
-    }
-    // Reserve half of the source buffer for deterministic synthetic symbols.
     unsafe { g_extended_len = source_length; }
     let token_buffer: *mut Token = unsafe { driver_tokens as *mut Token };
     let node_buffer: *mut AstNode = unsafe { driver_nodes as *mut AstNode };
@@ -198,4 +131,105 @@ pub fn sotlas_linux_main(argc: u64, argv: *const *const u8) -> u32 {
     let closed_output: i64 = sotlas_linux_close(output_fd);
     if closed_output < 0 { return fail(11); }
     return 0;
+}
+
+
+// Retain the certified single-file input byte stream, options and limits.
+fn driver_compile_single(argc: u64, argv: *const *const u8) -> u32 {
+    if argc != 3 && argc != 4 { return fail(1); }
+    let input_name: *const u8 = unsafe { *(argv + 1) };
+    let output_name: *const u8 = unsafe { *(argv + 2) };
+    if input_name == null || output_name == null { return fail(1); }
+    let mut object_only: bool = false;
+    let mut compiler_entry: bool = false;
+    if argc == 4 {
+        let option: *const u8 = unsafe { *(argv + 3) };
+        if option_equals(option, "--object", 8) {
+            object_only = true;
+        } else if option_equals(option, "--compiler", 10) {
+            compiler_entry = true;
+        } else {
+            return fail(1);
+        }
+    }
+    let opened: i64 = sotlas_linux_open(input_name, 0, 0);
+    if opened < 0 { return fail(2); }
+    let input_fd: u64 = opened as u64;
+    let source: *mut u8 = unsafe { driver_source_bytes as *mut u8 };
+    let mut source_length: usize = 0;
+    while source_length < 1048576 {
+        let available: u64 = 1048576 - source_length;
+        let got: i64 = sotlas_linux_read(input_fd, unsafe { source + source_length }, available);
+        if got == -4 { continue; }
+        if got < 0 { let closed_error: i64 = sotlas_linux_close(input_fd); return fail(3); }
+        if got == 0 { break; }
+        source_length = source_length + (got as usize);
+    }
+    let closed: i64 = sotlas_linux_close(input_fd);
+    if closed < 0 || source_length == 0 || source_length == 1048576 { return fail(3); }
+    return driver_compile_loaded(source_length, output_name, object_only, compiler_entry);
+}
+
+// Explicit input order is authoritative until safe native import resolution
+// ships. Append one newline per file to match the hosted reference bytes.
+fn driver_compile_project(
+    argc: u64, argv: *const *const u8,
+    object_only: bool, compiler_entry: bool
+) -> u32 {
+    if argc < 5 || argc > 67 { return fail(1); }
+    let output_name: *const u8 = unsafe { *(argv + 2) };
+    if output_name == null { return fail(1); }
+    let source: *mut u8 = unsafe { driver_source_bytes as *mut u8 };
+    let mut source_length: usize = 0;
+    let mut input_index: u64 = 3;
+    while input_index < argc {
+        let input_name: *const u8 = unsafe { *(argv + input_index) };
+        if input_name == null { return fail(1); }
+        let opened: i64 = sotlas_linux_open(input_name, 0, 0);
+        if opened < 0 { return fail(2); }
+        let input_fd: u64 = opened as u64;
+        let before_file: usize = source_length;
+        while source_length < 1048576 {
+            let available: u64 = 1048576 - source_length;
+            let got: i64 = sotlas_linux_read(
+                input_fd, unsafe { source + source_length }, available
+            );
+            if got == -4 { continue; }
+            if got < 0 {
+                let closed_error: i64 = sotlas_linux_close(input_fd);
+                return fail(3);
+            }
+            if got == 0 { break; }
+            source_length = source_length + (got as usize);
+        }
+        let closed: i64 = sotlas_linux_close(input_fd);
+        // The separator is included in the bounded combined source size.
+        if closed < 0 || source_length == before_file || source_length >= 1048575 {
+            return fail(3);
+        }
+        unsafe { *(source + source_length) = 10; }
+        source_length = source_length + 1;
+        input_index = input_index + 1;
+    }
+    return driver_compile_loaded(source_length, output_name, object_only, compiler_entry);
+}
+
+// Linux x86-64 commands:
+//   sotlas-native INPUT.sotlas OUTPUT [--object|--compiler]
+//   sotlas-native --project[-object|-compiler] OUTPUT INPUT1 INPUT2 ...
+// Imports still fail closed; the bounded explicit list is not module loading.
+pub fn sotlas_linux_main(argc: u64, argv: *const *const u8) -> u32 {
+    if argc < 3 || argv == null { return fail(1); }
+    let first_option: *const u8 = unsafe { *(argv + 1) };
+    if first_option == null { return fail(1); }
+    if option_equals(first_option, "--project", 9) {
+        return driver_compile_project(argc, argv, false, false);
+    }
+    if option_equals(first_option, "--project-object", 16) {
+        return driver_compile_project(argc, argv, true, false);
+    }
+    if option_equals(first_option, "--project-compiler", 18) {
+        return driver_compile_project(argc, argv, false, true);
+    }
+    return driver_compile_single(argc, argv);
 }
