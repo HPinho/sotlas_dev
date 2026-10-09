@@ -1,0 +1,150 @@
+"""Native Linux file compiler and real native generation-chain gates."""
+from pathlib import Path
+import hashlib
+import os
+import platform
+import re
+import subprocess
+import sys
+import tempfile
+import unittest
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "compiler"))
+sys.path.insert(0, str(ROOT / "tools"))
+from sotlas.bootstrap_pipeline import build_stage1_native_compiler
+
+LINUX_X64 = sys.platform.startswith("linux") and platform.machine().lower() in ("x86_64", "amd64")
+
+
+def merged_native_driver_source() -> bytes:
+    directory = ROOT / "bootstrap/sotlas/native_compiler"
+    names = ("token", "ast", "lexer", "parser", "sema", "backend/target_ir", "backend/lower_scalar", "backend/x86_64_scalar")
+    data = b"".join((directory / (name + ".sotlas")).read_bytes() + b"\n" for name in names)
+    data += (ROOT / "bootstrap/sotlas/native_driver/linux.sotlas").read_bytes() + b"\n"
+    # All imports are represented exactly once above. Avoid a host resolver
+    # loading a second copy when validating this self-build input.
+    return re.sub(rb"^import [^\r\n]+;\r?\n", b"", data, flags=re.M)
+
+
+class NativeLinuxDriverTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.temp = tempfile.TemporaryDirectory(prefix="sotlas-native-linux-")
+        cls.directory = Path(cls.temp.name)
+        cls.producer = cls.directory / ("producer.exe" if os.name == "nt" else "producer")
+        build_stage1_native_compiler(cls.producer, verbose=False)
+        cls.seed = cls.directory / "sotlas-native"
+        obj = cls.directory / "driver.o"
+        cls.run_tool([str(cls.producer), "--compile-obj", str(ROOT / "bootstrap/sotlas/native_driver/linux.sotlas"), str(obj)], 180)
+        cls.run_tool([str(cls.producer), "--link-exe", str(obj), str(cls.seed), "sotlas_linux_main"], 60)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.temp.cleanup()
+
+    @classmethod
+    def run_tool(cls, args, timeout=60, expected=0, env=None):
+        result = subprocess.run(args, capture_output=True, timeout=timeout, cwd=ROOT, env=env)
+        if result.returncode != expected:
+            raise AssertionError(f"{args}: exit {result.returncode}, expected {expected}: {result.stderr!r}")
+        return result
+
+    def test_driver_image_is_static_elf_without_c_interpreter(self):
+        import struct
+        data = self.seed.read_bytes()
+        self.assertEqual(data[:6], b"\x7fELF\x02\x01")
+        offset = struct.unpack_from("<Q", data, 32)[0]
+        size, count = struct.unpack_from("<HH", data, 54)
+        self.assertNotIn(3, [struct.unpack_from("<I", data, offset + i * size)[0] for i in range(count)])
+        self.assertNotIn(2, [struct.unpack_from("<I", data, offset + i * size)[0] for i in range(count)])
+
+    @unittest.skipUnless(LINUX_X64, "execution requires Linux x86-64")
+    def test_compiles_files_without_python_clang_or_c_runtime(self):
+        source = self.directory / "sample.sotlas"
+        source.write_text("module gate; fn twice(x: u32) -> u32 { return x * 2; } pub fn main_entry() -> u32 { return twice(21); }")
+        binary = self.directory / "sample"
+        environment = {"PATH": str(self.directory / "no-tools")}
+        self.run_tool([str(self.seed), str(source), str(binary)], env=environment)
+        self.run_tool([str(binary)], expected=42, env=environment)
+        reference = self.directory / "sample_reference.o"
+        actual = self.directory / "sample_native.o"
+        self.run_tool([str(self.producer), "--compile-obj", str(source), str(reference)])
+        self.run_tool([str(self.seed), str(source), str(actual), "--object"], env=environment)
+        self.assertEqual(reference.read_bytes(), actual.read_bytes())
+
+    @unittest.skipUnless(LINUX_X64, "execution requires Linux x86-64")
+    def test_invalid_input_does_not_truncate_existing_output(self):
+        source = self.directory / "invalid.sotlas"
+        source.write_text("module gate; pub fn main_entry() -> u32 { return 4294967296; }")
+        output = self.directory / "preserved"
+        output.write_bytes(b"preserve this artifact")
+        self.run_tool([str(self.seed), str(source), str(output)], expected=6)
+        self.assertEqual(output.read_bytes(), b"preserve this artifact")
+        self.run_tool([str(self.seed)], expected=1)
+        self.run_tool([str(self.seed), str(source), str(output), "--unknown"], expected=1)
+        self.run_tool([str(self.seed), str(self.directory / "missing.sotlas"), str(output)], expected=2)
+        source.write_text("module gate; import missing::*; pub fn main_entry() -> u32 { return 42; }")
+        self.run_tool([str(self.seed), str(source), str(output)], expected=12)
+        self.assertEqual(output.read_bytes(), b"preserve this artifact")
+
+    @unittest.skipUnless(LINUX_X64, "execution requires Linux x86-64")
+    def test_native_stage2_stage3_fixed_point_and_self_object_equivalence(self):
+        merged = self.directory / "compiler_merged.sotlas"
+        merged.write_bytes(merged_native_driver_source())
+        environment = {"PATH": str(self.directory / "no-tools")}
+        reference = self.directory / "reference.o"
+        native = self.directory / "native.o"
+        self.run_tool([str(self.producer), "--compile-obj", str(merged), str(reference)], 180)
+        self.run_tool([str(self.seed), str(merged), str(native), "--object"], 600, env=environment)
+        self.assertEqual(reference.read_bytes(), native.read_bytes())
+        stage2, stage3 = self.directory / "stage2", self.directory / "stage3"
+        self.run_tool([str(self.seed), str(merged), str(stage2), "--compiler"], 600, env=environment)
+        self.run_tool([str(stage2), str(merged), str(stage3), "--compiler"], 600, env=environment)
+        self.assertEqual(stage2.read_bytes(), stage3.read_bytes())
+        print("Native Linux fixed point:", hashlib.sha256(stage2.read_bytes()).hexdigest())
+        source = self.directory / "stage3_sample.sotlas"
+        source.write_text("module gate; pub fn main_entry() -> u32 { return 42; }")
+        binary = self.directory / "stage3_sample"
+        self.run_tool([str(stage3), str(source), str(binary)], env=environment)
+        self.run_tool([str(binary)], expected=42, env=environment)
+
+    def test_binary_string_escape_payload_and_malformed_hex_rejection(self):
+        import struct
+        source = self.directory / "hex.sotlas"
+        source.write_text(r'module gate; pub fn main_entry() -> u32 { let data: *const u8 = "\x00\x01\x7f\xFF\xab"; return 0; }')
+        output = source.with_suffix(".o")
+        self.run_tool([str(self.producer), "--compile-obj", str(source), str(output)])
+        data = output.read_bytes()
+        headers = struct.unpack_from("<Q", data, 40)[0]
+        payloads = []
+        for index in range(struct.unpack_from("<H", data, 60)[0]):
+            header = headers + index * 64
+            section_type = struct.unpack_from("<I", data, header + 4)[0]
+            flags = struct.unpack_from("<Q", data, header + 8)[0]
+            if section_type == 1 and flags == 2:
+                start, length = struct.unpack_from("<QQ", data, header + 24)
+                payloads.append(data[start:start + length])
+        self.assertIn(b"\x00\x01\x7f\xff\xab\x00", payloads)
+        for literal in (r'"\xQ0"', r'"\x4"'):
+            bad = self.directory / ("bad_hex_" + str(len(literal)) + ".sotlas")
+            bad.write_text("module gate; pub fn main_entry() -> u32 { let data: *const u8 = " + literal + "; return 0; }")
+            result = self.run_tool([str(self.producer), "--compile-obj", str(bad), str(bad.with_suffix('.o'))], expected=10)
+            self.assertFalse(bad.with_suffix('.o').exists(), result.stderr)
+
+    def test_malformed_kernel_adapter_and_process_entry_signatures_fail(self):
+        for name, body in (
+            ("syscall", "@extern(C) fn sotlas_linux_write(fd: u64, data: u64, n: u64) -> i64; "
+             "pub fn main_entry() -> u32 { let r: i64 = sotlas_linux_write(1, 0, 0); return r as u32; }"),
+            ("entry", "pub fn sotlas_linux_main(argc: u32) -> u32 { return argc; }"),
+        ):
+            with self.subTest(name=name):
+                source = self.directory / (name + ".sotlas")
+                output = source.with_suffix(".o")
+                source.write_text("module gate; " + body)
+                self.run_tool([str(self.producer), "--compile-obj", str(source), str(output)], expected=10)
+                self.assertFalse(output.exists())
+
+
+if __name__ == "__main__":
+    unittest.main()

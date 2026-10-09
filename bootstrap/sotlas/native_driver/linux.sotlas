@@ -1,0 +1,159 @@
+module sotlas::compiler::linux_driver;
+import sotlas::compiler::token::*;
+import sotlas::compiler::ast::*;
+import sotlas::compiler::lexer::*;
+import sotlas::compiler::parser::*;
+import sotlas::compiler::sema::*;
+import sotlas::compiler::backend::target_ir::*;
+import sotlas::compiler::backend::lower_scalar::*;
+import sotlas::compiler::backend::x86_64_scalar::*;
+
+@extern(C)
+fn sotlas_linux_open(path: *const u8, flags: u64, mode: u64) -> i64;
+@extern(C)
+fn sotlas_linux_read(fd: u64, data: *mut u8, count: u64) -> i64;
+@extern(C)
+fn sotlas_linux_write(fd: u64, data: *const u8, count: u64) -> i64;
+@extern(C)
+fn sotlas_linux_close(fd: u64) -> i64;
+
+static mut driver_source_bytes: [u8; 2097152] = 0;
+static mut driver_tokens: [Token; 262144] = 0;
+static mut driver_nodes: [AstNode; 262144] = 0;
+static mut driver_values: [TargetValue; 65536] = 0;
+static mut driver_parameters: [TargetParameter; 16384] = 0;
+static mut driver_instructions: [TargetInstruction; 131072] = 0;
+static mut driver_operands: [TargetOperand; 262144] = 0;
+static mut driver_phi_inputs: [TargetPhiInput; 16384] = 0;
+static mut driver_blocks: [TargetBlock; 32768] = 0;
+static mut driver_targets: [u32; 65536] = 0;
+static mut driver_functions: [TargetFunction; 2048] = 0;
+static mut driver_object_bytes: [u8; 8388608] = 0;
+static mut driver_image_bytes: [u8; 16777216] = 0;
+
+fn fail(code: u32) -> u32 {
+    let message: *const u8 = "sotlas-native: compilation failed\n";
+    let written: i64 = sotlas_linux_write(2, message, 34);
+    return code;
+}
+
+fn option_equals(option: *const u8, expected: *const u8, length: usize) -> bool {
+    let mut index: usize = 0;
+    while index <= length {
+        if unsafe { *(option + index) } != unsafe { *(expected + index) } { return false; }
+        index = index + 1;
+    }
+    return true;
+}
+
+// Linux x86-64 command: sotlas-native INPUT.sotlas OUTPUT [--object|--compiler]
+// Imports must already be resolved in a merged input, as documented.
+pub fn sotlas_linux_main(argc: u64, argv: *const *const u8) -> u32 {
+    if argc != 3 && argc != 4 { return fail(1); }
+    let input_name: *const u8 = unsafe { *(argv + 1) };
+    let output_name: *const u8 = unsafe { *(argv + 2) };
+    let mut object_only: bool = false;
+    let mut compiler_entry: bool = false;
+    if argc == 4 {
+        let option: *const u8 = unsafe { *(argv + 3) };
+        if option_equals(option, "--object", 8) {
+            object_only = true;
+        } else if option_equals(option, "--compiler", 10) {
+            compiler_entry = true;
+        } else {
+            return fail(1);
+        }
+    }
+    let opened: i64 = sotlas_linux_open(input_name, 0, 0);
+    if opened < 0 { return fail(2); }
+    let input_fd: u64 = opened as u64;
+    let source: *mut u8 = unsafe { driver_source_bytes as *mut u8 };
+    let mut source_length: usize = 0;
+    while source_length < 1048576 {
+        let available: u64 = 1048576 - source_length;
+        let got: i64 = sotlas_linux_read(input_fd, unsafe { source + source_length }, available);
+        if got == -4 { continue; }
+        if got < 0 { let closed: i64 = sotlas_linux_close(input_fd); return fail(3); }
+        if got == 0 { break; }
+        source_length = source_length + (got as usize);
+    }
+    // Reserve half of the source buffer for deterministic synthetic symbols.
+    let closed: i64 = sotlas_linux_close(input_fd);
+    if closed < 0 || source_length == 0 || source_length == 1048576 { return fail(3); }
+    unsafe { g_extended_len = source_length; }
+    let token_buffer: *mut Token = unsafe { driver_tokens as *mut Token };
+    let node_buffer: *mut AstNode = unsafe { driver_nodes as *mut AstNode };
+    let mut lexer: Lexer = Lexer::new(source, source_length);
+    let mut token_count: usize = 0;
+    while token_count < 262144 {
+        let token: Token = lexer.next_token();
+        if token.kind == TokenKind::KwImport { return fail(12); }
+        unsafe { *(token_buffer + token_count) = token; }
+        token_count = token_count + 1;
+        if token.kind == TokenKind::Eof { break; }
+        if token.kind == TokenKind::Error { return fail(4); }
+    }
+    if lexer.error_count != 0 || token_count == 262144 { return fail(4); }
+    let mut parser: Parser = Parser::new(token_buffer, token_count, node_buffer, 262144);
+    let module_index: usize = parser.parse_module();
+    if module_index == 0 || parser.error_count != 0 { return fail(5); }
+    let mut sema: Sema = Sema::new();
+    if !sema.check_top_level_declarations(node_buffer, parser.node_count,
+        module_index, source, source_length) { return fail(6); }
+    let mut lowering: ScalarLowering = ScalarLowering::new(node_buffer, parser.node_count,
+        source, source_length, unsafe { driver_values as *mut TargetValue }, 65536,
+        unsafe { driver_parameters as *mut TargetParameter }, 16384,
+        unsafe { driver_instructions as *mut TargetInstruction }, 131072,
+        unsafe { driver_operands as *mut TargetOperand }, 262144,
+        unsafe { driver_phi_inputs as *mut TargetPhiInput }, 16384,
+        unsafe { driver_blocks as *mut TargetBlock }, 32768,
+        unsafe { driver_targets as *mut u32 }, 65536,
+        unsafe { driver_functions as *mut TargetFunction }, 2048);
+    let mut ir: TargetModule = TargetModule { version: 1, function_count: 0,
+        parameter_count: 0, block_count: 0, instruction_count: 0, value_count: 0,
+        operand_count: 0, phi_input_count: 0, target_count: 0 };
+    if !lower_scalar_module(&mut lowering, module_index, &mut ir) { return fail(7); }
+    let object_buffer: *mut u8 = unsafe { driver_object_bytes as *mut u8 };
+    let mut object_length: usize = 0;
+    let ir_pointer: *const TargetModule = unsafe { (&ir) as *const TargetModule };
+    let length_pointer: *mut usize = unsafe { (&object_length) as *mut usize };
+    if !emit_elf64_module_object(source, unsafe { g_extended_len }, ir_pointer,
+        unsafe { driver_functions as *const TargetFunction }, unsafe { driver_parameters as *const TargetParameter },
+        unsafe { driver_values as *const TargetValue }, unsafe { driver_blocks as *const TargetBlock },
+        unsafe { driver_instructions as *const TargetInstruction }, unsafe { driver_operands as *const TargetOperand },
+        unsafe { driver_phi_inputs as *const TargetPhiInput }, unsafe { driver_targets as *const u32 },
+        object_buffer, 8388608, length_pointer) { return fail(8); }
+    let mut artifact: *const u8 = object_buffer as *const u8;
+    let mut artifact_length: usize = object_length;
+    if !object_only {
+        let image_buffer: *mut u8 = unsafe { driver_image_bytes as *mut u8 };
+        let mut offset: usize = 0;
+        let mut image_length: usize = 0;
+        let offset_pointer: *const usize = unsafe { (&offset) as *const usize };
+        let object_length_pointer: *const usize = length_pointer as *const usize;
+        let image_length_pointer: *mut usize = unsafe { (&image_length) as *mut usize };
+        let mut entry_name: *const u8 = "main_entry";
+        let mut entry_length: usize = 10;
+        if compiler_entry { entry_name = "sotlas_linux_main"; entry_length = 17; }
+        if !link_elf64_executable(object_buffer, offset_pointer, object_length_pointer, 1,
+            entry_name, entry_length, null, 0, 4194304, false,
+            image_buffer, 16777216, image_length_pointer) { return fail(9); }
+        artifact = image_buffer as *const u8;
+        artifact_length = image_length;
+    }
+    // Create/truncate only after the complete artifact has been validated.
+    let output_opened: i64 = sotlas_linux_open(output_name, 577, 493);
+    if output_opened < 0 { return fail(10); }
+    let output_fd: u64 = output_opened as u64;
+    let mut position: usize = 0;
+    while position < artifact_length {
+        let remaining: u64 = artifact_length - position;
+        let written: i64 = sotlas_linux_write(output_fd, unsafe { artifact + position }, remaining);
+        if written == -4 { continue; }
+        if written <= 0 { let closed_output: i64 = sotlas_linux_close(output_fd); return fail(11); }
+        position = position + (written as usize);
+    }
+    let closed_output: i64 = sotlas_linux_close(output_fd);
+    if closed_output < 0 { return fail(11); }
+    return 0;
+}
