@@ -39,6 +39,38 @@ closed. Output is created only after frontend, lowering and linking succeed;
 an I/O failure during writing can leave a partial file. Newly created outputs
 use mode 0755; existing files retain their permissions.
 
+## Explicit multi-file builds (SV8.21a)
+
+The Linux native driver also accepts a bounded list of source files. The
+compiler joins them in the supplied order with newline separators, runs the
+same lexer/parser/sema/lowerer, and emits one object or linked ELF executable:
+
+```sh
+./build/sotlas-native --project build/app.elf math.sotlas app.sotlas
+./build/sotlas-native --project-object build/app.o math.sotlas app.sotlas
+./build/app.elf
+```
+
+Pass dependencies before users and keep symbol names unambiguous. This initial
+flat-source profile **does not resolve imports**: source files containing
+`import` still fail with exit code 12, even if a target appears in the
+explicit file list. Only syntactically valid, import-free modules are joined;
+the driver never silently drops or rewrites dependency declarations. A
+`--project-compiler` variant selects the dedicated compiler entry ABI, but
+does not automatically merge or resolve the compiler's own imports. This is
+not yet native package/module loading or release bootstrap closure.
+
+At least two input files and at most 64 are accepted. The combined source
+(including separators) remains under the original 1 MiB limit; each file must
+be nonempty. The second MiB remains reserved for synthetic symbols.
+Missing files, invalid options, oversized/invalid sources and unresolved
+imports fail before opening the output path. Successful object output is
+byte-for-byte equal to compiling the exact newline-joined input with the
+existing hosted producer. Native Linux tests execute the linked project with
+no external tools on PATH and verify that failure preserves an old output
+artifact. The regular one-file invocation and the Stage 2/Stage 3 generation
+path are unchanged.
+
 ## Native self-build
 
 The self-build input concatenates these production sources in order:

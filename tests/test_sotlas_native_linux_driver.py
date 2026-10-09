@@ -74,6 +74,79 @@ class NativeLinuxDriverTests(unittest.TestCase):
         self.assertEqual(reference.read_bytes(), actual.read_bytes())
 
     @unittest.skipUnless(LINUX_X64, "execution requires Linux x86-64")
+    def test_explicit_multifile_project_object_and_executable_match_producer(self):
+        """Native source assembly has identical object bytes and invokes no host tools."""
+        first = self.directory / "project_math.sotlas"
+        second = self.directory / "project_app.sotlas"
+        first.write_text(
+            "module gate::math; fn project_answer() -> u32 { return 6 * 7; }",
+            encoding="utf-8",
+        )
+        second.write_text(
+            "module gate::app; pub fn main_entry() -> u32 { return project_answer(); }",
+            encoding="utf-8",
+        )
+        environment = {"PATH": str(self.directory / "no-tools")}
+        output = self.directory / "project_sample"
+        self.run_tool(
+            [str(self.seed), "--project", str(output), str(first), str(second)],
+            env=environment,
+        )
+        self.run_tool([str(output)], expected=42, env=environment)
+
+        native_object = self.directory / "project_native.o"
+        hosted_object = self.directory / "project_hosted.o"
+        merged = self.directory / "project_merged.sotlas"
+        merged.write_bytes(first.read_bytes() + b"\n" + second.read_bytes() + b"\n")
+        self.run_tool(
+            [str(self.seed), "--project-object", str(native_object), str(first), str(second)],
+            env=environment,
+        )
+        self.run_tool([str(self.producer), "--compile-obj", str(merged), str(hosted_object)])
+        self.assertEqual(native_object.read_bytes(), hosted_object.read_bytes())
+
+    @unittest.skipUnless(LINUX_X64, "execution requires Linux x86-64")
+    def test_explicit_project_failures_preserve_previous_artifact(self):
+        """A missing source, unresolved import or oversized input cannot truncate output."""
+        first = self.directory / "project_valid.sotlas"
+        first.write_text(
+            "module gate::math; fn project_answer() -> u32 { return 42; }",
+            encoding="utf-8",
+        )
+        second = self.directory / "project_invalid.sotlas"
+        second.write_text(
+            "module gate::app; import gate::missing::*; "
+            "pub fn main_entry() -> u32 { return project_answer(); }",
+            encoding="utf-8",
+        )
+        output = self.directory / "project_preserved"
+        sentinel = b"preexisting native binary must not be touched"
+        output.write_bytes(sentinel)
+        environment = {"PATH": str(self.directory / "no-tools")}
+        self.run_tool(
+            [str(self.seed), "--project", str(output), str(first),
+             str(self.directory / "missing_file.sotlas")],
+            expected=2, env=environment,
+        )
+        self.assertEqual(output.read_bytes(), sentinel)
+        self.run_tool(
+            [str(self.seed), "--project", str(output), str(first), str(second)],
+            expected=12, env=environment,
+        )
+        self.assertEqual(output.read_bytes(), sentinel)
+        second.write_bytes(b"module gate::app; " + b" " * 1048576)
+        self.run_tool(
+            [str(self.seed), "--project", str(output), str(first), str(second)],
+            expected=3, env=environment,
+        )
+        self.assertEqual(output.read_bytes(), sentinel)
+        self.run_tool(
+            [str(self.seed), "--project", str(output), str(first)],
+            expected=1, env=environment,
+        )
+        self.assertEqual(output.read_bytes(), sentinel)
+
+    @unittest.skipUnless(LINUX_X64, "execution requires Linux x86-64")
     def test_invalid_input_does_not_truncate_existing_output(self):
         source = self.directory / "invalid.sotlas"
         source.write_text("module gate; pub fn main_entry() -> u32 { return 4294967296; }")

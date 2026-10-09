@@ -704,6 +704,16 @@ subset. Full module/project loading, full language parity, release packaging
 and native Windows/macOS drivers remain open. The compatibility `main.sotlas`
 and optional C emitter are not part of this native generation chain.
 
+### SV8.21a — Native Linux explicit multi-file project compilation (2026-10-09)
+
+**Certified reference:** [CI #1157](https://github.com/HPinho/sotlas_dev/actions/runs/37946890838) on `cce33b5c1abd3925db524dfbb24660db582ec689` passed the entire Linux, Windows and macOS matrix. Linux executed the native compiler self-build: the Stage 1 native seed produces Stage 2, Stage 2 produces an identical Stage 3 ELF image, and Stage 3 compiles a runnable program without tools on PATH. The current native sovereignty checkpoint remains **6/10, or 60% of the explicit milestones**, not 60% removed host dependency lines.
+
+**Current implementation:** extend the Sotlas-written Linux driver to accept `--project` / `--project-object` / `--project-compiler` followed by an output path and two to 64 explicitly named input files. It reads files in argument order, appends a deterministic newline separator after each source, preserves the existing combined 1 MiB source cap and reserves the second MiB for compiler-owned synthetic symbols. The same production Lexer, Parser, Sema, Target IR and native x86-64 writer compile the resulting stream. Single-file calls and the existing Stage 1→2→3 fixed point are unmodified. Negative paths (missing/empty files, invalid options, excessive size, invalid syntax, unresolved `import` declarations) fail before the output file is opened.
+
+**Scope / safety boundary:** this is a *flat explicit-source project subset*, not module lookup or import resolution. `import` remains a hard error, including when an imported module happens to appear in the list. No import is silently removed or trusted without validation. The test suite runs a two-file native project executable returning 42 without host tools on PATH and requires exact object-byte identity against the hosted producer compiling the exact concatenated source. It also preserves a previously existing artifact across failures. Windows/macOS continue certifying the seed object path; the new native project runtime tests execute on Linux x86-64. CI certification of this cut is pending.
+
+**Next — SV8.21b:** implement a bounded native module-name index and safe import resolution, with duplicate/missing/cyclic import rejection, deterministic dependency ordering and complete self-build from the nine original module files without host-side premerging. Then extend the certified native generation chain to those input modules. Other open milestones remain full frontend parity, Windows/macOS native targets and installed seed/distribution closure. Do **not** credit another sovereignty checkpoint until the corresponding acceptance gate closes.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test
