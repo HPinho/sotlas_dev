@@ -1988,6 +1988,17 @@ fn append_object_prologue(output: *mut u8, capacity: usize,
         && append_object_u32(output, capacity, length, frame_size);
 }
 
+fn linux_process_entry_name(name: *const u8, length: usize) -> bool {
+    if name == null || length != 17 { return false; }
+    let expected: *const u8 = "sotlas_linux_main";
+    let mut index: usize = 0;
+    while index < 17 {
+        if unsafe { *(name + index) } != unsafe { *(expected + index) } { return false; }
+        index = index + 1;
+    }
+    return true;
+}
+
 // Unified ELF64 relocatable writer. It accepts up to 512 scalar CFG functions
 // (U32/Bool/U64/I64/Usize/Pointer/Void results and up to 24 machine parameters),
 // external function declarations, direct calls in both directions, Phi on
@@ -2047,6 +2058,12 @@ pub fn emit_elf64_module_object(
                 && function.return_type != TargetTypeTag::Bool
                 && function.return_type != TargetTypeTag::Void) {
             return false;
+        }
+        if linux_process_entry_name(unsafe { source + function.name.offset }, function.name.length as usize) {
+            if function.parameter_count != 2 || function.return_type != TargetTypeTag::U32
+                || (function.flags & TARGET_FUNCTION_EXTERNAL) != 0
+                || unsafe { (*(parameters + function.first_parameter)).type_tag } != TargetTypeTag::U64
+                || unsafe { (*(parameters + function.first_parameter + 1)).type_tag } != TargetTypeTag::Pointer { return false; }
         }
         let mut name_index: usize = 0;
         while name_index < function.name.length {
@@ -2744,6 +2761,27 @@ pub fn emit_elf64_module_object(
                         ) {
                         return false;
                     }
+                } else if instruction.opcode == TargetOpcode::SystemOp {
+                    let mut expected: u32 = 3;
+                    if instruction.immediate_bits == 3 { expected = 1; }
+                    if instruction.immediate_bits > 3 || instruction.operand_count != expected
+                        || result_type != TargetTypeTag::I64 || instruction.type_tag != result_type { return false; }
+                    let mut argument_index: u32 = 0;
+                    while argument_index < expected {
+                        let argument: TargetOperand = unsafe { *(operands + instruction.first_operand + argument_index) };
+                        let mut wanted: TargetTypeTag = TargetTypeTag::U64;
+                        if (instruction.immediate_bits <= 1 && argument_index == 1)
+                            || (instruction.immediate_bits == 2 && argument_index == 0) { wanted = TargetTypeTag::Pointer; }
+                        if object_value_type(values, ir.value_count, argument.value_id) != wanted
+                            || !append_object_slot_load_rax64(output, capacity, &mut code, argument.value_id - slot_base)
+                            || !append_object_rax_to_argument(output, capacity, &mut code, argument_index) { return false; }
+                        argument_index = argument_index + 1;
+                    }
+                    if !append_object_byte(output, capacity, &mut code, 184)
+                        || !append_object_u32(output, capacity, &mut code, instruction.immediate_bits as u32)
+                        || !append_object_byte(output, capacity, &mut code, 15)
+                        || !append_object_byte(output, capacity, &mut code, 5)
+                        || !append_object_slot_store64(output, capacity, &mut code, instruction.result_value - slot_base) { return false; }
                 } else if instruction.opcode == TargetOpcode::Call {
                     let callee_index: u32 = object_find_function(
                         source, source_len, functions, ir.function_count, instruction.symbol
@@ -2945,6 +2983,7 @@ pub fn emit_elf64_module_object(
         code = rodata_offset + rodata_len;
         let bss_offset: usize = code;
 
+        let call_relocation_count: u32 = relocation_count;
         let mut data_p: u32 = 0;
         while data_p < data_patch_count {
             let p_off: usize = data_patch_offsets[data_p as usize];
@@ -3089,6 +3128,8 @@ pub fn emit_elf64_module_object(
             }
             string_cursor = string_cursor + function.name.length + 1;
             if !external {
+                let mut linux_entry_flag: u32 = 0;
+                if linux_process_entry_name(unsafe { source + function.name.offset }, function.name.length as usize) { linux_entry_flag = 128; }
                 let mut bool_mask: u32 = 0;
                 let mut parameter_index: u32 = 0;
                 while parameter_index < function.parameter_count {
@@ -3098,7 +3139,7 @@ pub fn emit_elf64_module_object(
                     parameter_index = parameter_index + 1;
                 }
                 if !put_u32(output, capacity, note_offset + 20 + (actual_sym_index as usize - 1) * 4,
-                    function.parameter_count | (bool_mask << 8)) {
+                    function.parameter_count | (bool_mask << 8) | linux_entry_flag) {
                     return false;
                 }
             }
@@ -3158,7 +3199,8 @@ pub fn emit_elf64_module_object(
             let entry: usize = rela_offset + relocation_index as usize * 24;
             let orig_sym: u32 = relocation_symbols[relocation_index as usize];
             let mut final_sym: u32 = orig_sym;
-            if orig_sym > defined_count && orig_sym <= defined_count + external_count {
+            if relocation_index < call_relocation_count
+                && orig_sym > defined_count && orig_sym <= defined_count + external_count {
                 final_sym = orig_sym + data_sym_total as u32;
             }
             if !put_u64(output, capacity, entry, relocation_offsets[relocation_index as usize] as u64)
@@ -3260,6 +3302,8 @@ pub fn emit_elf64_module_object(
         }
         string_cursor = string_cursor + function.name.length + 1;
         if !external {
+            let mut linux_entry_flag: u32 = 0;
+            if linux_process_entry_name(unsafe { source + function.name.offset }, function.name.length as usize) { linux_entry_flag = 128; }
             let mut bool_mask: u32 = 0;
             let mut parameter_index: u32 = 0;
             while parameter_index < function.parameter_count {
@@ -3269,7 +3313,7 @@ pub fn emit_elf64_module_object(
                 parameter_index = parameter_index + 1;
             }
             if !put_u32(output, capacity, note_offset + 20 + (symbol_index as usize - 1) * 4,
-                function.parameter_count | (bool_mask << 8)) {
+                function.parameter_count | (bool_mask << 8) | linux_entry_flag) {
                 return false;
             }
         }
@@ -3364,6 +3408,8 @@ pub fn link_elf64_executable(
         || (freestanding && entry_argument_count != 0) {
         return false;
     }
+    let process_entry: bool = linux_process_entry_name(entry_name, entry_name_length);
+    if process_entry && (freestanding || entry_argument_count != 0) { return false; }
     let mut symtab_of_object: [u32; 16] = 0;
     let mut section_place: [usize; 512] = 0;
     let mut section_kind: [u8; 512] = 0;
@@ -3428,6 +3474,7 @@ pub fn link_elf64_executable(
     let mut shim_size: usize = 0;
     if !freestanding {
         shim_size = 16;
+        if process_entry { shim_size = 32; }
         let mut argument_index: u32 = 0;
         while argument_index < entry_argument_count {
             if argument_index >= 4 {
@@ -3702,7 +3749,9 @@ pub fn link_elf64_executable(
             }
             section_index = section_index + 1;
         }
-        if !have_descriptor {
+        if process_entry {
+            if !have_descriptor || descriptor != 130 { return false; }
+        } else if !have_descriptor {
             if entry_argument_count != 0 { return false; }
         } else {
             let declared: u32 = descriptor & 255;
@@ -3716,6 +3765,15 @@ pub fn link_elf64_executable(
             }
         }
         let mut shim_cursor: usize = code_offset;
+        if process_entry {
+            // Kernel entry rsp is 16-byte aligned: argc is [rsp], argv is rsp+8.
+            if !put_u8(output, capacity, shim_cursor, 72) || !put_u8(output, capacity, shim_cursor + 1, 139)
+                || !put_u8(output, capacity, shim_cursor + 2, 60) || !put_u8(output, capacity, shim_cursor + 3, 36)
+                || !put_u8(output, capacity, shim_cursor + 4, 72) || !put_u8(output, capacity, shim_cursor + 5, 141)
+                || !put_u8(output, capacity, shim_cursor + 6, 116) || !put_u8(output, capacity, shim_cursor + 7, 36)
+                || !put_u8(output, capacity, shim_cursor + 8, 8) { return false; }
+            shim_cursor = shim_cursor + 9;
+        }
         let mut argument_index: u32 = 0;
         while argument_index < entry_argument_count {
             let mut register_opcode: u8 = 185 as u8;

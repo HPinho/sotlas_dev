@@ -659,6 +659,51 @@ changed input, 3 for invalid syntax and 42 for the reference program. Windows
 native fault fixtures suppress error-reporting dialogs in their child process
 while retaining the exact expected NTSTATUS assertions.
 
+### SV8.20 — Native Linux file driver and self-build fixed point (2026-10-09)
+
+`bootstrap/sotlas/native_driver/linux.sotlas` compiles real files to ELF objects
+or executables. Its process startup receives Linux argc/argv through a checked
+ELF ABI flag. The production lowerer and writer implement typed kernel read,
+write, open and close operations directly, including signed error results.
+No libc, Python process, C emission or external linker participates in this
+driver's compilation or self-build execution.
+
+Native self-compilation exposed two production defects: hexadecimal binary
+string escapes were not decoded, and data relocation indices could be shifted
+as if they were external-call indices. Both are repaired, with positive and
+negative gates. The complete compiler core plus driver now self-compiles to
+the same ELF object as the hosted producer. The native seed builds Stage 2;
+Stage 2 builds Stage 3; both executable images are identical. This is a native
+Linux generation chain, distinct from the older hosted C-emission fixed point.
+
+Local WSL evidence for the final source snapshot:
+
+- Self-compiled object equals the hosted-producer object; SHA-256:
+  `2bd41e8f8410ef616ff1e35230bbea296c9cbcb3866c8310cc598f10259fd6e4`.
+- Stage 2 and Stage 3 ELF images match; SHA-256:
+  `093e4f4c83b02f0b403d119e5ea6e3c96287a92eb3614ec2c03efab9f9431e9c`.
+- A file compiled by the native driver executes and returns 42.
+
+The new Linux CI gate repeats self-object equivalence, the native generation
+chain and Stage 3 application execution with PATH pointing to an empty
+directory. Windows/macOS build the seed ELF and validate malformed signatures;
+they do not execute Linux syscalls. Cross-platform CI certification is pending.
+
+Final local regression evidence: the Windows suite ran 2,654 tests with no
+failures and 36 skips; the additional binary-escape regression gate also
+passed. WSL repeated the final native generation chain. Stage 3 compiled and
+executed an application returning 42 with PATH pointing to no tools, rejected
+missing/invalid inputs and unresolved imports, and preserved an existing
+artifact when frontend validation failed. The three new skipped execution
+gates are enabled on Linux x86-64 in CI.
+
+This closure uses a merged input assembled from the eight production core
+modules and the new driver. Imports are rejected explicitly, source input and
+tables are bounded, and the driver supports the current native compiler-source
+subset. Full module/project loading, full language parity, release packaging
+and native Windows/macOS drivers remain open. The compatibility `main.sotlas`
+and optional C emitter are not part of this native generation chain.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test
@@ -672,16 +717,34 @@ completion. The following distinctions must remain visible in progress reports:
 
 | Generation | Evidence already available | Required native closure |
 |---|---|---|
-| Stage 1 | SV7 builds an executable from the compiler's Sotlas sources using Stage 0; the supported native subset emits objects and executables | Compile every compiler module through the native frontend, Target IR and machine backend; then replace the remaining hosted driver/install dependency |
-| Stage 2 | Hosted build and tested output equivalence with Stage 1 | Stage 1 must produce Stage 2 directly as native objects and a linked compiler executable, without emitted C, Clang or a C host driver |
-| Stage 3 | Hosted build, tested output equivalence and hosted source fixed point | Stage 2 must produce Stage 3 through the same fully native path, with an explicit native fixed-point comparison |
+| Stage 1 | Hosted producer remains available; native Linux seed runs the production core and file driver | Native imports, full frontend parity and installed distribution remain open |
+| Stage 2 | Hosted generation remains an oracle; native Linux seed directly builds a native Stage 2 compiler | Promote the merged-source Linux self-build gate through CI and broaden its supported profile |
+| Stage 3 | Hosted oracle remains; native Linux Stage 2 builds an identical Stage 3 ELF image | Promote native fixed point through CI; extend generation closure to other native platforms |
 
-The project estimate remains **40% eliminated / 60% remaining** for the
-mandatory Python and C dependencies until the native Stage1 -> Stage2 build
-gate closes. This estimate is not GitHub Linguist composition, lines of code,
-an independent percentage per stage, or a claim that the remaining compiler
-build already runs without those tools. Removing extensions or reclassifying
-files does not advance the metric.
+The current sovereignty checkpoint score is **60%: 6 of 10 closures validated
+locally**. This replaces the historical unweighted 40% estimate with an
+explicit checklist. It measures architecture milestones, not lines of code,
+effort remaining or a percentage of installed dependencies already removed.
+
+| Checkpoint | Evidence / remaining work | State |
+|---|---|---|
+| Production native frontend | Lexer, Parser and Sema execute in native images | Closed locally |
+| Compiler-core Target IR lowering | Complete production lowerer emits native objects | Closed locally |
+| Native machine/object backend | Complete production x86 writer emits native objects | Closed locally |
+| Owned ELF linking | Application and kernel image gates; native runtime linking | Closed locally |
+| Native file compiler driver | Real argv, file input/output, kernel syscalls; no C runtime | Closed locally |
+| Native generation chain | Self-object equivalence and Stage 2/3 native fixed point | Closed locally |
+| Native imports and project builds | Current driver requires premerged source | Open |
+| Full language/frontend parity | Broader canonical features and diagnostics remain | Open |
+| Native Windows/macOS toolchains | Drivers and native object formats remain | Open |
+| Installed seed/distribution closure | Packaging and reproducible release bootstrap remain | Open |
+
+The native Linux profile can compile and self-build after receiving an initial
+seed without Python or C tooling. The default installed cross-platform
+toolchain still retains hosted bootstrap dependencies. Historical percentages
+in earlier milestone entries describe their snapshots and are not the current
+checkpoint score. Promote local closures to certified only after their CI
+gates pass.
 
 ### SV8.7 structural CFG validation: acceptance contract
 
