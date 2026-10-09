@@ -78,6 +78,44 @@ the identical compiler core and fail-before-output contract for both modes.
 The Linux regression suite exercises all three project modes' argument bounds
 and empty-source rejection without modifying an existing artifact.
 
+## Bounded native module resolution (SV8.21b1)
+
+The opt-in Linux-only flags `--project-resolve`, `--project-resolve-object` and
+`--project-resolve-compiler` accept the same output and 2–64 explicitly
+supplied source files as the earlier project modes:
+
+```sh
+./build/sotlas-native --project-resolve build/app.elf app.sotlas math.sotlas
+./build/sotlas-native --project-resolve-object build/app.o app.sotlas math.sotlas
+./build/sotlas-native --project-resolve-compiler build/stage2 \
+  bootstrap/sotlas/native_compiler/{token,ast,lexer,parser,sema}.sotlas \
+  bootstrap/sotlas/native_compiler/backend/{target_ir,lower_scalar,x86_64_scalar}.sotlas \
+  bootstrap/sotlas/native_driver/linux.sotlas
+```
+
+All inputs must begin with exactly one explicit `module path;` declaration.
+Imports are currently restricted to contiguous `import path::*;` declarations.
+The native lexer reads each original source and builds a bounded module-name
+index and dependency graph. Missing module names, duplicate modules/imports,
+self imports, cyclic graphs, unsupported aliases and nested imports fail with
+exit code 12 before any output file is opened. A stable topological sort chooses
+the earliest ready source from the caller's list and emits the ordered source
+stream with *only verified import tokens* removed. No Python, C emitter, host
+linker, host module resolver or build-time concatenation is invoked by either
+native compiler generation.
+
+Imports expose current flat compiler symbols: **this does not yet implement
+qualified namespace isolation or visibility rules**. The original `--project`
+commands retain their exact behavior and continue to reject every import.
+The 1 MiB combined-input bound and synthetic-symbol reservation remain.
+Release bootstrap closure, general native package discovery and true per-module
+linking are still pending.
+
+The Linux gates validate out-of-order imported project execution, native/hosted
+object identity for an explicitly normalized reference source, error paths
+preserving existing output, and Stage 1→2→3 fixed point from the nine original
+production module files. CI certification is pending.
+
 ## Native self-build
 
 The self-build input concatenates these production sources in order:

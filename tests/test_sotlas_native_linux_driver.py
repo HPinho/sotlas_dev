@@ -170,6 +170,93 @@ class NativeLinuxDriverTests(unittest.TestCase):
         self.assertEqual(output.read_bytes(), sentinel)
 
     @unittest.skipUnless(LINUX_X64, "execution requires Linux x86-64")
+    def test_resolved_project_topological_sort_and_exact_native_object(self):
+        """Native resolver orders forward references and strips only real import tokens."""
+        math = self.directory / "resolve_math.sotlas"
+        bridge = self.directory / "resolve_bridge.sotlas"
+        app = self.directory / "resolve_app.sotlas"
+        math.write_text("module gate::math;\nfn base_answer() -> u32 { return 40; }\n")
+        bridge.write_text(
+            "module gate::bridge;\nimport gate::math::*;\n"
+            "fn add_two() -> u32 { return base_answer() + 2; }\n"
+        )
+        app.write_text(
+            "module gate::app;\nimport gate::bridge::*;\n"
+            'pub fn main_entry() -> u32 { return add_two(); }\n'
+        )
+        environment = {"PATH": str(self.directory / "no-tools")}
+        sources = [app, bridge, math]  # deliberately reversed dependencies
+        executable = self.directory / "resolved_executable"
+        self.run_tool([str(self.seed), "--project-resolve", str(executable),
+                       *map(str, sources)], 180, env=environment)
+        self.run_tool([str(executable)], expected=42, env=environment)
+        native = self.directory / "resolved_native.o"
+        hosted = self.directory / "resolved_hosted.o"
+        merged = self.directory / "resolved_reference.sotlas"
+        merged.write_bytes(b"".join(
+            src.read_bytes().replace(b"import gate::math::*;", b"").replace(
+                b"import gate::bridge::*;", b"") + b"\n"
+            for src in (math, bridge, app)
+        ))
+        self.run_tool([str(self.seed), "--project-resolve-object", str(native),
+                       *map(str, sources)], 180, env=environment)
+        self.run_tool([str(self.producer), "--compile-obj", str(merged), str(hosted)], 180)
+        self.assertEqual(native.read_bytes(), hosted.read_bytes())
+
+    @unittest.skipUnless(LINUX_X64, "execution requires Linux x86-64")
+    def test_resolved_project_rejects_broken_dependency_graph_without_writing(self):
+        """Duplicate, missing, cyclic and unsupported imports are fail-closed."""
+        output = self.directory / "resolved_preserved"
+        sentinel = b"native dependency validation must not touch this file"
+        output.write_bytes(sentinel)
+        environment = {"PATH": str(self.directory / "no-tools")}
+        a = self.directory / "resolve_graph_a.sotlas"
+        b = self.directory / "resolve_graph_b.sotlas"
+        cases = (
+            ("missing", "module gate::a; import gate::absent::*; fn fa() -> u32 { return 1; }",
+             "module gate::b; fn fb() -> u32 { return 2; }"),
+            ("duplicate", "module gate::a; fn fa() -> u32 { return 1; }",
+             "module gate::a; fn fb() -> u32 { return 2; }"),
+            ("cycle", "module gate::a; import gate::b::*; fn fa() -> u32 { return 1; }",
+             "module gate::b; import gate::a::*; fn fb() -> u32 { return 2; }"),
+            ("self_import", "module gate::a; import gate::a::*; fn fa() -> u32 { return 1; }",
+             "module gate::b; fn fb() -> u32 { return 2; }"),
+            ("duplicate_import", "module gate::a; import gate::b::*; import gate::b::*; fn fa() -> u32 { return 1; }",
+             "module gate::b; fn fb() -> u32 { return 2; }"),
+            ("alias_unsupported", "module gate::a; import gate::b as weird; fn fa() -> u32 { return 1; }",
+             "module gate::b; fn fb() -> u32 { return 2; }"),
+        )
+        for description, first, second in cases:
+            with self.subTest(case=description):
+                a.write_text(first)
+                b.write_text(second)
+                self.run_tool([str(self.seed), "--project-resolve", str(output),
+                               str(a), str(b)], 120, expected=12, env=environment)
+                self.assertEqual(output.read_bytes(), sentinel)
+
+    @unittest.skipUnless(LINUX_X64, "execution requires Linux x86-64")
+    def test_resolved_original_modules_rebuild_identical_native_compiler(self):
+        """No host-side source merge is used by either native compiler generation."""
+        module_root = ROOT / "bootstrap/sotlas/native_compiler"
+        names = ("token", "ast", "lexer", "parser", "sema", "backend/target_ir",
+                 "backend/lower_scalar", "backend/x86_64_scalar")
+        sources = [module_root / (name + ".sotlas") for name in names]
+        sources.append(ROOT / "bootstrap/sotlas/native_driver/linux.sotlas")
+        environment = {"PATH": str(self.directory / "no-tools")}
+        native_stage2 = self.directory / "resolved_stage2"
+        native_stage3 = self.directory / "resolved_stage3"
+        self.run_tool([str(self.seed), "--project-resolve-compiler",
+                       str(native_stage2), *map(str, sources)], 600, env=environment)
+        self.run_tool([str(native_stage2), "--project-resolve-compiler",
+                       str(native_stage3), *map(str, sources)], 600, env=environment)
+        self.assertEqual(native_stage2.read_bytes(), native_stage3.read_bytes())
+        source = self.directory / "resolved_stage3_example.sotlas"
+        source.write_text("module gate; pub fn main_entry() -> u32 { return 42; }")
+        output = self.directory / "resolved_stage3_example"
+        self.run_tool([str(native_stage3), str(source), str(output)], 120, env=environment)
+        self.run_tool([str(output)], expected=42, env=environment)
+
+    @unittest.skipUnless(LINUX_X64, "execution requires Linux x86-64")
     def test_invalid_input_does_not_truncate_existing_output(self):
         source = self.directory / "invalid.sotlas"
         source.write_text("module gate; pub fn main_entry() -> u32 { return 4294967296; }")
