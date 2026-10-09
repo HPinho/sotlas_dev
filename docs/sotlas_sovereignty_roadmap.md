@@ -547,6 +547,18 @@ not a claim that the full Linux or macOS workflow matrix ran locally.
 
 **Stage closure:** the native Stage 1 → Stage 2 compiler executable and Stage 2 → Stage 3 native fixed point remain separate, open gates. The roadmap-wide Python/C dependency reduction estimate remains **40% eliminated / 60% outstanding**, not a per-module or per-stage percentage. CI certification for SV8.16 is pending; promote the baseline only once every matrix job is green.
 
+### SV8.17 — Full-width synthetic symbols and real backend module probes (2026-10-08)
+
+**New certified regression baseline:** [CI #1151](https://github.com/HPinho/sotlas_dev/actions/runs/37867363283) on `a501e1ea474ef97fc430cfa18be7862cb9a3e0d8` passed the complete Linux, macOS and Windows workflow matrix. It certifies SV8.16's native unsigned narrow arithmetic, including the digit-expression fixture, and supersedes #1150.
+
+**Production correctness fix:** `ScalarLowering::append_synthetic_str_symbol` previously buffered decimal digits in `[u8; 16]`. On 64-bit targets, a `usize` can have 20 decimal digits; IDs with more than 16 digits would overflow that buffer. The implementation now writes digits directly to their destination range in reverse order and reverses that range in place. This removes one temporary array, retains `_str_<decimal-id>` encoding and supports the full `u64` value range (provided the caller's existing destination buffer has sufficient capacity). The method still uses the existing source-extension allocation contract; this patch does **not** add or certify a new output-buffer-capacity parameter.
+
+**Production-source execution gate:** `test_real_lowerer_symbol_writer_supports_all_usize_digits` extracts the *unchanged production method body*, supplies only the source field it uses, compiles it through Stage 1 into ELF and verifies `0`, `12345` and `18446744073709551615` (20 digits) without changing how the compiler formats symbols. Linux additionally links and executes the object; other hosts check native object emission. This is a real method gate, **not** full-module compilation.
+
+**Complete-module observability:** the new non-promoting `test_real_backend_modules_report_next_native_gate` runs Stage 1 against complete `lower_scalar.sotlas` and `x86_64_scalar.sotlas` directly. It records the next diagnostic if native lowering still rejects a module, verifies no partial ELF was published, and verifies ELF magic if the module succeeds. A diagnostic probe must never be counted as a completed module. The full native object and execution/link gates remain required before adding either module to the current **6 of 10** count. This cut's CI certification is pending.
+
+**Next item — SV8.18:** use the new whole-module diagnostics to eliminate connected lowering and stack-frame blockers, certify complete native ELF objects for the actual lowerer and x86 writer, and integrate them into a Stage 1 → Stage 2 native compiler executable. Then prove Stage 2 → Stage 3 with a true native fixed-point check. Estimated mandatory Python/C dependency reduction stays at **40% eliminated / 60% remaining** until those native bootstrap gates close.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test
