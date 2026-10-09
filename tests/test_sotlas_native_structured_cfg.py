@@ -1126,6 +1126,46 @@ pub fn main_entry() -> u32 {
                 self.assertNotEqual(result.returncode, 0)
                 self.assertFalse(output.exists())
 
+    def test_native_mutable_global_scalar_store_is_typed_and_linked(self):
+        """CFG assigns through BSS only for an explicitly mutable module scalar."""
+        result, output = self.compile("global_scalar_store", """
+pub static mut total: usize = 0;
+pub fn main_entry() -> u32 {
+    let mut index: usize = 0;
+    while index < 2 {
+        unsafe { total = total + 21; }
+        index = index + 1;
+    }
+    let observed: usize = unsafe { total };
+    if observed == 42 { return 0; }
+    return 1;
+}
+""")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(output.read_bytes()[:4], b"\x7fELF")
+        self.assertIn(b"total\x00", output.read_bytes())
+        if sys.platform.startswith("linux"):
+            binary = self.directory / "global_scalar_store"
+            linked = subprocess.run(
+                [str(self.stage), "--link-exe", str(output), str(binary), "main_entry"],
+                capture_output=True, text=True, timeout=30,
+            )
+            self.assertEqual(linked.returncode, 0, linked.stderr)
+            executed = subprocess.run([str(binary)], capture_output=True, text=True, timeout=15)
+            self.assertEqual(executed.returncode, 0, executed.stderr)
+
+    def test_native_immutable_global_scalar_write_is_rejected(self):
+        """Global BSS existence alone does not authorize a scalar store."""
+        result, output = self.compile("immutable_global_store", """
+pub static total: usize = 0;
+pub fn main_entry() -> u32 {
+    unsafe { total = 1; }
+    return 0;
+}
+""")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(output.exists())
+
     def test_real_lowerer_symbol_writer_supports_all_usize_digits(self):
         """Compile the actual production method; 64-bit IDs require 20 digits."""
         source = (ROOT / "bootstrap/sotlas/native_compiler/backend/lower_scalar.sotlas").read_text(

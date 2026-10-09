@@ -3008,6 +3008,12 @@ impl ScalarLowering {
             if const_index >= 0 {
                 return self.const_type_tags[const_index as usize] as TargetTypeTag;
             }
+            let global: isize = self.find_global_bss(
+                expression.str_offset, expression.str_len
+            );
+            if global >= 0 && unsafe { g_bss_sym_is_array[global as usize] } == 0 {
+                return unsafe { g_bss_sym_types[global as usize] } as TargetTypeTag;
+            }
             return TargetTypeTag::Invalid;
         }
 
@@ -4840,7 +4846,66 @@ impl ScalarLowering {
                 return address != 0 && self.cfg_copy_fields(self.local_value_ids[slot], address,
                     struct_id, 0, 0, index, 0);
             }
-            if slot >= self.local_count || self.local_storage_types[slot] == 0 { return self.reject(index); }
+            if slot >= self.local_count {
+                // A module-level mutable scalar has stable BSS storage. An
+                // AllocStack carrying its symbol is a global address, not a
+                // fresh local allocation; the ELF backend resolves its relocation.
+                // Keep arrays, aggregates and unknown names fail-closed here.
+                let global: isize = self.find_global_bss(left.str_offset, left.str_len);
+                if global < 0 { return self.reject(index); }
+                let gi: usize = global as usize;
+                if unsafe { g_bss_sym_is_array[gi] } != 0 {
+                    return self.reject(index);
+                }
+                // The module loader registers static scalar storage whether
+                // the declaration is mutable or not. Do not permit a write
+                // solely because a BSS symbol was found: require the AST's
+                // explicit `static mut` bit on the module declaration.
+                let mut mutable_global: bool = false;
+                let mut decl: usize = 1;
+                while decl < self.node_count {
+                    let candidate: AstNode = unsafe { *(self.nodes + decl) };
+                    if candidate.kind == AstKind::LetStmt
+                        && candidate.parent != 0 && candidate.parent < self.node_count
+                        && unsafe { (*(self.nodes + candidate.parent)).kind } == AstKind::Module
+                        && self.source_name_equals(
+                            candidate.str_offset, candidate.str_len,
+                            left.str_offset, left.str_len
+                        ) {
+                        mutable_global = candidate.int_value == 1;
+                        break;
+                    }
+                    decl = decl + 1;
+                }
+                if !mutable_global { return self.reject(index); }
+                let typ: TargetTypeTag = unsafe { g_bss_sym_types[gi] } as TargetTypeTag;
+                if typ != TargetTypeTag::U8 && typ != TargetTypeTag::U16
+                    && typ != TargetTypeTag::U32 && typ != TargetTypeTag::U64
+                    && typ != TargetTypeTag::Usize && typ != TargetTypeTag::I64
+                    && typ != TargetTypeTag::Bool && typ != TargetTypeTag::Pointer {
+                    return self.reject(index);
+                }
+                let address: u32 = self.append_value(TargetTypeTag::Pointer, 0, 0);
+                if address == 0 || !self.append_instruction(
+                    TargetOpcode::AllocStack, address, TargetTypeTag::Pointer,
+                    0, 0, left_index
+                ) { return self.reject(index); }
+                let alloc_index: usize = self.instruction_count - 1;
+                let mut alloc: TargetInstruction = unsafe {
+                    *(self.instructions + alloc_index)
+                };
+                alloc.immediate_bits = unsafe { g_bss_sym_sizes[gi] } as u64;
+                alloc.symbol = TargetSourceSlice {
+                    offset: left.str_offset,
+                    length: left.str_len
+                };
+                unsafe { *(self.instructions + alloc_index) = alloc; }
+                let value: u32 = self.lower_expression(
+                    left.next_sibling, typ, first_parameter, parameter_count
+                );
+                return self.cfg_store(address, value, typ, index);
+            }
+            if self.local_storage_types[slot] == 0 { return self.reject(index); }
             let typ: TargetTypeTag = self.local_storage_types[slot] as TargetTypeTag;
             let value: u32 = self.lower_expression(left.next_sibling, typ, first_parameter, parameter_count);
             return self.cfg_store(self.local_value_ids[slot], value, typ, index);
