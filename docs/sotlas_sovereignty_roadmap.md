@@ -746,6 +746,14 @@ Repair candidate: split the Sotlas-written Linux driver into independent single-
 
 **Repair candidate:** replace monolithic 17/24/26-byte CLI option comparisons with an explicit exact matcher assembled from shorter literals (`--project` + `-resolve` + optional `-object`/`-compiler`), checking the NUL terminator. No names or modes are removed, no resolver or backend tests are weakened; add negative CLI suffix gates. Keep the last certified full-matrix green baseline [#1159](https://github.com/HPinho/sotlas_dev/actions/runs/37969940811) at `29df97e6c0bc9ce82ce672202f831822262062c2`. New commit must pass Linux runtime resolution, original-module Stage2/3 identity, and the unchanged Windows/macOS matrix before green certification. **Next planned SV: SV8.21b2**; sovereignty checkpoints remain 6/10 until acceptance.
 
+### SV8.21b1 — Ubuntu regression #1162: isolate native CLI dispatch (2026-10-09)
+
+[GitHub Actions #1162](https://github.com/HPinho/sotlas_dev/actions/runs/37982034639) on `8f0c2b6f9879d32791569c879f8a63e631cffd47` showed seven failures on each Ubuntu Python version, including previously certified `--project` and Stage2→3 `--compiler` paths. Windows/macOS passed non-Linux-execution gates and one-file Linux application compilation still passed. The extra resolved-option helper in the entry CFG correlates with legacy dispatch corruption; the exact generated machine-code defect remains to be independently reproduced.
+
+The corrective cut restores the three certified flat-project checks at the start of the entry routine, dispatches unknown five-or-more-argument calls to an isolated resolver helper and matches the new opt-in commands using an exact ASCII-byte decoder rather than new CLI string-literal relocations. All existing import graph/negative, native object equivalence and Stage 2/3 fixed-point checks are retained; a separate Linux regression gate rechecks old project executable/object semantics and missing-file preservation.
+
+**Status:** not certified until the new Linux CI and full Windows/macOS matrix complete successfully. The last green reference is [#1159](https://github.com/HPinho/sotlas_dev/actions/runs/37969940811) at `29df97e6c0bc9ce82ce672202f831822262062c2`. No SV milestone or Python/C dependency percentage is promoted. **Next: SV8.21b2 only after green.**
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test
