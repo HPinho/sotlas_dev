@@ -156,16 +156,26 @@ impl Lexer {
             return tok;
         }
 
-        // Literais numéricos. O subset nativo reconhece inteiros hexadecimais
-        // e decimais, além de floats decimais `digits.digits`. Um `..` continua
-        // reservado ao operador de intervalo e nunca é absorvido pelo literal.
+        // Literais numéricos. O subset nativo reconhece inteiros hexadecimais,
+        // binários e decimais, além de floats decimais `digits.digits`. Um `..`
+        // continua reservado ao operador de intervalo e nunca é absorvido pelo literal.
         if ch >= 48 && ch <= 57 { // 0-9
             let mut numeric_kind: TokenKind = TokenKind::IntLit;
-            if ch == 48 && (self.peek() == 120 || self.peek() == 88) { // 0x
+            if ch == 48 && (self.peek() == 120 || self.peek() == 88) { // 0x / 0X
                 self.advance();
                 while !self.is_at_end() {
                     let p: u8 = self.peek();
                     if (p >= 48 && p <= 57) || (p >= 65 && p <= 70) || (p >= 97 && p <= 102) || p == 95 {
+                        self.advance();
+                    } else {
+                        break;
+                    }
+                }
+            } else if ch == 48 && (self.peek() == 98 || self.peek() == 66) { // 0b / 0B
+                self.advance();
+                while !self.is_at_end() {
+                    let p: u8 = self.peek();
+                    if p == 48 || p == 49 || p == 95 {
                         self.advance();
                     } else {
                         break;
