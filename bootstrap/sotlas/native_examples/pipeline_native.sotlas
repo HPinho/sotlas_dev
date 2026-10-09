@@ -1,0 +1,99 @@
+module sotlas::examples::pipeline_native;
+import sotlas::compiler::token::*;
+import sotlas::compiler::ast::*;
+import sotlas::compiler::lexer::*;
+import sotlas::compiler::parser::*;
+import sotlas::compiler::sema::*;
+import sotlas::compiler::backend::target_ir::*;
+import sotlas::compiler::backend::lower_scalar::*;
+import sotlas::compiler::backend::x86_64_scalar::*;
+
+static mut input_bytes: [u8; 4096] = 0;
+static mut tokens: [Token; 256] = 0;
+static mut nodes: [AstNode; 1024] = 0;
+static mut values: [TargetValue; 1024] = 0;
+static mut parameters: [TargetParameter; 256] = 0;
+static mut instructions: [TargetInstruction; 2048] = 0;
+static mut operands: [TargetOperand; 4096] = 0;
+static mut phi_inputs: [TargetPhiInput; 256] = 0;
+static mut blocks: [TargetBlock; 256] = 0;
+static mut targets: [u32; 512] = 0;
+static mut functions: [TargetFunction; 64] = 0;
+static mut object_bytes: [u8; 65536] = 0;
+static mut executable_bytes: [u8; 131072] = 0;
+
+// Compile and link inside the native image. Exit codes identify each boundary.
+pub fn main_entry() -> u32 {
+    let literal: *const u8 = "module demo; fn twice(x: u32) -> u32 { return x * 2; } fn answer() -> u32 { return twice(21); }";
+    let source_length: usize = 95;
+    let source: *mut u8 = unsafe { input_bytes as *mut u8 };
+    let mut index: usize = 0;
+    while index < source_length {
+        unsafe { *(source + index) = *(literal + index); }
+        index = index + 1;
+    }
+    unsafe { g_extended_len = source_length; }
+    let token_buffer: *mut Token = unsafe { tokens as *mut Token };
+    let node_buffer: *mut AstNode = unsafe { nodes as *mut AstNode };
+    let mut lexer: Lexer = Lexer::new(source, source_length);
+    let mut token_count: usize = 0;
+    while token_count < 256 {
+        let token: Token = lexer.next_token();
+        unsafe { *(token_buffer + token_count) = token; }
+        token_count = token_count + 1;
+        if token.kind == TokenKind::Eof { break; }
+        if token.kind == TokenKind::Error { return 1; }
+    }
+    if lexer.error_count != 0 || token_count == 256 { return 2; }
+    let mut parser: Parser = Parser::new(token_buffer, token_count, node_buffer, 1024);
+    let module_index: usize = parser.parse_module();
+    if module_index == 0 || parser.error_count != 0 { return 3; }
+    let mut sema: Sema = Sema::new();
+    if !sema.check_top_level_declarations(node_buffer, parser.node_count,
+        module_index, source, source_length) { return 4; }
+    let mut lowering: ScalarLowering = ScalarLowering::new(node_buffer, parser.node_count,
+        source, source_length, unsafe { values as *mut TargetValue }, 1024,
+        unsafe { parameters as *mut TargetParameter }, 256,
+        unsafe { instructions as *mut TargetInstruction }, 2048,
+        unsafe { operands as *mut TargetOperand }, 4096,
+        unsafe { phi_inputs as *mut TargetPhiInput }, 256,
+        unsafe { blocks as *mut TargetBlock }, 256,
+        unsafe { targets as *mut u32 }, 512,
+        unsafe { functions as *mut TargetFunction }, 64);
+    let mut ir: TargetModule = TargetModule { version: 1, function_count: 0,
+        parameter_count: 0, block_count: 0, instruction_count: 0, value_count: 0,
+        operand_count: 0, phi_input_count: 0, target_count: 0 };
+    if !lower_scalar_module(&mut lowering, module_index, &mut ir) { return 5; }
+    let object_buffer: *mut u8 = unsafe { object_bytes as *mut u8 };
+    let mut object_length: usize = 0;
+    let ir_pointer: *const TargetModule = unsafe { (&ir) as *const TargetModule };
+    let object_length_pointer: *mut usize = unsafe { (&object_length) as *mut usize };
+    if !emit_elf64_module_object(source, unsafe { g_extended_len }, ir_pointer,
+        unsafe { functions as *const TargetFunction }, unsafe { parameters as *const TargetParameter },
+        unsafe { values as *const TargetValue }, unsafe { blocks as *const TargetBlock },
+        unsafe { instructions as *const TargetInstruction }, unsafe { operands as *const TargetOperand },
+        unsafe { phi_inputs as *const TargetPhiInput }, unsafe { targets as *const u32 },
+        object_buffer, 65536, object_length_pointer) { return 6; }
+    let mut object_offset: usize = 0;
+    let mut executable_length: usize = 0;
+    let executable_buffer: *mut u8 = unsafe { executable_bytes as *mut u8 };
+    let offset_pointer: *const usize = unsafe { (&object_offset) as *const usize };
+    let length_pointer: *const usize = object_length_pointer as *const usize;
+    let executable_length_pointer: *mut usize = unsafe { (&executable_length) as *mut usize };
+    if !link_elf64_executable(object_buffer, offset_pointer, length_pointer, 1,
+        "answer", 6, null, 0, 4194304, false,
+        executable_buffer, 131072, executable_length_pointer) { return 7; }
+    if object_length < 64 || executable_length < 120 { return 8; }
+    if unsafe { *executable_buffer } != 127 { return 9; }
+    // Differential check of every generated byte against the runnable reference
+    // ELF. This fingerprint is tested alongside the reference program's result.
+    let mut digest: u64 = 14695981039346656037;
+    index = 0;
+    while index < executable_length {
+        let byte_value: u64 = unsafe { *(executable_buffer + index) } as u64;
+        digest = (digest ^ byte_value) * 1099511628211;
+        index = index + 1;
+    }
+    if executable_length != 248 || digest != 14630699014357374998 { return 10; }
+    return 0;
+}

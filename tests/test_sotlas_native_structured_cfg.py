@@ -55,6 +55,11 @@ def execute_windows_text(path: Path, aggregate_size: int = 0) -> int | bytes:
     if entry_offset is None or entry_offset >= len(text):
         raise RuntimeError("object has no valid main_entry symbol")
     kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    # Fault fixtures must exit with their NTSTATUS, never wait for a Windows
+    # Error Reporting dialog in an unattended test child process.
+    kernel.SetErrorMode.argtypes = [ctypes.c_uint32]
+    kernel.SetErrorMode.restype = ctypes.c_uint32
+    kernel.SetErrorMode(0x0001 | 0x0002 | 0x8000)
     kernel.VirtualAlloc.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_uint32, ctypes.c_uint32]
     kernel.VirtualAlloc.restype = ctypes.c_void_p
     kernel.VirtualProtect.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32)]
@@ -96,12 +101,12 @@ class NativeStructuredCFGTests(unittest.TestCase):
     def tearDownClass(cls):
         cls.temp.cleanup()
 
-    def compile(self, name: str, body: str):
+    def compile(self, name: str, body: str, timeout: int = 30):
         source = self.directory / f"{name}.sotlas"
         source.write_text("module gate::structured;\n" + body, encoding="utf-8")
         output = self.directory / f"{name}.o"
         result = subprocess.run([str(self.stage), "--compile-obj", str(source), str(output)],
-                                capture_output=True, text=True, timeout=30)
+                                capture_output=True, text=True, timeout=timeout)
         return result, output
 
     def assert_native_result(self, name: str, body: str, expected: int):
@@ -537,6 +542,54 @@ pub fn main_entry() -> u32 {{ return 0; }}
         self.assertEqual(binary.read_bytes()[:4], b"\x7fELF")
         if sys.platform.startswith("linux"):
             self.assertEqual(subprocess.run([str(binary)], timeout=30).returncode, 0)
+
+    def test_native_pipeline_emits_and_links_the_reference_program(self):
+        example = ROOT / "bootstrap/sotlas/native_examples/pipeline_native.sotlas"
+        source = example.read_text(encoding="utf-8")
+        program = source.split('let literal: *const u8 = "', 1)[1].split('";', 1)[0]
+        input_file = self.directory / "pipeline_reference.sotlas"
+        input_file.write_text(program, encoding="utf-8")
+        reference = input_file.with_suffix(".o")
+        compiled = subprocess.run([str(self.stage), "--compile-obj", str(input_file), str(reference)],
+                                  capture_output=True, text=True, timeout=30)
+        self.assertEqual(compiled.returncode, 0, compiled.stderr)
+        reference_binary = reference.with_suffix(".elf")
+        linked = subprocess.run([str(self.stage), "--link-exe", str(reference), str(reference_binary), "answer"],
+                                capture_output=True, text=True, timeout=30)
+        self.assertEqual(linked.returncode, 0, linked.stderr)
+        fingerprint = 14695981039346656037
+        for byte in reference_binary.read_bytes():
+            fingerprint = ((fingerprint ^ byte) * 1099511628211) & ((1 << 64) - 1)
+        self.assertIn(f"digest != {fingerprint}", source)
+        self.assertIn(f"executable_length != {reference_binary.stat().st_size}", source)
+        result, output = self.compile("pipeline_native", source, timeout=120)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        binary = output.with_suffix(".elf")
+        linked = subprocess.run([str(self.stage), "--link-exe", str(output), str(binary), "main_entry"],
+                                capture_output=True, text=True, timeout=30)
+        self.assertEqual(linked.returncode, 0, linked.stderr)
+        if sys.platform.startswith("linux"):
+            self.assertEqual(subprocess.run([str(reference_binary)], timeout=30).returncode, 42)
+            self.assertEqual(subprocess.run([str(binary)], timeout=30).returncode, 0)
+
+    def test_native_pipeline_detects_changed_input_and_parse_failure(self):
+        source = (ROOT / "bootstrap/sotlas/native_examples/pipeline_native.sotlas").read_text(encoding="utf-8")
+        program = source.split('let literal: *const u8 = "', 1)[1].split('";', 1)[0]
+        for name, changed, expected in (
+            ("changed", program.replace("twice(21)", "twice(20)"), 10),
+            ("parse_failure", program.replace("return twice(21);", "return twice(21)"), 3),
+        ):
+            with self.subTest(name=name):
+                fixture = source.replace(program, changed).replace(
+                    f"source_length: usize = {len(program)}", f"source_length: usize = {len(changed)}")
+                result, output = self.compile("pipeline_" + name, fixture, timeout=120)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                binary = output.with_suffix(".elf")
+                linked = subprocess.run([str(self.stage), "--link-exe", str(output), str(binary), "main_entry"],
+                                        capture_output=True, text=True, timeout=30)
+                self.assertEqual(linked.returncode, 0, linked.stderr)
+                if sys.platform.startswith("linux"):
+                    self.assertEqual(subprocess.run([str(binary)], timeout=30).returncode, expected)
 
     def test_native_frontend_pipeline_rejects_invalid_return(self):
         example = ROOT / "bootstrap" / "sotlas" / "native_examples" / "frontend_native.sotlas"

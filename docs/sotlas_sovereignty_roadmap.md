@@ -620,6 +620,45 @@ Local regression evidence: the final Windows suite ran **2,647 tests with no
 failures and 33 skips**. The four Linux ELF execution fixtures described above
 also passed via WSL. The full Linux/macOS CI matrix was not run locally.
 
+### SV8.19 — Integrated native compiler execution (2026-10-09)
+
+`bootstrap/sotlas/native_examples/pipeline_native.sotlas` links all eight core
+compiler modules into one native image. During execution it tokenizes and
+parses embedded Sotlas source, checks types, lowers to Target IR, emits an
+ELF64 object and links an executable using the production implementations.
+The workload includes a scalar parameter, multiplication and an internal call.
+No Python parser, C emitter or C runtime participates in that execution.
+
+The generated ELF is 248 bytes and has FNV-1a fingerprint
+`14630699014357374998`. Regression tests regenerate the reference through the
+Stage 1 producer and run its `answer` entry, which returns 42. The native image
+requires the complete generated ELF to match the reference length and
+fingerprint. Changing the embedded call argument rejects the old fingerprint;
+invalid syntax fails at the parser boundary. Linux executes these gates;
+Windows and macOS compile and link the same artifacts. Local WSL execution
+also validates the integrated pipeline. This checksum is a deterministic
+regression oracle, not cryptographic proof or general compiler equivalence.
+
+Combining the production modules exceeds the previous single-module budgets.
+The native ELF writer now accepts 512 functions, and both checked capacities
+and physical buffers grow together to 65,536 values and 131,072 instructions.
+Other capacity and acceptance checks remain in force. The execution fixture
+supplies smaller caller-owned buffers for its embedded workload and fails
+closed at each pipeline boundary.
+
+This advances native compiler integration without declaring self-host closure.
+Input is embedded and output stays in memory: argument handling, file I/O,
+imports and an installed native driver remain separate work. The complete
+compatibility `main.sotlas` probe still fails, and Stage 1 -> Stage 2 native
+self-build and Stage 2 -> Stage 3 fixed point remain open. The hosted bootstrap
+continues to produce the initial compiler. CI certification is pending.
+
+Local verification: the final Windows suite ran **2,649 tests without failures,
+with 33 skips**. WSL execution returned 0 for the integrated pipeline, 10 for
+changed input, 3 for invalid syntax and 42 for the reference program. Windows
+native fault fixtures suppress error-reporting dialogs in their child process
+while retaining the exact expected NTSTATUS assertions.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test
