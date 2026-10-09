@@ -535,6 +535,8 @@ not a claim that the full Linux or macOS workflow matrix ran locally.
 
 **Next source closure:** native `lower_scalar.sotlas` still requires its `u8` digit arithmetic and any additional unsupported constructs exposed by the full-module object gate; native `x86_64_scalar.sotlas` still requires its writer's larger local tables, deterministic frame sizing and all remaining machine emission constructs. The current initial 256-element array limit is not a claim that those complete modules now compile. Keep the **Stage1→Stage2 native executable build and Stage2→Stage3 fixed-point** as subsequent distinct gates. Python/C elimination remains the roadmap estimate **40% completed / 60% remaining** pending actual native compiler bootstrap.
 
+**SV8.15 matrix repair (2026-10-08):** CI #1149 (`b61d87d41c021f8491d3e814ad8ceee134dbbf53`) failed three new local-array checks across Linux, macOS and Windows; previously certified tests remained green. The two out-of-bounds subcases compiled native ELF objects but their test asserted an incorrectly escaped ELF magic byte literal. The positive `u8`/`u16` case reached its return expression and was rejected because the native cast type resolver did not yet recognize `ExprIndex` on local arrays. The repair preserves all native execution, bound-check and fail-closed gates, corrects the ELF signature assertion, and derives indexed-element type from the existing scoped local-array metadata. **Do not promote baseline #1148** until the complete repair matrix succeeds; native emission of `lower_scalar.sotlas` and `x86_64_scalar.sotlas` remains open.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test
