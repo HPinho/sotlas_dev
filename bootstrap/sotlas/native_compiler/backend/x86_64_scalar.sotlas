@@ -2334,9 +2334,15 @@ pub fn emit_elf64_module_object(
                         && (instruction.opcode == TargetOpcode::BitAnd
                             || instruction.opcode == TargetOpcode::BitOr
                             || instruction.opcode == TargetOpcode::BitXor);
+                    let narrow_arithmetic: bool = (result_type == TargetTypeTag::U8
+                        || result_type == TargetTypeTag::U16)
+                        && (instruction.opcode == TargetOpcode::Add
+                            || instruction.opcode == TargetOpcode::Sub
+                            || instruction.opcode == TargetOpcode::Mul);
                     if instruction.operand_count != 2
                         || instruction.type_tag != result_type
-                        || (!narrow_bitwise && !object_integer_arithmetic_type(result_type)) {
+                        || (!narrow_bitwise && !narrow_arithmetic
+                            && !object_integer_arithmetic_type(result_type)) {
                         return false;
                     }
                     let left: TargetOperand = unsafe { *(operands + instruction.first_operand) };
@@ -2368,8 +2374,23 @@ pub fn emit_elf64_module_object(
                         || !append_object_byte(output, capacity, &mut code, 133) {
                         return false;
                     }
-                    if !append_object_u32(output, capacity, &mut code, 0 as u32 - right.value_id * 8)
-                        || !append_object_slot_store_typed(output, capacity, &mut code, instruction.result_value, result_type) {
+                    if !append_object_u32(output, capacity, &mut code, 0 as u32 - right.value_id * 8) {
+                        return false;
+                    }
+                    // addl/subl/imull and bitwise operators leave an EAX result.
+                    // Canonicalize narrow operands/results to modulo 2^8/2^16;
+                    // a 32-bit slot store alone would retain out-of-width bits.
+                    if narrow_arithmetic {
+                        let mut mask: u32 = 255;
+                        if result_type == TargetTypeTag::U16 { mask = 65535; }
+                        if !append_object_byte(output, capacity, &mut code, 37)
+                            || !append_object_u32(output, capacity, &mut code, mask) {
+                            return false;
+                        }
+                    }
+                    if !append_object_slot_store_typed(
+                        output, capacity, &mut code, instruction.result_value, result_type
+                    ) {
                         return false;
                     }
                 } else if instruction.opcode == TargetOpcode::ShiftLeft

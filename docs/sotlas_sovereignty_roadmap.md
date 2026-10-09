@@ -537,6 +537,16 @@ not a claim that the full Linux or macOS workflow matrix ran locally.
 
 **SV8.15 matrix repair (2026-10-08):** CI #1149 (`b61d87d41c021f8491d3e814ad8ceee134dbbf53`) failed three new local-array checks across Linux, macOS and Windows; previously certified tests remained green. The two out-of-bounds subcases compiled native ELF objects but their test asserted an incorrectly escaped ELF magic byte literal. The positive `u8`/`u16` case reached its return expression and was rejected because the native cast type resolver did not yet recognize `ExprIndex` on local arrays. The repair preserves all native execution, bound-check and fail-closed gates, corrects the ELF signature assertion, and derives indexed-element type from the existing scoped local-array metadata. **Do not promote baseline #1148** until the complete repair matrix succeeds; native emission of `lower_scalar.sotlas` and `x86_64_scalar.sotlas` remains open.
 
+### SV8.16 — Native narrow unsigned arithmetic for the self-hosting digit writer (2026-10-08)
+
+**Certified baseline:** [CI #1150](https://github.com/HPinho/sotlas_dev/actions/runs/37863329452) on `0aa387bfb9992d37b8372a9b593cca684227d719` passed the full Linux, Windows and macOS workflow matrix after the local-array repair. This supersedes #1148 as the regression baseline. The six complete real-module ELF object gates (Token, AST, Lexer, Parser, Sema and Target IR) remain the last verified module count.
+
+**Current cut — SV8.16:** lower native unsigned `u8` and `u16` `+`, `-` and `*` through typed Target IR. The x86-64 object emitter uses the existing 32-bit arithmetic encoding and explicitly masks the result with `0xff`/`0xffff` before writing the SSA value slot, certifying modulo-`2^8`/`2^16` results instead of retaining overflow bits. Signed `i8`/`i16` arithmetic is still rejected. Existing narrow bitwise and constant-shift contracts remain unchanged. Positive Linux/Windows native-execution tests exercise add/sub/mul at both width boundaries; an additional fixture combines bounded stack-local `u8` arrays, the real `((value % 10) as u8) + 48` decimal-digit expression, and a structured loop. Negative tests retain signed narrow arithmetic rejection.
+
+**Actual self-hosting blocker:** `append_synthetic_str_symbol` in `lower_scalar.sotlas` uses exactly this narrow digit arithmetic. This cut resolves that arithmetic capability, **but does not claim the complete real lowerer emits an ELF**. The next native module gate must compile the entire imported `lower_scalar.sotlas` and the actual `x86_64_scalar.sotlas`, surfacing any remaining unsupported forms and stack-frame/table capacity limits. No extra modules are counted until a complete real-module object is verified in CI.
+
+**Stage closure:** the native Stage 1 → Stage 2 compiler executable and Stage 2 → Stage 3 native fixed point remain separate, open gates. The roadmap-wide Python/C dependency reduction estimate remains **40% eliminated / 60% outstanding**, not a per-module or per-stage percentage. CI certification for SV8.16 is pending; promote the baseline only once every matrix job is green.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test

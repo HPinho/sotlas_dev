@@ -755,11 +755,48 @@ pub fn main_entry() -> u32 {
 }
 """, 73)
 
-    def test_narrow_arithmetic_remains_outside_native_bitwise_contract(self):
-        result, output = self.compile("narrow_arithmetic_reject", """
-pub fn main_entry() -> u8 {
-    let first: u8 = 2;
-    let second: u8 = 3;
+    def test_narrow_unsigned_arithmetic_wraps_to_declared_width(self):
+        """Unsigned u8/u16 addition, subtraction and multiplication cannot leak high bits."""
+        self.assert_native_result("narrow_unsigned_arithmetic", """
+fn add_byte(left: u8, right: u8) -> u8 { return left + right; }
+fn sub_byte(left: u8, right: u8) -> u8 { return left - right; }
+fn mul_byte(left: u8, right: u8) -> u8 { return left * right; }
+fn add_word(left: u16, right: u16) -> u16 { return left + right; }
+fn sub_word(left: u16, right: u16) -> u16 { return left - right; }
+fn mul_word(left: u16, right: u16) -> u16 { return left * right; }
+pub fn main_entry() -> u32 {
+    if add_byte(255, 2) != 1 || sub_byte(0, 1) != 255
+        || mul_byte(200, 3) != 88 { return 1; }
+    if add_word(65535, 2) != 1 || sub_word(0, 1) != 65535
+        || mul_word(40000, 2) != 14464 { return 2; }
+    return 0;
+}
+""", 0)
+
+    def test_native_decimal_digits_use_narrow_arithmetic_and_local_arrays(self):
+        """Exercise the real self-hosting digit conversion shape with native ELF execution."""
+        self.assert_native_result("selfhost_decimal_digits", """
+pub fn main_entry() -> u32 {
+    let mut digits: [u8; 3] = 0;
+    let mut value: usize = 123;
+    let mut index: u32 = 0;
+    while index < 3 {
+        digits[index] = ((value % 10) as u8) + 48;
+        value = value / 10;
+        index = index + 1;
+    }
+    if digits[0] != 51 || digits[1] != 50 || digits[2] != 49 {
+        return 1;
+    }
+    return 0;
+}
+""", 0)
+
+    def test_signed_narrow_arithmetic_remains_fail_closed(self):
+        result, output = self.compile("signed_narrow_arithmetic_reject", """
+pub fn main_entry() -> i8 {
+    let first: i8 = 2;
+    let second: i8 = 3;
     return first + second;
 }
 """)

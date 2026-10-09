@@ -2745,6 +2745,13 @@ impl ScalarLowering {
             || type_tag == TargetTypeTag::U16)
             && (opcode == TargetOpcode::BitAnd || opcode == TargetOpcode::BitOr
                 || opcode == TargetOpcode::BitXor);
+        // Arithmetic on narrow unsigned integers is computed in a 32-bit
+        // register and normalized to the declared width by the object writer.
+        // Signed narrow arithmetic retains its existing rejection boundary.
+        let narrow_arithmetic: bool = (type_tag == TargetTypeTag::U8
+            || type_tag == TargetTypeTag::U16)
+            && (opcode == TargetOpcode::Add || opcode == TargetOpcode::Sub
+                || opcode == TargetOpcode::Mul);
         let narrow_shift: bool = (type_tag == TargetTypeTag::U8 || type_tag == TargetTypeTag::U16)
             && (opcode == TargetOpcode::ShiftLeft || opcode == TargetOpcode::ShiftRight);
         if narrow_shift {
@@ -2754,7 +2761,8 @@ impl ScalarLowering {
             if count.opcode != TargetOpcode::ConstInt || count.result_value != right
                 || count.immediate_bits >= width { return TARGET_VALUE_NONE; }
         }
-        if !narrow_bitwise && !narrow_shift && type_tag != TargetTypeTag::U32
+        if !narrow_bitwise && !narrow_arithmetic && !narrow_shift
+            && type_tag != TargetTypeTag::U32
             && type_tag != TargetTypeTag::U64
             && type_tag != TargetTypeTag::Usize
             && type_tag != TargetTypeTag::I64 {
