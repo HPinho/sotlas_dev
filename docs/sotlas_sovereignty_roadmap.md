@@ -714,6 +714,14 @@ and optional C emitter are not part of this native generation chain.
 
 **Next — SV8.21b:** implement a bounded native module-name index and safe import resolution, with duplicate/missing/cyclic import rejection, deterministic dependency ordering and complete self-build from the nine original module files without host-side premerging. Then extend the certified native generation chain to those input modules. Other open milestones remain full frontend parity, Windows/macOS native targets and installed seed/distribution closure. Do **not** credit another sovereignty checkpoint until the corresponding acceptance gate closes.
 
+### SV8.21a regression hardening — separate native source I/O from ELF linkage (2026-10-09)
+
+The first SV8.21a CI attempt, [run #1158](https://github.com/HPinho/sotlas_dev/actions/runs/37966039648) on `8ee6689200957fd192815475d13b535f08ec657e`, regressed on Linux Python 3.10/3.11/3.12. Three native execution gates returned exit 9 (ELF link failure): single-file compilation, explicit multi-file compilation, and the Stage 2/3 self-build link. Windows/macOS gates succeeded, but they do not execute the Linux driver. The last certified green baseline remains [run #1157](https://github.com/HPinho/sotlas_dev/actions/runs/37946890838), commit `cce33b5c1abd3925db524dfbb24660db582ec689`.
+
+Repair candidate: split the Sotlas-written Linux driver into independent single-file and bounded project input readers and a single downstream `driver_compile_loaded` frontend/lowering/object/link path. This removes nested project-file loops and their mutable control variables from the function responsible for the native ELF link. Preserve the existing single-file options and source bytes, ordered per-file newline separators, 1 MiB combined bound, import rejection, object equivalence, output preservation on validation errors and the Stage 2/3 fixed-point test. Add negative gates for every project mode with missing input, empty input, and 65 input paths.
+
+**Verification status:** this is a proposed source-level repair, not a new certified green baseline. The Linux execution and full cross-platform matrix must pass before SV8.21a is promoted. **Next: SV8.21b** — bounded native module identity/dependency graph, fail-closed duplicate/missing/cyclic import handling, and self-build from original modules without host premerging. No new sovereignty milestone or Python/C elimination percentage is credited by this repair.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test

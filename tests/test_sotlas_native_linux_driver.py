@@ -147,6 +147,29 @@ class NativeLinuxDriverTests(unittest.TestCase):
         self.assertEqual(output.read_bytes(), sentinel)
 
     @unittest.skipUnless(LINUX_X64, "execution requires Linux x86-64")
+    def test_project_rejects_invalid_arity_and_empty_source_without_output(self):
+        """Every project mode validates its full argv and inputs before output I/O."""
+        valid = self.directory / "bounded_valid.sotlas"
+        valid.write_text("module gate; pub fn main_entry() -> u32 { return 42; }")
+        empty = self.directory / "bounded_empty.sotlas"
+        empty.write_bytes(b"")
+        output = self.directory / "bounded_preserved"
+        sentinel = b"preserve existing artifact on invalid project invocation"
+        output.write_bytes(sentinel)
+        environment = {"PATH": str(self.directory / "no-tools")}
+        for mode in ("--project", "--project-object", "--project-compiler"):
+            with self.subTest(mode=mode):
+                self.run_tool([str(self.seed), mode, str(output)], expected=1, env=environment)
+                self.run_tool([str(self.seed), mode, str(output), str(valid)],
+                              expected=1, env=environment)
+                self.run_tool([str(self.seed), mode, str(output), str(valid), str(empty)],
+                              expected=3, env=environment)
+                self.assertEqual(output.read_bytes(), sentinel)
+        self.run_tool([str(self.seed), "--project", str(output)] + [str(valid)] * 65,
+                      expected=1, env=environment)
+        self.assertEqual(output.read_bytes(), sentinel)
+
+    @unittest.skipUnless(LINUX_X64, "execution requires Linux x86-64")
     def test_invalid_input_does_not_truncate_existing_output(self):
         source = self.directory / "invalid.sotlas"
         source.write_text("module gate; pub fn main_entry() -> u32 { return 4294967296; }")
