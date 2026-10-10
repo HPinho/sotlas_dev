@@ -44,6 +44,24 @@ and at most 512 symbols per compilation. Exhausting either limit rejects
 lowering before output is opened. Literals are never truncated to fit the pool,
 and every accepted string address has a data-symbol relocation.
 
+## Check source without writing artifacts
+
+```sh
+./build/sotlas-native --check input.sotlas
+./build/sotlas-native --check-build /path/to/source-root /path/to/entry.sotlas
+```
+
+Both commands use the same lexer, parser, semantic checker, Target IR lowerer
+and native object validator as compilation. The object is validated in memory;
+no output file is opened. A successful check is silent and returns zero. Errors
+use the existing stage-specific exit codes. `--check-build` discovers glob
+imports and validates their dependency graph using the same rules as `--build`.
+
+Checking targets the declared native object profile, so a library without an
+executable entry can pass. It does not prove executable linking, resolve foreign
+symbols, or claim parity with every feature of the canonical hosted frontend.
+Use executable compilation to validate the entry and linker contract.
+
 ## Explicit multi-file builds (SV8.21a)
 
 The Linux native driver also accepts a bounded list of source files. The
@@ -119,8 +137,8 @@ Imports expose current flat compiler symbols: **this does not yet implement
 qualified namespace isolation or visibility rules**. The original `--project`
 commands retain their exact behavior and continue to reject every import.
 The 1 MiB combined-input bound and synthetic-symbol reservation remain.
-Release bootstrap closure, general native package discovery and true per-module
-linking are still pending.
+General native package resolution and separate per-module linking remain
+outside this profile.
 
 The resolver uses one-element static scratch slots for parsed token spans
 and the emitted source length. This is an intentionally non-reentrant
@@ -131,7 +149,10 @@ out-parameters. The import graph and input limits remain unchanged.
 The Linux gates validate out-of-order imported project execution, native/hosted
 object identity for an explicitly normalized reference source, error paths
 preserving existing output, and Stage 1→2→3 fixed point from the nine original
-production module files. CI certification is pending.
+production module files. This profile is certified by
+[CI #1167](https://github.com/HPinho/sotlas_dev/actions/runs/38037420665) for
+`3782ff133b4c9e952f7bcb8fa8f188feb6c39b29`. The new check commands require their
+own CI certification.
 
 ## Discover imported files
 
@@ -182,10 +203,10 @@ The self-build input concatenates these production sources in order:
 2. `backend/target_ir`, `backend/lower_scalar`, `backend/x86_64_scalar`
 3. `native_driver/linux.sotlas`
 
-Remove their top-level import declarations after concatenation: every dependency
-is already included once. The current file driver explicitly rejects imports
-instead of silently pretending to resolve them. This merged source is a build
-input; it is not a second implementation of the compiler.
+Remove top-level import declarations after concatenation, since every dependency
+is already included once. Single-file compilation rejects imports. Use `--build`
+to discover dependencies directly from the original module files. The merged
+source remains an alternative input for the same compiler implementation.
 
 ```sh
 ./build/sotlas-native compiler_merged.sotlas build/stage2 --compiler

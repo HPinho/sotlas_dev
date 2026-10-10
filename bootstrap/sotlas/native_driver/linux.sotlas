@@ -140,7 +140,8 @@ fn driver_compile_loaded(
     source_length: usize,
     output_name: *const u8,
     object_only: bool,
-    compiler_entry: bool
+    compiler_entry: bool,
+    check_only: bool
 ) -> u32 {
     let source: *mut u8 = unsafe { driver_source_bytes as *mut u8 };
     unsafe { g_extended_len = source_length; }
@@ -186,6 +187,9 @@ fn driver_compile_loaded(
         unsafe { driver_instructions as *const TargetInstruction }, unsafe { driver_operands as *const TargetOperand },
         unsafe { driver_phi_inputs as *const TargetPhiInput }, unsafe { driver_targets as *const u32 },
         object_buffer, 8388608, length_pointer) { return fail(8); }
+    // Checking includes native object validation, but performs no output I/O
+    // and does not require an executable entry or resolved foreign symbols.
+    if check_only { return 0; }
     let mut artifact: *const u8 = object_buffer as *const u8;
     let mut artifact_length: usize = object_length;
     if !object_only {
@@ -604,18 +608,27 @@ fn driver_build_mode(option: *const u8) -> u32 {
 }
 
 fn driver_dispatch_build(argc: u64, argv: *const *const u8, mode: u32) -> u32 {
-    if mode == 1 { return driver_compile_discovered(argc, argv, false, false); }
-    if mode == 2 { return driver_compile_discovered(argc, argv, true, false); }
-    if mode == 3 { return driver_compile_discovered(argc, argv, false, true); }
+    if mode == 1 { return driver_compile_discovered(argc, argv, false, false, false); }
+    if mode == 2 { return driver_compile_discovered(argc, argv, true, false, false); }
+    if mode == 3 { return driver_compile_discovered(argc, argv, false, true, false); }
     return fail(1);
 }
 
 fn driver_compile_discovered(argc: u64, argv: *const *const u8,
-    object_only: bool, compiler_entry: bool) -> u32 {
-    if argc != 5 { return fail(1); }
-    let output: *const u8 = unsafe { *(argv + 2) };
-    let root: *const u8 = unsafe { *(argv + 3) };
-    let entry: *const u8 = unsafe { *(argv + 4) };
+    object_only: bool, compiler_entry: bool, check_only: bool) -> u32 {
+    let mut argument_index: usize = 3;
+    let mut output: *const u8 = null;
+    if check_only {
+        if argc != 4 { return fail(1); }
+        argument_index = 2;
+    } else {
+        if argc != 5 { return fail(1); }
+        output = unsafe { *(argv + 2) };
+        if output == null { return fail(1); }
+    }
+    let root: *const u8 = unsafe { *(argv + argument_index) };
+    let entry: *const u8 = unsafe { *(argv + argument_index + 1) };
+    if root == null || entry == null { return fail(1); }
     unsafe { *(driver_discovery_count as *mut usize) = 0; }
     if !driver_discovery_add(entry) { return fail(12); }
     let source: *mut u8 = unsafe { driver_project_raw as *mut u8 };
@@ -667,7 +680,7 @@ fn driver_compile_discovered(argc: u64, argv: *const *const u8,
     let count: usize = unsafe { *(driver_discovery_count as *const usize) };
     let length: usize = driver_resolve_project(count);
     if length == 0 { return fail(12); }
-    return driver_compile_loaded(length, output, object_only, compiler_entry);
+    return driver_compile_loaded(length, output, object_only, compiler_entry, check_only);
 }
 
 // Retain the certified single-file input byte stream, options and limits.
@@ -688,6 +701,19 @@ fn driver_compile_single(argc: u64, argv: *const *const u8) -> u32 {
             return fail(1);
         }
     }
+    return driver_read_single(input_name, output_name, object_only, compiler_entry, false);
+}
+
+fn driver_check_single(argc: u64, argv: *const *const u8) -> u32 {
+    if argc != 3 { return fail(1); }
+    let input_name: *const u8 = unsafe { *(argv + 2) };
+    if input_name == null { return fail(1); }
+    return driver_read_single(input_name, null, true, false, true);
+}
+
+// Single-file check and compilation share the bounded reader and pipeline.
+fn driver_read_single(input_name: *const u8, output_name: *const u8,
+    object_only: bool, compiler_entry: bool, check_only: bool) -> u32 {
     let opened: i64 = sotlas_linux_open(input_name, 0, 0);
     if opened < 0 { return fail(2); }
     let input_fd: u64 = opened as u64;
@@ -703,7 +729,7 @@ fn driver_compile_single(argc: u64, argv: *const *const u8) -> u32 {
     }
     let closed: i64 = sotlas_linux_close(input_fd);
     if closed < 0 || source_length == 0 || source_length == 1048576 { return fail(3); }
-    return driver_compile_loaded(source_length, output_name, object_only, compiler_entry);
+    return driver_compile_loaded(source_length, output_name, object_only, compiler_entry, check_only);
 }
 
 // Explicit input order is authoritative until safe native import resolution
@@ -762,7 +788,7 @@ fn driver_compile_project(
         source_length = driver_resolve_project((argc - 3) as usize);
         if source_length == 0 { return fail(12); }
     }
-    return driver_compile_loaded(source_length, output_name, object_only, compiler_entry);
+    return driver_compile_loaded(source_length, output_name, object_only, compiler_entry, false);
 }
 
 // Linux x86-64 commands:
@@ -773,6 +799,12 @@ pub fn sotlas_linux_main(argc: u64, argv: *const *const u8) -> u32 {
     if argc < 3 || argv == null { return fail(1); }
     let first_option: *const u8 = unsafe { *(argv + 1) };
     if first_option == null { return fail(1); }
+    if option_equals(first_option, "--check", 7) {
+        return driver_check_single(argc, argv);
+    }
+    if option_equals(first_option, "--check-build", 13) {
+        return driver_compile_discovered(argc, argv, true, false, true);
+    }
     let build_mode: u32 = driver_build_mode(first_option);
     if build_mode != 0 { return driver_dispatch_build(argc, argv, build_mode); }
     if option_equals(first_option, "--project", 9) {

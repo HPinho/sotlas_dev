@@ -245,6 +245,8 @@ jobs:
         set -euo pipefail
         bash packaging/install-native.sh dist/sotlas-native-linux-x64 "$RUNNER_TEMP/sotlas-native"
         printf '%s\n' 'module smoke; pub fn main_entry() -> u32 { return 42; }' > "$RUNNER_TEMP/native-smoke.sotlas"
+        env -i PATH=/no-host-tools "$RUNNER_TEMP/sotlas-native/bin/sotlas-native" --check "$RUNNER_TEMP/native-smoke.sotlas"
+        env -i PATH=/no-host-tools "$RUNNER_TEMP/sotlas-native/bin/sotlas-native" --check-build "$RUNNER_TEMP" "$RUNNER_TEMP/native-smoke.sotlas"
         env -i PATH=/no-host-tools "$RUNNER_TEMP/sotlas-native/bin/sotlas-native" "$RUNNER_TEMP/native-smoke.sotlas" "$RUNNER_TEMP/native-smoke"
         set +e
         env -i PATH=/no-host-tools "$RUNNER_TEMP/native-smoke"
