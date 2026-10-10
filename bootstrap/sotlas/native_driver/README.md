@@ -253,7 +253,7 @@ bash sotlas-native-linux-x64/install-native.sh sotlas-native-linux-x64 /path/to/
 
 The packager uses build-time Python and the initial producer. The extracted
 bundle contains a static native compiler, its eight core Sotlas modules and
-the Linux and Windows driver sources in
+the Linux, Windows and Darwin driver sources in
 namespace layout under `src/`, documentation and SHA-256 checksums. Installation
 uses Bash and ordinary system utilities; Python, Clang and a C compiler are not
 required. The installer verifies the payload before writing and refuses an
@@ -344,6 +344,44 @@ symbols and unsupported entry arity before opening the output file.
 This profile is experimental: cross-build parity is tested locally on Linux
 and Windows, and Intel macOS execution is a CI gate. Apple Silicon, Rosetta,
 code signing, ASLR, dynamic libraries, separate payload permissions and a
-native macOS compiler file driver remain outside its contract. The initial
+general-purpose process-entry signatures remain outside its contract. The initial
 payload segment is RWX; startup is RX. The hosted distribution remains
 necessary for canonical features outside the native compiler-source subset.
+
+## Native Intel macOS compiler
+
+`darwin.sotlas` is a native file driver for the same production lexer, parser,
+semantic checks, Target IR, x86 writer and owned linker used by Linux and
+Windows. It reads/writes files through the reserved Darwin kernel adapters,
+uses Darwin output flags, and emits executable files with mode `0755` after
+the complete artifact has passed validation. Failed compilation preserves an
+existing output. The compiler-source and import limits match the other drivers.
+
+Linux or Windows seeds can build the native macOS compiler from its original
+module files in the installed namespace tree:
+
+```sh
+sotlas-native --build-mac-cc sotlas-native-mac INSTALL/src INSTALL/src/sotlas/compiler/darwin_driver.sotlas
+```
+
+The reserved entry `sotlas_darwin_main(argc: u64, argv: *const *const u8) -> u32`
+has a dedicated ABI descriptor, distinct from Linux entry and Boolean parameter
+flags. Startup captures the static XNU argument stack before aligning `rsp`.
+Ordinary two-parameter functions cannot select this contract implicitly.
+
+On Intel macOS, the resulting compiler can check a file, compile applications,
+discover imports, and rebuild itself:
+
+```sh
+./sotlas-native-mac --check app.sotlas
+./sotlas-native-mac app.sotlas app
+./sotlas-native-mac --build-cc stage2 INSTALL/src INSTALL/src/sotlas/compiler/darwin_driver.sotlas
+./stage2 --build-cc stage3 INSTALL/src INSTALL/src/sotlas/compiler/darwin_driver.sotlas
+cmp stage2 stage3
+```
+
+Tests verify full native Linux/Windows cross-build byte parity locally. CI
+executes file I/O, argument paths with spaces, failure preservation, original
+module generation, Stage 2/3 byte identity and a Stage 3 application on Intel
+macOS without host build tools on PATH. This candidate requires its CI result
+before its native macOS runtime is certified.

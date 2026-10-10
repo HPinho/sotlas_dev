@@ -46,8 +46,8 @@ class NativeMachOTests(unittest.TestCase):
             self.assertFalse(obj.exists())
         return obj
 
-    def link(self, obj, output, option="--link-macho"):
-        return subprocess.run([str(self.producer), option, str(obj), str(output), "main_entry"],
+    def link(self, obj, output, option="--link-macho", entry="main_entry"):
+        return subprocess.run([str(self.producer), option, str(obj), str(output), entry],
                               capture_output=True, timeout=60)
 
     def validate_image(self, data):
@@ -201,6 +201,29 @@ static mut buffer:[u8;4]=0;
                 output = broken.with_suffix(".macho")
                 self.assertNotEqual(self.link(broken, output).returncode, 0)
                 self.assertFalse(output.exists())
+
+    def test_darwin_process_argv_and_explicit_signature(self):
+        obj = self.compile("argv", "pub fn sotlas_darwin_main(argc:u64,argv:*const *const u8)->u32{if argv==null{return 9;}return argc as u32;}")
+        output = self.directory / "argv.macho"
+        self.assertEqual(self.link(obj, output, entry="sotlas_darwin_main").returncode, 0)
+        data = output.read_bytes()
+        raw = struct.unpack_from("<Q", data, 176 + 40)[0]
+        self.assertEqual(data[raw:raw+9], b"\x48\x8b\x3c\x24\x48\x8d\x74\x24\x08")
+        if sys.platform == "darwin" and platform.machine().lower() in ("x86_64", "amd64"):
+            result = subprocess.run([str(output), "one", "two words"], env={"PATH": "/no-host-tools"}, capture_output=True, timeout=15)
+            self.assertEqual(result.returncode, 3, result.stderr)
+        for name, signature in (
+            ("missing_param", "()->u32{return 1;}"),
+            ("wrong_arg", "(argc:u32,argv:*const u8)->u32{return argc;}"),
+            ("wrong_result", "(argc:u64,argv:*const u8)->u64{return argc;}"),
+        ):
+            self.compile(name, "pub fn sotlas_darwin_main"+signature, success=False)
+        # An ordinary two-parameter function cannot opt into process entry by
+        # altering only the linker command's function name.
+        ordinary = self.compile("ordinary", "pub fn main_entry(argc:u64,argv:*const u8)->u32{return argc as u32;}")
+        rejected = self.directory / "ordinary.invalid"
+        self.assertNotEqual(self.link(ordinary, rejected).returncode, 0)
+        self.assertFalse(rejected.exists())
 
 
 if __name__ == "__main__":
