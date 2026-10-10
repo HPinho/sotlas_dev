@@ -936,6 +936,25 @@ Local validation passed source checking through the public frontend on Windows
 and Linux, the four PE/clean-cache tests, and all 707 tests in the exact failing
 CI step. Candidate CI certification remains pending.
 
+### SV8.23b — strict compatibility C11 matrix repair
+
+[CI #1170](https://github.com/HPinho/sotlas_dev/actions/runs/38062373265)
+passed the C11 contract job but failed every Python/OS matrix job at the same
+Sotlas-lite test. The compatibility PE rejection bridge did not reference six
+of its parameters; GCC and Clang rejected the generated C under
+`-Wall -Wextra -Werror`.
+
+The bridge now checks its input pointers and sizes before returning its
+unsupported-backend result. It still returns false and clears the output length;
+the compatibility compiler does not gain PE support. Warning flags remain
+unchanged. The C11 test also discovers the project's configured LLVM installation
+when neither GCC nor Clang is on PATH, preventing an avoidable local skip.
+
+The original failure was reproduced locally with strict Clang diagnostics.
+After repair, all 15 Sotlas-lite and compatibility self-hosting tests passed
+without skips, including strict C11 compilation, execution, output preservation
+and the legacy Stage 2 fixed point. New CI certification remains pending.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test
