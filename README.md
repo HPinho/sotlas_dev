@@ -45,8 +45,8 @@ The 1.0 release scope declares bounded `SUPPORTED` subsets for `sole/exclusive`,
 
 ### Native compiler sovereignty
 
-The bounded compiler-source profile has native Linux and Windows file drivers
-and Stage 2/Stage 3 byte-identical generation gates. After receiving a native
+The bounded compiler-source profile has native Linux, Windows and Intel macOS
+file drivers and certified Stage 2/Stage 3 byte-identical generation gates. After receiving a native
 seed, those paths compile their original Sotlas sources without Python, a C
 compiler or an external linker. This does not cover every feature accepted by
 the canonical frontend; the hosted bootstrap remains part of the distribution.
@@ -67,7 +67,7 @@ to receive real `argc/argv`. Linux and Windows seeds can build this compiler:
 sotlas-native --build-mac-cc sotlas-native-mac INSTALL/src INSTALL/src/sotlas/compiler/darwin_driver.sotlas
 ```
 
-Intel macOS execution and Stage 2/3 fixed-point gates run in CI. Apple
+Intel macOS execution and Stage 2/3 fixed-point gates passed CI #1174. Apple
 Silicon, signing, ASLR, dynamic libraries and arbitrary process-entry
 signatures remain outside this profile. Cross-build tests run on Linux
 and Windows. See the

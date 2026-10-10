@@ -1750,7 +1750,7 @@ fn object_value_type(values: *const TargetValue, value_count: u32, value_id: u32
 
 fn object_scalar_type(type_tag: TargetTypeTag) -> bool {
     return type_tag == TargetTypeTag::U8 || type_tag == TargetTypeTag::U16
-        || type_tag == TargetTypeTag::U32 || type_tag == TargetTypeTag::Bool
+        || type_tag == TargetTypeTag::U32 || type_tag == TargetTypeTag::I32 || type_tag == TargetTypeTag::Bool
         || type_tag == TargetTypeTag::U64 || type_tag == TargetTypeTag::I64
         || type_tag == TargetTypeTag::Pointer || type_tag == TargetTypeTag::Usize;
 }
@@ -1761,7 +1761,7 @@ fn object_type_is_64(type_tag: TargetTypeTag) -> bool {
 }
 
 fn object_integer_arithmetic_type(type_tag: TargetTypeTag) -> bool {
-    return type_tag == TargetTypeTag::U32 || type_tag == TargetTypeTag::U64
+    return type_tag == TargetTypeTag::U32 || type_tag == TargetTypeTag::I32 || type_tag == TargetTypeTag::U64
         || type_tag == TargetTypeTag::I64 || type_tag == TargetTypeTag::Usize;
 }
 
@@ -1772,7 +1772,7 @@ fn object_unsigned_integer_type(type_tag: TargetTypeTag) -> bool {
 
 fn object_integer_cast_type(type_tag: TargetTypeTag) -> bool {
     return type_tag == TargetTypeTag::U8 || type_tag == TargetTypeTag::U16
-        || type_tag == TargetTypeTag::U32 || type_tag == TargetTypeTag::U64
+        || type_tag == TargetTypeTag::U32 || type_tag == TargetTypeTag::I32 || type_tag == TargetTypeTag::U64
         || type_tag == TargetTypeTag::I64 || type_tag == TargetTypeTag::Usize;
 }
 
@@ -1787,7 +1787,7 @@ fn append_object_slot_load_typed(
         return append_object_slot_load_rax64(output, capacity, length, value_id);
     }
     if type_tag == TargetTypeTag::U8 || type_tag == TargetTypeTag::U16
-        || type_tag == TargetTypeTag::U32 || type_tag == TargetTypeTag::Bool {
+        || type_tag == TargetTypeTag::U32 || type_tag == TargetTypeTag::I32 || type_tag == TargetTypeTag::Bool {
         return append_object_slot_load(output, capacity, length, value_id);
     }
     return false;
@@ -1804,7 +1804,7 @@ fn append_object_slot_store_typed(
         return append_object_slot_store64(output, capacity, length, value_id);
     }
     if type_tag == TargetTypeTag::U8 || type_tag == TargetTypeTag::U16
-        || type_tag == TargetTypeTag::U32 || type_tag == TargetTypeTag::Bool {
+        || type_tag == TargetTypeTag::U32 || type_tag == TargetTypeTag::I32 || type_tag == TargetTypeTag::Bool {
         return append_object_slot_store(output, capacity, length, value_id);
     }
     return false;
@@ -2064,6 +2064,7 @@ pub fn emit_elf64_module_object(
                 && function.return_type != TargetTypeTag::U16
                 && function.return_type != TargetTypeTag::U32
                 && function.return_type != TargetTypeTag::U64
+                && function.return_type != TargetTypeTag::I32
                 && function.return_type != TargetTypeTag::I64
                 && function.return_type != TargetTypeTag::Pointer
                 && function.return_type != TargetTypeTag::Usize
@@ -2255,12 +2256,19 @@ pub fn emit_elf64_module_object(
                             return false;
                         }
                     } else if object_type_is_64(result_type) {
+                        // movsxd rax,eax preserves the signed value when i32
+                        // widens; unsigned 32-bit sources remain zero-extended.
+                        if source_type == TargetTypeTag::I32 {
+                            if !append_object_byte(output, capacity, &mut code, 72)
+                                || !append_object_byte(output, capacity, &mut code, 99)
+                                || !append_object_byte(output, capacity, &mut code, 192) { return false; }
+                        }
                         if !append_object_slot_store64(
                             output, capacity, &mut code, instruction.result_value - slot_base
                         ) {
                             return false;
                         }
-                    } else if result_type == TargetTypeTag::U32 {
+                    } else if result_type == TargetTypeTag::U32 || result_type == TargetTypeTag::I32 {
                         if !append_object_slot_store(
                             output, capacity, &mut code, instruction.result_value - slot_base
                         ) {
@@ -2494,6 +2502,7 @@ pub fn emit_elf64_module_object(
                     || instruction.opcode == TargetOpcode::ShiftRight {
                     let narrow_shift: bool = result_type == TargetTypeTag::U8
                         || result_type == TargetTypeTag::U16;
+                    let checked_shift: bool = narrow_shift || result_type == TargetTypeTag::I32;
                     if instruction.operand_count != 2
                         || instruction.type_tag != result_type
                         || (!narrow_shift && !object_integer_arithmetic_type(result_type))
@@ -2507,8 +2516,9 @@ pub fn emit_elf64_module_object(
                     let right: TargetOperand = unsafe {
                         *(operands + instruction.first_operand + 1)
                     };
-                    if narrow_shift {
+                    if checked_shift {
                         let mut width: u64 = 8;
+                        if result_type == TargetTypeTag::I32 { width = 32; }
                         if result_type == TargetTypeTag::U16 { width = 16; }
                         let mut constant_found: bool = false;
                         let mut constant_index: u32 = 0;
@@ -2551,6 +2561,7 @@ pub fn emit_elf64_module_object(
                     let mut shift_modrm: u8 = 224 as u8;
                     if instruction.opcode == TargetOpcode::ShiftRight {
                         shift_modrm = 232 as u8;
+                        if result_type == TargetTypeTag::I32 { shift_modrm = 248; }
                     }
                     if !append_object_byte(output, capacity, &mut code, 211)
                         || !append_object_byte(output, capacity, &mut code, shift_modrm) { return false; }
@@ -2570,7 +2581,7 @@ pub fn emit_elf64_module_object(
                     || instruction.opcode == TargetOpcode::Mod {
                     if instruction.operand_count != 2
                         || instruction.type_tag != result_type
-                        || !object_unsigned_integer_type(result_type) {
+                        || (!object_unsigned_integer_type(result_type) && result_type != TargetTypeTag::I32) {
                         return false;
                     }
                     let left: TargetOperand = unsafe {
@@ -2590,15 +2601,21 @@ pub fn emit_elf64_module_object(
                     if wide_div && !append_object_byte(output, capacity, &mut code, 72) {
                         return false;
                     }
-                    if !append_object_byte(output, capacity, &mut code, 49)
+                    if result_type == TargetTypeTag::I32 {
+                        // cdq: sign-extend eax into edx:eax for signed idiv.
+                        // x86 traps on zero divisor and INT_MIN / -1.
+                        if !append_object_byte(output, capacity, &mut code, 153) { return false; }
+                    } else if !append_object_byte(output, capacity, &mut code, 49)
                         || !append_object_byte(output, capacity, &mut code, 210) {
                         return false;
                     }
                     if wide_div && !append_object_byte(output, capacity, &mut code, 72) {
                         return false;
                     }
+                    let mut divide_modrm: u8 = 181;
+                    if result_type == TargetTypeTag::I32 { divide_modrm = 189; }
                     if !append_object_byte(output, capacity, &mut code, 247)
-                        || !append_object_byte(output, capacity, &mut code, 181)
+                        || !append_object_byte(output, capacity, &mut code, divide_modrm)
                         || !append_object_u32(
                             output, capacity, &mut code, 0 as u32 - (right.value_id - slot_base) * 8
                         ) {
@@ -2727,7 +2744,7 @@ pub fn emit_elf64_module_object(
                     else if instruction.immediate_bits == 88 { setcc = 146 as u8; }
                     else if instruction.immediate_bits == 89 { setcc = 150 as u8; }
                     else if instruction.immediate_bits == 90 { setcc = 151 as u8; }
-                    if left_type == TargetTypeTag::I64 {
+                    if left_type == TargetTypeTag::I64 || left_type == TargetTypeTag::I32 {
                         if instruction.immediate_bits == 88 { setcc = 156 as u8; }
                         else if instruction.immediate_bits == 89 { setcc = 158 as u8; }
                         else if instruction.immediate_bits == 90 { setcc = 159 as u8; }

@@ -74,6 +74,16 @@ class NativeLinuxDriverTests(unittest.TestCase):
         self.assertEqual(reference.read_bytes(), actual.read_bytes())
 
     @unittest.skipUnless(LINUX_X64, "execution requires Linux x86-64")
+    def test_signed_i32_program_compiles_and_runs_without_host_tools(self):
+        source = self.directory / "signed_program.sotlas"
+        source.write_text("module gate;fn score(a:i32,b:i32)->i32{return a/b+a%b;}pub fn main_entry()->u32{let n:i32=score(-17,5);let wide:i64=n as i64;if wide==-5 && (n>>1)==-3{return 42;}return 1;}")
+        output = self.directory / "signed_program"
+        environment = {"PATH": str(self.directory / "no-tools")}
+        self.run_tool([str(self.seed), "--check", str(source)], env=environment)
+        self.run_tool([str(self.seed), str(source), str(output)], env=environment)
+        self.run_tool([str(output)], expected=42, env=environment)
+
+    @unittest.skipUnless(LINUX_X64, "execution requires Linux x86-64")
     def test_cross_builds_complete_darwin_compiler_without_host_tools(self):
         root = self.directory / "darwin-source-tree"
         namespace = root / "sotlas/compiler"
