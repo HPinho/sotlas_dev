@@ -1133,6 +1133,61 @@ compiled by the resulting Windows compiler. The new Darwin process entry,
 file compiler and fixed-point execution remain subject to the Intel macOS CI
 gates before certification.
 
+### SV8.27 — signed i32 native frontend/backend parity
+
+**Certified baseline:** [CI #1174](https://github.com/HPinho/sotlas_dev/actions/runs/38088181971)
+on `bb9a827559436bf7e703da2bd9d45f259b74c221` passed the complete matrix,
+including the Linux-produced native Darwin compiler, macOS file compilation,
+Stage 2/3 byte identity and a Stage 3 application. Native compiler-source
+generation is now certified on Linux, Windows and Intel macOS. This closes
+the ninth explicit checkpoint; the current score is **9/10, or 90%**. The
+remaining checkpoint is full canonical frontend/language parity, not another
+compiler-generation percentage.
+
+This candidate adds `i32` to the owned native scalar path. The source lowerer
+uses structured CFG for signed declarations, records four-byte scalar/array
+storage, admits signed pointees and fields, and validates literals against
+`[-2147483648, 2147483647]`. Negative literals retain a 32-bit two's-complement
+bit pattern; non-literal negation lowers to typed subtraction. Existing
+unsigned pointer offsets and array-index requirements remain unchanged.
+
+The machine writer accepts `i32` parameters, returns, typed loads/stores,
+Phi copies, arithmetic and bitwise operations. Ordered comparisons use signed
+condition codes. Widening an `i32` to 64 bits uses sign extension; widening a
+`u32` continues to zero-extend. Narrowing retains the destination bits. Signed
+division truncates toward zero and remainder follows the dividend; zero
+divisors and `INT_MIN / -1` or `% -1` trap in the isolated native process.
+Arithmetic right shifts preserve the sign and require an IR-proven constant
+count from 0 through 31; unsupported dynamic/out-of-range counts fail before
+output.
+
+**Overflow boundary:** the owned x86 profile executes add/subtract/multiply
+and negation as wrapping 32-bit machine operations. This is an explicit
+backend-profile behavior, not a language-wide signed-overflow specification
+or a C11 overflow-equivalence claim. The C11 differential gate uses defined,
+non-overflowing signed inputs; existing language-wide overflow work stays open.
+Signed `i8`/`i16`, general signed variable shifts, broader numeric promotions,
+floating-point native lowering and complete frontend parity remain outside
+this cut. No ownership/runtime feature is promoted by scalar-type coverage.
+
+`tests/test_sotlas_native_i32.py` executes register/stack parameter calls,
+signed boundaries, casts, negative comparisons, division/remainder/shifts,
+struct/global/local-array storage, pointer stride and mutable CFG state.
+It compares defined signed arithmetic with canonical C11 and checks division
+faults in child processes. Native Linux, Windows and Darwin driver gates
+check, compile and execute a signed program without host build tools on PATH.
+Existing original-source native generation chains remain regression gates.
+
+**Local validation (2026-10-10):** the complete Windows suite passed **2,707
+tests, 55 skipped**; the C11 bootstrap contract passed **707 tests**. The seven
+dedicated signed gates, defined-arithmetic C11 comparison, and isolated
+division-fault cases passed. Native Windows and Linux (WSL) drivers checked,
+compiled and executed the signed sample without host tools on PATH. Their
+original-module Stage 2/3 fixed points passed; the dedicated signed and both
+generation gates were repeated after the final redundant-guard cleanup.
+This numeric extension awaits its full Linux/Windows/macOS candidate CI;
+the 90% checkpoint score is certified by the preceding #1174 baseline.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test
@@ -1146,11 +1201,11 @@ completion. The following distinctions must remain visible in progress reports:
 
 | Generation | Evidence already available | Required native closure |
 |---|---|---|
-| Stage 1 | Native Linux and Windows seeds certified; native Intel macOS driver implemented with execution gates pending CI | Full canonical frontend parity and macOS candidate certification |
-| Stage 2 | Native Linux and Windows seeds build Stage 2 from the original source modules, certified in CI | Broaden the native language and target profiles |
-| Stage 3 | Native Linux and Windows Stage 2 build identical Stage 3 images; Stage 3 compiles a runnable program, certified in CI | Extend native generation closure to macOS and broader language features |
+| Stage 1 | Native Linux, Windows and Intel macOS seeds run the production compiler core, certified in CI | Full canonical frontend parity |
+| Stage 2 | Native seeds on all three supported hosts build Stage 2 from the original source modules, certified in CI | Broaden native language and target profiles |
+| Stage 3 | Stage 2 produces byte-identical Stage 3 images on all three supported hosts; Stage 3 compiles a runnable program, certified in CI | Broader canonical language features and additional architectures |
 
-The current sovereignty checkpoint score is **80%: 8 of 10 closures certified
+The current sovereignty checkpoint score is **90%: 9 of 10 closures certified
 in CI for the declared profiles**. This replaces the historical unweighted 40% estimate with an
 explicit checklist. It measures architecture milestones, not lines of code,
 effort remaining or a percentage of installed dependencies already removed.
@@ -1161,11 +1216,11 @@ effort remaining or a percentage of installed dependencies already removed.
 | Compiler-core Target IR lowering | Complete production lowerer emits native objects | Certified |
 | Native machine/object backend | Complete production x86 writer emits native objects | Certified |
 | Owned ELF linking | Application and kernel image gates; native runtime linking | Certified for declared profile |
-| Native file compiler driver | Real argv, file input/output, kernel syscalls; no C runtime | Certified for Linux |
-| Native generation chain | Self-object equivalence and Stage 2/3 native fixed point | Certified for Linux and bounded Windows profile |
+| Native file compiler driver | Real argv and file input/output through kernel/OS adapters | Certified for Linux, Windows and Intel macOS profile |
+| Native generation chain | Original-source self-build and Stage 2/3 native fixed point | Certified for Linux, Windows and Intel macOS profile |
 | Native imports and project builds | Bounded native glob discovery, graph checks and project builds | Certified for declared profile |
 | Full language/frontend parity | Broader canonical features and diagnostics remain | Open |
-| Native Windows/macOS toolchains | Windows generation and Intel Mach-O execution certified; native Darwin compiler and generation gates implemented | Candidate pending full CI |
+| Native Windows/macOS toolchains | Windows and Intel macOS file drivers, execution and native generation | Certified for declared profiles |
 | Installed seed/distribution closure | Reproducible Linux static seed, original sources, verified installation | Certified for Linux profile |
 
 The native Linux profile can compile and self-build after receiving an initial

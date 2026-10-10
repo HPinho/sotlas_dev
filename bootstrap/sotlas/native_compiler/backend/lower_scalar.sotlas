@@ -146,7 +146,7 @@ impl ScalarLowering {
     pub fn scalar_memory_size(self: &Self, typ: TargetTypeTag) -> u32 {
         if typ == TargetTypeTag::U8 { return 1; }
         if typ == TargetTypeTag::U16 { return 2; }
-        if typ == TargetTypeTag::U32 { return 4; }
+        if typ == TargetTypeTag::U32 || typ == TargetTypeTag::I32 { return 4; }
         if typ == TargetTypeTag::U64 || typ == TargetTypeTag::Usize || typ == TargetTypeTag::Pointer { return 8; }
         return 0;
     }
@@ -224,6 +224,9 @@ impl ScalarLowering {
             self.source, self.source_len, elem_offset, elem_len, "u32", 3
         ) { return TargetTypeTag::U32; }
         if sem.source_slice_equals(
+            self.source, self.source_len, elem_offset, elem_len, "i32", 3
+        ) { return TargetTypeTag::I32; }
+        if sem.source_slice_equals(
             self.source, self.source_len, elem_offset, elem_len, "u64", 3
         ) { return TargetTypeTag::U64; }
         if sem.source_slice_equals(
@@ -242,7 +245,7 @@ impl ScalarLowering {
         );
         if elem_type == TargetTypeTag::U8 { return 1; }
         if elem_type == TargetTypeTag::U16 { return 2; }
-        if elem_type == TargetTypeTag::U32 { return 4; }
+        if elem_type == TargetTypeTag::U32 || elem_type == TargetTypeTag::I32 { return 4; }
         if elem_type == TargetTypeTag::U64 || elem_type == TargetTypeTag::Pointer { return 8; }
         if elem_type == TargetTypeTag::Aggregate {
             let struct_id: u32 = self.parse_array_element_struct(type_offset, type_len);
@@ -771,6 +774,9 @@ impl ScalarLowering {
             self.source, self.source_len, pointee_offset, pointee_len, "u32", 3
         ) { return TargetTypeTag::U32; }
         if sem.source_slice_equals(
+            self.source, self.source_len, pointee_offset, pointee_len, "i32", 3
+        ) { return TargetTypeTag::I32; }
+        if sem.source_slice_equals(
             self.source, self.source_len, pointee_offset, pointee_len, "u64", 3
         ) { return TargetTypeTag::U64; }
         if sem.source_slice_equals(
@@ -969,7 +975,7 @@ impl ScalarLowering {
         if pointee == TargetTypeTag::U16 {
             return 2;
         }
-        if pointee == TargetTypeTag::U32 {
+        if pointee == TargetTypeTag::U32 || pointee == TargetTypeTag::I32 {
             return 4;
         }
         if pointee == TargetTypeTag::U64 || pointee == TargetTypeTag::I64
@@ -1785,19 +1791,35 @@ impl ScalarLowering {
             return self.cfg_boolean_value(expression_index, first_parameter, parameter_count);
         }
         if expression.kind == AstKind::ExprUnary && expression.int_value == 81
-            && type_tag == TargetTypeTag::I64 {
+            && (type_tag == TargetTypeTag::I64 || type_tag == TargetTypeTag::I32) {
             let child: usize = expression.first_child;
+            if type_tag == TargetTypeTag::I32 && child != 0 && child < self.node_count
+                && unsafe { (*(self.nodes + child)).kind } != AstKind::ExprLiteral {
+                let operand: u32 = self.lower_expression(child, type_tag, first_parameter, parameter_count);
+                if operand == 0 { return 0; }
+                let zero: u32 = self.append_value(type_tag, 0, 0);
+                if zero == 0 || !self.append_instruction(TargetOpcode::ConstInt, zero, type_tag, 0, 0, expression_index) { return 0; }
+                let first: u32 = self.operand_count as u32;
+                if !self.append_operand(zero) || !self.append_operand(operand) { return 0; }
+                let result: u32 = self.append_value(type_tag, 0, 0);
+                if result == 0 || !self.append_instruction(TargetOpcode::Sub, result, type_tag, first, 2, expression_index) { return 0; }
+                return result;
+            }
             if child == 0 || child >= self.node_count
                 || unsafe { (*(self.nodes + child)).kind } != AstKind::ExprLiteral { return 0; }
             let value: u32 = self.lower_integer_literal(child, TargetTypeTag::U64);
             if value == 0 { return 0; }
             let instruction_index: usize = self.instruction_count - 1;
             let magnitude: u64 = unsafe { (*(self.instructions + instruction_index)).immediate_bits };
-            if magnitude > 9223372036854775808 { return 0; }
+            let mut maximum: u64 = 9223372036854775808;
+            if type_tag == TargetTypeTag::I32 { maximum = 2147483648; }
+            if magnitude > maximum { return 0; }
+            let mut bits: u64 = 0 as u64 - magnitude;
+            if type_tag == TargetTypeTag::I32 { bits = bits & 4294967295; }
             unsafe {
-                (*(self.instructions + instruction_index)).type_tag = TargetTypeTag::I64;
-                (*(self.instructions + instruction_index)).immediate_bits = 0 as u64 - magnitude;
-                (*(self.values + value as usize - 1)).type_tag = TargetTypeTag::I64;
+                (*(self.instructions + instruction_index)).type_tag = type_tag;
+                (*(self.instructions + instruction_index)).immediate_bits = bits;
+                (*(self.values + value as usize - 1)).type_tag = type_tag;
             }
             return value;
         }
@@ -2108,6 +2130,7 @@ impl ScalarLowering {
                 && cast_type != TargetTypeTag::U16
                 && cast_type != TargetTypeTag::U32
                 && cast_type != TargetTypeTag::U64
+                && cast_type != TargetTypeTag::I32
                 && cast_type != TargetTypeTag::I64 {
                 return TARGET_VALUE_NONE;
             }
@@ -2144,6 +2167,7 @@ impl ScalarLowering {
                 && source_type != TargetTypeTag::U16
                 && source_type != TargetTypeTag::U32
                 && source_type != TargetTypeTag::U64
+                && source_type != TargetTypeTag::I32
                 && source_type != TargetTypeTag::I64 {
                 return TARGET_VALUE_NONE;
             }
@@ -2231,6 +2255,7 @@ impl ScalarLowering {
             if (element_type != TargetTypeTag::U8
                     && element_type != TargetTypeTag::U16
                     && element_type != TargetTypeTag::U32
+                    && element_type != TargetTypeTag::I32
                     && element_type != TargetTypeTag::U64)
                 || stride == 0 || count == 0
                 || stride > 4294967295 || count > 2147483647 {
@@ -2918,12 +2943,13 @@ impl ScalarLowering {
             || type_tag == TargetTypeTag::U16)
             && (opcode == TargetOpcode::Add || opcode == TargetOpcode::Sub
                 || opcode == TargetOpcode::Mul);
-        let narrow_shift: bool = (type_tag == TargetTypeTag::U8 || type_tag == TargetTypeTag::U16)
+        let narrow_shift: bool = (type_tag == TargetTypeTag::U8 || type_tag == TargetTypeTag::U16 || type_tag == TargetTypeTag::I32)
             && (opcode == TargetOpcode::ShiftLeft || opcode == TargetOpcode::ShiftRight);
         if narrow_shift {
             let count: TargetInstruction = unsafe { *(self.instructions + self.instruction_count - 1) };
             let mut width: u64 = 8;
             if type_tag == TargetTypeTag::U16 { width = 16; }
+            if type_tag == TargetTypeTag::I32 { width = 32; }
             if count.opcode != TargetOpcode::ConstInt || count.result_value != right
                 || count.immediate_bits >= width { return TARGET_VALUE_NONE; }
         }
@@ -2931,7 +2957,7 @@ impl ScalarLowering {
             && type_tag != TargetTypeTag::U32
             && type_tag != TargetTypeTag::U64
             && type_tag != TargetTypeTag::Usize
-            && type_tag != TargetTypeTag::I64 {
+            && type_tag != TargetTypeTag::I32 && type_tag != TargetTypeTag::I64 {
             return TARGET_VALUE_NONE;
         }
         if type_tag == TargetTypeTag::I64
@@ -3434,6 +3460,7 @@ impl ScalarLowering {
             && compare_type != TargetTypeTag::U16
             && compare_type != TargetTypeTag::U32
             && compare_type != TargetTypeTag::U64
+            && compare_type != TargetTypeTag::I32
             && compare_type != TargetTypeTag::I64
             && compare_type != TargetTypeTag::Pointer {
             return TARGET_VALUE_NONE;
@@ -4667,6 +4694,15 @@ impl ScalarLowering {
         while i < self.node_count {
             let node: AstNode = unsafe { *(self.nodes + i) };
             if node.kind == AstKind::FnDecl { break; }
+            if node.kind == AstKind::TypeRef && self.type_tag_for(i) == TargetTypeTag::I32 {
+                let mut parent: usize = node.parent;
+                let mut depth: usize = 0;
+                while parent != 0 && parent < self.node_count && parent != function_index && depth < self.node_count {
+                    parent = unsafe { (*(self.nodes + parent)).parent };
+                    depth = depth + 1;
+                }
+                if parent == function_index { return true; }
+            }
             let is_loop: bool = node.kind == AstKind::WhileStmt;
             let is_branch: bool = node.kind == AstKind::IfStmt;
             let mut is_local_array: bool = false;
@@ -5145,7 +5181,7 @@ impl ScalarLowering {
                 let typ: TargetTypeTag = unsafe { g_bss_sym_types[gi] } as TargetTypeTag;
                 if typ != TargetTypeTag::U8 && typ != TargetTypeTag::U16
                     && typ != TargetTypeTag::U32 && typ != TargetTypeTag::U64
-                    && typ != TargetTypeTag::Usize && typ != TargetTypeTag::I64
+                    && typ != TargetTypeTag::Usize && typ != TargetTypeTag::I32 && typ != TargetTypeTag::I64
                     && typ != TargetTypeTag::Bool && typ != TargetTypeTag::Pointer {
                     return self.reject(index);
                 }
@@ -5692,6 +5728,7 @@ impl ScalarLowering {
                     if (element_type != TargetTypeTag::U8
                             && element_type != TargetTypeTag::U16
                             && element_type != TargetTypeTag::U32
+                            && element_type != TargetTypeTag::I32
                             && element_type != TargetTypeTag::U64)
                         || stride == 0 || count == 0
                         || stride > 4294967295 || count > 2147483647 {

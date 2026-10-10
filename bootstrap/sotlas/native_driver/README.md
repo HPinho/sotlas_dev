@@ -384,4 +384,27 @@ Tests verify full native Linux/Windows cross-build byte parity locally. CI
 executes file I/O, argument paths with spaces, failure preservation, original
 module generation, Stage 2/3 byte identity and a Stage 3 application on Intel
 macOS without host build tools on PATH. This candidate requires its CI result
-before its native macOS runtime is certified.
+before its native macOS runtime is certified. CI #1174 passed those gates for
+`bb9a827559436bf7e703da2bd9d45f259b74c221`, certifying this bounded Intel macOS
+compiler-generation profile.
+
+## Native signed 32-bit profile
+
+The native frontend/backend now accepts `i32` in parameters, return values,
+locals, four-byte fields, bounded arrays and typed pointers. It executes
+signed comparisons, add/subtract/multiply, negation, bitwise operations,
+division/remainder and arithmetic right shift. Calls use the existing bounded
+internal ABI, including stack arguments. Casts widen signed `i32` with sign
+extension and unsigned `u32` with zero extension.
+
+Literal bounds are checked. Shift counts must be proven constants in `[0,31]`;
+dynamic or invalid counts fail closed. Signed indices and implicit mixed
+signed/unsigned arithmetic remain rejected. Add/subtract/multiply and negation
+wrap at 32 bits in this x86 profile. Division by zero and the `INT_MIN / -1`
+or `% -1` overflow case raise a process-level arithmetic fault. These rules
+do not define C11 signed overflow or the language-wide overflow contract.
+
+The dedicated native signed tests compare defined arithmetic with C11,
+validate memory/CFG behavior, and isolate arithmetic-fault execution in child
+processes. The file-driver gates compile and run a signed example without
+Python/C build tools on PATH. This extension requires its own CI validation.
