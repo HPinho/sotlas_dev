@@ -226,6 +226,40 @@ jobs:
         name: sotlas-toolchain-nightly
         path: dist/sotlas-toolchain-nightly.tar.gz
 
+  native-linux-package:
+    name: Build and install native Linux seed
+    runs-on: ubuntu-latest
+    needs: [test, backend-contract]
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+    - name: Install producer build dependencies
+      run: python -m pip install -e .
+    - name: Build native seed bundle
+      run: python packaging/native_linux.py --output dist/sotlas-native-linux-x64
+    - name: Install and run native compiler without host build tools
+      shell: bash
+      run: |
+        set -euo pipefail
+        bash packaging/install-native.sh dist/sotlas-native-linux-x64 "$RUNNER_TEMP/sotlas-native"
+        printf '%s\n' 'module smoke; pub fn main_entry() -> u32 { return 42; }' > "$RUNNER_TEMP/native-smoke.sotlas"
+        env -i PATH=/no-host-tools "$RUNNER_TEMP/sotlas-native/bin/sotlas-native" "$RUNNER_TEMP/native-smoke.sotlas" "$RUNNER_TEMP/native-smoke"
+        set +e
+        env -i PATH=/no-host-tools "$RUNNER_TEMP/native-smoke"
+        result=$?
+        set -e
+        test "$result" -eq 42
+    - name: Upload native seed bundle
+      uses: actions/upload-artifact@v4
+      with:
+        name: sotlas-native-linux-x64
+        path: |
+          dist/sotlas-native-linux-x64.tar.gz
+          dist/sotlas-native-linux-x64.tar.gz.sha256
+        if-no-files-found: error
+
   package-release-smoke:
     name: Build and install Python distribution
     runs-on: ${{ matrix.os }}

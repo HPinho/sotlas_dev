@@ -250,6 +250,78 @@ class NativeLinuxDriverTests(unittest.TestCase):
         self.assertEqual(native.read_bytes(), hosted.read_bytes())
 
     @unittest.skipUnless(LINUX_X64, "execution requires Linux x86-64")
+    def test_discovers_module_files_from_entry_and_root(self):
+        root = self.directory / "discovered"
+        (root / "gate").mkdir(parents=True)
+        dependency = root / "gate/math.sotlas"
+        bridge = root / "gate/bridge.sotlas"
+        entry = root / "gate/app.sotlas"
+        dependency.write_text("module gate::math; fn base() -> u32 { return 40; }")
+        bridge.write_text("module gate::bridge; import gate::math::*; fn add() -> u32 { return base() + 2; }")
+        entry.write_text("module gate::app; import gate::bridge::*; pub fn main_entry() -> u32 { return add(); }")
+        environment = {"PATH": str(self.directory / "no-tools")}
+        executable = self.directory / "discovered_app"
+        self.run_tool([str(self.seed), "--build", str(executable), str(root), str(entry)], 180, env=environment)
+        self.run_tool([str(executable)], expected=42, env=environment)
+        discovered = self.directory / "discovered.o"
+        explicit = self.directory / "explicit.o"
+        self.run_tool([str(self.seed), "--build-obj", str(discovered), str(root), str(entry)], 180, env=environment)
+        self.run_tool([str(self.seed), "--project-resolve-object", str(explicit), str(entry), str(bridge), str(dependency)], 180, env=environment)
+        self.assertEqual(discovered.read_bytes(), explicit.read_bytes())
+        preserved = self.directory / "discovery_preserved"
+        preserved.write_bytes(b"keep output")
+        dependency.unlink()
+        self.run_tool([str(self.seed), "--build", str(preserved), str(root), str(entry)], expected=2, env=environment)
+        self.assertEqual(preserved.read_bytes(), b"keep output")
+        dependency.write_text("module gate::math; import gate::app::*; fn base() -> u32 { return 40; }")
+        self.run_tool([str(self.seed), "--build", str(preserved), str(root), str(entry)], expected=12, env=environment)
+        self.assertEqual(preserved.read_bytes(), b"keep output")
+
+    def test_native_bundle_reproducibility_and_static_seed_contract(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("native_packager", ROOT / "packaging/native_linux.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        first = self.directory / "bundle_a/native"
+        second = self.directory / "bundle_b/native"
+        archive_a = module.assemble(self.seed, first, "1.0.0rc1")
+        archive_b = module.assemble(self.seed, second, "1.0.0rc1")
+        self.assertEqual(archive_a.read_bytes(), archive_b.read_bytes())
+        self.assertEqual((first / "bin/sotlas-native").read_bytes(), self.seed.read_bytes())
+        self.assertFalse(list(first.rglob("*.py")))
+        fake = self.directory / "invalid_seed"
+        fake.write_bytes(b"not an ELF compiler")
+        with self.assertRaises(ValueError):
+            module.assemble(fake, self.directory / "bad_bundle", "1.0.0rc1")
+
+    @unittest.skipUnless(LINUX_X64, "execution requires Linux x86-64")
+    def test_installs_native_bundle_without_host_language_tools(self):
+        import importlib.util
+        import shutil
+        spec = importlib.util.spec_from_file_location("native_packager", ROOT / "packaging/native_linux.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        bundle = self.directory / "install_bundle"
+        module.assemble(self.seed, bundle, "1.0.0rc1")
+        utilities = self.directory / "system_utilities"
+        utilities.mkdir()
+        for name in ("uname", "find", "sha256sum", "cut", "grep", "mkdir", "cp", "chmod"):
+            (utilities / name).symlink_to(shutil.which(name))
+        environment = {"PATH": str(utilities)}
+        installed = self.directory / "installed_native"
+        self.run_tool(["/bin/bash", str(bundle / "install-native.sh"), str(bundle), str(installed)], env=environment)
+        source = self.directory / "installed_sample.sotlas"
+        source.write_text("module gate; pub fn main_entry() -> u32 { return 42; }")
+        output = self.directory / "installed_sample"
+        self.run_tool([str(installed / "bin/sotlas-native"), str(source), str(output)], env={"PATH": str(self.directory / "no-tools")})
+        self.run_tool([str(output)], expected=42, env={"PATH": str(self.directory / "no-tools")})
+        (bundle / "bin/sotlas-native").write_bytes(b"tampered compiler")
+        rejected = self.directory / "rejected_install"
+        result = subprocess.run(["/bin/bash", str(bundle / "install-native.sh"), str(bundle), str(rejected)], env=environment, capture_output=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(rejected.exists())
+
+    @unittest.skipUnless(LINUX_X64, "execution requires Linux x86-64")
     def test_resolved_project_accepts_contextual_keyword_segments(self):
         """Keywords remain namespace identifiers; comments and strings are not imports."""
         dependency = self.directory / "keyword_dependency.sotlas"
