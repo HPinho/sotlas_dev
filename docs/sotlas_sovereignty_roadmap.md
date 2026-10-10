@@ -1188,6 +1188,29 @@ generation gates were repeated after the final redundant-guard cleanup.
 This numeric extension awaits its full Linux/Windows/macOS candidate CI;
 the 90% checkpoint score is certified by the preceding #1174 baseline.
 
+**SV8.27 Windows matrix repair:** CI #1175 on
+`f937b4ad9dfb469b19a854dc4c79972b09aa5e54` failed the division-fault gate on
+Windows/Python 3.10 and 3.11. The old gate executed generated SysV code inside
+Python through a `ctypes` memory trampoline. The logs show arithmetic faults
+translated into `OSError`/exit 1 in one interpreter and `0xC0000409` termination
+in the other, rather than the asserted native arithmetic NTSTATUS. The
+production compiler and ordinary signed execution tests did not fail there.
+
+The repair links each fault fixture into a complete Sotlas-owned PE and
+executes it as a separate OS process. A Python launcher only sets inherited
+error-reporting policy, captures the native child's exit code and emits JSON;
+it never calls generated code through `ctypes`. The launcher must succeed, a
+non-faulting control must return 42, and the native fault cases still require
+exact `0xC0000094` (division by zero) or `0xC0000095` (division overflow).
+Neither generic failure nor `0xC0000409` is accepted. Unix gates still require
+`SIGFPE`, using the same owned-image linking helper.
+
+All seven dedicated signed tests passed locally on official temporary Windows
+Python **3.10.11** and **3.11.9** runtimes, and on the two available newer local
+interpreters. The change is confined to the test harness and this repair
+record; no backend semantics or fault assertions are relaxed. Keep CI #1174
+as the certified reference until the repair's full matrix succeeds.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test

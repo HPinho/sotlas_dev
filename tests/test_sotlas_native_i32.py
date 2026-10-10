@@ -1,5 +1,6 @@
 """Native signed 32-bit execution, memory, boundary and reference parity gates."""
 from pathlib import Path
+import json
 import os
 import platform
 import signal
@@ -41,19 +42,49 @@ class NativeI32Tests(unittest.TestCase):
             self.assertFalse(obj.exists())
         return obj
 
-    def execute(self, obj, expected=42):
-        if platform.machine().lower() not in ("amd64", "x86_64"):
-            return
+    def link_image(self, obj):
         output = obj.with_suffix(".exe" if os.name == "nt" else ".bin")
         mode = "--link-pe" if os.name == "nt" else "--link-macho" if sys.platform == "darwin" else "--link-exe"
         linked = subprocess.run([str(self.producer), mode, str(obj), str(output), "main_entry"], capture_output=True, timeout=60)
         self.assertEqual(linked.returncode, 0, linked.stderr)
+        return output
+
+    def execute(self, obj, expected=42):
+        if platform.machine().lower() not in ("amd64", "x86_64"):
+            return
+        output = self.link_image(obj)
         environment = {"PATH": str(self.directory / "no-host-tools")}
         if os.name == "nt":
             environment["SystemRoot"] = os.environ.get("SystemRoot", "C:\\Windows")
         options = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
         result = subprocess.run([str(output)], env=environment, capture_output=True, timeout=15, **options)
         self.assertEqual(result.returncode, expected, result.stderr)
+
+    def windows_process_exit_code(self, output):
+        # Configure only the launcher, whose error mode is inherited by the
+        # native child. Python never executes generated code through ctypes:
+        # ctypes/libffi can translate an arithmetic trap to OSError or fail-fast
+        # termination depending on the interpreter build.
+        script = """
+import ctypes
+import json
+import subprocess
+import sys
+kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+kernel.SetErrorMode.argtypes = [ctypes.c_uint32]
+kernel.SetErrorMode.restype = ctypes.c_uint32
+kernel.SetErrorMode(0x0001 | 0x0002 | 0x8000)
+result = subprocess.run([sys.argv[1]], capture_output=True, timeout=15,
+                        creationflags=subprocess.CREATE_NO_WINDOW)
+print(json.dumps({'returncode': result.returncode,
+                  'stderr': result.stderr.decode('utf-8', errors='replace')}))
+"""
+        result = subprocess.run([sys.executable, "-c", script, str(output)],
+                                cwd=self.directory, capture_output=True, timeout=30,
+                                creationflags=subprocess.CREATE_NO_WINDOW)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout)
+        return report["returncode"] & 0xffffffff, report["stderr"]
 
     def test_arithmetic_calls_signed_comparisons_and_register_stack_arguments(self):
         cases = (
@@ -112,23 +143,20 @@ class NativeI32Tests(unittest.TestCase):
                 self.compile(f"invalid{index}", source, success=False)
 
     def test_zero_division_and_minimum_overflow_trap_in_child(self):
+        if os.name == "nt":
+            control = self.compile("trap_control", "pub fn main_entry()->u32{return 42;}")
+            status, error = self.windows_process_exit_code(self.link_image(control))
+            self.assertEqual(status, 42, error)
         for index, expression in enumerate(("17/0", "-2147483648 / -1", "-2147483648 % -1")):
             with self.subTest(index=index):
                 obj = self.compile(f"trap{index}", f"pub fn main_entry()->u32{{let result:i32={expression};return result as u32;}}")
                 if os.name == "nt":
-                    # The child helper disables Error Reporting dialogs and
-                    # executes a relocation-free SysV entry in protected memory.
-                    script = "import sys;sys.path.insert(0,sys.argv[1]);from test_sotlas_native_structured_cfg import execute_windows_text;from pathlib import Path;execute_windows_text(Path(sys.argv[2]))"
-                    result = subprocess.run([sys.executable, "-c", script, str(ROOT / "tests"), str(obj)],
-                                            cwd=self.directory, capture_output=True, timeout=30)
+                    status, error = self.windows_process_exit_code(self.link_image(obj))
                     expected = 0xc0000094 if index == 0 else 0xc0000095
-                    self.assertEqual(result.returncode & 0xffffffff, expected, result.stderr)
+                    self.assertEqual(status, expected, error)
                 else:
                     import resource
-                    output = obj.with_suffix(".trap")
-                    mode = "--link-macho" if sys.platform == "darwin" else "--link-exe"
-                    linked = subprocess.run([str(self.producer), mode, str(obj), str(output), "main_entry"], capture_output=True, timeout=60)
-                    self.assertEqual(linked.returncode, 0, linked.stderr)
+                    output = self.link_image(obj)
                     result = subprocess.run([str(output)], cwd=self.directory, capture_output=True, timeout=15,
                                             preexec_fn=lambda: resource.setrlimit(resource.RLIMIT_CORE, (0, 0)))
                     self.assertEqual(result.returncode, -signal.SIGFPE, result.stderr)
