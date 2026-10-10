@@ -14,6 +14,15 @@ import bootstrap
 def _host_c_compiler() -> Path:
     resolved = shutil.which("gcc") or shutil.which("clang")
     if resolved is None:
+        # Use the project's configured LLVM installation even when its bin
+        # directory is absent from PATH, so strict C11 checks still execute.
+        try:
+            from sotlas.llvm_toolchain import default_toolchain
+        except ImportError:
+            pass
+        else:
+            resolved = default_toolchain.find_tool("clang")
+    if resolved is None:
         raise unittest.SkipTest("host C compiler not available")
     return Path(resolved)
 

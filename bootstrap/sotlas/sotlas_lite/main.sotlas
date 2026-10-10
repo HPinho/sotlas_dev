@@ -87,6 +87,10 @@ pub fn sotlas_native_link_pe(
 ) -> bool {
     if out_length == null { return false; }
     unsafe { *out_length = 0; }
+    if object == null || object_len == 0 || entry_name == null
+        || entry_name_len == 0 || output == null || capacity == 0 {
+        return false;
+    }
     return false;
 }
 
