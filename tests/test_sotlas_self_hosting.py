@@ -30,6 +30,16 @@ class TestSotlasSelfHosting(unittest.TestCase):
         self.assertTrue(self.native_compiler.is_file())
         self.assertGreater(self.native_compiler.stat().st_size, 50000)
 
+    def test_compatibility_compiler_rejects_pe_without_truncating_output(self):
+        obj = self.tmp_path / "unsupported_pe.o"
+        obj.write_bytes(b"unsupported compatibility object")
+        output = self.tmp_path / "preserved_pe.exe"
+        output.write_bytes(b"existing output")
+        result = subprocess.run([str(self.native_compiler), "--link-pe", str(obj), str(output), "main_entry"],
+                                capture_output=True, timeout=15)
+        self.assertEqual(result.returncode, 20)
+        self.assertEqual(output.read_bytes(), b"existing output")
+
     def test_native_compiler_version_flag(self):
         res = subprocess.run([str(self.native_compiler), "--version"], capture_output=True, text=True)
         self.assertEqual(res.returncode, 0)

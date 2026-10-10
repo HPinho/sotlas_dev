@@ -870,6 +870,52 @@ Python or C build tools on PATH.
 The complete Windows regression run passed 2,672 tests with 50 platform/tool
 skips. The six selected Linux execution gates passed separately through WSL.
 
+### SV8.23 — first owned Windows executable path
+
+Baseline `fe435430e803085eee97cb83b327db2dbbdd4f2d` passed
+[CI #1168](https://github.com/HPinho/sotlas_dev/actions/runs/38057222821).
+Native checks are now part of that certified Linux profile.
+
+The new candidate adds a PE32+ writer and linker in
+`bootstrap/sotlas/native_compiler/backend/x86_64_scalar.sotlas`.
+The existing ELF object resolver supplies internal symbol resolution; the PE
+writer maps the resolved payload, zero-initialized memory and a Win64 startup
+bridge. `ExitProcess` from KERNEL32 is the only generated Windows import. The
+internal calling convention stays SysV, with a zero-argument process entry.
+The low 32 return bits are passed as the Windows exit code.
+
+The Linux native driver exposes `--windows` and `--build-win` directly. The
+hosted producer also exposes `--link-pe` through a temporary Stage-0 bridge;
+that bridge performs file I/O while the Sotlas writer produces the image.
+Native Linux/Stage-3 gates compare PE bytes with the hosted oracle without
+tools on PATH. Windows gates execute calls, strings, global storage and a
+260 exit code. Negative gates reject unresolved foreign symbols, Linux
+syscalls, nonzero entry arity, missing ABI notes and malformed input while
+preserving existing output.
+
+The CI distribution job generates a PE using the installed native Linux seed;
+a Windows job downloads and executes it without Python or C build tools.
+This is a first Windows executable path, not a Windows compiler self-build.
+Windows native file APIs/driver, general Win64 FFI, COFF inputs, unwind data,
+ASLR and separate memory protections remain open, as does macOS. The current
+PE gate rejects syscall byte patterns conservatively, including immediates.
+These limits prevent closing the platform checkpoint or claiming 95%.
+The certified checkpoint score remains 80%; new candidate CI is pending.
+
+Local validation passed the PE contract and rejection suite on Windows,
+including execution without host tools. Five Linux gates passed through WSL,
+including native PE equivalence and original-module Stage 2/3 identity.
+Stage 3 generated a PE matching the hosted oracle. The installed Linux bundle
+also produced a PE that executed on Windows with exit code 42; this rehearses
+the new cross-platform CI artifact gate.
+
+The Windows regression suite covered all 2,677 cases in two blocks (51 skips).
+The first run exposed a missing PE symbol in the shared legacy driver bridge;
+the compatibility compiler now provides its explicit unsupported-backend
+response. Its 12 compatibility gates passed, and all 984 remaining cases
+passed after the repair. The 1,693 earlier cases had already passed. No legacy
+test was removed or weakened, and both bootstrap mirrors remain identical.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test
@@ -902,7 +948,7 @@ effort remaining or a percentage of installed dependencies already removed.
 | Native generation chain | Self-object equivalence and Stage 2/3 native fixed point | Certified for Linux |
 | Native imports and project builds | Bounded native glob discovery, graph checks and project builds | Certified for declared profile |
 | Full language/frontend parity | Broader canonical features and diagnostics remain | Open |
-| Native Windows/macOS toolchains | Drivers and native object formats remain | Open |
+| Native Windows/macOS toolchains | PE output candidate validated locally; Windows driver/ABI coverage, COFF and native macOS remain | Open |
 | Installed seed/distribution closure | Reproducible Linux static seed, original sources, verified installation | Certified for Linux profile |
 
 The native Linux profile can compile and self-build after receiving an initial

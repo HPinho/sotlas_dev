@@ -3835,6 +3835,168 @@ pub fn link_elf64_executable(
     return true;
 }
 
+// Windows PE32+ candidate: retain the validated internal SysV calling convention,
+// bridge a zero-argument entry to Win64 ExitProcess, and import only KERNEL32.
+// Fixed image base, no external user symbols, unwind tables or base relocations.
+pub fn link_pe64_executable(
+    object: *const u8, object_length: usize,
+    entry_name: *const u8, entry_name_length: usize,
+    output: *mut u8, capacity: usize, output_length: *mut usize
+) -> bool {
+    if output_length == null { return false; }
+    unsafe { *output_length = 0; }
+    if object == null || output == null || entry_name == null
+        || object_length < 64 || capacity < 2048 || capacity > 268435456 {
+        return false;
+    }
+    let mut offset: usize = 0;
+    let mut length: usize = object_length;
+    let mut linked_length: usize = 0;
+    let payload: *mut u8 = unsafe { output + 512 };
+    if !link_elf64_executable(object, unsafe { (&offset) as *const usize },
+        unsafe { (&length) as *const usize }, 1, entry_name, entry_name_length,
+        null, 0, 4198400, true, payload, capacity - 1024,
+        unsafe { (&linked_length) as *mut usize }) { return false; }
+
+    // The ELF linker above validates all section and symbol bounds. Require
+    // explicit zero-argument ABI evidence and reject Linux instruction bytes.
+    // The byte gate is conservative: matching bytes in immediates also reject.
+    let headers: usize = get_u64(object, object_length, 40) as usize;
+    let section_count: usize = get_u16(object, object_length, 60) as usize;
+    let mut entry_symbol: usize = 0;
+    let mut section: usize = 1;
+    while section < section_count {
+        let header: usize = headers + section * 64;
+        let kind: u32 = get_u32(object, object_length, header + 4);
+        let start: usize = get_u64(object, object_length, header + 24) as usize;
+        let size: usize = get_u64(object, object_length, header + 32) as usize;
+        if kind == 1 && (get_u64(object, object_length, header + 8) & 4) != 0 {
+            let mut index: usize = 0;
+            while index + 1 < size {
+                if unsafe { *(object + start + index) } == 15
+                    && unsafe { *(object + start + index + 1) } == 5 { return false; }
+                index = index + 1;
+            }
+        }
+        if kind == 2 {
+            let strings_header: usize = headers + get_u32(object, object_length, header + 40) as usize * 64;
+            let strings: usize = get_u64(object, object_length, strings_header + 24) as usize;
+            let mut symbol: usize = 1;
+            while symbol < size / 24 {
+                let record: usize = start + symbol * 24;
+                let name: usize = strings + get_u32(object, object_length, record) as usize;
+                if elf_name_matches_slice(object, object_length, name, entry_name, entry_name_length) {
+                    if (unsafe { *(object + record + 4) } & 15) != 2 { return false; }
+                    entry_symbol = symbol;
+                }
+                symbol = symbol + 1;
+            }
+        }
+        section = section + 1;
+    }
+    if entry_symbol == 0 { return false; }
+    let mut valid_abi: bool = false;
+    section = 1;
+    while section < section_count {
+        let header: usize = headers + section * 64;
+        if get_u32(object, object_length, header + 4) == 7 {
+            let note: usize = get_u64(object, object_length, header + 24) as usize;
+            let size: usize = get_u64(object, object_length, header + 32) as usize;
+            if size >= 24 && get_u32(object, object_length, note) == 7
+                && unsafe { *(object + note + 12) } == 83
+                && unsafe { *(object + note + 13) } == 79
+                && unsafe { *(object + note + 14) } == 84
+                && unsafe { *(object + note + 15) } == 76
+                && unsafe { *(object + note + 16) } == 65
+                && unsafe { *(object + note + 17) } == 83 {
+                let descriptor_size: usize = get_u32(object, object_length, note + 4) as usize;
+                let note_type: u32 = get_u32(object, object_length, note + 8);
+                if descriptor_size <= size - 20 {
+                    if note_type == 1 && descriptor_size == 4 && entry_symbol == 1 {
+                        valid_abi = get_u32(object, object_length, note + 20) == 0;
+                    } else if note_type == 2 && entry_symbol <= descriptor_size / 4 {
+                        valid_abi = get_u32(object, object_length, note + 20 + (entry_symbol - 1) * 4) == 0;
+                    }
+                }
+            }
+        }
+        section = section + 1;
+    }
+    if !valid_abi { return false; }
+    let memory_size: usize = get_u64(payload, linked_length, 104) as usize;
+    if memory_size < linked_length || memory_size > 1879048192 { return false; }
+    let raw_size: usize = align_to(linked_length, 512);
+    let start_raw: usize = 512 + raw_size;
+    if start_raw > capacity - 512 { return false; }
+    let start_rva: usize = align_to(4096 + memory_size, 4096);
+    let entry_address: u64 = get_u64(payload, linked_length, 24);
+    if entry_address < 4198400 || entry_address - 4198400 >= linked_length { return false; }
+    let entry_rva: u32 = (entry_address - 4198400 + 4096) as u32;
+    let mut index: usize = 0;
+    while index < 512 { unsafe { *(output + index) = 0; } index = index + 1; }
+    index = 512 + linked_length;
+    while index < start_raw + 512 { unsafe { *(output + index) = 0; } index = index + 1; }
+    if !put_u16(output, capacity, 0, 23117) || !put_u32(output, capacity, 60, 128)
+        || !put_u32(output, capacity, 128, 17744)
+        || !put_u16(output, capacity, 132, 34404) || !put_u16(output, capacity, 134, 2)
+        || !put_u16(output, capacity, 148, 240) || !put_u16(output, capacity, 150, 35)
+        || !put_u16(output, capacity, 152, 523)
+        || !put_u32(output, capacity, 156, (raw_size + 512) as u32)
+        || !put_u32(output, capacity, 164, (memory_size - linked_length) as u32)
+        || !put_u32(output, capacity, 168, start_rva as u32)
+        || !put_u32(output, capacity, 172, 4096)
+        || !put_u64(output, capacity, 176, 4194304)
+        || !put_u32(output, capacity, 184, 4096) || !put_u32(output, capacity, 188, 512)
+        || !put_u16(output, capacity, 192, 6) || !put_u16(output, capacity, 200, 6)
+        || !put_u32(output, capacity, 208, (start_rva + 4096) as u32)
+        || !put_u32(output, capacity, 212, 512)
+        || !put_u16(output, capacity, 220, 3) || !put_u16(output, capacity, 222, 256)
+        || !put_u64(output, capacity, 224, 8388608) || !put_u64(output, capacity, 232, 65536)
+        || !put_u64(output, capacity, 240, 1048576) || !put_u64(output, capacity, 248, 4096)
+        || !put_u32(output, capacity, 260, 16)
+        || !put_u32(output, capacity, 272, (start_rva + 32) as u32)
+        || !put_u32(output, capacity, 276, 40)
+        || !put_u32(output, capacity, 360, (start_rva + 96) as u32)
+        || !put_u32(output, capacity, 364, 16) { return false; }
+    let names: *const u8 = ".sotlas\x00.start\x00\x00";
+    index = 0;
+    while index < 8 {
+        unsafe { *(output + 392 + index) = *(names + index); }
+        unsafe { *(output + 432 + index) = *(names + 8 + index); }
+        index = index + 1;
+    }
+    if !put_u32(output, capacity, 400, memory_size as u32)
+        || !put_u32(output, capacity, 404, 4096)
+        || !put_u32(output, capacity, 408, raw_size as u32)
+        || !put_u32(output, capacity, 412, 512)
+        || !put_u32(output, capacity, 428, 3758096480)
+        || !put_u32(output, capacity, 440, 160)
+        || !put_u32(output, capacity, 444, start_rva as u32)
+        || !put_u32(output, capacity, 448, 512)
+        || !put_u32(output, capacity, 452, start_raw as u32)
+        || !put_u32(output, capacity, 468, 3758096480) { return false; }
+    // Win64 entry: shadow space and alignment, SysV no-argument call, then
+    // move EAX to ECX and call ExitProcess through the loader-populated IAT.
+    let startup: *const u8 = "\x48\x83\xec\x28\xe8\x00\x00\x00\x00\x89\xc1\xff\x15\x4f\x00\x00\x00\x0f\x0b";
+    index = 0;
+    while index < 19 { unsafe { *(output + start_raw + index) = *(startup + index); } index = index + 1; }
+    let displacement: u32 = entry_rva - (start_rva as u32 + 9);
+    if !put_u32(output, capacity, start_raw + 5, displacement)
+        || !put_u32(output, capacity, start_raw + 32, (start_rva + 80) as u32)
+        || !put_u32(output, capacity, start_raw + 44, (start_rva + 112) as u32)
+        || !put_u32(output, capacity, start_raw + 48, (start_rva + 96) as u32)
+        || !put_u64(output, capacity, start_raw + 80, (start_rva + 128) as u64)
+        || !put_u64(output, capacity, start_raw + 96, (start_rva + 128) as u64) { return false; }
+    let dll: *const u8 = "KERNEL32.dll";
+    index = 0;
+    while index < 13 { unsafe { *(output + start_raw + 112 + index) = *(dll + index); } index = index + 1; }
+    let exit_name: *const u8 = "ExitProcess";
+    index = 0;
+    while index < 12 { unsafe { *(output + start_raw + 130 + index) = *(exit_name + index); } index = index + 1; }
+    unsafe { *output_length = start_raw + 512; }
+    return true;
+}
+
 // The assembler-text path supports the scalar function subset below. A narrow
 // direct ELF object writer and a narrow single-object linker are defined above;
 // broader link layouts and object formats remain separate stages.
