@@ -809,6 +809,33 @@ Installation also passed with PATH containing only the eight required system
 utilities. Linux CI executes the installer tamper and no-host-tools gates;
 new CI certification remains pending.
 
+### SV8.22a — native string relocation capacity repair
+
+CI [#1165](https://github.com/HPinho/sotlas_dev/actions/runs/38009068884)
+failed on all three Ubuntu Python versions at the malformed-arity gate for
+`--project-compiler`. Windows, macOS and the C11 contract passed. The driver
+had grown beyond 256 string literals: the lowerer emitted the 257th string's
+bytes but omitted its symbol, leaving its address instruction unrelocated.
+This is a compiler capacity defect, not a platform timing issue.
+
+The native Target IR now reserves 512 string symbols. The lowerer rejects
+symbol exhaustion and decoded payload exhaustion instead of silently emitting
+unpatched addresses or truncated strings. The byte pool remains 65,536 bytes,
+including every literal's terminating NUL. Boundary gates verify all 512
+symbols have relocations, reject a 513th literal without output, accept a
+65,535-byte payload and reject a 65,536-byte payload. Linux execution also
+checks late string addresses and preserves an existing artifact on rejection.
+
+The existing CLI arity and self-build gates remain unchanged. The checkpoint
+score stays 8/10 locally; certification requires a new green CI run.
+
+Local validation passed the complete Windows run (2,669 tests, 47 skips),
+six Linux execution gates through WSL, and verified installation of a newly
+built seed with only system utilities on PATH. Native Stage 2 and Stage 3
+rebuilt directly from the original modules and matched byte for byte; Stage 3
+compiled and executed a program returning 42. The extra Linux string-capacity
+gate ran separately after the Windows suite had already collected its tests.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test

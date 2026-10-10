@@ -101,6 +101,64 @@ class NativeStructuredCFGTests(unittest.TestCase):
     def tearDownClass(cls):
         cls.temp.cleanup()
 
+    def test_string_symbol_capacity_preserves_every_relocation(self):
+        # The driver regression was its 257th literal: bytes existed in rodata,
+        # but the address had no symbol or relocation and pointed into text.
+        functions = []
+        for function in range(8):
+            bindings = "\n".join(
+                f'let p{index}: *const u8 = "v{function * 64 + index:03d}";'
+                for index in range(64)
+            )
+            functions.append(
+                f"fn chunk{function}() -> u32 {{ {bindings} "
+                "return unsafe { *(p63 + 1) } as u32; }"
+            )
+        body = "\n".join(functions) + "\npub fn main_entry() -> u32 { return chunk7(); }"
+        result, output = self.compile("string_capacity", body)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        data = output.read_bytes()
+        headers = struct.unpack_from("<Q", data, 40)[0]
+        count = struct.unpack_from("<H", data, 60)[0]
+        string_symbols = set()
+        string_relocations = []
+        for index in range(count):
+            header = headers + index * 64
+            kind = struct.unpack_from("<I", data, header + 4)[0]
+            start, size = struct.unpack_from("<QQ", data, header + 24)
+            if kind == 2:
+                strings_index = struct.unpack_from("<I", data, header + 40)[0]
+                strings = struct.unpack_from("<Q", data, headers + strings_index * 64 + 24)[0]
+                for offset in range(0, size, 24):
+                    name = strings + struct.unpack_from("<I", data, start + offset)[0]
+                    if data[name:data.index(b"\0", name)].startswith(b"_str_"):
+                        string_symbols.add(offset // 24)
+            elif kind == 4:
+                string_relocations.extend(
+                    struct.unpack_from("<Q", data, start + offset + 8)[0] >> 32
+                    for offset in range(0, size, 24)
+                )
+        self.assertEqual(len(string_symbols), 512)
+        self.assertEqual(len([symbol for symbol in string_relocations if symbol in string_symbols]), 512)
+        self.assertTrue(string_symbols.issubset(string_relocations))
+        overflow = body.replace("return chunk7();", 'let extra: *const u8 = "overflow"; return chunk7();')
+        rejected, absent = self.compile("string_capacity_overflow", overflow)
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertFalse(absent.exists())
+
+    def test_string_byte_capacity_rejects_truncation(self):
+        for length, accepted in ((65535, True), (65536, False)):
+            with self.subTest(length=length):
+                body = ('pub fn main_entry() -> u32 { let p: *const u8 = "'
+                        + "a" * length + '"; return 42; }')
+                result, output = self.compile(f"string_bytes_{length}", body)
+                if accepted:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertIn(b"a" * length + b"\0", output.read_bytes())
+                else:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertFalse(output.exists())
+
     def compile(self, name: str, body: str, timeout: int = 30):
         source = self.directory / f"{name}.sotlas"
         source.write_text("module gate::structured;\n" + body, encoding="utf-8")

@@ -74,6 +74,30 @@ class NativeLinuxDriverTests(unittest.TestCase):
         self.assertEqual(reference.read_bytes(), actual.read_bytes())
 
     @unittest.skipUnless(LINUX_X64, "execution requires Linux x86-64")
+    def test_native_string_symbols_beyond_256_execute_and_overflow_preserves_output(self):
+        functions = []
+        for group in range(8):
+            bindings = "\n".join(
+                f'let p{index}: *const u8 = "v{group * 64 + index:03d}";'
+                for index in range(64)
+            )
+            functions.append(f"fn group{group}() -> u32 {{ {bindings} "
+                             "return unsafe { *(p63 + 1) } as u32; }")
+        body = "module gate;\n" + "\n".join(functions)
+        body += "\npub fn main_entry() -> u32 { return group7(); }"
+        source = self.directory / "all_string_symbols.sotlas"
+        source.write_text(body)
+        output = self.directory / "all_string_symbols"
+        environment = {"PATH": str(self.directory / "no-tools")}
+        self.run_tool([str(self.seed), str(source), str(output)], env=environment)
+        self.run_tool([str(output)], expected=ord("5"), env=environment)
+        previous = output.read_bytes()
+        source.write_text(body.replace("return group7();",
+                                      'let extra: *const u8 = "overflow"; return group7();'))
+        self.run_tool([str(self.seed), str(source), str(output)], expected=7, env=environment)
+        self.assertEqual(output.read_bytes(), previous)
+
+    @unittest.skipUnless(LINUX_X64, "execution requires Linux x86-64")
     def test_explicit_multifile_project_object_and_executable_match_producer(self):
         """Native source assembly has identical object bytes and invokes no host tools."""
         first = self.directory / "project_math.sotlas"
