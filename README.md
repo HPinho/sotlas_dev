@@ -57,12 +57,20 @@ Both native drivers now accept an experimental Intel macOS cross-build:
 sotlas-native --build-mac app.macho ./src ./src/probe/main.sotlas
 ```
 
-The entry must be `pub fn main_entry() -> u32`. The owned writer emits a static
+The application entry must be `pub fn main_entry() -> u32`. The owned writer emits a static
 Mach-O with no dyld or C startup dependency. Darwin read/write/open/close
-adapters are available in this profile, with negative error returns. Apple
-Silicon, a native macOS compiler driver, signing, ASLR, dynamic libraries and
-general process-entry arguments remain open. Cross-build tests run on Linux
-and Windows; Intel macOS execution gates run in CI. See the
+adapters are available in this profile, with negative error returns. The
+native Intel macOS file driver uses the reserved `sotlas_darwin_main` entry
+to receive real `argc/argv`. Linux and Windows seeds can build this compiler:
+
+```sh
+sotlas-native --build-mac-cc sotlas-native-mac INSTALL/src INSTALL/src/sotlas/compiler/darwin_driver.sotlas
+```
+
+Intel macOS execution and Stage 2/3 fixed-point gates run in CI. Apple
+Silicon, signing, ASLR, dynamic libraries and arbitrary process-entry
+signatures remain outside this profile. Cross-build tests run on Linux
+and Windows. See the
 [sovereignty roadmap](docs/sotlas_sovereignty_roadmap.md) for evidence and limits.
 
 ---

@@ -1999,6 +1999,17 @@ fn linux_process_entry_name(name: *const u8, length: usize) -> bool {
     return true;
 }
 
+fn darwin_process_entry_name(name: *const u8, length: usize) -> bool {
+    if name == null || length != 18 { return false; }
+    let expected: *const u8 = "sotlas_darwin_main";
+    let mut index: usize = 0;
+    while index < 18 {
+        if unsafe { *(name + index) } != unsafe { *(expected + index) } { return false; }
+        index = index + 1;
+    }
+    return true;
+}
+
 // Unified ELF64 relocatable writer. It accepts up to 512 scalar CFG functions
 // (U32/Bool/U64/I64/Usize/Pointer/Void results and up to 24 machine parameters),
 // external function declarations, direct calls in both directions, Phi on
@@ -2060,7 +2071,8 @@ pub fn emit_elf64_module_object(
                 && function.return_type != TargetTypeTag::Void) {
             return false;
         }
-        if linux_process_entry_name(unsafe { source + function.name.offset }, function.name.length as usize) {
+        if linux_process_entry_name(unsafe { source + function.name.offset }, function.name.length as usize)
+            || darwin_process_entry_name(unsafe { source + function.name.offset }, function.name.length as usize) {
             if function.parameter_count != 2 || function.return_type != TargetTypeTag::U32
                 || (function.flags & TARGET_FUNCTION_EXTERNAL) != 0
                 || unsafe { (*(parameters + function.first_parameter)).type_tag } != TargetTypeTag::U64
@@ -3157,6 +3169,7 @@ pub fn emit_elf64_module_object(
             if !external {
                 let mut linux_entry_flag: u32 = 0;
                 if linux_process_entry_name(unsafe { source + function.name.offset }, function.name.length as usize) { linux_entry_flag = 128; }
+                if darwin_process_entry_name(unsafe { source + function.name.offset }, function.name.length as usize) { linux_entry_flag = 16384; }
                 let mut bool_mask: u32 = 0;
                 let mut parameter_index: u32 = 0;
                 while parameter_index < function.parameter_count {
@@ -3334,6 +3347,7 @@ pub fn emit_elf64_module_object(
         if !external {
             let mut linux_entry_flag: u32 = 0;
             if linux_process_entry_name(unsafe { source + function.name.offset }, function.name.length as usize) { linux_entry_flag = 128; }
+            if darwin_process_entry_name(unsafe { source + function.name.offset }, function.name.length as usize) { linux_entry_flag = 16384; }
             let mut bool_mask: u32 = 0;
             let mut parameter_index: u32 = 0;
             while parameter_index < function.parameter_count {
@@ -3983,10 +3997,12 @@ fn windows_signature_valid(id: u32, function: TargetFunction, parameters: *const
 }
 
 // Check the entry note only after the ELF linker has validated every table.
-// Mach-O startup currently supports a zero-argument scalar entry, never an
-// inferred signature or the Linux process-entry descriptor.
-fn macho_zero_argument_entry(object: *const u8, length: usize,
-    entry_name: *const u8, entry_length: usize) -> bool {
+// Mach-O startup accepts a zero-argument scalar entry or the reserved typed
+// Darwin process entry. Linux and Darwin process descriptors are distinct.
+fn macho_entry_abi(object: *const u8, length: usize,
+    entry_name: *const u8, entry_length: usize, process_entry: bool) -> bool {
+    let mut expected: u32 = 0;
+    if process_entry { expected = 16386; }
     let headers: usize = get_u64(object, length, 40) as usize;
     let count: usize = get_u16(object, length, 60) as usize;
     let mut entry_symbol: usize = 0;
@@ -4029,10 +4045,10 @@ fn macho_zero_argument_entry(object: *const u8, length: usize,
                 let kind: u32 = get_u32(object, length, note + 8);
                 if descriptor <= size - 20 {
                     if kind == 1 && descriptor == 4 && entry_symbol == 1 {
-                        return get_u32(object, length, note + 20) == 0;
+                        return get_u32(object, length, note + 20) == expected;
                     }
                     if kind == 2 && entry_symbol <= descriptor / 4 {
-                        return get_u32(object, length, note + 20 + (entry_symbol - 1) * 4) == 0;
+                        return get_u32(object, length, note + 20 + (entry_symbol - 1) * 4) == expected;
                     }
                 }
             }
@@ -4059,7 +4075,8 @@ fn macho_segment(output: *mut u8, capacity: usize, offset: usize,
 // Experimental static macOS x86-64 image. XNU permits static Intel binaries;
 // LC_UNIXTHREAD selects the kernel entry without dyld or a C startup object.
 // The owned ELF resolver is an internal relocation format, not an external
-// linker invocation. No ARM64, signing, ASLR, dylibs or general process ABI.
+// linker invocation. The Darwin process entry receives argc/argv from XNU.
+// No ARM64, signing, ASLR, dylibs or general-purpose entry signatures.
 pub fn link_macho64_executable(object: *const u8, object_length: usize,
     entry_name: *const u8, entry_name_length: usize,
     output: *mut u8, capacity: usize, output_length: *mut usize) -> bool {
@@ -4077,7 +4094,8 @@ pub fn link_macho64_executable(object: *const u8, object_length: usize,
         unsafe { lengths as *const usize }, 1, entry_name, entry_name_length,
         null, 0, 4198400, true, payload, capacity - 8192,
         unsafe { (&linked_length) as *mut usize }) { return false; }
-    if !macho_zero_argument_entry(object, object_length, entry_name, entry_name_length) { return false; }
+    let process_entry: bool = darwin_process_entry_name(entry_name, entry_name_length);
+    if !macho_entry_abi(object, object_length, entry_name, entry_name_length, process_entry) { return false; }
     let memory_size: usize = get_u64(payload, linked_length, 104) as usize;
     if memory_size < linked_length || memory_size > 1879048192 { return false; }
     let start_file: usize = align_to(linked_length + 4096, 4096);
@@ -4085,7 +4103,9 @@ pub fn link_macho64_executable(object: *const u8, object_length: usize,
     let start_virtual: usize = align_to(memory_size + 4096, 4096);
     let start_address: u64 = 4194304 + start_virtual as u64;
     let entry_address: u64 = get_u64(payload, linked_length, 24);
-    let relative: u64 = entry_address - (start_address + 9);
+    let mut call_end: u64 = start_address + 9;
+    if process_entry { call_end = call_end + 9; }
+    let relative: u64 = entry_address - call_end;
     if relative + 2147483648 > 4294967295 { return false; }
     let mut index: usize = 0;
     while index < 4096 { unsafe { *(output + index) = 0; } index = index + 1; }
@@ -4118,6 +4138,19 @@ pub fn link_macho64_executable(object: *const u8, object_length: usize,
     // and rsp,-16; call entry; mov edi,eax; mov eax,0x2000001;
     // syscall (exit); ud2 if the kernel unexpectedly returns.
     let mut code: usize = start_file;
+    // Static XNU startup begins at argc and argv; capture before aligning rsp.
+    // The dyld-only extra Mach header word is absent in this static profile.
+    if process_entry {
+        if !append_object_byte(output, capacity, &mut code, 72)
+            || !append_object_byte(output, capacity, &mut code, 139)
+            || !append_object_byte(output, capacity, &mut code, 60)
+            || !append_object_byte(output, capacity, &mut code, 36)
+            || !append_object_byte(output, capacity, &mut code, 72)
+            || !append_object_byte(output, capacity, &mut code, 141)
+            || !append_object_byte(output, capacity, &mut code, 116)
+            || !append_object_byte(output, capacity, &mut code, 36)
+            || !append_object_byte(output, capacity, &mut code, 8) { return false; }
+    }
     if !append_object_byte(output, capacity, &mut code, 72)
         || !append_object_byte(output, capacity, &mut code, 131)
         || !append_object_byte(output, capacity, &mut code, 228)

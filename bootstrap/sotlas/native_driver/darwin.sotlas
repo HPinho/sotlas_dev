@@ -1,4 +1,5 @@
-module sotlas::compiler::windows_driver;
+// Native Intel macOS file driver. Shares the production frontend and backend.
+module sotlas::compiler::darwin_driver;
 import sotlas::compiler::token::*;
 import sotlas::compiler::ast::*;
 import sotlas::compiler::lexer::*;
@@ -8,47 +9,14 @@ import sotlas::compiler::backend::target_ir::*;
 import sotlas::compiler::backend::lower_scalar::*;
 import sotlas::compiler::backend::x86_64_scalar::*;
 
-@extern(C) fn sotlas_windows_get_command_line() -> *const u8;
-@extern(C) fn sotlas_windows_get_std_handle(kind:u32) -> u64;
-@extern(C) fn sotlas_windows_create_file(path:*const u8, access:u32, share:u32, security:*const u8, creation:u32, flags:u32, template:u64) -> u64;
-@extern(C) fn sotlas_windows_read_file(handle:u64, buffer:*mut u8, count:u32, read:*mut u32, overlapped:*mut u8) -> u32;
-@extern(C) fn sotlas_windows_write_file(handle:u64, buffer:*const u8, count:u32, written:*mut u32, overlapped:*mut u8) -> u32;
-@extern(C) fn sotlas_windows_close_handle(handle:u64) -> u32;
-
-// Win32 file adapters preserve the bounded driver's byte-count/error contract.
-fn windows_open(path:*const u8, flags:u64, mode:u64) -> i64 {
-    if mode > 511 { return -1; }
-    let mut access:u32 = 2147483648;
-    let mut creation:u32 = 3;
-    if flags == 577 { access = 1073741824; creation = 2; }
-    else if flags != 0 { return -1; }
-    let handle:u64 = sotlas_windows_create_file(path,access,1,null,creation,128,0);
-    if handle == 18446744073709551615 { return -1; }
-    return handle as i64;
-}
-
-fn windows_read(handle:u64, buffer:*mut u8, count:u64) -> i64 {
-    if count > 4294967295 { return -1; }
-    let mut read:u32 = 0;
-    let success:u32 = sotlas_windows_read_file(handle,buffer,count as u32,unsafe{(&mut read) as *mut u32},null);
-    if success == 0 { return -1; }
-    return read as i64;
-}
-
-fn windows_write(handle:u64, buffer:*const u8, count:u64) -> i64 {
-    if count > 4294967295 { return -1; }
-    let mut destination:u64 = handle;
-    if handle == 2 { destination = sotlas_windows_get_std_handle(4294967284); }
-    let mut written:u32 = 0;
-    let success:u32 = sotlas_windows_write_file(destination,buffer,count as u32,unsafe{(&mut written) as *mut u32},null);
-    if success == 0 { return -1; }
-    return written as i64;
-}
-
-fn windows_close(handle:u64) -> i64 {
-    if sotlas_windows_close_handle(handle) == 0 { return -1; }
-    return 0;
-}
+@extern(C)
+fn sotlas_darwin_open(path: *const u8, flags: u64, mode: u64) -> i64;
+@extern(C)
+fn sotlas_darwin_read(fd: u64, data: *mut u8, count: u64) -> i64;
+@extern(C)
+fn sotlas_darwin_write(fd: u64, data: *const u8, count: u64) -> i64;
+@extern(C)
+fn sotlas_darwin_close(fd: u64) -> i64;
 
 static mut driver_source_bytes: [u8; 2097152] = 0;
 static mut driver_tokens: [Token; 262144] = 0;
@@ -91,7 +59,7 @@ static mut driver_discovery_count: [usize; 1] = 0;
 
 fn fail(code: u32) -> u32 {
     let message: *const u8 = "sotlas-native: compilation failed\n";
-    let written: i64 = windows_write(2, message, 34);
+    let written: i64 = sotlas_darwin_write(2, message, 34);
     return code;
 }
 
@@ -240,7 +208,7 @@ fn driver_compile_loaded(
         if compiler_entry && !windows {
             if unsafe { driver_macho_target[0] } == 1 {
                 entry_name = "sotlas_darwin_main"; entry_length = 18;
-            } else { entry_name = "sotlas_linux_main"; entry_length = 17; }
+            } else { entry_name = "sotlas_darwin_main"; entry_length = 18; }
         }
         let mut linked: bool = false;
         if windows {
@@ -259,18 +227,18 @@ fn driver_compile_loaded(
         artifact_length = image_length;
     }
     // Create/truncate only after the complete artifact has been validated.
-    let output_opened: i64 = windows_open(output_name, 577, 493);
+    let output_opened: i64 = sotlas_darwin_open(output_name, 1537, 493);
     if output_opened < 0 { return fail(10); }
     let output_fd: u64 = output_opened as u64;
     let mut position: usize = 0;
     while position < artifact_length {
         let remaining: u64 = artifact_length - position;
-        let written: i64 = windows_write(output_fd, unsafe { artifact + position }, remaining);
+        let written: i64 = sotlas_darwin_write(output_fd, unsafe { artifact + position }, remaining);
         if written == -4 { continue; }
-        if written <= 0 { let closed_output: i64 = windows_close(output_fd); return fail(11); }
+        if written <= 0 { let closed_output: i64 = sotlas_darwin_close(output_fd); return fail(11); }
         position = position + (written as usize);
     }
-    let closed_output: i64 = windows_close(output_fd);
+    let closed_output: i64 = sotlas_darwin_close(output_fd);
     if closed_output < 0 { return fail(11); }
     return 0;
 }
@@ -658,9 +626,9 @@ fn driver_build_mode(option: *const u8) -> u32 {
 }
 
 fn driver_dispatch_build(argc: u64, argv: *const *const u8, mode: u32) -> u32 {
-    if mode == 1 { return driver_compile_discovered(argc, argv, false, false, false, true); }
+    if mode == 1 { return driver_compile_discovered(argc, argv, false, false, false, false); }
     if mode == 2 { return driver_compile_discovered(argc, argv, true, false, false, false); }
-    if mode == 3 { return driver_compile_discovered(argc, argv, false, true, false, true); }
+    if mode == 3 { return driver_compile_discovered(argc, argv, false, true, false, false); }
     return fail(1);
 }
 
@@ -687,19 +655,19 @@ fn driver_compile_discovered(argc: u64, argv: *const *const u8,
     let mut file: usize = 0;
     while file < unsafe { *(driver_discovery_count as *const usize) } {
         let path: *const u8 = unsafe { paths + file * 4096 };
-        let opened: i64 = windows_open(path, 0, 0);
+        let opened: i64 = sotlas_darwin_open(path, 0, 0);
         if opened < 0 { return fail(2); }
         let descriptor: u64 = opened as u64;
         let start: usize = position;
         while position < 1048576 {
             let available: u64 = 1048576 - position;
-            let count: i64 = windows_read(descriptor, unsafe { source + position }, available);
+            let count: i64 = sotlas_darwin_read(descriptor, unsafe { source + position }, available);
             if count == -4 { continue; }
-            if count < 0 { let closed: i64 = windows_close(descriptor); return fail(3); }
+            if count < 0 { let closed: i64 = sotlas_darwin_close(descriptor); return fail(3); }
             if count == 0 { break; }
             position = position + (count as usize);
         }
-        let closed: i64 = windows_close(descriptor);
+        let closed: i64 = sotlas_darwin_close(descriptor);
         if closed < 0 || position == start || position >= 1048575 { return fail(3); }
         let length: usize = position - start;
         unsafe {
@@ -741,7 +709,7 @@ fn driver_compile_single(argc: u64, argv: *const *const u8) -> u32 {
     if input_name == null || output_name == null { return fail(1); }
     let mut object_only: bool = false;
     let mut compiler_entry: bool = false;
-    let mut windows: bool = true;
+    let mut windows: bool = false;
     if argc == 4 {
         let option: *const u8 = unsafe { *(argv + 3) };
         if option_equals(option, "--object", 8) {
@@ -767,20 +735,20 @@ fn driver_check_single(argc: u64, argv: *const *const u8) -> u32 {
 // Single-file check and compilation share the bounded reader and pipeline.
 fn driver_read_single(input_name: *const u8, output_name: *const u8,
     object_only: bool, compiler_entry: bool, check_only: bool, windows: bool) -> u32 {
-    let opened: i64 = windows_open(input_name, 0, 0);
+    let opened: i64 = sotlas_darwin_open(input_name, 0, 0);
     if opened < 0 { return fail(2); }
     let input_fd: u64 = opened as u64;
     let source: *mut u8 = unsafe { driver_source_bytes as *mut u8 };
     let mut source_length: usize = 0;
     while source_length < 1048576 {
         let available: u64 = 1048576 - source_length;
-        let got: i64 = windows_read(input_fd, unsafe { source + source_length }, available);
+        let got: i64 = sotlas_darwin_read(input_fd, unsafe { source + source_length }, available);
         if got == -4 { continue; }
-        if got < 0 { let closed_error: i64 = windows_close(input_fd); return fail(3); }
+        if got < 0 { let closed_error: i64 = sotlas_darwin_close(input_fd); return fail(3); }
         if got == 0 { break; }
         source_length = source_length + (got as usize);
     }
-    let closed: i64 = windows_close(input_fd);
+    let closed: i64 = sotlas_darwin_close(input_fd);
     if closed < 0 || source_length == 0 || source_length == 1048576 { return fail(3); }
     return driver_compile_loaded(source_length, output_name, object_only, compiler_entry, check_only, windows);
 }
@@ -801,7 +769,7 @@ fn driver_compile_project(
     while input_index < argc {
         let input_name: *const u8 = unsafe { *(argv + input_index) };
         if input_name == null { return fail(1); }
-        let opened: i64 = windows_open(input_name, 0, 0);
+        let opened: i64 = sotlas_darwin_open(input_name, 0, 0);
         if opened < 0 { return fail(2); }
         let input_fd: u64 = opened as u64;
         let before_file: usize = source_length;
@@ -811,18 +779,18 @@ fn driver_compile_project(
         }
         while source_length < 1048576 {
             let available: u64 = 1048576 - source_length;
-            let got: i64 = windows_read(
+            let got: i64 = sotlas_darwin_read(
                 input_fd, unsafe { source + source_length }, available
             );
             if got == -4 { continue; }
             if got < 0 {
-                let closed_error: i64 = windows_close(input_fd);
+                let closed_error: i64 = sotlas_darwin_close(input_fd);
                 return fail(3);
             }
             if got == 0 { break; }
             source_length = source_length + (got as usize);
         }
-        let closed: i64 = windows_close(input_fd);
+        let closed: i64 = sotlas_darwin_close(input_fd);
         // The separator is included in the bounded combined source size.
         if closed < 0 || source_length == before_file || source_length >= 1048575 {
             return fail(3);
@@ -841,14 +809,15 @@ fn driver_compile_project(
         source_length = driver_resolve_project((argc - 3) as usize);
         if source_length == 0 { return fail(12); }
     }
-    return driver_compile_loaded(source_length, output_name, object_only, compiler_entry, false, true);
+    return driver_compile_loaded(source_length, output_name, object_only, compiler_entry, false, false);
 }
 
-// Windows x64 commands; executable output defaults to PE32+.
+// macOS x86-64 commands:
 //   sotlas-native INPUT.sotlas OUTPUT [--object|--compiler]
 //   sotlas-native --project[-object|-compiler] OUTPUT INPUT1 INPUT2 ...
 // Imports still fail closed; the bounded explicit list is not module loading.
-fn windows_driver_entry(argc: u64, argv: *const *const u8) -> u32 {
+pub fn sotlas_darwin_main(argc: u64, argv: *const *const u8) -> u32 {
+    unsafe { driver_macho_target[0] = 1; }
     if argc < 3 || argv == null { return fail(1); }
     let first_option: *const u8 = unsafe { *(argv + 1) };
     if first_option == null { return fail(1); }
@@ -884,85 +853,4 @@ fn windows_driver_entry(argc: u64, argv: *const *const u8) -> u32 {
         return driver_dispatch_resolved(argc, argv, first_option);
     }
     return driver_compile_single(argc, argv);
-}
-
-// Command-line storage is process-local and has the same 67-argument bound as
-// explicit projects. The ANSI adapter supports Windows quote/backslash rules.
-static mut windows_argument_bytes:[u8;274432] = 0;
-static mut windows_argument_pointers:[*const u8;68] = 0;
-
-fn windows_append_argument(argument:usize, index:usize, value:u8) -> bool {
-    if argument >= 67 || index >= 4095 { return false; }
-    let bytes:*mut u8 = unsafe{windows_argument_bytes as *mut u8};
-    unsafe{*(bytes + argument * 4096 + index) = value;}
-    return true;
-}
-
-fn windows_parse_arguments() -> u64 {
-    let command:*const u8 = sotlas_windows_get_command_line();
-    if command == null { return 0; }
-    let mut limit:usize = 0;
-    while limit < 32768 {
-        if unsafe{*(command + limit)} == 0 { break; }
-        limit = limit + 1;
-    }
-    if limit == 32768 { return 0; }
-    let mut position:usize = 0;
-    let mut argument:usize = 0;
-    while position < limit {
-        let whitespace:u8 = unsafe{*(command + position)};
-        if whitespace == 32 || whitespace == 9 { position = position + 1; continue; }
-        if argument >= 67 { return 0; }
-        let mut index:usize = 0;
-        let mut quoted:bool = false;
-        while position < limit {
-            let value:u8 = unsafe{*(command + position)};
-            if !quoted && (value == 32 || value == 9) { break; }
-            if value == 92 {
-                let mut slashes:usize = 0;
-                while position < limit {
-                    if unsafe{*(command + position)} != 92 { break; }
-                    slashes = slashes + 1;
-                    position = position + 1;
-                }
-                let mut count:usize = slashes;
-                if position < limit && unsafe{*(command + position)} == 34 { count = slashes / 2; }
-                let mut emitted:usize = 0;
-                while emitted < count {
-                    if !windows_append_argument(argument,index,92) { return 0; }
-                    index = index + 1;
-                    emitted = emitted + 1;
-                }
-                if position < limit && unsafe{*(command + position)} == 34 {
-                    if slashes % 2 == 1 {
-                        if !windows_append_argument(argument,index,34) { return 0; }
-                        index = index + 1;
-                    } else { quoted = !quoted; }
-                    position = position + 1;
-                }
-            } else if value == 34 {
-                if quoted && position + 1 < limit && unsafe{*(command + position + 1)} == 34 {
-                    if !windows_append_argument(argument,index,34) { return 0; }
-                    index = index + 1;
-                    position = position + 2;
-                } else { quoted = !quoted; position = position + 1; }
-            } else {
-                if !windows_append_argument(argument,index,value) { return 0; }
-                index = index + 1;
-                position = position + 1;
-            }
-        }
-        if quoted { return 0; }
-        let bytes:*mut u8 = unsafe{windows_argument_bytes as *mut u8};
-        unsafe{*(bytes + argument * 4096 + index) = 0;}
-        unsafe{windows_argument_pointers[argument] = (bytes + argument * 4096) as *const u8;}
-        argument = argument + 1;
-    }
-    return argument as u64;
-}
-
-@system pub fn main_entry() -> u32 {
-    let count:u64 = windows_parse_arguments();
-    if count == 0 { return fail(1); }
-    return windows_driver_entry(count,unsafe{windows_argument_pointers as *const *const u8});
 }

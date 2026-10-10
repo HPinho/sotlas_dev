@@ -272,6 +272,8 @@ jobs:
         }
         SOTLAS
         env -i PATH=/no-host-tools "$RUNNER_TEMP/sotlas-native/bin/sotlas-native" --build-mac "$RUNNER_TEMP/native-macos/native-smoke" "$RUNNER_TEMP/native-macos" "$RUNNER_TEMP/native-macos/probe.sotlas"
+        cp -R "$RUNNER_TEMP/sotlas-native/src" "$RUNNER_TEMP/native-macos/src"
+        env -i PATH=/no-host-tools "$RUNNER_TEMP/sotlas-native/bin/sotlas-native" --build-mac-cc "$RUNNER_TEMP/native-macos/sotlas-native" "$RUNNER_TEMP/sotlas-native/src" "$RUNNER_TEMP/sotlas-native/src/sotlas/compiler/darwin_driver.sotlas"
     - name: Upload native seed bundle
       uses: actions/upload-artifact@v4
       with:
@@ -313,6 +315,28 @@ jobs:
         set -e
         test "$result" -eq 42
         test "$(cat output.txt)" = 'Sotlas Darwin'
+
+    - name: Native macOS compiler self-build and fixed point
+      shell: bash
+      run: |
+        chmod +x sotlas-native
+        printf 'module probe;pub fn main_entry()->u32{return 42;}\n' > app.sotlas
+        env -i PATH=/no-host-tools ./sotlas-native --check app.sotlas
+        env -i PATH=/no-host-tools ./sotlas-native app.sotlas app
+        set +e
+        env -i PATH=/no-host-tools ./app
+        result=$?
+        set -e
+        test "$result" -eq 42
+        env -i PATH=/no-host-tools ./sotlas-native --build-cc stage2 src src/sotlas/compiler/darwin_driver.sotlas
+        env -i PATH=/no-host-tools ./stage2 --build-cc stage3 src src/sotlas/compiler/darwin_driver.sotlas
+        cmp stage2 stage3
+        env -i PATH=/no-host-tools ./stage3 app.sotlas stage3-app
+        set +e
+        env -i PATH=/no-host-tools ./stage3-app
+        result=$?
+        set -e
+        test "$result" -eq 42
 
   native-windows-execution:
     name: Execute Sotlas-produced PE on Windows

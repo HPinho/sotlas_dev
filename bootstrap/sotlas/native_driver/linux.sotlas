@@ -204,7 +204,11 @@ fn driver_compile_loaded(
         let image_length_pointer: *mut usize = unsafe { (&image_length) as *mut usize };
         let mut entry_name: *const u8 = "main_entry";
         let mut entry_length: usize = 10;
-        if compiler_entry { entry_name = "sotlas_linux_main"; entry_length = 17; }
+        if compiler_entry && !windows {
+            if unsafe { driver_macho_target[0] } == 1 {
+                entry_name = "sotlas_darwin_main"; entry_length = 18;
+            } else { entry_name = "sotlas_linux_main"; entry_length = 17; }
+        }
         let mut linked: bool = false;
         if windows {
             linked = link_pe64_executable(object_buffer, object_length, entry_name,
@@ -823,6 +827,10 @@ pub fn sotlas_linux_main(argc: u64, argv: *const *const u8) -> u32 {
     }
     if option_equals(first_option, "--build-win", 11) {
         return driver_compile_discovered(argc, argv, false, false, false, true);
+    }
+    if option_equals(first_option, "--build-mac-cc", 14) {
+        unsafe { driver_macho_target[0] = 1; }
+        return driver_compile_discovered(argc, argv, false, true, false, false);
     }
     if option_equals(first_option, "--build-mac", 11) {
         unsafe { driver_macho_target[0] = 1; }

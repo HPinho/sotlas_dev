@@ -1070,6 +1070,69 @@ host build tools, ran a Linux-produced PE on Windows, and built a Windows
 compiler that compiled and ran its own application. These results do not
 substitute for the pending Intel macOS runtime and full candidate CI matrix.
 
+### SV8.26 — native Darwin compiler and process-entry generation
+
+**Certified baseline:** [CI #1173](https://github.com/HPinho/sotlas_dev/actions/runs/38084718943)
+on `e88f01bb71828d620bd5877ef6d1984db6c5b8df` passed the complete matrix and
+executed the Linux-produced static Mach-O on Intel macOS. The prior Mach-O
+and Darwin I/O image gates are now certified for their declared profile.
+
+This candidate supplies `bootstrap/sotlas/native_driver/darwin.sotlas`, a
+native compiler driver using the same eight production compiler modules.
+It consumes original files, discovers and checks module graphs, runs the
+production frontend and Target IR, writes owned native objects/Mach-O images,
+and self-builds through the existing bounded project interfaces. Its Darwin
+I/O adapters emit kernel operations rather than calling a C library. Output
+uses Darwin creation flags and executable permissions; validation failures preserve the
+previous artifact. No second language or alternate compiler frontend is added.
+
+The reserved typed process entry is `sotlas_darwin_main(u64, Pointer) -> u32`.
+Object ABI descriptor **16386** records its two machine arguments and a
+distinct process marker at bit 14, outside the Boolean-argument mask. The
+object writer checks its arity, parameter machine types, result and defined
+body. Mach-O accepts that descriptor only for the reserved entry name;
+ordinary entry signatures and Linux process notes remain separate. Startup
+loads `argc` and `argv` from XNU's static stack before aligning it and calling
+the compiler. This follows Apple's [exec stack construction](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/kern_exec.c);
+the extra Mach header word belongs to dyld/Rosetta paths and is not part of
+this static Intel profile.
+
+Native Linux and Windows seeds expose `--build-mac-cc OUTPUT ROOT ENTRY`.
+The native seed bundle includes the Darwin driver under
+`src/sotlas/compiler/darwin_driver.sotlas`. Local cross-build gates compare
+the complete native Darwin compiler image byte-for-byte with the original
+source hosted oracle, while the native resolver uses a separate namespace
+tree. The hosted oracle's fallback import search mixes copied/repository
+roots; tests therefore compile the identical originals for that reference,
+without changing the native isolated-tree requirement.
+
+`tests/test_sotlas_native_darwin_driver.py` adds portable image/process-note
+gates and Intel macOS runtime gates for checking, compiling, quoted paths,
+object parity, output preservation, and the original-source Stage 2/3 fixed
+point. CI also builds the macOS compiler using the installed Linux seed,
+executes it on Intel macOS, checks Stage 2/3 image equality, and runs an
+application compiled by Stage 3 with no host tools on PATH.
+
+**Certification rule:** the existing score stays **8/10 certified** until
+this candidate's full CI passes. A successful native macOS generation closes
+the ninth checkpoint for the bounded cross-platform compiler-source profile.
+Full canonical language/frontend parity remains the tenth acceptance gate.
+Python files continue serving features outside the native profile; removing
+them requires those features' native replacements and installed CLI parity.
+Apple Silicon, general ABI/FFI, signing, ASLR and broader ownership/runtime
+features remain separate scope items, not implied by a compiler fixed point.
+
+**Local validation (2026-10-10):** the complete Windows regression suite
+passed **2,697 tests, 53 skipped**. The strict C11 bootstrap contract passed
+**707 tests**. Linux (WSL) and Windows native seeds built the complete Darwin
+compiler with exact hosted-reference image parity; the original-source Linux
+and Windows generation chains retained their Stage 2/3 fixed points. Fresh
+bundle installation verified all checksums, built the Darwin and Windows
+compilers from bundled modules without host build tools, and ran a program
+compiled by the resulting Windows compiler. The new Darwin process entry,
+file compiler and fixed-point execution remain subject to the Intel macOS CI
+gates before certification.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test
@@ -1083,7 +1146,7 @@ completion. The following distinctions must remain visible in progress reports:
 
 | Generation | Evidence already available | Required native closure |
 |---|---|---|
-| Stage 1 | Native Linux and Windows seeds run the production core and source discovery; hosted producer remains available | Full frontend parity and a native macOS driver remain open |
+| Stage 1 | Native Linux and Windows seeds certified; native Intel macOS driver implemented with execution gates pending CI | Full canonical frontend parity and macOS candidate certification |
 | Stage 2 | Native Linux and Windows seeds build Stage 2 from the original source modules, certified in CI | Broaden the native language and target profiles |
 | Stage 3 | Native Linux and Windows Stage 2 build identical Stage 3 images; Stage 3 compiles a runnable program, certified in CI | Extend native generation closure to macOS and broader language features |
 
@@ -1102,7 +1165,7 @@ effort remaining or a percentage of installed dependencies already removed.
 | Native generation chain | Self-object equivalence and Stage 2/3 native fixed point | Certified for Linux and bounded Windows profile |
 | Native imports and project builds | Bounded native glob discovery, graph checks and project builds | Certified for declared profile |
 | Full language/frontend parity | Broader canonical features and diagnostics remain | Open |
-| Native Windows/macOS toolchains | Windows file driver and native generation certified; experimental Intel Mach-O cross-build; native macOS driver and broader target coverage remain | Open |
+| Native Windows/macOS toolchains | Windows generation and Intel Mach-O execution certified; native Darwin compiler and generation gates implemented | Candidate pending full CI |
 | Installed seed/distribution closure | Reproducible Linux static seed, original sources, verified installation | Certified for Linux profile |
 
 The native Linux profile can compile and self-build after receiving an initial

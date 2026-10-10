@@ -72,6 +72,30 @@ class NativeWindowsDriverTests(unittest.TestCase):
         self.run_tool([str(self.seed)], expected=1, env=self.environment)
 
     @unittest.skipUnless(os.name == "nt", "native execution requires Windows x64")
+    def test_cross_builds_complete_darwin_compiler_without_host_tools(self):
+        root = self.directory / "darwin-source-tree"
+        namespace = root / "sotlas/compiler"
+        core = ROOT / "bootstrap/sotlas/native_compiler"
+        names = ("token", "ast", "lexer", "parser", "sema", "backend/target_ir", "backend/lower_scalar", "backend/x86_64_scalar")
+        for name in names:
+            destination = namespace / (name + ".sotlas")
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes((core / (name + ".sotlas")).read_bytes())
+        entry = namespace / "darwin_driver.sotlas"
+        entry.write_bytes((ROOT / "bootstrap/sotlas/native_driver/darwin.sotlas").read_bytes())
+        actual = self.directory / "darwin-compiler"
+        obj = actual.with_suffix(".o")
+        reference = self.directory / "darwin-reference"
+        # Use the original source tree for the hosted oracle, whose fallback
+        # import search otherwise mixes copied modules with repository paths.
+        original = ROOT / "bootstrap/sotlas/native_driver/darwin.sotlas"
+        self.run_tool([str(self.producer), "--compile-obj", str(original), str(obj)])
+        self.run_tool([str(self.producer), "--link-macho", str(obj), str(reference), "sotlas_darwin_main"])
+        self.run_tool([str(self.seed), "--build-mac-cc", str(actual), str(root), str(entry)], env=self.environment)
+        self.assertEqual(actual.read_bytes(), reference.read_bytes())
+        self.assertEqual(actual.read_bytes()[:4], b"\xcf\xfa\xed\xfe")
+
+    @unittest.skipUnless(os.name == "nt", "native execution requires Windows x64")
     def test_cross_compiles_macho_without_host_tools(self):
         source = self.directory / "mac_app.sotlas"
         source.write_text("module probe; fn twice(x:u32)->u32{return x*2;} pub fn main_entry()->u32{return twice(21);}")
