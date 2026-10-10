@@ -74,6 +74,54 @@ class NativeLinuxDriverTests(unittest.TestCase):
         self.assertEqual(reference.read_bytes(), actual.read_bytes())
 
     @unittest.skipUnless(LINUX_X64, "execution requires Linux x86-64")
+    def test_native_check_matches_object_validation_without_files(self):
+        environment = {"PATH": str(self.directory / "no-tools")}
+        source = self.directory / "check_input.sotlas"
+        output = self.directory / "check_reference.o"
+        sentinel = b"object output must be preserved by a failed check"
+        cases = (
+            ("module gate; fn square(x: u32) -> u32 { return x * x; }", 0),
+            ("module gate; pub fn broken(", 5),
+            ("module gate; import absent::*; fn value() -> u32 { return 42; }", 12),
+            ("module gate; fn value() -> u32 { return missing(); }", 6),
+            ("module gate; pub struct Oversized { pub data: [u8; 257]; } fn value() -> u32 { return 42; }", 7),
+        )
+        for body, code in cases:
+            with self.subTest(code=code):
+                source.write_text(body)
+                output.write_bytes(sentinel)
+                before = {path.name: path.read_bytes() for path in self.directory.iterdir() if path.is_file()}
+                result = self.run_tool([str(self.seed), "--check", str(source)], expected=code, env=environment)
+                self.assertEqual(result.stdout, b"")
+                after = {path.name: path.read_bytes() for path in self.directory.iterdir() if path.is_file()}
+                self.assertEqual(before, after)
+                self.run_tool([str(self.seed), str(source), str(output), "--object"], expected=code, env=environment)
+        self.run_tool([str(self.seed), "--check", str(self.directory / "absent.sotlas")], expected=2)
+        source.write_bytes(b"")
+        self.run_tool([str(self.seed), "--check", str(source)], expected=3)
+        for arguments in (("--check",), ("--check", str(source), str(output))):
+            self.run_tool([str(self.seed), *arguments], expected=1)
+
+    @unittest.skipUnless(LINUX_X64, "execution requires Linux x86-64")
+    def test_native_check_build_discovers_dependencies_without_artifacts(self):
+        root = self.directory / "check_tree"
+        namespace = root / "gate"
+        namespace.mkdir(parents=True)
+        leaf = namespace / "math.sotlas"
+        entry = namespace / "app.sotlas"
+        leaf.write_text("module gate::math; fn square(x: u32) -> u32 { return x * x; }")
+        entry.write_text("module gate::app; import gate::math::*; fn value() -> u32 { return square(7); }")
+        before = {str(path.relative_to(root)): path.read_bytes() for path in root.rglob("*") if path.is_file()}
+        environment = {"PATH": str(self.directory / "no-tools")}
+        self.run_tool([str(self.seed), "--check-build", str(root), str(entry)], env=environment)
+        after = {str(path.relative_to(root)): path.read_bytes() for path in root.rglob("*") if path.is_file()}
+        self.assertEqual(before, after)
+        leaf.write_text("module gate::math; import gate::app::*; fn square(x: u32) -> u32 { return x * x; }")
+        self.run_tool([str(self.seed), "--check-build", str(root), str(entry)], expected=12, env=environment)
+        self.run_tool([str(self.seed), "--check-build", str(root)], expected=1, env=environment)
+        self.run_tool([str(self.seed), "--check-build", str(root), str(entry), "unexpected"], expected=1, env=environment)
+
+    @unittest.skipUnless(LINUX_X64, "execution requires Linux x86-64")
     def test_native_string_symbols_beyond_256_execute_and_overflow_preserves_output(self):
         functions = []
         for group in range(8):
@@ -422,6 +470,8 @@ class NativeLinuxDriverTests(unittest.TestCase):
         source = self.directory / "resolved_stage3_example.sotlas"
         source.write_text("module gate; pub fn main_entry() -> u32 { return 42; }")
         output = self.directory / "resolved_stage3_example"
+        self.run_tool([str(native_stage3), "--check", str(source)], env=environment)
+        self.run_tool([str(native_stage3), "--check-build", str(self.directory), str(source)], env=environment)
         self.run_tool([str(native_stage3), str(source), str(output)], 120, env=environment)
         self.run_tool([str(output)], expected=42, env=environment)
 

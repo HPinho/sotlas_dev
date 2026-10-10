@@ -836,6 +836,40 @@ rebuilt directly from the original modules and matched byte for byte; Stage 3
 compiled and executed a program returning 42. The extra Linux string-capacity
 gate ran separately after the Windows suite had already collected its tests.
 
+### SV8.22b — certified Linux profile and native check commands
+
+The baseline `3782ff133b4c9e952f7bcb8fa8f188feb6c39b29` passed
+[CI #1166](https://github.com/HPinho/sotlas_dev/actions/runs/38013959975)
+and [CI #1167](https://github.com/HPinho/sotlas_dev/actions/runs/38037420665).
+The eight closed checkpoints below are now CI-certified for their declared
+profiles, including native Linux source discovery, generation identity and
+installed seed execution. The score is **80%**. Full canonical frontend parity
+and native Windows/macOS toolchains remain open; a tooling improvement does
+not, by itself, close either checkpoint or justify an 85% score.
+
+The next candidate adds native `--check INPUT` and `--check-build ROOT ENTRY`.
+Both share compilation's frontend, Target IR lowering and object validation,
+with the object held in memory and no output file opened. Discovery and graph
+validation are shared with native builds. Libraries need no executable entry
+for checking; foreign symbol resolution and executable linking are separate.
+The check profile remains the declared native subset, not full language parity.
+
+Acceptance gates cover valid libraries, parser/semantic/lowering failures,
+matching object-compilation exit codes, unchanged files, imported modules,
+cycles, missing inputs and malformed arguments. The installed seed CI job
+also runs both checks with no host build tools on PATH. Candidate certification
+requires its own green CI run.
+
+Local Linux validation passed both new CLI gates, legacy dispatch, argument
+bounds and source discovery. The original-module generation gate also passed:
+Stage 2 and Stage 3 matched byte for byte, and Stage 3 successfully executed
+both check commands before compiling a runnable program. A newly built bundle
+was installed with only system utilities and checked/compiled source with no
+Python or C build tools on PATH.
+
+The complete Windows regression run passed 2,672 tests with 50 platform/tool
+skips. The six selected Linux execution gates passed separately through WSL.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test
@@ -849,27 +883,27 @@ completion. The following distinctions must remain visible in progress reports:
 
 | Generation | Evidence already available | Required native closure |
 |---|---|---|
-| Stage 1 | Hosted producer remains available; native Linux seed runs the production core and file driver | Native imports, full frontend parity and installed distribution remain open |
-| Stage 2 | Hosted generation remains an oracle; native Linux seed directly builds a native Stage 2 compiler | Promote the merged-source Linux self-build gate through CI and broaden its supported profile |
-| Stage 3 | Hosted oracle remains; native Linux Stage 2 builds an identical Stage 3 ELF image | Promote native fixed point through CI; extend generation closure to other native platforms |
+| Stage 1 | Native Linux seed runs the production core, source discovery and installed driver; hosted producer remains available | Full frontend parity and native Windows/macOS toolchains remain open |
+| Stage 2 | Native Linux seed builds Stage 2 directly from the original source modules, certified in CI | Broaden the native language and target profiles |
+| Stage 3 | Native Linux Stage 2 builds an identical Stage 3 image; Stage 3 compiles a runnable program, certified in CI | Extend native generation closure to other platforms |
 
-The current sovereignty checkpoint score is **80%: 8 of 10 closures validated
-locally**. This replaces the historical unweighted 40% estimate with an
+The current sovereignty checkpoint score is **80%: 8 of 10 closures certified
+in CI for the declared profiles**. This replaces the historical unweighted 40% estimate with an
 explicit checklist. It measures architecture milestones, not lines of code,
 effort remaining or a percentage of installed dependencies already removed.
 
 | Checkpoint | Evidence / remaining work | State |
 |---|---|---|
-| Production native frontend | Lexer, Parser and Sema execute in native images | Closed locally |
-| Compiler-core Target IR lowering | Complete production lowerer emits native objects | Closed locally |
-| Native machine/object backend | Complete production x86 writer emits native objects | Closed locally |
-| Owned ELF linking | Application and kernel image gates; native runtime linking | Closed locally |
-| Native file compiler driver | Real argv, file input/output, kernel syscalls; no C runtime | Closed locally |
-| Native generation chain | Self-object equivalence and Stage 2/3 native fixed point | Closed locally |
-| Native imports and project builds | Bounded native glob discovery, graph checks and project builds | Closed locally for declared profile |
+| Production native frontend | Lexer, Parser and Sema execute in native images | Certified |
+| Compiler-core Target IR lowering | Complete production lowerer emits native objects | Certified |
+| Native machine/object backend | Complete production x86 writer emits native objects | Certified |
+| Owned ELF linking | Application and kernel image gates; native runtime linking | Certified for declared profile |
+| Native file compiler driver | Real argv, file input/output, kernel syscalls; no C runtime | Certified for Linux |
+| Native generation chain | Self-object equivalence and Stage 2/3 native fixed point | Certified for Linux |
+| Native imports and project builds | Bounded native glob discovery, graph checks and project builds | Certified for declared profile |
 | Full language/frontend parity | Broader canonical features and diagnostics remain | Open |
 | Native Windows/macOS toolchains | Drivers and native object formats remain | Open |
-| Installed seed/distribution closure | Reproducible Linux static seed, original sources, verified installation | Closed locally for Linux profile |
+| Installed seed/distribution closure | Reproducible Linux static seed, original sources, verified installation | Certified for Linux profile |
 
 The native Linux profile can compile and self-build after receiving an initial
 seed without Python or C tooling. The default installed cross-platform
