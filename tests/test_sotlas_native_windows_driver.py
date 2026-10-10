@@ -72,6 +72,28 @@ class NativeWindowsDriverTests(unittest.TestCase):
         self.run_tool([str(self.seed)], expected=1, env=self.environment)
 
     @unittest.skipUnless(os.name == "nt", "native execution requires Windows x64")
+    def test_cross_compiles_macho_without_host_tools(self):
+        source = self.directory / "mac_app.sotlas"
+        source.write_text("module probe; fn twice(x:u32)->u32{return x*2;} pub fn main_entry()->u32{return twice(21);}")
+        obj = source.with_suffix(".o")
+        expected = self.directory / "mac_reference"
+        actual = self.directory / "mac_actual"
+        self.run_tool([str(self.producer), "--compile-obj", str(source), str(obj)])
+        self.run_tool([str(self.producer), "--link-macho", str(obj), str(expected), "main_entry"])
+        self.run_tool([str(self.seed), "--build-mac", str(actual), str(self.directory), str(source)], env=self.environment)
+        self.assertEqual(actual.read_bytes(), expected.read_bytes())
+        self.assertEqual(actual.read_bytes()[:4], b"\xcf\xfa\xed\xfe")
+        source.write_text("module probe; @extern(C) fn sotlas_darwin_close(fd:u64)->i64; @system pub fn main_entry()->u32{let n:i64=sotlas_darwin_close(18446744073709551615);if n<0{return 42;}return 1;}")
+        self.run_tool([str(self.producer), "--compile-obj", str(source), str(obj)])
+        self.run_tool([str(self.producer), "--link-macho", str(obj), str(expected), "main_entry"])
+        self.run_tool([str(self.seed), "--build-mac", str(actual), str(self.directory), str(source)], env=self.environment)
+        self.assertEqual(actual.read_bytes(), expected.read_bytes())
+        source.write_text("module probe; @extern(C) fn sotlas_windows_get_last_error()->u32; @system pub fn main_entry()->u32{return sotlas_windows_get_last_error();}")
+        previous = actual.read_bytes()
+        self.run_tool([str(self.seed), "--build-mac", str(actual), str(self.directory), str(source)], expected=9, env=self.environment)
+        self.assertEqual(actual.read_bytes(), previous)
+
+    @unittest.skipUnless(os.name == "nt", "native execution requires Windows x64")
     def test_original_modules_build_native_stage2_stage3_fixed_point(self):
         directory = ROOT / "bootstrap/sotlas/native_compiler"
         names = ("token", "ast", "lexer", "parser", "sema", "backend/target_ir", "backend/lower_scalar", "backend/x86_64_scalar")

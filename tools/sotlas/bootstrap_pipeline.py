@@ -55,6 +55,7 @@ size_t sotlas_native_compile(const uint8_t *source, size_t len, uint8_t *out_buf
 bool sotlas_native_compile_object(const uint8_t *source, size_t len, uint8_t *output, size_t capacity, size_t *out_length);
 bool sotlas_native_link_executable(const uint8_t *object, size_t object_len, const uint8_t *entry_name, size_t entry_name_len, bool freestanding, uint8_t *output, size_t capacity, size_t *out_length);
 bool sotlas_native_link_pe(const uint8_t *object, size_t object_len, const uint8_t *entry_name, size_t entry_name_len, uint8_t *output, size_t capacity, size_t *out_length);
+bool sotlas_native_link_macho(const uint8_t *object, size_t object_len, const uint8_t *entry_name, size_t entry_name_len, uint8_t *output, size_t capacity, size_t *out_length);
 bool sotlas_native_link_objects(const uint8_t *object_data, const size_t *object_offsets, const size_t *object_lengths, uint32_t object_count, const uint8_t *entry_name, size_t entry_name_len, bool freestanding, uint8_t *output, size_t capacity, size_t *out_length);
 bool sotlas_native_compile_project(const uint8_t *sources_data, const size_t *source_offsets, const size_t *source_lengths, uint32_t source_count, const uint8_t *entry_name, size_t entry_name_len, bool freestanding, uint8_t *output, size_t capacity, size_t *out_length);
 uint32_t sotlas_native_last_error_line(void);
@@ -1546,9 +1547,10 @@ int main(int argc, char **argv) {
         return 0;
     }
 
-    if (argc >= 4 && (strcmp(argv[1], "--link-exe") == 0 || strcmp(argv[1], "--link-pe") == 0)) {
+    if (argc >= 4 && (strcmp(argv[1], "--link-exe") == 0 || strcmp(argv[1], "--link-pe") == 0 || strcmp(argv[1], "--link-macho") == 0)) {
         bool pe_mode = strcmp(argv[1], "--link-pe") == 0;
-        if (pe_mode && argc != 5) return 1;
+        bool macho_mode = strcmp(argv[1], "--link-macho") == 0;
+        if ((pe_mode || macho_mode) && argc != 5) return 1;
         FILE *f_in = fopen(argv[2], "rb");
         if (!f_in) { fprintf(stderr, "sotlas: cannot open object '%s'\n", argv[2]); return 1; }
         uint8_t *obj_buf = (uint8_t *)malloc(MAX_OUTPUT_SIZE);
@@ -1562,7 +1564,11 @@ int main(int argc, char **argv) {
         uint8_t *exe_buf = (uint8_t *)malloc(MAX_OUTPUT_SIZE);
         size_t exe_len = 0;
         bool ok = false;
-        if (pe_mode) {
+        if (macho_mode) {
+            ok = sotlas_native_link_macho(obj_buf, in_len,
+                (const uint8_t *)entry_name, strlen(entry_name),
+                exe_buf, MAX_OUTPUT_SIZE, &exe_len);
+        } else if (pe_mode) {
             ok = sotlas_native_link_pe(obj_buf, in_len,
                 (const uint8_t *)entry_name, strlen(entry_name),
                 exe_buf, MAX_OUTPUT_SIZE, &exe_len);

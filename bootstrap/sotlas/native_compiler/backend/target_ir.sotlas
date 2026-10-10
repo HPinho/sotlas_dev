@@ -1064,17 +1064,21 @@ pub fn target_module_validate_cfg(
                         return false;
                     }
                 } else if instruction.opcode == TargetOpcode::SystemOp {
+                    // IDs 0..3 are Linux, 16..19 are Darwin. Both retain the
+                    // same typed I/O and negative-error adapter contract.
+                    let mut operation: u64 = instruction.immediate_bits;
+                    if operation >= 16 && operation <= 19 { operation = operation - 16; }
                     let mut expected: u32 = 3;
-                    if instruction.immediate_bits == 3 { expected = 1; }
-                    if instruction.immediate_bits > 3 || instruction.type_tag != TargetTypeTag::I64
+                    if operation == 3 { expected = 1; }
+                    if operation > 3 || instruction.type_tag != TargetTypeTag::I64
                         || instruction.result_value == 0 || instruction.operand_count != expected
                         || instruction.symbol.length != 0 || instruction.target_count != 0
                         || instruction.phi_input_count != 0 { return false; }
                     let mut check: u32 = 0;
                     while check < expected {
                         let mut wanted: TargetTypeTag = TargetTypeTag::U64;
-                        if (instruction.immediate_bits <= 1 && check == 1)
-                            || (instruction.immediate_bits == 2 && check == 0) { wanted = TargetTypeTag::Pointer; }
+                        if (operation <= 1 && check == 1)
+                            || (operation == 2 && check == 0) { wanted = TargetTypeTag::Pointer; }
                         let operand: TargetOperand = unsafe { *(operands + instruction.first_operand + check) };
                         if !target_value_matches(values, target_section.value_count, operand.value_id, wanted) { return false; }
                         check = check + 1;

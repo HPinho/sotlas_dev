@@ -43,6 +43,28 @@ The CLI defaults to the bounded native Stage 1 backend; unsupported native forms
 
 The 1.0 release scope declares bounded `SUPPORTED` subsets for `sole/exclusive`, `shared`, `region`, `island`, `quarantine`, `handover`, `direct`, and `whisper`. `device` and `external` remain **PREVIEW**. These labels apply only to the source forms and backend paths named by the release scope; they do not certify every combination or a public stable release.
 
+### Native compiler sovereignty
+
+The bounded compiler-source profile has native Linux and Windows file drivers
+and Stage 2/Stage 3 byte-identical generation gates. After receiving a native
+seed, those paths compile their original Sotlas sources without Python, a C
+compiler or an external linker. This does not cover every feature accepted by
+the canonical frontend; the hosted bootstrap remains part of the distribution.
+
+Both native drivers now accept an experimental Intel macOS cross-build:
+
+```sh
+sotlas-native --build-mac app.macho ./src ./src/probe/main.sotlas
+```
+
+The entry must be `pub fn main_entry() -> u32`. The owned writer emits a static
+Mach-O with no dyld or C startup dependency. Darwin read/write/open/close
+adapters are available in this profile, with negative error returns. Apple
+Silicon, a native macOS compiler driver, signing, ASLR, dynamic libraries and
+general process-entry arguments remain open. Cross-build tests run on Linux
+and Windows; Intel macOS execution gates run in CI. See the
+[sovereignty roadmap](docs/sotlas_sovereignty_roadmap.md) for evidence and limits.
+
 ---
 
 ## 🎯 Sotlas design goals
