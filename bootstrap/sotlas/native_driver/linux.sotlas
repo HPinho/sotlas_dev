@@ -49,6 +49,10 @@ static mut driver_path_start: [usize; 1] = 0;
 static mut driver_path_length: [usize; 1] = 0;
 static mut driver_path_end: [usize; 1] = 0;
 static mut driver_resolved_length: [usize; 1] = 0;
+// Discovery queue: bounded NUL-terminated paths, with no host path resolver.
+static mut driver_discovery_paths: [u8; 262144] = 0;
+static mut driver_discovery_count: [usize; 1] = 0;
+
 
 fn fail(code: u32) -> u32 {
     let message: *const u8 = "sotlas-native: compilation failed\n";
@@ -452,7 +456,7 @@ fn driver_resolve_append_file(source: *const u8, file: usize) -> bool {
 // the requested output until this returns a valid source stream and the
 // complete native compiler pipeline succeeds.
 fn driver_resolve_project(file_count: usize) -> usize {
-    if file_count < 2 || file_count > 64 { return 0; }
+    if file_count == 0 || file_count > 64 { return 0; }
     let source: *const u8 = unsafe { driver_project_raw as *const u8 };
     let mut file: usize = 0;
     while file < file_count {
@@ -496,6 +500,174 @@ fn driver_resolve_project(file_count: usize) -> usize {
         ordered = ordered + 1;
     }
     return unsafe { *(driver_resolved_length as *const usize) };
+}
+
+
+fn driver_filename_length(path: *const u8) -> usize {
+    let mut length: usize = 0;
+    while length < 4096 {
+        if unsafe { *(path + length) } == 0 { return length; }
+        length = length + 1;
+    }
+    return 4096;
+}
+
+fn driver_discovery_add(path: *const u8) -> bool {
+    let length: usize = driver_filename_length(path);
+    if length == 0 || length >= 4096 { return false; }
+    let count: usize = unsafe { *(driver_discovery_count as *const usize) };
+    let base: *mut u8 = unsafe { driver_discovery_paths as *mut u8 };
+    let mut file: usize = 0;
+    while file < count {
+        let candidate: *const u8 = unsafe { base + file * 4096 };
+        if driver_filename_length(candidate) == length {
+            let mut index: usize = 0;
+            let mut same: bool = true;
+            while index < length {
+                if unsafe { *(candidate + index) } != unsafe { *(path + index) } { same = false; break; }
+                index = index + 1;
+            }
+            if same { return true; }
+        }
+        file = file + 1;
+    }
+    if count >= 64 { return false; }
+    let destination: *mut u8 = unsafe { base + count * 4096 };
+    let mut index: usize = 0;
+    while index <= length {
+        unsafe { *(destination + index) = *(path + index); }
+        index = index + 1;
+    }
+    unsafe { *(driver_discovery_count as *mut usize) = count + 1; }
+    return true;
+}
+
+fn driver_discovery_import(root: *const u8, source: *const u8,
+    first: usize, length: usize) -> bool {
+    let root_length: usize = driver_filename_length(root);
+    if root_length == 0 || root_length >= 4096 || length == 0
+        || root_length + length + 9 >= 4096 { return false; }
+    let mut path: [u8; 4096] = 0;
+    let pointer: *mut u8 = unsafe { path as *mut u8 };
+    let mut position: usize = 0;
+    while position < root_length {
+        unsafe { *(pointer + position) = *(root + position); }
+        position = position + 1;
+    }
+    if unsafe { *(root + root_length - 1) } != 47 {
+        unsafe { *(pointer + position) = 47; }
+        position = position + 1;
+    }
+    let mut index: usize = 0;
+    while index < length {
+        let ch: u8 = unsafe { *(source + first + index) };
+        if ch == 58 {
+            if index + 1 >= length || unsafe { *(source + first + index + 1) } != 58 { return false; }
+            unsafe { *(pointer + position) = 47; }
+            index = index + 2;
+        } else {
+            unsafe { *(pointer + position) = ch; }
+            index = index + 1;
+        }
+        position = position + 1;
+    }
+    let suffix: *const u8 = ".sotlas";
+    index = 0;
+    while index <= 7 {
+        unsafe { *(pointer + position + index) = *(suffix + index); }
+        index = index + 1;
+    }
+    return driver_discovery_add(pointer);
+}
+
+fn driver_build_mode(option: *const u8) -> u32 {
+    let mut index: usize = 0;
+    while index < 7 {
+        let mut expected: u8 = 45;
+        if index == 2 { expected = 98; }
+        else if index == 3 { expected = 117; }
+        else if index == 4 { expected = 105; }
+        else if index == 5 { expected = 108; }
+        else if index == 6 { expected = 100; }
+        if unsafe { *(option + index) } != expected { return 0; }
+        index = index + 1;
+    }
+    if unsafe { *(option + 7) } == 0 { return 1; }
+    if unsafe { *(option + 7) } != 45 { return 0; }
+    if unsafe { *(option + 8) } == 111 {
+        if unsafe { *(option + 9) } != 98 || unsafe { *(option + 10) } != 106 { return 0; }
+        if unsafe { *(option + 11) } == 0 { return 2; }
+    } else if unsafe { *(option + 8) } == 99 {
+        if unsafe { *(option + 9) } == 99 && unsafe { *(option + 10) } == 0 { return 3; }
+    }
+    return 0;
+}
+
+fn driver_dispatch_build(argc: u64, argv: *const *const u8, mode: u32) -> u32 {
+    if mode == 1 { return driver_compile_discovered(argc, argv, false, false); }
+    if mode == 2 { return driver_compile_discovered(argc, argv, true, false); }
+    if mode == 3 { return driver_compile_discovered(argc, argv, false, true); }
+    return fail(1);
+}
+
+fn driver_compile_discovered(argc: u64, argv: *const *const u8,
+    object_only: bool, compiler_entry: bool) -> u32 {
+    if argc != 5 { return fail(1); }
+    let output: *const u8 = unsafe { *(argv + 2) };
+    let root: *const u8 = unsafe { *(argv + 3) };
+    let entry: *const u8 = unsafe { *(argv + 4) };
+    unsafe { *(driver_discovery_count as *mut usize) = 0; }
+    if !driver_discovery_add(entry) { return fail(12); }
+    let source: *mut u8 = unsafe { driver_project_raw as *mut u8 };
+    let paths: *const u8 = unsafe { driver_discovery_paths as *const u8 };
+    let mut position: usize = 0;
+    let mut file: usize = 0;
+    while file < unsafe { *(driver_discovery_count as *const usize) } {
+        let path: *const u8 = unsafe { paths + file * 4096 };
+        let opened: i64 = sotlas_linux_open(path, 0, 0);
+        if opened < 0 { return fail(2); }
+        let descriptor: u64 = opened as u64;
+        let start: usize = position;
+        while position < 1048576 {
+            let available: u64 = 1048576 - position;
+            let count: i64 = sotlas_linux_read(descriptor, unsafe { source + position }, available);
+            if count == -4 { continue; }
+            if count < 0 { let closed: i64 = sotlas_linux_close(descriptor); return fail(3); }
+            if count == 0 { break; }
+            position = position + (count as usize);
+        }
+        let closed: i64 = sotlas_linux_close(descriptor);
+        if closed < 0 || position == start || position >= 1048575 { return fail(3); }
+        let length: usize = position - start;
+        unsafe {
+            *(driver_project_starts as *mut usize + file) = start;
+            *(driver_project_lengths as *mut usize + file) = length;
+            *(source + position) = 10;
+        }
+        position = position + 1;
+        let mut lexer: Lexer = Lexer::new(unsafe { source + start }, length);
+        let mut depth: usize = 0;
+        let mut token: Token = lexer.next_token();
+        while token.kind != TokenKind::Eof {
+            if token.kind == TokenKind::Error { return fail(4); }
+            if token.kind == TokenKind::KwImport {
+                if depth != 0 || !driver_read_module_path(&mut lexer, true) { return fail(12); }
+                let first: usize = unsafe { *(driver_path_start as *const usize) };
+                let count: usize = unsafe { *(driver_path_length as *const usize) };
+                if !driver_discovery_import(root, source, start + first, count) { return fail(12); }
+            } else if token.kind == TokenKind::OpenBrace { depth = depth + 1; }
+            else if token.kind == TokenKind::CloseBrace {
+                if depth == 0 { return fail(12); }
+                depth = depth - 1;
+            }
+            token = lexer.next_token();
+        }
+        file = file + 1;
+    }
+    let count: usize = unsafe { *(driver_discovery_count as *const usize) };
+    let length: usize = driver_resolve_project(count);
+    if length == 0 { return fail(12); }
+    return driver_compile_loaded(length, output, object_only, compiler_entry);
 }
 
 // Retain the certified single-file input byte stream, options and limits.
@@ -601,6 +773,8 @@ pub fn sotlas_linux_main(argc: u64, argv: *const *const u8) -> u32 {
     if argc < 3 || argv == null { return fail(1); }
     let first_option: *const u8 = unsafe { *(argv + 1) };
     if first_option == null { return fail(1); }
+    let build_mode: u32 = driver_build_mode(first_option);
+    if build_mode != 0 { return driver_dispatch_build(argc, argv, build_mode); }
     if option_equals(first_option, "--project", 9) {
         return driver_compile_project(argc, argv, false, false, false);
     }

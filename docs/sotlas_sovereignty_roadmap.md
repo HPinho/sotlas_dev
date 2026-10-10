@@ -776,6 +776,39 @@ through native Linux execution under WSL. The original-module native self-build
 gate also passed, including identical regenerated compiler images and execution
 of its Stage 3 sample. New CI certification remains pending.
 
+### Native discovery and Linux seed distribution
+
+The file driver adds `--build`, `--build-obj` and `--build-cc`. It starts with
+one entry file, resolves explicit glob namespaces beneath a supplied source
+root, reads dependencies into a bounded queue and applies the existing graph
+verification/topological order. Missing files, cycles, duplicate declarations,
+unsupported imports and malformed identifiers fail before output creation.
+The source-root layout maps `foo::bar` to `foo/bar.sotlas`; no Python source
+merger participates in native discovery.
+
+`packaging/native_linux.py` creates a reproducible Linux x86-64 seed archive
+with a static compiler, namespace-layout source tree and checksums. The packager
+is a release-time tool, not an installed compiler dependency.
+`packaging/install-native.sh` validates the payload and installs it with system
+utilities without Python or C build tools. The new CI artifact job installs
+and executes this native bundle while retaining the existing distributions.
+
+The declared native glob-import/project profile and the Linux installed-seed
+profile close two further checkpoints locally. Global progress is **80%, not
+90%**: broader canonical frontend parity and actual native Windows/macOS
+toolchains remain open. Namespace visibility, aliases and package management
+remain part of the broader parity work; they are not claimed by discovery.
+
+Local evidence: the complete Windows regression run passed 2,667 tests with
+47 skips. Five native Linux discovery/legacy/graph gates passed through WSL.
+The installed compiler rebuilt its namespace-layout sources with PATH excluding
+host tools; its Stage 2 and Stage 3 images matched with SHA-256
+`7d8540a72243798e90ffd697652deb72b01965a82c73e0cf46b47eb271646e93`.
+Reproducible archive and existing installer/release contracts passed separately.
+Installation also passed with PATH containing only the eight required system
+utilities. Linux CI executes the installer tamper and no-host-tools gates;
+new CI certification remains pending.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test
@@ -793,7 +826,7 @@ completion. The following distinctions must remain visible in progress reports:
 | Stage 2 | Hosted generation remains an oracle; native Linux seed directly builds a native Stage 2 compiler | Promote the merged-source Linux self-build gate through CI and broaden its supported profile |
 | Stage 3 | Hosted oracle remains; native Linux Stage 2 builds an identical Stage 3 ELF image | Promote native fixed point through CI; extend generation closure to other native platforms |
 
-The current sovereignty checkpoint score is **60%: 6 of 10 closures validated
+The current sovereignty checkpoint score is **80%: 8 of 10 closures validated
 locally**. This replaces the historical unweighted 40% estimate with an
 explicit checklist. It measures architecture milestones, not lines of code,
 effort remaining or a percentage of installed dependencies already removed.
@@ -806,10 +839,10 @@ effort remaining or a percentage of installed dependencies already removed.
 | Owned ELF linking | Application and kernel image gates; native runtime linking | Closed locally |
 | Native file compiler driver | Real argv, file input/output, kernel syscalls; no C runtime | Closed locally |
 | Native generation chain | Self-object equivalence and Stage 2/3 native fixed point | Closed locally |
-| Native imports and project builds | Current driver requires premerged source | Open |
+| Native imports and project builds | Bounded native glob discovery, graph checks and project builds | Closed locally for declared profile |
 | Full language/frontend parity | Broader canonical features and diagnostics remain | Open |
 | Native Windows/macOS toolchains | Drivers and native object formats remain | Open |
-| Installed seed/distribution closure | Packaging and reproducible release bootstrap remain | Open |
+| Installed seed/distribution closure | Reproducible Linux static seed, original sources, verified installation | Closed locally for Linux profile |
 
 The native Linux profile can compile and self-build after receiving an initial
 seed without Python or C tooling. The default installed cross-platform

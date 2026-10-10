@@ -128,7 +128,48 @@ object identity for an explicitly normalized reference source, error paths
 preserving existing output, and Stage 1→2→3 fixed point from the nine original
 production module files. CI certification is pending.
 
-## Native self-build
+## Discover imported files
+
+```sh
+./build/sotlas-native --build output /path/to/source-root /path/to/entry.sotlas
+./build/sotlas-native --build-obj output.o /path/to/source-root /path/to/entry.sotlas
+./build/sotlas-native --build-cc stage2 /path/to/source-root /path/to/compiler-entry.sotlas
+```
+
+Glob imports are discovered by the production lexer. `foo::bar` resolves to
+`SOURCE_ROOT/foo/bar.sotlas`; the existing graph verifier rejects duplicate
+modules, missing imports, cycles, aliases and malformed paths before output is
+opened. Comments and strings are never interpreted as imports. Discovery uses
+a queue of at most 64 paths, each shorter than 4,096 bytes, and the existing
+one-megabyte combined source limit. Module visibility and import aliases are
+still outside the native profile.
+
+## Install a native seed bundle
+
+```sh
+python packaging/native_linux.py --output dist/sotlas-native-linux-x64
+tar -xzf dist/sotlas-native-linux-x64.tar.gz
+bash sotlas-native-linux-x64/install-native.sh sotlas-native-linux-x64 /path/to/install
+```
+
+The packager uses build-time Python and the initial producer. The extracted
+bundle contains a static native compiler, its nine original Sotlas sources in
+namespace layout under `src/`, documentation and SHA-256 checksums. Installation
+uses Bash and ordinary system utilities; Python, Clang and a C compiler are not
+required. The installer verifies the payload before writing and refuses an
+existing destination. The archive has deterministic order, timestamps and
+permissions. CI builds, installs and uploads this Linux bundle independently of
+the existing Python distribution.
+
+The installed compiler can discover and rebuild its own source tree:
+
+```sh
+INSTALL/bin/sotlas-native --build-cc stage2 INSTALL/src INSTALL/src/sotlas/compiler/linux_driver.sotlas
+./stage2 --build-cc stage3 INSTALL/src INSTALL/src/sotlas/compiler/linux_driver.sotlas
+cmp stage2 stage3
+```
+
+## Explicit native self-build
 
 The self-build input concatenates these production sources in order:
 
@@ -154,9 +195,10 @@ execution tests run with `PATH` pointing to an empty directory. Windows and
 macOS compile and link the seed as a cross-target ELF artifact; Linux x86-64
 executes the generation chain. WSL can execute the same local artifacts.
 
-This closes a native self-build for the current compiler-source subset. Native
-module/project loading, full language parity, installed distribution and
-Windows/macOS native drivers remain open.
+This closes a native self-build for the current compiler-source subset. Bounded
+glob-module discovery and a Linux seed bundle are available. Broader module
+visibility/package semantics, full language parity and Windows/macOS native
+drivers remain open.
 
 ## Kernel interface
 
