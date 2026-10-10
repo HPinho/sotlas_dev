@@ -147,7 +147,7 @@ impl ScalarLowering {
         if typ == TargetTypeTag::U8 { return 1; }
         if typ == TargetTypeTag::U16 { return 2; }
         if typ == TargetTypeTag::U32 { return 4; }
-        if typ == TargetTypeTag::U64 || typ == TargetTypeTag::Usize { return 8; }
+        if typ == TargetTypeTag::U64 || typ == TargetTypeTag::Usize || typ == TargetTypeTag::Pointer { return 8; }
         return 0;
     }
 
@@ -212,6 +212,7 @@ impl ScalarLowering {
         let elem_len: usize = finish - start;
         let mut sem: Sema = Sema::new();
         let elem_offset: usize = type_offset + start;
+        if unsafe { *(self.source + elem_offset) } == 42 { return TargetTypeTag::Pointer; }
         if self.find_struct(elem_offset, elem_len) != 0 { return TargetTypeTag::Aggregate; }
         if sem.source_slice_equals(
             self.source, self.source_len, elem_offset, elem_len, "u8", 2
@@ -242,7 +243,7 @@ impl ScalarLowering {
         if elem_type == TargetTypeTag::U8 { return 1; }
         if elem_type == TargetTypeTag::U16 { return 2; }
         if elem_type == TargetTypeTag::U32 { return 4; }
-        if elem_type == TargetTypeTag::U64 { return 8; }
+        if elem_type == TargetTypeTag::U64 || elem_type == TargetTypeTag::Pointer { return 8; }
         if elem_type == TargetTypeTag::Aggregate {
             let struct_id: u32 = self.parse_array_element_struct(type_offset, type_len);
             if struct_id != 0 { return self.struct_sizes[struct_id as usize - 1] as usize; }
@@ -785,6 +786,57 @@ impl ScalarLowering {
             return TargetTypeTag::Pointer;
         }
         return TargetTypeTag::Invalid;
+    }
+
+    // Pointer-array views preserve the complete element type, including inner
+    // qualifiers. Ignore whitespace only; differing pointees remain rejected.
+    pub fn pointer_array_cast_matches(self: &Self, array_ref: usize, cast_ref: usize) -> bool {
+        if array_ref == 0 || cast_ref == 0 || array_ref >= self.node_count || cast_ref >= self.node_count { return false; }
+        let array: AstNode = unsafe { *(self.nodes + array_ref) };
+        let cast: AstNode = unsafe { *(self.nodes + cast_ref) };
+        if array.str_len < 3 || cast.str_len < 3
+            || array.str_offset > self.source_len || array.str_len > self.source_len - array.str_offset
+            || cast.str_offset > self.source_len || cast.str_len > self.source_len - cast.str_offset { return false; }
+        if unsafe { *(self.source + array.str_offset) } != 91
+            || unsafe { *(self.source + cast.str_offset) } != 42 { return false; }
+        let mut left: usize = 1;
+        let mut end: usize = left;
+        while end < array.str_len {
+            if unsafe { *(self.source + array.str_offset + end) } == 59 { break; }
+            end = end + 1;
+        }
+        if end == array.str_len { return false; }
+        let mut right: usize = 1;
+        while right < cast.str_len {
+            let ch: u8 = unsafe { *(self.source + cast.str_offset + right) };
+            if ch != 32 && ch != 9 && ch != 10 && ch != 13 { break; }
+            right = right + 1;
+        }
+        if right + 5 <= cast.str_len && unsafe { *(self.source + cast.str_offset + right) } == 99
+            && unsafe { *(self.source + cast.str_offset + right + 1) } == 111
+            && unsafe { *(self.source + cast.str_offset + right + 2) } == 110
+            && unsafe { *(self.source + cast.str_offset + right + 3) } == 115
+            && unsafe { *(self.source + cast.str_offset + right + 4) } == 116 { right = right + 5; }
+        else if right + 3 <= cast.str_len && unsafe { *(self.source + cast.str_offset + right) } == 109
+            && unsafe { *(self.source + cast.str_offset + right + 1) } == 117
+            && unsafe { *(self.source + cast.str_offset + right + 2) } == 116 { right = right + 3; }
+        while left < end || right < cast.str_len {
+            while left < end {
+                let ch: u8 = unsafe { *(self.source + array.str_offset + left) };
+                if ch != 32 && ch != 9 && ch != 10 && ch != 13 { break; }
+                left = left + 1;
+            }
+            while right < cast.str_len {
+                let ch: u8 = unsafe { *(self.source + cast.str_offset + right) };
+                if ch != 32 && ch != 9 && ch != 10 && ch != 13 { break; }
+                right = right + 1;
+            }
+            if left == end || right == cast.str_len { return left == end && right == cast.str_len; }
+            if unsafe { *(self.source + array.str_offset + left) } != unsafe { *(self.source + cast.str_offset + right) } { return false; }
+            left = left + 1;
+            right = right + 1;
+        }
+        return true;
     }
 
     pub fn pointer_expression_type_ref(
@@ -1992,6 +2044,15 @@ impl ScalarLowering {
                 return self.local_value_ids[slot] as u32;
             }
             if cast_type == TargetTypeTag::Pointer {
+                if value_node.kind == AstKind::ExprIdent {
+                    let global: isize = self.find_global_bss(value_node.str_offset, value_node.str_len);
+                    if global >= 0 && unsafe { g_bss_sym_is_array[global as usize] } != 0
+                        && unsafe { g_bss_sym_element_types[global as usize] } == TargetTypeTag::Pointer as u32 {
+                        if !self.pointer_array_cast_matches(unsafe { g_bss_sym_type_refs[global as usize] }, cast_type_index)
+                            || (type_tag != TargetTypeTag::Invalid && type_tag != TargetTypeTag::Pointer) { return 0; }
+                        return self.lower_expression(value_index, TargetTypeTag::Pointer, first_parameter, parameter_count);
+                    }
+                }
                 if self.structured_cfg && value_node.kind == AstKind::ExprIdent {
                     let slot: usize = self.cfg_find_local(value_node.str_offset, value_node.str_len);
                     if slot < self.local_count && self.local_array_counts[slot] != 0 {
@@ -4589,9 +4650,13 @@ impl ScalarLowering {
         let mut nested_field_store: bool = false;
         let mut aggregate_call: bool = false;
         let mut local_array_decl: bool = false;
-        let mut i: usize = 1;
+        // Parser allocation is ordered: a function precedes its descendants,
+        // and the next function starts a new subtree. Avoid rescanning every
+        // other function for each declaration in compiler-sized modules.
+        let mut i: usize = function_index + 1;
         while i < self.node_count {
             let node: AstNode = unsafe { *(self.nodes + i) };
+            if node.kind == AstKind::FnDecl { break; }
             let is_loop: bool = node.kind == AstKind::WhileStmt;
             let is_branch: bool = node.kind == AstKind::IfStmt;
             let mut is_local_array: bool = false;
@@ -4602,6 +4667,7 @@ impl ScalarLowering {
                     && unsafe { *(self.source + first.str_offset) } == 91;
             }
             let is_aggregate_call: bool = node.kind == AstKind::ExprCall && self.cfg_struct_id(i, 0) != 0;
+            let scalar_call: bool = node.kind == AstKind::ExprCall;
             let needs_lazy_condition: bool = node.kind == AstKind::ExprBinary
                 && (node.int_value == 110 || node.int_value == 111);
             let array_index: bool = node.kind == AstKind::ExprIndex;
@@ -4623,16 +4689,19 @@ impl ScalarLowering {
                     (*(self.nodes + node.first_child)).kind
                 } == AstKind::ExprFieldAccess;
             }
-            if is_loop || is_branch || is_local_array || needs_lazy_condition || is_field_assignment || is_aggregate_call || unsafe_block || nested_field || method_call || array_index {
+            if is_loop || is_branch || is_local_array || needs_lazy_condition || is_field_assignment || is_aggregate_call || unsafe_block || nested_field || method_call || array_index || scalar_call {
                 let mut parent: usize = node.parent;
                 let mut depth: usize = 0;
                 let mut nested_in_if: bool = false;
+                let mut ancestor_child: usize = i;
+                let mut call_in_condition: bool = false;
                 while parent != 0 && parent < self.node_count && depth < self.node_count {
                     if parent == function_index {
                         if is_loop { count = count + 1; }
                         if is_local_array { local_array_decl = true; }
                         if is_aggregate_call { aggregate_call = true; }
-                        if (is_branch && nested_in_if) || needs_lazy_condition || unsafe_block || nested_field || method_call || array_index { needs_cfg = true; }
+                        if (is_branch && nested_in_if) || call_in_condition
+                            || needs_lazy_condition || unsafe_block || nested_field || method_call || array_index { needs_cfg = true; }
                         if needs_lazy_condition && self.cfg_expression_contains_unsafe(i, 0) {
                             no_loop_unsafe = true;
                         }
@@ -4641,7 +4710,11 @@ impl ScalarLowering {
                     }
                     if unsafe { (*(self.nodes + parent)).kind } == AstKind::IfStmt {
                         nested_in_if = true;
+                        if scalar_call && unsafe { (*(self.nodes + parent)).first_child } == ancestor_child {
+                            call_in_condition = true;
+                        }
                     }
+                    ancestor_child = parent;
                     parent = unsafe { (*(self.nodes + parent)).parent };
                     depth = depth + 1;
                 }
@@ -5976,7 +6049,7 @@ pub fn lower_scalar_module(
                         if array_element_count > maximum_size / array_element_stride {
                             return lowering.reject(struct_scan_index);
                         }
-                        if array_element_struct != 0 {
+                        if array_element_struct != 0 || element_type == TargetTypeTag::Pointer {
                             let initializer_index: usize = type_node.next_sibling;
                             if initializer_index == 0 || initializer_index >= lowering.node_count { return lowering.reject(struct_scan_index); }
                             let initializer: AstNode = unsafe { *(lowering.nodes + initializer_index) };
@@ -6019,6 +6092,7 @@ pub fn lower_scalar_module(
                 g_bss_sym_element_structs[b_idx] = array_element_struct;
                 g_bss_sym_element_strides[b_idx] = array_element_stride;
                 g_bss_sym_element_counts[b_idx] = array_element_count;
+                g_bss_sym_type_refs[b_idx] = decl_node.first_child;
                 g_bss_sym_count = b_idx + 1;
                 g_bss_total_size = bss_off + var_size;
             }

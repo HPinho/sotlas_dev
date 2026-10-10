@@ -55,6 +55,7 @@ def assemble(seed: Path, destination: Path, version: str) -> Path:
         relative = "src/sotlas/compiler/" + name + ".sotlas"
         files[relative] = (ROOT / ("bootstrap/sotlas/native_compiler/" + name + ".sotlas")).read_bytes().replace(b"\r\n", b"\n")
     files["src/sotlas/compiler/linux_driver.sotlas"] = (ROOT / "bootstrap/sotlas/native_driver/linux.sotlas").read_bytes().replace(b"\r\n", b"\n")
+    files["src/sotlas/compiler/windows_driver.sotlas"] = (ROOT / "bootstrap/sotlas/native_driver/windows.sotlas").read_bytes().replace(b"\r\n", b"\n")
     files["docs/native-driver.md"] = (ROOT / "bootstrap/sotlas/native_driver/README.md").read_bytes().replace(b"\r\n", b"\n")
     files["install-native.sh"] = (ROOT / "packaging/install-native.sh").read_bytes().replace(b"\r\n", b"\n")
     hashes = {name: hashlib.sha256(data).hexdigest() for name, data in sorted(files.items())}

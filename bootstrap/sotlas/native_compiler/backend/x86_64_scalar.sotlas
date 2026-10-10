@@ -2041,6 +2041,7 @@ pub fn emit_elf64_module_object(
     let mut external_count: u32 = 0;
     let mut strings_size: usize = 1;
     let mut max_phi: u32 = 0;
+    let mut platform_flags: u32 = 0;
     let mut function_index: u32 = 0;
     while function_index < ir.function_count {
         let function: TargetFunction = unsafe { *(functions + function_index) };
@@ -2082,6 +2083,8 @@ pub fn emit_elf64_module_object(
             parameter_index = parameter_index + 1;
         }
         if (function.flags & TARGET_FUNCTION_EXTERNAL) != 0 {
+            let windows_id: u32 = windows_import_id(unsafe { source + function.name.offset }, function.name.length as usize);
+            if !windows_signature_valid(windows_id, function, parameters) { return false; }
             external_count = external_count + 1;
         } else {
             if function.block_count > 2048 { return false; }
@@ -2762,6 +2765,7 @@ pub fn emit_elf64_module_object(
                         return false;
                     }
                 } else if instruction.opcode == TargetOpcode::SystemOp {
+                    platform_flags = platform_flags | 1;
                     let mut expected: u32 = 3;
                     if instruction.immediate_bits == 3 { expected = 1; }
                     if instruction.immediate_bits > 3 || instruction.operand_count != expected
@@ -3058,6 +3062,7 @@ pub fn emit_elf64_module_object(
             || !put_u8(output, capacity, 6, 1) || !put_u16(output, capacity, 16, 1)
             || !put_u16(output, capacity, 18, 62) || !put_u32(output, capacity, 20, 1)
             || !put_u64(output, capacity, 40, section_header_offset as u64)
+            || !put_u32(output, capacity, 48, platform_flags)
             || !put_u16(output, capacity, 52, 64) || !put_u16(output, capacity, 58, 64)
             || !put_u16(output, capacity, 60, 9) || !put_u16(output, capacity, 62, 6)
             || !put_section_header(output, capacity, section_header_offset + 64,
@@ -3112,6 +3117,8 @@ pub fn emit_elf64_module_object(
                 symbol_section = 0 as u16;
                 symbol_value = 0;
                 symbol_size = 0;
+                let windows_id: u32 = windows_import_id(unsafe { source + function.name.offset }, function.name.length as usize);
+                if windows_id != 0 { symbol_size = (windows_id as u64) + 1459617792; }
             }
             let symbol_offset: usize = symtab_offset + actual_sym_index as usize * 24;
             if !put_u32(output, capacity, symbol_offset, string_cursor as u32)
@@ -3240,6 +3247,7 @@ pub fn emit_elf64_module_object(
         || !put_u8(output, capacity, 6, 1) || !put_u16(output, capacity, 16, 1)
         || !put_u16(output, capacity, 18, 62) || !put_u32(output, capacity, 20, 1)
         || !put_u64(output, capacity, 40, section_header_offset as u64)
+        || !put_u32(output, capacity, 48, platform_flags)
         || !put_u16(output, capacity, 52, 64) || !put_u16(output, capacity, 58, 64)
         || !put_u16(output, capacity, 60, 7) || !put_u16(output, capacity, 62, 4)
         || !put_section_header(output, capacity, section_header_offset + 64,
@@ -3287,6 +3295,8 @@ pub fn emit_elf64_module_object(
             symbol_section = 0 as u16;
             symbol_value = 0;
             symbol_size = 0;
+            let windows_id: u32 = windows_import_id(unsafe { source + function.name.offset }, function.name.length as usize);
+            if windows_id != 0 { symbol_size = (windows_id as u64) + 1459617792; }
         }
         if !put_u32(output, capacity, symbol_offset, string_cursor as u32)
             || !put_u8(output, capacity, symbol_offset + 4, symbol_info)
@@ -3835,6 +3845,266 @@ pub fn link_elf64_executable(
     return true;
 }
 
+// Native Windows imports use a frozen scalar machine ABI. These names are
+// resolved only by the PE backend; all other foreign names remain unresolved.
+static mut g_pe_link_objects: [u8; 8388608] = 0;
+
+fn windows_name_equals(name: *const u8, length: usize, expected: *const u8, size: usize) -> bool {
+    if name == null || length != size { return false; }
+    let mut index: usize = 0;
+    while index < size {
+        if unsafe { *(name + index) } != unsafe { *(expected + index) } { return false; }
+        index = index + 1;
+    }
+    return true;
+}
+
+fn windows_import_id(name: *const u8, length: usize) -> u32 {
+    if windows_name_equals(name, length, "sotlas_windows_exit", 19) { return 1; }
+    if windows_name_equals(name, length, "sotlas_windows_get_command_line", 31) { return 2; }
+    if windows_name_equals(name, length, "sotlas_windows_create_file", 26) { return 3; }
+    if windows_name_equals(name, length, "sotlas_windows_read_file", 24) { return 4; }
+    if windows_name_equals(name, length, "sotlas_windows_write_file", 25) { return 5; }
+    if windows_name_equals(name, length, "sotlas_windows_close_handle", 27) { return 6; }
+    if windows_name_equals(name, length, "sotlas_windows_get_std_handle", 29) { return 7; }
+    if windows_name_equals(name, length, "sotlas_windows_get_last_error", 29) { return 8; }
+    return 0;
+}
+
+fn windows_symbol_name(id: u32) -> *const u8 {
+    if id == 1 { return "sotlas_windows_exit"; }
+    if id == 2 { return "sotlas_windows_get_command_line"; }
+    if id == 3 { return "sotlas_windows_create_file"; }
+    if id == 4 { return "sotlas_windows_read_file"; }
+    if id == 5 { return "sotlas_windows_write_file"; }
+    if id == 6 { return "sotlas_windows_close_handle"; }
+    if id == 7 { return "sotlas_windows_get_std_handle"; }
+    if id == 8 { return "sotlas_windows_get_last_error"; }
+    return null;
+}
+
+fn windows_symbol_length(id: u32) -> usize {
+    if id == 1 { return 19; }
+    if id == 2 { return 31; }
+    if id == 3 { return 26; }
+    if id == 4 { return 24; }
+    if id == 5 { return 25; }
+    if id == 6 { return 27; }
+    if id == 7 { return 29; }
+    if id == 8 { return 29; }
+    return 0;
+}
+
+fn windows_dll_name(id: u32) -> *const u8 {
+    if id == 1 { return "ExitProcess"; }
+    if id == 2 { return "GetCommandLineA"; }
+    if id == 3 { return "CreateFileA"; }
+    if id == 4 { return "ReadFile"; }
+    if id == 5 { return "WriteFile"; }
+    if id == 6 { return "CloseHandle"; }
+    if id == 7 { return "GetStdHandle"; }
+    if id == 8 { return "GetLastError"; }
+    return null;
+}
+
+fn windows_dll_name_length(id: u32) -> usize {
+    if id == 1 { return 11; }
+    if id == 2 { return 15; }
+    if id == 3 { return 11; }
+    if id == 4 { return 8; }
+    if id == 5 { return 9; }
+    if id == 6 { return 11; }
+    if id == 7 { return 12; }
+    if id == 8 { return 12; }
+    return 0;
+}
+
+fn windows_parameter_count(id: u32) -> u32 {
+    if id == 1 { return 1; }
+    if id == 2 { return 0; }
+    if id == 3 { return 7; }
+    if id == 4 { return 5; }
+    if id == 5 { return 5; }
+    if id == 6 { return 1; }
+    if id == 7 { return 1; }
+    if id == 8 { return 0; }
+    return 0;
+}
+
+fn windows_signature_valid(id: u32, function: TargetFunction, parameters: *const TargetParameter) -> bool {
+    if id == 0 { return true; }
+    if function.parameter_count != windows_parameter_count(id) { return false; }
+    let mut result: TargetTypeTag = TargetTypeTag::U32;
+    if id == 1 { result = TargetTypeTag::Void; }
+    if id == 2 { result = TargetTypeTag::Pointer; }
+    if id == 3 { result = TargetTypeTag::U64; }
+    if id == 7 { result = TargetTypeTag::U64; }
+    if function.return_type != result { return false; }
+    let mut index: u32 = 0;
+    while index < function.parameter_count {
+        let mut wanted: TargetTypeTag = TargetTypeTag::U32;
+        if id == 3 && index == 0 { wanted = TargetTypeTag::Pointer; }
+        if id == 3 && index == 3 { wanted = TargetTypeTag::Pointer; }
+        if id == 3 && index == 6 { wanted = TargetTypeTag::U64; }
+        if id == 4 && index == 0 { wanted = TargetTypeTag::U64; }
+        if id == 4 && index == 1 { wanted = TargetTypeTag::Pointer; }
+        if id == 4 && index == 3 { wanted = TargetTypeTag::Pointer; }
+        if id == 4 && index == 4 { wanted = TargetTypeTag::Pointer; }
+        if id == 5 && index == 0 { wanted = TargetTypeTag::U64; }
+        if id == 5 && index == 1 { wanted = TargetTypeTag::Pointer; }
+        if id == 5 && index == 3 { wanted = TargetTypeTag::Pointer; }
+        if id == 5 && index == 4 { wanted = TargetTypeTag::Pointer; }
+        if id == 6 && index == 0 { wanted = TargetTypeTag::U64; }
+        if unsafe { (*(parameters + function.first_parameter + index)).type_tag } != wanted { return false; }
+        index = index + 1;
+    }
+    return true;
+}
+
+// Validate before inspecting imports. The platform flag records actual IR
+// Linux SystemOps, avoiding false rejection of syscall-shaped immediate bytes.
+fn pe_import_mask(object: *const u8, length: usize) -> u32 {
+    if length < 64 || get_u32(object, length, 0) != 1179403647
+        || get_u16(object, length, 16) != 1 || get_u16(object, length, 18) != 62
+        || get_u32(object, length, 48) != 0 || get_u16(object, length, 58) != 64 { return 4294967295; }
+    let headers: usize = get_u64(object, length, 40) as usize;
+    let count: usize = get_u16(object, length, 60) as usize;
+    if count == 0 || count > 32 || headers > length || count * 64 > length - headers { return 4294967295; }
+    let mut index: usize = 1;
+    let mut symtab: usize = 0;
+    while index < count {
+        let header: usize = headers + index * 64;
+        let kind: u32 = get_u32(object, length, header + 4);
+        let offset: usize = get_u64(object, length, header + 24) as usize;
+        let size: usize = get_u64(object, length, header + 32) as usize;
+        if kind != 8 && (offset > length || size > length - offset) { return 4294967295; }
+        if kind == 2 {
+            if symtab != 0 || size % 24 != 0 || get_u64(object, length, header + 56) != 24 { return 4294967295; }
+            symtab = header;
+        }
+        index = index + 1;
+    }
+    if symtab == 0 { return 4294967295; }
+    let strings_index: usize = get_u32(object, length, symtab + 40) as usize;
+    if strings_index >= count { return 4294967295; }
+    let strings_header: usize = headers + strings_index * 64;
+    if get_u32(object, length, strings_header + 4) != 3 { return 4294967295; }
+    let strings: usize = get_u64(object, length, strings_header + 24) as usize;
+    let strings_size: usize = get_u64(object, length, strings_header + 32) as usize;
+    let symbols: usize = get_u64(object, length, symtab + 24) as usize;
+    let symbol_count: usize = get_u64(object, length, symtab + 32) as usize / 24;
+    let mut mask: u32 = 0;
+    index = 1;
+    while index < symbol_count {
+        let symbol: usize = symbols + index * 24;
+        if get_u16(object, length, symbol + 6) == 0 {
+            let name: usize = get_u32(object, length, symbol) as usize;
+            if name == 0 || name >= strings_size { return 4294967295; }
+            let mut size: usize = 0;
+            while size < strings_size - name {
+                if unsafe { *(object + strings + name + size) } == 0 { break; }
+                size = size + 1;
+            }
+            if size == strings_size - name { return 4294967295; }
+            let id: u32 = windows_import_id(unsafe { object + strings + name }, size);
+            if id == 0 || get_u64(object, length, symbol + 16) != (id as u64) + 1459617792 { return 4294967295; }
+            mask = mask | ((1 as u32) << (id - 1));
+        }
+        index = index + 1;
+    }
+    return mask;
+}
+
+// Absolute symbols let the existing resolver link calls to PE startup thunks.
+// No allocated sections are added, so the payload layout is independent of the
+// final import addresses and can be resolved in two bounded passes.
+fn pe_import_provider(output: *mut u8, capacity: usize, mask: u32, start_rva: usize) -> bool {
+    if capacity < 2048 { return false; }
+    let mut clear: usize = 0;
+    while clear < 2048 { unsafe { *(output + clear) = 0; } clear = clear + 1; }
+    let mut count: usize = 0;
+    let mut id: u32 = 1;
+    while id <= 8 {
+        if (mask & ((1 as u32) << (id - 1))) != 0 { count = count + 1; }
+        id = id + 1;
+    }
+    let strings: usize = (count + 1) * 24 + 320;
+    let mut string_size: usize = 1;
+    let mut symbol: usize = 1;
+    id = 1;
+    while id <= 8 {
+        if (mask & ((1 as u32) << (id - 1))) != 0 {
+            let record: usize = symbol * 24 + 320;
+            let address: u64 = (start_rva + 1024 + (id as usize - 1) * 96) as u64 + 4194304;
+            if !put_u32(output, capacity, record, string_size as u32)
+                || !put_u8(output, capacity, record + 4, 18)
+                || !put_u16(output, capacity, record + 6, 65521)
+                || !put_u64(output, capacity, record + 8, address) { return false; }
+            let name: *const u8 = windows_symbol_name(id);
+            let size: usize = windows_symbol_length(id);
+            let mut index: usize = 0;
+            while index < size {
+                unsafe { *(output + strings + string_size + index) = *(name + index); }
+                index = index + 1;
+            }
+            string_size = string_size + size + 1;
+            symbol = symbol + 1;
+        }
+        id = id + 1;
+    }
+    let names_offset: usize = strings + string_size;
+    if !put_u32(output, capacity, 0, 1179403647)
+        || !put_u8(output, capacity, 4, 2) || !put_u8(output, capacity, 5, 1)
+        || !put_u8(output, capacity, 6, 1) || !put_u16(output, capacity, 16, 1)
+        || !put_u16(output, capacity, 18, 62) || !put_u32(output, capacity, 20, 1)
+        || !put_u64(output, capacity, 40, 64)
+        || !put_u16(output, capacity, 52, 64) || !put_u16(output, capacity, 58, 64)
+        || !put_u16(output, capacity, 60, 4) || !put_u16(output, capacity, 62, 3)
+        || !put_section_header(output, capacity, 128, 1, 2, 0, 320,
+            ((count + 1) * 24) as u64, 2, 1, 8, 24)
+        || !put_section_header(output, capacity, 192, 9, 3, 0, strings as u64,
+            string_size as u64, 0, 0, 1, 0)
+        || !put_section_header(output, capacity, 256, 17, 3, 0, names_offset as u64,
+            27, 0, 0, 1, 0) { return false; }
+    let names: *const u8 = "\x00.symtab\x00.strtab\x00.shstrtab\x00";
+    let mut index: usize = 0;
+    while index < 27 { unsafe { *(output + names_offset + index) = *(names + index); } index = index + 1; }
+    return true;
+}
+
+fn pe_copy_bytes(output: *mut u8, capacity: usize, offset: usize, data: *const u8, size: usize) -> bool {
+    if offset > capacity || size > capacity - offset { return false; }
+    let mut index: usize = 0;
+    while index < size { unsafe { *(output + offset + index) = *(data + index); } index = index + 1; }
+    return true;
+}
+
+fn pe_windows_thunk(output: *mut u8, capacity: usize, raw: usize, rva: usize,
+    iat: usize, id: u32) -> bool {
+    let count: u32 = windows_parameter_count(id);
+    if !pe_copy_bytes(output, capacity, raw, "\x48\x83\xec\x48", 4) { return false; }
+    let mut cursor: usize = raw + 4;
+    if count >= 5 {
+        if !pe_copy_bytes(output, capacity, cursor, "\x4c\x89\x44\x24\x20", 5) { return false; }
+        cursor = cursor + 5;
+    }
+    if count >= 6 {
+        if !pe_copy_bytes(output, capacity, cursor, "\x4c\x89\x4c\x24\x28", 5) { return false; }
+        cursor = cursor + 5;
+    }
+    if count >= 7 {
+        if !pe_copy_bytes(output, capacity, cursor, "\x4c\x8b\x54\x24\x50\x4c\x89\x54\x24\x30", 10) { return false; }
+        cursor = cursor + 10;
+    }
+    if !pe_copy_bytes(output, capacity, cursor,
+        "\x49\x89\xca\x49\x89\xd3\x48\x89\xf9\x48\x89\xf2\x4d\x89\xd8\x4d\x89\xd1\xff\x15", 20) { return false; }
+    cursor = cursor + 20;
+    let next_rva: usize = rva + cursor - raw + 4;
+    if !put_u32(output, capacity, cursor, (iat as u32) - (next_rva as u32)) { return false; }
+    cursor = cursor + 4;
+    return pe_copy_bytes(output, capacity, cursor, "\x48\x83\xc4\x48\xc3", 5);
+}
+
 // Windows PE32+ candidate: retain the validated internal SysV calling convention,
 // bridge a zero-argument entry to Win64 ExitProcess, and import only KERNEL32.
 // Fixed image base, no external user symbols, unwind tables or base relocations.
@@ -3846,21 +4116,31 @@ pub fn link_pe64_executable(
     if output_length == null { return false; }
     unsafe { *output_length = 0; }
     if object == null || output == null || entry_name == null
-        || object_length < 64 || capacity < 2048 || capacity > 268435456 {
+        || object_length < 64 || capacity < 3072 || capacity > 268435456 {
         return false;
     }
-    let mut offset: usize = 0;
-    let mut length: usize = object_length;
+    let import_mask: u32 = pe_import_mask(object, object_length);
+    if import_mask == 4294967295 || object_length > 8386544 { return false; }
+    let joined: *mut u8 = unsafe { g_pe_link_objects as *mut u8 };
+    if !pe_copy_bytes(joined, 8388608, 0, object, object_length) { return false; }
+    let provider_offset: usize = align_to(object_length, 16);
+    let provider: *mut u8 = unsafe { joined + provider_offset };
+    if !pe_import_provider(provider, 2048, import_mask, 1073741824) { return false; }
+    let mut offsets: [usize; 2] = 0;
+    let mut lengths: [usize; 2] = 0;
+    offsets[1] = provider_offset;
+    lengths[0] = object_length;
+    lengths[1] = 2048;
     let mut linked_length: usize = 0;
     let payload: *mut u8 = unsafe { output + 512 };
-    if !link_elf64_executable(object, unsafe { (&offset) as *const usize },
-        unsafe { (&length) as *const usize }, 1, entry_name, entry_name_length,
-        null, 0, 4198400, true, payload, capacity - 1024,
+    if !link_elf64_executable(joined as *const u8, unsafe { offsets as *const usize },
+        unsafe { lengths as *const usize }, 2, entry_name, entry_name_length,
+        null, 0, 4198400, true, payload, capacity - 2560,
         unsafe { (&linked_length) as *mut usize }) { return false; }
 
     // The ELF linker above validates all section and symbol bounds. Require
-    // explicit zero-argument ABI evidence and reject Linux instruction bytes.
-    // The byte gate is conservative: matching bytes in immediates also reject.
+    // explicit zero-argument ABI evidence. Platform requirements were checked
+    // before resolving imports; machine immediates are not decoded as opcodes.
     let headers: usize = get_u64(object, object_length, 40) as usize;
     let section_count: usize = get_u16(object, object_length, 60) as usize;
     let mut entry_symbol: usize = 0;
@@ -3870,14 +4150,6 @@ pub fn link_pe64_executable(
         let kind: u32 = get_u32(object, object_length, header + 4);
         let start: usize = get_u64(object, object_length, header + 24) as usize;
         let size: usize = get_u64(object, object_length, header + 32) as usize;
-        if kind == 1 && (get_u64(object, object_length, header + 8) & 4) != 0 {
-            let mut index: usize = 0;
-            while index + 1 < size {
-                if unsafe { *(object + start + index) } == 15
-                    && unsafe { *(object + start + index + 1) } == 5 { return false; }
-                index = index + 1;
-            }
-        }
         if kind == 2 {
             let strings_header: usize = headers + get_u32(object, object_length, header + 40) as usize * 64;
             let strings: usize = get_u64(object, object_length, strings_header + 24) as usize;
@@ -3927,21 +4199,27 @@ pub fn link_pe64_executable(
     if memory_size < linked_length || memory_size > 1879048192 { return false; }
     let raw_size: usize = align_to(linked_length, 512);
     let start_raw: usize = raw_size + 512;
-    if start_raw > capacity - 512 { return false; }
+    if start_raw > capacity - 2048 { return false; }
     let start_rva: usize = align_to(memory_size + 4096, 4096);
+    if !pe_import_provider(provider, 2048, import_mask, start_rva) { return false; }
+    if !link_elf64_executable(joined as *const u8, unsafe { offsets as *const usize },
+        unsafe { lengths as *const usize }, 2, entry_name, entry_name_length,
+        null, 0, 4198400, true, payload, capacity - 2560,
+        unsafe { (&linked_length) as *mut usize }) { return false; }
+    if get_u64(payload, linked_length, 104) != (memory_size as u64) { return false; }
     let entry_address: u64 = get_u64(payload, linked_length, 24);
     if entry_address < 4198400 || entry_address - 4198400 >= (linked_length as u64) { return false; }
     let entry_rva: u32 = (entry_address - 4198400 + 4096) as u32;
     let mut index: usize = 0;
     while index < 512 { unsafe { *(output + index) = 0; } index = index + 1; }
     index = linked_length + 512;
-    while index < start_raw + 512 { unsafe { *(output + index) = 0; } index = index + 1; }
+    while index < start_raw + 2048 { unsafe { *(output + index) = 0; } index = index + 1; }
     if !put_u16(output, capacity, 0, 23117) || !put_u32(output, capacity, 60, 128)
         || !put_u32(output, capacity, 128, 17744)
         || !put_u16(output, capacity, 132, 34404) || !put_u16(output, capacity, 134, 2)
         || !put_u16(output, capacity, 148, 240) || !put_u16(output, capacity, 150, 35)
         || !put_u16(output, capacity, 152, 523)
-        || !put_u32(output, capacity, 156, (raw_size + 512) as u32)
+        || !put_u32(output, capacity, 156, (raw_size + 2048) as u32)
         || !put_u32(output, capacity, 164, (memory_size - linked_length) as u32)
         || !put_u32(output, capacity, 168, start_rva as u32)
         || !put_u32(output, capacity, 172, 4096)
@@ -3956,8 +4234,8 @@ pub fn link_pe64_executable(
         || !put_u32(output, capacity, 260, 16)
         || !put_u32(output, capacity, 272, (start_rva + 32) as u32)
         || !put_u32(output, capacity, 276, 40)
-        || !put_u32(output, capacity, 360, (start_rva + 96) as u32)
-        || !put_u32(output, capacity, 364, 16) { return false; }
+        || !put_u32(output, capacity, 360, (start_rva + 160) as u32)
+        || !put_u32(output, capacity, 364, 72) { return false; }
     let names: *const u8 = ".sotlas\x00.start\x00\x00";
     index = 0;
     while index < 8 {
@@ -3970,30 +4248,39 @@ pub fn link_pe64_executable(
         || !put_u32(output, capacity, 408, raw_size as u32)
         || !put_u32(output, capacity, 412, 512)
         || !put_u32(output, capacity, 428, 3758096480)
-        || !put_u32(output, capacity, 440, 160)
+        || !put_u32(output, capacity, 440, 2048)
         || !put_u32(output, capacity, 444, start_rva as u32)
-        || !put_u32(output, capacity, 448, 512)
+        || !put_u32(output, capacity, 448, 2048)
         || !put_u32(output, capacity, 452, start_raw as u32)
         || !put_u32(output, capacity, 468, 3758096480) { return false; }
     // Win64 entry: shadow space and alignment, SysV no-argument call, then
     // move EAX to ECX and call ExitProcess through the loader-populated IAT.
-    let startup: *const u8 = "\x48\x83\xec\x28\xe8\x00\x00\x00\x00\x89\xc1\xff\x15\x4f\x00\x00\x00\x0f\x0b";
+    let startup: *const u8 = "\x48\x83\xec\x28\xe8\x00\x00\x00\x00\x89\xc1\xff\x15\x8f\x00\x00\x00\x0f\x0b";
     index = 0;
     while index < 19 { unsafe { *(output + start_raw + index) = *(startup + index); } index = index + 1; }
     let displacement: u32 = entry_rva - (start_rva as u32 + 9);
     if !put_u32(output, capacity, start_raw + 5, displacement)
         || !put_u32(output, capacity, start_raw + 32, (start_rva + 80) as u32)
-        || !put_u32(output, capacity, start_raw + 44, (start_rva + 112) as u32)
-        || !put_u32(output, capacity, start_raw + 48, (start_rva + 96) as u32)
-        || !put_u64(output, capacity, start_raw + 80, (start_rva + 128) as u64)
-        || !put_u64(output, capacity, start_raw + 96, (start_rva + 128) as u64) { return false; }
+        || !put_u32(output, capacity, start_raw + 44, (start_rva + 240) as u32)
+        || !put_u32(output, capacity, start_raw + 48, (start_rva + 160) as u32) { return false; }
     let dll: *const u8 = "KERNEL32.dll";
     index = 0;
-    while index < 13 { unsafe { *(output + start_raw + 112 + index) = *(dll + index); } index = index + 1; }
-    let exit_name: *const u8 = "ExitProcess";
-    index = 0;
-    while index < 12 { unsafe { *(output + start_raw + 130 + index) = *(exit_name + index); } index = index + 1; }
-    unsafe { *output_length = start_raw + 512; }
+    while index < 13 { unsafe { *(output + start_raw + 240 + index) = *(dll + index); } index = index + 1; }
+    let mut id: u32 = 1;
+    while id <= 8 {
+        let hint_offset: usize = (id as usize - 1) * 64 + 256;
+        let lookup_offset: usize = (id as usize - 1) * 8 + 80;
+        let iat_offset: usize = (id as usize - 1) * 8 + 160;
+        if !put_u64(output, capacity, start_raw + lookup_offset, (start_rva + hint_offset) as u64)
+            || !put_u64(output, capacity, start_raw + iat_offset, (start_rva + hint_offset) as u64)
+            || !pe_copy_bytes(output, capacity, start_raw + hint_offset + 2,
+                windows_dll_name(id), windows_dll_name_length(id)) { return false; }
+        let thunk_offset: usize = (id as usize - 1) * 96 + 1024;
+        if !pe_windows_thunk(output, capacity, start_raw + thunk_offset,
+            start_rva + thunk_offset, start_rva + iat_offset, id) { return false; }
+        id = id + 1;
+    }
+    unsafe { *output_length = start_raw + 2048; }
     return true;
 }
 

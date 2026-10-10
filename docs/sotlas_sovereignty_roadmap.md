@@ -955,6 +955,64 @@ After repair, all 15 Sotlas-lite and compatibility self-hosting tests passed
 without skips, including strict C11 compilation, execution, output preservation
 and the legacy Stage 2 fixed point. New CI certification remains pending.
 
+### SV8.24 — native Windows file compiler and generation chain
+
+The candidate adds `bootstrap/sotlas/native_driver/windows.sotlas`. It shares
+the production Lexer, Parser, Sema, Target IR, object writer and linker with
+Linux. Win32 adapters supply file input/output and command-line arguments.
+The PE backend bridges the internal SysV convention to eight frozen scalar
+KERNEL32 imports, including five-argument I/O and seven-argument CreateFileA.
+These calls use native machine code and require no C runtime or external linker.
+
+The object writer validates import machine signatures and records their ABI ID
+in the undefined symbol's size field (`0x57000000 + import ID`) of the internal
+ELF container. The PE resolver accepts only recognized, validated imports.
+ELF object platform flag bit 0 records actual Linux SystemOps; PE rejects that
+requirement instead of scanning instruction-shaped bytes in immediates.
+
+Frontend work also closes concrete compiler-source gaps: calls in `if`
+conditions select structured CFG; casts can parse nested pointers without
+consuming scalar multiplication; zero-initialized global pointer arrays use
+eight-byte elements and preserve complete element identity in pointer views.
+Changed pointees and inner qualifiers remain rejected. Input/output, console,
+buffer counts, pointer-array round trips and malformed import signatures have
+positive/negative execution gates.
+
+Local Windows validation produced Stage 2 and Stage 3 directly from the nine
+original source modules with no tools on PATH. Their PE images matched byte
+for byte; Stage 3 checked, compiled and executed an application returning 42.
+The first generation proof recorded SHA-256
+`4fa15fd8684d528fecb8150901b046e9fc85930b944a8e263052662bdedab563`;
+subsequent code revisions use the generation equality gate rather than that
+historical digest. The installed Linux seed also produced a Windows compiler
+which compiled and ran its own application. The CI artifact now carries that
+compiler and the source tree to the Windows runner for native self-build.
+
+The Windows profile uses ANSI paths and bounded command-line storage, and
+retains the existing native language subset. Full Unicode paths, COFF inputs,
+general Win64 FFI/unwind, ASLR, separate memory protections and macOS remain
+open. Full canonical frontend parity also remains open. This is a Windows
+profile closure candidate, not a claim of 100% global sovereignty. The certified
+checkpoint score remains 80% pending further checkpoint acceptance.
+
+Baseline [CI #1171](https://github.com/HPinho/sotlas_dev/actions/runs/38066449971)
+passed C11 and eight matrix jobs, but its final macOS/Python 3.12 job timed out
+at two compiler-sized pipeline fixtures. CFG selection now examines each
+parser-allocated function subtree instead of rescanning the complete module
+for every function. The 120-second fixture watchdog remains unchanged; local
+pipeline and recursive-call gates passed after the optimization. Final CI
+certification of this candidate remains pending.
+
+Final local validation passed the complete Windows suite (2,685 cases, 49
+platform/tool skips), all 89 Windows-driver/structured-CFG gates after the
+subtree optimization, and three native Linux gates including original-module
+Stage 2/3 identity. The 89-gate run completed in 68 seconds and the three Linux
+gates in 35 seconds on this host; these are validation timings, not a portable
+benchmark claim. The installed Linux-to-Windows compiler/application chain
+also passed locally. The recursive legacy object path remains supported;
+the new CFG selector applies calls-in-condition rules without redirecting
+ordinary calls in branch bodies.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test
@@ -987,7 +1045,7 @@ effort remaining or a percentage of installed dependencies already removed.
 | Native generation chain | Self-object equivalence and Stage 2/3 native fixed point | Certified for Linux |
 | Native imports and project builds | Bounded native glob discovery, graph checks and project builds | Certified for declared profile |
 | Full language/frontend parity | Broader canonical features and diagnostics remain | Open |
-| Native Windows/macOS toolchains | PE output candidate validated locally; Windows driver/ABI coverage, COFF and native macOS remain | Open |
+| Native Windows/macOS toolchains | Windows file driver and native generation locally validated; broader Windows ABI/format coverage and native macOS remain | Open |
 | Installed seed/distribution closure | Reproducible Linux static seed, original sources, verified installation | Certified for Linux profile |
 
 The native Linux profile can compile and self-build after receiving an initial

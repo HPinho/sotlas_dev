@@ -1,4 +1,4 @@
-# Native Linux compiler
+# Native compiler drivers
 
 `linux.sotlas` is a Linux x86-64 compiler driver written in Sotlas. It reads
 source files, runs the production frontend and Target IR lowerer, writes ELF
@@ -58,14 +58,64 @@ startup bridge importing `KERNEL32.dll!ExitProcess`. No C compiler or external
 linker is used after the Linux seed is available. The entry takes no parameters;
 its low 32 result bits become the process exit code.
 
-This is executable output for the native scalar profile, not a native Windows
-compiler driver. Calls, strings and zero-initialized globals are covered by
-execution tests. User foreign symbols and Linux syscalls are rejected. The
-syscall gate conservatively rejects the byte sequence `0f 05` in executable
-sections, including matching bytes inside immediates. Input must carry the
-Sotlas entry ABI note. The image uses a fixed base and currently has writable
-executable sections; ASLR, separate memory protections, unwind tables, general
-Win64 FFI, Windows file/process I/O and macOS output remain open.
+Calls, strings, pointer arrays and zero-initialized globals are covered by
+execution tests. Unrecognized foreign symbols and Linux system operations are
+rejected. Object platform flags record actual Linux SystemOps; matching bytes
+inside integer immediates are accepted. Input must carry the Sotlas entry ABI
+note. The image uses a fixed base and currently has writable executable
+sections; ASLR, separate memory protections, unwind tables, general Win64 FFI
+and macOS output remain open.
+
+## Native Windows compiler
+
+`windows.sotlas` runs the same Lexer, Parser, Sema, Target IR and x86 backend as
+the Linux driver. Its file adapters call Win32 APIs directly. Given a seed,
+compilation and native Stage 2/3 generation require no Python or C tooling.
+The Linux bundle includes its original source and can build the seed:
+
+```sh
+./bin/sotlas-native --build-win sotlas-native.exe ./src ./src/sotlas/compiler/windows_driver.sotlas
+```
+
+On Windows, executable output defaults to PE32+:
+
+```powershell
+.\sotlas-native.exe --check .\main.sotlas
+.\sotlas-native.exe .\main.sotlas .\application.exe
+.\sotlas-native.exe --build-cc .\stage2.exe .\src .\src\sotlas\compiler\windows_driver.sotlas
+.\stage2.exe --build-cc .\stage3.exe .\src .\src\sotlas\compiler\windows_driver.sotlas
+```
+
+The driver supports single files, the bounded explicit/resolved project modes,
+source discovery and checks. `--object` writes the internal ELF object format.
+The argv adapter handles Windows spaces, quotes and backslashes, with at most
+67 arguments and 4,095 bytes per argument. Paths use the Windows ANSI code page;
+full Unicode paths and environment argument expansion are outside this profile.
+The same one-megabyte source and bounded compiler tables apply.
+
+### Windows platform imports
+
+The native PE backend resolves these reserved `@extern(C)` names to KERNEL32
+through a SysV-to-Win64 bridge. Parameter count and machine types are checked
+before object emission. Pointee validity and buffer bounds remain the caller's
+responsibility at this raw API boundary.
+
+| Sotlas name | Win32 API | Machine parameters | Result |
+|---|---|---|---|
+| `sotlas_windows_exit` | ExitProcess | u32 | void |
+| `sotlas_windows_get_command_line` | GetCommandLineA | none | pointer |
+| `sotlas_windows_create_file` | CreateFileA | pointer, u32, u32, pointer, u32, u32, u64 | u64 |
+| `sotlas_windows_read_file` | ReadFile | u64, pointer, u32, pointer, pointer | u32 |
+| `sotlas_windows_write_file` | WriteFile | u64, pointer, u32, pointer, pointer | u32 |
+| `sotlas_windows_close_handle` | CloseHandle | u64 | u32 |
+| `sotlas_windows_get_std_handle` | GetStdHandle | u32 | u64 |
+| `sotlas_windows_get_last_error` | GetLastError | none | u32 |
+
+The bridge follows the [Microsoft x64 calling convention](https://learn.microsoft.com/en-us/cpp/build/x64-calling-convention),
+including register mapping, shadow space and stack arguments. The I/O gates
+exercise [WriteFile](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-writefile)
+and seven-argument [CreateFileA](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilea)
+with actual Windows file round trips.
 
 ## Check source without writing artifacts
 
@@ -246,8 +296,8 @@ executes the generation chain. WSL can execute the same local artifacts.
 
 This closes a native self-build for the current compiler-source subset. Bounded
 glob-module discovery and a Linux seed bundle are available. Broader module
-visibility/package semantics, full language parity and Windows/macOS native
-drivers remain open.
+visibility/package semantics, full language parity, general Windows ABI coverage
+and the macOS native driver remain open.
 
 ## Kernel interface
 
