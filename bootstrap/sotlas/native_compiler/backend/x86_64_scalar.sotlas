@@ -3926,15 +3926,15 @@ pub fn link_pe64_executable(
     let memory_size: usize = get_u64(payload, linked_length, 104) as usize;
     if memory_size < linked_length || memory_size > 1879048192 { return false; }
     let raw_size: usize = align_to(linked_length, 512);
-    let start_raw: usize = 512 + raw_size;
+    let start_raw: usize = raw_size + 512;
     if start_raw > capacity - 512 { return false; }
-    let start_rva: usize = align_to(4096 + memory_size, 4096);
+    let start_rva: usize = align_to(memory_size + 4096, 4096);
     let entry_address: u64 = get_u64(payload, linked_length, 24);
-    if entry_address < 4198400 || entry_address - 4198400 >= linked_length { return false; }
+    if entry_address < 4198400 || entry_address - 4198400 >= (linked_length as u64) { return false; }
     let entry_rva: u32 = (entry_address - 4198400 + 4096) as u32;
     let mut index: usize = 0;
     while index < 512 { unsafe { *(output + index) = 0; } index = index + 1; }
-    index = 512 + linked_length;
+    index = linked_length + 512;
     while index < start_raw + 512 { unsafe { *(output + index) = 0; } index = index + 1; }
     if !put_u16(output, capacity, 0, 23117) || !put_u32(output, capacity, 60, 128)
         || !put_u32(output, capacity, 128, 17744)

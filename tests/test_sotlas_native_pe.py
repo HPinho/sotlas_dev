@@ -8,9 +8,6 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "compiler"))
-sys.path.insert(0, str(ROOT / "tools"))
-from sotlas.bootstrap_pipeline import build_stage1_native_compiler
 
 
 class NativePETests(unittest.TestCase):
@@ -19,7 +16,19 @@ class NativePETests(unittest.TestCase):
         cls.temp = tempfile.TemporaryDirectory(prefix="sotlas-pe-")
         cls.directory = Path(cls.temp.name)
         cls.producer = cls.directory / ("producer.exe" if os.name == "nt" else "producer")
-        build_stage1_native_compiler(cls.producer, verbose=False)
+        # The public CLI uses compiler/, which has stricter type checking than
+        # tools/. A fresh child and output path also bypass any cached Stage 1.
+        environment = os.environ.copy()
+        environment["PYTHONPATH"] = str(ROOT / "compiler")
+        script = (
+            "import sys; from pathlib import Path; "
+            "from sotlas.bootstrap_pipeline import build_stage1_native_compiler; "
+            "build_stage1_native_compiler(Path(sys.argv[1]), verbose=False)"
+        )
+        result = subprocess.run([sys.executable, "-c", script, str(cls.producer)],
+                                cwd=ROOT, env=environment, capture_output=True, timeout=180)
+        if result.returncode != 0:
+            raise RuntimeError(f"Public frontend clean Stage 1 build failed: {result.stderr!r}")
 
     @classmethod
     def tearDownClass(cls):
@@ -94,6 +103,29 @@ class NativePETests(unittest.TestCase):
                     environment = {"PATH": str(self.directory / "no-tools"), "SystemRoot": os.environ.get("SystemRoot", "C:\\Windows")}
                     executed = subprocess.run([str(exe)], env=environment, capture_output=True, timeout=15, creationflags=subprocess.CREATE_NO_WINDOW)
                     self.assertEqual(executed.returncode, code, executed.stderr)
+
+    def test_public_native_cli_builds_with_empty_cache(self):
+        cache_root = self.directory / "public_cli_empty_cache"
+        source = self.directory / "public_cli_source.sotlas"
+        source.write_text("module probe; pub fn main_entry()->u32{return 42;}")
+        output = self.directory / "public_cli_output.c"
+        environment = os.environ.copy()
+        environment["PYTHONPATH"] = str(ROOT / "compiler")
+        script = (
+            "import sys; from pathlib import Path; "
+            "import sotlas.bootstrap_pipeline as pipeline; "
+            "pipeline._ROOT = Path(sys.argv[1]); "
+            "from sotlas.cli import main; "
+            "raise SystemExit(main(['compile', sys.argv[2], '--backend', 'native', "
+            "'--emit-c', '-o', sys.argv[3]]))"
+        )
+        result = subprocess.run([sys.executable, "-c", script, str(cache_root), str(source), str(output)],
+                                cwd=ROOT, env=environment, capture_output=True, timeout=180)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        suffix = ".exe" if os.name == "nt" else ""
+        self.assertTrue((cache_root / "build" / ("sotlas_stage1" + suffix)).is_file())
+        self.assertTrue(output.is_file())
+        self.assertIn("main_entry", output.read_text())
 
     def test_pe_rejects_foreign_symbols_linux_syscalls_and_nonzero_arity(self):
         fixtures = (
