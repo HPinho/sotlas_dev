@@ -413,6 +413,10 @@ impl ScalarLowering {
     pub fn lower_string_literal(mut self: &mut Self, expression_index: usize) -> u32 {
         let node: AstNode = unsafe { *(self.nodes + expression_index) };
         if node.str_len < 2 { return TARGET_VALUE_NONE; }
+        // Every string address must have a registered symbol and relocation.
+        // Reject capacity exhaustion instead of producing an unpatched LEA.
+        let sym_idx: usize = unsafe { g_rodata_sym_count };
+        if sym_idx >= TARGET_RODATA_SYMBOL_CAPACITY { return TARGET_VALUE_NONE; }
         let rodata_start: usize = unsafe { g_rodata_len };
         let mut src_i: usize = 1;
         let mut end_i: usize = node.str_len;
@@ -450,29 +454,24 @@ impl ScalarLowering {
                 }
                 else { ch = next_ch; }
             }
-            if cur_len < 65535 {
-                unsafe { g_rodata_buf[cur_len] = ch; }
-                cur_len = cur_len + 1;
-            }
+            if cur_len >= 65535 { return TARGET_VALUE_NONE; }
+            unsafe { g_rodata_buf[cur_len] = ch; }
+            cur_len = cur_len + 1;
             src_i = src_i + 1;
         }
-        if cur_len < 65536 {
-            unsafe { g_rodata_buf[cur_len] = 0; }
-            cur_len = cur_len + 1;
-        }
+        if cur_len >= 65536 { return TARGET_VALUE_NONE; }
+        unsafe { g_rodata_buf[cur_len] = 0; }
+        cur_len = cur_len + 1;
         let str_bytes_len: usize = cur_len - rodata_start;
         unsafe { g_rodata_len = cur_len; }
 
-        let sym_slice: TargetSourceSlice = self.append_synthetic_str_symbol(unsafe { g_rodata_sym_count });
-        let sym_idx: usize = unsafe { g_rodata_sym_count };
-        if sym_idx < 256 {
-            unsafe {
-                g_rodata_sym_offsets[sym_idx] = sym_slice.offset;
-                g_rodata_sym_lens[sym_idx] = sym_slice.length;
-                g_rodata_sym_places[sym_idx] = rodata_start;
-                g_rodata_sym_sizes[sym_idx] = str_bytes_len;
-                g_rodata_sym_count = sym_idx + 1;
-            }
+        let sym_slice: TargetSourceSlice = self.append_synthetic_str_symbol(sym_idx);
+        unsafe {
+            g_rodata_sym_offsets[sym_idx] = sym_slice.offset;
+            g_rodata_sym_lens[sym_idx] = sym_slice.length;
+            g_rodata_sym_places[sym_idx] = rodata_start;
+            g_rodata_sym_sizes[sym_idx] = str_bytes_len;
+            g_rodata_sym_count = sym_idx + 1;
         }
 
         let ptr_val: u32 = self.append_value(TargetTypeTag::Pointer, 0, 0);

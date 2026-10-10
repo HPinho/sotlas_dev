@@ -1459,10 +1459,11 @@ pub fn target_module_validate_ssa_dominance(
 
 pub static mut g_rodata_buf: [u8; 65536] = 0;
 pub static mut g_rodata_len: usize = 0;
-pub static mut g_rodata_sym_offsets: [usize; 256] = 0;
-pub static mut g_rodata_sym_lens: [usize; 256] = 0;
-pub static mut g_rodata_sym_places: [usize; 256] = 0;
-pub static mut g_rodata_sym_sizes: [usize; 256] = 0;
+pub const TARGET_RODATA_SYMBOL_CAPACITY: usize = 512;
+pub static mut g_rodata_sym_offsets: [usize; 512] = 0;
+pub static mut g_rodata_sym_lens: [usize; 512] = 0;
+pub static mut g_rodata_sym_places: [usize; 512] = 0;
+pub static mut g_rodata_sym_sizes: [usize; 512] = 0;
 pub static mut g_rodata_sym_count: usize = 0;
 
 pub static mut g_bss_total_size: usize = 0;

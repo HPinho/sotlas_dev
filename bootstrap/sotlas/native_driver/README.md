@@ -39,6 +39,11 @@ closed. Output is created only after frontend, lowering and linking succeed;
 an I/O failure during writing can leave a partial file. Newly created outputs
 use mode 0755; existing files retain their permissions.
 
+String literals share a pool of 65,536 decoded bytes, including NUL terminators,
+and at most 512 symbols per compilation. Exhausting either limit rejects
+lowering before output is opened. Literals are never truncated to fit the pool,
+and every accepted string address has a data-symbol relocation.
+
 ## Explicit multi-file builds (SV8.21a)
 
 The Linux native driver also accepts a bounded list of source files. The
