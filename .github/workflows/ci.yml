@@ -254,6 +254,10 @@ jobs:
         result=$?
         set -e
         test "$result" -eq 42
+        mkdir -p "$RUNNER_TEMP/native-windows"
+        cp "$RUNNER_TEMP/native-smoke.exe" "$RUNNER_TEMP/native-windows/native-smoke.exe"
+        cp -R "$RUNNER_TEMP/sotlas-native/src" "$RUNNER_TEMP/native-windows/src"
+        env -i PATH=/no-host-tools "$RUNNER_TEMP/sotlas-native/bin/sotlas-native" --build-win "$RUNNER_TEMP/native-windows/sotlas-native.exe" "$RUNNER_TEMP/sotlas-native/src" "$RUNNER_TEMP/sotlas-native/src/sotlas/compiler/windows_driver.sotlas"
     - name: Upload native seed bundle
       uses: actions/upload-artifact@v4
       with:
@@ -267,7 +271,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: native-windows-execution-probe
-        path: ${{ runner.temp }}/native-smoke.exe
+        path: ${{ runner.temp }}/native-windows/
         if-no-files-found: error
 
   native-windows-execution:
@@ -285,6 +289,18 @@ jobs:
         $PSNativeCommandUseErrorActionPreference = $false
         & .\native-smoke.exe
         if ($LASTEXITCODE -ne 42) { throw "Native Windows probe returned $LASTEXITCODE, expected 42" }
+        'module smoke; pub fn main_entry()->u32{return 42;}' | Set-Content -Encoding utf8NoBOM native-source.sotlas
+        & .\sotlas-native.exe --check .\native-source.sotlas
+        if ($LASTEXITCODE -ne 0) { throw "Native Windows check failed" }
+        & .\sotlas-native.exe .\native-source.sotlas .\native-application.exe
+        if ($LASTEXITCODE -ne 0) { throw "Native Windows compilation failed" }
+        & .\native-application.exe
+        if ($LASTEXITCODE -ne 42) { throw "Native Windows application returned $LASTEXITCODE" }
+        & .\sotlas-native.exe --build-cc .\stage2.exe .\src .\src\sotlas\compiler\windows_driver.sotlas
+        if ($LASTEXITCODE -ne 0) { throw "Native Windows Stage 2 build failed" }
+        & .\stage2.exe --build-cc .\stage3.exe .\src .\src\sotlas\compiler\windows_driver.sotlas
+        if ($LASTEXITCODE -ne 0) { throw "Native Windows Stage 3 build failed" }
+        if ((Get-FileHash .\stage2.exe).Hash -ne (Get-FileHash .\stage3.exe).Hash) { throw "Native Windows fixed point mismatch" }
         exit 0
 
   package-release-smoke:

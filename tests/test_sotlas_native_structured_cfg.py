@@ -101,6 +101,34 @@ class NativeStructuredCFGTests(unittest.TestCase):
     def tearDownClass(cls):
         cls.temp.cleanup()
 
+    def test_direct_predicate_calls_use_structured_branch_cfg(self):
+        self.assert_native_result("predicate_guard", """
+fn large(x:u32)->bool{return x > 10;}
+fn classify(x:u32)->u32{if large(x){return 42;} return 9;}
+pub fn main_entry()->u32{return classify(11) + classify(1);}
+""", 51)
+        self.assert_native_result("cast_then_multiply", """
+fn widen(x:u32)->u64{return (x as u64) * 2;}
+pub fn main_entry()->u32{return widen(21) as u32;}
+""", 42)
+
+    def test_global_pointer_array_views_reject_pointee_and_inner_qualifier_changes(self):
+        for element, target in (("*const u8", "*const *const u16"),
+                                ("*const u8", "*const *mut u8")):
+            with self.subTest(target=target):
+                result, output = self.compile("pointer_array_bad_view", f"""
+static mut pointers:[{element};2]=0;
+pub fn main_entry()->{target}{{return unsafe{{pointers as {target}}};}}
+""")
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(output.exists())
+        result, output = self.compile("pointer_array_bad_initializer", """
+static mut pointers:[*const u8;2]=1;
+pub fn main_entry()->u32{return 42;}
+""")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(output.exists())
+
     def test_string_symbol_capacity_preserves_every_relocation(self):
         # The driver regression was its 257th literal: bytes existed in rodata,
         # but the address had no symbol or relocation and pointed into text.
