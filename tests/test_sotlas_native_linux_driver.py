@@ -74,6 +74,26 @@ class NativeLinuxDriverTests(unittest.TestCase):
         self.assertEqual(reference.read_bytes(), actual.read_bytes())
 
     @unittest.skipUnless(LINUX_X64, "execution requires Linux x86-64")
+    def test_cross_compiles_windows_pe_without_host_tools(self):
+        source = self.directory / "windows_sample.sotlas"
+        source.write_text("module gate; fn twice(x:u32)->u32{return x*2;} pub fn main_entry()->u32{return twice(21);}")
+        obj = self.directory / "windows_sample.o"
+        expected = self.directory / "windows_reference.exe"
+        actual = self.directory / "windows_actual.exe"
+        self.run_tool([str(self.producer), "--compile-obj", str(source), str(obj)])
+        self.run_tool([str(self.producer), "--link-pe", str(obj), str(expected), "main_entry"])
+        environment = {"PATH": str(self.directory / "no-tools")}
+        self.run_tool([str(self.seed), str(source), str(actual), "--windows"], env=environment)
+        self.assertEqual(actual.read_bytes(), expected.read_bytes())
+        self.assertEqual(actual.read_bytes()[:2], b"MZ")
+        self.run_tool([str(self.seed), "--build-win", str(actual), str(self.directory), str(source)], env=environment)
+        self.assertEqual(actual.read_bytes(), expected.read_bytes())
+        source.write_text("module gate; @extern(C) fn sotlas_linux_close(fd:u64)->i64; @system pub fn main_entry()->u32{return sotlas_linux_close(0) as u32;}")
+        previous = actual.read_bytes()
+        self.run_tool([str(self.seed), str(source), str(actual), "--windows"], expected=9, env=environment)
+        self.assertEqual(actual.read_bytes(), previous)
+
+    @unittest.skipUnless(LINUX_X64, "execution requires Linux x86-64")
     def test_native_check_matches_object_validation_without_files(self):
         environment = {"PATH": str(self.directory / "no-tools")}
         source = self.directory / "check_input.sotlas"
@@ -472,6 +492,13 @@ class NativeLinuxDriverTests(unittest.TestCase):
         output = self.directory / "resolved_stage3_example"
         self.run_tool([str(native_stage3), "--check", str(source)], env=environment)
         self.run_tool([str(native_stage3), "--check-build", str(self.directory), str(source)], env=environment)
+        windows = self.directory / "resolved_stage3_windows.exe"
+        self.run_tool([str(native_stage3), str(source), str(windows), "--windows"], env=environment)
+        reference_obj = self.directory / "resolved_stage3_windows.o"
+        reference_pe = self.directory / "resolved_stage3_windows_reference.exe"
+        self.run_tool([str(self.producer), "--compile-obj", str(source), str(reference_obj)])
+        self.run_tool([str(self.producer), "--link-pe", str(reference_obj), str(reference_pe), "main_entry"])
+        self.assertEqual(windows.read_bytes(), reference_pe.read_bytes())
         self.run_tool([str(native_stage3), str(source), str(output)], 120, env=environment)
         self.run_tool([str(output)], expected=42, env=environment)
 

@@ -962,6 +962,19 @@ pub fn sotlas_native_link_executable(
     );
 }
 
+// Stage-0 bridge for the Sotlas-owned PE32+ writer. The installed native Linux
+// driver calls the same writer directly without this hosted bridge.
+@export
+@system
+pub fn sotlas_native_link_pe(
+    object: *const u8, object_len: usize,
+    entry_name: *const u8, entry_name_len: usize,
+    output: *mut u8, capacity: usize, out_length: *mut usize
+) -> bool {
+    return link_pe64_executable(object, object_len, entry_name, entry_name_len,
+        output, capacity, out_length);
+}
+
 // Links several ELF64 relocatable objects into one executable. Objects are
 // supplied as one buffer plus per-object offsets/lengths. Cross-object symbol
 // resolution and relocations are done by link_elf64_executable; undefined

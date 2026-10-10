@@ -44,6 +44,29 @@ and at most 512 symbols per compilation. Exhausting either limit rejects
 lowering before output is opened. Literals are never truncated to fit the pool,
 and every accepted string address has a data-symbol relocation.
 
+## Experimental Windows executable output
+
+```sh
+./build/sotlas-native input.sotlas output.exe --windows
+./build/sotlas-native --build-win output.exe /path/to/source-root /path/to/entry.sotlas
+```
+
+The native Linux compiler can cross-compile PE32+ executables for Windows x64.
+The writer and linker are Sotlas source. They resolve the existing internal
+object format, retain the internal SysV calling convention and emit a Win64
+startup bridge importing `KERNEL32.dll!ExitProcess`. No C compiler or external
+linker is used after the Linux seed is available. The entry takes no parameters;
+its low 32 result bits become the process exit code.
+
+This is executable output for the native scalar profile, not a native Windows
+compiler driver. Calls, strings and zero-initialized globals are covered by
+execution tests. User foreign symbols and Linux syscalls are rejected. The
+syscall gate conservatively rejects the byte sequence `0f 05` in executable
+sections, including matching bytes inside immediates. Input must carry the
+Sotlas entry ABI note. The image uses a fixed base and currently has writable
+executable sections; ASLR, separate memory protections, unwind tables, general
+Win64 FFI, Windows file/process I/O and macOS output remain open.
+
 ## Check source without writing artifacts
 
 ```sh

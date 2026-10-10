@@ -248,6 +248,7 @@ jobs:
         env -i PATH=/no-host-tools "$RUNNER_TEMP/sotlas-native/bin/sotlas-native" --check "$RUNNER_TEMP/native-smoke.sotlas"
         env -i PATH=/no-host-tools "$RUNNER_TEMP/sotlas-native/bin/sotlas-native" --check-build "$RUNNER_TEMP" "$RUNNER_TEMP/native-smoke.sotlas"
         env -i PATH=/no-host-tools "$RUNNER_TEMP/sotlas-native/bin/sotlas-native" "$RUNNER_TEMP/native-smoke.sotlas" "$RUNNER_TEMP/native-smoke"
+        env -i PATH=/no-host-tools "$RUNNER_TEMP/sotlas-native/bin/sotlas-native" "$RUNNER_TEMP/native-smoke.sotlas" "$RUNNER_TEMP/native-smoke.exe" --windows
         set +e
         env -i PATH=/no-host-tools "$RUNNER_TEMP/native-smoke"
         result=$?
@@ -261,6 +262,30 @@ jobs:
           dist/sotlas-native-linux-x64.tar.gz
           dist/sotlas-native-linux-x64.tar.gz.sha256
         if-no-files-found: error
+
+    - name: Upload native Windows execution probe
+      uses: actions/upload-artifact@v4
+      with:
+        name: native-windows-execution-probe
+        path: ${{ runner.temp }}/native-smoke.exe
+        if-no-files-found: error
+
+  native-windows-execution:
+    name: Execute Sotlas-produced PE on Windows
+    runs-on: windows-latest
+    needs: native-linux-package
+    steps:
+    - uses: actions/download-artifact@v4
+      with:
+        name: native-windows-execution-probe
+    - name: Run PE without host build tools
+      shell: pwsh
+      run: |
+        $env:Path = 'C:\no-host-tools'
+        $PSNativeCommandUseErrorActionPreference = $false
+        & .\native-smoke.exe
+        if ($LASTEXITCODE -ne 42) { throw "Native Windows probe returned $LASTEXITCODE, expected 42" }
+        exit 0
 
   package-release-smoke:
     name: Build and install Python distribution
