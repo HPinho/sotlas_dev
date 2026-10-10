@@ -916,6 +916,26 @@ response. Its 12 compatibility gates passed, and all 984 remaining cases
 passed after the repair. The 1,693 earlier cases had already passed. No legacy
 test was removed or weakened, and both bootstrap mirrors remain identical.
 
+### SV8.23a — public frontend clean-build repair
+
+[CI #1169](https://github.com/HPinho/sotlas_dev/actions/runs/38061042685)
+failed in the C11 job's reality gate while building the native Stage 1 compiler.
+The numbered C11 examples had already passed. The new PE writer passed
+`4096 + memory_size` to a `usize` parameter, but the public `compiler/` frontend
+inferred the literal-led expression as `i64`. A subsequent check also exposed
+a comparison between a `u64` address and a `usize` length.
+
+Size arithmetic now starts with the typed size operand, and the address-bound
+comparison explicitly converts the length to `u64`. Type checks remain strict.
+The PE suite now builds Stage 1 in a fresh subprocess with only `compiler/`
+on PYTHONPATH. A new public CLI test uses an empty temporary cache, so a stale
+Stage 1 binary cannot hide source-build failures. The existing `tools/`
+validation remains available, but does not replace the public frontend gate.
+
+Local validation passed source checking through the public frontend on Windows
+and Linux, the four PE/clean-cache tests, and all 707 tests in the exact failing
+CI step. Candidate CI certification remains pending.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test
