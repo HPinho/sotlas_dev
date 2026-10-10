@@ -252,7 +252,8 @@ bash sotlas-native-linux-x64/install-native.sh sotlas-native-linux-x64 /path/to/
 ```
 
 The packager uses build-time Python and the initial producer. The extracted
-bundle contains a static native compiler, its nine original Sotlas sources in
+bundle contains a static native compiler, its eight core Sotlas modules and
+the Linux and Windows driver sources in
 namespace layout under `src/`, documentation and SHA-256 checksums. Installation
 uses Bash and ordinary system utilities; Python, Clang and a C compiler are not
 required. The installer verifies the payload before writing and refuses an
@@ -309,3 +310,40 @@ these calls do not bind libc symbols. The backend emits Linux x86-64 syscalls
 Other declarations continue to use ordinary external-call linking. The Linux
 process-entry ABI has a dedicated ELF note flag; it cannot be selected by
 supplying arbitrary constant entry arguments or a freestanding target.
+
+## Experimental Intel macOS output
+
+Native Linux and Windows drivers can discover a project and emit a static
+Intel Mach-O image without a host compiler or external linker:
+
+```sh
+sotlas-native --build-mac app.macho SOURCE_ROOT SOURCE_ROOT/probe/main.sotlas
+```
+
+The supported entry contract is `pub fn main_entry() -> u32`. The writer
+requires a recorded zero-argument ABI, resolves its internal ELF object, maps
+strings and zero-filled BSS, and emits a kernel startup through `LC_UNIXTHREAD`.
+The startup exits with the entry's low 32-bit scalar return value. Legacy object
+ABI notes record arity rather than the full return-type schema; they do not
+make arbitrary entry signatures interchangeable.
+
+Reserved bodyless adapters lower directly to Darwin kernel operations:
+
+```sotlas
+@extern(C) fn sotlas_darwin_open(path: *const u8, flags: u64, mode: u64) -> i64;
+@extern(C) fn sotlas_darwin_read(fd: u64, data: *mut u8, count: u64) -> i64;
+@extern(C) fn sotlas_darwin_write(fd: u64, data: *const u8, count: u64) -> i64;
+@extern(C) fn sotlas_darwin_close(fd: u64) -> i64;
+```
+
+Errors are normalized to negative `i64` errno values. Linux and Darwin use
+different file flags; adapters do not translate flags across platforms.
+The final writer rejects Linux operations, Windows imports, unresolved foreign
+symbols and unsupported entry arity before opening the output file.
+
+This profile is experimental: cross-build parity is tested locally on Linux
+and Windows, and Intel macOS execution is a CI gate. Apple Silicon, Rosetta,
+code signing, ASLR, dynamic libraries, separate payload permissions and a
+native macOS compiler file driver remain outside its contract. The initial
+payload segment is RWX; startup is RX. The hosted distribution remains
+necessary for canonical features outside the native compiler-source subset.

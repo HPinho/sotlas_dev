@@ -64,7 +64,7 @@ path stops depending on them, but they are not part of the sovereignty target.
 | **SV2** | Lower the Sotlas-written native frontend AST/sema subset into native Target IR | 🟡 IN PROGRESS (scalar/struct memory, scalar enums, string literals, constrained static/receiver methods, wide calls/comparisons and integer module constants are certified; general arrays/slices, payload enums/match and richer compiler expressions remain open) |
 | **SV3** | Feed native Target IR into the Sotlas-owned x86-64 backend for scalar functions | ✅ CERTIFIED (single-block U32 subset) |
 | **SV4** | Native CFG, calls, aggregates, ownership/effects and ABI parity required by real apps | 🟡 IN PROGRESS (x86 backend emits validated scalar CFGs with backedges; source lowering covers return branches and a constrained `while`/`break`/`continue` subset; same-module direct `u32` calls execute on host ABI; aggregates and ownership/effects remain open) |
-| **SV5** | Sotlas-owned object emission and freestanding/native linking for supported targets | 🟡 IN PROGRESS (ELF64 multi-object linking certified in `tests/test_sotlas_sovereignty_sv5.py`; Windows PE/COFF, macOS Mach-O and archives pending) |
+| **SV5** | Sotlas-owned object emission and freestanding/native linking for supported targets | 🟡 IN PROGRESS (ELF64 multi-object linking and bounded Windows PE images validated; Intel Mach-O images experimental; COFF/Mach-O relocatable objects and archives pending) |
 | **SV6** | Compile a real application and the minimal kernel without the C11 backend | ✅ CERTIFIED (`tests/test_sotlas_sovereignty_sv6.py`) |
 | **SV7** | Build the Sotlas compiler Stage 1 from Sotlas sources using Stage 0 | ✅ CERTIFIED (`tests/test_sotlas_sovereignty_sv7.py`) |
 | **SV8** | Stage 1 builds Stage 2 with deterministic fixed-point/equivalence gates | 🟡 IN PROGRESS (hosted Stage1/2/3 determinism is certified, but the compiler executables are still built through emitted C + Clang + C driver; native module-by-module self-compilation is the active frontier) |
@@ -1013,6 +1013,63 @@ also passed locally. The recursive legacy object path remains supported;
 the new CFG selector applies calls-in-condition rules without redirecting
 ordinary calls in branch bodies.
 
+### SV8.25 — owned Intel Mach-O images and Darwin I/O
+
+**Green reference:** [CI #1172](https://github.com/HPinho/sotlas_dev/actions/runs/38073734160)
+on `668cfab144ab83cad56b03ab48032ca253668f77` passed the complete matrix,
+including the native Linux-to-Windows compiler build and Windows Stage 2/3
+fixed point. Windows generation is now certified for the declared source
+profile. This does not close the combined Windows/macOS checkpoint.
+
+The next candidate adds `link_macho64_executable` to the production Sotlas
+x86 writer. It resolves the internal ELF object with the existing owned linker,
+maps the resolved payload and zero-filled BSS into an Intel Mach-O image,
+and emits a separate RX startup segment. `LC_UNIXTHREAD` selects a
+zero-argument scalar entry; startup aligns the stack and exits with the
+entry's return value through Darwin's kernel interface. No external linker,
+dyld, libc or C startup object generates or runs this image. The initial
+payload segment retains the existing prototype RWX protection.
+
+`SystemOp` IDs 16–19 represent the reserved bodyless `sotlas_darwin_read`,
+`sotlas_darwin_write`, `sotlas_darwin_open` and `sotlas_darwin_close` adapters.
+Their exact machine-level signatures match the existing typed I/O contract.
+The backend converts Darwin's carry-flag/positive-errno response into a
+negative `i64` error. ELF object platform flags distinguish real Linux and
+Darwin operations; Linux process images, Windows PE images and Mach-O images
+reject incompatible operations before opening the output. Syscall-shaped
+constants do not select a platform. Foreign unresolved functions, missing
+entry ABI notes, nonzero entry arity and malformed object tables fail closed.
+
+Native Linux and Windows drivers expose `--build-mac OUTPUT ROOT ENTRY` with
+their existing bounded source discovery. Local gates compare native-driver
+Mach-O bytes against the hosted reference without host build tools on PATH,
+check output preservation on rejection, and repeat both native compiler
+generation chains. `tests/test_sotlas_native_macho.py` checks load commands,
+segments, relocations, strings and BSS on every host; on Intel macOS it also
+executes the generated images and verifies file/console I/O and error returns.
+**Actual macOS execution of this candidate remains pending CI.**
+
+Platform references: Apple's [Mach-O definitions](https://github.com/apple-oss-distributions/xnu/blob/main/EXTERNAL_HEADERS/mach-o/loader.h),
+[XNU loader](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/mach_loader.c)
+and [file flags](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/sys/fcntl.h).
+XNU permits static x86-64 executables; this is not an Apple Silicon or Rosetta
+support claim. Code signing policies, ASLR, separate payload permissions,
+native macOS argv/file driver, general FFI and full frontend parity remain
+open. The legacy object ABI note proves parameter arity, not a complete
+return-type schema; the supported entry contract remains `() -> u32`.
+Keep the checkpoint score at **80%** until the remaining acceptance
+gates close. Python files remain necessary for uncovered paths and are not
+deleted by this candidate.
+
+**Local validation (2026-10-10):** the complete Windows suite passed **2,691
+tests, 50 skipped**; the previous C11 bootstrap contract step passed **707
+tests**. Native Windows Stage 2/3 byte identity, original-source Linux Stage
+2/3 byte identity under WSL, and Linux/Windows Mach-O cross-build parity all
+passed. A fresh bundle installation verified checksums, emitted Mach-O without
+host build tools, ran a Linux-produced PE on Windows, and built a Windows
+compiler that compiled and ran its own application. These results do not
+substitute for the pending Intel macOS runtime and full candidate CI matrix.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test
@@ -1026,9 +1083,9 @@ completion. The following distinctions must remain visible in progress reports:
 
 | Generation | Evidence already available | Required native closure |
 |---|---|---|
-| Stage 1 | Native Linux seed runs the production core, source discovery and installed driver; hosted producer remains available | Full frontend parity and native Windows/macOS toolchains remain open |
-| Stage 2 | Native Linux seed builds Stage 2 directly from the original source modules, certified in CI | Broaden the native language and target profiles |
-| Stage 3 | Native Linux Stage 2 builds an identical Stage 3 image; Stage 3 compiles a runnable program, certified in CI | Extend native generation closure to other platforms |
+| Stage 1 | Native Linux and Windows seeds run the production core and source discovery; hosted producer remains available | Full frontend parity and a native macOS driver remain open |
+| Stage 2 | Native Linux and Windows seeds build Stage 2 from the original source modules, certified in CI | Broaden the native language and target profiles |
+| Stage 3 | Native Linux and Windows Stage 2 build identical Stage 3 images; Stage 3 compiles a runnable program, certified in CI | Extend native generation closure to macOS and broader language features |
 
 The current sovereignty checkpoint score is **80%: 8 of 10 closures certified
 in CI for the declared profiles**. This replaces the historical unweighted 40% estimate with an
@@ -1042,10 +1099,10 @@ effort remaining or a percentage of installed dependencies already removed.
 | Native machine/object backend | Complete production x86 writer emits native objects | Certified |
 | Owned ELF linking | Application and kernel image gates; native runtime linking | Certified for declared profile |
 | Native file compiler driver | Real argv, file input/output, kernel syscalls; no C runtime | Certified for Linux |
-| Native generation chain | Self-object equivalence and Stage 2/3 native fixed point | Certified for Linux |
+| Native generation chain | Self-object equivalence and Stage 2/3 native fixed point | Certified for Linux and bounded Windows profile |
 | Native imports and project builds | Bounded native glob discovery, graph checks and project builds | Certified for declared profile |
 | Full language/frontend parity | Broader canonical features and diagnostics remain | Open |
-| Native Windows/macOS toolchains | Windows file driver and native generation locally validated; broader Windows ABI/format coverage and native macOS remain | Open |
+| Native Windows/macOS toolchains | Windows file driver and native generation certified; experimental Intel Mach-O cross-build; native macOS driver and broader target coverage remain | Open |
 | Installed seed/distribution closure | Reproducible Linux static seed, original sources, verified installation | Certified for Linux profile |
 
 The native Linux profile can compile and self-build after receiving an initial

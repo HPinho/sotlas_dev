@@ -2765,27 +2765,47 @@ pub fn emit_elf64_module_object(
                         return false;
                     }
                 } else if instruction.opcode == TargetOpcode::SystemOp {
-                    platform_flags = platform_flags | 1;
+                    let darwin: bool = instruction.immediate_bits >= 16 && instruction.immediate_bits <= 19;
+                    let mut operation: u64 = instruction.immediate_bits;
+                    if darwin { operation = operation - 16; platform_flags = platform_flags | 2; }
+                    else { platform_flags = platform_flags | 1; }
                     let mut expected: u32 = 3;
-                    if instruction.immediate_bits == 3 { expected = 1; }
-                    if instruction.immediate_bits > 3 || instruction.operand_count != expected
+                    if operation == 3 { expected = 1; }
+                    if operation > 3 || instruction.operand_count != expected
                         || result_type != TargetTypeTag::I64 || instruction.type_tag != result_type { return false; }
                     let mut argument_index: u32 = 0;
                     while argument_index < expected {
                         let argument: TargetOperand = unsafe { *(operands + instruction.first_operand + argument_index) };
                         let mut wanted: TargetTypeTag = TargetTypeTag::U64;
-                        if (instruction.immediate_bits <= 1 && argument_index == 1)
-                            || (instruction.immediate_bits == 2 && argument_index == 0) { wanted = TargetTypeTag::Pointer; }
+                        if (operation <= 1 && argument_index == 1)
+                            || (operation == 2 && argument_index == 0) { wanted = TargetTypeTag::Pointer; }
                         if object_value_type(values, ir.value_count, argument.value_id) != wanted
                             || !append_object_slot_load_rax64(output, capacity, &mut code, argument.value_id - slot_base)
                             || !append_object_rax_to_argument(output, capacity, &mut code, argument_index) { return false; }
                         argument_index = argument_index + 1;
                     }
+                    let mut syscall_number: u32 = operation as u32;
+                    if darwin {
+                        syscall_number = (operation as u32) + 33554435;
+                        if operation == 1 { syscall_number = 33554436; }
+                        if operation == 2 { syscall_number = 33554437; }
+                        if operation == 3 { syscall_number = 33554438; }
+                    }
                     if !append_object_byte(output, capacity, &mut code, 184)
-                        || !append_object_u32(output, capacity, &mut code, instruction.immediate_bits as u32)
+                        || !append_object_u32(output, capacity, &mut code, syscall_number)
                         || !append_object_byte(output, capacity, &mut code, 15)
-                        || !append_object_byte(output, capacity, &mut code, 5)
-                        || !append_object_slot_store64(output, capacity, &mut code, instruction.result_value - slot_base) { return false; }
+                        || !append_object_byte(output, capacity, &mut code, 5) { return false; }
+                    // Darwin reports positive errno with CF set. Normalize to
+                    // the negative-error contract used by the native drivers.
+                    // jnc +3; neg rax. Nothing may clobber flags before jnc.
+                    if darwin {
+                        if !append_object_byte(output, capacity, &mut code, 115)
+                            || !append_object_byte(output, capacity, &mut code, 3)
+                            || !append_object_byte(output, capacity, &mut code, 72)
+                            || !append_object_byte(output, capacity, &mut code, 247)
+                            || !append_object_byte(output, capacity, &mut code, 216) { return false; }
+                    }
+                    if !append_object_slot_store64(output, capacity, &mut code, instruction.result_value - slot_base) { return false; }
                 } else if instruction.opcode == TargetOpcode::Call {
                     let callee_index: u32 = object_find_function(
                         source, source_len, functions, ir.function_count, instruction.symbol
@@ -3432,7 +3452,8 @@ pub fn link_elf64_executable(
             || unsafe { *(object + 2) } != 76 || unsafe { *(object + 3) } != 70
             || unsafe { *(object + 4) } != 2 || unsafe { *(object + 5) } != 1
             || get_u16(object, length, 16) != 1 || get_u16(object, length, 18) != 62
-            || get_u32(object, length, 20) != 1 || get_u16(object, length, 58) != 64 {
+            || get_u32(object, length, 20) != 1 || get_u16(object, length, 58) != 64
+            || (!freestanding && get_u32(object, length, 48) != (get_u32(object, length, 48) & 1)) {
             return false;
         }
         let section_count: u32 = get_u16(object, length, 60) as u32;
@@ -3958,6 +3979,160 @@ fn windows_signature_valid(id: u32, function: TargetFunction, parameters: *const
         if unsafe { (*(parameters + function.first_parameter + index)).type_tag } != wanted { return false; }
         index = index + 1;
     }
+    return true;
+}
+
+// Check the entry note only after the ELF linker has validated every table.
+// Mach-O startup currently supports a zero-argument scalar entry, never an
+// inferred signature or the Linux process-entry descriptor.
+fn macho_zero_argument_entry(object: *const u8, length: usize,
+    entry_name: *const u8, entry_length: usize) -> bool {
+    let headers: usize = get_u64(object, length, 40) as usize;
+    let count: usize = get_u16(object, length, 60) as usize;
+    let mut entry_symbol: usize = 0;
+    let mut section: usize = 1;
+    while section < count {
+        let header: usize = headers + section * 64;
+        if get_u32(object, length, header + 4) == 2 {
+            let symbols: usize = get_u64(object, length, header + 24) as usize;
+            let size: usize = get_u64(object, length, header + 32) as usize;
+            let strings_header: usize = headers + get_u32(object, length, header + 40) as usize * 64;
+            let strings: usize = get_u64(object, length, strings_header + 24) as usize;
+            let mut symbol: usize = 1;
+            while symbol < size / 24 {
+                let record: usize = symbols + symbol * 24;
+                let name: usize = strings + get_u32(object, length, record) as usize;
+                if elf_name_matches_slice(object, length, name, entry_name, entry_length) {
+                    if (unsafe { *(object + record + 4) } & 15) != 2 { return false; }
+                    entry_symbol = symbol;
+                }
+                symbol = symbol + 1;
+            }
+        }
+        section = section + 1;
+    }
+    if entry_symbol == 0 { return false; }
+    section = 1;
+    while section < count {
+        let header: usize = headers + section * 64;
+        if get_u32(object, length, header + 4) == 7 {
+            let note: usize = get_u64(object, length, header + 24) as usize;
+            let size: usize = get_u64(object, length, header + 32) as usize;
+            if size >= 24 && get_u32(object, length, note) == 7
+                && unsafe { *(object + note + 12) } == 83
+                && unsafe { *(object + note + 13) } == 79
+                && unsafe { *(object + note + 14) } == 84
+                && unsafe { *(object + note + 15) } == 76
+                && unsafe { *(object + note + 16) } == 65
+                && unsafe { *(object + note + 17) } == 83 {
+                let descriptor: usize = get_u32(object, length, note + 4) as usize;
+                let kind: u32 = get_u32(object, length, note + 8);
+                if descriptor <= size - 20 {
+                    if kind == 1 && descriptor == 4 && entry_symbol == 1 {
+                        return get_u32(object, length, note + 20) == 0;
+                    }
+                    if kind == 2 && entry_symbol <= descriptor / 4 {
+                        return get_u32(object, length, note + 20 + (entry_symbol - 1) * 4) == 0;
+                    }
+                }
+            }
+        }
+        section = section + 1;
+    }
+    return false;
+}
+
+fn macho_segment(output: *mut u8, capacity: usize, offset: usize,
+    name: *const u8, name_length: usize, address: u64, memory_size: u64,
+    file_offset: u64, file_size: u64, protection: u32) -> bool {
+    if name_length > 16 || !pe_copy_bytes(output, capacity, offset + 8, name, name_length) { return false; }
+    return put_u32(output, capacity, offset, 25)
+        && put_u32(output, capacity, offset + 4, 72)
+        && put_u64(output, capacity, offset + 24, address)
+        && put_u64(output, capacity, offset + 32, memory_size)
+        && put_u64(output, capacity, offset + 40, file_offset)
+        && put_u64(output, capacity, offset + 48, file_size)
+        && put_u32(output, capacity, offset + 56, protection)
+        && put_u32(output, capacity, offset + 60, protection);
+}
+
+// Experimental static macOS x86-64 image. XNU permits static Intel binaries;
+// LC_UNIXTHREAD selects the kernel entry without dyld or a C startup object.
+// The owned ELF resolver is an internal relocation format, not an external
+// linker invocation. No ARM64, signing, ASLR, dylibs or general process ABI.
+pub fn link_macho64_executable(object: *const u8, object_length: usize,
+    entry_name: *const u8, entry_name_length: usize,
+    output: *mut u8, capacity: usize, output_length: *mut usize) -> bool {
+    if output_length == null { return false; }
+    unsafe { *output_length = 0; }
+    if object == null || output == null || entry_name == null
+        || object_length < 64 || capacity < 12288 || capacity > 268435456
+        || get_u32(object, object_length, 48) != (get_u32(object, object_length, 48) & 2) { return false; }
+    let mut offsets: [usize; 1] = 0;
+    let mut lengths: [usize; 1] = 0;
+    lengths[0] = object_length;
+    let mut linked_length: usize = 0;
+    let payload: *mut u8 = unsafe { output + 4096 };
+    if !link_elf64_executable(object, unsafe { offsets as *const usize },
+        unsafe { lengths as *const usize }, 1, entry_name, entry_name_length,
+        null, 0, 4198400, true, payload, capacity - 8192,
+        unsafe { (&linked_length) as *mut usize }) { return false; }
+    if !macho_zero_argument_entry(object, object_length, entry_name, entry_name_length) { return false; }
+    let memory_size: usize = get_u64(payload, linked_length, 104) as usize;
+    if memory_size < linked_length || memory_size > 1879048192 { return false; }
+    let start_file: usize = align_to(linked_length + 4096, 4096);
+    if start_file > capacity - 4096 { return false; }
+    let start_virtual: usize = align_to(memory_size + 4096, 4096);
+    let start_address: u64 = 4194304 + start_virtual as u64;
+    let entry_address: u64 = get_u64(payload, linked_length, 24);
+    let relative: u64 = entry_address - (start_address + 9);
+    if relative + 2147483648 > 4294967295 { return false; }
+    let mut index: usize = 0;
+    while index < 4096 { unsafe { *(output + index) = 0; } index = index + 1; }
+    index = linked_length + 4096;
+    while index < start_file + 4096 { unsafe { *(output + index) = 0; } index = index + 1; }
+    // mach_header_64: MH_EXECUTE, MH_NOUNDEFS, five load commands.
+    if !put_u32(output, capacity, 0, 4277009103)
+        || !put_u32(output, capacity, 4, 16777223)
+        || !put_u32(output, capacity, 8, 3)
+        || !put_u32(output, capacity, 12, 2)
+        || !put_u32(output, capacity, 16, 5)
+        || !put_u32(output, capacity, 20, 416)
+        || !put_u32(output, capacity, 24, 1)
+        || !macho_segment(output, capacity, 32, "__PAGEZERO", 10, 0, 4194304, 0, 0, 0)
+        || !macho_segment(output, capacity, 104, "__SOTLAS", 8, 4194304,
+            start_virtual as u64, 0, start_file as u64, 7)
+        || !macho_segment(output, capacity, 176, "__START", 7, start_address,
+            4096, start_file as u64, 4096, 5)
+        // LC_UNIXTHREAD, x86_THREAD_STATE64 (4), count 42 uint32s.
+        || !put_u32(output, capacity, 248, 5)
+        || !put_u32(output, capacity, 252, 184)
+        || !put_u32(output, capacity, 256, 4)
+        || !put_u32(output, capacity, 260, 42)
+        || !put_u64(output, capacity, 392, start_address)
+        || !put_u64(output, capacity, 400, 514)
+        // LC_VERSION_MIN_MACOSX, deployment floor 10.13.
+        || !put_u32(output, capacity, 432, 36)
+        || !put_u32(output, capacity, 436, 16)
+        || !put_u32(output, capacity, 440, 658688) { return false; }
+    // and rsp,-16; call entry; mov edi,eax; mov eax,0x2000001;
+    // syscall (exit); ud2 if the kernel unexpectedly returns.
+    let mut code: usize = start_file;
+    if !append_object_byte(output, capacity, &mut code, 72)
+        || !append_object_byte(output, capacity, &mut code, 131)
+        || !append_object_byte(output, capacity, &mut code, 228)
+        || !append_object_byte(output, capacity, &mut code, 240)
+        || !append_object_byte(output, capacity, &mut code, 232)
+        || !append_object_u32(output, capacity, &mut code, relative as u32)
+        || !append_object_byte(output, capacity, &mut code, 137)
+        || !append_object_byte(output, capacity, &mut code, 199)
+        || !append_object_byte(output, capacity, &mut code, 184)
+        || !append_object_u32(output, capacity, &mut code, 33554433)
+        || !append_object_byte(output, capacity, &mut code, 15)
+        || !append_object_byte(output, capacity, &mut code, 5)
+        || !append_object_byte(output, capacity, &mut code, 15)
+        || !append_object_byte(output, capacity, &mut code, 11) { return false; }
+    unsafe { *output_length = start_file + 4096; }
     return true;
 }
 

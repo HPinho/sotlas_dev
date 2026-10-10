@@ -258,6 +258,20 @@ jobs:
         cp "$RUNNER_TEMP/native-smoke.exe" "$RUNNER_TEMP/native-windows/native-smoke.exe"
         cp -R "$RUNNER_TEMP/sotlas-native/src" "$RUNNER_TEMP/native-windows/src"
         env -i PATH=/no-host-tools "$RUNNER_TEMP/sotlas-native/bin/sotlas-native" --build-win "$RUNNER_TEMP/native-windows/sotlas-native.exe" "$RUNNER_TEMP/sotlas-native/src" "$RUNNER_TEMP/sotlas-native/src/sotlas/compiler/windows_driver.sotlas"
+        mkdir -p "$RUNNER_TEMP/native-macos"
+        cat > "$RUNNER_TEMP/native-macos/probe.sotlas" <<'SOTLAS'
+        module probe;
+        @extern(C) fn sotlas_darwin_close(fd:u64)->i64;
+        @extern(C) fn sotlas_darwin_write(fd:u64,data:*const u8,count:u64)->i64;
+        @system pub fn main_entry()->u32 {
+            let failed:i64=sotlas_darwin_close(18446744073709551615);
+            if failed>=0{return 1;}
+            let written:i64=sotlas_darwin_write(1,"Sotlas Darwin\n",14);
+            if written!=14{return 2;}
+            return 42;
+        }
+        SOTLAS
+        env -i PATH=/no-host-tools "$RUNNER_TEMP/sotlas-native/bin/sotlas-native" --build-mac "$RUNNER_TEMP/native-macos/native-smoke" "$RUNNER_TEMP/native-macos" "$RUNNER_TEMP/native-macos/probe.sotlas"
     - name: Upload native seed bundle
       uses: actions/upload-artifact@v4
       with:
@@ -273,6 +287,32 @@ jobs:
         name: native-windows-execution-probe
         path: ${{ runner.temp }}/native-windows/
         if-no-files-found: error
+
+    - name: Upload native macOS execution probe
+      uses: actions/upload-artifact@v4
+      with:
+        name: native-macos-execution-probe
+        path: ${{ runner.temp }}/native-macos/
+        if-no-files-found: error
+
+  native-macos-execution:
+    name: Execute Sotlas-produced Mach-O on Intel macOS
+    runs-on: macos-15-intel
+    needs: native-linux-package
+    steps:
+    - uses: actions/download-artifact@v4
+      with:
+        name: native-macos-execution-probe
+    - name: Run Mach-O without host build tools
+      shell: bash
+      run: |
+        chmod +x native-smoke
+        set +e
+        env -i PATH=/no-host-tools ./native-smoke > output.txt
+        result=$?
+        set -e
+        test "$result" -eq 42
+        test "$(cat output.txt)" = 'Sotlas Darwin'
 
   native-windows-execution:
     name: Execute Sotlas-produced PE on Windows

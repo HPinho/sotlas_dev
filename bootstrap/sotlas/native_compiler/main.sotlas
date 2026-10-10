@@ -975,6 +975,17 @@ pub fn sotlas_native_link_pe(
         output, capacity, out_length);
 }
 
+@export
+@system
+pub fn sotlas_native_link_macho(
+    object: *const u8, object_len: usize,
+    entry_name: *const u8, entry_name_len: usize,
+    output: *mut u8, capacity: usize, out_length: *mut usize
+) -> bool {
+    return link_macho64_executable(object, object_len, entry_name, entry_name_len,
+        output, capacity, out_length);
+}
+
 // Links several ELF64 relocatable objects into one executable. Objects are
 // supplied as one buffer plus per-object offsets/lengths. Cross-object symbol
 // resolution and relocations are done by link_elf64_executable; undefined

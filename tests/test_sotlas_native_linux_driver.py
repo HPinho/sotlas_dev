@@ -74,6 +74,29 @@ class NativeLinuxDriverTests(unittest.TestCase):
         self.assertEqual(reference.read_bytes(), actual.read_bytes())
 
     @unittest.skipUnless(LINUX_X64, "execution requires Linux x86-64")
+    def test_cross_compiles_macho_without_host_tools(self):
+        source = self.directory / "mac_sample.sotlas"
+        source.write_text("module gate; fn twice(x:u32)->u32{return x*2;} pub fn main_entry()->u32{return twice(21);}")
+        obj = source.with_suffix(".o")
+        expected = self.directory / "mac_reference"
+        actual = self.directory / "mac_actual"
+        self.run_tool([str(self.producer), "--compile-obj", str(source), str(obj)])
+        self.run_tool([str(self.producer), "--link-macho", str(obj), str(expected), "main_entry"])
+        environment = {"PATH": str(self.directory / "no-tools")}
+        self.run_tool([str(self.seed), "--build-mac", str(actual), str(self.directory), str(source)], env=environment)
+        self.assertEqual(actual.read_bytes(), expected.read_bytes())
+        self.assertEqual(actual.read_bytes()[:4], b"\xcf\xfa\xed\xfe")
+        source.write_text("module gate; @extern(C) fn sotlas_darwin_close(fd:u64)->i64; @system pub fn main_entry()->u32{let n:i64=sotlas_darwin_close(18446744073709551615);if n<0{return 42;}return 1;}")
+        self.run_tool([str(self.producer), "--compile-obj", str(source), str(obj)])
+        self.run_tool([str(self.producer), "--link-macho", str(obj), str(expected), "main_entry"])
+        self.run_tool([str(self.seed), "--build-mac", str(actual), str(self.directory), str(source)], env=environment)
+        self.assertEqual(actual.read_bytes(), expected.read_bytes())
+        source.write_text("module gate; @extern(C) fn sotlas_linux_close(fd:u64)->i64; @system pub fn main_entry()->u32{return sotlas_linux_close(0) as u32;}")
+        previous = actual.read_bytes()
+        self.run_tool([str(self.seed), "--build-mac", str(actual), str(self.directory), str(source)], expected=9, env=environment)
+        self.assertEqual(actual.read_bytes(), previous)
+
+    @unittest.skipUnless(LINUX_X64, "execution requires Linux x86-64")
     def test_cross_compiles_windows_pe_without_host_tools(self):
         source = self.directory / "windows_sample.sotlas"
         source.write_text("module gate; fn twice(x:u32)->u32{return x*2;} pub fn main_entry()->u32{return twice(21);}")

@@ -96,6 +96,20 @@ pub fn sotlas_native_link_pe(
 
 @export
 @system
+pub fn sotlas_native_link_macho(
+    object: *const u8, object_len: usize,
+    entry_name: *const u8, entry_name_len: usize,
+    output: *mut u8, capacity: usize, out_length: *mut usize
+) -> bool {
+    if out_length == null { return false; }
+    unsafe { *out_length = 0; }
+    if object == null || object_len == 0 || entry_name == null
+        || entry_name_len == 0 || output == null || capacity == 0 { return false; }
+    return false;
+}
+
+@export
+@system
 pub fn sotlas_native_last_error_line() -> u32 {
     return 0;
 }

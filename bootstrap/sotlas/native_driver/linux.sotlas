@@ -30,6 +30,8 @@ static mut driver_targets: [u32; 65536] = 0;
 static mut driver_functions: [TargetFunction; 2048] = 0;
 static mut driver_object_bytes: [u8; 8388608] = 0;
 static mut driver_image_bytes: [u8; 16777216] = 0;
+// One compilation per process; --build-mac selects the owned Mach-O writer.
+static mut driver_macho_target: [u8; 1] = 0;
 
 // Opt-in resolved projects retain their raw source while producing an ordered,
 // import-free stream in driver_source_bytes for the certified compiler core.
@@ -206,6 +208,9 @@ fn driver_compile_loaded(
         let mut linked: bool = false;
         if windows {
             linked = link_pe64_executable(object_buffer, object_length, entry_name,
+                entry_length, image_buffer, 16777216, image_length_pointer);
+        } else if unsafe { driver_macho_target[0] } == 1 {
+            linked = link_macho64_executable(object_buffer, object_length, entry_name,
                 entry_length, image_buffer, 16777216, image_length_pointer);
         } else {
             linked = link_elf64_executable(object_buffer, offset_pointer, object_length_pointer, 1,
@@ -818,6 +823,10 @@ pub fn sotlas_linux_main(argc: u64, argv: *const *const u8) -> u32 {
     }
     if option_equals(first_option, "--build-win", 11) {
         return driver_compile_discovered(argc, argv, false, false, false, true);
+    }
+    if option_equals(first_option, "--build-mac", 11) {
+        unsafe { driver_macho_target[0] = 1; }
+        return driver_compile_discovered(argc, argv, false, false, false, false);
     }
     let build_mode: u32 = driver_build_mode(first_option);
     if build_mode != 0 { return driver_dispatch_build(argc, argv, build_mode); }
