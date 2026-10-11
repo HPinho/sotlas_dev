@@ -80,6 +80,67 @@ fn driver_print_profile(help: bool) -> u32 {
     return 0;
 }
 
+// Diagnostics describe one file, or the combined stream of a native project.
+static mut driver_error_path:[u8;4096]=0;
+static mut driver_error_path_length:[usize;1]=0;
+static mut driver_error_source_length:[usize;1]=0;
+
+fn driver_set_error_path(path:*const u8) {
+    if path==null {unsafe{*(driver_error_path_length as *mut usize)=0;}return;}
+    let mut index:usize=0;
+    let path_buffer:*mut u8=unsafe{driver_error_path as *mut u8};
+    while index<4095 && unsafe{*(path+index)}!=0 {
+        unsafe{*(path_buffer+index)=*(path+index);}index=index+1;
+    }
+    unsafe{*(driver_error_path_length as *mut usize)=index;*(path_buffer+index)=0;}
+}
+
+fn driver_error_text(text:*const u8,count:usize) {
+    let mut position:usize=0;
+    while position<count {
+        let written:i64=sotlas_darwin_write(2,unsafe{text+position},(count-position) as u64);
+        if written == -4 {continue;}
+        if written<=0 || written as u64>(count-position) as u64 {return;}
+        position=position+written as usize;
+    }
+}
+
+fn driver_error_number(value:u32) {
+    let mut digits:[u8;10]=0;
+    let bytes:*mut u8=unsafe{digits as *mut u8};
+    let mut remaining:u32=value;let mut length:usize=0;
+    while length<10 {unsafe{*(bytes+length)=((remaining%10) as u8)+48;}
+        length=length+1;remaining=remaining/10;if remaining==0{break;}}
+    while length>0 {length=length-1;driver_error_text(unsafe{bytes+length},1);}
+}
+
+fn driver_position_error(code:u32,line:u32,column:u32,phase:*const u8,phase_length:usize,expected:TokenKind)->u32 {
+    driver_error_text("sotlas: error: ",15);
+    let path_length:usize=unsafe{*(driver_error_path_length as *const usize)};
+    if path_length!=0 {driver_error_text(unsafe{driver_error_path as *const u8},path_length);}
+    else {driver_error_text("<native-project>",16);}
+    driver_error_text(":",1);driver_error_number(line);driver_error_text(":",1);driver_error_number(column);
+    driver_error_text(": ",2);driver_error_text(phase,phase_length);
+    if expected==TokenKind::Ident {driver_error_text("; expected identifier",21);}
+    driver_error_text("\n",1);
+    if line==0 || column==0 {return code;}
+    let source:*const u8=unsafe{driver_source_bytes as *const u8};
+    let limit:usize=unsafe{*(driver_error_source_length as *const usize)};
+    let mut offset:usize=0;let mut current:u32=1;
+    while offset<limit && current<line {
+        let ch:u8=unsafe{*(source+offset)};if ch==0{return code;}
+        if ch==10{current=current+1;}offset=offset+1;
+    }
+    let start:usize=offset;let mut count:usize=0;
+    while offset<limit && count<160 {
+        let ch:u8=unsafe{*(source+offset)};if ch==0 || ch==10 || ch==13{break;}
+        offset=offset+1;count=count+1;
+    }
+    driver_error_text("  ",2);driver_error_text(unsafe{source+start},count);driver_error_text("\n  ",3);
+    let mut indent:u32=1;while indent<column && indent<=160 {driver_error_text(" ",1);indent=indent+1;}
+    driver_error_text("^\n",2);return code;
+}
+
 fn option_equals(option: *const u8, expected: *const u8, length: usize) -> bool {
     let mut index: usize = 0;
     while index <= length {
@@ -165,7 +226,7 @@ fn driver_compile_loaded(
     windows: bool
 ) -> u32 {
     let source: *mut u8 = unsafe { driver_source_bytes as *mut u8 };
-    unsafe { g_extended_len = source_length; }
+    unsafe { g_extended_len = source_length; *(driver_error_source_length as *mut usize) = source_length; }
     let token_buffer: *mut Token = unsafe { driver_tokens as *mut Token };
     let node_buffer: *mut AstNode = unsafe { driver_nodes as *mut AstNode };
     let mut lexer: Lexer = Lexer::new(source, source_length);
@@ -176,15 +237,15 @@ fn driver_compile_loaded(
         unsafe { *(token_buffer + token_count) = token; }
         token_count = token_count + 1;
         if token.kind == TokenKind::Eof { break; }
-        if token.kind == TokenKind::Error { return fail(4); }
+        if token.kind == TokenKind::Error { return driver_position_error(4,lexer.error_line,lexer.error_col,"lexical error",13,TokenKind::Error); }
     }
     if lexer.error_count != 0 || token_count == 262144 { return fail(4); }
     let mut parser: Parser = Parser::new(token_buffer, token_count, node_buffer, 262144);
     let module_index: usize = parser.parse_module();
-    if module_index == 0 || parser.error_count != 0 { return fail(5); }
+    if module_index == 0 || parser.error_count != 0 { return driver_position_error(5,parser.error_line,parser.error_col,"syntax error",12,parser.error_expected); }
     let mut sema: Sema = Sema::new();
     if !sema.check_top_level_declarations(node_buffer, parser.node_count,
-        module_index, source, source_length) { return fail(6); }
+        module_index, source, source_length) { return driver_position_error(6,sema.error_line,sema.error_col,"semantic error",14,TokenKind::Error); }
     let mut lowering: ScalarLowering = ScalarLowering::new(node_buffer, parser.node_count,
         source, source_length, unsafe { driver_values as *mut TargetValue }, 65536,
         unsafe { driver_parameters as *mut TargetParameter }, 16384,
@@ -197,7 +258,13 @@ fn driver_compile_loaded(
     let mut ir: TargetModule = TargetModule { version: 1, function_count: 0,
         parameter_count: 0, block_count: 0, instruction_count: 0, value_count: 0,
         operand_count: 0, phi_input_count: 0, target_count: 0 };
-    if !lower_scalar_module(&mut lowering, module_index, &mut ir) { return fail(7); }
+    if !lower_scalar_module(&mut lowering, module_index, &mut ir) {
+        if lowering.error_node!=0 && lowering.error_node<parser.node_count {
+            let point:AstNode=unsafe{*(node_buffer+lowering.error_node)};
+            return driver_position_error(7,point.span.line,point.span.col,"unsupported native form",23,TokenKind::Error);
+        }
+        return fail(7);
+    }
     let object_buffer: *mut u8 = unsafe { driver_object_bytes as *mut u8 };
     let mut object_length: usize = 0;
     let ir_pointer: *const TargetModule = unsafe { (&ir) as *const TargetModule };
@@ -752,6 +819,7 @@ fn driver_check_single(argc: u64, argv: *const *const u8) -> u32 {
 // Single-file check and compilation share the bounded reader and pipeline.
 fn driver_read_single(input_name: *const u8, output_name: *const u8,
     object_only: bool, compiler_entry: bool, check_only: bool, windows: bool) -> u32 {
+    driver_set_error_path(input_name);
     let opened: i64 = sotlas_darwin_open(input_name, 0, 0);
     if opened < 0 { return fail(2); }
     let input_fd: u64 = opened as u64;
