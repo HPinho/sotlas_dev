@@ -1764,14 +1764,14 @@ fn append_object_signed_narrow(output: *mut u8, capacity: usize,
 }
 
 fn object_scalar_type(type_tag: TargetTypeTag) -> bool {
-    return type_tag == TargetTypeTag::U8 || type_tag == TargetTypeTag::U16
+    return target_type_is_float(type_tag) || type_tag == TargetTypeTag::U8 || type_tag == TargetTypeTag::U16
         || type_tag == TargetTypeTag::U32 || type_tag == TargetTypeTag::I8 || type_tag == TargetTypeTag::I16 || type_tag == TargetTypeTag::I32 || type_tag == TargetTypeTag::Bool
         || type_tag == TargetTypeTag::U64 || type_tag == TargetTypeTag::I64
         || type_tag == TargetTypeTag::Pointer || type_tag == TargetTypeTag::Usize;
 }
 
 fn object_type_is_64(type_tag: TargetTypeTag) -> bool {
-    return type_tag == TargetTypeTag::U64 || type_tag == TargetTypeTag::I64
+    return type_tag == TargetTypeTag::F64 || type_tag == TargetTypeTag::U64 || type_tag == TargetTypeTag::I64
         || type_tag == TargetTypeTag::Pointer || type_tag == TargetTypeTag::Usize;
 }
 
@@ -1802,7 +1802,7 @@ fn append_object_slot_load_typed(
         return append_object_slot_load_rax64(output, capacity, length, value_id);
     }
     if type_tag == TargetTypeTag::U8 || type_tag == TargetTypeTag::U16
-        || type_tag == TargetTypeTag::U32 || type_tag == TargetTypeTag::I32 || type_tag == TargetTypeTag::Bool {
+        || type_tag == TargetTypeTag::U32 || type_tag == TargetTypeTag::I32 || type_tag == TargetTypeTag::Bool || type_tag == TargetTypeTag::F32 {
         return append_object_slot_load(output, capacity, length, value_id);
     }
     if type_tag == TargetTypeTag::I8 || type_tag == TargetTypeTag::I16 {
@@ -1823,7 +1823,7 @@ fn append_object_slot_store_typed(
         return append_object_slot_store64(output, capacity, length, value_id);
     }
     if type_tag == TargetTypeTag::U8 || type_tag == TargetTypeTag::U16
-        || type_tag == TargetTypeTag::U32 || type_tag == TargetTypeTag::I32 || type_tag == TargetTypeTag::Bool {
+        || type_tag == TargetTypeTag::U32 || type_tag == TargetTypeTag::I32 || type_tag == TargetTypeTag::Bool || type_tag == TargetTypeTag::F32 {
         return append_object_slot_store(output, capacity, length, value_id);
     }
     if type_tag == TargetTypeTag::I8 || type_tag == TargetTypeTag::I16 {
@@ -1833,6 +1833,52 @@ fn append_object_slot_store_typed(
     return false;
 }
 
+
+// Internal native calls transport float bits through the existing GPR/stack
+// slots. SSE2 operates on those slots; this is not an external floating ABI.
+fn append_object_float_slot(output: *mut u8, capacity: usize, length: &mut usize,
+    slot: u32, typ: TargetTypeTag, opcode: u8) -> bool {
+    let mut prefix: u8 = 243;
+    if typ == TargetTypeTag::F64 { prefix = 242; }
+    return target_type_is_float(typ) && append_object_byte(output, capacity, length, prefix)
+        && append_object_byte(output, capacity, length, 15)
+        && append_object_byte(output, capacity, length, opcode)
+        && append_object_byte(output, capacity, length, 133)
+        && append_object_u32(output, capacity, length, 0 as u32 - slot * 8);
+}
+
+fn append_object_float_compare(output: *mut u8, capacity: usize, length: &mut usize,
+    left: u32, right: u32, typ: TargetTypeTag, predicate: u64) -> bool {
+    if !append_object_float_slot(output, capacity, length, left, typ, 16)
+        || (typ == TargetTypeTag::F64 && !append_object_byte(output, capacity, length, 102))
+        || !append_object_byte(output, capacity, length, 15)
+        || !append_object_byte(output, capacity, length, 46)
+        || !append_object_byte(output, capacity, length, 133)
+        || !append_object_u32(output, capacity, length, 0 as u32 - right * 8) { return false; }
+    let mut condition: u8 = 147;
+    if predicate == 86 { condition = 148; }
+    else if predicate == 87 { condition = 149; }
+    else if predicate == 88 { condition = 146; }
+    else if predicate == 89 { condition = 150; }
+    else if predicate == 90 { condition = 151; }
+    if !append_object_byte(output, capacity, length, 15)
+        || !append_object_byte(output, capacity, length, condition)
+        || !append_object_byte(output, capacity, length, 192) { return false; }
+    // Unordered comparisons: only != is true. Test PF before altering flags.
+    if predicate <= 89 {
+        let mut parity: u8 = 155;
+        let mut combine: u8 = 32;
+        if predicate == 87 { parity = 154; combine = 8; }
+        if !append_object_byte(output, capacity, length, 15)
+            || !append_object_byte(output, capacity, length, parity)
+            || !append_object_byte(output, capacity, length, 194)
+            || !append_object_byte(output, capacity, length, combine)
+            || !append_object_byte(output, capacity, length, 208) { return false; }
+    }
+    return append_object_byte(output, capacity, length, 15)
+        && append_object_byte(output, capacity, length, 182)
+        && append_object_byte(output, capacity, length, 192);
+}
 
 // Assign each stack allocation a stable, non-overlapping range across all
 // blocks of a function. Per-block instruction ordinals are not unique.
@@ -2094,7 +2140,7 @@ pub fn emit_elf64_module_object(
                 && function.return_type != TargetTypeTag::Pointer
                 && function.return_type != TargetTypeTag::Usize
                 && function.return_type != TargetTypeTag::Bool
-                && function.return_type != TargetTypeTag::Void) {
+                && function.return_type != TargetTypeTag::Void && !target_type_is_float(function.return_type)) {
             return false;
         }
         if linux_process_entry_name(unsafe { source + function.name.offset }, function.name.length as usize)
@@ -2170,9 +2216,9 @@ pub fn emit_elf64_module_object(
     let mut call_patch_offsets: [usize; 4096] = 0;
     let mut call_patch_functions: [u32; 4096] = 0;
     let mut call_patch_count: u32 = 0;
-    let mut data_patch_offsets: [usize; 512] = 0;
-    let mut data_patch_sym_offsets: [usize; 512] = 0;
-    let mut data_patch_sym_lens: [usize; 512] = 0;
+    let mut data_patch_offsets: [usize; 4096] = 0;
+    let mut data_patch_sym_offsets: [usize; 4096] = 0;
+    let mut data_patch_sym_lens: [usize; 4096] = 0;
     let mut data_patch_count: u32 = 0;
 
     function_index = 0;
@@ -2232,9 +2278,10 @@ pub fn emit_elf64_module_object(
                 let result_type: TargetTypeTag = object_value_type(values, ir.value_count, instruction.result_value);
                 if instruction.opcode == TargetOpcode::Phi {
                     if !object_scalar_type(instruction.type_tag) || result_type != instruction.type_tag { return false; }
-                } else if instruction.opcode == TargetOpcode::ConstInt {
+                } else if instruction.opcode == TargetOpcode::ConstInt || instruction.opcode == TargetOpcode::ConstFloat {
                     if !object_scalar_type(instruction.type_tag) || result_type != instruction.type_tag
-                        || (instruction.type_tag == TargetTypeTag::Bool && instruction.immediate_bits > 1) {
+                        || (instruction.type_tag == TargetTypeTag::Bool && instruction.immediate_bits > 1)
+                        || (target_type_is_float(result_type) != (instruction.opcode == TargetOpcode::ConstFloat)) {
                         return false;
                     }
                     if object_type_is_64(instruction.type_tag) {
@@ -2252,6 +2299,46 @@ pub fn emit_elf64_module_object(
                             return false;
                         }
                     }
+                } else if instruction.opcode == TargetOpcode::FloatCast {
+                    if instruction.operand_count != 1 || !target_type_is_float(result_type)
+                        || instruction.type_tag != result_type { return false; }
+                    let operand: TargetOperand = unsafe { *(operands + instruction.first_operand) };
+                    let source_type: TargetTypeTag = object_value_type(values, ir.value_count, operand.value_id);
+                    if !target_type_is_float(source_type) || source_type == result_type
+                        || !append_object_float_slot(output, capacity, &mut code, operand.value_id - slot_base, source_type, 90)
+                        || !append_object_float_slot(output, capacity, &mut code, instruction.result_value - slot_base, result_type, 17) { return false; }
+                } else if instruction.opcode == TargetOpcode::FloatNeg {
+                    if instruction.operand_count != 1 || !target_type_is_float(result_type)
+                        || instruction.type_tag != result_type { return false; }
+                    let operand: TargetOperand = unsafe { *(operands + instruction.first_operand) };
+                    if object_value_type(values, ir.value_count, operand.value_id) != result_type
+                        || !append_object_slot_load_typed(output, capacity, &mut code, operand.value_id - slot_base, result_type) { return false; }
+                    if result_type == TargetTypeTag::F64 {
+                        if !append_object_byte(output, capacity, &mut code, 72)
+                            || !append_object_byte(output, capacity, &mut code, 185)
+                            || !append_object_u64(output, capacity, &mut code, 9223372036854775808)
+                            || !append_object_byte(output, capacity, &mut code, 72)
+                            || !append_object_byte(output, capacity, &mut code, 49)
+                            || !append_object_byte(output, capacity, &mut code, 200) { return false; }
+                    } else if !append_object_byte(output, capacity, &mut code, 53)
+                        || !append_object_u32(output, capacity, &mut code, 2147483648) { return false; }
+                    if !append_object_slot_store_typed(output, capacity, &mut code,
+                        instruction.result_value - slot_base, result_type) { return false; }
+                } else if target_type_is_float(result_type) && (instruction.opcode == TargetOpcode::Add
+                    || instruction.opcode == TargetOpcode::Sub || instruction.opcode == TargetOpcode::Mul
+                    || instruction.opcode == TargetOpcode::Div) {
+                    if instruction.operand_count != 2 || instruction.type_tag != result_type { return false; }
+                    let left: TargetOperand = unsafe { *(operands + instruction.first_operand) };
+                    let right: TargetOperand = unsafe { *(operands + instruction.first_operand + 1) };
+                    let mut operation: u8 = 88;
+                    if instruction.opcode == TargetOpcode::Sub { operation = 92; }
+                    if instruction.opcode == TargetOpcode::Mul { operation = 89; }
+                    if instruction.opcode == TargetOpcode::Div { operation = 94; }
+                    if object_value_type(values, ir.value_count, left.value_id) != result_type
+                        || object_value_type(values, ir.value_count, right.value_id) != result_type
+                        || !append_object_float_slot(output, capacity, &mut code, left.value_id - slot_base, result_type, 16)
+                        || !append_object_float_slot(output, capacity, &mut code, right.value_id - slot_base, result_type, operation)
+                        || !append_object_float_slot(output, capacity, &mut code, instruction.result_value - slot_base, result_type, 17) { return false; }
                 } else if instruction.opcode == TargetOpcode::IntCast {
                     if instruction.operand_count != 1
                         || instruction.type_tag != result_type
@@ -2689,12 +2776,12 @@ pub fn emit_elf64_module_object(
                             || !append_object_slot_store64(output, capacity, &mut code, instruction.result_value - slot_base) {
                             return false;
                         }
-                        if data_patch_count < 512 {
+                        if data_patch_count < 4096 {
                             data_patch_offsets[data_patch_count as usize] = patch_offset;
                             data_patch_sym_offsets[data_patch_count as usize] = instruction.symbol.offset;
                             data_patch_sym_lens[data_patch_count as usize] = instruction.symbol.length;
                             data_patch_count = data_patch_count + 1;
-                        }
+                        } else { return false; }
                     } else {
                         let allocation_end: u32 = object_stack_allocation_end(
                             blocks, instructions, function, instruction.result_value
@@ -2771,6 +2858,11 @@ pub fn emit_elf64_module_object(
                         || !append_object_slot_load_typed(output, capacity, &mut code, left.value_id - slot_base, left_type) {
                         return false;
                     }
+                    if target_type_is_float(left_type) {
+                        if !append_object_float_compare(output, capacity, &mut code,
+                            left.value_id - slot_base, right.value_id - slot_base, left_type, instruction.immediate_bits)
+                            || !append_object_slot_store(output, capacity, &mut code, instruction.result_value - slot_base) { return false; }
+                    } else {
                     if object_type_is_64(left_type)
                         && !append_object_byte(output, capacity, &mut code, 72) {
                         return false;
@@ -2800,6 +2892,7 @@ pub fn emit_elf64_module_object(
                         || !append_object_byte(output, capacity, &mut code, 192)
                         || !append_object_slot_store_typed(output, capacity, &mut code, instruction.result_value - slot_base, instruction.type_tag) {
                         return false;
+                    }
                     }
                 } else if instruction.opcode == TargetOpcode::BoolAnd
                     || instruction.opcode == TargetOpcode::BoolOr {
@@ -3042,8 +3135,8 @@ pub fn emit_elf64_module_object(
     }
 
     let text_size: usize = code - text_offset;
-    let mut relocation_offsets: [usize; 512] = 0;
-    let mut relocation_symbols: [u32; 512] = 0;
+    let mut relocation_offsets: [usize; 4096] = 0;
+    let mut relocation_symbols: [u32; 4096] = 0;
     let mut relocation_count: u32 = 0;
     let mut call_index: u32 = 0;
     while call_index < call_patch_count {
@@ -3107,11 +3200,11 @@ pub fn emit_elf64_module_object(
                     b_idx = b_idx + 1;
                 }
             }
-            if sym_num != 0 && relocation_count < 512 {
+            if sym_num != 0 && relocation_count < 4096 {
                 relocation_offsets[relocation_count as usize] = p_off - text_offset;
                 relocation_symbols[relocation_count as usize] = sym_num;
                 relocation_count = relocation_count + 1;
-            }
+            } else { return false; }
             data_p = data_p + 1;
         }
 
@@ -3229,6 +3322,7 @@ pub fn emit_elf64_module_object(
                 let mut linux_entry_flag: u32 = 0;
                 if linux_process_entry_name(unsafe { source + function.name.offset }, function.name.length as usize) { linux_entry_flag = 128; }
                 if darwin_process_entry_name(unsafe { source + function.name.offset }, function.name.length as usize) { linux_entry_flag = 16384; }
+                if target_type_is_float(function.return_type) { linux_entry_flag = linux_entry_flag | 32; }
                 let mut bool_mask: u32 = 0;
                 let mut parameter_index: u32 = 0;
                 while parameter_index < function.parameter_count {
@@ -3407,6 +3501,7 @@ pub fn emit_elf64_module_object(
             let mut linux_entry_flag: u32 = 0;
             if linux_process_entry_name(unsafe { source + function.name.offset }, function.name.length as usize) { linux_entry_flag = 128; }
             if darwin_process_entry_name(unsafe { source + function.name.offset }, function.name.length as usize) { linux_entry_flag = 16384; }
+                if target_type_is_float(function.return_type) { linux_entry_flag = linux_entry_flag | 32; }
             let mut bool_mask: u32 = 0;
             let mut parameter_index: u32 = 0;
             while parameter_index < function.parameter_count {

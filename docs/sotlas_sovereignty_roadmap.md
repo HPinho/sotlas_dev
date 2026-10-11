@@ -1347,6 +1347,81 @@ Floating-point native execution, broader ownership/Flow/runtime support,
 full frontend diagnostics and installed CLI parity remain open. This block
 does not authorize removal of the hosted bootstrap or promotion to 100%.
 
+### SV8.30 — native floating scalars, profile CLI and compiler arena bounds
+
+**Certified baseline:** [CI #1179](https://github.com/HPinho/sotlas_dev/actions/runs/38105046484)
+passed for `4f85cf785a0ddb1bbbbf65e15482b70173f394f6`. Checked variable
+integer shifts and complement are certified. This candidate extends the
+remaining native frontend work; the checkpoint score stays **9/10** until
+full parity is demonstrated.
+
+The owned backend now executes `f32` and `f64` literals, add/subtract/multiply/
+divide, sign-bit negation, all six comparisons, scalar calls, mutable CFG,
+four/eight-byte fields, local/global arrays, typed pointer stride, zero BSS
+storage and explicit conversions between the two float precisions. Target IR
+preserves floating types and adds `ConstFloat`, `FloatNeg` and `FloatCast`.
+Its validator rejects float bitwise/modulo operations and incompatible types.
+The writer uses scalar SSE2, including ordered/unordered comparison handling:
+NaN compares unequal; other ordered predicates are false. Negation preserves
+negative zero and infinity. Arithmetic uses the host process's FP environment;
+the gates exercise its default IEEE environment. Kernel FP initialization and
+context preservation remain separate responsibilities, not a new kernel gate.
+
+**Literal boundary:** the decimal coefficient must be below `10^18`, with at
+most 18 fractional digits. An integer-only rational converter rounds directly
+to the destination precision with ties to even. It does not parse through a
+host double. Gates cover IEEE bit encodings and a decimal that would otherwise
+double-round incorrectly to `0.5f`. Scientific notation, arbitrary decimal
+precision, float/integer casts, float module constants, nonzero static float
+initializers and floating external ABI remain outside this candidate.
+
+**ABI boundary:** internal calls transport IEEE bits through the existing
+GPR/stack slots and return register; this is an owned internal ABI, not SysV or
+Win64 floating interoperability. External float declarations fail closed.
+Object entry descriptors mark floating returns with bit 5 (`32`), so ELF,
+PE and Mach-O startup cannot consume them as integer process statuses.
+Application/process entries retain their existing typed contracts.
+
+Linux, Windows and Intel macOS drivers now provide `--help` and `--capabilities`.
+The report identifies float limits, the internal ABI, and unsupported ownership
+runtime and Flow execution. Checking and compilation reject those forms with
+the same failure code and preserve existing outputs. These rejection gates
+do not constitute implementation of ownership/Flow. The hosted canonical
+frontend remains necessary for their currently supported paths.
+
+The compiler's growth exposed two capacity bugs during native self-build:
+
+- The bootstrap arena had only 1 MiB for input plus generated symbol names.
+  It now reserves 2 MiB, matching native drivers, while input remains capped
+  at 1 MiB. Synthetic string and mangled-name writes check the suffix budget.
+- Data address patches and relocations could silently stop at 512 entries.
+  Both tables now hold 4,096 entries and fail on exhaustion or an unresolved
+  data symbol. Gates require native execution above 512 and rejection above
+  the new limit. The function table remains bounded to 512 functions.
+
+`examples/native_float_profile.sotlas` executes a weighted sum through typed
+buffers and both precisions. Native Stage 3 generation gates execute this
+workload, in addition to requiring byte-identical Stage 2/3 images. The native
+float suite covers execution, literal encodings, exceptional IEEE values,
+layout/stride, CFG/calls, entry rejection and relocation bounds. The canonical
+C11 oracle compares defined arithmetic. Full candidate certification is pending.
+
+**Local validation (2026-10-11):** the Windows regression suite passed
+**2,743 tests, 63 skips**. Three subsequently added encoding/entry/arena gates
+also passed separately. The final native floating suite has 11 gates; the
+original-module Windows and Linux Stage 2/3 closures were repeated after the
+entry-descriptor change and executed the floating workload. Windows Python
+3.10.11 and 3.11.9 passed the floating/SV2 set available at that run (**55
+tests each**). Owned ELF floating execution, native profile output and
+ownership/Flow rejection parity passed through Linux (WSL). The C11 bootstrap
+contract passed **707 tests**. Intel macOS execution and full final matrix
+remain CI gates. The reported local total distinguishes later gates rather
+than claiming they were present in the earlier full-suite collection.
+
+**Remaining parity:** native ownership/lifetime/ARC/runtime, Flow AST and
+execution, broader numeric forms, diagnostics and installed command parity.
+Python/C bootstrap removal is not authorized by this numeric/profile advance.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test

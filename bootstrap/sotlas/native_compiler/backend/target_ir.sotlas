@@ -5,6 +5,7 @@ module sotlas::compiler::backend::target_ir;
 // It is a data boundary only: lowering and machine emission are separate stages.
 
 pub const TARGET_IR_VERSION: u32 = 1;
+pub const TARGET_EXTENDED_SOURCE_CAPACITY: usize = 2097152;
 pub const TARGET_VALUE_NONE: u32 = 0;
 pub const TARGET_BLOCK_NONE: u32 = 0;
 pub const TARGET_FLAG_SEMANTIC_ONLY: u32 = 1;
@@ -69,7 +70,10 @@ pub enum TargetOpcode {
     Mod = 34,
     IntCast = 35,
     IndexAddr = 36,
-    PtrOffset = 37
+    PtrOffset = 37,
+    ConstFloat = 38,
+    FloatNeg = 39,
+    FloatCast = 40
 }
 
 pub struct TargetSourceSlice {
@@ -267,6 +271,10 @@ pub fn target_opcode_is_semantic_only(opcode: TargetOpcode) -> bool {
         || opcode == TargetOpcode::SemanticSharedOwnershipPoint
         || opcode == TargetOpcode::SemanticDeferUse
         || opcode == TargetOpcode::SemanticStateTransition;
+}
+
+pub fn target_type_is_float(type_tag: TargetTypeTag) -> bool {
+    return type_tag == TargetTypeTag::F32 || type_tag == TargetTypeTag::F64;
 }
 
 pub fn target_type_is_integer(type_tag: TargetTypeTag) -> bool {
@@ -904,7 +912,24 @@ pub fn target_module_validate_cfg(
                     return false;
                 }
 
-                if instruction.opcode == TargetOpcode::ConstInt {
+                if instruction.opcode == TargetOpcode::ConstFloat {
+                    if instruction.result_value == TARGET_VALUE_NONE
+                        || instruction.operand_count != 0 || !target_type_is_float(instruction.type_tag)
+                        || (instruction.type_tag == TargetTypeTag::F32 && instruction.immediate_bits > 4294967295) { return false; }
+                } else if instruction.opcode == TargetOpcode::FloatCast {
+                    if instruction.result_value == TARGET_VALUE_NONE || instruction.operand_count != 1
+                        || !target_type_is_float(instruction.type_tag) { return false; }
+                    let operand: TargetOperand = unsafe { *(operands + instruction.first_operand) };
+                    if operand.value_id == 0 || operand.value_id > target_section.value_count { return false; }
+                    let source_type: TargetTypeTag = unsafe { (*(values + operand.value_id as usize - 1)).type_tag };
+                    if !target_type_is_float(source_type) || source_type == instruction.type_tag { return false; }
+                } else if instruction.opcode == TargetOpcode::FloatNeg {
+                    if instruction.result_value == TARGET_VALUE_NONE || instruction.operand_count != 1
+                        || !target_type_is_float(instruction.type_tag) { return false; }
+                    let operand: TargetOperand = unsafe { *(operands + instruction.first_operand) };
+                    if !target_value_matches(values, target_section.value_count,
+                        operand.value_id, instruction.type_tag) { return false; }
+                } else if instruction.opcode == TargetOpcode::ConstInt {
                     if instruction.result_value == TARGET_VALUE_NONE
                         || instruction.operand_count != 0
                         || (!target_type_is_integer(instruction.type_tag)
@@ -996,7 +1021,10 @@ pub fn target_module_validate_cfg(
                     || instruction.opcode == TargetOpcode::Div
                     || instruction.opcode == TargetOpcode::Mod {
                     if instruction.result_value == TARGET_VALUE_NONE
-                        || !target_type_is_integer(instruction.type_tag)
+                        || (!target_type_is_integer(instruction.type_tag)
+                            && !(target_type_is_float(instruction.type_tag)
+                                && (instruction.opcode == TargetOpcode::Add || instruction.opcode == TargetOpcode::Sub
+                                    || instruction.opcode == TargetOpcode::Mul || instruction.opcode == TargetOpcode::Div)))
                         || instruction.operand_count != 2 {
                         return false;
                     }
@@ -1037,7 +1065,7 @@ pub fn target_module_validate_cfg(
                     if left_type != right_type
                         || (!target_type_is_integer(left_type)
                             && left_type != TargetTypeTag::Pointer
-                            && left_type != TargetTypeTag::Bool)
+                            && left_type != TargetTypeTag::Bool && !target_type_is_float(left_type))
                         || ((left_type == TargetTypeTag::Pointer
                             || left_type == TargetTypeTag::Bool)
                             && instruction.immediate_bits > 87) {

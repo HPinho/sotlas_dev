@@ -72,6 +72,37 @@ class NativeWindowsDriverTests(unittest.TestCase):
         self.run_tool([str(self.seed)], expected=1, env=self.environment)
 
     @unittest.skipUnless(os.name == "nt", "native execution requires Windows x64")
+    def test_native_profile_help_and_float_workload(self):
+        help_result = self.run_tool([str(self.seed), "--help"], env=self.environment)
+        self.assertIn(b"Usage: sotlas-native", help_result.stdout)
+        profile = self.run_tool([str(self.seed), "--capabilities"], env=self.environment)
+        self.assertIn(b"floats=f32,f64", profile.stdout)
+        self.assertIn(b"float_abi=internal-bits", profile.stdout)
+        self.assertIn(b"ownership_runtime=unsupported", profile.stdout)
+        self.assertIn(b"flow_execution=unsupported", profile.stdout)
+        self.assertEqual(profile.stderr, b"")
+        source = ROOT / "examples/native_float_profile.sotlas"
+        output = self.directory / "float_profile.exe"
+        self.run_tool([str(self.seed), "--check", str(source)], env=self.environment)
+        self.run_tool([str(self.seed), str(source), str(output)], env=self.environment)
+        self.run_tool([str(output)], expected=42, env=self.environment)
+
+    @unittest.skipUnless(os.name == "nt", "native execution requires Windows x64")
+    def test_native_check_compile_reject_ownership_and_flow_consistently(self):
+        unsupported = ["module gate;pub struct Token{pub value:u32;}fn use(x:"+domain+" Token)->u32{return x.value;}" for domain in ("sole","shared","region","device","external","island","whisper","direct")]
+        unsupported.append("module gate;fn load()->u32{return 42;}flow Compute{stage seed=load;}")
+        for index, text in enumerate(unsupported):
+            with self.subTest(index=index):
+                source = self.directory / ("unsupported_"+str(index)+".sotlas")
+                source.write_text(text, encoding="utf-8")
+                output = self.directory / ("unsupported_"+str(index)+".exe")
+                output.write_bytes(b"preserve")
+                code = 5 if index == 8 else 7
+                self.run_tool([str(self.seed), "--check", str(source)], expected=code, env=self.environment)
+                self.run_tool([str(self.seed), str(source), str(output)], expected=code, env=self.environment)
+                self.assertEqual(output.read_bytes(), b"preserve")
+
+    @unittest.skipUnless(os.name == "nt", "native execution requires Windows x64")
     def test_bit_operations_workload_executes_without_host_tools(self):
         source = ROOT / "examples/native_bit_operations.sotlas"
         output = self.directory / "bit_operations.exe"
@@ -155,7 +186,7 @@ class NativeWindowsDriverTests(unittest.TestCase):
         self.run_tool([str(stage2), "--project-resolve-compiler", str(stage3), *map(str, sources)], env=self.environment, timeout=900)
         self.assertEqual(stage2.read_bytes(), stage3.read_bytes())
         source = self.directory / "stage3_application.sotlas"
-        source.write_text("module probe; pub fn main_entry()->u32{return 42;}")
+        source.write_bytes((ROOT / "examples/native_float_profile.sotlas").read_bytes())
         output = self.directory / "stage3_application.exe"
         self.run_tool([str(stage3), "--check", str(source)], env=self.environment)
         self.run_tool([str(stage3), str(source), str(output)], env=self.environment)

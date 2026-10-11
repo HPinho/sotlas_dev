@@ -95,9 +95,71 @@ pub fn sotlas_native_extended_source_len() -> usize {
     return unsafe { g_extended_len };
 }
 
+// Exact decimal-to-binary conversion for the bounded native literal profile.
+// Coefficient and decimal denominator each fit in 10^18. No host float parser,
+// floating arithmetic or C runtime participates in rounding these literals.
+fn native_decimal_float_bits(source: *const u8, length: usize,
+    typ: TargetTypeTag, result: &mut u64) -> bool {
+    if source == null || length == 0 || !target_type_is_float(typ) { return false; }
+    let mut numerator: u64 = 0;
+    let mut denominator: u64 = 1;
+    let mut dot: bool = false;
+    let mut fraction: bool = false;
+    let mut digits: usize = 0;
+    let mut index: usize = 0;
+    while index < length {
+        let ch: u8 = unsafe { *(source + index) };
+        if ch == 46 {
+            if dot || digits == 0 { return false; }
+            dot = true;
+        } else if ch != 95 {
+            if ch < 48 || ch > 57 { return false; }
+            if numerator > 99999999999999999 { return false; }
+            numerator = numerator * 10 + (ch - 48) as u64;
+            if numerator >= 1000000000000000000 { return false; }
+            if dot {
+                if denominator >= 1000000000000000000 { return false; }
+                denominator = denominator * 10;
+                fraction = true;
+            }
+            digits = digits + 1;
+        }
+        index = index + 1;
+    }
+    if !dot || !fraction { return false; }
+    if numerator == 0 { unsafe { *result = 0; } return true; }
+    let mut exponent: i32 = 0;
+    while numerator / 2 >= denominator { denominator = denominator * 2; exponent = exponent + 1; }
+    while numerator < denominator { numerator = numerator * 2; exponent = exponent - 1; }
+    let mut precision: u64 = 53;
+    let mut bias: i32 = 1023;
+    if typ == TargetTypeTag::F32 { precision = 24; bias = 127; }
+    let mut significand: u64 = 1;
+    let mut remainder: u64 = numerator - denominator;
+    let mut bit: u64 = 1;
+    while bit < precision {
+        remainder = remainder * 2;
+        significand = significand * 2;
+        if remainder >= denominator { significand = significand + 1; remainder = remainder - denominator; }
+        bit = bit + 1;
+    }
+    // Round to nearest, ties to even, retaining the exact rational remainder.
+    remainder = remainder * 2;
+    if remainder > denominator || (remainder == denominator && (significand & 1) != 0) {
+        significand = significand + 1;
+    }
+    if significand == ((1 as u64) << precision) { significand = significand >> 1; exponent = exponent + 1; }
+    let fraction_bits: u64 = precision - 1;
+    let bits: u64 = ((exponent + bias) as u64 << fraction_bits)
+        | (significand & (((1 as u64) << fraction_bits) - 1));
+    unsafe { *result = bits; }
+    return true;
+}
+
 impl ScalarLowering {
     pub fn append_synthetic_str_symbol(mut self: &mut Self, id: usize) -> TargetSourceSlice {
         let name_off: usize = unsafe { g_extended_len };
+        if name_off > TARGET_EXTENDED_SOURCE_CAPACITY - 25 { return TargetSourceSlice::empty(); }
         let src_mut: *mut u8 = self.source as *mut u8;
         unsafe {
             *(src_mut + name_off) = 95;
@@ -146,8 +208,8 @@ impl ScalarLowering {
     pub fn scalar_memory_size(self: &Self, typ: TargetTypeTag) -> u32 {
         if typ == TargetTypeTag::U8 || typ == TargetTypeTag::I8 { return 1; }
         if typ == TargetTypeTag::U16 || typ == TargetTypeTag::I16 { return 2; }
-        if typ == TargetTypeTag::U32 || typ == TargetTypeTag::I32 { return 4; }
-        if typ == TargetTypeTag::U64 || typ == TargetTypeTag::I64 || typ == TargetTypeTag::Usize || typ == TargetTypeTag::Pointer { return 8; }
+        if typ == TargetTypeTag::U32 || typ == TargetTypeTag::I32 || typ == TargetTypeTag::F32 { return 4; }
+        if typ == TargetTypeTag::U64 || typ == TargetTypeTag::I64 || typ == TargetTypeTag::Usize || typ == TargetTypeTag::Pointer || typ == TargetTypeTag::F64 { return 8; }
         return 0;
     }
 
@@ -212,6 +274,10 @@ impl ScalarLowering {
         let elem_len: usize = finish - start;
         let mut sem: Sema = Sema::new();
         let elem_offset: usize = type_offset + start;
+        if sem.source_slice_equals(self.source, self.source_len,
+            elem_offset, elem_len, "f32", 3) { return TargetTypeTag::F32; }
+        if sem.source_slice_equals(self.source, self.source_len,
+            elem_offset, elem_len, "f64", 3) { return TargetTypeTag::F64; }
         if unsafe { *(self.source + elem_offset) } == 42 { return TargetTypeTag::Pointer; }
         if self.find_struct(elem_offset, elem_len) != 0 { return TargetTypeTag::Aggregate; }
         if sem.source_slice_equals(
@@ -254,8 +320,8 @@ impl ScalarLowering {
         );
         if elem_type == TargetTypeTag::U8 || elem_type == TargetTypeTag::I8 { return 1; }
         if elem_type == TargetTypeTag::U16 || elem_type == TargetTypeTag::I16 { return 2; }
-        if elem_type == TargetTypeTag::U32 || elem_type == TargetTypeTag::I32 { return 4; }
-        if elem_type == TargetTypeTag::U64 || elem_type == TargetTypeTag::I64 || elem_type == TargetTypeTag::Pointer { return 8; }
+        if elem_type == TargetTypeTag::U32 || elem_type == TargetTypeTag::I32 || elem_type == TargetTypeTag::F32 { return 4; }
+        if elem_type == TargetTypeTag::U64 || elem_type == TargetTypeTag::I64 || elem_type == TargetTypeTag::Pointer || elem_type == TargetTypeTag::F64 { return 8; }
         if elem_type == TargetTypeTag::Aggregate {
             let struct_id: u32 = self.parse_array_element_struct(type_offset, type_len);
             if struct_id != 0 { return self.struct_sizes[struct_id as usize - 1] as usize; }
@@ -478,6 +544,7 @@ impl ScalarLowering {
         unsafe { g_rodata_len = cur_len; }
 
         let sym_slice: TargetSourceSlice = self.append_synthetic_str_symbol(sym_idx);
+        if sym_slice.length == 0 { return TARGET_VALUE_NONE; }
         unsafe {
             g_rodata_sym_offsets[sym_idx] = sym_slice.offset;
             g_rodata_sym_lens[sym_idx] = sym_slice.length;
@@ -511,6 +578,8 @@ impl ScalarLowering {
     ) -> TargetSourceSlice {
         let name_off: usize = unsafe { g_extended_len };
         let name_len: usize = struct_len + 1 + method_len;
+        if name_off > TARGET_EXTENDED_SOURCE_CAPACITY
+            || name_len > TARGET_EXTENDED_SOURCE_CAPACITY - name_off { return TargetSourceSlice::empty(); }
         let mut i: usize = 0;
         let src_mut: *mut u8 = self.source as *mut u8;
         while i < struct_len {
@@ -688,6 +757,10 @@ impl ScalarLowering {
                 return TargetTypeTag::U32;
             }
         }
+        if sem.source_slice_equals(self.source, self.source_len,
+            type_node.str_offset, type_node.str_len, "f32", 3) { return TargetTypeTag::F32; }
+        if sem.source_slice_equals(self.source, self.source_len,
+            type_node.str_offset, type_node.str_len, "f64", 3) { return TargetTypeTag::F64; }
         let tag: i64 = sem.fixed_integer_type_tag(
             self.nodes,
             self.node_count,
@@ -799,6 +872,10 @@ impl ScalarLowering {
         if sem.source_slice_equals(
             self.source, self.source_len, pointee_offset, pointee_len, "i64", 3
         ) { return TargetTypeTag::I64; }
+        if sem.source_slice_equals(self.source, self.source_len,
+            pointee_offset, pointee_len, "f32", 3) { return TargetTypeTag::F32; }
+        if sem.source_slice_equals(self.source, self.source_len,
+            pointee_offset, pointee_len, "f64", 3) { return TargetTypeTag::F64; }
         if sem.source_slice_equals(
             self.source, self.source_len, pointee_offset, pointee_len, "bool", 4
         ) { return TargetTypeTag::Bool; }
@@ -989,10 +1066,10 @@ impl ScalarLowering {
         if pointee == TargetTypeTag::U16 || pointee == TargetTypeTag::I16 {
             return 2;
         }
-        if pointee == TargetTypeTag::U32 || pointee == TargetTypeTag::I32 {
+        if pointee == TargetTypeTag::U32 || pointee == TargetTypeTag::I32 || pointee == TargetTypeTag::F32 {
             return 4;
         }
-        if pointee == TargetTypeTag::U64 || pointee == TargetTypeTag::I64
+        if pointee == TargetTypeTag::U64 || pointee == TargetTypeTag::I64 || pointee == TargetTypeTag::F64
             || pointee == TargetTypeTag::Pointer {
             return 8;
         }
@@ -1804,6 +1881,28 @@ impl ScalarLowering {
             && (expression.int_value == 110 || expression.int_value == 111) {
             return self.cfg_boolean_value(expression_index, first_parameter, parameter_count);
         }
+        if target_type_is_float(type_tag) && expression.kind == AstKind::ExprLiteral {
+            let mut bits: u64 = 0;
+            if expression.str_offset > self.source_len || expression.str_len > self.source_len - expression.str_offset
+                || !native_decimal_float_bits(unsafe { self.source + expression.str_offset },
+                    expression.str_len, type_tag, &mut bits) { return 0; }
+            let value: u32 = self.append_value(type_tag, 0, 0);
+            if value == 0 || !self.append_instruction(TargetOpcode::ConstFloat,
+                value, type_tag, 0, 0, expression_index) { return 0; }
+            unsafe { (*(self.instructions + self.instruction_count - 1)).immediate_bits = bits; }
+            return value;
+        }
+        if target_type_is_float(type_tag) && expression.kind == AstKind::ExprUnary && expression.int_value == 81 {
+            let child: usize = expression.first_child;
+            if child == 0 || child >= self.node_count || unsafe { (*(self.nodes + child)).next_sibling } != 0 { return 0; }
+            let operand: u32 = self.lower_expression(child, type_tag, first_parameter, parameter_count);
+            let first: u32 = self.operand_count as u32;
+            if operand == 0 || !self.append_operand(operand) { return 0; }
+            let value: u32 = self.append_value(type_tag, 0, 0);
+            if value == 0 || !self.append_instruction(TargetOpcode::FloatNeg,
+                value, type_tag, first, 1, expression_index) { return 0; }
+            return value;
+        }
         if expression.kind == AstKind::ExprUnary && expression.int_value == 95 {
             let width: u32 = target_integer_width(type_tag);
             let child: usize = expression.first_child;
@@ -2164,6 +2263,20 @@ impl ScalarLowering {
                     value_index, TargetTypeTag::Pointer, first_parameter, parameter_count
                 );
             }
+            if target_type_is_float(cast_type) {
+                if type_tag != TargetTypeTag::Invalid && type_tag != cast_type { return 0; }
+                let source_type: TargetTypeTag = self.condition_expression_type(value_index, first_parameter, parameter_count);
+                if !target_type_is_float(source_type) { return 0; }
+                let operand: u32 = self.lower_expression(value_index, source_type, first_parameter, parameter_count);
+                if operand == 0 { return 0; }
+                if source_type == cast_type { return operand; }
+                let first: u32 = self.operand_count as u32;
+                if !self.append_operand(operand) { return 0; }
+                let value: u32 = self.append_value(cast_type, 0, 0);
+                if value == 0 || !self.append_instruction(TargetOpcode::FloatCast,
+                    value, cast_type, first, 1, expression_index) { return 0; }
+                return value;
+            }
             if cast_type != TargetTypeTag::U8
                 && cast_type != TargetTypeTag::U16
                 && cast_type != TargetTypeTag::U32
@@ -2294,7 +2407,7 @@ impl ScalarLowering {
                     && element_type != TargetTypeTag::U16
                     && element_type != TargetTypeTag::U32
                     && element_type != TargetTypeTag::I8 && element_type != TargetTypeTag::I16 && element_type != TargetTypeTag::I32
-                    && element_type != TargetTypeTag::I64 && element_type != TargetTypeTag::U64)
+                    && element_type != TargetTypeTag::I64 && element_type != TargetTypeTag::U64 && !target_type_is_float(element_type))
                 || stride == 0 || count == 0
                 || stride > 4294967295 || count > 2147483647 {
                 return TARGET_VALUE_NONE;
@@ -2991,7 +3104,10 @@ impl ScalarLowering {
             if count.opcode == TargetOpcode::ConstInt && count.result_value == right
                 && count.immediate_bits >= width as u64 { return TARGET_VALUE_NONE; }
         }
-        if !narrow_bitwise && !narrow_arithmetic && !integer_shift
+        let float_arithmetic: bool = target_type_is_float(type_tag)
+            && (opcode == TargetOpcode::Add || opcode == TargetOpcode::Sub
+                || opcode == TargetOpcode::Mul || opcode == TargetOpcode::Div);
+        if !narrow_bitwise && !narrow_arithmetic && !integer_shift && !float_arithmetic
             && type_tag != TargetTypeTag::U32
             && type_tag != TargetTypeTag::U64
             && type_tag != TargetTypeTag::Usize
@@ -3493,10 +3609,10 @@ impl ScalarLowering {
             && compare_type != TargetTypeTag::U64
             && compare_type != TargetTypeTag::I8 && compare_type != TargetTypeTag::I16 && compare_type != TargetTypeTag::I32
             && compare_type != TargetTypeTag::I64
-            && compare_type != TargetTypeTag::Pointer {
+            && compare_type != TargetTypeTag::Pointer && compare_type != TargetTypeTag::Bool && !target_type_is_float(compare_type) {
             return TARGET_VALUE_NONE;
         }
-        if compare_type == TargetTypeTag::Pointer && expression.int_value > 87 {
+        if (compare_type == TargetTypeTag::Pointer || compare_type == TargetTypeTag::Bool) && expression.int_value > 87 {
             return TARGET_VALUE_NONE;
         }
 
@@ -4728,7 +4844,8 @@ impl ScalarLowering {
             let mut signed_narrow: bool = false;
             if node.kind == AstKind::TypeRef {
                 let declared: TargetTypeTag = self.type_tag_for(i);
-                signed_narrow = declared == TargetTypeTag::I8 || declared == TargetTypeTag::I16 || declared == TargetTypeTag::I32;
+                signed_narrow = declared == TargetTypeTag::I8 || declared == TargetTypeTag::I16 || declared == TargetTypeTag::I32
+                    || target_type_is_float(declared);
             }
             if signed_narrow {
                 let mut parent: usize = node.parent;
@@ -4946,7 +5063,9 @@ impl ScalarLowering {
         unsafe { (*(self.instructions + self.instruction_count - 1)).immediate_bits = count as u64; }
         if !self.append_instruction(TargetOpcode::ConstInt, one, TargetTypeTag::U64, 0, 0, node) { return false; }
         unsafe { (*(self.instructions + self.instruction_count - 1)).immediate_bits = 1; }
-        if !self.append_instruction(TargetOpcode::ConstInt, zero, element_type, 0, 0, node) { return false; }
+        let mut zero_opcode: TargetOpcode = TargetOpcode::ConstInt;
+        if target_type_is_float(element_type) { zero_opcode = TargetOpcode::ConstFloat; }
+        if !self.append_instruction(zero_opcode, zero, element_type, 0, 0, node) { return false; }
         let header: u32 = self.cfg_reserve_block();
         let body: u32 = self.cfg_reserve_block();
         let done: u32 = self.cfg_reserve_block();
@@ -5055,8 +5174,10 @@ impl ScalarLowering {
                         unsafe { (*(self.instructions + self.instruction_count - 1)).immediate_bits =
                             (count as u64 << 32) | stride as u64; }
                         let zero: u32 = self.append_value(elem, 0, 0);
+                        let mut zero_opcode: TargetOpcode = TargetOpcode::ConstInt;
+                        if target_type_is_float(elem) { zero_opcode = TargetOpcode::ConstFloat; }
                         if zero == 0 || !self.append_instruction(
-                            TargetOpcode::ConstInt, zero, elem, 0, 0, index
+                            zero_opcode, zero, elem, 0, 0, index
                         ) || !self.cfg_store(element_address, zero, elem, index) {
                             return self.reject(index);
                         }
@@ -5218,7 +5339,7 @@ impl ScalarLowering {
                 if typ != TargetTypeTag::U8 && typ != TargetTypeTag::U16
                     && typ != TargetTypeTag::U32 && typ != TargetTypeTag::U64
                     && typ != TargetTypeTag::Usize && typ != TargetTypeTag::I8 && typ != TargetTypeTag::I16 && typ != TargetTypeTag::I32 && typ != TargetTypeTag::I64
-                    && typ != TargetTypeTag::Bool && typ != TargetTypeTag::Pointer {
+                    && typ != TargetTypeTag::Bool && typ != TargetTypeTag::Pointer && !target_type_is_float(typ) {
                     return self.reject(index);
                 }
                 let address: u32 = self.append_value(TargetTypeTag::Pointer, 0, 0);
@@ -5410,8 +5531,9 @@ impl ScalarLowering {
                 let type_index: usize = child.first_child;
                 let type_tag: TargetTypeTag = self.type_tag_for(type_index);
                 let parameter_type_node: AstNode = unsafe { *(self.nodes + type_index) };
-                if function_is_external && self.find_struct(parameter_type_node.str_offset,
-                    parameter_type_node.str_len) != 0 { return self.reject(child_index); }
+                if function_is_external && (target_type_is_float(type_tag)
+                    || self.find_struct(parameter_type_node.str_offset,
+                        parameter_type_node.str_len) != 0) { return self.reject(child_index); }
                 if type_tag == TargetTypeTag::Invalid || child.str_len == 0
                     || (child.int_value != 0 && child.int_value != 1) {
                     return self.reject(child_index);
@@ -5482,6 +5604,7 @@ impl ScalarLowering {
         if return_type == TargetTypeTag::Invalid {
             return_type = TargetTypeTag::Void;
         }
+        if function_is_external && target_type_is_float(return_type) { return self.reject(function_index); }
         if self.return_struct_id != 0 {
             if function_is_external || self.parameter_count >= self.parameter_capacity
                 || self.parameter_count - first_parameter >= 24 { return self.reject(function_index); }
@@ -5765,7 +5888,7 @@ impl ScalarLowering {
                             && element_type != TargetTypeTag::U16
                             && element_type != TargetTypeTag::U32
                             && element_type != TargetTypeTag::I8 && element_type != TargetTypeTag::I16 && element_type != TargetTypeTag::I32
-                            && element_type != TargetTypeTag::I64 && element_type != TargetTypeTag::U64)
+                            && element_type != TargetTypeTag::I64 && element_type != TargetTypeTag::U64 && !target_type_is_float(element_type))
                         || stride == 0 || count == 0
                         || stride > 4294967295 || count > 2147483647 {
                         return self.reject(statement_index);
@@ -6132,7 +6255,7 @@ pub fn lower_scalar_module(
                         if array_element_count > maximum_size / array_element_stride {
                             return lowering.reject(struct_scan_index);
                         }
-                        if array_element_struct != 0 || element_type == TargetTypeTag::Pointer {
+                        if array_element_struct != 0 || element_type == TargetTypeTag::Pointer || target_type_is_float(element_type) {
                             let initializer_index: usize = type_node.next_sibling;
                             if initializer_index == 0 || initializer_index >= lowering.node_count { return lowering.reject(struct_scan_index); }
                             let initializer: AstNode = unsafe { *(lowering.nodes + initializer_index) };
@@ -6145,10 +6268,20 @@ pub fn lower_scalar_module(
                         type_tag_val = TargetTypeTag::Pointer as u32;
                     } else {
                         let tt: TargetTypeTag = lowering.type_tag_for(decl_node.first_child);
+                        if target_type_is_float(tt) {
+                            let initializer_index: usize = type_node.next_sibling;
+                            if initializer_index == 0 || initializer_index >= lowering.node_count { return lowering.reject(struct_scan_index); }
+                            let initializer: AstNode = unsafe { *(lowering.nodes + initializer_index) };
+                            let mut bits: u64 = 0;
+                            if initializer.kind != AstKind::ExprLiteral || initializer.str_offset > lowering.source_len
+                                || initializer.str_len > lowering.source_len - initializer.str_offset
+                                || !native_decimal_float_bits(unsafe { lowering.source + initializer.str_offset },
+                                    initializer.str_len, tt, &mut bits) || bits != 0 { return lowering.reject(struct_scan_index); }
+                        }
                         if tt != TargetTypeTag::Invalid {
                             type_tag_val = tt as u32;
                             var_size = 4;
-                            if tt == TargetTypeTag::U64 || tt == TargetTypeTag::I64 || tt == TargetTypeTag::Pointer {
+                            if tt == TargetTypeTag::U64 || tt == TargetTypeTag::I64 || tt == TargetTypeTag::Pointer || tt == TargetTypeTag::F64 {
                                 var_size = 8;
                             } else if tt == TargetTypeTag::U16 || tt == TargetTypeTag::I16 {
                                 var_size = 2;
@@ -6218,7 +6351,7 @@ pub fn lower_scalar_module(
                     lowering.field_type_tags[f_idx] = f_type as u32;
                     lowering.field_struct_ids[f_idx] = field_struct;
                     let mut f_sz: u32 = 4;
-                    if f_type == TargetTypeTag::U64 || f_type == TargetTypeTag::I64 || f_type == TargetTypeTag::Pointer {
+                    if f_type == TargetTypeTag::U64 || f_type == TargetTypeTag::I64 || f_type == TargetTypeTag::Pointer || f_type == TargetTypeTag::F64 {
                         f_sz = 8;
                     } else if f_type == TargetTypeTag::U16 || f_type == TargetTypeTag::I16 {
                         f_sz = 2;

@@ -1,0 +1,28 @@
+module native_float_profile;
+
+fn weighted_sum(data: *const f32, weights: *const f32, length: usize) -> f64 {
+    let mut index: usize = 0;
+    let mut total: f64 = 0.0;
+    while index < length {
+        let sample: f32 = unsafe { *(data + index) };
+        let weight: f32 = unsafe { *(weights + index) };
+        total = total + ((sample * weight) as f64);
+        index = index + 1;
+    }
+    return total;
+}
+
+pub fn main_entry() -> u32 {
+    let mut data: [f32; 3] = 0;
+    let mut weights: [f32; 3] = 0;
+    unsafe {
+        data[0] = 1.5; data[1] = 2.5; data[2] = 4.0;
+        weights[0] = 2.0; weights[1] = 4.0; weights[2] = 0.5;
+    }
+    let input: *const f32 = unsafe { data as *const f32 };
+    let coefficients: *const f32 = unsafe { weights as *const f32 };
+    let score: f64 = weighted_sum(input, coefficients, 3);
+    let rounded: f32 = score as f32;
+    if score != 15.0 || rounded != 15.0 { return 1; }
+    return 42;
+}

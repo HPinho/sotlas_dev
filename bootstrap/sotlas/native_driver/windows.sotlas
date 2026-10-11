@@ -39,6 +39,7 @@ fn windows_write(handle:u64, buffer:*const u8, count:u64) -> i64 {
     if count > 4294967295 { return -1; }
     let mut destination:u64 = handle;
     if handle == 2 { destination = sotlas_windows_get_std_handle(4294967284); }
+    if handle == 1 { destination = sotlas_windows_get_std_handle(4294967285); }
     let mut written:u32 = 0;
     let success:u32 = sotlas_windows_write_file(destination,buffer,count as u32,unsafe{(&mut written) as *mut u32},null);
     if success == 0 { return -1; }
@@ -93,6 +94,23 @@ fn fail(code: u32) -> u32 {
     let message: *const u8 = "sotlas-native: compilation failed\n";
     let written: i64 = windows_write(2, message, 34);
     return code;
+}
+
+// Report the actual owned profile without initializing compiler arenas.
+fn driver_print_profile(help: bool) -> u32 {
+    let mut text: *const u8 = "sotlas-native capabilities v1\nbackend=x86_64\ninteger_bits=8,16,32,64\nfloats=f32,f64\nfloat_literals=coefficient<10^18;decimal-places<=18\nfloat_abi=internal-bits\nfloat_external_abi=unsupported\nownership_runtime=unsupported\nflow_execution=unsupported\n";
+    if help { text = "Usage: sotlas-native INPUT OUTPUT [--object|--compiler]\n       sotlas-native --check INPUT\n       sotlas-native --project[-object|-compiler] OUTPUT INPUT...\n       sotlas-native --check-build ROOT ENTRY\n       sotlas-native --build[-obj|-cc] OUTPUT ROOT ENTRY\n       sotlas-native --capabilities\nNative profiles are bounded; use --capabilities to inspect limits.\n"; }
+    let mut length: usize = 0;
+    while length < 2048 && unsafe { *(text + length) } != 0 { length = length + 1; }
+    if length == 2048 { return fail(13); }
+    let mut position: usize = 0;
+    while position < length {
+        let written: i64 = windows_write(1, unsafe { text + position }, (length - position) as u64);
+        if written == -4 { continue; }
+        if written <= 0 || written as u64 > (length - position) as u64 { return fail(13); }
+        position = position + written as usize;
+    }
+    return 0;
 }
 
 fn option_equals(option: *const u8, expected: *const u8, length: usize) -> bool {
@@ -849,6 +867,13 @@ fn driver_compile_project(
 //   sotlas-native --project[-object|-compiler] OUTPUT INPUT1 INPUT2 ...
 // Imports still fail closed; the bounded explicit list is not module loading.
 fn windows_driver_entry(argc: u64, argv: *const *const u8) -> u32 {
+    if argc == 2 && argv != null {
+        let option: *const u8 = unsafe { *(argv + 1) };
+        if option == null { return fail(1); }
+        if option_equals(option, "--help", 6) { return driver_print_profile(true); }
+        if option_equals(option, "--capabilities", 14) { return driver_print_profile(false); }
+        return fail(1);
+    }
     if argc < 3 || argv == null { return fail(1); }
     let first_option: *const u8 = unsafe { *(argv + 1) };
     if first_option == null { return fail(1); }
