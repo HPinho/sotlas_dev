@@ -165,6 +165,9 @@ print(json.dumps({'returncode': result.returncode,
         source = 'fn calc(a:i32,b:i32)->i32{return a/b+a%b;}pub fn main_entry()->u32{let result:i32=calc(-17,5);if result==-5{return 42;}return 1;}'
         obj = self.compile("reference", source)
         self.execute(obj)
+        self.assert_c11_reference(obj)
+
+    def assert_c11_reference(self, obj, expected=42):
         c_path = self.directory / "reference.c"
         ref_obj = self.directory / "reference-host.o"
         output = self.directory / ("reference-host.exe" if os.name == "nt" else "reference-host")
@@ -182,7 +185,7 @@ print(json.dumps({'returncode': result.returncode,
                                cwd=ROOT, env=environment, capture_output=True, timeout=120)
         self.assertEqual(built.returncode, 0, built.stderr)
         result = subprocess.run([str(output)], capture_output=True, timeout=15)
-        self.assertEqual(result.returncode, 42, result.stderr)
+        self.assertEqual(result.returncode, expected, result.stderr)
 
 
 if __name__ == "__main__":

@@ -2118,7 +2118,7 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
             unsupported_source.write_text(
                 "module test::unsupported_target;\n"
                 "fn divide(left: i64, right: i64) -> i64 { "
-                "return left / right; }\n",
+                "return left / false; }\n",
                 encoding="utf-8",
             )
             rejected_result = subprocess.run(

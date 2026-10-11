@@ -85,6 +85,15 @@ class NativeDarwinDriverTests(unittest.TestCase):
         self.run_tool([str(self.seed)], expected=1, env=self.environment)
 
     @unittest.skipUnless(MAC_X64, "native execution requires Intel macOS")
+    def test_signed_integer_family_executes_without_host_tools(self):
+        source = self.directory / "signed_family.sotlas"
+        source.write_text("module probe;fn wide(a:i8,b:i16)->i64{let x:i64=a as i64;let y:i64=b as i64;return x/y;}pub fn main_entry()->u32{let n:i8=-17;let q:i8=n/5;let r:i8=n%5;let s:i16=-257;if wide(-127,5)==-25 && q==-3 && r==-2 && (s>>8)==-2{return 42;}return 1;}")
+        output = self.directory / "signed_family"
+        self.run_tool([str(self.seed), "--check", str(source)], env=self.environment)
+        self.run_tool([str(self.seed), str(source), str(output)], env=self.environment)
+        self.run_tool([str(output)], expected=42, env=self.environment)
+
+    @unittest.skipUnless(MAC_X64, "native execution requires Intel macOS")
     def test_signed_i32_program_compiles_and_runs_without_host_tools(self):
         source = self.directory / "signed_program.sotlas"
         source.write_text("module probe;fn score(a:i32,b:i32)->i32{return a/b+a%b;}pub fn main_entry()->u32{let n:i32=score(-17,5);let wide:i64=n as i64;if wide==-5 && (n>>1)==-3{return 42;}return 1;}")

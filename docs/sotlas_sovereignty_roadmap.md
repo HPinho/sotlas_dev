@@ -1211,6 +1211,66 @@ interpreters. The change is confined to the test harness and this repair
 record; no backend semantics or fault assertions are relaxed. Keep CI #1174
 as the certified reference until the repair's full matrix succeeds.
 
+### SV8.28 — fixed-width signed integer family in owned native code
+
+**Certified baseline:** [CI #1176](https://github.com/HPinho/sotlas_dev/actions/runs/38094848259)
+on `cd37a3886f594a85b059b5a6bc34119e765b9b8b` passed the matrix after the
+Windows fault-harness repair. Signed `i32` and the independent native-process
+fault checks are now certified. The sovereignty score remains **90%**; this
+candidate expands the remaining frontend parity work without closing it.
+
+The native scalar profile now includes `i8` and `i16` parameters, returns,
+locals, fields, arrays and typed pointers, and completes signed `i64`
+division/remainder and arithmetic right shift. Source literal bounds match
+each declared width. Negative literals carry the corresponding bit pattern;
+negation, arithmetic and bitwise results are normalized to that width.
+Implicit mixed-type arithmetic and signed array indices remain rejected.
+
+Signed byte/word values are canonicalized after loads, calls, casts and Phi
+copies. Register and stack parameters are normalized before any operation
+reads their full slot. Memory reads/stores preserve one-byte `i8`, two-byte
+`i16`, four-byte `i32` and eight-byte `i64` layout. Pointer stride, bounded
+arrays and neighboring record fields use the same declared width. Signed
+widening extends the sign; narrowing retains the destination bits.
+
+Division/remainder truncate toward zero and retain the dividend's remainder
+sign. The wide path emits `cqo` and `idiv`; narrow signed division uses
+normalized values and detects the declared-width `MIN / -1` or `% -1` case
+before executing the existing architectural overflow path. Division by zero
+and minimum-value division overflow still produce the exact native arithmetic
+faults tested in independent PE/ELF/Mach-O processes. No generic Python
+exception or fail-fast code is accepted as a substitute.
+
+Signed shifts require an IR-proven constant count less than 8/16/32/64 for the
+respective type and use arithmetic right shift for negative values. This
+also tightens the previously permissive dynamic signed `i64` left-shift path:
+unsupported counts fail before output, rather than inheriting hardware masking.
+Unsigned shift behavior is unchanged. Wrapping arithmetic/negation remains
+an explicit owned-x86 profile behavior; the language-wide signed overflow
+specification and C11 overflow equivalence remain open.
+
+`tests/test_sotlas_native_signed_family.py` executes width boundaries,
+register/stack calls, signed casts, comparisons, division/remainder/shifts,
+adjacent fields, globals, local arrays and pointer stride. It rejects invalid
+literals, dynamic/out-of-range shifts, signed indices and incompatible pointer
+casts, checks declared-width arithmetic faults, and compares defined signed
+operations with canonical C11. The former conservative signed-byte arithmetic
+gate now requires execution; the signed-division negative gate rejects a
+Boolean divisor. Native Linux, Windows and Intel macOS driver gates compile
+and execute a mixed-width signed example without host build tools on PATH.
+Native source-generation fixed points remain required regression gates.
+
+**Local validation (2026-10-10):** the complete Windows regression suite
+passed **2,717 tests, 57 skipped**, and the C11 bootstrap contract passed
+**707 tests**. The structured CFG suite passed all **86 tests**. The seven
+signed-family gates passed, including canonical C11 comparison and precise
+native fault categories; fault/memory/arithmetic gates also passed on the
+previously affected Windows Python 3.10 and 3.11 runtimes. Linux (WSL) compiled
+and executed the mixed-width signed program without host tools and retained
+the original-module Stage 2/3 fixed point; Windows generation and cross-build
+gates remained green. A legacy self-host diagnostic fixture now rejects a
+Boolean divisor rather than valid `i64` division. Full candidate CI is pending.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test

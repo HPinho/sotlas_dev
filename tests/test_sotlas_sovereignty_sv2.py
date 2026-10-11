@@ -576,7 +576,7 @@ pub fn case_oob() -> u32 {
 SV4_SIGNED_DIV_REJECT_SRC = """module sv4::signed_div_reject;
 
 pub fn rejected_signed(value: i64) -> i64 {
-    return value / 3;
+    return value / false;
 }
 """
 
@@ -1715,8 +1715,8 @@ pub fn main_entry() -> u32 {
         self.assertTrue(out_obj.exists())
         self.assert_native_entry_exit(out_obj, 4)
 
-    def test_sv4_signed_division_fails_closed(self):
-        """SV4.7 negative gate: signed division stays rejected until idiv semantics are certified."""
+    def test_sv4_signed_division_rejects_non_integer_divisor(self):
+        """Signed idiv support must retain rejection of a Boolean divisor."""
         src_path = self.root / "signed_div_reject.sotlas"
         src_path.write_text(SV4_SIGNED_DIV_REJECT_SRC, encoding="utf-8")
         out_obj = self.root / "signed_div_reject.o"
