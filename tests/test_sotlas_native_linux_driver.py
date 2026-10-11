@@ -74,6 +74,15 @@ class NativeLinuxDriverTests(unittest.TestCase):
         self.assertEqual(reference.read_bytes(), actual.read_bytes())
 
     @unittest.skipUnless(LINUX_X64, "execution requires Linux x86-64")
+    def test_bit_operations_workload_executes_without_host_tools(self):
+        source = ROOT / "examples/native_bit_operations.sotlas"
+        output = self.directory / "bit_operations"
+        environment = {"PATH": str(self.directory / "no-tools")}
+        self.run_tool([str(self.seed), "--check", str(source)], env=environment)
+        self.run_tool([str(self.seed), str(source), str(output)], env=environment)
+        self.run_tool([str(output)], expected=42, env=environment)
+
+    @unittest.skipUnless(LINUX_X64, "execution requires Linux x86-64")
     def test_signed_integer_family_executes_without_host_tools(self):
         source = self.directory / "signed_family.sotlas"
         source.write_text("module gate;fn wide(a:i8,b:i16)->i64{let x:i64=a as i64;let y:i64=b as i64;return x/y;}pub fn main_entry()->u32{let n:i8=-17;let q:i8=n/5;let r:i8=n%5;let s:i16=-257;if wide(-127,5)==-25 && q==-3 && r==-2 && (s>>8)==-2{return 42;}return 1;}")

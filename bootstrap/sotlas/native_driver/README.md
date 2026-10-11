@@ -397,8 +397,9 @@ division/remainder and arithmetic right shift. Calls use the existing bounded
 internal ABI, including stack arguments. Casts widen signed `i32` with sign
 extension and unsigned `u32` with zero extension.
 
-Literal bounds are checked. Shift counts must be proven constants in `[0,31]`;
-dynamic or invalid counts fail closed. Signed indices and implicit mixed
+Literal bounds are checked. Shift counts must be in `[0,31]`; known invalid
+constants fail compilation and invalid dynamic counts trap before execution
+of the shift. Signed indices and implicit mixed
 signed/unsigned arithmetic remain rejected. Add/subtract/multiply and negation
 wrap at 32 bits in this x86 profile. Division by zero and the `INT_MIN / -1`
 or `% -1` overflow case raise a process-level arithmetic fault. These rules
@@ -418,9 +419,9 @@ are normalized with sign extension, while memory keeps the declared 1/2/4/8
 byte width. Explicit casts preserve signed widening and destination-width
 narrowing; implicit mixed-type arithmetic remains outside the profile.
 
-Signed shifts require a proven constant count in `[0, width-1]`. Dynamic
-signed `i64` left shifts, previously accepted through hardware masking, now
-fail closed along with unsupported right-shift counts. Add/subtract/multiply
+Signed shifts accept constant and variable counts in `[0, width-1]`.
+Known invalid constants fail compilation; invalid dynamic counts trap before
+the shift. Add/subtract/multiply
 and negation wrap at the declared machine width. Division by zero and each
 type's `MIN / -1` or `% -1` case fault in the native process. These backend
 rules do not define language-wide overflow or C11 signed-overflow equivalence.
@@ -428,4 +429,42 @@ rules do not define language-wide overflow or C11 signed-overflow equivalence.
 The signed-family gates verify narrow memory layout, neighboring fields,
 array stride, register/stack arguments, casts, defined C11 arithmetic parity
 and exact arithmetic faults. The file-driver gates exercise a mixed-width
-program. Full cross-platform certification awaits this candidate's CI.
+program. CI #1178 certified the signed-family implementation and fresh-build
+SV2 gates after the stale compiler-cache regression was corrected.
+
+## Bit operations and variable shifts
+
+The owned x86 profile accepts `~`, `&`, `|`, `^`, `<<` and `>>` on signed and
+unsigned integers with widths of 8, 16, 32 and 64 bits, including `usize` and
+`isize`. Operand types must match; casts remain explicit. Complement and left
+shift retain the declared width. Right shift preserves the sign for signed
+values and inserts zero bits for unsigned values.
+
+Counts can come from parameters, calls, memory or expressions. Every executed
+shift checks the complete count against the declared width before x86 can mask
+CL. Negative signed counts and counts at or above the width fault with `ud2`
+(`SIGILL` on Unix, `STATUS_ILLEGAL_INSTRUCTION` on Windows). A 64-bit count is
+checked in RCX, so a value such as `4294967296` cannot pass as zero. Direct
+invalid constant counts fail before object output. Boolean, pointer and float
+operands are rejected. This is the owned-x86 contract; it does not define
+invalid-shift behavior for C11 or another backend.
+
+Short-circuit `&&` and `||` retain lazy evaluation when an operand contains a
+shift. Calls used as an operand or count run once. There is no implicit rotation
+or count masking; a rotation must normalize the count and handle zero explicitly.
+
+[`native_bit_operations.sotlas`](../../../examples/native_bit_operations.sotlas)
+combines CRC-32, rotation and byte unpacking. It exits with 42 when its checks
+pass. Compile it with the matching native driver:
+
+```sh
+sotlas-native --check examples/native_bit_operations.sotlas
+sotlas-native examples/native_bit_operations.sotlas bit_operations
+./bit_operations
+```
+
+On Windows use `sotlas-native.exe` and `bit_operations.exe`. These commands need
+the initial native seed, with no Python/C build tools on PATH. The dedicated
+gates check valid execution, exact native faults, memory/stack counts, lazy
+conditions and defined-input C11 parity. Linux, Windows and Intel macOS driver
+gates execute the same workload; this extension awaits its candidate CI.

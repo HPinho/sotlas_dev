@@ -51,7 +51,7 @@ seed, those paths compile their original Sotlas sources without Python, a C
 compiler or an external linker. This does not cover every feature accepted by
 the canonical frontend; the hosted bootstrap remains part of the distribution.
 
-Both native drivers now accept an experimental Intel macOS cross-build:
+The Linux and Windows native drivers accept an experimental Intel macOS cross-build:
 
 ```sh
 sotlas-native --build-mac app.macho ./src ./src/probe/main.sotlas
@@ -72,6 +72,13 @@ Silicon, signing, ASLR, dynamic libraries and arbitrary process-entry
 signatures remain outside this profile. Cross-build tests run on Linux
 and Windows. See the
 [sovereignty roadmap](docs/sotlas_sovereignty_roadmap.md) for evidence and limits.
+
+The owned integer profile includes complement and checked variable shifts
+across signed/unsigned 8/16/32/64-bit values. The
+[native bit operations example](examples/native_bit_operations.sotlas) executes
+CRC-32, rotation and byte unpacking without a C runtime. See the
+[native driver contract](bootstrap/sotlas/native_driver/README.md#bit-operations-and-variable-shifts)
+for count validation, native fault behavior and backend limits.
 
 ---
 

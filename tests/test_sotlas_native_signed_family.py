@@ -81,7 +81,7 @@ if r.head==7 && r.tail==9 && r.value==-21 && local[0]+local[1]==42
                 f'pub fn f()->{typ}{{return {maximum+1};}}',
                 f'pub fn f()->{typ}{{return {minimum-1};}}',
                 f'pub fn f(x:{typ})->{typ}{{return x>>{width};}}',
-                f'pub fn f(x:{typ},n:{typ})->{typ}{{return x>>n;}}',
+                f'pub fn f(x:{typ},n:bool)->{typ}{{return x>>n;}}',
                 f'pub fn f()->u32{{let values:[{typ};2]=0;let index:{typ}=-1;return values[index] as u32;}}',
                 f'static mut data:[{typ};2]=0;pub fn f()->*const u32{{return unsafe{{data as *const u32}};}}',
             )

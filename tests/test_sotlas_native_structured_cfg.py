@@ -1415,8 +1415,8 @@ pub fn main_entry() -> u32 {
 }
 """, 0)
 
-    def test_narrow_shifts_reject_dynamic_and_out_of_range_counts(self):
-        for width, count in (("u8", "8"), ("u16", "16"), ("u8", "count"), ("u16", "count")):
+    def test_narrow_shifts_reject_noninteger_and_out_of_range_counts(self):
+        for width, count in (("u8", "8"), ("u16", "16"), ("u8", "true"), ("u16", "true")):
             with self.subTest(width=width, count=count):
                 result, output = self.compile("invalid_shift_" + width + "_" + count,
                     f"fn invalid(value: {width}, count: {width}) -> {width} {{ return value >> {count}; }}")

@@ -282,6 +282,17 @@ pub fn target_type_is_integer(type_tag: TargetTypeTag) -> bool {
         || type_tag == TargetTypeTag::Isize;
 }
 
+// Shift counts are checked against the declared width, before x86 can mask CL.
+// Zero identifies a type without an integer bit representation.
+pub fn target_integer_width(type_tag: TargetTypeTag) -> u32 {
+    if type_tag == TargetTypeTag::U8 || type_tag == TargetTypeTag::I8 { return 8; }
+    if type_tag == TargetTypeTag::U16 || type_tag == TargetTypeTag::I16 { return 16; }
+    if type_tag == TargetTypeTag::U32 || type_tag == TargetTypeTag::I32 { return 32; }
+    if type_tag == TargetTypeTag::U64 || type_tag == TargetTypeTag::I64
+        || type_tag == TargetTypeTag::Usize || type_tag == TargetTypeTag::Isize { return 64; }
+    return 0;
+}
+
 pub fn target_range_is_valid(first: u32, count: u32, total: u32) -> bool {
     return first <= total && count <= total - first;
 }
