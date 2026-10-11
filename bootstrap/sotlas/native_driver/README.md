@@ -488,8 +488,17 @@ decimal forms are rejected. Arithmetic uses the process's FP environment;
 the test contract uses default IEEE rounding and exception masks.
 
 Float parameters/results use IEEE bits in the internal GPR/stack ABI. External
-float declarations and float process entries are rejected. Float/integer casts,
-nonzero static initializers and float module constants remain unsupported.
+float declarations and float process entries are rejected.
+Conversions between fixed-width signed/unsigned integers and floats are checked
+in the native profile. Integer-to-float conversion follows the FP rounding mode;
+float-to-integer conversion truncates toward zero. Finite values are accepted
+only when the truncated result fits the destination, including negative
+fractions that truncate to unsigned zero. NaN, infinity and out-of-range values
+trap with `ud2` instead of publishing an indefinite integer. The full `u64`
+range is supported in both directions; values rounded up to `2^64` cannot be
+converted back. These are owned-profile rules; C11 equivalence covers defined
+inputs only. Boolean/pointer numeric conversions remain rejected.
+Nonzero static initializers and float module constants remain unsupported.
 Freestanding kernels must establish and preserve their FP environment before
 using SSE2; this candidate does not certify kernel floating execution.
 

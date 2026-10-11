@@ -89,8 +89,13 @@ npm run test:vsix
 
 The smoke test installs the VSIX into a temporary VS Code profile, activates it
 against a small Sotlas workspace, and checks that compiler diagnostics appear
-with their source location. By default it downloads the stable VS Code test
-runtime. To run it offline on Windows with an existing VS Code installation,
+with their source location. The runtime version is pinned in
+`test/vscode-version.json` (currently 1.141.0). CI caches that exact runtime;
+each smoke test still installs the generated VSIX into a fresh profile.
+Transient network failures receive up to three download attempts with backoff.
+Install, activation and diagnostic failures are not retried or skipped.
+Update the version file deliberately when validating a newer VS Code release.
+To run it offline on Windows with an existing VS Code installation,
 set `SOTLAS_VSCODE_CLI`, `SOTLAS_VSCODE_EXECUTABLE`, and
 `SOTLAS_VSCODE_CLI_SCRIPT` to the installed `Code.exe` and its
 `resources/app/out/cli.js`, then run `npm run test:vsix`.

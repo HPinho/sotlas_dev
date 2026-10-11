@@ -24,6 +24,7 @@ bin/*.exe
 
 # VS Code extension build artifacts and dependencies
 editors/vscode/node_modules/
+editors/vscode/.vscode-test/
 editors/vscode/out/
 editors/vscode/*.vsix
 editors/vscode/package-lock.json

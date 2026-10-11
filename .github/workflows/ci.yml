@@ -433,6 +433,11 @@ jobs:
     - name: Install extension dependencies
       working-directory: editors/vscode
       run: npm install --no-package-lock --no-audit --no-fund
+    - name: Cache pinned VS Code test runtime
+      uses: actions/cache@v4
+      with:
+        path: editors/vscode/.vscode-test/vscode-*
+        key: ${{ runner.os }}-vscode-smoke-${{ hashFiles('editors/vscode/test/vscode-version.json') }}
     - name: Compile extension
       working-directory: editors/vscode
       run: npm test
@@ -440,6 +445,7 @@ jobs:
       working-directory: editors/vscode
       run: npx --yes @vscode/vsce package --out sotlas-preview.vsix
     - name: Install VSIX in a clean VS Code profile
+      timeout-minutes: 10
       working-directory: editors/vscode
       run: xvfb-run -a npm run test:vsix
     - name: Upload preview VSIX artifact

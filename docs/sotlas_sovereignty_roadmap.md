@@ -1422,6 +1422,71 @@ than claiming they were present in the earlier full-suite collection.
 execution, broader numeric forms, diagnostics and installed command parity.
 Python/C bootstrap removal is not authorized by this numeric/profile advance.
 
+### SV8.31 — checked integer/float conversion and resilient installed-editor gate
+
+**Baseline evidence:** [CI #1180](https://github.com/HPinho/sotlas_dev/actions/runs/38109769479)
+passed completely for `b30c40cfe8c452d05b41f81b15493f57b09e4c0e`, certifying
+the preceding bounded float/CLI block. [CI #1181](https://github.com/HPinho/sotlas_dev/actions/runs/38125346030)
+tested the same commit: all compiler matrices, C11, native generation,
+installation and owned PE/Mach-O jobs passed. Only the VSIX installation job
+failed during VS Code version resolution, with an `ETIMEDOUT`/`ENETUNREACH`
+network aggregate; it did not reach extension installation or activation.
+
+The editor test now pins VS Code 1.141.0, caches that exact runtime in CI,
+reuses it for installation/listing/activation, and bounds transient download
+retries with backoff. IPv4 is preferred while IPv6 remains available. Download
+timeouts are bounded and the CI smoke step has a ten-minute deadline. Archive
+integrity, install, activation and diagnostic failures still fail the job.
+The tests reproduce the reported network aggregate and check recovery,
+exhaustion and permanent-failure propagation. Fresh-profile installation and
+Problems diagnostics remain mandatory, even when the runtime is cached.
+
+The native compiler adds `NumericCast` for explicit conversion between `f32`/
+`f64` and signed/unsigned 8/16/32/64-bit integers, including size aliases.
+Integer-to-float uses the current FP rounding mode. Unsigned 64-bit values
+above the signed range use a sticky-bit half conversion followed by doubling
+in the destination precision, retaining the rounding information.
+
+Float-to-integer truncates toward zero and checks that the resulting integer
+fits the declared type. Negative fractions that truncate to unsigned zero and
+fractions that truncate to signed MIN are valid. NaN, either infinity and
+unrepresentable results execute `ud2`; no indefinite integer reaches a later
+instruction. Unsigned 64-bit conversion handles the high half by subtracting
+`2^63`, converting the remainder and restoring bit 63. Inputs rounded to
+`2^64` remain invalid. These are owned-native safety rules, not a new promise
+for undefined C11 cast inputs or an external floating ABI.
+
+The lowerer preserves scalar types, evaluates the operand once, supports
+explicit numeric literal casts and rejects Boolean/pointer conversions.
+Lazy conditions containing a potentially invalid cast retain short circuit.
+The weighted-buffer example now converts integer samples into floats and its
+result back into an integer; native Stage 3 gates execute that source.
+Dedicated gates cover every width/precision pair, fractional boundaries,
+the upper `u64` half, literals, single evaluation, lazy paths, exact native
+faults and defined-input C11 equivalence.
+
+Native self-build exceeded the bootstrap's old 16,384-block CFG budget. Its
+block, branch-target and operand arenas now match the existing native driver
+capacities (32,768 / 65,536 / 262,144); actual arrays and declared capacities
+are updated together. Existing checked exhaustion behavior is retained.
+The input limit remains 1 MiB and the generated-name arena remains 2 MiB.
+
+**Local validation (2026-10-11):** the final Windows suite passed **2,754
+tests, 63 skips**. All eight numeric-cast gates passed on Windows Python
+3.10.11/3.11.9 and with owned ELF execution in Linux (WSL), including exact
+illegal-instruction faults. Windows/Linux native original-source Stage 2/3
+fixed points and the updated Stage 3 workload passed. The C11 bootstrap
+contract passed 707 tests. The broad suite caught a transitional C-emission
+collision with a local named `signed`; renaming it to `is_signed` preserved
+the algorithm, and all six hosted SV8 gates plus the repeated full suite passed.
+The editor's nine tests, VSIX packaging, clean-profile installation on local
+VS Code 1.139.1 and on downloaded/cached 1.141.0, activation and diagnostic
+positions passed. Cached runtimes did not replace clean-profile installation.
+
+This candidate still requires final CI. Native ownership/ARC/lifetimes,
+Flow execution, broader language/numeric forms and complete command parity
+remain open; the certified checkpoint count remains 9/10.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test

@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.0.0] - Preview candidate
 
 ### Changed
+- Pinned the VSIX test runtime and added bounded retries for transient download failures; clean-profile installation and diagnostic assertions remain mandatory.
 - Compiler check now invokes `sotlas check` and reports compiler output.
 - Local diagnostics are described as structural hints rather than type checking.
 - Compiler commands use argument-safe process execution; WebAssembly uses the supported `dump-wasm` command.

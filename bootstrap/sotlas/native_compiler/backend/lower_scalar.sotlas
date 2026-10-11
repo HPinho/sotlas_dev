@@ -2263,9 +2263,43 @@ impl ScalarLowering {
                     value_index, TargetTypeTag::Pointer, first_parameter, parameter_count
                 );
             }
+            let mut numeric_source: TargetTypeTag = self.condition_expression_type(value_index, first_parameter, parameter_count);
+            if numeric_source == TargetTypeTag::Invalid {
+                let mut literal: AstNode = value_node;
+                let mut negative: bool = false;
+                if literal.kind == AstKind::ExprUnary && literal.int_value == 81
+                    && literal.first_child != 0 && literal.first_child < self.node_count {
+                    literal = unsafe { *(self.nodes + literal.first_child) };
+                    negative = true;
+                }
+                if literal.kind == AstKind::ExprLiteral && literal.str_len != 0
+                    && literal.str_offset < self.source_len && literal.str_len <= self.source_len - literal.str_offset {
+                    let first: u8 = unsafe { *(self.source + literal.str_offset) };
+                    if first >= 48 && first <= 57 {
+                        numeric_source = TargetTypeTag::U64;
+                        if negative { numeric_source = TargetTypeTag::I64; }
+                        let mut index: usize = 0;
+                        while index < literal.str_len {
+                            if unsafe { *(self.source + literal.str_offset + index) } == 46 { numeric_source = TargetTypeTag::F64; }
+                            index = index + 1;
+                        }
+                    }
+                }
+            }
+            if (target_type_is_float(cast_type) && target_type_is_integer(numeric_source))
+                || (target_type_is_integer(cast_type) && target_type_is_float(numeric_source)) {
+                if type_tag != TargetTypeTag::Invalid && type_tag != cast_type { return 0; }
+                let operand: u32 = self.lower_expression(value_index, numeric_source, first_parameter, parameter_count);
+                let first: u32 = self.operand_count as u32;
+                if operand == 0 || !self.append_operand(operand) { return 0; }
+                let value: u32 = self.append_value(cast_type, 0, 0);
+                if value == 0 || !self.append_instruction(TargetOpcode::NumericCast,
+                    value, cast_type, first, 1, expression_index) { return 0; }
+                return value;
+            }
             if target_type_is_float(cast_type) {
                 if type_tag != TargetTypeTag::Invalid && type_tag != cast_type { return 0; }
-                let source_type: TargetTypeTag = self.condition_expression_type(value_index, first_parameter, parameter_count);
+                let source_type: TargetTypeTag = numeric_source;
                 if !target_type_is_float(source_type) { return 0; }
                 let operand: u32 = self.lower_expression(value_index, source_type, first_parameter, parameter_count);
                 if operand == 0 { return 0; }
