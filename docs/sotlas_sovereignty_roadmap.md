@@ -1292,6 +1292,61 @@ All **46 SV2 gates** passed with fresh builds, including Windows Python
 No production frontend/backend code changes are needed for this repair.
 Keep CI #1176 as the certified baseline until the repair matrix completes.
 
+### SV8.29 — native bit operations and checked variable shifts
+
+**Certified baseline:** [CI #1178](https://github.com/HPinho/sotlas_dev/actions/runs/38102016555)
+on `56ff94e021b7d67e668753c7fa4ee9e932dd009a` passed after the fresh-build
+SV2 gate repair. The signed integer family is certified for the declared
+profiles. The checkpoint score remains **90% (9/10)**: full canonical
+frontend parity is still open.
+
+This candidate adds unary bitwise complement and variable left/right shifts
+to the owned native integer profile: signed and unsigned 8/16/32/64-bit
+values, including `usize` and `isize`. Complement lowers to typed Target IR
+XOR with a declared-width mask. Calls and loads retain their existing
+canonical signed/unsigned representations; complement evaluates its operand
+once and requires no new runtime or C emission path.
+
+Shift counts can come from arguments, calls, memory and arithmetic expressions.
+Direct invalid constants fail lowering before an object is written. Executed
+shifts compare the complete count against the declared width before the x86
+instruction sees CL. A failed check executes `ud2`; negative signed counts,
+counts equal to the width and oversized 64-bit counts cannot inherit hardware
+count masking. The 64-bit path loads and compares RCX, including its upper
+dword. Signed right shifts preserve the sign; unsigned right shifts insert
+zeros; left shifts retain the declared width. Operand types must match.
+
+Shifts are now classified as potentially trapping during conditional
+lowering. Short-circuit paths containing them use lazy CFG evaluation; an
+invalid shift in an unchosen operand of `&&` or `||` must not run. This
+replaces the old conservative rejection of variable signed/narrow counts
+and tightens the previously masked wide unsigned path. These are explicit
+owned-x86 rules, not invalid-shift guarantees for C11 or another backend.
+
+`examples/native_bit_operations.sotlas` is an executable CRC-32, rotation and
+byte-unpacking workload. It verifies the standard `123456789` CRC result,
+empty input, normalized rotation and extraction at both ends of a word.
+`tests/test_sotlas_native_bit_operations.py` checks all integer widths,
+single evaluation, mutable loops, stack/memory counts, static rejections,
+short circuit and exact process-level illegal-instruction faults. Defined
+workload inputs are also compiled and executed through the canonical C11
+oracle. Linux, Windows and Intel macOS native file-driver gates run the same
+source with host build tools absent from PATH.
+
+**Local evidence (2026-10-10):** all eight bit-operation gates passed on
+Windows, on the temporary Python 3.10.11 and 3.11.9 matrix runtimes, and with
+owned ELF images executed in Linux via WSL. Native Windows and Linux file
+drivers checked, compiled and executed the workload without host tools on
+PATH. Both original-module Stage 2/3 fixed points passed. The C11 bootstrap
+contract passed all 707 tests. The complete Windows suite passed **2,729
+tests with 59 skips**, using the fresh-build SV2 gates. Native source sizes
+with each file driver remain below the 1 MiB input limit. Intel macOS execution
+and full candidate matrix certification remain CI gates.
+
+Floating-point native execution, broader ownership/Flow/runtime support,
+full frontend diagnostics and installed CLI parity remain open. This block
+does not authorize removal of the hosted bootstrap or promotion to 100%.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test

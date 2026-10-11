@@ -134,7 +134,7 @@ print(json.dumps({'returncode': result.returncode,
             'pub fn main_entry()->i32{return 2147483648;}',
             'pub fn main_entry()->i32{return -2147483649;}',
             'pub fn main_entry()->i32{let x:i32=1;return x>>32;}',
-            'pub fn shift(x:i32,y:i32)->i32{return x>>y;}pub fn main_entry()->u32{return 42;}',
+            'pub fn shift(x:i32,y:bool)->i32{return x>>y;}pub fn main_entry()->u32{return 42;}',
             'pub fn main_entry()->i32{let x:i32=1;let y:u32=2;return x+y;}',
             'pub fn main_entry()->u32{let data:[i32;2]=0;let index:i32=-1;return data[index] as u32;}',
         )

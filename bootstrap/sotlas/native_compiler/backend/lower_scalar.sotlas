@@ -1804,6 +1804,26 @@ impl ScalarLowering {
             && (expression.int_value == 110 || expression.int_value == 111) {
             return self.cfg_boolean_value(expression_index, first_parameter, parameter_count);
         }
+        if expression.kind == AstKind::ExprUnary && expression.int_value == 95 {
+            let width: u32 = target_integer_width(type_tag);
+            let child: usize = expression.first_child;
+            if width == 0 || child == 0 || child >= self.node_count
+                || unsafe { (*(self.nodes + child)).next_sibling } != 0 { return 0; }
+            let operand: u32 = self.lower_expression(child, type_tag, first_parameter, parameter_count);
+            if operand == 0 { return 0; }
+            let mask: u32 = self.append_value(type_tag, 0, 0);
+            if mask == 0 || !self.append_instruction(TargetOpcode::ConstInt,
+                mask, type_tag, 0, 0, expression_index) { return 0; }
+            let mut bits: u64 = 18446744073709551615;
+            if width < 64 { bits = ((1 as u64) << (width as u64)) - 1; }
+            unsafe { (*(self.instructions + self.instruction_count - 1)).immediate_bits = bits; }
+            let first: u32 = self.operand_count as u32;
+            if !self.append_operand(operand) || !self.append_operand(mask) { return 0; }
+            let result: u32 = self.append_value(type_tag, 0, 0);
+            if result == 0 || !self.append_instruction(TargetOpcode::BitXor,
+                result, type_tag, first, 2, expression_index) { return 0; }
+            return result;
+        }
         if expression.kind == AstKind::ExprUnary && expression.int_value == 81
             && (type_tag == TargetTypeTag::I64 || type_tag == TargetTypeTag::I32 || type_tag == TargetTypeTag::I8 || type_tag == TargetTypeTag::I16) {
             let child: usize = expression.first_child;
@@ -2956,25 +2976,22 @@ impl ScalarLowering {
                 || opcode == TargetOpcode::BitXor);
         // Arithmetic on narrow unsigned integers is computed in a 32-bit
         // register and normalized to the declared width by the object writer.
-        // Signed narrow arithmetic retains its existing rejection boundary.
+        // Signed narrow results are sign-extended by the same typed writer.
         let narrow_arithmetic: bool = (type_tag == TargetTypeTag::U8
             || type_tag == TargetTypeTag::U16)
             && (opcode == TargetOpcode::Add || opcode == TargetOpcode::Sub
                 || opcode == TargetOpcode::Mul);
-        let narrow_shift: bool = (type_tag == TargetTypeTag::U8 || type_tag == TargetTypeTag::U16 || type_tag == TargetTypeTag::I32 || type_tag == TargetTypeTag::I8 || type_tag == TargetTypeTag::I16 || type_tag == TargetTypeTag::I64)
-            && (opcode == TargetOpcode::ShiftLeft || opcode == TargetOpcode::ShiftRight);
-        if narrow_shift {
+        let integer_shift: bool = opcode == TargetOpcode::ShiftLeft || opcode == TargetOpcode::ShiftRight;
+        if integer_shift {
+            let width: u32 = target_integer_width(type_tag);
+            if width == 0 { return TARGET_VALUE_NONE; }
             let count: TargetInstruction = unsafe { *(self.instructions + self.instruction_count - 1) };
-            let mut width: u64 = 8;
-            if type_tag == TargetTypeTag::U16 { width = 16; }
-            if type_tag == TargetTypeTag::I32 { width = 32; }
-            if type_tag == TargetTypeTag::I8 { width = 8; }
-            if type_tag == TargetTypeTag::I16 { width = 16; }
-            if type_tag == TargetTypeTag::I64 { width = 64; }
-            if count.opcode != TargetOpcode::ConstInt || count.result_value != right
-                || count.immediate_bits >= width { return TARGET_VALUE_NONE; }
+            // Known invalid counts fail during lowering. Parameters, calls and
+            // computed counts use the backend's full-width runtime guard.
+            if count.opcode == TargetOpcode::ConstInt && count.result_value == right
+                && count.immediate_bits >= width as u64 { return TARGET_VALUE_NONE; }
         }
-        if !narrow_bitwise && !narrow_arithmetic && !narrow_shift
+        if !narrow_bitwise && !narrow_arithmetic && !integer_shift
             && type_tag != TargetTypeTag::U32
             && type_tag != TargetTypeTag::U64
             && type_tag != TargetTypeTag::Usize
@@ -3314,7 +3331,6 @@ impl ScalarLowering {
         }
         if (expression.int_value < 80 || expression.int_value > 82)
             && (expression.int_value < 86 || expression.int_value > 94)
-            && (expression.int_value < 96 || expression.int_value > 97)
             && expression.int_value != 110 && expression.int_value != 111 {
             return false;
         }

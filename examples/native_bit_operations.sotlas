@@ -1,0 +1,43 @@
+module native_bit_operations;
+
+// A rotation explicitly normalizes its count. Ordinary shifts reject counts
+// outside the operand width; the zero case avoids evaluating a shift by 32.
+fn rotate_left(value: u32, count: u32) -> u32 {
+    let n: u32 = count & 31;
+    if n == 0 { return value; }
+    return (value << n) | (value >> (32 - n));
+}
+
+fn unpack_byte(value: u32, position: u32) -> u8 {
+    return ((value >> (position * 8)) & 255) as u8;
+}
+
+// Reflected IEEE CRC-32 over a caller-owned buffer. No allocator, C runtime,
+// host tool or architecture-specific source intrinsic is required.
+fn crc32(data: *const u8, length: usize) -> u32 {
+    let mut crc: u32 = 4294967295;
+    let mut index: usize = 0;
+    while index < length {
+        let byte: u8 = unsafe { *(data + index) };
+        crc = crc ^ (byte as u32);
+        let mut bit: u32 = 0;
+        while bit < 8 {
+            if (crc & 1) != 0 { crc = (crc >> 1) ^ 3988292384; }
+            else { crc = crc >> 1; }
+            bit = bit + 1;
+        }
+        index = index + 1;
+    }
+    return ~crc;
+}
+
+pub fn main_entry() -> u32 {
+    let text: *const u8 = "123456789";
+    if crc32(text, 9) != 3421780262 { return 1; }
+    if crc32(text, 0) != 0 { return 2; }
+    if rotate_left(305419896, 4) != 591751041 { return 3; }
+    if rotate_left(305419896, 32) != 305419896 { return 4; }
+    if unpack_byte(305419896, 0) != 120 { return 5; }
+    if unpack_byte(305419896, 3) != 18 { return 6; }
+    return 42;
+}
