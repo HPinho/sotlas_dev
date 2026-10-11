@@ -11,6 +11,189 @@ class NativeFrontendClosureTests(unittest.TestCase):
     execute = integer.NativeI32Tests.execute
     assert_c11_reference = integer.NativeI32Tests.assert_c11_reference
 
+    def test_native_lowering_preserves_parameter_binding_and_return_domains(self):
+        program='module unit;struct Token{pub value:u32;}fn read(value:whisper Token)->u32{return value.value;}fn make()->sole Token{return Token{value:42};}fn transfer(value:sole Token)->sole Token{return value;}pub fn main_entry()->u32{let owner:sole Token=make();return read(owner);}'
+        source='''import sotlas::compiler::token::*;
+import sotlas::compiler::ast::*;import sotlas::compiler::lexer::*;
+import sotlas::compiler::parser::*;import sotlas::compiler::sema::*;
+import sotlas::compiler::backend::target_ir::*;
+import sotlas::compiler::backend::lower_scalar::*;
+static mut text_bytes:[u8;4194304]=0;
+static mut tokens:[Token;1024]=0;static mut nodes:[AstNode;1024]=0;
+static mut values:[TargetValue;256]=0;static mut parameters:[TargetParameter;32]=0;
+static mut instructions:[TargetInstruction;512]=0;static mut operands:[TargetOperand;512]=0;
+static mut incoming:[TargetPhiInput;64]=0;static mut blocks:[TargetBlock;128]=0;
+static mut edges:[u32;256]=0;static mut functions:[TargetFunction;16]=0;
+pub fn main_entry()->u32{
+let input:*const u8="PROGRAM";let length:usize=LENGTH;
+let text:*mut u8=unsafe{text_bytes as *mut u8};let mut index:usize=0;
+while index<length{unsafe{*(text+index)=*(input+index);}index=index+1;}
+unsafe{g_extended_len=length;}
+let tok:*mut Token=unsafe{tokens as *mut Token};let ast:*mut AstNode=unsafe{nodes as *mut AstNode};
+let vals:*mut TargetValue=unsafe{values as *mut TargetValue};
+let pars:*mut TargetParameter=unsafe{parameters as *mut TargetParameter};
+let mut lexer:Lexer=Lexer::new(text,length);let mut count:usize=0;
+while count<1024{let token:Token=lexer.next_token();unsafe{*(tok+count)=token;}count=count+1;if token.kind==TokenKind::Eof{break;}}
+if lexer.error_count!=0 || count==1024{return 1;}
+let mut parser:Parser=Parser::new(tok,count,ast,1024);let unit:usize=parser.parse_module();
+if unit==0 || parser.error_count!=0{return 2;}
+let mut sema:Sema=Sema::new();
+if !sema.check_top_level_declarations(ast,parser.node_count,unit,text,length){return 3;}
+let mut lowering:ScalarLowering=ScalarLowering::new(ast,parser.node_count,text,length,
+vals,256,pars,32,unsafe{instructions as *mut TargetInstruction},512,
+unsafe{operands as *mut TargetOperand},512,unsafe{incoming as *mut TargetPhiInput},64,
+unsafe{blocks as *mut TargetBlock},128,unsafe{edges as *mut u32},256,
+unsafe{functions as *mut TargetFunction},16);
+let mut ir:TargetModule=TargetModule{version:1,function_count:0,parameter_count:0,
+block_count:0,instruction_count:0,value_count:0,operand_count:0,phi_input_count:0,target_count:0};
+if !lower_scalar_module(&mut lowering,unit,&mut ir){return 4;}
+let mut exclusive:usize=0;let mut borrowed_values:usize=0;index=0;
+while index<ir.value_count as usize{let flags:u32=unsafe{(*(vals+index)).flags};
+let domain:u32=(flags&TARGET_VALUE_DOMAIN_MASK)>>TARGET_VALUE_DOMAIN_SHIFT;
+if domain==1{exclusive=exclusive+1;}else if domain==4{borrowed_values=borrowed_values+1;}else if domain!=0{return 5;}index=index+1;}
+if exclusive<4 || borrowed_values!=1{return 6;}
+let first:TargetParameter=unsafe{*pars};
+if first.type_tag!=TargetTypeTag::Pointer || unsafe{(*(vals+first.value_id as usize-1)).flags}!=1024{return 7;}
+return 42;}'''.replace('PROGRAM',program).replace('LENGTH',str(len(program)))
+        self.execute(self.compile('native_owned_ir_domains',source))
+
+    def test_native_whisper_reads_and_forwarding_preserve_owner(self):
+        source='''struct Token{pub value:u32;}
+fn read(value:whisper Token)->u32{return value.value;}
+fn forward(value:whisper Token)->u32{return read(value);}
+fn consume(value:sole Token)->u32{return value.value;}
+pub fn main_entry()->u32{let owner:sole Token=Token{value:21};
+if forward(owner)!=21 || read(owner)!=21{return 1;}return consume(owner)+21;}'''
+        self.execute(self.compile('whisper_internal_forward',source))
+
+    def test_native_exclusive_static_and_receiver_calls_preserve_transfers(self):
+        source='''struct Token{pub value:u32;}struct Factory{pub initial:u32;}
+impl Token{pub fn create()->sole Token{return Token{value:21};}
+pub fn consume(value:sole Token)->u32{return value.value;}}
+impl Factory{pub fn build(self:&Self)->sole Token{return Token{value:self.initial};}}
+pub fn main_entry()->u32{let factory:Factory=Factory{initial:21};
+let first:sole Token=Token::create();let second:sole Token=factory.build();
+return Token::consume(first)+Token::consume(second);}'''
+        self.execute(self.compile('exclusive_method_transfers',source))
+        self.compile('exclusive_method_moved',source.replace('return Token::consume(first)+Token::consume(second);','Token::consume(first);return first.value+second.value;'),success=False)
+        self.compile('exclusive_receiver_erasure',source.replace('let second:sole Token=factory.build();','let second:Token=factory.build();'),success=False)
+
+    def test_native_exclusive_unsafe_wrapper_preserves_consumption(self):
+        source='''struct Token{pub value:u32;}fn consume(value:sole Token)->u32{return value.value;}
+pub fn main_entry()->u32{let first:sole Token=Token{value:42};let second:sole Token=unsafe{first};return consume(second);}'''
+        self.execute(self.compile('exclusive_unsafe_transfer',source))
+        self.compile('exclusive_unsafe_moved',source.replace('return consume(second);','return first.value+consume(second);'),success=False)
+
+    def test_unsafe_pod_value_bindings_keep_independent_storage(self):
+        source='''struct Token{pub value:u32;}
+pub fn main_entry()->u32{let mut original:Token=Token{value:42};
+let copied:Token=unsafe{original};original.value=99;return copied.value;}'''
+        self.execute(self.compile('unsafe_pod_value_copy',source))
+
+    def test_native_whisper_rejects_mutation_escape_and_overlapping_move(self):
+        prefix='struct Token{pub value:u32;}'
+        cases=(
+            'fn write(value:whisper Token)->u32{value.value=0;return value.value;}',
+            'fn erase(value:whisper Token)->Token{return value;}',
+            'fn escape(value:whisper Token)->u32{let copied:Token=value;return copied.value;}',
+            'fn escape(value:whisper Token)->u32{let copied:Token=unsafe{value};return copied.value;}',
+            'fn escape(value:whisper Token)->*const Token{return unsafe{(&value) as *const Token};}',
+            'fn consume(value:sole Token)->u32{return value.value;}fn bad(value:whisper Token)->u32{return consume(value);}',
+            'fn overlap(borrowed:whisper Token,owned:sole Token)->u32{return borrowed.value+owned.value;}pub fn main_entry()->u32{let owner:sole Token=Token{value:21};return overlap(owner,owner);}',
+            'fn overlap(borrowed:whisper Token,owned:sole Token)->u32{return borrowed.value+owned.value;}pub fn main_entry()->u32{let owner:sole Token=Token{value:21};return overlap(unsafe{owner},owner);}',
+            'fn overlap(owned:sole Token,borrowed:whisper Token)->u32{return borrowed.value+owned.value;}pub fn main_entry()->u32{let owner:sole Token=Token{value:21};return overlap(owner,owner);}',
+            'pub fn main_entry()->u32{let value:whisper Token=Token{value:42};return value.value;}',
+            '@extern(C) fn escape(value:whisper Token)->u32;',
+        )
+        for index,body in enumerate(cases):
+            with self.subTest(index=index):
+                self.compile('whisper_native_reject_'+str(index),prefix+body,success=False)
+
+    def test_native_exclusive_conditional_consumption_has_path_states(self):
+        source='''struct Token{pub value:u32;}
+fn consume(value:sole Token)->u32{return value.value;}
+fn choose(flag:bool)->u32{let value:sole Token=Token{value:42};
+let answer:u32=if flag{consume(value)}else{consume(value)};return answer;}
+pub fn main_entry()->u32{if choose(true)!=42 || choose(false)!=42{return 1;}return 42;}'''
+        self.execute(self.compile('exclusive_conditional_calls',source))
+        invalid=source.replace('else{consume(value)}','else{42}').replace('return answer;','return value.value;')
+        self.compile('exclusive_conditional_maybe_moved',invalid,success=False)
+
+    def test_native_exclusive_else_if_merges_only_reachable_paths(self):
+        source='''struct Token{pub value:u32;}
+fn consume(value:sole Token)->u32{return value.value;}
+fn choose(n:u32)->u32{let value:sole Token=Token{value:42};
+if n==0{return consume(value);}else if n==1{return consume(value);}return value.value;}
+pub fn main_entry()->u32{if choose(0)!=42 || choose(1)!=42 || choose(2)!=42{return 1;}return 42;}'''
+        self.execute(self.compile('exclusive_else_if_returns',source))
+        self.compile('exclusive_else_if_moved',source.replace('else if n==1{return consume(value);}','else if n==1{consume(value);}'),success=False)
+
+    def test_native_exclusive_rejects_erasure_through_returned_values(self):
+        prefix='''struct Token{pub value:u32;}fn create()->sole Token{return Token{value:42};}'''
+        cases=(
+            'pub fn main_entry()->u32{let value:Token=create();return value.value;}',
+            'pub fn main_entry()->u32{let value:Token=unsafe{create()};return value.value;}',
+            'pub fn main_entry()->u32{let owner:sole Token=Token{value:42};let value:Token=unsafe{owner};return value.value;}',
+            'fn erase()->Token{return create();}pub fn main_entry()->u32{return erase().value;}',
+            'impl Token{pub fn create()->sole Token{return Token{value:42};}}pub fn main_entry()->u32{let value:Token=Token::create();return value.value;}',
+            'pub fn main_entry()->u32{let mut value:Token=Token{value:0};value=create();return value.value;}',
+            'pub fn main_entry()->u32{let owner:sole Token=Token{value:42};let mut value:Token=Token{value:0};value=owner;return value.value;}',
+            'struct Box{pub inner:Token;}pub fn main_entry()->u32{let owner:sole Token=Token{value:42};let value:Box=Box{inner:owner};return value.inner.value;}',
+        )
+        for index,body in enumerate(cases):
+            with self.subTest(index=index):
+                self.compile('exclusive_domain_erasure_'+str(index),prefix+body,success=False)
+
+    def test_native_exclusive_pod_call_binding_and_return_transfers(self):
+        source='''struct Token{pub value:u32;}
+fn create()->sole Token{return Token{value:42};}
+fn forward(value:sole Token)->sole Token{return value;}
+fn consume(value:sole Token)->u32{return value.value;}
+pub fn main_entry()->u32{let first:sole Token=create();let second:exclusive Token=first;
+let third:sole Token=forward(second);return consume(third);}'''
+        obj=self.compile('exclusive_pod_transfers',source)
+        self.execute(obj)
+        # The reference grammar spells exclusive POD values with a sole
+        # declaration. Compare layout and execution through that equivalent
+        # spelling; native move violations have separate rejection gates.
+        path=obj.with_suffix('.sotlas')
+        original=path.read_text(encoding='utf-8')
+        reference=original.replace('struct Token{','sole struct Token{').replace('sole Token','Token').replace('exclusive Token','Token')
+        path.write_text(reference,encoding='utf-8')
+        try:
+            self.assert_c11_reference(obj)
+        finally:
+            path.write_text(original,encoding='utf-8')
+
+    def test_native_exclusive_branch_merge_and_live_return_path(self):
+        source='''struct Token{pub value:u32;}
+fn consume(value:sole Token)->u32{return value.value;}
+fn select(flag:bool)->u32{let value:sole Token=Token{value:42};
+if flag{return consume(value);}return value.value;}
+pub fn main_entry()->u32{if select(true)!=42 || select(false)!=42{return 1;}return 42;}'''
+        self.execute(self.compile('exclusive_live_paths',source))
+        invalid='''struct Token{pub value:u32;}fn consume(value:sole Token)->u32{return value.value;}
+pub fn main_entry()->u32{let value:sole Token=Token{value:42};if true{consume(value);}return value.value;}'''
+        self.compile('exclusive_maybe_moved',invalid,success=False)
+
+    def test_native_exclusive_loop_rejects_repeated_outer_consumption(self):
+        source='''struct Token{pub value:u32;}fn consume(value:sole Token)->u32{return value.value;}
+pub fn main_entry()->u32{let value:sole Token=Token{value:42};let mut index:u32=0;
+while index<2{consume(value);index=index+1;}return 42;}'''
+        self.compile('exclusive_loop_move',source,success=False)
+
+    def test_native_exclusive_pod_rejects_moves_aliases_and_pointer_escapes(self):
+        prefix='struct Token{pub value:u32;}fn consume(value:sole Token)->u32{return value.value;}'
+        cases=(
+            'let first:sole Token=Token{value:42};consume(first);return first.value;',
+            'let first:sole Token=Token{value:42};let second:sole Token=first;return first.value;',
+            'let first:sole Token=Token{value:42};consume(first);return consume(first);',
+            'let first:sole Token=Token{value:42};let alias:Token=first;return alias.value;',
+            'let first:sole Token=Token{value:42};let alias:*const Token=unsafe{(&first) as *const Token};return 42;',
+        )
+        for index,body in enumerate(cases):
+            self.compile('exclusive_violation_'+str(index),prefix+'pub fn main_entry()->u32{'+body+'}',success=False)
+
     def test_constant_folding_preserves_operand_and_destination_types(self):
         cases=(
             'const F:f64=1.5;const BAD:u32=F;',
