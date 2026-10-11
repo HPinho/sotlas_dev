@@ -63,13 +63,27 @@ contracts. Local validation must pass CI before being called certified.
 
 - [ ] Migrate canonical ownership analysis into Sotlas.
 - [ ] Preserve all ownership domains in native IR.
+  - [x] Preserve explicit domain tags in parsed TypeRefs without erasing the qualifier source span.
+  - [x] Preserve domains of accepted parameters, local bindings and aggregate return destinations in TargetValue metadata.
 - [ ] Implement `sole`/`exclusive`, moves and use-after-move checking in the native path.
+  - [x] Execute exclusive fixed scalars and pointer-free POD records with explicit local, parameter and return qualifiers.
+  - [x] Reject use after a consuming call or binding move, duplicate consumption, implicit copies and pointer escape.
 - [ ] Implement ownership merges and `MAYBE_MOVED` in the CFG.
+  - [x] Merge exclusive states at structured branches and scalar conditional expressions; exclude returned paths.
+  - [x] Reject repeated consumption of an outer owner across a loop backedge.
+  - [ ] Complete nested loop jumps and general ownership CFG joins.
 - [ ] Implement transfers through calls, returns, fields and payloads.
+  - [x] Internal exclusive POD call, return and binding transfers execute natively.
+  - [x] Static and instance method results preserve ownership; qualified consuming calls record the move.
+  - [x] Transparent unsafe expressions preserve moves and independent POD value storage.
+  - [x] Reject domain erasure from owned return values, ordinary assignments, aggregate fields and transparent unsafe expressions.
 - [ ] Implement `shared`, aliases and reference accounts.
 - [ ] Implement retain, release, destroy and drop glue in Sotlas.
 - [ ] Implement `region`, lifetimes and escape validation.
 - [ ] Implement `whisper`, reference validity and weak invalidation.
+  - [x] Internal POD parameters allow read-only calls and forwarding without consuming their caller's owner.
+  - [x] Reject mutation, storage, whole-value return, pointer escape, borrowed-value FFI and borrow/consume overlap in one call.
+  - [ ] Implement stored weak references and runtime invalidation.
 - [ ] Implement `direct`, alias graphs, forwarding and no-escape checking.
 - [ ] Implement `island` isolation rules.
 - [ ] Implement contracted `handover` and `quarantine` transitions.
@@ -98,13 +112,19 @@ contracts. Local validation must pass CI before being called certified.
 | Invalid unused constants rejected before output | `tests/test_sotlas_native_frontend_closure.py::test_invalid_unused_constants_fail_closed` |
 | Unused constants do not leak temporary literal IR | `tests/test_sotlas_native_frontend_closure.py::test_unused_constants_do_not_leak_literal_ir_into_functions` |
 | Native file diagnostics and check/compile consistency | `test_native_diagnostics_preserve_path_position_phase_and_context` in the Linux, Windows and Darwin driver suites |
+| Exclusive POD call, binding and return execution | `test_native_exclusive_pod_call_binding_and_return_transfers` |
+| Branch and scalar conditional ownership joins | `test_native_exclusive_branch_merge_and_live_return_path`, `test_native_exclusive_conditional_consumption_has_path_states` |
+| Qualified/static and receiver method transfers | `test_native_exclusive_static_and_receiver_calls_preserve_transfers` |
+| Ownership metadata from actual Sotlas parsing and lowering | `test_native_lowering_preserves_parameter_binding_and_return_domains` |
+| Whisper forwarding, no-escape and overlapping consumption | `test_native_whisper_reads_and_forwarding_preserve_owner`, `test_native_whisper_rejects_mutation_escape_and_overlapping_move` |
+| Independent POD storage through unsafe value bindings | `test_unsafe_pod_value_bindings_keep_independent_storage` |
 
 These gates build the current sources through the strict public Stage-0
 frontend in a fresh directory. They do not select a cached Stage-1 executable.
 Stage 0 remains necessary to produce the initial test seed; execution and
 native generation gates use the Sotlas-owned compiler afterward.
 
-Local results: all four frontend-closure tests passed on Windows and Linux
+Earlier SV8.32 results: all four frontend-closure tests passed on Windows and Linux
 (WSL), and on Windows Python 3.10.11. The combined Windows driver/frontend
 run passed 15 tests. Linux diagnostics, original-module generation identity
 and the floating-point workload passed three additional execution gates.
@@ -112,7 +132,34 @@ The C11 regression job passed 707 tests. The complete Windows regression
 suite passed 2,761 tests with 65 platform/tool skips. Intel macOS execution remains a CI
 gate; a Windows cross-build does not substitute for that execution evidence.
 
+SV8.34 local evidence: all 34 frontend-closure tests passed on Windows and
+Linux (WSL), including the actual lowering-domain inspection and unsafe POD
+copy gate. The same 34 tests passed with Windows Python 3.10.11. The final
+Windows frontend/driver run passed 45 tests, including the independent-storage
+guard and original-source Stage 2/3 identity. Linux ownership
+commands, original-source native generation identity and Darwin compiler
+cross-build passed three additional gates. The C11 regression step passed
+707 tests. macOS runtime execution remains a CI requirement.
+The complete Windows regression suite then passed 2,791 tests with 65
+platform/toolchain skips in 785.416 seconds, using the final source revision.
+
 ## Remaining limits
+
+Native ownership analysis currently accepts explicit exclusive qualifiers on
+fixed scalars and pointer-free POD records, and whisper parameters on the same
+POD types. Record parameters use the internal address ABI; scalar parameters
+use immutable values. This does not establish a general borrowed-reference ABI.
+Analysis tracks at most 256 bindings and 64 nested analysis levels. Owned fields,
+globals, pointer payloads, custom destructors, shared accounts and heap cleanup
+remain outside this contract. Unsupported domains are rejected semantically.
+Owned record fields are limited to fixed scalars and recursively nested plain
+records; array fields remain outside the ownership profile.
+Transparent unsafe value expressions retain independent POD binding storage.
+Raw-pointer record dereferences retain the existing native record-view path;
+general by-value loads from raw pointers are not certified by these new gates.
+Nested break/continue merges and ownership-bearing conditional result values
+remain open. A POD move has no heap resource to release; these execution gates
+must not be presented as proof of ARC or general exactly-once destruction.
 
 Scalar module constants retain the native numeric bounds and 64-declaration
 limit. Folding accepts up to 128 temporary IR instructions per expression;

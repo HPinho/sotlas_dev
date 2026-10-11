@@ -151,6 +151,11 @@ impl Lexer {
             tok.span.offset = start_offset;
             tok.span.length = length;
             tok.text_len = length;
+            let mut text_index: usize = 0;
+            while text_index < length && text_index < 128 {
+                tok.text[text_index] = unsafe { *(self.source + start_offset + text_index) };
+                text_index = text_index + 1;
+            }
             // Classifica palavra-chave ou literal reservado.
             tok.kind = self.classify_keyword(start_offset, length);
             return tok;

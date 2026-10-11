@@ -70,7 +70,7 @@ impl Sema {
     pub fn check_sole_access(mut self: &mut Self, is_moved: bool) -> bool {
         if is_moved {
             self.error_count = self.error_count + 1;
-            return false; // Valor já transferido via handover
+            return false; // Valor jÃ¡ transferido via handover
         }
         return true;
     }
@@ -170,6 +170,144 @@ impl Sema {
         return false;
     }
 
+    pub fn ownership_pod_type(self: &Self, nodes: *const AstNode,
+        node_count: usize, typ: usize, source: *const u8, source_len: usize, depth: usize) -> bool {
+        if typ == 0 || typ >= node_count || depth >= 32 { return false; }
+        let node: AstNode = unsafe { *(nodes + typ) };
+        if self.fixed_integer_type_tag(nodes, node_count, typ, source, source_len) != 0
+            || self.source_slice_equals(source, source_len, node.str_offset, node.str_len, "bool", 4)
+            || self.source_slice_equals(source, source_len, node.str_offset, node.str_len, "f32", 3)
+            || self.source_slice_equals(source, source_len, node.str_offset, node.str_len, "f64", 3) { return true; }
+        let mut index: usize = 1;
+        while index < node_count {
+            let declaration: AstNode = unsafe { *(nodes + index) };
+            if declaration.kind == AstKind::StructDecl && self.same_source_text(source, source_len, node, declaration) {
+                let mut field: usize = declaration.first_child;
+                while field != 0 {
+                    if field >= node_count { return false; }
+                    let member: AstNode = unsafe { *(nodes + field) };
+                    if member.first_child == 0 || member.first_child >= node_count
+                        || unsafe { (*(nodes + member.first_child)).int_value } != 0
+                        || !self.ownership_pod_type(nodes, node_count, member.first_child, source, source_len, depth + 1) { return false; }
+                    field = member.next_sibling;
+                }
+                return true;
+            }
+            index = index + 1;
+        }
+        return false;
+    }
+
+    pub fn ownership_called_function(self: &Self, nodes: *const AstNode,
+        count: usize, call_index: usize, source: *const u8, length: usize) -> usize {
+        if call_index == 0 || call_index >= count { return 0; }
+        let call: AstNode = unsafe { *(nodes + call_index) };
+        if call.kind != AstKind::ExprCall || call.first_child == 0 || call.first_child >= count { return 0; }
+        let callee: AstNode = unsafe { *(nodes + call.first_child) };
+        if callee.kind == AstKind::ExprIdent {
+            return self.find_module_function(nodes, count, call.first_child, source, length);
+        }
+        let module_index: usize = self.find_enclosing_module(nodes, count, call_index);
+        if module_index == 0 || module_index >= count { return 0; }
+        if callee.kind == AstKind::ExprPath {
+            return self.find_static_impl_method_for_path(nodes, count, module_index, call.first_child, source, length);
+        }
+        if callee.kind != AstKind::ExprFieldAccess { return 0; }
+        let record_index: usize = self.find_struct_for_receiver(nodes, count, callee.first_child, source, length);
+        if record_index == 0 || record_index >= count { return 0; }
+        let record: AstNode = unsafe { *(nodes + record_index) };
+        let mut declaration: usize = unsafe { (*(nodes + module_index)).first_child };
+        let mut found: usize = 0;
+        while declaration != 0 && declaration < count {
+            let impl_node: AstNode = unsafe { *(nodes + declaration) };
+            if impl_node.kind == AstKind::ImplDecl && self.same_source_text(source, length, impl_node, record) {
+                let mut child: usize = impl_node.first_child;
+                while child != 0 && child < count {
+                    let method: AstNode = unsafe { *(nodes + child) };
+                    if method.kind == AstKind::FnDecl && self.same_source_text(source, length, method, callee) {
+                        if found != 0 { return 0; }
+                        found = child;
+                    }
+                    child = method.next_sibling;
+                }
+            }
+            declaration = impl_node.next_sibling;
+        }
+        return found;
+    }
+
+    pub fn check_native_ownership(mut self: &mut Self, nodes: *const AstNode,
+        node_count: usize, source: *const u8, source_len: usize) -> bool {
+        let mut any_owned: bool = false; let mut index: usize = 1;
+        while index < node_count {
+            let node: AstNode = unsafe { *(nodes + index) };
+            if node.kind == AstKind::TypeRef && node.int_value != 0 {
+                if (node.int_value != 1 && node.int_value != 4) || !self.ownership_pod_type(nodes, node_count, index, source, source_len, 0)
+                    || node.parent == 0 || node.parent >= node_count { return self.reject_node(node); }
+                let parent: AstNode = unsafe { *(nodes + node.parent) };
+                if node.int_value == 4 && parent.kind != AstKind::ParamDecl { return self.reject_node(node); }
+                if parent.kind == AstKind::FieldDecl || parent.kind == AstKind::ExprCast
+                    || (parent.kind == AstKind::LetStmt && parent.parent != 0
+                        && unsafe { (*(nodes + parent.parent)).kind } == AstKind::Module) { return self.reject_node(node); }
+                any_owned = true;
+            }
+            index = index + 1;
+        }
+        if !any_owned { return true; }
+        index = 1;
+        while index < node_count {
+            let function: AstNode = unsafe { *(nodes + index) };
+            if function.kind == AstKind::FnDecl || function.kind == AstKind::TrapfnDecl {
+                let mut owns: bool = false; let mut scan: usize = 1;
+                while scan < node_count {
+                    let node: AstNode = unsafe { *(nodes + scan) };
+                    let mut transfers: bool = node.kind == AstKind::TypeRef && node.int_value != 0;
+                    if node.kind == AstKind::ExprCall && node.first_child != 0 && node.first_child < node_count {
+                        let called: usize = self.ownership_called_function(nodes, node_count, scan, source, source_len);
+                        if called != 0 {
+                            let mut result: usize = unsafe { (*(nodes + called)).first_child };
+                            while result != 0 && result < node_count {
+                                let result_node: AstNode = unsafe { *(nodes + result) };
+                                if result_node.kind == AstKind::TypeRef && result_node.int_value != 0 { transfers = true; }
+                                result = result_node.next_sibling;
+                            }
+                        }
+                    }
+                    if transfers {
+                        let mut ancestor: usize = node.parent; let mut traversed: usize = 0;
+                        while ancestor != 0 && ancestor < node_count && traversed < node_count {
+                            if ancestor == index { owns = true; break; }
+                            ancestor = unsafe { (*(nodes + ancestor)).parent }; traversed = traversed + 1;
+                        }
+                    }
+                    scan = scan + 1;
+                }
+                if owns {
+                    let mut analysis: NativeOwnershipCheck = NativeOwnershipCheck {
+                        nodes:nodes,node_count:node_count,source:source,source_len:source_len,
+                        bindings:[0;256],states:[0;256],domains:[0;256],count:0,error_node:0,return_domain:0
+                    };
+                    let mut child: usize = function.first_child; let mut body: usize = 0;
+                    while child != 0 {
+                        if child >= node_count { return self.reject_node(function); }
+                        let node: AstNode = unsafe { *(nodes + child) };
+                        if node.kind == AstKind::ParamDecl && !analysis.bind(child) { return self.reject_node(node); }
+                        if node.kind == AstKind::TypeRef { analysis.return_domain = node.int_value; }
+                        if node.kind == AstKind::Block { body = child; }
+                        child = node.next_sibling;
+                    }
+                    if body == 0 { return self.reject_node(function); }
+                    if analysis.sequence(unsafe { (*(nodes + body)).first_child }, 0) == 0 {
+                        if analysis.error_node == 0 || analysis.error_node >= node_count { return self.reject_node(function); }
+                        return self.reject_node(unsafe { *(nodes + analysis.error_node) });
+                    }
+                }
+            }
+            index = index + 1;
+        }
+        return true;
+    }
+
     pub fn check_top_level_declarations(
         mut self: &mut Self,
         nodes: *const AstNode,
@@ -243,6 +381,7 @@ impl Sema {
             current_index = current.next_sibling;
         }
 
+        if !self.check_native_ownership(nodes, node_count, source, source_len) { return false; }
         let mut node_index: usize = 1;
         while node_index < node_count {
             let node: AstNode = unsafe { *(nodes + node_index) };
@@ -3393,5 +3532,306 @@ impl Sema {
             current_index = current.next_sibling;
         }
         return true;
+    }
+}
+
+pub struct NativeOwnershipCheck {
+    pub nodes: *const AstNode;
+    pub node_count: usize;
+    pub source: *const u8;
+    pub source_len: usize;
+    pub bindings: [usize; 256];
+    pub states: [u8; 256];
+    pub domains: [u8; 256];
+    pub count: usize;
+    pub error_node: usize;
+    pub return_domain: i64;
+}
+
+impl NativeOwnershipCheck {
+    pub fn fail(mut self: &mut Self, node: usize) -> bool { self.error_node = node; return false; }
+    pub fn domain(self: &Self, binding: usize) -> i64 {
+        if binding == 0 || binding >= self.node_count { return 0; }
+        let node: AstNode = unsafe { *(self.nodes + binding) };
+        if node.first_child == 0 || node.first_child >= self.node_count { return 0; }
+        let typ: AstNode = unsafe { *(self.nodes + node.first_child) };
+        if typ.kind == AstKind::TypeRef { return typ.int_value; }
+        return 0;
+    }
+    pub fn slot(self: &Self, expression: usize) -> usize {
+        if expression == 0 || expression >= self.node_count { return 256; }
+        let node: AstNode = unsafe { *(self.nodes + expression) };
+        let mut index: usize = self.count;
+        let mut sem: Sema = Sema::new();
+        while index > 0 {
+            index = index - 1;
+            let binding: AstNode = unsafe { *(self.nodes + self.bindings[index]) };
+            if sem.same_source_text(self.source, self.source_len, node, binding) { return index; }
+        }
+        return 256;
+    }
+    pub fn bind(mut self: &mut Self, node: usize) -> bool {
+        if self.count >= 256 { return self.fail(node); }
+        self.bindings[self.count] = node;
+        self.domains[self.count] = self.domain(node) as u8;
+        self.states[self.count] = 1;
+        self.count = self.count + 1;
+        return true;
+    }
+    pub fn expression_domain(self: &Self, node_index: usize) -> i64 {
+        return self.expression_domain_at(node_index, 0);
+    }
+    pub fn expression_domain_at(self: &Self, node_index: usize, depth: usize) -> i64 {
+        if depth >= 64 { return 1; }
+        if node_index == 0 || node_index >= self.node_count { return 0; }
+        let node: AstNode = unsafe { *(self.nodes + node_index) };
+        if node.kind == AstKind::UnsafeExpr { return self.expression_domain_at(node.first_child, depth + 1); }
+        if node.kind == AstKind::ExprIdent {
+            let index: usize = self.slot(node_index);
+            if index < self.count { return self.domains[index] as i64; }
+        }
+        if node.kind == AstKind::ExprCall && node.first_child != 0 && node.first_child < self.node_count {
+            let callee: AstNode = unsafe { *(self.nodes + node.first_child) };
+            let mut sem: Sema = Sema::new();
+            let function: usize = sem.ownership_called_function(self.nodes, self.node_count, node_index, self.source, self.source_len);
+            if function == 0 { return 0; }
+            let mut child: usize = unsafe { (*(self.nodes + function)).first_child };
+            while child != 0 && child < self.node_count {
+                let result: AstNode = unsafe { *(self.nodes + child) };
+                if result.kind == AstKind::TypeRef { return result.int_value; }
+                child = result.next_sibling;
+            }
+        }
+        return 0;
+    }
+    pub fn contains_owner(self: &Self, node_index: usize, depth: usize) -> bool {
+        if node_index == 0 || node_index >= self.node_count || depth >= 64 { return true; }
+        let node: AstNode = unsafe { *(self.nodes + node_index) };
+        if node.kind == AstKind::ExprIdent {
+            let index: usize = self.slot(node_index);
+            return index < self.count && self.domains[index] != 0;
+        }
+        let mut child: usize = node.first_child;
+        while child != 0 {
+            if self.contains_owner(child, depth + 1) { return true; }
+            child = unsafe { (*(self.nodes + child)).next_sibling };
+        }
+        return false;
+    }
+    pub fn contains_borrow(self: &Self, node_index: usize, depth: usize) -> bool {
+        if node_index == 0 || node_index >= self.node_count || depth >= 64 { return true; }
+        let node: AstNode = unsafe { *(self.nodes + node_index) };
+        if node.kind == AstKind::ExprIdent {
+            let index: usize = self.slot(node_index);
+            return index < self.count && self.domains[index] == 4;
+        }
+        let mut child: usize = node.first_child;
+        while child != 0 {
+            if child >= self.node_count || self.contains_borrow(child, depth + 1) { return true; }
+            child = unsafe { (*(self.nodes + child)).next_sibling };
+        }
+        return false;
+    }
+    pub fn expression(mut self: &mut Self, node_index: usize, take: bool, depth: usize) -> bool {
+        if node_index == 0 { return true; }
+        if node_index >= self.node_count || depth >= 64 { return self.fail(node_index); }
+        let node: AstNode = unsafe { *(self.nodes + node_index) };
+        if node.kind == AstKind::UnsafeExpr {
+            return self.expression(node.first_child, take, depth + 1);
+        }
+        if node.kind == AstKind::ExprIdent {
+            let index: usize = self.slot(node_index);
+            if index < self.count && self.domains[index] != 0 {
+                if self.states[index] != 1 { return self.fail(node_index); }
+                if take {
+                    if self.domains[index] != 1 { return self.fail(node_index); }
+                    self.states[index] = 2;
+                }
+            }
+            return true;
+        }
+        if (node.kind == AstKind::ExprUnary && node.int_value == 92) || node.kind == AstKind::ExprCast {
+            if self.contains_owner(node.first_child, depth + 1) { return self.fail(node_index); }
+        }
+        if node.kind == AstKind::ExprCall {
+            let callee_index: usize = node.first_child;
+            if callee_index == 0 || callee_index >= self.node_count { return self.fail(node_index); }
+            let callee: AstNode = unsafe { *(self.nodes + callee_index) };
+            let mut sem: Sema = Sema::new();
+            let function: usize = sem.ownership_called_function(self.nodes, self.node_count, node_index, self.source, self.source_len);
+            if callee.kind == AstKind::ExprFieldAccess && self.contains_owner(callee_index, depth + 1) { return self.fail(node_index); }
+            let mut parameter: usize = 0;
+            if function != 0 { parameter = unsafe { (*(self.nodes + function)).first_child }; }
+            if callee.kind == AstKind::ExprFieldAccess && parameter != 0 && parameter < self.node_count {
+                parameter = unsafe { (*(self.nodes + parameter)).next_sibling };
+            }
+            let mut argument: usize = callee.next_sibling;
+            let mut borrowed: [u8;256] = 0;
+            while argument != 0 {
+                let mut consumes: bool = false;
+                let mut borrow: bool = false;
+                if parameter != 0 && parameter < self.node_count {
+                    let param: AstNode = unsafe { *(self.nodes + parameter) };
+                    if param.kind == AstKind::ParamDecl {
+                        consumes = self.domain(parameter) == 1;
+                        borrow = self.domain(parameter) == 4;
+                        parameter = param.next_sibling;
+                    }
+                }
+                let arg: AstNode = unsafe { *(self.nodes + argument) };
+                if !consumes && !borrow && self.expression_domain(argument) != 0 { return self.fail(argument); }
+                if borrow {
+                    let mut base: usize = argument; let mut hops: usize = 0;
+                    while base != 0 && base < self.node_count && hops < 64 {
+                        let base_node: AstNode = unsafe { *(self.nodes + base) };
+                        if base_node.kind == AstKind::ExprIdent {
+                            let owner: usize = self.slot(base);
+                            if owner < self.count { borrowed[owner] = 1; }
+                            break;
+                        }
+                        if base_node.kind != AstKind::UnsafeExpr && base_node.kind != AstKind::ExprFieldAccess { break; }
+                        base = base_node.first_child; hops = hops + 1;
+                    }
+                }
+                if !self.expression(argument, consumes, depth + 1) { return false; }
+                argument = arg.next_sibling;
+            }
+            let mut slot: usize = 0;
+            while slot < self.count {
+                if borrowed[slot] != 0 && self.states[slot] != 1 { return self.fail(node_index); }
+                slot = slot + 1;
+            }
+            return true;
+        }
+        if node.kind == AstKind::ExprConditional {
+            let condition: usize = node.first_child;
+            if condition == 0 || condition >= self.node_count || !self.expression(condition, false, depth + 1) { return self.fail(node_index); }
+            let yes: usize = unsafe { (*(self.nodes + condition)).next_sibling };
+            if yes == 0 || yes >= self.node_count { return self.fail(node_index); }
+            let no: usize = unsafe { (*(self.nodes + yes)).next_sibling };
+            if no == 0 || no >= self.node_count { return self.fail(node_index); }
+            // Aggregate conditional values are still rejected by lowering.
+            // Scalar arms may consume owners through calls independently.
+            if self.expression_domain(yes) != 0 || self.expression_domain(no) != 0 { return self.fail(node_index); }
+            let scope: usize = self.count;
+            let mut before: [u8;256] = 0; let mut after_yes: [u8;256] = 0;
+            let mut index: usize = 0;
+            while index < scope { before[index] = self.states[index]; index = index + 1; }
+            if !self.expression(yes, false, depth + 1) { return false; }
+            index = 0;
+            while index < scope { after_yes[index] = self.states[index]; self.states[index] = before[index]; index = index + 1; }
+            if !self.expression(no, false, depth + 1) { return false; }
+            index = 0;
+            while index < scope {
+                if self.domains[index] != 0 && after_yes[index] != self.states[index] { self.states[index] = 3; }
+                index = index + 1;
+            }
+            return true;
+        }
+        if node.kind == AstKind::StructFieldInit && self.expression_domain(node.first_child) != 0 { return self.fail(node_index); }
+        let mut child: usize = node.first_child;
+        while child != 0 {
+            if child >= self.node_count || !self.expression(child, false, depth + 1) { return false; }
+            child = unsafe { (*(self.nodes + child)).next_sibling };
+        }
+        return true;
+    }
+    pub fn sequence(mut self: &mut Self, first: usize, depth: usize) -> i64 {
+        if depth >= 64 { self.error_node = first; return 0; }
+        let mut index: usize = first;
+        while index != 0 {
+            if index >= self.node_count { self.error_node = index; return 0; }
+            let node: AstNode = unsafe { *(self.nodes + index) };
+            if node.kind == AstKind::LetStmt {
+                let mut value: usize = node.first_child;
+                if value != 0 && unsafe { (*(self.nodes + value)).kind } == AstKind::TypeRef { value = unsafe { (*(self.nodes + value)).next_sibling }; }
+                if self.domain(index) == 0 && self.expression_domain(value) != 0 { self.error_node = value; return 0; }
+                if !self.expression(value, self.domain(index) != 0, 0) || !self.bind(index) { return 0; }
+            } else if node.kind == AstKind::ReturnStmt {
+                if self.return_domain == 0 && self.expression_domain(node.first_child) != 0 { self.error_node = node.first_child; return 0; }
+                if !self.expression(node.first_child, self.return_domain != 0, 0) { return 0; }
+                return 2;
+            } else if node.kind == AstKind::Block || node.kind == AstKind::UnsafeBlock {
+                let scope: usize = self.count;
+                let result: i64 = self.sequence(node.first_child, depth + 1);
+                self.count = scope;
+                if result != 1 { return result; }
+            } else if node.kind == AstKind::IfStmt {
+                let condition: usize = node.first_child;
+                if condition == 0 || condition >= self.node_count || !self.expression(condition, false, 0) { self.error_node = index; return 0; }
+                let yes: usize = unsafe { (*(self.nodes + condition)).next_sibling };
+                if yes == 0 || yes >= self.node_count { self.error_node = index; return 0; }
+                let no: usize = unsafe { (*(self.nodes + yes)).next_sibling };
+                let scope: usize = self.count;
+                let mut before: [u8;256] = 0; let mut after_yes: [u8;256] = 0;
+                let mut slot: usize = 0;
+                while slot < scope { before[slot] = self.states[slot]; slot = slot + 1; }
+                let yes_result: i64 = self.sequence(unsafe { (*(self.nodes + yes)).first_child }, depth + 1);
+                if yes_result == 0 { return 0; }
+                self.count = scope; slot = 0;
+                while slot < scope { after_yes[slot] = self.states[slot]; self.states[slot] = before[slot]; slot = slot + 1; }
+                let mut no_result: i64 = 1;
+                if no != 0 {
+                    if no >= self.node_count { self.error_node = index; return 0; }
+                    let no_node: AstNode = unsafe { *(self.nodes + no) };
+                    let mut no_first: usize = no_node.first_child;
+                    if no_node.kind == AstKind::IfStmt { no_first = no; }
+                    no_result = self.sequence(no_first, depth + 1);
+                    if no_result == 0 { return 0; }
+                }
+                self.count = scope;
+                if yes_result == 2 && no_result == 2 { return 2; }
+                if yes_result >= 3 || no_result >= 3 { self.error_node = index; return 0; }
+                slot = 0;
+                while slot < scope {
+                    if no_result == 2 { self.states[slot] = after_yes[slot]; }
+                    else if yes_result != 2 && after_yes[slot] != self.states[slot] && self.domains[slot] != 0 { self.states[slot] = 3; }
+                    slot = slot + 1;
+                }
+            } else if node.kind == AstKind::WhileStmt {
+                let condition: usize = node.first_child;
+                if condition == 0 || condition >= self.node_count { self.error_node = index; return 0; }
+                let body: usize = unsafe { (*(self.nodes + condition)).next_sibling };
+                if body == 0 || body >= self.node_count { self.error_node = index; return 0; }
+                let scope: usize = self.count; let mut before: [u8;256] = 0;
+                let mut slot: usize = 0;
+                while slot < scope { before[slot] = self.states[slot]; slot = slot + 1; }
+                if !self.expression(condition, false, 0) { return 0; }
+                slot = 0;
+                while slot < scope {
+                    if self.domains[slot] != 0 && before[slot] != self.states[slot] { self.error_node = condition; return 0; }
+                    slot = slot + 1;
+                }
+                let result: i64 = self.sequence(unsafe { (*(self.nodes + body)).first_child }, depth + 1);
+                if result == 0 { return 0; }
+                self.count = scope; slot = 0;
+                while slot < scope {
+                    if self.domains[slot] != 0 && before[slot] != self.states[slot] {
+                        if result == 1 || result == 4 { self.error_node = index; return 0; }
+                        if result == 3 { self.states[slot] = 3; }
+                        else { self.states[slot] = before[slot]; }
+                    }
+                    slot = slot + 1;
+                }
+            } else if node.kind == AstKind::BreakStmt { return 3; }
+            else if node.kind == AstKind::ContinueStmt { return 4;
+            } else if node.kind == AstKind::AssignStmt {
+                let left: usize = node.first_child;
+                if left == 0 || left >= self.node_count { self.error_node = index; return 0; }
+                let target_node: AstNode = unsafe { *(self.nodes + left) };
+                if self.contains_borrow(left, 0) { self.error_node = left; return 0; }
+                let owner: usize = self.slot(left);
+                if target_node.kind == AstKind::ExprIdent && owner < self.count && self.domains[owner] != 0 {
+                    if self.states[owner] == 1 { self.error_node = index; return 0; }
+                    if !self.expression(target_node.next_sibling, true, 0) { return 0; }
+                    self.states[owner] = 1;
+                } else {
+                    if self.expression_domain(target_node.next_sibling) != 0 { self.error_node = target_node.next_sibling; return 0; }
+                    if !self.expression(left, false, 0) || !self.expression(target_node.next_sibling, false, 0) { return 0; }
+                }
+            } else if !self.expression(index, false, 0) { return 0; }
+            index = node.next_sibling;
+        }
+        return 1;
     }
 }

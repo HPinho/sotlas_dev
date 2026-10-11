@@ -1481,6 +1481,19 @@ impl ScalarLowering {
         return value_id;
     }
 
+    pub fn mark_value_domain(mut self: &mut Self, value_id: u32, type_index: usize) -> bool {
+        if type_index == 0 { return true; }
+        if type_index >= self.node_count || value_id == 0 || value_id as usize > self.value_count { return false; }
+        let typ: AstNode = unsafe { *(self.nodes + type_index) };
+        if typ.kind != AstKind::TypeRef || typ.int_value < 0 || typ.int_value > 8 { return false; }
+        unsafe {
+            let value: *mut TargetValue = self.values + value_id as usize - 1;
+            (*value).flags = ((*value).flags & ~TARGET_VALUE_DOMAIN_MASK)
+                | ((typ.int_value as u32) << TARGET_VALUE_DOMAIN_SHIFT);
+        }
+        return true;
+    }
+
     pub fn append_operand(mut self: &mut Self, value_id: u32) -> bool {
         if self.operands == null || self.operand_count >= self.operand_capacity
             || value_id == TARGET_VALUE_NONE {
@@ -5542,12 +5555,16 @@ impl ScalarLowering {
                 let deref_index: usize = value_node.first_child;
                 if deref_index == 0 || deref_index >= self.node_count { return self.reject(index); }
                 let deref: AstNode = unsafe { *(self.nodes + deref_index) };
-                if deref.kind != AstKind::ExprUnary || deref.int_value != 82 { return self.reject(index); }
-                if self.pointer_pointee_struct_id(self.pointer_expression_type_ref(deref.first_child)) != struct_id {
-                    return self.reject(index);
-                }
                 typ = TargetTypeTag::Pointer;
-                value = self.lower_expression(deref.first_child, typ, first_parameter, parameter_count);
+                if deref.kind == AstKind::ExprUnary && deref.int_value == 82 {
+                    if self.pointer_pointee_struct_id(self.pointer_expression_type_ref(deref.first_child)) != struct_id {
+                        return self.reject(index);
+                    }
+                    value = self.lower_expression(deref.first_child, typ, first_parameter, parameter_count);
+                } else {
+                    if self.cfg_struct_id(deref_index, 0) != struct_id { return self.reject(index); }
+                    value = self.lower_expression(deref_index, typ, first_parameter, parameter_count);
+                }
             } else {
                 if type_index != 0 { typ = self.type_tag_for(type_index); }
                 let value_struct: u32 = self.cfg_struct_id(value_index, 0);
@@ -5565,6 +5582,9 @@ impl ScalarLowering {
             }
             if value == 0 { return self.reject(index); }
             if struct_id != 0 && (value_node.kind == AstKind::ExprIdent || value_node.kind == AstKind::ExprFieldAccess
+                || (value_node.kind == AstKind::UnsafeExpr && value_node.first_child != 0
+                    && (unsafe { (*(self.nodes + value_node.first_child)).kind } != AstKind::ExprUnary
+                        || unsafe { (*(self.nodes + value_node.first_child)).int_value } != 82))
                 || (stmt.int_value == 1 && value_node.kind != AstKind::ExprStructLiteral
                     && value_node.kind != AstKind::ExprCall)) {
                 let copy: u32 = self.allocate_struct(struct_id, index);
@@ -5589,6 +5609,7 @@ impl ScalarLowering {
                 self.local_value_ids[slot] = address;
                 self.local_storage_types[slot] = typ as u32;
             } else { self.local_value_ids[slot] = value; }
+            if !self.mark_value_domain(self.local_value_ids[slot], type_index) { return self.reject(index); }
             self.local_count = self.local_count + 1;
             return true;
         }
@@ -5855,6 +5876,7 @@ impl ScalarLowering {
             reset_local = reset_local + 1;
         }
         let mut return_type: TargetTypeTag = TargetTypeTag::Invalid;
+        let mut return_type_index: usize = 0;
         let mut body_index: usize = 0;
         let mut child_index: usize = function_node.first_child;
         let mut is_first_param: bool = true;
@@ -5884,6 +5906,7 @@ impl ScalarLowering {
                     value_id = self.append_value(type_tag, child.str_offset, child.str_len);
                 }
                 if !function_is_external && value_id == TARGET_VALUE_NONE { return self.reject(child_index); }
+                if !function_is_external && !self.mark_value_domain(value_id, type_index) { return self.reject(child_index); }
                 unsafe {
                     *(self.parameters + self.parameter_count) = TargetParameter {
                         value_id: value_id,
@@ -5928,6 +5951,7 @@ impl ScalarLowering {
                     return self.reject(child_index);
                 }
                 return_type = self.type_tag_for(child_index);
+                return_type_index = child_index;
                 if return_type == TargetTypeTag::Invalid {
                     return self.reject(child_index);
                 }
@@ -5951,6 +5975,7 @@ impl ScalarLowering {
                 || self.parameter_count - first_parameter >= 24 { return self.reject(function_index); }
             self.return_destination = self.append_value(TargetTypeTag::Pointer, 0, 0);
             if self.return_destination == 0 { return self.reject(function_index); }
+            if !self.mark_value_domain(self.return_destination, return_type_index) { return self.reject(function_index); }
             unsafe {
                 *(self.parameters + self.parameter_count) = TargetParameter {
                     value_id: self.return_destination, type_tag: TargetTypeTag::Pointer,

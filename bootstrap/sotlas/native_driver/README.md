@@ -498,7 +498,7 @@ trap with `ud2` instead of publishing an indefinite integer. The full `u64`
 range is supported in both directions; values rounded up to `2^64` cannot be
 converted back. These are owned-profile rules; C11 equivalence covers defined
 inputs only. Boolean/pointer numeric conversions remain rejected.
-Nonzero static initializers and float module constants remain unsupported.
+Initialized scalar storage and scalar module constants are described below.
 Freestanding kernels must establish and preserve their FP environment before
 using SSE2; this candidate does not certify kernel floating execution.
 
@@ -534,3 +534,26 @@ length/type validation. Large repetitions execute a native fill loop and
 evaluate the initializer once. Scalar, floating and Boolean `if/else` values
 use lazy native CFG arms in returns, calls and loops. Aggregate and ownership
 conditional values remain outside this profile.
+
+## Exclusive POD transfers and internal whisper parameters
+
+Explicit `sole T` and `exclusive T` qualifiers support fixed scalars and
+pointer-free POD records in locals, internal parameters and returns. Native
+analysis tracks moves, use after move and conditional `MAYBE_MOVED` states.
+Consuming an outer owner on a repeating loop path is rejected. Domain erasure
+through ordinary bindings, assignments, whole-value returns, aggregate fields
+or transparent unsafe expressions is rejected.
+
+`whisper T` is limited to internal POD parameters. Record parameters use the
+internal address ABI; scalar parameters use immutable values. Read-only calls
+and forwarding leave the caller's exclusive owner live. Mutation, storage,
+whole-value return, address escape and borrowing across foreign calls are rejected. Passing one
+owner as both a borrowed and consuming argument in the same call is rejected.
+The profile reports `ownership_analysis=exclusive-pod,whisper-internal`.
+
+These contracts do not provide shared ARC, heap ownership, custom destructors,
+weak storage/invalidation or a general borrowed-reference ABI. Their runtime
+capability remains unsupported. Domains are retained in AST qualifiers and
+TargetValue metadata for accepted bindings, parameters and aggregate return
+destinations. See the [closure checklist](../../../docs/sotlas_native_frontend_ownership_checklist.md)
+for the remaining migration requirements.

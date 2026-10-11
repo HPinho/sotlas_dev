@@ -64,7 +64,7 @@ fn fail(code: u32) -> u32 {
 
 // Report the actual owned profile without initializing compiler arenas.
 fn driver_print_profile(help: bool) -> u32 {
-    let mut text: *const u8 = "sotlas-native capabilities v1\nbackend=x86_64\ninteger_bits=8,16,32,64\nfloats=f32,f64\nfloat_literals=coefficient<10^18;decimal-places<=18\nfloat_abi=internal-bits\nnumeric_casts=integer-float-checked\nfloat_external_abi=unsupported\nownership_runtime=unsupported\nflow_execution=unsupported\n";
+    let mut text: *const u8 = "sotlas-native capabilities v1\nbackend=x86_64\ninteger_bits=8,16,32,64\nfloats=f32,f64\nfloat_literals=coefficient<10^18;decimal-places<=18\nfloat_abi=internal-bits\nnumeric_casts=integer-float-checked\nfloat_external_abi=unsupported\nownership_analysis=exclusive-pod,whisper-internal\nownership_runtime=unsupported\nflow_execution=unsupported\n";
     if help { text = "Usage: sotlas-native INPUT OUTPUT [--object|--compiler]\n       sotlas-native --check INPUT\n       sotlas-native --project[-object|-compiler] OUTPUT INPUT...\n       sotlas-native --check-build ROOT ENTRY\n       sotlas-native --build[-obj|-cc] OUTPUT ROOT ENTRY\n       sotlas-native --capabilities\nNative profiles are bounded; use --capabilities to inspect limits.\n"; }
     let mut length: usize = 0;
     while length < 2048 && unsafe { *(text + length) } != 0 { length = length + 1; }
@@ -549,7 +549,7 @@ fn driver_resolve_append_file(source: *const u8, file: usize) -> bool {
     }
     let destination: *mut u8 = unsafe { driver_source_bytes as *mut u8 };
     let position: usize = unsafe { *(driver_resolved_length as *const usize) };
-    if position >= 1048575 { return false; }
+    if position >= 2097151 { return false; }
     unsafe {
         *(destination + position) = 10;
         *(driver_resolved_length as *mut usize) = position + 1;
@@ -751,7 +751,7 @@ fn driver_compile_discovered(argc: u64, argv: *const *const u8,
             position = position + (count as usize);
         }
         let closed: i64 = sotlas_linux_close(descriptor);
-        if closed < 0 || position == start || position >= 1048575 { return fail(3); }
+        if closed < 0 || position == start || position >= 2097151 { return fail(3); }
         let length: usize = position - start;
         unsafe {
             *(driver_project_starts as *mut usize + file) = start;
@@ -876,7 +876,7 @@ fn driver_compile_project(
         }
         let closed: i64 = sotlas_linux_close(input_fd);
         // The separator is included in the bounded combined source size.
-        if closed < 0 || source_length == before_file || source_length >= 1048575 {
+        if closed < 0 || source_length == before_file || source_length >= 2097151 {
             return fail(3);
         }
         if resolve_imports {

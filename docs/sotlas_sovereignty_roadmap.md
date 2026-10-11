@@ -1570,6 +1570,47 @@ gate. Native Linux execution, Linux generation identity and the Darwin
 cross-build passed; macOS runtime execution still requires CI. These results
 do not close the remaining ownership/lifetime/ARC and broader frontend items.
 
+### SV8.34 — exclusive POD transfers and read-only internal borrowing
+
+The Sotlas parser records explicit ownership qualifiers in TypeRef metadata
+and retains their full source span. The Sotlas semantic pass now tracks
+exclusive POD bindings and internal transfers through calls and returns.
+Use after move, duplicate consumption, implicit domain erasure and pointer
+escape fail before object emission. Structured branch merges and scalar
+conditional calls preserve `MAYBE_MOVED`; returned paths do not poison the
+remaining live path. Repeated outer-owner consumption on loop backedges is
+rejected.
+
+Internal `whisper` POD parameters support read-only calls and forwarding.
+Borrowing leaves an exclusive caller binding live. Mutation, storing/returning
+the whole borrowed value, pointer escape, foreign boundaries and overlapping
+borrow/consume arguments are rejected. Native record parameters use the
+existing internal address ABI; scalar parameters use immutable values.
+Weak storage and runtime invalidation remain separate open requirements.
+
+TargetValue metadata preserves domains on accepted parameters, local bindings
+and aggregate return destinations without changing the record ABI. An execution
+gate runs the Sotlas parser, semantic pass and lowering over another source and
+inspects these actual IR domains.
+
+Compiler growth exposed residual 1 MiB project guards in all three native
+drivers. These now enforce the already allocated 2 MiB input boundary, including
+space for source separators. The change preserves bounded reads and output
+transactionality.
+
+This is a native ownership foundation, not completion of the entire ownership
+runtime. Shared ARC, heap cleanup, owned fields/globals, stored weak references,
+general borrowed-reference ABI and arbitrary ownership CFG remain open in the
+[closure checklist](sotlas_native_frontend_ownership_checklist.md).
+
+Local validation of the final block: **2,791 Windows regression tests passed
+with 65 skips**. The focused frontend/Windows-driver set passed **45 tests**;
+the frontend closure set passed **34 tests** on Windows, Linux (WSL) and
+Windows Python 3.10.11. Linux native generation identity and Darwin compiler
+cross-build passed alongside the ownership command gate. The C11 regression
+step passed **707 tests**. CI certification and macOS runtime execution remain
+required; this evidence does not close the remaining parent checklist items.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test

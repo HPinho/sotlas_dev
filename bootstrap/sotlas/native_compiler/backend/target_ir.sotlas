@@ -11,6 +11,11 @@ pub const TARGET_BLOCK_NONE: u32 = 0;
 pub const TARGET_FLAG_SEMANTIC_ONLY: u32 = 1;
 pub const TARGET_FLAG_SYSTEM: u32 = 2;
 pub const TARGET_FUNCTION_EXTERNAL: u32 = 4;
+// Value metadata keeps domain identity independently of machine storage type.
+// 0=plain, 1=exclusive, 2=shared, 3=island, 4=whisper, 5=region,
+// 6=direct, 7=device, 8=external. These bits do not change the record ABI.
+pub const TARGET_VALUE_DOMAIN_MASK: u32 = 3840;
+pub const TARGET_VALUE_DOMAIN_SHIFT: u32 = 8;
 
 pub enum TargetTypeTag {
     Invalid = 0,

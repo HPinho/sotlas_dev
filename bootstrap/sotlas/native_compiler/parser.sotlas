@@ -185,11 +185,37 @@ impl Parser {
         return true;
     }
 
+    pub fn token_word(self: &Self, token: Token, word: *const u8, length: usize) -> bool {
+        if token.text_len != length || length > 128 { return false; }
+        let mut index: usize = 0;
+        while index < length {
+            if token.text[index] != unsafe { *(word + index) } { return false; }
+            index = index + 1;
+        }
+        return true;
+    }
+
     pub fn parse_type_ref(mut self: &mut Self, context: i64) -> usize {
         if self.is_at_end() {
             return 0;
         }
 
+        let original_start: Token = self.current();
+        let mut domain: i64 = 0;
+        if original_start.kind == TokenKind::KwSole { domain = 1; }
+        else if original_start.kind == TokenKind::KwWhisper { domain = 4; }
+        else if original_start.kind == TokenKind::Ident {
+            if self.token_word(original_start, "exclusive", 9) { domain = 1; }
+            else if self.token_word(original_start, "shared", 6) { domain = 2; }
+            else if self.token_word(original_start, "island", 6) { domain = 3; }
+            else if self.token_word(original_start, "region", 6) { domain = 5; }
+            else if self.token_word(original_start, "direct", 6) { domain = 6; }
+            else if self.token_word(original_start, "device", 6) { domain = 7; }
+            else if self.token_word(original_start, "external", 8) { domain = 8; }
+            if self.cursor + 1 < self.token_count
+                && unsafe { (*(self.tokens + self.cursor + 1)).kind } == TokenKind::DColon { domain = 0; }
+        }
+        if domain != 0 { self.advance(); if self.is_at_end() { self.reject_current(); return 0; } }
         let type_start: Token = self.current();
         let mut type_end: Token = type_start;
         let mut angle_depth: i64 = 0;
@@ -265,12 +291,16 @@ impl Parser {
             return 0;
         }
 
-        let type_node: usize = self.alloc_node(AstKind::TypeRef, type_start.span);
+        let type_node: usize = self.alloc_node(AstKind::TypeRef, original_start.span);
         if type_node == 0 {
             return 0;
         }
         if !self.set_node_text_range(type_node, type_start, type_end) {
             return 0;
+        }
+        unsafe {
+            (*(self.nodes + type_node)).int_value = domain;
+            (*(self.nodes + type_node)).span.length = type_end.span.offset + type_end.span.length - original_start.span.offset;
         }
         return type_node;
     }

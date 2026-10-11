@@ -116,7 +116,13 @@ class NativeLinuxDriverTests(unittest.TestCase):
     @unittest.skipUnless(LINUX_X64, "execution requires Linux x86-64")
     def test_native_check_compile_reject_ownership_and_flow_consistently(self):
         environment = {"PATH": str(self.directory / "no-tools")}
-        unsupported = ["module gate;pub struct Token{pub value:u32;}fn use(x:"+domain+" Token)->u32{return x.value;}" for domain in ("sole","shared","region","device","external","island","whisper","direct")]
+        source = self.directory / "exclusive.sotlas"
+        output = self.directory / "exclusive"
+        source.write_text("module gate;struct Token{pub value:u32;}fn read(x:whisper Token)->u32{return x.value;}fn consume(x:sole Token)->u32{return x.value;}pub fn main_entry()->u32{let first:sole Token=Token{value:42};if read(first)!=42{return 1;}let second:exclusive Token=first;return consume(second);}",encoding="utf-8")
+        self.run_tool([str(self.seed), "--check", str(source)], env=environment)
+        self.run_tool([str(self.seed), str(source), str(output)], env=environment)
+        self.run_tool([str(output)], expected=42, env=environment)
+        unsupported = ["module gate;pub struct Token{pub value:u32;}fn use(x:"+domain+(" *mut Token" if domain in ("sole","whisper") else " Token")+")->u32{return 42;}" for domain in ("sole","shared","region","device","external","island","whisper","direct")]
         unsupported.append("module gate;fn load()->u32{return 42;}flow Compute{stage seed=load;}")
         for index, text in enumerate(unsupported):
             with self.subTest(index=index):
@@ -124,7 +130,7 @@ class NativeLinuxDriverTests(unittest.TestCase):
                 source.write_text(text, encoding="utf-8")
                 output = self.directory / ("unsupported_"+str(index)+"")
                 output.write_bytes(b"preserve")
-                code = 5 if index == 8 else 7
+                code = 5 if index == 8 else 6
                 self.run_tool([str(self.seed), "--check", str(source)], expected=code, env=environment)
                 self.run_tool([str(self.seed), str(source), str(output)], expected=code, env=environment)
                 self.assertEqual(output.read_bytes(), b"preserve")
