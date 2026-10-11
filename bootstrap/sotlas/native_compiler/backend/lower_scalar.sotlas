@@ -410,46 +410,28 @@ impl ScalarLowering {
             return false;
         }
         let literal: AstNode = unsafe { *(self.nodes + literal_index) };
-        if literal.kind != AstKind::ExprLiteral || literal.next_sibling != 0 {
-            return false;
+        if literal.next_sibling != 0 { return false; }
+        if literal.kind != AstKind::ExprLiteral {
+            if literal.kind != AstKind::ExprUnary || literal.int_value != 81
+                || literal.first_child == 0 || literal.first_child >= self.node_count { return false; }
+            let child: AstNode = unsafe { *(self.nodes + literal.first_child) };
+            if child.kind != AstKind::ExprLiteral || child.next_sibling != 0 { return false; }
         }
         let type_tag: TargetTypeTag = self.type_tag_for(type_index);
-        if type_tag != TargetTypeTag::U8 && type_tag != TargetTypeTag::U16
-            && type_tag != TargetTypeTag::U32 && type_tag != TargetTypeTag::U64
-            && type_tag != TargetTypeTag::I8 && type_tag != TargetTypeTag::I16 && type_tag != TargetTypeTag::I32 && type_tag != TargetTypeTag::I64 {
-            return false;
-        }
-
-        // Validate the literal now with the same decimal/range contract used
-        // by expression lowering, but do not publish an IR value yet.
-        if literal.str_len == 0 || literal.str_offset > self.source_len
-            || literal.str_len > self.source_len - literal.str_offset {
-            return false;
-        }
-        let mut value: u64 = 0;
-        let mut index: usize = 0;
-        let mut saw_digit: bool = false;
-        while index < literal.str_len {
-            let ch: u8 = unsafe { *(self.source + literal.str_offset + index) };
-            if ch == 95 {
-                index = index + 1;
-                continue;
-            }
-            if ch < 48 || ch > 57 {
-                return false;
-            }
-            let digit: u64 = (ch - 48) as u64;
-            if value > 1844674407370955161
-                || (value == 1844674407370955161 && digit > 5) {
-                return false;
-            }
-            value = value * 10 + digit;
-            saw_digit = true;
-            index = index + 1;
-        }
-        if !saw_digit || value > self.integer_type_max(type_tag) {
-            return false;
-        }
+        if !target_type_is_integer(type_tag) && !target_type_is_float(type_tag)
+            && type_tag != TargetTypeTag::Bool { return false; }
+        // Validate unused constants too. Temporary literal IR must not consume
+        // arena identities or leak instructions into the first function.
+        let values_before: usize = self.value_count;
+        let instructions_before: usize = self.instruction_count;
+        let operands_before: usize = self.operand_count;
+        let next_before: u32 = self.next_value_id;
+        let validated: u32 = self.lower_expression(literal_index, type_tag, 0, 0);
+        self.value_count = values_before;
+        self.instruction_count = instructions_before;
+        self.operand_count = operands_before;
+        self.next_value_id = next_before;
+        if validated == 0 { return false; }
 
         let slot: usize = self.const_count;
         self.const_name_offsets[slot] = decl.str_offset;
@@ -2078,8 +2060,8 @@ impl ScalarLowering {
                     && type_tag != const_type {
                     return TARGET_VALUE_NONE;
                 }
-                return self.lower_integer_literal(
-                    self.const_literal_nodes[ci], const_type
+                return self.lower_expression(
+                    self.const_literal_nodes[ci], const_type, first_parameter, parameter_count
                 );
             }
             let g_idx: isize = self.find_global_bss(expression.str_offset, expression.str_len);

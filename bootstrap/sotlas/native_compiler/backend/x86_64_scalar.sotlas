@@ -2254,6 +2254,13 @@ pub fn emit_elf64_module_object(
         target_module, functions, parameters, values, blocks, instructions, operands, phi_inputs, targets
     ) { return false; }
 
+    // A marker is not evidence of ownership/state/defer runtime behavior.
+    // Keep it in IR, but reject this backend until that operation has lowering.
+    let mut semantic_index: u32 = 0;
+    while semantic_index < ir.instruction_count {
+        if target_opcode_is_semantic_only(unsafe { (*(instructions + semantic_index)).opcode }) { return false; }
+        semantic_index = semantic_index + 1;
+    }
     let mut symbol_of_function: [u32; 512] = 0;
     let mut defined_count: u32 = 0;
     let mut external_count: u32 = 0;
@@ -3264,7 +3271,7 @@ pub fn emit_elf64_module_object(
                         return false;
                     }
                 } else if target_opcode_is_semantic_only(instruction.opcode) {
-                    if instruction.result_value != 0 { return false; }
+                    return false;
                 } else {
                     return false;
                 }

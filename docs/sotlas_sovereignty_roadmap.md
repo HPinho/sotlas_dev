@@ -1487,6 +1487,42 @@ This candidate still requires final CI. Native ownership/ARC/lifetimes,
 Flow execution, broader language/numeric forms and complete command parity
 remain open; the certified checkpoint count remains 9/10.
 
+### SV8.32 — typed literal constants, native diagnostics and semantic runtime rejection
+
+The active frontend and ownership migration checklist is
+[Native frontend and ownership closure](sotlas_native_frontend_ownership_checklist.md).
+It records the complete requested scope and keeps broader parent items open
+when only a smaller native contract has been validated.
+
+Native module constants now support typed Boolean, f32 and f64 literals and
+unary-negative integer/float literals in addition to positive integer literals.
+Declaration validation uses the expression lowerer's type/range checks, even
+for unused constants, then restores temporary IR counts and value identities.
+General constant expressions and numeric forms outside the existing native
+literal bounds remain rejected.
+
+Linux, Windows and Intel macOS file drivers now print path, line, column,
+compiler phase, a bounded source excerpt and a caret for located lexer,
+parser, semantic and lowering failures. Parser errors retain expected and
+actual token kinds; reserved declaration binders report an expected identifier.
+Project coordinates still refer to the combined source stream. Original-file
+mapping and detailed canonical semantic diagnostics remain open.
+
+The backend-neutral IR still represents semantic runtime operations. The owned
+x86-64 object writer now rejects every reserved ownership/state/defer opcode
+before output rather than silently ignoring it. Native execution tests exercise
+all eleven opcodes, unchanged IR/output storage and a normal scalar control.
+This is an explicit unsupported-operation gate, not ownership runtime support.
+
+Acceptance gates are in `tests/test_sotlas_native_frontend_closure.py` and the
+three native file-driver suites. They build current sources in fresh directories
+through the strict public Stage-0 frontend. Local validation passed 2,761 tests
+with 65 skips, the 707-test C11 job, all four new execution gates on Windows
+and Linux (WSL), and original-module Linux/Windows generation checks.
+CI certification remains pending;
+this block does not promote the 9/10 checkpoint score or authorize removal of
+the Python/C bootstrap.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test

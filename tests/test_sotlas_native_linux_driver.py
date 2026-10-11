@@ -50,6 +50,29 @@ class NativeLinuxDriverTests(unittest.TestCase):
             raise AssertionError(f"{args}: exit {result.returncode}, expected {expected}: {result.stderr!r}")
         return result
 
+    @unittest.skipUnless(LINUX_X64, "execution requires Linux x86-64")
+    def test_native_diagnostics_preserve_path_position_phase_and_context(self):
+        environment={"PATH":str(self.directory/"no-tools")}
+        source=self.directory/'diagnostic file.sotlas'
+        output=self.directory/'diagnostic.exe'
+        cases=(
+            ('module gate;\nfn probe()->u32{return 42;}\n',5,2,4,b'syntax error; expected identifier',b'fn probe'),
+            ('module gate;\npub fn main_entry()->u32{let target:u32=0;return 42;}\n',5,2,30,b'syntax error; expected identifier',b'let target'),
+            ('module gate;\n# invalid\n',4,2,1,b'lexical error',b'# invalid'),
+        )
+        for text,code,line,column,message,context in cases:
+            with self.subTest(message=message,text=text):
+                source.write_text(text,encoding='utf-8');output.write_bytes(b'preserve')
+                checked=self.run_tool([str(self.seed),'--check',str(source)],expected=code,env=environment)
+                compiled=self.run_tool([str(self.seed),str(source),str(output)],expected=code,env=environment)
+                location=f'{source.name}:{line}:{column}: '.encode()
+                self.assertIn(location,checked.stderr)
+                self.assertIn(message,checked.stderr)
+                self.assertIn(context,checked.stderr)
+                self.assertIn(b'^',checked.stderr)
+                self.assertEqual(checked.stderr,compiled.stderr)
+                self.assertEqual(output.read_bytes(),b'preserve')
+
     def test_driver_image_is_static_elf_without_c_interpreter(self):
         import struct
         data = self.seed.read_bytes()
