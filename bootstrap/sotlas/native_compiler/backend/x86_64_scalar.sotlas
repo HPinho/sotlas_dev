@@ -1847,6 +1847,144 @@ fn append_object_float_slot(output: *mut u8, capacity: usize, length: &mut usize
         && append_object_u32(output, capacity, length, 0 as u32 - slot * 8);
 }
 
+fn append_object_fp_convert(output: *mut u8, capacity: usize, length: &mut usize,
+    typ: TargetTypeTag, opcode: u8, wide: bool) -> bool {
+    let mut prefix: u8 = 243;
+    if typ == TargetTypeTag::F64 { prefix = 242; }
+    return append_object_byte(output, capacity, length, prefix)
+        && (!wide || append_object_byte(output, capacity, length, 72))
+        && append_object_byte(output, capacity, length, 15)
+        && append_object_byte(output, capacity, length, opcode)
+        && append_object_byte(output, capacity, length, 192);
+}
+
+fn append_object_int_to_float(output: *mut u8, capacity: usize, length: &mut usize,
+    source_type: TargetTypeTag, result_type: TargetTypeTag) -> bool {
+    let wide: bool = object_type_is_64(source_type) || !object_signed_type(source_type);
+    if object_type_is_64(source_type) && !object_signed_type(source_type) {
+        // Unsigned values with bit 63 set: convert a half with a sticky low bit,
+        // then double in the destination precision. Low values take direct CVT.
+        if !append_object_byte(output, capacity, length, 72)
+            || !append_object_byte(output, capacity, length, 133)
+            || !append_object_byte(output, capacity, length, 192)
+            || !append_object_byte(output, capacity, length, 15)
+            || !append_object_byte(output, capacity, length, 137) { return false; }
+        let direct: usize = *length;
+        if !append_object_u32(output, capacity, length, 0)
+            || !append_object_byte(output, capacity, length, 72)
+            || !append_object_byte(output, capacity, length, 137)
+            || !append_object_byte(output, capacity, length, 193)
+            || !append_object_byte(output, capacity, length, 72)
+            || !append_object_byte(output, capacity, length, 209)
+            || !append_object_byte(output, capacity, length, 232)
+            || !append_object_byte(output, capacity, length, 131)
+            || !append_object_byte(output, capacity, length, 225)
+            || !append_object_byte(output, capacity, length, 1)
+            || !append_object_byte(output, capacity, length, 72)
+            || !append_object_byte(output, capacity, length, 9)
+            || !append_object_byte(output, capacity, length, 200)
+            || !append_object_fp_convert(output, capacity, length, result_type, 42, true) { return false; }
+        let mut prefix: u8 = 243;
+        if result_type == TargetTypeTag::F64 { prefix = 242; }
+        if !append_object_byte(output, capacity, length, prefix)
+            || !append_object_byte(output, capacity, length, 15)
+            || !append_object_byte(output, capacity, length, 88)
+            || !append_object_byte(output, capacity, length, 192)
+            || !append_object_byte(output, capacity, length, 233) { return false; }
+        let done: usize = *length;
+        if !append_object_u32(output, capacity, length, 0)
+            || !put_u32(output, capacity, direct, (*length - direct - 4) as u32)
+            || !append_object_fp_convert(output, capacity, length, result_type, 42, true)
+            || !put_u32(output, capacity, done, (*length - done - 4) as u32) { return false; }
+        return true;
+    }
+    return append_object_fp_convert(output, capacity, length, result_type, 42, wide);
+}
+
+fn append_object_float_bound(output: *mut u8, capacity: usize, length: &mut usize,
+    typ: TargetTypeTag, bits: u64) -> bool {
+    // Materialize IEEE bits in xmm1, then compare xmm0 against the bound.
+    if !append_object_byte(output, capacity, length, 72)
+        || !append_object_byte(output, capacity, length, 185)
+        || !append_object_u64(output, capacity, length, bits)
+        || !append_object_byte(output, capacity, length, 102)
+        || (typ == TargetTypeTag::F64 && !append_object_byte(output, capacity, length, 72))
+        || !append_object_byte(output, capacity, length, 15)
+        || !append_object_byte(output, capacity, length, 110)
+        || !append_object_byte(output, capacity, length, 201)
+        || (typ == TargetTypeTag::F64 && !append_object_byte(output, capacity, length, 102))
+        || !append_object_byte(output, capacity, length, 15)
+        || !append_object_byte(output, capacity, length, 46)
+        || !append_object_byte(output, capacity, length, 193) { return false; }
+    return true;
+}
+
+fn append_object_float_to_int(output: *mut u8, capacity: usize, length: &mut usize,
+    source_type: TargetTypeTag, result_type: TargetTypeTag) -> bool {
+    let width: u64 = target_integer_width(result_type) as u64;
+    let is_signed: bool = object_signed_type(result_type);
+    let mut fraction: u64 = 52;
+    let mut bias: u64 = 1023;
+    if source_type == TargetTypeTag::F32 { fraction = 23; bias = 127; }
+    let mut sign: u64 = 9223372036854775808;
+    if source_type == TargetTypeTag::F32 { sign = 2147483648; }
+    let mut lower: u64 = (bias << fraction) | sign;
+    if source_type == TargetTypeTag::F32 { lower = (bias << fraction) | 2147483648; }
+    let mut lower_condition: u8 = 119;
+    let mut upper_exponent: u64 = width;
+    if is_signed {
+        upper_exponent = width - 1;
+        lower = ((bias + upper_exponent) << fraction);
+        if source_type == TargetTypeTag::F32 { lower = lower | 2147483648; }
+        else { lower = lower | 9223372036854775808; }
+        // Permit fractions that truncate to MIN. If MIN-1 is not representable
+        // in the source precision, an inclusive MIN check is equivalent.
+        if fraction >= upper_exponent { lower = lower | ((1 as u64) << (fraction - upper_exponent)); }
+        else { lower_condition = 115; }
+    }
+    let upper: u64 = (bias + upper_exponent) << fraction;
+    if !append_object_float_bound(output, capacity, length, source_type, lower)
+        || !append_object_byte(output, capacity, length, lower_condition)
+        || !append_object_byte(output, capacity, length, 2)
+        || !append_object_byte(output, capacity, length, 15)
+        || !append_object_byte(output, capacity, length, 11)
+        || !append_object_float_bound(output, capacity, length, source_type, upper)
+        || !append_object_byte(output, capacity, length, 114)
+        || !append_object_byte(output, capacity, length, 2)
+        || !append_object_byte(output, capacity, length, 15)
+        || !append_object_byte(output, capacity, length, 11) { return false; }
+    if !is_signed && width == 64 {
+        let high: u64 = (bias + 63) << fraction;
+        if !append_object_float_bound(output, capacity, length, source_type, high)
+            || !append_object_byte(output, capacity, length, 15)
+            || !append_object_byte(output, capacity, length, 130) { return false; }
+        let direct: usize = *length;
+        let mut prefix: u8 = 243;
+        if source_type == TargetTypeTag::F64 { prefix = 242; }
+        if !append_object_u32(output, capacity, length, 0)
+            || !append_object_byte(output, capacity, length, prefix)
+            || !append_object_byte(output, capacity, length, 15)
+            || !append_object_byte(output, capacity, length, 92)
+            || !append_object_byte(output, capacity, length, 193)
+            || !append_object_fp_convert(output, capacity, length, source_type, 44, true)
+            || !append_object_byte(output, capacity, length, 72)
+            || !append_object_byte(output, capacity, length, 185)
+            || !append_object_u64(output, capacity, length, 9223372036854775808)
+            || !append_object_byte(output, capacity, length, 72)
+            || !append_object_byte(output, capacity, length, 49)
+            || !append_object_byte(output, capacity, length, 200)
+            || !append_object_byte(output, capacity, length, 233) { return false; }
+        let done: usize = *length;
+        if !append_object_u32(output, capacity, length, 0)
+            || !put_u32(output, capacity, direct, (*length - direct - 4) as u32)
+            || !append_object_fp_convert(output, capacity, length, source_type, 44, true)
+            || !put_u32(output, capacity, done, (*length - done - 4) as u32) { return false; }
+        return true;
+    }
+    return append_object_fp_convert(output, capacity, length, source_type, 44,
+        width == 64 || !is_signed);
+}
+
 fn append_object_float_compare(output: *mut u8, capacity: usize, length: &mut usize,
     left: u32, right: u32, typ: TargetTypeTag, predicate: u64) -> bool {
     if !append_object_float_slot(output, capacity, length, left, typ, 16)
@@ -2299,6 +2437,19 @@ pub fn emit_elf64_module_object(
                             return false;
                         }
                     }
+                } else if instruction.opcode == TargetOpcode::NumericCast {
+                    if instruction.operand_count != 1 || instruction.type_tag != result_type { return false; }
+                    let operand: TargetOperand = unsafe { *(operands + instruction.first_operand) };
+                    let source_type: TargetTypeTag = object_value_type(values, ir.value_count, operand.value_id);
+                    if target_type_is_float(result_type) && object_integer_cast_type(source_type) {
+                        if !append_object_slot_load_typed(output, capacity, &mut code, operand.value_id - slot_base, source_type)
+                            || !append_object_int_to_float(output, capacity, &mut code, source_type, result_type)
+                            || !append_object_float_slot(output, capacity, &mut code, instruction.result_value - slot_base, result_type, 17) { return false; }
+                    } else if target_type_is_float(source_type) && object_integer_cast_type(result_type) {
+                        if !append_object_float_slot(output, capacity, &mut code, operand.value_id - slot_base, source_type, 16)
+                            || !append_object_float_to_int(output, capacity, &mut code, source_type, result_type)
+                            || !append_object_slot_store_typed(output, capacity, &mut code, instruction.result_value - slot_base, result_type) { return false; }
+                    } else { return false; }
                 } else if instruction.opcode == TargetOpcode::FloatCast {
                     if instruction.operand_count != 1 || !target_type_is_float(result_type)
                         || instruction.type_tag != result_type { return false; }

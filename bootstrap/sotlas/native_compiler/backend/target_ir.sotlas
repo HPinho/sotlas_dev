@@ -73,7 +73,8 @@ pub enum TargetOpcode {
     PtrOffset = 37,
     ConstFloat = 38,
     FloatNeg = 39,
-    FloatCast = 40
+    FloatCast = 40,
+    NumericCast = 41
 }
 
 pub struct TargetSourceSlice {
@@ -916,6 +917,13 @@ pub fn target_module_validate_cfg(
                     if instruction.result_value == TARGET_VALUE_NONE
                         || instruction.operand_count != 0 || !target_type_is_float(instruction.type_tag)
                         || (instruction.type_tag == TargetTypeTag::F32 && instruction.immediate_bits > 4294967295) { return false; }
+                } else if instruction.opcode == TargetOpcode::NumericCast {
+                    if instruction.result_value == 0 || instruction.operand_count != 1 { return false; }
+                    let operand: TargetOperand = unsafe { *(operands + instruction.first_operand) };
+                    if operand.value_id == 0 || operand.value_id > target_section.value_count { return false; }
+                    let source_type: TargetTypeTag = unsafe { (*(values + operand.value_id as usize - 1)).type_tag };
+                    if !((target_type_is_float(source_type) && target_type_is_integer(instruction.type_tag))
+                        || (target_type_is_integer(source_type) && target_type_is_float(instruction.type_tag))) { return false; }
                 } else if instruction.opcode == TargetOpcode::FloatCast {
                     if instruction.result_value == TARGET_VALUE_NONE || instruction.operand_count != 1
                         || !target_type_is_float(instruction.type_tag) { return false; }

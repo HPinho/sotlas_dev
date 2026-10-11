@@ -4,6 +4,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { downloadAndUnzipVSCode, runTests, runVSCodeCommand } = require('@vscode/test-electron');
+const { downloadOptions, downloadWithRetry, configureDownloadNetwork } = require('./downloadRuntime.cjs');
 
 function runInstalledCodeCommand(cliPath, args) {
   const cliScript = process.env.SOTLAS_VSCODE_CLI_SCRIPT;
@@ -47,6 +48,12 @@ async function main() {
       Boolean(localCli), Boolean(localExecutable),
       'set both SOTLAS_VSCODE_CLI and SOTLAS_VSCODE_EXECUTABLE to use an installed VS Code',
     );
+    const runtimeOptions = downloadOptions(path.join(extensionRoot, '.vscode-test'));
+    let executable = localExecutable;
+    if (!executable) {
+      configureDownloadNetwork();
+      executable = await downloadWithRetry(downloadAndUnzipVSCode, runtimeOptions);
+    }
     let listing;
     if (localCli && localExecutable) {
       runInstalledCodeCommand(localCli, [
@@ -66,17 +73,15 @@ async function main() {
         '--disable-gpu',
         '--install-extension', vsixPath,
         '--force',
-      ], { version: 'stable' });
+      ], { ...runtimeOptions, reuseMachineInstall: true });
       const result = await runVSCodeCommand([
         ...isolatedProfile,
         '--disable-gpu',
         '--list-extensions',
-      ], { version: 'stable' });
+      ], { ...runtimeOptions, reuseMachineInstall: true });
       listing = result.stdout;
     }
     assert.match(String(listing).toLowerCase(), /sotlas-lang\.vscode-sotlas/);
-
-    const executable = localExecutable || await downloadAndUnzipVSCode('stable');
 
     const installedExtension = fs.readdirSync(extensionsDir)
       .map(name => path.join(extensionsDir, name))
