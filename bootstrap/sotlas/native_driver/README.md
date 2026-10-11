@@ -468,3 +468,37 @@ the initial native seed, with no Python/C build tools on PATH. The dedicated
 gates check valid execution, exact native faults, memory/stack counts, lazy
 conditions and defined-input C11 parity. Linux, Windows and Intel macOS driver
 gates execute the same workload; this extension awaits its candidate CI.
+
+## Floating scalars and profile discovery
+
+```sh
+sotlas-native --help
+sotlas-native --capabilities
+sotlas-native --check examples/native_float_profile.sotlas
+sotlas-native examples/native_float_profile.sotlas float_profile
+./float_profile
+```
+
+The owned hosted profile executes `f32`/`f64` arithmetic, sign-bit negation,
+IEEE comparisons, calls, mutable control flow, typed buffers and fields, zero
+static storage and casts between floating precisions. Literals use exact
+rational rounding directly to the declared precision, with a coefficient below
+`10^18` and at most 18 fractional digits. Scientific notation and broader
+decimal forms are rejected. Arithmetic uses the process's FP environment;
+the test contract uses default IEEE rounding and exception masks.
+
+Float parameters/results use IEEE bits in the internal GPR/stack ABI. External
+float declarations and float process entries are rejected. Float/integer casts,
+nonzero static initializers and float module constants remain unsupported.
+Freestanding kernels must establish and preserve their FP environment before
+using SSE2; this candidate does not certify kernel floating execution.
+
+The profile report also exposes ownership runtime and Flow execution as
+unsupported in this native driver. Their canonical hosted implementations are
+separate paths. Native `--check` applies the same lowering/backend acceptance
+rules as compilation and preserves outputs on failure.
+
+Input is bounded to 1 MiB. Input plus generated names uses a checked 2 MiB
+arena. Object emission supports 4,096 data relocations, with explicit failure
+on exhausted tables; the function limit remains 512. Candidate CI is required
+before these extensions are certified across all three platforms.

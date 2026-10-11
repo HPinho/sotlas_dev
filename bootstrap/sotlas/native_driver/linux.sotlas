@@ -62,6 +62,23 @@ fn fail(code: u32) -> u32 {
     return code;
 }
 
+// Report the actual owned profile without initializing compiler arenas.
+fn driver_print_profile(help: bool) -> u32 {
+    let mut text: *const u8 = "sotlas-native capabilities v1\nbackend=x86_64\ninteger_bits=8,16,32,64\nfloats=f32,f64\nfloat_literals=coefficient<10^18;decimal-places<=18\nfloat_abi=internal-bits\nfloat_external_abi=unsupported\nownership_runtime=unsupported\nflow_execution=unsupported\n";
+    if help { text = "Usage: sotlas-native INPUT OUTPUT [--object|--compiler]\n       sotlas-native --check INPUT\n       sotlas-native --project[-object|-compiler] OUTPUT INPUT...\n       sotlas-native --check-build ROOT ENTRY\n       sotlas-native --build[-obj|-cc] OUTPUT ROOT ENTRY\n       sotlas-native --capabilities\nNative profiles are bounded; use --capabilities to inspect limits.\n"; }
+    let mut length: usize = 0;
+    while length < 2048 && unsafe { *(text + length) } != 0 { length = length + 1; }
+    if length == 2048 { return fail(13); }
+    let mut position: usize = 0;
+    while position < length {
+        let written: i64 = sotlas_linux_write(1, unsafe { text + position }, (length - position) as u64);
+        if written == -4 { continue; }
+        if written <= 0 || written as u64 > (length - position) as u64 { return fail(13); }
+        position = position + written as usize;
+    }
+    return 0;
+}
+
 fn option_equals(option: *const u8, expected: *const u8, length: usize) -> bool {
     let mut index: usize = 0;
     while index <= length {
@@ -816,6 +833,13 @@ fn driver_compile_project(
 //   sotlas-native --project[-object|-compiler] OUTPUT INPUT1 INPUT2 ...
 // Imports still fail closed; the bounded explicit list is not module loading.
 pub fn sotlas_linux_main(argc: u64, argv: *const *const u8) -> u32 {
+    if argc == 2 && argv != null {
+        let option: *const u8 = unsafe { *(argv + 1) };
+        if option == null { return fail(1); }
+        if option_equals(option, "--help", 6) { return driver_print_profile(true); }
+        if option_equals(option, "--capabilities", 14) { return driver_print_profile(false); }
+        return fail(1);
+    }
     if argc < 3 || argv == null { return fail(1); }
     let first_option: *const u8 = unsafe { *(argv + 1) };
     if first_option == null { return fail(1); }

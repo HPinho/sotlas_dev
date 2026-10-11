@@ -36,7 +36,9 @@ static mut g_err_line: [u32; 1] = 0;
 static mut g_err_col: [u32; 1] = 0;
 static mut g_link_offset: [usize; 1] = 0;
 static mut g_link_length: [usize; 1] = 0;
-static mut g_extended_source: [u8; 1048576] = 0;
+// Input remains bounded to 1 MiB. Mangled names and decoded-string symbols
+// need a separate suffix budget, matching all three native file drivers.
+static mut g_extended_source: [u8; 2097152] = 0;
 static mut g_project_objects: [u8; 4194304] = 0;
 static mut g_project_obj_offsets: [usize; 64] = 0;
 static mut g_project_obj_lengths: [usize; 64] = 0;

@@ -275,7 +275,7 @@ pub fn main_entry() -> u32 {
 """, 42)
 
     def test_aggregate_layout_rejects_unsupported_array_fields(self):
-        for typ in ("[f64; 4]", "[u8; 257]"):
+        for typ in ("[bool; 4]", "[u8; 257]"):
             with self.subTest(typ=typ):
                 result, output = self.compile("aggregate_layout_bad", f"""
 pub struct Unsupported {{ pub data: {typ}; }}

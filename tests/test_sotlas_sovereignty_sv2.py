@@ -103,8 +103,8 @@ pub fn invalid_return(a: u32) -> u32 {
 
 UNSUPPORTED_OP_SRC = """module sv2::bad_op;
 
-pub fn div_unsupported(a: f64, b: f64) -> f64 {
-    return a / b;
+pub fn remainder_unsupported(a: f64, b: f64) -> f64 {
+    return a % b;
 }
 """
 

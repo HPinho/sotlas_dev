@@ -80,6 +80,13 @@ CRC-32, rotation and byte unpacking without a C runtime. See the
 [native driver contract](bootstrap/sotlas/native_driver/README.md#bit-operations-and-variable-shifts)
 for count validation, native fault behavior and backend limits.
 
+The native floating candidate adds `f32`/`f64` arithmetic, IEEE comparisons,
+typed buffers and precision casts through an internal bit-pattern ABI. Run
+`sotlas-native --capabilities` for its limits. The
+[floating example](examples/native_float_profile.sotlas) compiles without host
+build tools once a native seed is installed. Ownership runtime, Flow execution
+and external floating ABI remain outside this native profile.
+
 ---
 
 ## 🎯 Sotlas design goals
