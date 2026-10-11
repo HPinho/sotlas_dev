@@ -1271,6 +1271,27 @@ the original-module Stage 2/3 fixed point; Windows generation and cross-build
 gates remained green. A legacy self-host diagnostic fixture now rejects a
 Boolean divisor rather than valid `i64` division. Full candidate CI is pending.
 
+**SV8.28 clean-build gate repair:** [CI #1177](https://github.com/HPinho/sotlas_dev/actions/runs/38099383858)
+on `110a7d0277a23964b2e3a5db276e82c92cb59e8d` failed exactly
+`test_sv2_fail_closed_unsupported_operation` in all nine matrix jobs. That
+earlier SV2 gate still required rejection of valid signed `i64` division.
+The reported local suite had reused an older `build/sotlas_stage1` executable,
+so it did not validate this gate against the newly implemented compiler.
+That cached local result cannot certify the signed-family candidate.
+
+The SV2 setup now builds the current source into its own temporary directory
+on every run, using a fresh child with the public `compiler/` frontend. It
+never selects the checkout's cached Stage 1. The negative fixture exercises
+still-unsupported floating-point division, retaining nonzero exit and no
+output assertions. An additional positive gate compiles signed division and
+remainder, links an owned PE/ELF/Mach-O image and requires native exit 42.
+The separate Boolean-divisor rejection remains intact.
+
+All **46 SV2 gates** passed with fresh builds, including Windows Python
+**3.10.11** and **3.11.9**. All **seven signed-family gates** also passed.
+No production frontend/backend code changes are needed for this repair.
+Keep CI #1176 as the certified baseline until the repair matrix completes.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test
