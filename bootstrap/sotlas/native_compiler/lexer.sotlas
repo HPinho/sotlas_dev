@@ -193,6 +193,18 @@ impl Lexer {
                         }
                     }
                 }
+                if self.peek() == 101 || self.peek() == 69 {
+                    numeric_kind = TokenKind::FloatLit;
+                    self.advance();
+                    if self.peek() == 43 || self.peek() == 45 { self.advance(); }
+                    let exponent_first: u8 = self.peek();
+                    if exponent_first < 48 || exponent_first > 57 {
+                        self.error_count = self.error_count + 1;
+                        self.error_line = start_line; self.error_col = start_col;
+                        return Token::new(TokenKind::Error, start_line, start_col);
+                    }
+                    while !self.is_at_end() && self.peek() >= 48 && self.peek() <= 57 { self.advance(); }
+                }
             }
             let length: usize = self.cursor - start_offset;
             let mut tok: Token = Token::new(numeric_kind, start_line, start_col);

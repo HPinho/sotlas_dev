@@ -51,7 +51,7 @@ fn windows_close(handle:u64) -> i64 {
     return 0;
 }
 
-static mut driver_source_bytes: [u8; 2097152] = 0;
+static mut driver_source_bytes: [u8; 4194304] = 0;
 static mut driver_tokens: [Token; 262144] = 0;
 static mut driver_nodes: [AstNode; 262144] = 0;
 static mut driver_values: [TargetValue; 65536] = 0;
@@ -70,7 +70,7 @@ static mut driver_macho_target: [u8; 1] = 0;
 // Opt-in resolved projects retain their raw source while producing an ordered,
 // import-free stream in driver_source_bytes for the certified compiler core.
 // 64 modules maximum, one megabyte of combined input, no host allocators.
-static mut driver_project_raw: [u8; 1048576] = 0;
+static mut driver_project_raw: [u8; 2097152] = 0;
 static mut driver_project_starts: [usize; 64] = 0;
 static mut driver_project_lengths: [usize; 64] = 0;
 static mut driver_module_starts: [usize; 64] = 0;
@@ -543,7 +543,7 @@ fn driver_resolve_order(file_count: usize) -> bool {
 fn driver_copy_project_slice(source: *const u8, first: usize, last: usize) -> bool {
     if first > last { return false; }
     let position: usize = unsafe { *(driver_resolved_length as *const usize) };
-    if position >= 1048576 || last - first >= 1048576 - position {
+    if position >= 2097152 || last - first >= 2097152 - position {
         return false;
     }
     let destination: *mut u8 = unsafe { driver_source_bytes as *mut u8 };
@@ -776,8 +776,8 @@ fn driver_compile_discovered(argc: u64, argv: *const *const u8,
         if opened < 0 { return fail(2); }
         let descriptor: u64 = opened as u64;
         let start: usize = position;
-        while position < 1048576 {
-            let available: u64 = 1048576 - position;
+        while position < 2097152 {
+            let available: u64 = 2097152 - position;
             let count: i64 = windows_read(descriptor, unsafe { source + position }, available);
             if count == -4 { continue; }
             if count < 0 { let closed: i64 = windows_close(descriptor); return fail(3); }
@@ -858,8 +858,8 @@ fn driver_read_single(input_name: *const u8, output_name: *const u8,
     let input_fd: u64 = opened as u64;
     let source: *mut u8 = unsafe { driver_source_bytes as *mut u8 };
     let mut source_length: usize = 0;
-    while source_length < 1048576 {
-        let available: u64 = 1048576 - source_length;
+    while source_length < 2097152 {
+        let available: u64 = 2097152 - source_length;
         let got: i64 = windows_read(input_fd, unsafe { source + source_length }, available);
         if got == -4 { continue; }
         if got < 0 { let closed_error: i64 = windows_close(input_fd); return fail(3); }
@@ -867,7 +867,7 @@ fn driver_read_single(input_name: *const u8, output_name: *const u8,
         source_length = source_length + (got as usize);
     }
     let closed: i64 = windows_close(input_fd);
-    if closed < 0 || source_length == 0 || source_length == 1048576 { return fail(3); }
+    if closed < 0 || source_length == 0 || source_length == 2097152 { return fail(3); }
     return driver_compile_loaded(source_length, output_name, object_only, compiler_entry, check_only, windows);
 }
 
@@ -895,8 +895,8 @@ fn driver_compile_project(
             let file: usize = (input_index - 3) as usize;
             unsafe { *(driver_project_starts as *mut usize + file) = before_file; }
         }
-        while source_length < 1048576 {
-            let available: u64 = 1048576 - source_length;
+        while source_length < 2097152 {
+            let available: u64 = 2097152 - source_length;
             let got: i64 = windows_read(
                 input_fd, unsafe { source + source_length }, available
             );

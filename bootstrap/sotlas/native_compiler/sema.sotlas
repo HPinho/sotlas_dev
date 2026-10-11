@@ -1883,13 +1883,22 @@ impl Sema {
     }
 
     pub fn fixed_array_type_matches_zero_repeat(
+        self: &Self, nodes: *const AstNode, node_count: usize,
+        type_index: usize, repeat_index: usize, source: *const u8, source_len: usize
+    ) -> bool {
+        return self.fixed_array_type_matches_repeat(nodes, node_count, type_index,
+            repeat_index, source, source_len, true);
+    }
+
+    pub fn fixed_array_type_matches_repeat(
         self: &Self,
         nodes: *const AstNode,
         node_count: usize,
         type_index: usize,
         repeat_index: usize,
         source: *const u8,
-        source_len: usize
+        source_len: usize,
+        require_zero: bool
     ) -> bool {
         if nodes == null || source == null || type_index == 0 || repeat_index == 0
             || type_index >= node_count || repeat_index >= node_count {
@@ -1905,10 +1914,11 @@ impl Sema {
         let value_index: usize = repeat.first_child;
         let value: AstNode = unsafe { *(nodes + value_index) };
         let count_index: usize = value.next_sibling;
-        if value.kind != AstKind::ExprLiteral
-            || value.str_offset > source_len || value.str_len != 1
-            || value.str_len > source_len - value.str_offset
-            || unsafe { *(source + value.str_offset) } != 48
+        let boolean_zero: bool = self.source_slice_equals(source, source_len,
+            value.str_offset, value.str_len, "false", 5);
+        if (require_zero && (value.kind != AstKind::ExprLiteral
+            || value.str_offset > source_len || value.str_len > source_len - value.str_offset
+            || (!boolean_zero && (value.str_len != 1 || unsafe { *(source + value.str_offset) } != 48))))
             || count_index == 0 || count_index >= node_count {
             return false;
         }
@@ -1955,6 +1965,8 @@ impl Sema {
         if i == element_start {
             return false;
         }
+        if require_zero && boolean_zero && !self.source_slice_equals(source, source_len,
+            typ.str_offset + element_start, i - element_start, "bool", 4) { return false; }
         while i < typ.str_len {
             let ch: u8 = unsafe { *(source + typ.str_offset + i) };
             if ch == 32 || ch == 9 || ch == 10 || ch == 13 {
@@ -2046,6 +2058,15 @@ impl Sema {
         }
         let init_index: usize = repeat.parent;
         let init: AstNode = unsafe { *(nodes + init_index) };
+        if init.kind == AstKind::LetStmt && init.parent != 0 && init.parent < node_count
+            && (unsafe { (*(nodes + init.parent)).kind } == AstKind::Module
+                || unsafe { (*(nodes + init.parent)).kind } == AstKind::Block) {
+            if init.first_child == 0 || init.first_child >= node_count
+                || unsafe { (*(nodes + init.first_child)).next_sibling } != repeat_index
+                || !self.fixed_array_type_matches_repeat(nodes, node_count, init.first_child,
+                    repeat_index, source, source_len, false) { return self.reject_node(repeat); }
+            return true;
+        }
         if init.kind != AstKind::StructFieldInit
             || init.parent == 0 || init.parent >= node_count {
             return self.reject_node(repeat);

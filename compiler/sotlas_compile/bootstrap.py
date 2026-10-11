@@ -77,7 +77,7 @@ def get_c_type(name: str) -> str:
 INTEGER_LITERAL_SUFFIXES = ("usize", "isize", "u64", "i64", "u32", "i32", "u16", "i16", "u8", "i8")
 FLOAT_LITERAL_SUFFIXES = ("f32", "f64")
 NUMBER_LITERAL_RE = re.compile(
-    r"(?:[0-9]+\.[0-9]+(?:usize|isize|u64|i64|u32|i32|u16|i16|u8|i8|f32|f64)?|(?:0x[0-9A-Fa-f]+|0b[01]+|[0-9]+)(?:usize|isize|u64|i64|u32|i32|u16|i16|u8|i8)?)"
+    r"(?:[0-9]+(?:\.[0-9]+)?[eE][+-]?[0-9]+(?:usize|isize|u64|i64|u32|i32|u16|i16|u8|i8|f32|f64)?|[0-9]+\.[0-9]+(?:usize|isize|u64|i64|u32|i32|u16|i16|u8|i8|f32|f64)?|(?:0x[0-9A-Fa-f]+|0b[01]+|[0-9]+)(?:usize|isize|u64|i64|u32|i32|u16|i16|u8|i8)?)"
 )
 
 
@@ -88,18 +88,22 @@ def numeric_literal_parts(text: str) -> tuple[str, str | None]:
     return text, None
 
 
+def numeric_literal_is_float(base: str) -> bool:
+    return "." in base or (not base.lower().startswith(("0x", "0b")) and "e" in base.lower())
+
+
 def numeric_literal_type(text: str) -> str:
     base, suffix = numeric_literal_parts(text)
     if suffix:
-        if "." in base and suffix not in FLOAT_LITERAL_SUFFIXES:
+        if numeric_literal_is_float(base) and suffix not in FLOAT_LITERAL_SUFFIXES:
             raise ValueError("sufixo inteiro não pode ser aplicado a literal decimal")
         return suffix
-    return "f64" if "." in base else "i64"
+    return "f64" if numeric_literal_is_float(base) else "i64"
 
 
 def integer_literal_value(text: str) -> int:
     base, suffix = numeric_literal_parts(text)
-    if suffix in FLOAT_LITERAL_SUFFIXES or "." in base:
+    if suffix in FLOAT_LITERAL_SUFFIXES or numeric_literal_is_float(base):
         raise ValueError("literal inteiro esperado")
     return int(base, 0)
 
@@ -1524,7 +1528,7 @@ def check(module: Module, imported_fns: dict[str, Function] | None = None,
     def unsuffixed_integer_constant(expr: Expr) -> bool:
         if isinstance(expr, Number):
             base, suffix = numeric_literal_parts(expr.value)
-            return suffix is None and "." not in base
+            return suffix is None and not numeric_literal_is_float(base)
         if isinstance(expr, Unary) and expr.op == "-":
             return unsuffixed_integer_constant(expr.value)
         if isinstance(expr, Binary) and expr.op in ("+", "-", "*"):

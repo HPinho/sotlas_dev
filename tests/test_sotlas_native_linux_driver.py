@@ -362,7 +362,7 @@ class NativeLinuxDriverTests(unittest.TestCase):
             expected=12, env=environment,
         )
         self.assertEqual(output.read_bytes(), sentinel)
-        second.write_bytes(b"module gate::app; " + b" " * 1048576)
+        second.write_bytes(b"module gate::app; " + b" " * 2097152)
         self.run_tool(
             [str(self.seed), "--project", str(output), str(first), str(second)],
             expected=3, env=environment,
