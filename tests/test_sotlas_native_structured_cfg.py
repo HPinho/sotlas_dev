@@ -931,16 +931,14 @@ pub fn main_entry() -> u32 {
 }
 """, 0)
 
-    def test_signed_narrow_arithmetic_remains_fail_closed(self):
-        result, output = self.compile("signed_narrow_arithmetic_reject", """
+    def test_signed_narrow_arithmetic_executes(self):
+        self.assert_native_result("signed_narrow_arithmetic", """
 pub fn main_entry() -> i8 {
     let first: i8 = 2;
     let second: i8 = 3;
     return first + second;
 }
-""")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertFalse(output.exists())
+""", 5)
 
     def test_global_array_cast_emits_bss_address(self):
         result, output = self.compile("global_array_cast", """

@@ -408,3 +408,24 @@ The dedicated native signed tests compare defined arithmetic with C11,
 validate memory/CFG behavior, and isolate arithmetic-fault execution in child
 processes. The file-driver gates compile and run a signed example without
 Python/C build tools on PATH. This extension requires its own CI validation.
+
+## Signed byte, word and wide integers
+
+The native profile now accepts `i8` and `i16` across scalar calls, locals,
+fields, bounded arrays and typed pointers. It also executes signed `i64`
+division, remainder and arithmetic right shift. Values and parameter slots
+are normalized with sign extension, while memory keeps the declared 1/2/4/8
+byte width. Explicit casts preserve signed widening and destination-width
+narrowing; implicit mixed-type arithmetic remains outside the profile.
+
+Signed shifts require a proven constant count in `[0, width-1]`. Dynamic
+signed `i64` left shifts, previously accepted through hardware masking, now
+fail closed along with unsupported right-shift counts. Add/subtract/multiply
+and negation wrap at the declared machine width. Division by zero and each
+type's `MIN / -1` or `% -1` case fault in the native process. These backend
+rules do not define language-wide overflow or C11 signed-overflow equivalence.
+
+The signed-family gates verify narrow memory layout, neighboring fields,
+array stride, register/stack arguments, casts, defined C11 arithmetic parity
+and exact arithmetic faults. The file-driver gates exercise a mixed-width
+program. Full cross-platform certification awaits this candidate's CI.
