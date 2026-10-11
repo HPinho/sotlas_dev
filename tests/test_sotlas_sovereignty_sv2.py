@@ -8,7 +8,7 @@ Validates that:
    - Integer and boolean scalar parameters (u8..u64, i8..i64, usize, isize, bool).
    - Integer literals and constant expressions with range checks.
    - Local variable definitions (let) and assignments.
-   - Certified integer arithmetic, bitwise, shift, and unsigned div/mod expressions.
+   - Certified integer arithmetic, bitwise, shift, and signed/unsigned div/mod expressions.
    - Comparison expressions (==, !=, <, <=, >, >=) with verified predicates.
    - Intra-module function calls and external declarations (@extern(C)).
    - Control flow branches (if/else returning branches).
@@ -35,7 +35,6 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 sys.path.insert(0, str(ROOT / "compiler"))
 
-from sotlas.bootstrap_pipeline import build_stage1_native_compiler
 from sotlas_compile.bootstrap import _public_import_maps, check, parse
 
 NATIVE_DIR = ROOT / "bootstrap" / "sotlas" / "native_compiler"
@@ -104,7 +103,7 @@ pub fn invalid_return(a: u32) -> u32 {
 
 UNSUPPORTED_OP_SRC = """module sv2::bad_op;
 
-pub fn div_unsupported(a: i64, b: i64) -> i64 {
+pub fn div_unsupported(a: f64, b: f64) -> f64 {
     return a / b;
 }
 """
@@ -597,9 +596,22 @@ class TestSotlasSovereigntySV2(unittest.TestCase):
         cls.tmp_dir = tempfile.TemporaryDirectory(prefix="sotlas-sv2-")
         cls.root = Path(cls.tmp_dir.name)
         exe_suffix = ".exe" if os.name == "nt" else ""
-        cls.stage1 = ROOT / "build" / f"sotlas_stage1{exe_suffix}"
-        if not cls.stage1.is_file():
-            build_stage1_native_compiler(cls.stage1, verbose=False)
+        # A checkout cache can contain a compiler predating the feature under
+        # test and falsely pass rejection gates. Always build this revision.
+        cls.stage1 = cls.root / f"sotlas_stage1{exe_suffix}"
+        environment = os.environ.copy()
+        environment["PYTHONPATH"] = str(ROOT / "compiler")
+        script = (
+            "import sys;from pathlib import Path;"
+            "from sotlas.bootstrap_pipeline import build_stage1_native_compiler;"
+            "build_stage1_native_compiler(Path(sys.argv[1]),verbose=False)"
+        )
+        built = subprocess.run(
+            [sys.executable, "-c", script, str(cls.stage1)], cwd=ROOT,
+            env=environment, capture_output=True, timeout=180,
+        )
+        if built.returncode:
+            raise RuntimeError(f"Clean public Stage 1 build failed: {built.stderr!r}")
 
     @classmethod
     def tearDownClass(cls):
@@ -727,13 +739,41 @@ class TestSotlasSovereigntySV2(unittest.TestCase):
         self.assertFalse(out_obj.exists())
 
     def test_sv2_fail_closed_unsupported_operation(self):
-        """SV2.9: Signed division remains fail-closed until native idiv semantics are certified."""
+        """SV2.9: Floating division remains outside the owned native profile."""
         src_path = self.root / "bad_op.sotlas"
         src_path.write_text(UNSUPPORTED_OP_SRC, encoding="utf-8")
         out_obj = self.root / "bad_op.o"
         r = subprocess.run([str(self.stage1), "--compile-obj", str(src_path), str(out_obj)], capture_output=True, text=True)
         self.assertNotEqual(r.returncode, 0)
         self.assertFalse(out_obj.exists())
+
+    def test_sv2_signed_division_and_remainder_execute(self):
+        """Require the supported signed form that the obsolete gate rejected."""
+        src_path = self.root / "signed_division.sotlas"
+        src_path.write_text(
+            "module sv2::signed_division;\n"
+            "pub fn main_entry()->u32{let value:i64=-17;"
+            "let result:i64=value/5+value%5;"
+            "if result==-5 && value<0{return 42;}return 1;}\n",
+            encoding="utf-8",
+        )
+        out_obj = self.root / "signed_division.o"
+        compiled = subprocess.run(
+            [str(self.stage1), "--compile-obj", str(src_path), str(out_obj)],
+            capture_output=True, text=True, timeout=60,
+        )
+        self.assertEqual(compiled.returncode, 0, compiled.stderr)
+        self.assertTrue(out_obj.is_file())
+        suffix = ".exe" if os.name == "nt" else ".bin"
+        output = self.root / ("signed_division" + suffix)
+        mode = "--link-pe" if os.name == "nt" else "--link-macho" if sys.platform == "darwin" else "--link-exe"
+        linked = subprocess.run(
+            [str(self.stage1), mode, str(out_obj), str(output), "main_entry"],
+            capture_output=True, text=True, timeout=60,
+        )
+        self.assertEqual(linked.returncode, 0, linked.stderr)
+        executed = subprocess.run([str(output)], capture_output=True, timeout=15)
+        self.assertEqual(executed.returncode, 42, executed.stderr)
 
     def test_sv2_fail_closed_undeclared_variable(self):
         """SV2.10: Undeclared identifiers referenced in expressions fail closed."""
