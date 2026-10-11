@@ -1523,6 +1523,53 @@ CI certification remains pending;
 this block does not promote the 9/10 checkpoint score or authorize removal of
 the Python/C bootstrap.
 
+### SV8.33 — native initialized storage, constant expressions and conditional values
+
+The production native compiler now emits writable `.data` for initialized
+integer, float and Boolean scalars and repeated scalar arrays. Zero-initialized
+storage remains `.bss`; the owned linker resolves both. Invalid initializers
+must fail before output rather than become zero storage.
+
+Scalar constant expressions are evaluated in Sotlas before object emission.
+The evaluator covers integer and floating arithmetic, bit operations, bounded
+shifts, Boolean logic and typed comparisons. Signed overflow, invalid division,
+invalid shifts and nonfinite floating results are diagnosed by rejection.
+References emit the folded bit pattern. Forward references, general calls,
+conditional constants and additional constant types remain open.
+
+Native numeric scanning and rational conversion now accept bounded scientific
+notation, including uppercase `E` and explicit exponent signs. The optional
+Stage-0/reference lexer has the same syntax for differential execution.
+
+Native local scalar arrays accept lists and repeated runtime values; large
+repetitions use a fill loop and evaluate the repeated value once. Boolean arrays
+can feed CFG conditions. Scalar/Boolean/float `if/else` expressions lower to
+lazy native CFG arms and a typed join value. These forms execute in calls,
+returns and loops, including nested `else if`.
+
+The native source bound is now 2 MiB with a separate checked 4 MiB extended
+source arena. The growth is needed by the actual compiler sources, not credited
+as language parity. The writer's conditional relocation check now uses its
+existing 4,096-entry branch table correctly. Explicit unsafe same-width
+integer/float pointer reinterpretation supports the native constant evaluator;
+different-width and unguarded reinterpretations remain rejected.
+
+Acceptance gates are in `tests/test_sotlas_native_frontend_closure.py` and the
+existing float and native-driver suites. The requested frontend/ownership
+checklist records the exact closures and remaining parent items. The complete
+language migration and sovereignty checkpoint score are not promoted by this
+block; full regression and CI certification are still required.
+
+Local SV8.33 results: the complete Windows regression suite passed **2,777
+tests with 65 skips**. The C11 job passed **707 tests**. The final additional
+constant-type guard then passed the **43-test frontend/float/Windows-driver
+set**, including a fresh original-module native generation chain. The earlier
+Boolean-field rejection fixture was replaced with a genuinely unsupported
+nested-array shape and a positive Boolean-field layout/copy/mutation execution
+gate. Native Linux execution, Linux generation identity and the Darwin
+cross-build passed; macOS runtime execution still requires CI. These results
+do not close the remaining ownership/lifetime/ARC and broader frontend items.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test

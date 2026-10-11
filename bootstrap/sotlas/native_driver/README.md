@@ -33,7 +33,7 @@ Executable input uses `main_entry() -> u32`. `--compiler` selects the checked
 `sotlas_linux_main(argc: u64, argv: *const *const u8) -> u32` process ABI, which
 receives the kernel's actual argument vector. Unknown options are rejected.
 
-Input must be smaller than 1 MiB. Source storage reserves another MiB for
+Input must be smaller than 2 MiB. Source storage reserves another 2 MiB for
 synthetic symbols. Compiler tables are bounded and exhausted buffers fail
 closed. Output is created only after frontend, lowering and linking succeed;
 an I/O failure during writing can leave a partial file. Newly created outputs
@@ -157,7 +157,7 @@ does not automatically merge or resolve the compiler's own imports. This is
 not yet native package/module loading or release bootstrap closure.
 
 At least two input files and at most 64 are accepted. The combined source
-(including separators) remains under the original 1 MiB limit; each file must
+(including separators) remains under the 2 MiB limit; each file must
 be nonempty. The second MiB remains reserved for synthetic symbols.
 Missing files, invalid options, oversized/invalid sources and unresolved
 imports fail before opening the output path. Successful object output is
@@ -209,7 +209,7 @@ native compiler generation.
 Imports expose current flat compiler symbols: **this does not yet implement
 qualified namespace isolation or visibility rules**. The original `--project`
 commands retain their exact behavior and continue to reject every import.
-The 1 MiB combined-input bound and synthetic-symbol reservation remain.
+The 2 MiB combined-input bound and synthetic-symbol reservation remain.
 General native package resolution and separate per-module linking remain
 outside this profile.
 
@@ -507,7 +507,30 @@ unsupported in this native driver. Their canonical hosted implementations are
 separate paths. Native `--check` applies the same lowering/backend acceptance
 rules as compilation and preserves outputs on failure.
 
-Input is bounded to 1 MiB. Input plus generated names uses a checked 2 MiB
+Input is bounded to 2 MiB. Input plus generated names uses a checked 4 MiB
 arena. Object emission supports 4,096 data relocations, with explicit failure
 on exhausted tables; the function limit remains 512. Candidate CI is required
 before these extensions are certified across all three platforms.
+
+## Initialized storage and expression values
+
+The native scalar profile now supports initialized integer, float and Boolean
+statics and repeated scalar arrays. The object writer emits these values in
+writable `.data`, independently of zero-initialized `.bss`. Invalid initializers
+are rejected rather than silently replaced with zero.
+
+Scalar module constants support bounded arithmetic, bit operations, Boolean
+logic and comparisons, with stored compile-time results. Signed overflow,
+division by zero, invalid shifts and nonfinite floating constant results fail
+before output. Forward references and general constant function calls remain
+outside the native profile.
+
+Scientific literals accept `e` or `E` and an optional exponent sign. The
+decimal exponent is at most 18 in magnitude, and the reduced rational must
+fit the existing coefficient and denominator limits.
+
+Local scalar arrays accept value lists and repeated runtime values, with exact
+length/type validation. Large repetitions execute a native fill loop and
+evaluate the initializer once. Scalar, floating and Boolean `if/else` values
+use lazy native CFG arms in returns, calls and loops. Aggregate and ownership
+conditional values remain outside this profile.

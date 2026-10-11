@@ -5,7 +5,7 @@ module sotlas::compiler::backend::target_ir;
 // It is a data boundary only: lowering and machine emission are separate stages.
 
 pub const TARGET_IR_VERSION: u32 = 1;
-pub const TARGET_EXTENDED_SOURCE_CAPACITY: usize = 2097152;
+pub const TARGET_EXTENDED_SOURCE_CAPACITY: usize = 4194304;
 pub const TARGET_VALUE_NONE: u32 = 0;
 pub const TARGET_BLOCK_NONE: u32 = 0;
 pub const TARGET_FLAG_SEMANTIC_ONLY: u32 = 1;
@@ -1530,6 +1530,9 @@ pub static mut g_bss_sym_element_strides: [usize; 256] = 0;
 pub static mut g_bss_sym_element_counts: [usize; 256] = 0;
 pub static mut g_bss_sym_type_refs: [usize; 256] = 0;
 pub static mut g_bss_sym_count: usize = 0;
+pub static mut g_data_total_size: usize = 0;
+pub static mut g_bss_sym_initial_bits: [u64; 256] = 0;
+pub static mut g_bss_sym_initial_stride: [usize; 256] = 0;
 
 @export
 @system

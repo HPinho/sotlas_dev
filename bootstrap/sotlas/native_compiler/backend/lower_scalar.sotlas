@@ -80,7 +80,9 @@ pub struct ScalarLowering {
     pub const_name_lens: [usize; 64];
     pub const_type_tags: [u32; 64];
     pub const_literal_nodes: [usize; 64];
+    pub const_bits: [u64; 64];
     pub const_count: usize;
+    pub constant_evaluation: bool;
 }
 
 fn align_val(value: usize, alignment: usize) -> usize {
@@ -107,8 +109,10 @@ fn native_decimal_float_bits(source: *const u8, length: usize,
     let mut fraction: bool = false;
     let mut digits: usize = 0;
     let mut index: usize = 0;
+    let mut scientific: bool = false;
     while index < length {
         let ch: u8 = unsafe { *(source + index) };
+        if ch == 101 || ch == 69 { scientific = true; break; }
         if ch == 46 {
             if dot || digits == 0 { return false; }
             dot = true;
@@ -126,7 +130,35 @@ fn native_decimal_float_bits(source: *const u8, length: usize,
         }
         index = index + 1;
     }
-    if !dot || !fraction { return false; }
+    if digits == 0 || (!scientific && (!dot || !fraction)) { return false; }
+    if scientific {
+        index = index + 1;
+        let mut negative_exponent: bool = false;
+        if index < length && unsafe { *(source + index) } == 45 { negative_exponent = true; index = index + 1; }
+        else if index < length && unsafe { *(source + index) } == 43 { index = index + 1; }
+        if index >= length { return false; }
+        let mut decimal_exponent: u32 = 0;
+        while index < length {
+            let ch: u8 = unsafe { *(source + index) };
+            if ch < 48 || ch > 57 || decimal_exponent > 18 { return false; }
+            decimal_exponent = decimal_exponent * 10 + (ch - 48) as u32;
+            index = index + 1;
+        }
+        if decimal_exponent > 18 { return false; }
+        while numerator != 0 && numerator % 10 == 0 && denominator % 10 == 0 {
+            numerator = numerator / 10; denominator = denominator / 10;
+        }
+        while decimal_exponent != 0 {
+            if negative_exponent {
+                if denominator > 100000000000000000 { return false; }
+                denominator = denominator * 10;
+            } else {
+                if numerator > 99999999999999999 { return false; }
+                numerator = numerator * 10;
+            }
+            decimal_exponent = decimal_exponent - 1;
+        }
+    }
     if numerator == 0 { unsafe { *result = 0; } return true; }
     let mut exponent: i32 = 0;
     while numerator / 2 >= denominator { denominator = denominator * 2; exponent = exponent + 1; }
@@ -154,6 +186,133 @@ fn native_decimal_float_bits(source: *const u8, length: usize,
         | (significand & (((1 as u64) << fraction_bits) - 1));
     unsafe { *result = bits; }
     return true;
+}
+
+// Integer constant arithmetic is evaluated before object emission.
+// Signed overflow and invalid division/shift operands are compilation errors.
+fn native_constant_integer(op: TargetOpcode, typ: TargetTypeTag,
+    left: u64, right: u64, result: &mut u64) -> bool {
+    let width: u32 = target_integer_width(typ);
+    if width == 0 { return false; }
+    let mut mask: u64 = 18446744073709551615;
+    if width < 64 { mask = ((1 as u64) << width as u64) - 1; }
+    let a: u64 = left & mask; let b: u64 = right & mask;
+    let sign: u64 = (1 as u64) << ((width - 1) as u64);
+    let is_signed: bool = typ == TargetTypeTag::I8 || typ == TargetTypeTag::I16
+        || typ == TargetTypeTag::I32 || typ == TargetTypeTag::I64 || typ == TargetTypeTag::Isize;
+    let mut bits: u64 = 0;
+    if op == TargetOpcode::Add {
+        bits = (a + b) & mask;
+        if is_signed && ((a ^ bits) & (b ^ bits) & sign) != 0 { return false; }
+    } else if op == TargetOpcode::Sub {
+        bits = (a - b) & mask;
+        if is_signed && ((a ^ b) & (a ^ bits) & sign) != 0 { return false; }
+    } else if op == TargetOpcode::Mul {
+        if is_signed {
+            let negative_a: bool = (a & sign) != 0; let negative_b: bool = (b & sign) != 0;
+            let mut magnitude_a: u64 = a; let mut magnitude_b: u64 = b;
+            if negative_a { magnitude_a = (0 as u64 - a) & mask; }
+            if negative_b { magnitude_b = (0 as u64 - b) & mask; }
+            let negative: bool = negative_a != negative_b;
+            let mut limit: u64 = sign - 1; if negative { limit = sign; }
+            if magnitude_b != 0 && magnitude_a > limit / magnitude_b { return false; }
+            bits = magnitude_a * magnitude_b;
+            if negative { bits = (0 as u64 - bits) & mask; }
+        } else { bits = (a * b) & mask; }
+    } else if op == TargetOpcode::Div || op == TargetOpcode::Mod {
+        if b == 0 { return false; }
+        if is_signed {
+            if a == sign && b == mask { return false; }
+            let mut signed_a: u64 = a; let mut signed_b: u64 = b;
+            if (a & sign) != 0 { signed_a = a | ~mask; }
+            if (b & sign) != 0 { signed_b = b | ~mask; }
+            if op == TargetOpcode::Div { bits = ((signed_a as i64) / (signed_b as i64)) as u64 & mask; }
+            else { bits = ((signed_a as i64) % (signed_b as i64)) as u64 & mask; }
+        } else {
+            if op == TargetOpcode::Div { bits = a / b; } else { bits = a % b; }
+        }
+    } else if op == TargetOpcode::BitAnd { bits = a & b; }
+    else if op == TargetOpcode::BitOr { bits = a | b; }
+    else if op == TargetOpcode::BitXor { bits = a ^ b; }
+    else if op == TargetOpcode::ShiftLeft || op == TargetOpcode::ShiftRight {
+        if b >= width as u64 { return false; }
+        if op == TargetOpcode::ShiftLeft {
+            if is_signed && ((a & sign) != 0 || a > (sign - 1) >> b) { return false; }
+            bits = (a << b) & mask;
+        } else if is_signed && (a & sign) != 0 { bits = (((a | ~mask) as i64) >> (b as i64)) as u64 & mask; }
+        else { bits = a >> b; }
+    } else { return false; }
+    unsafe { *result = bits; } return true;
+}
+
+fn native_constant_float(op: TargetOpcode, typ: TargetTypeTag,
+    left: u64, right: u64, result: &mut u64) -> bool {
+    let mut scratch: [u64; 3] = 0;
+    let words: *mut u64 = unsafe { scratch as *mut u64 };
+    unsafe { *words = left; *(words + 1) = right; }
+    if typ == TargetTypeTag::F32 {
+        let mut narrow: [u32; 3] = 0;
+        let narrow_words: *mut u32 = unsafe { narrow as *mut u32 };
+        unsafe { *narrow_words = left as u32; *(narrow_words + 1) = right as u32; }
+        let numbers: *mut f32 = unsafe { narrow_words as *mut f32 };
+        let a: f32 = unsafe { *numbers }; let b: f32 = unsafe { *(numbers + 1) };
+        let zero: f32 = 0.0;
+        let mut value: f32 = 0.0;
+        if op == TargetOpcode::Add { value = a + b; }
+        else if op == TargetOpcode::Sub { value = a - b; }
+        else if op == TargetOpcode::Mul { value = a * b; }
+        else if op == TargetOpcode::Div { if b == zero { return false; } value = a / b; }
+        else { return false; }
+        unsafe { *(numbers + 2) = value; }
+        let bits: u64 = unsafe { *(narrow_words + 2) } as u64;
+        if (bits & 2139095040) == 2139095040 { return false; }
+        unsafe { *result = bits; }
+    } else if typ == TargetTypeTag::F64 {
+        let numbers: *mut f64 = unsafe { words as *mut f64 };
+        let a: f64 = unsafe { *numbers }; let b: f64 = unsafe { *(numbers + 1) };
+        let mut value: f64 = 0.0;
+        if op == TargetOpcode::Add { value = a + b; }
+        else if op == TargetOpcode::Sub { value = a - b; }
+        else if op == TargetOpcode::Mul { value = a * b; }
+        else if op == TargetOpcode::Div { if b == 0.0 { return false; } value = a / b; }
+        else { return false; }
+        unsafe { *(numbers + 2) = value; }
+        let bits: u64 = unsafe { *(words + 2) };
+        if (bits & 9218868437227405312) == 9218868437227405312 { return false; }
+        unsafe { *result = bits; }
+    } else { return false; }
+    return true;
+}
+
+fn native_constant_compare(predicate: u64, typ: TargetTypeTag,
+    left: u64, right: u64, result: &mut u64) -> bool {
+    let mut equal: bool = left == right; let mut less: bool = left < right;
+    if target_type_is_float(typ) {
+        if typ == TargetTypeTag::F32 {
+            let mut scratch: [u32; 2] = 0; let words: *mut u32 = unsafe { scratch as *mut u32 };
+            unsafe { *words = left as u32; *(words + 1) = right as u32; }
+            let numbers: *const f32 = unsafe { words as *const f32 };
+            let a: f32 = unsafe { *numbers }; let b: f32 = unsafe { *(numbers + 1) };
+            equal = a == b; less = a < b;
+        } else {
+            let mut scratch: [u64; 2] = 0; let words: *mut u64 = unsafe { scratch as *mut u64 };
+            unsafe { *words = left; *(words + 1) = right; }
+            let numbers: *const f64 = unsafe { words as *const f64 };
+            let a: f64 = unsafe { *numbers }; let b: f64 = unsafe { *(numbers + 1) };
+            equal = a == b; less = a < b;
+        }
+    } else if typ == TargetTypeTag::I8 || typ == TargetTypeTag::I16
+        || typ == TargetTypeTag::I32 || typ == TargetTypeTag::I64 || typ == TargetTypeTag::Isize {
+        let width: u32 = target_integer_width(typ); let sign: u64 = (1 as u64) << ((width - 1) as u64);
+        let negative_left: bool = (left & sign) != 0; let negative_right: bool = (right & sign) != 0;
+        if negative_left != negative_right { less = negative_left; }
+    } else if !target_type_is_integer(typ) && typ != TargetTypeTag::Bool && typ != TargetTypeTag::Pointer { return false; }
+    let mut value: bool = false;
+    if predicate == 86 { value = equal; } else if predicate == 87 { value = !equal; }
+    else if predicate == 88 { value = less; } else if predicate == 89 { value = less || equal; }
+    else if predicate == 90 { value = !less && !equal; } else if predicate == 91 { value = !less; }
+    else { return false; }
+    let mut bits: u64 = 0; if value { bits = 1; } unsafe { *result = bits; } return true;
 }
 
 impl ScalarLowering {
@@ -206,7 +365,7 @@ impl ScalarLowering {
     }
 
     pub fn scalar_memory_size(self: &Self, typ: TargetTypeTag) -> u32 {
-        if typ == TargetTypeTag::U8 || typ == TargetTypeTag::I8 { return 1; }
+        if typ == TargetTypeTag::U8 || typ == TargetTypeTag::I8 || typ == TargetTypeTag::Bool { return 1; }
         if typ == TargetTypeTag::U16 || typ == TargetTypeTag::I16 { return 2; }
         if typ == TargetTypeTag::U32 || typ == TargetTypeTag::I32 || typ == TargetTypeTag::F32 { return 4; }
         if typ == TargetTypeTag::U64 || typ == TargetTypeTag::I64 || typ == TargetTypeTag::Usize || typ == TargetTypeTag::Pointer || typ == TargetTypeTag::F64 { return 8; }
@@ -278,6 +437,8 @@ impl ScalarLowering {
             elem_offset, elem_len, "f32", 3) { return TargetTypeTag::F32; }
         if sem.source_slice_equals(self.source, self.source_len,
             elem_offset, elem_len, "f64", 3) { return TargetTypeTag::F64; }
+        if sem.source_slice_equals(self.source, self.source_len,
+            elem_offset, elem_len, "bool", 4) { return TargetTypeTag::Bool; }
         if unsafe { *(self.source + elem_offset) } == 42 { return TargetTypeTag::Pointer; }
         if self.find_struct(elem_offset, elem_len) != 0 { return TargetTypeTag::Aggregate; }
         if sem.source_slice_equals(
@@ -318,7 +479,7 @@ impl ScalarLowering {
         let elem_type: TargetTypeTag = self.parse_array_element_type(
             type_offset, type_len
         );
-        if elem_type == TargetTypeTag::U8 || elem_type == TargetTypeTag::I8 { return 1; }
+        if elem_type == TargetTypeTag::U8 || elem_type == TargetTypeTag::I8 || elem_type == TargetTypeTag::Bool { return 1; }
         if elem_type == TargetTypeTag::U16 || elem_type == TargetTypeTag::I16 { return 2; }
         if elem_type == TargetTypeTag::U32 || elem_type == TargetTypeTag::I32 || elem_type == TargetTypeTag::F32 { return 4; }
         if elem_type == TargetTypeTag::U64 || elem_type == TargetTypeTag::I64 || elem_type == TargetTypeTag::Pointer || elem_type == TargetTypeTag::F64 { return 8; }
@@ -411,33 +572,18 @@ impl ScalarLowering {
         }
         let literal: AstNode = unsafe { *(self.nodes + literal_index) };
         if literal.next_sibling != 0 { return false; }
-        if literal.kind != AstKind::ExprLiteral {
-            if literal.kind != AstKind::ExprUnary || literal.int_value != 81
-                || literal.first_child == 0 || literal.first_child >= self.node_count { return false; }
-            let child: AstNode = unsafe { *(self.nodes + literal.first_child) };
-            if child.kind != AstKind::ExprLiteral || child.next_sibling != 0 { return false; }
-        }
         let type_tag: TargetTypeTag = self.type_tag_for(type_index);
         if !target_type_is_integer(type_tag) && !target_type_is_float(type_tag)
             && type_tag != TargetTypeTag::Bool { return false; }
-        // Validate unused constants too. Temporary literal IR must not consume
-        // arena identities or leak instructions into the first function.
-        let values_before: usize = self.value_count;
-        let instructions_before: usize = self.instruction_count;
-        let operands_before: usize = self.operand_count;
-        let next_before: u32 = self.next_value_id;
-        let validated: u32 = self.lower_expression(literal_index, type_tag, 0, 0);
-        self.value_count = values_before;
-        self.instruction_count = instructions_before;
-        self.operand_count = operands_before;
-        self.next_value_id = next_before;
-        if validated == 0 { return false; }
+        let mut bits: u64 = 0;
+        if !self.constant_literal_bits(literal_index, type_tag, &mut bits) { return false; }
 
         let slot: usize = self.const_count;
         self.const_name_offsets[slot] = decl.str_offset;
         self.const_name_lens[slot] = decl.str_len;
         self.const_type_tags[slot] = type_tag as u32;
         self.const_literal_nodes[slot] = literal_index;
+        self.const_bits[slot] = bits;
         self.const_count = self.const_count + 1;
         return true;
     }
@@ -456,6 +602,79 @@ impl ScalarLowering {
             index = index + 1;
         }
         return -1;
+    }
+
+    // Evaluate literal initialization with the normal typed lowering rules.
+    // Restore all temporary arena identities before returning to module lowering.
+    pub fn constant_literal_bits(mut self: &mut Self, expression_index: usize,
+        typ: TargetTypeTag, result: &mut u64) -> bool {
+        if expression_index == 0 || expression_index >= self.node_count { return false; }
+        let expression: AstNode = unsafe { *(self.nodes + expression_index) };
+        let values_before: usize = self.value_count;
+        let instructions_before: usize = self.instruction_count;
+        let operands_before: usize = self.operand_count;
+        let next_before: u32 = self.next_value_id;
+        let evaluation_before: bool = self.constant_evaluation;
+        self.constant_evaluation = true;
+        let value: u32 = self.lower_expression(expression_index, typ, 0, 0);
+        let count: usize = self.instruction_count - instructions_before;
+        let mut valid: bool = value != 0 && value as usize <= self.value_count
+            && unsafe { (*(self.values + value as usize - 1)).type_tag } == typ
+            && count != 0 && count <= 128;
+        let mut constants: [u64; 128] = 0;
+        let mut ids: [u32; 128] = 0;
+        let mut bits: u64 = 0;
+        let mut index: usize = 0;
+        while valid && index < count {
+            let instruction: TargetInstruction = unsafe { *(self.instructions + instructions_before + index) };
+            let mut current: u64 = instruction.immediate_bits;
+            if instruction.opcode != TargetOpcode::ConstInt && instruction.opcode != TargetOpcode::ConstFloat {
+                let mut first: usize = 128; let mut second: usize = 128;
+                if instruction.operand_count != 0 && instruction.first_operand as usize < self.operand_count {
+                    let first_id: u32 = unsafe { (*(self.operands + instruction.first_operand as usize)).value_id };
+                    let mut prior: usize = 0;
+                    while prior < index { if ids[prior] == first_id { first = prior; break; } prior = prior + 1; }
+                }
+                if instruction.operand_count == 2 && instruction.first_operand as usize + 1 < self.operand_count {
+                    let second_id: u32 = unsafe { (*(self.operands + instruction.first_operand as usize + 1)).value_id };
+                    let mut prior: usize = 0;
+                    while prior < index { if ids[prior] == second_id { second = prior; break; } prior = prior + 1; }
+                }
+                if first < index && instruction.opcode != TargetOpcode::Compare
+                    && unsafe { (*(self.values + ids[first] as usize - 1)).type_tag } != instruction.type_tag { valid = false; }
+                if second < index && instruction.opcode != TargetOpcode::Compare
+                    && unsafe { (*(self.values + ids[second] as usize - 1)).type_tag } != instruction.type_tag { valid = false; }
+                if instruction.opcode == TargetOpcode::FloatNeg && first < index && instruction.operand_count == 1 {
+                    current = constants[first] ^ 9223372036854775808;
+                    if instruction.type_tag == TargetTypeTag::F32 { current = constants[first] ^ 2147483648; }
+                } else if (instruction.opcode == TargetOpcode::BoolAnd || instruction.opcode == TargetOpcode::BoolOr)
+                    && first < index && second < index && constants[first] <= 1 && constants[second] <= 1 {
+                    if instruction.opcode == TargetOpcode::BoolAnd { current = constants[first] & constants[second]; }
+                    else { current = constants[first] | constants[second]; }
+                } else if instruction.opcode == TargetOpcode::Compare && first < index && second < index {
+                    let operand_type: TargetTypeTag = unsafe { (*(self.values + ids[first] as usize - 1)).type_tag };
+                    valid = operand_type == unsafe { (*(self.values + ids[second] as usize - 1)).type_tag }
+                        && native_constant_compare(instruction.immediate_bits, operand_type, constants[first], constants[second], &mut current);
+                } else if first < index && second < index && instruction.operand_count == 2 {
+                    if target_type_is_float(instruction.type_tag) {
+                        valid = native_constant_float(instruction.opcode, instruction.type_tag,
+                            constants[first], constants[second], &mut current);
+                    } else {
+                        valid = native_constant_integer(instruction.opcode, instruction.type_tag,
+                            constants[first], constants[second], &mut current);
+                    }
+                } else { valid = false; }
+            }
+            if instruction.result_value == 0 { valid = false; }
+            constants[index] = current; ids[index] = instruction.result_value;
+            if instruction.result_value == value { bits = current; }
+            index = index + 1;
+        }
+        self.value_count = values_before; self.instruction_count = instructions_before;
+        self.operand_count = operands_before; self.next_value_id = next_before;
+        self.constant_evaluation = evaluation_before;
+        if valid { unsafe { *result = bits; } }
+        return valid;
     }
 
     pub fn find_global_bss(self: &Self, offset: usize, len: usize) -> isize {
@@ -677,7 +896,9 @@ impl ScalarLowering {
             const_name_lens: [0; 64],
             const_type_tags: [0; 64],
             const_literal_nodes: [0; 64],
-            const_count: 0
+            const_bits: [0; 64],
+            const_count: 0,
+            constant_evaluation: false
         };
     }
 
@@ -1858,6 +2079,42 @@ impl ScalarLowering {
             return TARGET_VALUE_NONE;
         }
         let expression: AstNode = unsafe { *(self.nodes + expression_index) };
+        if self.constant_evaluation && type_tag == TargetTypeTag::Bool {
+            if expression.kind == AstKind::ExprBinary && expression.int_value >= 86 && expression.int_value <= 91 {
+                return self.lower_condition_expression(expression_index, first_parameter, parameter_count);
+            }
+            if expression.kind == AstKind::ExprUnary && expression.int_value == 98 {
+                let child: u32 = self.lower_expression(expression.first_child, TargetTypeTag::Bool, 0, 0);
+                let zero: u32 = self.append_value(TargetTypeTag::Bool, 0, 0);
+                if child == 0 || zero == 0 || !self.append_instruction(TargetOpcode::ConstInt, zero, TargetTypeTag::Bool, 0, 0, expression_index) { return 0; }
+                let first: u32 = self.operand_count as u32;
+                let result: u32 = self.append_value(TargetTypeTag::Bool, 0, 0);
+                if result == 0 || !self.append_operand(child) || !self.append_operand(zero)
+                    || !self.append_instruction(TargetOpcode::Compare, result, TargetTypeTag::Bool, first, 2, expression_index) { return 0; }
+                unsafe { (*(self.instructions + self.instruction_count - 1)).immediate_bits = 86; }
+                return result;
+            }
+        }
+        if self.constant_evaluation && type_tag == TargetTypeTag::Bool
+            && expression.kind == AstKind::ExprBinary && (expression.int_value == 110 || expression.int_value == 111) {
+            let left_index: usize = expression.first_child;
+            if left_index == 0 || left_index >= self.node_count { return 0; }
+            let right_index: usize = unsafe { (*(self.nodes + left_index)).next_sibling };
+            if right_index == 0 || right_index >= self.node_count
+                || unsafe { (*(self.nodes + right_index)).next_sibling } != 0 { return 0; }
+            let left: u32 = self.lower_expression(left_index, TargetTypeTag::Bool, 0, 0);
+            let right: u32 = self.lower_expression(right_index, TargetTypeTag::Bool, 0, 0);
+            let first: u32 = self.operand_count as u32;
+            if left == 0 || right == 0 || !self.append_operand(left) || !self.append_operand(right) { return 0; }
+            let result: u32 = self.append_value(TargetTypeTag::Bool, 0, 0);
+            let mut opcode: TargetOpcode = TargetOpcode::BoolAnd;
+            if expression.int_value == 111 { opcode = TargetOpcode::BoolOr; }
+            if result == 0 || !self.append_instruction(opcode, result, TargetTypeTag::Bool, first, 2, expression_index) { return 0; }
+            return result;
+        }
+        if self.structured_cfg && expression.kind == AstKind::ExprConditional {
+            return self.cfg_conditional_value(expression_index, type_tag, first_parameter, parameter_count);
+        }
         if self.structured_cfg && type_tag == TargetTypeTag::Bool
             && expression.kind == AstKind::ExprBinary
             && (expression.int_value == 110 || expression.int_value == 111) {
@@ -1996,6 +2253,7 @@ impl ScalarLowering {
                     }
                     return value_id;
                 }
+                return TARGET_VALUE_NONE;
             }
             return self.lower_integer_literal(expression_index, type_tag);
         }
@@ -2060,9 +2318,12 @@ impl ScalarLowering {
                     && type_tag != const_type {
                     return TARGET_VALUE_NONE;
                 }
-                return self.lower_expression(
-                    self.const_literal_nodes[ci], const_type, first_parameter, parameter_count
-                );
+                let value: u32 = self.append_value(const_type, 0, 0);
+                let mut opcode: TargetOpcode = TargetOpcode::ConstInt;
+                if target_type_is_float(const_type) { opcode = TargetOpcode::ConstFloat; }
+                if value == 0 || !self.append_instruction(opcode, value, const_type, 0, 0, expression_index) { return 0; }
+                unsafe { (*(self.instructions + self.instruction_count - 1)).immediate_bits = self.const_bits[ci]; }
+                return value;
             }
             let g_idx: isize = self.find_global_bss(expression.str_offset, expression.str_len);
             if g_idx >= 0 {
@@ -2213,11 +2474,17 @@ impl ScalarLowering {
                     let target_struct: u32 = self.pointer_pointee_struct_id(cast_type_index);
                     let source_element: TargetTypeTag = self.pointer_pointee_type_tag(source_ref);
                     let target_element: TargetTypeTag = self.pointer_pointee_type_tag(cast_type_index);
+                    let mut cast_sema: Sema = Sema::new();
+                    let reinterpret: bool = source_struct == 0 && target_struct == 0
+                        && ((target_type_is_integer(source_element) && target_type_is_float(target_element))
+                            || (target_type_is_float(source_element) && target_type_is_integer(target_element)))
+                        && self.scalar_memory_size(source_element) == self.scalar_memory_size(target_element)
+                        && cast_sema.is_in_unsafe_block(self.nodes, self.node_count, expression_index);
                     if (type_tag != TargetTypeTag::Invalid && type_tag != TargetTypeTag::Pointer)
                         || source_struct != target_struct
                         || (source_struct == 0 && (source_element == TargetTypeTag::Invalid
                             || source_element == TargetTypeTag::Pointer
-                            || source_element != target_element)) { return TARGET_VALUE_NONE; }
+                            || (source_element != target_element && !reinterpret))) { return TARGET_VALUE_NONE; }
                     // Qualifier changes preserve the address and exact pointee identity.
                     // Dereferencing the result still requires an unsafe expression.
                     return self.lower_expression(value_index, TargetTypeTag::Pointer,
@@ -3489,7 +3756,8 @@ impl ScalarLowering {
         if self.structured_cfg && (expression.kind == AstKind::ExprIdent
             || expression.kind == AstKind::UnsafeExpr
             || expression.kind == AstKind::ExprCall || expression.kind == AstKind::ExprLiteral
-            || expression.kind == AstKind::ExprFieldAccess) {
+            || expression.kind == AstKind::ExprFieldAccess || expression.kind == AstKind::ExprIndex
+            || expression.kind == AstKind::ExprConditional) {
             let result: u32 = self.lower_expression(
                 expression_index, TargetTypeTag::Bool, first_parameter, parameter_count
             );
@@ -4883,8 +5151,8 @@ impl ScalarLowering {
             }
             let is_aggregate_call: bool = node.kind == AstKind::ExprCall && self.cfg_struct_id(i, 0) != 0;
             let scalar_call: bool = node.kind == AstKind::ExprCall;
-            let needs_lazy_condition: bool = node.kind == AstKind::ExprBinary
-                && (node.int_value == 110 || node.int_value == 111);
+            let needs_lazy_condition: bool = node.kind == AstKind::ExprConditional
+                || (node.kind == AstKind::ExprBinary && (node.int_value == 110 || node.int_value == 111));
             let array_index: bool = node.kind == AstKind::ExprIndex;
             let unsafe_block: bool = node.kind == AstKind::UnsafeBlock || node.kind == AstKind::UnsafeExpr;
             let mut method_call: bool = false;
@@ -5020,6 +5288,42 @@ impl ScalarLowering {
 
     // Materialize a lazy Boolean as a value usable by return, let, assign and
     // call arguments. Each incoming path stores its bit before the join load.
+    pub fn cfg_conditional_value(mut self: &mut Self, expression_index: usize,
+        typ: TargetTypeTag, first_parameter: usize, parameter_count: usize) -> u32 {
+        if self.cfg_current == 0 || expression_index == 0 || expression_index >= self.node_count { return 0; }
+        let expression: AstNode = unsafe { *(self.nodes + expression_index) };
+        let condition: usize = expression.first_child;
+        if condition == 0 || condition >= self.node_count { return 0; }
+        let yes_expression: usize = unsafe { (*(self.nodes + condition)).next_sibling };
+        if yes_expression == 0 || yes_expression >= self.node_count { return 0; }
+        let no_expression: usize = unsafe { (*(self.nodes + yes_expression)).next_sibling };
+        if no_expression == 0 || no_expression >= self.node_count
+            || unsafe { (*(self.nodes + no_expression)).next_sibling } != 0 { return 0; }
+        let size: u32 = self.scalar_memory_size(typ);
+        if size == 0 || typ == TargetTypeTag::Aggregate { return 0; }
+        let storage: u32 = self.append_value(TargetTypeTag::Pointer, 0, 0);
+        if storage == 0 || !self.append_instruction(TargetOpcode::AllocStack, storage,
+            TargetTypeTag::Pointer, 0, 0, expression_index) { return 0; }
+        unsafe { (*(self.instructions + self.instruction_count - 1)).immediate_bits = size as u64; }
+        let yes: u32 = self.cfg_reserve_block(); let no: u32 = self.cfg_reserve_block(); let join: u32 = self.cfg_reserve_block();
+        if yes == 0 || no == 0 || join == 0
+            || !self.cfg_test(condition, yes, no, first_parameter, parameter_count, 0) { return 0; }
+        self.cfg_begin(yes);
+        let yes_value: u32 = self.lower_expression(yes_expression, typ, first_parameter, parameter_count);
+        if yes_value == 0 || unsafe { (*(self.values + yes_value as usize - 1)).type_tag } != typ
+            || !self.cfg_store(storage, yes_value, typ, yes_expression) || !self.cfg_jump(join, expression_index) { return 0; }
+        self.cfg_begin(no);
+        let no_value: u32 = self.lower_expression(no_expression, typ, first_parameter, parameter_count);
+        if no_value == 0 || unsafe { (*(self.values + no_value as usize - 1)).type_tag } != typ
+            || !self.cfg_store(storage, no_value, typ, no_expression) || !self.cfg_jump(join, expression_index) { return 0; }
+        self.cfg_begin(join);
+        let result: u32 = self.append_value(typ, 0, 0);
+        let operand: u32 = self.operand_count as u32;
+        if result == 0 || !self.append_operand(storage) || !self.append_instruction(TargetOpcode::Load,
+            result, typ, operand, 1, expression_index) { return 0; }
+        return result;
+    }
+
     pub fn cfg_boolean_value(mut self: &mut Self, expression_index: usize,
         first_parameter: usize, parameter_count: usize) -> u32 {
         if self.cfg_current == 0 { return 0; }
@@ -5061,8 +5365,8 @@ impl ScalarLowering {
 
     // Initialize large local arrays with bounded executable CFG instead of
     // duplicating four IR instructions for every element in compiler tables.
-    pub fn cfg_zero_array(mut self: &mut Self, address: u32, count: usize,
-        stride: u32, element_type: TargetTypeTag, node: usize) -> bool {
+    pub fn cfg_fill_array(mut self: &mut Self, address: u32, count: usize,
+        stride: u32, element_type: TargetTypeTag, node: usize, fill: u32) -> bool {
         if address == 0 || count == 0 || count > 4096 || stride == 0 || self.cfg_current == 0 { return false; }
         let counter: u32 = self.append_value(TargetTypeTag::Pointer, 0, 0);
         if counter == 0 || !self.append_instruction(TargetOpcode::AllocStack, counter,
@@ -5071,7 +5375,8 @@ impl ScalarLowering {
         let start: u32 = self.append_value(TargetTypeTag::U64, 0, 0);
         let limit: u32 = self.append_value(TargetTypeTag::U64, 0, 0);
         let one: u32 = self.append_value(TargetTypeTag::U64, 0, 0);
-        let zero: u32 = self.append_value(element_type, 0, 0);
+        let mut zero: u32 = fill;
+        if zero == 0 { zero = self.append_value(element_type, 0, 0); }
         if start == 0 || limit == 0 || one == 0 || zero == 0
             || !self.append_instruction(TargetOpcode::ConstInt, start, TargetTypeTag::U64, 0, 0, node)
             || !self.cfg_store(counter, start, TargetTypeTag::U64, node)
@@ -5081,7 +5386,7 @@ impl ScalarLowering {
         unsafe { (*(self.instructions + self.instruction_count - 1)).immediate_bits = 1; }
         let mut zero_opcode: TargetOpcode = TargetOpcode::ConstInt;
         if target_type_is_float(element_type) { zero_opcode = TargetOpcode::ConstFloat; }
-        if !self.append_instruction(zero_opcode, zero, element_type, 0, 0, node) { return false; }
+        if fill == 0 && !self.append_instruction(zero_opcode, zero, element_type, 0, 0, node) { return false; }
         let header: u32 = self.cfg_reserve_block();
         let body: u32 = self.cfg_reserve_block();
         let done: u32 = self.cfg_reserve_block();
@@ -5149,15 +5454,31 @@ impl ScalarLowering {
                     let count: usize = self.parse_array_element_count(
                         declared.str_offset, declared.str_len
                     );
-                    // This first local-array contract accepts bounded scalar
-                    // arrays initialized entirely to zero, never aggregate
-                    // elements or partially initialized stack memory.
-                    if stride == 0 || count == 0 || count > 4096
-                        || value_node.kind != AstKind::ExprLiteral
-                        || value_node.str_len != 1
-                        || unsafe { *(self.source + value_node.str_offset) } != 48 {
-                        return self.reject(index);
-                    }
+                    if stride == 0 || count == 0 || count > 4096 { return self.reject(index); }
+                    let zero_initializer: bool = value_node.kind == AstKind::ExprLiteral
+                        && value_node.str_len == 1 && unsafe { *(self.source + value_node.str_offset) } == 48;
+                    let list_initializer: bool = value_node.kind == AstKind::ExprArrayLiteral;
+                    let mut repeated_value: u32 = 0;
+                    let mut element_node: usize = 0;
+                    if value_node.kind == AstKind::ExprArrayRepeat {
+                        element_node = value_node.first_child;
+                        if element_node == 0 || element_node >= self.node_count { return self.reject(index); }
+                        let count_node: usize = unsafe { (*(self.nodes + element_node)).next_sibling };
+                        if count_node == 0 || count_node >= self.node_count { return self.reject(index); }
+                        let length_node: AstNode = unsafe { *(self.nodes + count_node) };
+                        if length_node.kind != AstKind::ExprLiteral || length_node.next_sibling != 0
+                            || self.parse_integer_value(length_node.str_offset, length_node.str_len) != count as u64 { return self.reject(index); }
+                        repeated_value = self.lower_expression(element_node, elem, first_parameter, parameter_count);
+                        if repeated_value == 0 { return self.reject(index); }
+                    } else if list_initializer {
+                        element_node = value_node.first_child;
+                        let mut elements: usize = 0; let mut scan: usize = element_node;
+                        while scan != 0 && elements <= count {
+                            if scan >= self.node_count { return self.reject(index); }
+                            elements = elements + 1; scan = unsafe { (*(self.nodes + scan)).next_sibling };
+                        }
+                        if elements != count || scan != 0 { return self.reject(index); }
+                    } else if !zero_initializer { return self.reject(index); }
                     let total: usize = stride as usize * count;
                     let address: u32 = self.append_value(TargetTypeTag::Pointer, 0, 0);
                     if address == 0 || !self.append_instruction(
@@ -5166,11 +5487,11 @@ impl ScalarLowering {
                     ) { return self.reject(index); }
                     unsafe { (*(self.instructions + self.instruction_count - 1)).immediate_bits =
                         total as u64; }
-                    if count > 16 {
-                        if !self.cfg_zero_array(address, count, stride, elem, index) { return self.reject(index); }
+                    if count > 16 && !list_initializer {
+                        if !self.cfg_fill_array(address, count, stride, elem, index, repeated_value) { return self.reject(index); }
                     }
                     let mut element: usize = 0;
-                    if count > 16 { element = count; }
+                    if count > 16 && !list_initializer { element = count; }
                     while element < count {
                         let position: u32 = self.append_value(TargetTypeTag::U64, 0, 0);
                         if position == 0 || !self.append_instruction(
@@ -5189,14 +5510,18 @@ impl ScalarLowering {
                             ) { return self.reject(index); }
                         unsafe { (*(self.instructions + self.instruction_count - 1)).immediate_bits =
                             (count as u64 << 32) | stride as u64; }
-                        let zero: u32 = self.append_value(elem, 0, 0);
-                        let mut zero_opcode: TargetOpcode = TargetOpcode::ConstInt;
-                        if target_type_is_float(elem) { zero_opcode = TargetOpcode::ConstFloat; }
-                        if zero == 0 || !self.append_instruction(
-                            zero_opcode, zero, elem, 0, 0, index
-                        ) || !self.cfg_store(element_address, zero, elem, index) {
-                            return self.reject(index);
+                        let mut initial_value: u32 = repeated_value;
+                        if list_initializer {
+                            initial_value = self.lower_expression(element_node, elem, first_parameter, parameter_count);
+                            element_node = unsafe { (*(self.nodes + element_node)).next_sibling };
+                        } else if initial_value == 0 {
+                            initial_value = self.append_value(elem, 0, 0);
+                            let mut zero_opcode: TargetOpcode = TargetOpcode::ConstInt;
+                            if target_type_is_float(elem) { zero_opcode = TargetOpcode::ConstFloat; }
+                            if initial_value == 0 || !self.append_instruction(zero_opcode, initial_value, elem, 0, 0, index) { return self.reject(index); }
                         }
+                        if initial_value == 0 || unsafe { (*(self.values + initial_value as usize - 1)).type_tag } != elem
+                            || !self.cfg_store(element_address, initial_value, elem, index) { return self.reject(index); }
                         element = element + 1;
                     }
                     let slot: usize = self.local_count;
@@ -6217,6 +6542,7 @@ pub fn lower_scalar_module(
         g_rodata_sym_count = 0;
         g_bss_total_size = 0;
         g_bss_sym_count = 0;
+        g_data_total_size = 0;
     }
     if lowering.nodes == null || lowering.source == null || module_index == 0
         || module_index >= lowering.node_count {
@@ -6245,6 +6571,8 @@ pub fn lower_scalar_module(
             let mut array_element_struct: u32 = 0;
             let mut array_element_stride: usize = 0;
             let mut array_element_count: usize = 0;
+            let mut initial_bits: u64 = 0;
+            let mut initial_stride: usize = 0;
             if decl_node.first_child != 0 && decl_node.first_child < lowering.node_count {
                 let type_node: AstNode = unsafe { *(lowering.nodes + decl_node.first_child) };
                 if type_node.str_len > 0 {
@@ -6271,29 +6599,30 @@ pub fn lower_scalar_module(
                         if array_element_count > maximum_size / array_element_stride {
                             return lowering.reject(struct_scan_index);
                         }
-                        if array_element_struct != 0 || element_type == TargetTypeTag::Pointer || target_type_is_float(element_type) {
-                            let initializer_index: usize = type_node.next_sibling;
-                            if initializer_index == 0 || initializer_index >= lowering.node_count { return lowering.reject(struct_scan_index); }
-                            let initializer: AstNode = unsafe { *(lowering.nodes + initializer_index) };
-                            if initializer.kind != AstKind::ExprLiteral || initializer.str_len != 1
-                                || unsafe { *(lowering.source + initializer.str_offset) } != 48 {
-                                return lowering.reject(struct_scan_index);
-                            }
-                        }
+                        let initializer_index: usize = type_node.next_sibling;
+                        if initializer_index == 0 || initializer_index >= lowering.node_count { return lowering.reject(struct_scan_index); }
+                        let initializer: AstNode = unsafe { *(lowering.nodes + initializer_index) };
+                        if initializer.kind == AstKind::ExprArrayRepeat {
+                            let repeated: usize = initializer.first_child;
+                            if repeated == 0 || repeated >= lowering.node_count { return lowering.reject(struct_scan_index); }
+                            let count_node: usize = unsafe { (*(lowering.nodes + repeated)).next_sibling };
+                            if count_node == 0 || count_node >= lowering.node_count { return lowering.reject(struct_scan_index); }
+                            let count_expr: AstNode = unsafe { *(lowering.nodes + count_node) };
+                            if count_expr.kind != AstKind::ExprLiteral || count_expr.next_sibling != 0
+                                || lowering.parse_integer_value(count_expr.str_offset, count_expr.str_len) != array_element_count as u64
+                                || array_element_struct != 0 || element_type == TargetTypeTag::Pointer
+                                || !lowering.constant_literal_bits(repeated, element_type, &mut initial_bits) { return lowering.reject(struct_scan_index); }
+                        } else if initializer.kind != AstKind::ExprLiteral || initializer.str_len != 1
+                            || unsafe { *(lowering.source + initializer.str_offset) } != 48 { return lowering.reject(struct_scan_index); }
+                        initial_stride = array_element_stride;
                         var_size = array_element_stride * array_element_count;
                         type_tag_val = TargetTypeTag::Pointer as u32;
                     } else {
                         let tt: TargetTypeTag = lowering.type_tag_for(decl_node.first_child);
-                        if target_type_is_float(tt) {
-                            let initializer_index: usize = type_node.next_sibling;
-                            if initializer_index == 0 || initializer_index >= lowering.node_count { return lowering.reject(struct_scan_index); }
-                            let initializer: AstNode = unsafe { *(lowering.nodes + initializer_index) };
-                            let mut bits: u64 = 0;
-                            if initializer.kind != AstKind::ExprLiteral || initializer.str_offset > lowering.source_len
-                                || initializer.str_len > lowering.source_len - initializer.str_offset
-                                || !native_decimal_float_bits(unsafe { lowering.source + initializer.str_offset },
-                                    initializer.str_len, tt, &mut bits) || bits != 0 { return lowering.reject(struct_scan_index); }
-                        }
+                        let initializer_index: usize = type_node.next_sibling;
+                        if tt == TargetTypeTag::Invalid || tt == TargetTypeTag::Aggregate
+                            || initializer_index == 0 || initializer_index >= lowering.node_count
+                            || !lowering.constant_literal_bits(initializer_index, tt, &mut initial_bits) { return lowering.reject(struct_scan_index); }
                         if tt != TargetTypeTag::Invalid {
                             type_tag_val = tt as u32;
                             var_size = 4;
@@ -6308,9 +6637,12 @@ pub fn lower_scalar_module(
                     }
                 }
             }
+            if initial_stride == 0 { initial_stride = var_size; }
             let maximum_size: usize = 18446744073709551615;
-            if unsafe { g_bss_total_size } > maximum_size - 7 { return lowering.reject(struct_scan_index); }
-            let bss_off: usize = align_val(unsafe { g_bss_total_size }, 8);
+            let mut storage_size: usize = unsafe { g_bss_total_size };
+            if initial_bits != 0 { storage_size = unsafe { g_data_total_size }; }
+            if storage_size > maximum_size - 7 { return lowering.reject(struct_scan_index); }
+            let bss_off: usize = align_val(storage_size, 8);
             if var_size > maximum_size - bss_off { return lowering.reject(struct_scan_index); }
             let b_idx: usize = unsafe { g_bss_sym_count };
             unsafe {
@@ -6325,8 +6657,11 @@ pub fn lower_scalar_module(
                 g_bss_sym_element_strides[b_idx] = array_element_stride;
                 g_bss_sym_element_counts[b_idx] = array_element_count;
                 g_bss_sym_type_refs[b_idx] = decl_node.first_child;
+                g_bss_sym_initial_bits[b_idx] = initial_bits;
+                g_bss_sym_initial_stride[b_idx] = initial_stride;
                 g_bss_sym_count = b_idx + 1;
-                g_bss_total_size = bss_off + var_size;
+                if initial_bits != 0 { g_data_total_size = bss_off + var_size; }
+                else { g_bss_total_size = bss_off + var_size; }
             }
         }
         if decl_node.kind == AstKind::StructDecl {

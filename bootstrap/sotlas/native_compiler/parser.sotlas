@@ -1168,7 +1168,7 @@ impl Parser {
             && tok.kind != TokenKind::BoolLit
             && tok.kind != TokenKind::OpenBracket && tok.kind != TokenKind::Ident
             && tok.kind != TokenKind::OpenParen
-            && tok.kind != TokenKind::KwUnsafe {
+            && tok.kind != TokenKind::KwUnsafe && tok.kind != TokenKind::KwIf {
             self.record_unexpected(tok);
             return 0;
         }
@@ -1177,6 +1177,25 @@ impl Parser {
             || tok.kind == TokenKind::StrLit || tok.kind == TokenKind::CharLit
             || tok.kind == TokenKind::BoolLit {
             return self.alloc_text_node(AstKind::ExprLiteral, tok);
+        }
+
+        if tok.kind == TokenKind::KwIf {
+            let conditional: usize = self.alloc_node(AstKind::ExprConditional, tok.span);
+            let condition: usize = self.parse_expression();
+            if conditional == 0 || condition == 0 || !self.match_token(TokenKind::OpenBrace) { self.reject_current(); return 0; }
+            self.advance(); let yes: usize = self.parse_expression();
+            if yes == 0 || !self.match_token(TokenKind::CloseBrace) { self.reject_current(); return 0; }
+            self.advance();
+            if !self.match_token(TokenKind::KwElse) { self.expect(TokenKind::KwElse); return 0; }
+            self.advance(); let mut no: usize = 0;
+            if self.match_token(TokenKind::OpenBrace) {
+                self.advance(); no = self.parse_expression();
+                if no == 0 || !self.match_token(TokenKind::CloseBrace) { self.reject_current(); return 0; }
+                self.advance();
+            } else { no = self.parse_expression(); }
+            if no == 0 || !self.append_child(conditional, condition)
+                || !self.append_child(conditional, yes) || !self.append_child(conditional, no) { return 0; }
+            return conditional;
         }
 
         if tok.kind == TokenKind::KwUnsafe {
@@ -1204,6 +1223,18 @@ impl Parser {
                 return 0;
             }
             let value_node: usize = self.parse_expression();
+            if value_node != 0 && (self.match_token(TokenKind::Comma) || self.match_token(TokenKind::CloseBracket)) {
+                unsafe { (*(self.nodes + repeat_node)).kind = AstKind::ExprArrayLiteral; }
+                if !self.append_child(repeat_node, value_node) { return 0; }
+                while self.match_token(TokenKind::Comma) {
+                    self.advance();
+                    if self.match_token(TokenKind::CloseBracket) { break; }
+                    let element: usize = self.parse_expression();
+                    if element == 0 || !self.append_child(repeat_node, element) { return 0; }
+                }
+                if !self.match_token(TokenKind::CloseBracket) { self.reject_current(); return 0; }
+                self.advance(); return repeat_node;
+            }
             if value_node == 0 || !self.match_token(TokenKind::SemiColon) {
                 return 0;
             }

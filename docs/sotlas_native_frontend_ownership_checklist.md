@@ -22,17 +22,34 @@ contracts. Local validation must pass CI before being called certified.
 - [ ] Implement payload enums and their native layout.
 - [ ] Implement contracted `match` and selection forms with coverage checking.
 - [ ] Complete general arrays, slices, indexing and slicing.
+  - [x] Native local scalar arrays accept value lists and runtime repetition with exact length/type checking.
+  - [x] Repetition evaluates its value once; large arrays use a bounded native fill loop.
+  - [x] Boolean arrays participate in native conditions and indexed reads.
+  - [x] Boolean array fields preserve POD layout, copying and independent mutation.
+  - [ ] Complete slices, aggregate elements and remaining array forms.
 - [ ] Implement string and slice values beyond the current literal forms.
 - [ ] Complete conditional expressions and remaining control-flow forms.
+  - [x] Native scalar, float and Boolean `if/else` values execute one selected arm, including nested `else if`, calls, returns and loops.
+  - [ ] Complete aggregate/ownership conditional values and remaining canonical control forms.
 - [ ] Migrate canonical error handling and propagation.
 - [ ] Complete constant-expression evaluation.
+  - [x] Fold typed integer/float arithmetic, bit operations, shifts, Boolean logic and comparisons before emission.
+  - [x] Reject signed overflow, division/remainder by zero, invalid shifts and nonfinite floating constant results.
+  - [x] Validate folded operand/result types; float bits cannot become integer initializers through incompatible constant references.
+  - [ ] Complete forward constant references, conditional constant expressions and remaining contracted types/forms.
 - [ ] Implement module constants with floats and other contracted types.
   - [x] Lower typed integer, Boolean, f32 and f64 literal constants, including unary-negative literals.
   - [x] Check unused constants with the same type and range rules as expressions.
   - [x] Restore temporary IR arena counts and value identities after declaration validation.
-  - [ ] Evaluate general constant expressions and support other contracted constant types.
+  - [x] References to prior scalar module constants emit their stored folded bits.
+  - [ ] Support other contracted constant types and remaining expression forms.
 - [ ] Implement nonzero static initializers.
+  - [x] Emit typed integer/float/Boolean scalar initializers and repeated scalar arrays into writable ELF `.data`.
+  - [x] Preserve independent `.bss` zero storage, relocation identity and mutation in native PE/ELF execution.
+  - [ ] Complete general aggregate, array-list, string and pointer initializers.
 - [ ] Expand numeric literals, including scientific notation and decimals outside current bounds.
+  - [x] Parse native `e`/`E` notation and explicit exponent signs; convert the bounded rational without a host float parser.
+  - [ ] Complete wider coefficients/exponents, numeric suffixes and remaining numeric forms.
 - [ ] Complete overflow, promotion and numeric-conversion rules for every contracted backend.
 - [ ] Match canonical diagnostics: file, line, column, cause and context.
   - [x] Native file drivers report the input path, line, column and compiler phase.
@@ -63,6 +80,7 @@ contracts. Local validation must pass CI before being called certified.
 - [ ] Complete `defer`, LIFO execution and cleanup interaction.
 - [ ] Migrate effect analysis and propagation.
 - [ ] Migrate `unsafe`, target-capability and foreign-boundary validation.
+  - [x] Equal-width integer/float pointer reinterpretation requires explicit `unsafe`; missing `unsafe` and width changes fail before output.
 - [ ] Migrate contracted state machines, transitions, refinements and coverage checks.
 - [ ] Migrate contracts, preconditions, postconditions and executable guards.
 - [ ] Replace semantic operations without runtime behavior with implementation or explicit rejection across the complete native profile.
@@ -96,8 +114,12 @@ gate; a Windows cross-build does not substitute for that execution evidence.
 
 ## Remaining limits
 
-Literal module constants retain the native numeric bounds and 64-declaration
-limit. General constant expressions remain rejected. Diagnostics display at
+Scalar module constants retain the native numeric bounds and 64-declaration
+limit. Folding accepts up to 128 temporary IR instructions per expression;
+general calls, forward references and conditional constant expressions remain
+outside this contract. Scientific exponents are bounded to 18 and the reduced
+rational must fit the existing coefficient/denominator limits. Local scalar
+arrays remain bounded to 4,096 elements. Diagnostics display at
 most 160 source bytes; combined project input still uses `<native-project>`
 and combined-stream positions. Semantic opcode rejection protects users from
 silently omitted behavior; it does not implement ARC, lifetimes or cleanup.

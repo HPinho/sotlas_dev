@@ -35,16 +35,16 @@ class NativeFloatTests(unittest.TestCase):
     def test_generated_name_arena_exhaustion_does_not_write_or_advance(self):
         source = '''import sotlas::compiler::backend::lower_scalar::*;
 import sotlas::compiler::backend::target_ir::*;
-static mut arena:[u8;2097152]=0;
+static mut arena:[u8;4194304]=0;
 pub fn main_entry()->u32{
 let text:*const u8=unsafe{arena as *const u8};
 let mut lowering:ScalarLowering=ScalarLowering::new(null,0,text,4,
 null,0,null,0,null,0,null,0,null,0,null,0,null,0,null,0);
-unsafe{arena[2097151]=9;g_extended_len=2097151;}
+unsafe{arena[4194303]=9;g_extended_len=4194303;}
 let name:TargetSourceSlice=lowering.append_mangled_name(0,1,2,1);
 let symbol:TargetSourceSlice=lowering.append_synthetic_str_symbol(0);
-if name.length!=0 || symbol.length!=0 || unsafe{g_extended_len}!=2097151{return 1;}
-if unsafe{arena[2097151]}!=9{return 2;}return 42;}'''
+if name.length!=0 || symbol.length!=0 || unsafe{g_extended_len}!=4194303{return 1;}
+if unsafe{arena[4194303]}!=9{return 2;}return 42;}'''
         self.execute(self.compile("suffix_exhaustion", source))
 
     def test_arithmetic_comparisons_negation_and_mixed_register_stack_calls(self):
@@ -136,7 +136,7 @@ if a+b!=4.0 || small[0]+small[1]!=4.0 || large[0]!=0.0 || large[19]!=4.0 || unsa
             'pub fn f(a:f64)->f64{return ~a;}',
             'pub fn f()->f64{return 1000000000000000000.0;}',
             'pub fn f()->f64{return 0.0000000000000000001;}',
-            'static mut x:f64=1.0;pub fn main_entry()->u32{return 42;}',
+            'static mut x:f64=true;pub fn main_entry()->u32{return 42;}',
             'static mut x:[f64;2]=1;pub fn main_entry()->u32{return 42;}',
             'fn external_float(x:f64)->f64;pub fn main_entry()->u32{return 42;}',
             'fn external_return()->f64;pub fn main_entry()->u32{return 42;}',

@@ -3204,7 +3204,7 @@ pub fn emit_elf64_module_object(
                     branch_count = branch_count + 1;
                     if !append_object_u32(output, capacity, &mut code, 0) { return false; }
                 } else if instruction.opcode == TargetOpcode::CondBranch {
-                    if instruction.target_count != 2 || instruction.operand_count != 1 || branch_count > 2046 { return false; }
+                    if instruction.target_count != 2 || instruction.operand_count != 1 || branch_count > 4094 { return false; }
                     let condition: TargetOperand = unsafe { *(operands + instruction.first_operand) };
                     let yes: u32 = object_block_offset(blocks, function.first_block, function.block_count,
                         unsafe { *(targets + instruction.first_target) });
@@ -3313,11 +3313,13 @@ pub fn emit_elf64_module_object(
 
     let rodata_len: usize = sotlas_native_get_rodata_len();
     let bss_size: usize = sotlas_native_get_bss_size();
+    let data_size: usize = unsafe { g_data_total_size };
     let rodata_sym_cnt: usize = sotlas_native_get_rodata_sym_count();
     let bss_sym_cnt: usize = sotlas_native_get_bss_sym_count();
 
-    if rodata_len > 0 || bss_size > 0 {
+    if rodata_len > 0 || bss_size > 0 || data_size > 0 {
         let rodata_offset: usize = align_to(code, 16);
+        if rodata_offset > capacity || rodata_len > capacity - rodata_offset { return false; }
         if rodata_len > 0 {
             let rodata_src: *const u8 = sotlas_native_get_rodata_buffer();
             let mut r_i: usize = 0;
@@ -3327,6 +3329,27 @@ pub fn emit_elf64_module_object(
             }
         }
         code = rodata_offset + rodata_len;
+        let data_offset: usize = align_to(code, 8);
+        if data_offset > capacity || data_size > capacity - data_offset { return false; }
+        let mut data_byte: usize = 0;
+        while data_byte < data_size { unsafe { *(output + data_offset + data_byte) = 0; } data_byte = data_byte + 1; }
+        let mut initialized_slot: usize = 0;
+        while initialized_slot < bss_sym_cnt {
+            let bits: u64 = unsafe { g_bss_sym_initial_bits[initialized_slot] };
+            if bits != 0 {
+                let place: usize = sotlas_native_get_bss_sym_place(initialized_slot);
+                let size: usize = sotlas_native_get_bss_sym_size(initialized_slot);
+                let stride: usize = unsafe { g_bss_sym_initial_stride[initialized_slot] };
+                if stride == 0 || stride > 8 || size % stride != 0 || place > data_size || size > data_size - place { return false; }
+                data_byte = 0;
+                while data_byte < size {
+                    unsafe { *(output + data_offset + place + data_byte) = (bits >> (((data_byte % stride) * 8) as u64)) as u8; }
+                    data_byte = data_byte + 1;
+                }
+            }
+            initialized_slot = initialized_slot + 1;
+        }
+        if data_size != 0 { code = data_offset + data_size; }
         let bss_offset: usize = code;
 
         let call_relocation_count: u32 = relocation_count;
@@ -3387,11 +3410,11 @@ pub fn emit_elf64_module_object(
         let symtab_size: usize = symbol_count * 24;
         let strtab_offset: usize = symtab_offset + symtab_size;
         let shstrtab_offset: usize = strtab_offset + strings_size;
-        let shstrtab_size: usize = 74;
+        let shstrtab_size: usize = 80;
         let note_offset: usize = align_to(shstrtab_offset + shstrtab_size, 4);
         let note_size: usize = 20 + defined_count as usize * 4;
         let section_header_offset: usize = align_to(note_offset + note_size, 8);
-        let file_size: usize = section_header_offset + 9 * 64;
+        let file_size: usize = section_header_offset + 10 * 64;
         if file_size > capacity { return false; }
         clear_index = code;
         while clear_index < file_size {
@@ -3406,7 +3429,7 @@ pub fn emit_elf64_module_object(
             || !put_u64(output, capacity, 40, section_header_offset as u64)
             || !put_u32(output, capacity, 48, platform_flags)
             || !put_u16(output, capacity, 52, 64) || !put_u16(output, capacity, 58, 64)
-            || !put_u16(output, capacity, 60, 9) || !put_u16(output, capacity, 62, 6)
+            || !put_u16(output, capacity, 60, 10) || !put_u16(output, capacity, 62, 6)
             || !put_section_header(output, capacity, section_header_offset + 64,
                 1, 1, 6, text_offset as u64, text_size as u64, 0, 0, 16, 0)
             || !put_section_header(output, capacity, section_header_offset + 128,
@@ -3423,6 +3446,8 @@ pub fn emit_elf64_module_object(
                 46, 7, 0, note_offset as u64, note_size as u64, 0, 0, 4, 0)
             || !put_section_header(output, capacity, section_header_offset + 512,
                 63, 4, 64, rela_offset as u64, rela_size as u64, 4, 1, 8, 24)
+            || !put_section_header(output, capacity, section_header_offset + 576,
+                74, 1, 3, data_offset as u64, data_size as u64, 0, 0, 8, 0)
             || !put_u32(output, capacity, note_offset, 7)
             || !put_u32(output, capacity, note_offset + 4, defined_count * 4)
             || !put_u32(output, capacity, note_offset + 8, 2)
@@ -3435,9 +3460,9 @@ pub fn emit_elf64_module_object(
             return false;
         }
 
-        let section_names_data: *const u8 = ".text\x00.rodata\x00.bss\x00.symtab\x00.strtab\x00.shstrtab\x00.note.sotlas.abi\x00.rela.text\x00";
+        let section_names_data: *const u8 = ".text\x00.rodata\x00.bss\x00.symtab\x00.strtab\x00.shstrtab\x00.note.sotlas.abi\x00.rela.text\x00.data\x00";
         let mut copy_index: usize = 0;
-        while copy_index < 73 {
+        while copy_index < 79 {
             unsafe { *(output + shstrtab_offset + 1 + copy_index) = *(section_names_data + copy_index); }
             copy_index = copy_index + 1;
         }
@@ -3529,9 +3554,11 @@ pub fn emit_elf64_module_object(
             let s: usize = sotlas_native_get_bss_sym_size(b_sym_i);
             let sym_idx: u32 = defined_count + rodata_sym_cnt as u32 + 1 + b_sym_i as u32;
             let symbol_offset: usize = symtab_offset + sym_idx as usize * 24;
+            let mut storage_section: u16 = 3;
+            if unsafe { g_bss_sym_initial_bits[b_sym_i] } != 0 { storage_section = 9; }
             if !put_u32(output, capacity, symbol_offset, string_cursor as u32)
                 || !put_u8(output, capacity, symbol_offset + 4, 17 as u8)
-                || !put_u16(output, capacity, symbol_offset + 6, 3 as u16)
+                || !put_u16(output, capacity, symbol_offset + 6, storage_section)
                 || !put_u64(output, capacity, symbol_offset + 8, p as u64)
                 || !put_u64(output, capacity, symbol_offset + 16, s as u64) {
                 return false;
