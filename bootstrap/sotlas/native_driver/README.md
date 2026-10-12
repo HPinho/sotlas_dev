@@ -538,6 +538,32 @@ copy the selected arm into independent storage, including nested fields and
 the accepted fixed-array fields. Exclusive POD conditional results preserve
 ownership transfers. Non-POD ownership payloads remain outside this profile.
 
+## Static scalar tables
+
+Global scalar arrays accept explicit lists with exactly the declared number of
+elements. Each element is checked and folded using the scalar constant rules,
+including references to later constants and lazy conditional expressions.
+Integer widths, signed values, float bits and Boolean elements retain their
+declared representation. Global Boolean elements can be used directly in guards.
+
+```sotlas
+static mut table: [u32; 4] = [0, BASE, BASE + 2, 42];
+const BASE: u32 = 20;
+
+pub fn main_entry() -> u32 {
+    unsafe { table[0] = table[1] + table[2]; }
+    return unsafe { table[0] };
+}
+```
+
+Nonzero lists become writable `.data`; all-zero lists remain in `.bss`. The
+native linkers preserve the same storage when producing ELF, PE and Mach-O.
+The explicit-list table holds at most 4,096 elements across the module; compact
+repetitions and zero-storage declarations do not use that table. Wrong lengths,
+out-of-range values, mixed types, runtime calls, pointer elements, record elements
+and table exhaustion are rejected before publishing an object. This profile
+does not yet support general aggregate or relocatable pointer initializers.
+
 ## Lexical defer and cleanup
 
 The native structured CFG executes direct deferred calls, assignments and

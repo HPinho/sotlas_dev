@@ -54,7 +54,10 @@ contracts. Local validation must pass CI before being called certified.
 - [ ] Implement nonzero static initializers.
   - [x] Emit typed integer/float/Boolean scalar initializers and repeated scalar arrays into writable ELF `.data`.
   - [x] Preserve independent `.bss` zero storage, relocation identity and mutation in native PE/ELF execution.
-  - [ ] Complete general aggregate, array-list, string and pointer initializers.
+  - [x] Fold exact-length scalar array lists, including forward constants, conditional values and mixed zero/nonzero elements.
+  - [x] Preserve scalar widths and floating bits in writable native data; keep all-zero lists in zero storage.
+  - [x] Execute global Boolean array elements in guards and preserve indexed mutation.
+  - [ ] Complete general aggregate, string and pointer initializers.
 - [ ] Expand numeric literals, including scientific notation and decimals outside current bounds.
   - [x] Parse native `e`/`E` notation and explicit exponent signs; convert the bounded rational without a host float parser.
   - [ ] Complete wider coefficients/exponents, numeric suffixes and remaining numeric forms.
@@ -140,6 +143,8 @@ contracts. Local validation must pass CI before being called certified.
 | Reference identity and conditional borrow/consume rejection | `test_conditional_pointer_values_preserve_reference_identity`, `test_conditional_borrow_cannot_overlap_owner_consumption` |
 | Original project file positions after reordering/import removal | `test_project_diagnostics_map_original_files_after_import_removal` in the three driver suites |
 | Native lexical defer LIFO and early return | `test_native_defer_calls_run_lifo_on_scope_and_early_return` |
+| Static list constants, scalar widths, mutation and exact ELF section bytes | `test_static_lists_fold_forward_constants_and_preserve_mutable_storage`, `test_static_lists_preserve_scalar_widths_signedness_and_float_bits`, `test_static_list_object_bytes_and_zero_section_are_distinct` |
+| Static list shape/type/runtime rejection and shared capacity bound | `test_static_lists_reject_shape_type_runtime_and_pointer_initializers`, `test_static_list_capacity_is_shared_across_declarations` |
 | Defer binding identity and return snapshots | `test_native_defer_blocks_preserve_shadowed_bindings_and_live_locals`, `test_native_defer_assignments_run_after_return_value_evaluation` |
 | Defer loop cleanup and explicit unsupported/capacity rejection | `test_native_defer_loop_jumps_cleanup_once_before_backedge`, `test_native_defer_rejects_nonlocal_jumps_nested_defers_and_owned_capture`, `test_native_defer_capacity_fails_closed` |
 | Conditional and Boolean constant short-circuit execution | `test_constant_conditional_and_boolean_arms_evaluate_lazily` |

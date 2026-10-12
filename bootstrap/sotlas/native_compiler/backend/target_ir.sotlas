@@ -1538,6 +1538,13 @@ pub static mut g_bss_sym_count: usize = 0;
 pub static mut g_data_total_size: usize = 0;
 pub static mut g_bss_sym_initial_bits: [u64; 256] = 0;
 pub static mut g_bss_sym_initial_stride: [usize; 256] = 0;
+// Explicit static lists share a bounded table of folded scalar values.
+// Repeated initializers keep their compact representation above.
+pub const TARGET_STATIC_LIST_CAPACITY: usize = 4096;
+pub static mut g_static_list_values: [u64; 4096] = 0;
+pub static mut g_static_list_count: usize = 0;
+pub static mut g_bss_sym_initial_start: [usize; 256] = 0;
+pub static mut g_bss_sym_initial_count: [usize; 256] = 0;
 
 @export
 @system

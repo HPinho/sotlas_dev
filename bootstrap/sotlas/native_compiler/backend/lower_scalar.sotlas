@@ -1463,6 +1463,40 @@ impl ScalarLowering {
         return true;
     }
 
+    pub fn fold_static_array_list(mut self: &mut Self, initializer_index: usize,
+        element_type: TargetTypeTag, element_count: usize,
+        initial_start: &mut usize, nonzero_bits: &mut u64) -> bool {
+        if initializer_index == 0 || initializer_index >= self.node_count
+            || element_type == TargetTypeTag::Invalid || element_type == TargetTypeTag::Pointer
+            || element_type == TargetTypeTag::Aggregate || element_count == 0 {
+            return self.reject(initializer_index);
+        }
+        let initializer: AstNode = unsafe { *(self.nodes + initializer_index) };
+        let start: usize = unsafe { g_static_list_count };
+        if initializer.kind != AstKind::ExprArrayLiteral || start > TARGET_STATIC_LIST_CAPACITY
+            || element_count > TARGET_STATIC_LIST_CAPACITY - start {
+            return self.reject(initializer_index);
+        }
+        let mut child: usize = initializer.first_child;
+        let mut index: usize = 0;
+        let mut combined: u64 = 0;
+        while child != 0 {
+            if child >= self.node_count || index >= element_count { return self.reject(initializer_index); }
+            let mut bits: u64 = 0;
+            if !self.constant_literal_bits(child, element_type, &mut bits) { return self.reject(child); }
+            unsafe { g_static_list_values[start + index] = bits; }
+            combined = combined | bits;
+            index = index + 1;
+            child = unsafe { (*(self.nodes + child)).next_sibling };
+        }
+        if index != element_count { return self.reject(initializer_index); }
+        // Commit the range only after shape and every element have been checked.
+        unsafe { g_static_list_count = start + element_count; }
+        *initial_start = start;
+        *nonzero_bits = combined;
+        return true;
+    }
+
     pub fn find_struct(
         self: &Self,
         name_offset: usize,
@@ -2845,7 +2879,8 @@ impl ScalarLowering {
                     && element_type != TargetTypeTag::U16
                     && element_type != TargetTypeTag::U32
                     && element_type != TargetTypeTag::I8 && element_type != TargetTypeTag::I16 && element_type != TargetTypeTag::I32
-                    && element_type != TargetTypeTag::I64 && element_type != TargetTypeTag::U64 && !target_type_is_float(element_type))
+                    && element_type != TargetTypeTag::I64 && element_type != TargetTypeTag::U64
+                    && element_type != TargetTypeTag::Bool && !target_type_is_float(element_type))
                 || stride == 0 || count == 0
                 || stride > 4294967295 || count > 2147483647 {
                 return TARGET_VALUE_NONE;
@@ -6871,6 +6906,7 @@ pub fn lower_scalar_module(
         g_bss_total_size = 0;
         g_bss_sym_count = 0;
         g_data_total_size = 0;
+        g_static_list_count = 0;
     }
     if lowering.nodes == null || lowering.source == null || module_index == 0
         || module_index >= lowering.node_count {
@@ -7037,6 +7073,8 @@ pub fn lower_scalar_module(
             let mut array_element_count: usize = 0;
             let mut initial_bits: u64 = 0;
             let mut initial_stride: usize = 0;
+            let mut initial_start: usize = 0;
+            let mut initial_count: usize = 0;
             if decl_node.first_child != 0 && decl_node.first_child < lowering.node_count {
                 let type_node: AstNode = unsafe { *(lowering.nodes + decl_node.first_child) };
                 if type_node.str_len > 0 {
@@ -7076,6 +7114,13 @@ pub fn lower_scalar_module(
                                 || lowering.parse_integer_value(count_expr.str_offset, count_expr.str_len) != array_element_count as u64
                                 || array_element_struct != 0 || element_type == TargetTypeTag::Pointer
                                 || !lowering.constant_literal_bits(repeated, element_type, &mut initial_bits) { return lowering.reject(struct_scan_index); }
+                        } else if initializer.kind == AstKind::ExprArrayLiteral {
+                            if array_element_struct != 0
+                                || !lowering.fold_static_array_list(initializer_index, element_type,
+                                    array_element_count, &mut initial_start, &mut initial_bits) {
+                                return lowering.reject(initializer_index);
+                            }
+                            initial_count = array_element_count;
                         } else if initializer.kind != AstKind::ExprLiteral || initializer.str_len != 1
                             || unsafe { *(lowering.source + initializer.str_offset) } != 48 { return lowering.reject(struct_scan_index); }
                         initial_stride = array_element_stride;
@@ -7123,6 +7168,8 @@ pub fn lower_scalar_module(
                 g_bss_sym_type_refs[b_idx] = decl_node.first_child;
                 g_bss_sym_initial_bits[b_idx] = initial_bits;
                 g_bss_sym_initial_stride[b_idx] = initial_stride;
+                g_bss_sym_initial_start[b_idx] = initial_start;
+                g_bss_sym_initial_count[b_idx] = initial_count;
                 g_bss_sym_count = b_idx + 1;
                 if initial_bits != 0 { g_data_total_size = bss_off + var_size; }
                 else { g_bss_total_size = bss_off + var_size; }

@@ -3341,9 +3341,19 @@ pub fn emit_elf64_module_object(
                 let size: usize = sotlas_native_get_bss_sym_size(initialized_slot);
                 let stride: usize = unsafe { g_bss_sym_initial_stride[initialized_slot] };
                 if stride == 0 || stride > 8 || size % stride != 0 || place > data_size || size > data_size - place { return false; }
+                let list_start: usize = unsafe { g_bss_sym_initial_start[initialized_slot] };
+                let list_count: usize = unsafe { g_bss_sym_initial_count[initialized_slot] };
+                if list_count != 0 && (list_count != size / stride
+                    || unsafe { g_static_list_count } > TARGET_STATIC_LIST_CAPACITY
+                    || list_start > unsafe { g_static_list_count }
+                    || list_count > unsafe { g_static_list_count } - list_start) { return false; }
                 data_byte = 0;
                 while data_byte < size {
-                    unsafe { *(output + data_offset + place + data_byte) = (bits >> (((data_byte % stride) * 8) as u64)) as u8; }
+                    let mut element_bits: u64 = bits;
+                    if list_count != 0 {
+                        element_bits = unsafe { g_static_list_values[list_start + data_byte / stride] };
+                    }
+                    unsafe { *(output + data_offset + place + data_byte) = (element_bits >> (((data_byte % stride) * 8) as u64)) as u8; }
                     data_byte = data_byte + 1;
                 }
             }
