@@ -12,6 +12,91 @@ class NativeFrontendClosureTests(unittest.TestCase):
     execute = integer.NativeI32Tests.execute
     assert_c11_reference = integer.NativeI32Tests.assert_c11_reference
 
+    def test_native_match_selects_once_and_executes_only_one_arm(self):
+        source='''static mut calls:u32=0;static mut trace:u32=0;
+fn input()->u32{unsafe{calls=calls+1;}return 7;}
+fn select()->u32{match input(){0=>{unsafe{trace=1;}return 1;},7=>{unsafe{trace=42;}return 42;},_=>{return 2;}}}
+pub fn main_entry()->u32{let value:u32=select();if unsafe{calls}!=1 || unsafe{trace}!=42{return 3;}return value;}'''
+        self.execute(self.compile('native_match_once',source))
+
+    def test_native_match_signed_boolean_and_enum_selectors(self):
+        source='''enum Color{Red=1,Blue=9}fn color(value:Color)->u32{
+match value{Color::Red=>{return 1;},Color::Blue=>{return 42;},_=>{return 2;}}}
+fn signed(value:i8)->u32{match value{-128=>{return 42;},0=>{return 1;},_=>{return 2;}}}
+fn boolean(value:bool)->u32{match value{false=>{return 1;},true=>{return 42;},_=>{return 2;}}}
+pub fn main_entry()->u32{if signed(-128)!=42 || boolean(true)!=42 || color(Color::Blue)!=42{return 1;}return 42;}'''
+        self.execute(self.compile('native_match_types',source))
+
+    def test_native_match_nested_scopes_loops_and_lexical_cleanup(self):
+        source='''static mut trace:u32=0;fn append(value:u32)->void{unsafe{trace=trace*10+value;}}
+pub fn main_entry()->u32{let mut index:u32=0;let mut total:u32=0;
+while index<3{index=index+1;defer append(index);match index{
+1=>{defer append(4);continue;},2=>{defer append(5);match true{true=>{total=42;},_=>{total=1;}}},_=>{break;}}}
+if unsafe{trace}!=41523{return 1;}return total;}'''
+        self.execute(self.compile('native_match_loop_cleanup',source))
+
+    def test_native_match_record_returns_snapshot_before_cleanup(self):
+        source='''struct Token{pub value:u32;}fn create(value:u32)->Token{
+let mut token:Token=Token{value:42};defer token.value=1;
+match value{0=>{return token;},_=>{return Token{value:9};}}}
+pub fn main_entry()->u32{let token:Token=create(0);return token.value;}'''
+        self.execute(self.compile('native_match_record_return',source))
+
+    def test_native_match_merges_exclusive_states_and_excludes_returned_paths(self):
+        prefix='''struct Token{pub value:u32;}fn consume(value:sole Token)->u32{return value.value;}'''
+        source=prefix+'''fn select(flag:u32,value:sole Token)->u32{match flag{
+0=>{return consume(value);},_=>{}}return consume(value);}
+pub fn main_entry()->u32{return select(1,Token{value:42});}'''
+        self.execute(self.compile('native_match_live_owner',source))
+        self.compile('native_match_maybe_moved',prefix+'''pub fn main_entry()->u32{
+let value:sole Token=Token{value:42};match 0 as u32{0=>{consume(value);},_=>{}}return consume(value);}''',success=False)
+
+    def test_native_match_rejects_coverage_patterns_and_selector_types(self):
+        cases=('match 0 as u32{0=>{return 42;}}',
+               'match 0 as u32{0=>{},0=>{},_=>{}}',
+               'match 0 as u32{_=>{},0=>{}}',
+               'match 0 as u32{1 as u32=>{},_=>{}}',
+               'match true{1=>{},_=>{}}',
+               'match 0 as u8{256=>{},_=>{}}',
+               'match 1.5{_=>{}}','match 0 as u32{unknown=>{},_=>{}}',
+               'match 0 as u32{}','match 0 as u32{0=>42,_=>{}}',
+               'match 0 as u32{0=>{},_=>{},_=>{}}')
+        for index,body in enumerate(cases):
+            with self.subTest(index=index):self.compile('native_match_bad_'+str(index),'pub fn main_entry()->u32{'+body+'return 42;}',success=False)
+        self.compile('native_match_wrong_enum','enum Color{Red=1}enum Other{Red=1}pub fn main_entry()->u32{let value:Color=Color::Red;match value{Other::Red=>{},_=>{}}return 42;}',success=False)
+
+    def test_native_match_arm_capacity_is_bounded(self):
+        arms=','.join(f'{i}=>{{}}' for i in range(63))
+        self.execute(self.compile('native_match_capacity','pub fn main_entry()->u32{match 0 as u32{'+arms+',_=>{}}return 42;}'))
+        self.compile('native_match_capacity_overflow','pub fn main_entry()->u32{match 0 as u32{'+arms+',63=>{},_=>{}}return 42;}',success=False)
+
+    def test_native_match_integer_widths_and_constant_patterns(self):
+        cases=(('u8','255'),('i8','-128'),('u16','65535'),('i16','-32768'),
+               ('u32','4294967295'),('i32','-2147483648'),
+               ('u64','18446744073709551615'),('i64','-9223372036854775808'))
+        for typ,value in cases:
+            with self.subTest(typ=typ):
+                source=f'const EXPECTED:{typ}={value};fn select(value:{typ})->u32{{match value{{EXPECTED=>{{return 42;}},_=>{{return 1;}}}}}}pub fn main_entry()->u32{{return select(EXPECTED);}}'
+                self.execute(self.compile('native_match_width_'+typ,source))
+        self.execute(self.compile('native_match_negative_literal','pub fn main_entry()->u32{match -1{-1=>{return 42;},_=>{return 1;}}}'))
+        self.execute(self.compile('native_match_enum_literal','enum Color{Red=1}pub fn main_entry()->u32{match Color::Red{Color::Red=>{return 42;},_=>{return 1;}}}'))
+
+    def test_native_match_scopes_mutated_subject_and_rejected_forms(self):
+        source='''static mut trace:u32=0;pub fn main_entry()->u32{let mut value:u32=0;
+match value{0=>{let scoped:u32=42;value=7;unsafe{trace=scoped;}},7=>{unsafe{trace=1;}},_=>{}}
+return unsafe{trace};}'''
+        self.execute(self.compile('native_match_mutated_subject',source))
+        self.compile('native_match_scope_escape',source.replace('return unsafe{trace};','return scoped;'),success=False)
+        self.compile('native_match_pattern_call','fn pattern()->u32{return 0;}pub fn main_entry()->u32{match 0{pattern()=>{},_=>{}}return 42;}',success=False)
+        self.compile('native_match_owned_subject','pub fn main_entry()->u32{let value:sole u32=42;match value{42=>{return 42;},_=>{return 1;}}}',success=False)
+        self.compile('native_match_payload_binding','enum Color{Red=1}pub fn main_entry()->u32{let value:Color=Color::Red;match value{Color::Red(payload)=>{},_=>{}}return 42;}',success=False)
+
+    def test_native_match_legacy_statement_arm_syntax(self):
+        source='''fn select(value:u32)->u32{match value{
+0=>return 42; 1=>{return 1;} _=>return 2;}}
+pub fn main_entry()->u32{return select(0);}'''
+        self.execute(self.compile('native_match_statement_arms',source))
+
     def test_local_record_array_lists_copy_and_mutate_nested_payloads(self):
         source='''struct Inner{pub value:u32;}struct Packet{pub inner:Inner;pub flags:[bool;2];}
 fn read(packet:Packet)->u32{return packet.inner.value;}

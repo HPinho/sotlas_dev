@@ -610,6 +610,8 @@ impl Sema {
         let parent_index: usize = expression.parent;
         if parent_index != 0 && parent_index < node_count {
             let parent: AstNode = unsafe { *(nodes + parent_index) };
+            if parent.kind == AstKind::MatchArm && parent.first_child == expression_index
+                && self.source_slice_equals(source, source_len, expression.str_offset, expression.str_len, "_", 1) { return true; }
             if parent.kind == AstKind::ExprCall && parent.first_child == expression_index {
                 if self.find_module_function(
                     nodes, node_count, expression_index, source, source_len
@@ -3219,7 +3221,7 @@ impl Sema {
             if statement.kind == AstKind::ReturnStmt {
                 return true;
             }
-            if statement.kind == AstKind::IfStmt
+            if statement.kind == AstKind::IfStmt || statement.kind == AstKind::MatchStmt
                 || statement.kind == AstKind::UnsafeBlock {
                 if self.statement_returns_value(nodes, node_count, statement_index) {
                     return true;
@@ -3283,6 +3285,21 @@ impl Sema {
                 return false;
             }
             return self.block_returns_value(nodes, node_count, body_index);
+        }
+        if statement.kind == AstKind::MatchStmt {
+            let subject: usize = statement.first_child;
+            if subject == 0 || subject >= node_count { return false; }
+            let mut arm: usize = unsafe { (*(nodes + subject)).next_sibling };
+            if arm == 0 { return false; }
+            while arm != 0 {
+                if arm >= node_count { return false; }
+                let pattern: usize = unsafe { (*(nodes + arm)).first_child };
+                if pattern == 0 || pattern >= node_count { return false; }
+                let body: usize = unsafe { (*(nodes + pattern)).next_sibling };
+                if !self.block_returns_value(nodes, node_count, body) { return false; }
+                arm = unsafe { (*(nodes + arm)).next_sibling };
+            }
+            return true;
         }
         if statement.kind != AstKind::IfStmt {
             return false;
@@ -3822,6 +3839,46 @@ impl NativeOwnershipCheck {
                 let result: i64 = self.sequence(node.first_child, depth + 1);
                 self.count = scope;
                 if result != 1 { return result; }
+            } else if node.kind == AstKind::MatchStmt {
+                let subject: usize = node.first_child;
+                if subject == 0 || subject >= self.node_count || self.expression_domain(subject) != 0
+                    || !self.expression(subject, false, 0) { return 0; }
+                let scope: usize = self.count;
+                let mut before: [u8;256] = 0; let mut merged: [u8;256] = 0;
+                let mut slot: usize = 0;
+                while slot < scope { before[slot] = self.states[slot]; slot = slot + 1; }
+                let mut arm: usize = unsafe { (*(self.nodes + subject)).next_sibling };
+                let mut live: bool = false; let mut arms: usize = 0;
+                while arm != 0 {
+                    if arm >= self.node_count || arms >= 64 { self.error_node = index; return 0; }
+                    let pattern: usize = unsafe { (*(self.nodes + arm)).first_child };
+                    if pattern == 0 || pattern >= self.node_count { self.error_node = index; return 0; }
+                    let body: usize = unsafe { (*(self.nodes + pattern)).next_sibling };
+                    if body == 0 || body >= self.node_count { self.error_node = index; return 0; }
+                    self.count = scope; slot = 0;
+                    while slot < scope { self.states[slot] = before[slot]; slot = slot + 1; }
+                    let result: i64 = self.sequence(unsafe { (*(self.nodes + body)).first_child }, depth + 1);
+                    if result == 0 { self.error_node = index; return 0; }
+                    if result >= 3 {
+                        slot = 0;
+                        while slot < scope { if self.domains[slot] != 0 { self.error_node = index; return 0; } slot = slot + 1; }
+                    }
+                    if result == 1 || result >= 3 {
+                        slot = 0;
+                        while slot < scope {
+                            if !live { merged[slot] = self.states[slot]; }
+                            else if self.domains[slot] != 0 && merged[slot] != self.states[slot] { merged[slot] = 3; }
+                            slot = slot + 1;
+                        }
+                        live = true;
+                    }
+                    arms = arms + 1; arm = unsafe { (*(self.nodes + arm)).next_sibling };
+                }
+                self.count = scope;
+                if arms == 0 { self.error_node = index; return 0; }
+                if !live { return 2; }
+                slot = 0;
+                while slot < scope { self.states[slot] = merged[slot]; slot = slot + 1; }
             } else if node.kind == AstKind::IfStmt {
                 let condition: usize = node.first_child;
                 if condition == 0 || condition >= self.node_count || !self.expression(condition, false, 0) { self.error_node = index; return 0; }

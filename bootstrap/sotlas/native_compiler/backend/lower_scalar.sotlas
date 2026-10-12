@@ -5405,7 +5405,7 @@ impl ScalarLowering {
             }
             let is_loop: bool = node.kind == AstKind::WhileStmt;
             let is_branch: bool = node.kind == AstKind::IfStmt;
-            let is_defer: bool = node.kind == AstKind::DeferStmt;
+            let is_defer: bool = node.kind == AstKind::DeferStmt || node.kind == AstKind::MatchStmt;
             // Only a standalone block introduces the extra lexical scope here.
             // If/while bodies belong to their control-flow node and must keep
             // the established lowering choice for simple scalar functions.
@@ -6122,6 +6122,133 @@ impl ScalarLowering {
         return true;
     }
 
+    pub fn find_match_path_separator(self: &Self, node: AstNode) -> usize {
+        let mut i: usize = 0;
+        while i + 1 < node.str_len {
+            if unsafe { *(self.source + node.str_offset + i) } == 58
+                && unsafe { *(self.source + node.str_offset + i + 1) } == 58 { return i; }
+            i = i + 1;
+        }
+        return 0;
+    }
+
+    pub fn cfg_match_statement(mut self: &mut Self, index: usize, return_type: TargetTypeTag,
+        first_parameter: usize, parameter_count: usize, break_id: u32, continue_id: u32, depth: usize) -> bool {
+        if index == 0 || index >= self.node_count || depth >= 64 { return self.reject(index); }
+        let subject: usize = unsafe { (*(self.nodes + index)).first_child };
+        let mut sem: Sema = Sema::new();
+        let mut typ: TargetTypeTag = self.condition_expression_type(subject, first_parameter, parameter_count);
+        if subject == 0 || subject >= self.node_count { return self.reject(index); }
+        let subject_node: AstNode = unsafe { *(self.nodes + subject) };
+        if typ == TargetTypeTag::Invalid && subject_node.kind == AstKind::ExprLiteral {
+            if sem.source_slice_equals(self.source, self.source_len, subject_node.str_offset, subject_node.str_len, "true", 4)
+                || sem.source_slice_equals(self.source, self.source_len, subject_node.str_offset, subject_node.str_len, "false", 5) { typ = TargetTypeTag::Bool; }
+            else { typ = TargetTypeTag::U32; }
+        }
+        if typ == TargetTypeTag::Invalid && subject_node.kind == AstKind::ExprUnary
+            && subject_node.int_value == 81 { typ = TargetTypeTag::I64; }
+        if typ != TargetTypeTag::Bool && typ != TargetTypeTag::U8 && typ != TargetTypeTag::U16
+            && typ != TargetTypeTag::U32 && typ != TargetTypeTag::U64 && typ != TargetTypeTag::Usize
+            && typ != TargetTypeTag::I8 && typ != TargetTypeTag::I16 && typ != TargetTypeTag::I32
+            && typ != TargetTypeTag::I64 { return self.reject(subject); }
+        let subject_ref: usize = sem.infer_expression_type_ref(self.nodes, self.node_count, subject, self.source, self.source_len);
+        let mut enum_id: u32 = 0;
+        if subject_ref != 0 && subject_ref < self.node_count {
+            let declared: AstNode = unsafe { *(self.nodes + subject_ref) };
+            enum_id = self.find_enum(declared.str_offset, declared.str_len);
+        }
+        if enum_id == 0 && subject_node.kind == AstKind::ExprPath {
+            enum_id = self.find_enum(subject_node.str_offset, self.find_match_path_separator(subject_node));
+        }
+        let mut patterns: [u64;64] = 0;
+        let mut arm: usize = unsafe { (*(self.nodes + subject)).next_sibling };
+        let first_arm: usize = arm;
+        let mut count: usize = 0; let mut wildcard: bool = false;
+        while arm != 0 {
+            if arm >= self.node_count || count >= 64 { return self.reject(index); }
+            let arm_node: AstNode = unsafe { *(self.nodes + arm) };
+            let pattern: usize = arm_node.first_child;
+            if arm_node.kind != AstKind::MatchArm || pattern == 0 || pattern >= self.node_count { return self.reject(arm); }
+            let node: AstNode = unsafe { *(self.nodes + pattern) };
+            let body: usize = node.next_sibling;
+            if body == 0 || body >= self.node_count || unsafe { (*(self.nodes + body)).kind } != AstKind::Block
+                || unsafe { (*(self.nodes + body)).next_sibling } != 0 { return self.reject(arm); }
+            if node.kind == AstKind::ExprIdent && node.str_len == 1
+                && unsafe { *(self.source + node.str_offset) } == 95 {
+                if arm_node.next_sibling != 0 { return self.reject(pattern); }
+                wildcard = true;
+            } else {
+                if node.kind != AstKind::ExprLiteral && node.kind != AstKind::ExprIdent
+                    && node.kind != AstKind::ExprUnary && node.kind != AstKind::ExprPath { return self.reject(pattern); }
+                if enum_id != 0 {
+                    let split: usize = self.find_match_path_separator(node);
+                    if node.kind != AstKind::ExprPath || split == 0
+                        || self.find_enum(node.str_offset, split) != enum_id { return self.reject(pattern); }
+                } else if node.kind == AstKind::ExprPath { return self.reject(pattern); }
+                let mut bits: u64 = 0;
+                if !self.constant_literal_bits(pattern, typ, &mut bits) { return self.reject(pattern); }
+                let mut prior: usize = 0;
+                while prior < count { if patterns[prior] == bits { return self.reject(pattern); } prior = prior + 1; }
+                patterns[count] = bits;
+            }
+            count = count + 1; arm = arm_node.next_sibling;
+        }
+        if count == 0 || !wildcard { return self.reject(index); }
+        // Keep the subject SSA value live across the decision chain; evaluate it once.
+        let value: u32 = self.lower_expression(subject, typ, first_parameter, parameter_count);
+        let join: u32 = self.cfg_reserve_block();
+        if value == 0 || join == 0 { return self.reject(subject); }
+        let scope: usize = self.local_count;
+        let mut any_open: bool = false; let mut first_body: u32 = 0;
+        arm = first_arm; let mut ordinal: usize = 0;
+        while arm != 0 {
+            let arm_node: AstNode = unsafe { *(self.nodes + arm) };
+            let pattern: usize = arm_node.first_child;
+            let body: usize = unsafe { (*(self.nodes + pattern)).next_sibling };
+            let selected: u32 = self.cfg_reserve_block();
+            if selected == 0 { return self.reject(arm); }
+            if first_body == 0 { first_body = selected; }
+            if arm_node.next_sibling == 0 {
+                if !self.cfg_jump(selected, arm) { return self.reject(arm); }
+            } else {
+                let next: u32 = self.cfg_reserve_block();
+                let literal: u32 = self.append_value(typ, 0, 0);
+                if next == 0 || literal == 0 || !self.append_instruction(TargetOpcode::ConstInt, literal, typ, 0, 0, pattern) { return self.reject(arm); }
+                unsafe { (*(self.instructions + self.instruction_count - 1)).immediate_bits = patterns[ordinal]; }
+                let first: u32 = self.operand_count as u32;
+                let condition: u32 = self.append_value(TargetTypeTag::Bool, 0, 0);
+                if condition == 0 || !self.append_operand(value) || !self.append_operand(literal)
+                    || !self.append_instruction(TargetOpcode::Compare, condition, TargetTypeTag::Bool, first, 2, pattern) { return self.reject(arm); }
+                unsafe { (*(self.instructions + self.instruction_count - 1)).immediate_bits = 86; }
+                let test: u32 = self.operand_count as u32;
+                if !self.append_operand(condition) || !self.append_instruction(TargetOpcode::CondBranch, 0,
+                    TargetTypeTag::Bool, test, 1, pattern) { return self.reject(arm); }
+                let branch: usize = self.instruction_count - 1;
+                let targets: u32 = self.target_count as u32;
+                if !self.append_target(selected) || !self.append_target(next) { return self.reject(arm); }
+                unsafe { (*(self.instructions + branch)).first_target = targets; (*(self.instructions + branch)).target_count = 2; }
+                if !self.cfg_finish() { return self.reject(arm); }
+                self.cfg_begin(selected);
+                if !self.cfg_sequence(unsafe { (*(self.nodes + body)).first_child }, return_type,
+                    first_parameter, parameter_count, break_id, continue_id, depth + 1) { return false; }
+                if self.cfg_current != 0 { any_open = true; if !self.cfg_jump(join, arm) { return self.reject(arm); } }
+                self.local_count = scope;
+                self.cfg_begin(next);
+                ordinal = ordinal + 1; arm = arm_node.next_sibling;
+                continue;
+            }
+            self.cfg_begin(selected);
+            if !self.cfg_sequence(unsafe { (*(self.nodes + body)).first_child }, return_type,
+                first_parameter, parameter_count, break_id, continue_id, depth + 1) { return false; }
+            if self.cfg_current != 0 { any_open = true; if !self.cfg_jump(join, arm) { return self.reject(arm); } }
+            self.local_count = scope;
+            arm = arm_node.next_sibling;
+        }
+        self.cfg_begin(join);
+        if !any_open && !self.cfg_jump(first_body, index) { return self.reject(index); }
+        return true;
+    }
+
     pub fn cfg_sequence(mut self: &mut Self, first_statement: usize, return_type: TargetTypeTag,
         first_parameter: usize, parameter_count: usize, break_id: u32, continue_id: u32, depth: usize) -> bool {
         if depth >= 64 { return self.reject(first_statement); }
@@ -6164,6 +6291,9 @@ impl ScalarLowering {
                 if stmt.kind == AstKind::ContinueStmt { destination = continue_id; }
                 if !self.cfg_emit_defers(self.loop_defer_base, first_parameter, parameter_count, depth) { return self.reject(index); }
                 if !self.cfg_jump(destination, index) { return self.reject(index); }
+            } else if stmt.kind == AstKind::MatchStmt {
+                if !self.cfg_match_statement(index, return_type, first_parameter, parameter_count,
+                    break_id, continue_id, depth + 1) { return false; }
             } else if stmt.kind == AstKind::IfStmt {
                 let condition_index: usize = stmt.first_child;
                 if condition_index == 0 || condition_index >= self.node_count { return self.reject(index); }

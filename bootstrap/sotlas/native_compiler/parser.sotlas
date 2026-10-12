@@ -561,6 +561,7 @@ impl Parser {
     pub fn parse_statement(mut self: &mut Self) -> usize {
         let tok: Token = self.current();
         if tok.kind == TokenKind::OpenBrace { return self.parse_block(); }
+        if tok.kind == TokenKind::KwMatch { return self.parse_match_statement(); }
         if tok.kind == TokenKind::KwLet || tok.kind == TokenKind::KwVar {
             self.advance();
             let let_node: usize = self.alloc_node(AstKind::LetStmt, tok.span);
@@ -1456,6 +1457,39 @@ impl Parser {
         }
 
         return self.alloc_node(AstKind::ExprLiteral, tok.span);
+    }
+
+    pub fn parse_match_statement(mut self: &mut Self) -> usize {
+        let keyword: Token = self.advance();
+        let statement: usize = self.alloc_node(AstKind::MatchStmt, keyword.span);
+        let subject: usize = self.parse_expression();
+        if statement == 0 || subject == 0 || !self.append_child(statement, subject)
+            || !self.match_token(TokenKind::OpenBrace) { self.reject_current(); return 0; }
+        self.advance();
+        let mut count: usize = 0;
+        while !self.is_at_end() && !self.match_token(TokenKind::CloseBrace) {
+            if count >= 64 { self.reject_current(); return 0; }
+            let pattern_token: Token = self.current();
+            let arm: usize = self.alloc_node(AstKind::MatchArm, pattern_token.span);
+            let pattern: usize = self.parse_unary_expression();
+            if arm == 0 || pattern == 0 || !self.append_child(arm, pattern)
+                || !self.match_token(TokenKind::FatArrow) { self.reject_current(); return 0; }
+            self.advance();
+            let mut body: usize = 0;
+            if self.match_token(TokenKind::OpenBrace) { body = self.parse_block(); }
+            else {
+                let body_token: Token = self.current();
+                body = self.alloc_node(AstKind::Block, body_token.span);
+                let statement_body: usize = self.parse_statement();
+                if body == 0 || statement_body == 0 || !self.append_child(body, statement_body) { return 0; }
+            }
+            if body == 0 || !self.append_child(arm, body) || !self.append_child(statement, arm) { return 0; }
+            count = count + 1;
+            if self.match_token(TokenKind::Comma) { self.advance(); }
+        }
+        if count == 0 || !self.match_token(TokenKind::CloseBrace) { self.reject_current(); return 0; }
+        self.advance();
+        return statement;
     }
 
     pub fn parse_unary_expression(mut self: &mut Self) -> usize {
