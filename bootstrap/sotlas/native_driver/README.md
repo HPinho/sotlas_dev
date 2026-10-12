@@ -533,8 +533,18 @@ fit the existing coefficient and denominator limits.
 Local scalar arrays accept value lists and repeated runtime values, with exact
 length/type validation. Large repetitions execute a native fill loop and
 evaluate the initializer once. Scalar, floating and Boolean `if/else` values
-use lazy native CFG arms in returns, calls and loops. Aggregate and ownership
-conditional values remain outside this profile.
+use lazy native CFG arms in returns, calls and loops. Record conditional values
+copy the selected arm into independent storage, including nested fields and
+the accepted fixed-array fields. Exclusive POD conditional results preserve
+ownership transfers. Non-POD ownership payloads remain outside this profile.
+
+## Project diagnostics
+
+Project compiler diagnostics map resolved source positions back to the original
+file, line, column and source excerpt after import removal and topological
+ordering. Explicit source lists retain their original file positions too.
+The source map holds at most 8,192 segments across 64 files and rejects
+capacity exhaustion before output I/O. Paths remain bounded to 4,095 bytes.
 
 ## Constant dependencies and control flow
 

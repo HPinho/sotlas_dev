@@ -11,6 +11,67 @@ class NativeFrontendClosureTests(unittest.TestCase):
     execute = integer.NativeI32Tests.execute
     assert_c11_reference = integer.NativeI32Tests.assert_c11_reference
 
+    def test_record_conditional_values_copy_nested_fields_and_select_one_arm(self):
+        source='''struct Inner{pub number:u32;pub factor:f32;}
+struct Packet{pub inner:Inner;pub flags:[bool;4];}
+static mut calls:u32=0;
+fn make(number:u32)->Packet{unsafe{calls=calls+1;}return Packet{inner:Inner{number:number,factor:2.0},flags:[false;4]};}
+fn choose(flag:bool)->Packet{return if flag{make(21)}else{make(99)};}
+fn score(packet:Packet)->u32{if packet.inner.factor!=2.0 || packet.flags[2]{return 1;}return packet.inner.number;}
+pub fn main_entry()->u32{let mut original:Packet=make(21);
+let mut selected=if true{original}else{make(99)};original.inner.number=7;
+selected.flags[2]=true;if selected.inner.number!=21 || !selected.flags[2] || original.flags[2]{return 1;}
+let answer:u32=score(if false{make(99)}else{choose(true)});
+if unsafe{calls}!=2{return 2;}return answer*2;}'''
+        self.execute(self.compile('record_conditional_values',source))
+
+    def test_record_conditional_values_execute_in_loops_and_assignments(self):
+        source='''struct Token{pub value:u32;}
+fn read(value:Token)->u32{return value.value;}
+pub fn main_entry()->u32{let mut count:u32=0;let mut sum:u32=0;let mut value:Token=Token{value:0};
+while count<2{value=if count==0{Token{value:21}}else{Token{value:7}};
+sum=sum+read(if count==1{Token{value:21}}else{value});count=count+1;}return sum;}'''
+        self.execute(self.compile('record_conditional_loop',source))
+
+    def test_exclusive_conditional_values_move_owners_per_path(self):
+        source='''struct Token{pub value:u32;}
+fn create(value:u32)->sole Token{return Token{value:value};}
+fn select(flag:bool,value:sole Token)->sole Token{return if flag{value}else{create(42)};}
+fn consume(value:sole Token)->u32{return value.value;}
+pub fn main_entry()->u32{let first:sole Token=create(42);
+let second:sole Token=if true{first}else{create(1)};
+let third:sole Token=select(false,second);return consume(if true{third}else{create(1)});}'''
+        self.execute(self.compile('exclusive_conditional_results',source))
+        self.compile('exclusive_conditional_maybe_moved_result',source.replace('let third:sole Token=select(false,second);','let third:sole Token=select(false,second);let bad:u32=first.value;'),success=False)
+        self.compile('exclusive_conditional_domain_erasure',source.replace('let second:sole Token=','let second:Token='),success=False)
+
+    def test_conditional_records_reject_type_and_pointer_erasure(self):
+        prefix='struct First{pub value:u32;}struct Second{pub value:u32;}'
+        cases=(
+            'pub fn main_entry()->u32{let value:First=if true{First{value:42}}else{Second{value:42}};return value.value;}',
+            'fn read(value:Second)->u32{return value.value;}pub fn main_entry()->u32{return read(if true{First{value:42}}else{First{value:42}});}',
+            'fn escape()->*mut First{return if true{First{value:42}}else{First{value:42}};}pub fn main_entry()->u32{return 42;}',
+            '@extern(C) fn read(value:*const First)->u32;pub fn main_entry()->u32{return read(if true{First{value:42}}else{First{value:42}});}',
+            'pub fn main_entry()->u32{let value:*mut First=if true{First{value:42}}else{First{value:42}};return 42;}',
+        )
+        for index,body in enumerate(cases):
+            with self.subTest(index=index):self.compile('conditional_record_rejection_'+str(index),prefix+body,success=False)
+
+    def test_conditional_pointer_values_preserve_reference_identity(self):
+        source='''struct Token{pub value:u32;}
+fn choose(flag:bool,left:*mut Token,right:*mut Token)->*mut Token{return if flag{left}else{right};}
+pub fn main_entry()->u32{let mut left:Token=Token{value:0};let mut right:Token=Token{value:1};
+let selected:*mut Token=choose(true,unsafe{(&mut left) as *mut Token},unsafe{(&mut right) as *mut Token});
+unsafe{(*selected).value=42;}if left.value!=42 || right.value!=1{return 1;}return left.value;}'''
+        self.execute(self.compile('conditional_pointer_identity',source))
+
+    def test_conditional_borrow_cannot_overlap_owner_consumption(self):
+        source='''struct Token{pub value:u32;}
+fn overlap(borrowed:whisper Token,owned:sole Token)->u32{return borrowed.value+owned.value;}
+pub fn main_entry()->u32{let first:sole Token=Token{value:21};let second:sole Token=Token{value:21};
+return overlap(if true{first}else{second},first);}'''
+        self.compile('conditional_borrow_overlap',source,success=False)
+
     def test_constant_validation_preserves_null_identity_cast_and_unsafe_values(self):
         source='''static mut empty:*mut u8=null;const FIRST:u32=5 as u32;
 const SECOND:u32=unsafe{37};pub fn main_entry()->u32{
