@@ -1640,6 +1640,40 @@ Original-source native compiler generation and Stage 2/3 identity passed on
 Windows and Linux, alongside the Darwin compiler cross-build. CI and macOS
 runtime certification remain required.
 
+### SV8.36 — record control flow and original project diagnostics
+
+Native conditional expressions now produce record values in locals, calls,
+returns, assignments and loops. Both arms must have the same record layout.
+Only the selected arm runs, and its fields are copied into independent result
+storage. Nested records, floating fields and accepted fixed-array fields use
+the existing native copy ABI.
+
+Exclusive POD conditional results transfer owners per path and preserve
+`MAYBE_MOVED` joins. Erasing a result's domain or consuming an owner while a
+conditional borrow may reference it is rejected. Raw pointer/reference
+conditionals retain reference identity; record values cannot silently become
+foreign-pointer arguments or escaping raw-pointer returns.
+
+All three native drivers retain bounded original file paths and flat source
+segments for projects. Compiler syntax and semantic diagnostics recover the
+original file, line, column and source excerpt after import removal and
+topological ordering. Explicit source lists receive the same mapping. Source
+map exhaustion fails before artifact I/O, and failed compilations preserve
+existing output. Synthetic/unmapped locations retain a combined-stream fallback.
+
+The gate checks root and dependency errors, reordered arguments, source paths
+with spaces, and check/build/object modes. General diagnostic cause parity,
+non-POD ownership payloads and the remaining control/cleanup forms stay open.
+
+Local validation: the Windows regression run passed **2,805 tests with 65
+skips** in 639.199 seconds. The combined frontend/Windows-driver set passed
+**59 tests**. The frontend set passed **47 tests** on Windows, Linux (WSL)
+and Windows Python 3.10.11. The Linux source-map, original-source generation
+identity and Darwin compiler cross-build gates passed. The additional
+Linux/macOS source-map methods were registered after general-suite discovery
+and checked separately (two expected Windows skips); the Linux method was
+executed in WSL. CI and macOS runtime certification remain required.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test

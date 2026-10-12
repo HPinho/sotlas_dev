@@ -3586,6 +3586,20 @@ impl NativeOwnershipCheck {
         if node_index == 0 || node_index >= self.node_count { return 0; }
         let node: AstNode = unsafe { *(self.nodes + node_index) };
         if node.kind == AstKind::UnsafeExpr { return self.expression_domain_at(node.first_child, depth + 1); }
+        if node.kind == AstKind::ExprConditional {
+            let condition: usize = node.first_child;
+            if condition == 0 || condition >= self.node_count { return 9; }
+            let yes: usize = unsafe { (*(self.nodes + condition)).next_sibling };
+            if yes == 0 || yes >= self.node_count { return 9; }
+            let no: usize = unsafe { (*(self.nodes + yes)).next_sibling };
+            if no == 0 || no >= self.node_count { return 9; }
+            let yes_domain: i64 = self.expression_domain_at(yes, depth + 1);
+            let no_domain: i64 = self.expression_domain_at(no, depth + 1);
+            if yes_domain == no_domain || no_domain == 0 { return yes_domain; }
+            if yes_domain == 0 { return no_domain; }
+            return 9;
+        }
+
         if node.kind == AstKind::ExprIdent {
             let index: usize = self.slot(node_index);
             if index < self.count { return self.domains[index] as i64; }
@@ -3632,6 +3646,29 @@ impl NativeOwnershipCheck {
         }
         return false;
     }
+    pub fn collect_borrow_roots(self: &Self, index: usize, mask: *mut u8, depth: usize) -> bool {
+        if index == 0 || index >= self.node_count || mask == null || depth >= 64 { return false; }
+        let node: AstNode = unsafe { *(self.nodes + index) };
+        if node.kind == AstKind::ExprIdent {
+            let owner: usize = self.slot(index);
+            if owner < self.count && self.domains[owner] != 0 { unsafe { *(mask + owner) = 1; } }
+            return true;
+        }
+        if node.kind == AstKind::UnsafeExpr || node.kind == AstKind::ExprFieldAccess {
+            return self.collect_borrow_roots(node.first_child, mask, depth + 1);
+        }
+        if node.kind == AstKind::ExprConditional {
+            let condition: usize = node.first_child;
+            if condition == 0 || condition >= self.node_count { return false; }
+            let yes: usize = unsafe { (*(self.nodes + condition)).next_sibling };
+            if yes == 0 || yes >= self.node_count { return false; }
+            let no: usize = unsafe { (*(self.nodes + yes)).next_sibling };
+            return self.collect_borrow_roots(yes, mask, depth + 1) && self.collect_borrow_roots(no, mask, depth + 1);
+        }
+        // A returned value or constructor has independent value storage.
+        return true;
+    }
+
     pub fn expression(mut self: &mut Self, node_index: usize, take: bool, depth: usize) -> bool {
         if node_index == 0 { return true; }
         if node_index >= self.node_count || depth >= 64 { return self.fail(node_index); }
@@ -3680,19 +3717,7 @@ impl NativeOwnershipCheck {
                 }
                 let arg: AstNode = unsafe { *(self.nodes + argument) };
                 if !consumes && !borrow && self.expression_domain(argument) != 0 { return self.fail(argument); }
-                if borrow {
-                    let mut base: usize = argument; let mut hops: usize = 0;
-                    while base != 0 && base < self.node_count && hops < 64 {
-                        let base_node: AstNode = unsafe { *(self.nodes + base) };
-                        if base_node.kind == AstKind::ExprIdent {
-                            let owner: usize = self.slot(base);
-                            if owner < self.count { borrowed[owner] = 1; }
-                            break;
-                        }
-                        if base_node.kind != AstKind::UnsafeExpr && base_node.kind != AstKind::ExprFieldAccess { break; }
-                        base = base_node.first_child; hops = hops + 1;
-                    }
-                }
+                if borrow && !self.collect_borrow_roots(argument, unsafe { borrowed as *mut u8 }, 0) { return self.fail(argument); }
                 if !self.expression(argument, consumes, depth + 1) { return false; }
                 argument = arg.next_sibling;
             }
@@ -3710,17 +3735,16 @@ impl NativeOwnershipCheck {
             if yes == 0 || yes >= self.node_count { return self.fail(node_index); }
             let no: usize = unsafe { (*(self.nodes + yes)).next_sibling };
             if no == 0 || no >= self.node_count { return self.fail(node_index); }
-            // Aggregate conditional values are still rejected by lowering.
-            // Scalar arms may consume owners through calls independently.
-            if self.expression_domain(yes) != 0 || self.expression_domain(no) != 0 { return self.fail(node_index); }
+            let domain: i64 = self.expression_domain(node_index);
+            if domain != 0 && domain != 1 && domain != 4 { return self.fail(node_index); }
             let scope: usize = self.count;
             let mut before: [u8;256] = 0; let mut after_yes: [u8;256] = 0;
             let mut index: usize = 0;
             while index < scope { before[index] = self.states[index]; index = index + 1; }
-            if !self.expression(yes, false, depth + 1) { return false; }
+            if !self.expression(yes, take, depth + 1) { return false; }
             index = 0;
             while index < scope { after_yes[index] = self.states[index]; self.states[index] = before[index]; index = index + 1; }
-            if !self.expression(no, false, depth + 1) { return false; }
+            if !self.expression(no, take, depth + 1) { return false; }
             index = 0;
             while index < scope {
                 if self.domains[index] != 0 && after_yes[index] != self.states[index] { self.states[index] = 3; }

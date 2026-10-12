@@ -219,3 +219,36 @@ class NativeWindowsDriverTests(unittest.TestCase):
         self.run_tool([str(stage3), "--check", str(source)], env=self.environment)
         self.run_tool([str(stage3), str(source), str(output)], env=self.environment)
         self.run_tool([str(output)], expected=42, env=self.environment)
+
+    @unittest.skipUnless(os.name == "nt", "requires native platform execution")
+    def test_project_diagnostics_map_original_files_after_import_removal(self):
+        environment=self.environment
+        root=self.directory/'project diagnostics';namespace=root/'app';namespace.mkdir(parents=True)
+        entry=namespace/'main.sotlas';dependency=namespace/'base.sotlas';output=root/'preserved output'
+        good_dependency='module app::base;\nfn number()->u32{return 21;}\n'
+        good_entry='module app::main;\nimport app::base::*;\n\npub fn main_entry()->u32{\n    return number()*2;\n}\n'
+        cases=(('let target:u32=0;',5,5,9,b'expected identifier'),('return absent;',6,5,12,b'semantic error'))
+        for statement,code,line,column,message in cases:
+            dependency.write_text(good_dependency,encoding='utf-8')
+            text='module app::main;\nimport app::base::*;\n\npub fn main_entry()->u32{\n    '+statement+'\n}\n'
+            entry.write_text(text,encoding='utf-8')
+            commands=(['--check-build',str(root),str(entry)],['--build-win',str(output),str(root),str(entry)],
+                      ['--project-resolve-object',str(output),str(entry),str(dependency)])
+            for arguments in commands:
+                with self.subTest(statement=statement,mode=arguments[0]):
+                    output.write_bytes(b'preserve')
+                    result=self.run_tool([str(self.seed),*arguments],expected=code,env=environment)
+                    self.assertIn(f'{entry}:{line}:{column}: '.encode(),result.stderr)
+                    self.assertIn(message,result.stderr);self.assertIn(statement.encode(),result.stderr)
+                    self.assertNotIn(b'<native-project>',result.stderr);self.assertEqual(output.read_bytes(),b'preserve')
+            entry.write_text(text.replace('import app::base::*;',''),encoding='utf-8')
+            output.write_bytes(b'preserve')
+            result=self.run_tool([str(self.seed),'--project-object',str(output),str(dependency),str(entry)],expected=code,env=environment)
+            self.assertIn(f'{entry}:{line}:{column}: '.encode(),result.stderr)
+            self.assertEqual(output.read_bytes(),b'preserve')
+        entry.write_text(good_entry,encoding='utf-8')
+        dependency.write_text('module app::base;\nfn number()->u32{\n    return absent;\n}\n',encoding='utf-8')
+        output.write_bytes(b'preserve')
+        result=self.run_tool([str(self.seed),'--build-win',str(output),str(root),str(entry)],expected=6,env=environment)
+        self.assertIn(f'{dependency}:3:12: '.encode().replace(bytes([92]),b'/'),result.stderr.replace(bytes([92]),b'/'))
+        self.assertIn(b'return absent;',result.stderr);self.assertEqual(output.read_bytes(),b'preserve')

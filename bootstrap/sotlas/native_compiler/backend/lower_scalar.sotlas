@@ -3013,6 +3013,7 @@ impl ScalarLowering {
                     return TARGET_VALUE_NONE;
                 }
                 let argument_struct: u32 = self.function_parameter_struct_from_ast(callee_decl, argument_count);
+                if argument_struct == 0 && self.conditional_record_result(argument_index, 0) { return 0; }
                 if argument_struct != 0 {
                     if self.cfg_struct_id(argument_index, 0) != argument_struct { return 0; }
                     let copy: u32 = self.allocate_struct(argument_struct, argument_index);
@@ -5163,9 +5164,55 @@ impl ScalarLowering {
         return 0;
     }
 
+    // Distinguish a record value from a reference whose machine type is
+    // also Pointer. Conditional value copies must never change reference ABI.
+    pub fn cfg_record_value_id(self: &Self, index: usize, depth: usize) -> u32 {
+        if index == 0 || index >= self.node_count || depth >= 64 { return 0; }
+        let node: AstNode = unsafe { *(self.nodes + index) };
+        if node.kind == AstKind::UnsafeExpr { return self.cfg_record_value_id(node.first_child, depth + 1); }
+        if node.kind == AstKind::ExprIdent {
+            let mut sem: Sema = Sema::new();
+            let binding: usize = sem.find_visible_binding(self.nodes, self.node_count, index, self.source, self.source_len);
+            let typ: usize = sem.binding_type_ref(self.nodes, self.node_count, binding);
+            if typ != 0 && typ < self.node_count {
+                let type_node: AstNode = unsafe { *(self.nodes + typ) };
+                return self.find_struct(type_node.str_offset, type_node.str_len);
+            }
+            if binding != 0 && binding < self.node_count {
+                let declaration: AstNode = unsafe { *(self.nodes + binding) };
+                if declaration.kind == AstKind::LetStmt { return self.cfg_record_value_id(declaration.first_child, depth + 1); }
+            }
+            return 0;
+        }
+        if node.kind == AstKind::ExprStructLiteral || node.kind == AstKind::ExprCall
+            || node.kind == AstKind::ExprFieldAccess || node.kind == AstKind::ExprConditional
+            || (node.kind == AstKind::ExprUnary && node.int_value == 82) { return self.cfg_struct_id(index, depth + 1); }
+        return 0;
+    }
+
+    pub fn conditional_record_result(self: &Self, index: usize, depth: usize) -> bool {
+        if index == 0 || index >= self.node_count || depth >= 64 { return false; }
+        let node: AstNode = unsafe { *(self.nodes + index) };
+        if node.kind == AstKind::UnsafeExpr || node.kind == AstKind::ExprFieldAccess {
+            return self.conditional_record_result(node.first_child, depth + 1) && self.cfg_record_value_id(index, 0) != 0;
+        }
+        return node.kind == AstKind::ExprConditional && self.cfg_record_value_id(index, 0) != 0;
+    }
+
     pub fn cfg_struct_id(self: &Self, expression_index: usize, depth: usize) -> u32 {
         if expression_index == 0 || expression_index >= self.node_count || depth >= 64 { return 0; }
         let expression: AstNode = unsafe { *(self.nodes + expression_index) };
+        if expression.kind == AstKind::ExprConditional {
+            let condition: usize = expression.first_child;
+            if condition == 0 || condition >= self.node_count { return 0; }
+            let yes: usize = unsafe { (*(self.nodes + condition)).next_sibling };
+            if yes == 0 || yes >= self.node_count { return 0; }
+            let no: usize = unsafe { (*(self.nodes + yes)).next_sibling };
+            if no == 0 || no >= self.node_count || unsafe { (*(self.nodes + no)).next_sibling } != 0 { return 0; }
+            let record: u32 = self.cfg_record_value_id(yes, depth + 1);
+            if record != 0 && record == self.cfg_record_value_id(no, depth + 1) { return record; }
+            return 0;
+        }
         if expression.kind == AstKind::ExprStructLiteral {
             return self.find_struct(expression.str_offset, expression.str_len);
         }
@@ -5197,7 +5244,8 @@ impl ScalarLowering {
         if expression.kind == AstKind::UnsafeExpr {
             return self.cfg_struct_address(expression.first_child, first_parameter, parameter_count, depth + 1);
         }
-        if expression.kind == AstKind::ExprStructLiteral || expression.kind == AstKind::ExprCall {
+        if expression.kind == AstKind::ExprStructLiteral || expression.kind == AstKind::ExprCall
+            || expression.kind == AstKind::ExprConditional {
             return self.lower_expression(expression_index, TargetTypeTag::Pointer, first_parameter, parameter_count);
         }
         if expression.kind == AstKind::ExprIdent {
@@ -5448,6 +5496,25 @@ impl ScalarLowering {
         let no_expression: usize = unsafe { (*(self.nodes + yes_expression)).next_sibling };
         if no_expression == 0 || no_expression >= self.node_count
             || unsafe { (*(self.nodes + no_expression)).next_sibling } != 0 { return 0; }
+        let yes_record: u32 = self.cfg_record_value_id(yes_expression, 0);
+        let no_record: u32 = self.cfg_record_value_id(no_expression, 0);
+        if yes_record != 0 || no_record != 0 {
+            if typ != TargetTypeTag::Pointer || yes_record == 0 || yes_record != no_record { return 0; }
+            let destination: u32 = self.allocate_struct(yes_record, expression_index);
+            let yes: u32 = self.cfg_reserve_block(); let no: u32 = self.cfg_reserve_block(); let join: u32 = self.cfg_reserve_block();
+            if destination == 0 || yes == 0 || no == 0 || join == 0
+                || !self.cfg_test(condition, yes, no, first_parameter, parameter_count, 0) { return 0; }
+            self.cfg_begin(yes);
+            let yes_value: u32 = self.cfg_struct_address(yes_expression, first_parameter, parameter_count, 0);
+            if yes_value == 0 || !self.cfg_copy_fields(destination, yes_value, yes_record, 0, 0, yes_expression, 0)
+                || !self.cfg_jump(join, expression_index) { return 0; }
+            self.cfg_begin(no);
+            let no_value: u32 = self.cfg_struct_address(no_expression, first_parameter, parameter_count, 0);
+            if no_value == 0 || !self.cfg_copy_fields(destination, no_value, yes_record, 0, 0, no_expression, 0)
+                || !self.cfg_jump(join, expression_index) { return 0; }
+            self.cfg_begin(join);
+            return destination;
+        }
         let size: u32 = self.scalar_memory_size(typ);
         if size == 0 || typ == TargetTypeTag::Aggregate { return 0; }
         let storage: u32 = self.append_value(TargetTypeTag::Pointer, 0, 0);
@@ -5705,7 +5772,7 @@ impl ScalarLowering {
                 if type_index != 0 { typ = self.type_tag_for(type_index); }
                 let value_struct: u32 = self.cfg_struct_id(value_index, 0);
                 if value_struct != 0 && (value_node.kind == AstKind::ExprStructLiteral
-                    || value_node.kind == AstKind::ExprCall) {
+                    || value_node.kind == AstKind::ExprCall || value_node.kind == AstKind::ExprConditional) {
                     if type_index != 0 && struct_id != value_struct { return self.reject(index); }
                     struct_id = value_struct;
                     typ = TargetTypeTag::Pointer;
@@ -5890,6 +5957,7 @@ impl ScalarLowering {
                         return self.reject(index);
                     }
                 } else if return_type != TargetTypeTag::Void {
+                    if self.conditional_record_result(stmt.first_child, 0) { return self.reject(index); }
                     result = self.lower_expression(stmt.first_child, return_type, first_parameter, parameter_count);
                     // Expressions may append operands: record the return range afterwards.
                     if result == 0 { return self.reject(index); }
