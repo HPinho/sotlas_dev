@@ -1,6 +1,9 @@
 """Execution gates for native frontend closure and explicit runtime rejection."""
 import unittest
 import struct
+import os
+import sys
+import signal
 import test_sotlas_native_i32 as integer
 
 
@@ -11,6 +14,62 @@ class NativeFrontendClosureTests(unittest.TestCase):
     link_image = integer.NativeI32Tests.link_image
     execute = integer.NativeI32Tests.execute
     assert_c11_reference = integer.NativeI32Tests.assert_c11_reference
+    windows_process_exit_code = integer.NativeI32Tests.windows_process_exit_code
+
+    def test_native_match_proves_boolean_and_enum_coverage_without_wildcards(self):
+        source='''enum Code{First=1,Last=9}const DONE:Code=Code::Last;
+fn boolean(value:bool)->u32{match value{false=>return 1;true=>return 42;}}
+fn code(value:Code)->u32{match value{DONE=>return 42;Code::First=>return 1;}}
+pub fn main_entry()->u32{if boolean(true)!=42 || code(Code::Last)!=42{return 2;}return 42;}'''
+        self.execute(self.compile('native_match_exhaustive',source))
+
+    def test_native_match_finite_coverage_preserves_cleanup_and_ownership(self):
+        source='''enum Code{First=1,Last=9}struct Token{pub value:u32;}static mut trace:u32=0;
+fn append(value:u32)->void{unsafe{trace=trace*10+value;}}
+fn consume(value:sole Token)->u32{return value.value;}
+fn select(code:Code,value:sole Token)->u32{defer append(9);match code{
+Code::First=>{defer append(4);return consume(value);},Code::Last=>{}}return consume(value);}
+pub fn main_entry()->u32{let value:u32=select(Code::First,Token{value:42});if unsafe{trace}!=49{return 1;}return value;}'''
+        self.execute(self.compile('native_match_exhaustive_cleanup',source))
+        self.compile('native_match_exhaustive_maybe_moved',source.replace('return consume(value);},Code::Last','consume(value);},Code::Last'),success=False)
+
+    def test_native_match_missing_cases_and_nominal_constant_mismatches_fail(self):
+        cases=('enum Code{First=1,Last=9}fn select(value:Code)->u32{match value{Code::First=>return 42;}}',
+               'fn select(value:bool)->u32{match value{true=>return 42;}}',
+               'enum Code{First=1}enum Other{First=1}const WRONG:Other=Other::First;fn select(value:Code)->u32{match value{WRONG=>return 42;}}',
+               'enum Code{First=1}const RAW:u32=1;fn select(value:Code)->u32{match value{RAW=>return 42;}}',
+               'enum Code{First=1}const SAME:Code=Code::First;fn select(value:Code)->u32{match value{SAME=>return 42;Code::First=>return 42;}}',
+               'enum Code{First=1}const VALUE:Code=Code::First;fn select(value:u32)->u32{match value{VALUE=>return 42;_=>return 1;}}')
+        for index,source in enumerate(cases):
+            with self.subTest(index=index):self.compile('native_match_missing_'+str(index),source+'pub fn main_entry()->u32{return 42;}',success=False)
+
+    def test_native_match_complete_enum_capacity_executes_the_last_case(self):
+        variants=','.join(f'V{i}={i*2+1}' for i in range(64))
+        arms=' '.join(f'Code::V{i}=>return 42;' for i in range(64))
+        prefix='enum Code{'+variants+'}fn select(value:Code)->u32{match value{'
+        suffix='}}pub fn main_entry()->u32{return select(Code::V63);}'
+        self.execute(self.compile('native_match_all_variants',prefix+arms+suffix))
+        self.compile('native_match_one_variant_missing',prefix+arms.replace('Code::V63=>return 42;','')+suffix,success=False)
+
+    def test_native_match_invalid_enum_representation_traps_before_an_arm(self):
+        source='''enum Code{First=1,Last=9}fn select(value:Code)->u32{
+match value{Code::First=>return 42;Code::Last=>return 7;}}
+pub fn main_entry()->u32{return select(unsafe{99 as Code});}'''
+        obj=self.compile('native_match_invalid_representation',source)
+        if getattr(self,'native_execution_platform',sys.platform)=='win32':
+            code,stderr=self.windows_process_exit_code(self.link_image(obj))
+            self.assertEqual(code,0xc000001d,stderr)
+        else:
+            self.execute(obj,expected=-signal.SIGILL)
+
+    def test_record_array_nonpower_and_large_strides_execute_checked_indexing(self):
+        source='''struct Triple{pub a:u32;pub b:u32;pub c:u32;}struct Packet{pub bytes:[u8;32];}
+pub fn main_entry()->u32{let mut rows:[Triple;64]=[Triple{a:0,b:20,c:22};64];
+let mut packets:[Packet;32]=[Packet{bytes:[0;32]};32];
+rows[63].a=9;packets[31].bytes[31]=42;
+if packets[0].bytes[31]!=0 || packets[31].bytes[31]!=42{return 1;}
+match rows[63].a{9=>return rows[63].b+rows[63].c;_=>return 2;}}'''
+        self.execute(self.compile('native_record_strides',source))
 
     def test_native_match_selects_once_and_executes_only_one_arm(self):
         source='''static mut calls:u32=0;static mut trace:u32=0;

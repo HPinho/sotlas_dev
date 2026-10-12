@@ -33,7 +33,7 @@ class NativeLinuxDriverTests(unittest.TestCase):
     def test_native_match_check_compile_run_without_host_tools(self):
         source = self.directory / 'native_match.sotlas'
         output = self.directory / 'native_match_image'
-        source.write_text('module probe;static mut trace:u32=0;\nfn append(value:u32)->void{unsafe{trace=trace*10+value;}}\nfn choose(value:i32)->u32{defer append(9);match value{\n-1=>{defer append(4);return 42;} _=>return 1;}}\npub fn main_entry()->u32{let value:u32=choose(-1);if unsafe{trace}!=49{return 2;}return value;}', encoding='utf-8')
+        source.write_text('module probe;enum Code{First=1,Last=9}static mut trace:u32=0;\nfn append(value:u32)->void{unsafe{trace=trace*10+value;}}\nfn boolean(value:bool)->bool{match value{true=>return true;false=>return false;}}\nfn choose(value:Code)->u32{defer append(9);match value{\nCode::First=>{defer append(4);return 42;} Code::Last=>return 1;}}\npub fn main_entry()->u32{let value:u32=choose(Code::First);if !boolean(true) || unsafe{trace}!=49{return 2;}return value;}', encoding='utf-8')
         environment = {'PATH': str(self.directory / 'no-host-tools')}
         if os.name == 'nt':
             environment['SystemRoot'] = os.environ.get('SystemRoot', 'C:\\Windows')
