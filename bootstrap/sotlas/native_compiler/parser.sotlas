@@ -560,6 +560,7 @@ impl Parser {
 
     pub fn parse_statement(mut self: &mut Self) -> usize {
         let tok: Token = self.current();
+        if tok.kind == TokenKind::OpenBrace { return self.parse_block(); }
         if tok.kind == TokenKind::KwLet || tok.kind == TokenKind::KwVar {
             self.advance();
             let let_node: usize = self.alloc_node(AstKind::LetStmt, tok.span);

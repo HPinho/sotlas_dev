@@ -86,6 +86,10 @@ pub struct ScalarLowering {
     pub constant_evaluation: bool;
     pub constant_validation_only: bool;
     pub constant_depth: usize;
+    pub defer_nodes: [usize;128];
+    pub defer_locals: [usize;128];
+    pub defer_count: usize;
+    pub loop_defer_base: usize;
 }
 
 fn align_val(value: usize, alignment: usize) -> usize {
@@ -1036,7 +1040,9 @@ impl ScalarLowering {
             const_count: 0,
             constant_evaluation: false,
             constant_validation_only: false,
-            constant_depth: 0
+            constant_depth: 0,
+            defer_nodes: [0;128], defer_locals: [0;128],
+            defer_count: 0, loop_defer_base: 0
         };
     }
 
@@ -5339,6 +5345,8 @@ impl ScalarLowering {
             }
             let is_loop: bool = node.kind == AstKind::WhileStmt;
             let is_branch: bool = node.kind == AstKind::IfStmt;
+            let is_defer: bool = node.kind == AstKind::DeferStmt;
+            let is_lexical_block: bool = node.kind == AstKind::Block && node.parent != function_index;
             let mut is_local_array: bool = false;
             if node.kind == AstKind::LetStmt && node.first_child != 0
                 && node.first_child < self.node_count {
@@ -5369,7 +5377,7 @@ impl ScalarLowering {
                     (*(self.nodes + node.first_child)).kind
                 } == AstKind::ExprFieldAccess;
             }
-            if is_loop || is_branch || is_local_array || needs_lazy_condition || is_field_assignment || is_aggregate_call || unsafe_block || nested_field || method_call || array_index || scalar_call {
+            if is_loop || is_branch || is_defer || is_lexical_block || is_local_array || needs_lazy_condition || is_field_assignment || is_aggregate_call || unsafe_block || nested_field || method_call || array_index || scalar_call {
                 let mut parent: usize = node.parent;
                 let mut depth: usize = 0;
                 let mut nested_in_if: bool = false;
@@ -5381,7 +5389,7 @@ impl ScalarLowering {
                         if is_local_array { local_array_decl = true; }
                         if is_aggregate_call { aggregate_call = true; }
                         if (is_branch && nested_in_if) || call_in_condition
-                            || needs_lazy_condition || unsafe_block || nested_field || method_call || array_index { needs_cfg = true; }
+                            || needs_lazy_condition || is_defer || is_lexical_block || unsafe_block || nested_field || method_call || array_index { needs_cfg = true; }
                         if needs_lazy_condition && self.cfg_expression_contains_unsafe(i, 0) {
                             no_loop_unsafe = true;
                         }
@@ -5942,14 +5950,90 @@ impl ScalarLowering {
         return self.reject(index);
     }
 
+    pub fn defer_payload_valid(self: &Self, index: usize, depth: usize) -> bool {
+        if index == 0 || index >= self.node_count || depth >= 64 { return false; }
+        let node: AstNode = unsafe { *(self.nodes + index) };
+        if node.kind == AstKind::ReturnStmt || node.kind == AstKind::BreakStmt
+            || node.kind == AstKind::ContinueStmt || node.kind == AstKind::DeferStmt
+            || node.kind == AstKind::TryExpr { return false; }
+        let mut child: usize = node.first_child;
+        while child != 0 {
+            if child >= self.node_count || !self.defer_payload_valid(child, depth + 1) { return false; }
+            child = unsafe { (*(self.nodes + child)).next_sibling };
+        }
+        return true;
+    }
+
+    pub fn cfg_emit_defers(mut self: &mut Self, base: usize,
+        first_parameter: usize, parameter_count: usize, depth: usize) -> bool {
+        if base > self.defer_count || self.defer_count > 128 || depth >= 64 { return false; }
+        if base == self.defer_count { return true; }
+        let visible: usize = self.local_count;
+        let mut saved: [usize;896] = 0;
+        let mut slot: usize = 0;
+        while slot < visible {
+            saved[slot*7] = self.local_name_offsets[slot];
+            saved[slot*7+1] = self.local_name_lens[slot];
+            saved[slot*7+2] = self.local_value_ids[slot] as usize;
+            saved[slot*7+3] = self.local_struct_ids[slot] as usize;
+            saved[slot*7+4] = self.local_storage_types[slot] as usize;
+            saved[slot*7+5] = self.local_array_types[slot] as usize;
+            saved[slot*7+6] = self.local_array_counts[slot] as usize;
+            slot = slot + 1;
+        }
+        let mut cursor: usize = self.defer_count;
+        while cursor > base {
+            cursor = cursor - 1;
+            let payload: usize = self.defer_nodes[cursor];
+            if payload == 0 || payload >= self.node_count { return self.reject(payload); }
+            self.local_count = self.defer_locals[cursor];
+            let node: AstNode = unsafe { *(self.nodes + payload) };
+            let mut valid: bool = false;
+            if node.kind == AstKind::Block || node.kind == AstKind::UnsafeBlock {
+                let mut block_index: usize = payload;
+                if node.kind == AstKind::UnsafeBlock { block_index = node.first_child; }
+                if block_index == 0 || block_index >= self.node_count { return self.reject(payload); }
+                valid = self.cfg_sequence(unsafe { (*(self.nodes + block_index)).first_child }, TargetTypeTag::Void,
+                    first_parameter, parameter_count, 0, 0, depth + 1);
+            } else {
+                valid = self.cfg_simple(payload, first_parameter, parameter_count);
+            }
+            slot = 0;
+            while slot < visible {
+                self.local_name_offsets[slot] = saved[slot*7];
+                self.local_name_lens[slot] = saved[slot*7+1];
+                self.local_value_ids[slot] = saved[slot*7+2] as u32;
+                self.local_struct_ids[slot] = saved[slot*7+3] as u32;
+                self.local_storage_types[slot] = saved[slot*7+4] as u32;
+                self.local_array_types[slot] = saved[slot*7+5] as u32;
+                self.local_array_counts[slot] = saved[slot*7+6] as u32;
+                slot = slot + 1;
+            }
+            self.local_count = visible;
+            if !valid || self.cfg_current == 0 { return self.reject(payload); }
+        }
+        return true;
+    }
+
     pub fn cfg_sequence(mut self: &mut Self, first_statement: usize, return_type: TargetTypeTag,
         first_parameter: usize, parameter_count: usize, break_id: u32, continue_id: u32, depth: usize) -> bool {
         if depth >= 64 { return self.reject(first_statement); }
+        let defer_base: usize = self.defer_count;
         let mut index: usize = first_statement;
         while index != 0 && self.cfg_current != 0 {
             if index >= self.node_count { return self.reject(index); }
             let stmt: AstNode = unsafe { *(self.nodes + index) };
-            if stmt.kind == AstKind::ReturnStmt {
+            if stmt.kind == AstKind::DeferStmt {
+                let payload: usize = stmt.first_child;
+                if payload == 0 || payload >= self.node_count || self.defer_count >= 128
+                    || !self.defer_payload_valid(payload, 0) { return self.reject(index); }
+                let action: AstNode = unsafe { *(self.nodes + payload) };
+                if action.kind != AstKind::Block && action.kind != AstKind::UnsafeBlock
+                    && action.kind != AstKind::AssignStmt && action.kind != AstKind::ExprCall { return self.reject(index); }
+                self.defer_nodes[self.defer_count] = payload;
+                self.defer_locals[self.defer_count] = self.local_count;
+                self.defer_count = self.defer_count + 1;
+            } else if stmt.kind == AstKind::ReturnStmt {
                 let mut result: u32 = 0;
                 let mut count: u32 = 0;
                 if self.return_struct_id != 0 {
@@ -5963,6 +6047,7 @@ impl ScalarLowering {
                     if result == 0 { return self.reject(index); }
                     count = 1;
                 } else if stmt.first_child != 0 { return self.reject(index); }
+                if !self.cfg_emit_defers(0, first_parameter, parameter_count, depth) { return self.reject(index); }
                 let return_operand: u32 = self.operand_count as u32;
                 if count != 0 && !self.append_operand(result) { return self.reject(index); }
                 if !self.append_instruction(TargetOpcode::Return, 0, return_type, return_operand, count, index)
@@ -5970,6 +6055,7 @@ impl ScalarLowering {
             } else if stmt.kind == AstKind::BreakStmt || stmt.kind == AstKind::ContinueStmt {
                 let mut destination: u32 = break_id;
                 if stmt.kind == AstKind::ContinueStmt { destination = continue_id; }
+                if !self.cfg_emit_defers(self.loop_defer_base, first_parameter, parameter_count, depth) { return self.reject(index); }
                 if !self.cfg_jump(destination, index) { return self.reject(index); }
             } else if stmt.kind == AstKind::IfStmt {
                 let condition_index: usize = stmt.first_child;
@@ -6025,8 +6111,11 @@ impl ScalarLowering {
                 }
                 let scope: usize = self.local_count;
                 self.cfg_begin(loop_body);
+                let outer_loop_defer_base: usize = self.loop_defer_base;
+                self.loop_defer_base = self.defer_count;
                 if !self.cfg_sequence(body.first_child, return_type, first_parameter, parameter_count,
                     exit, header, depth + 1) { return false; }
+                self.loop_defer_base = outer_loop_defer_base;
                 if self.cfg_current != 0 && !self.cfg_jump(header, index) { return self.reject(index); }
                 self.local_count = scope;
                 self.cfg_begin(exit);
@@ -6044,6 +6133,8 @@ impl ScalarLowering {
             }
             index = stmt.next_sibling;
         }
+        if self.cfg_current != 0 && !self.cfg_emit_defers(defer_base, first_parameter, parameter_count, depth) { return false; }
+        self.defer_count = defer_base;
         return true;
     }
 
@@ -6068,6 +6159,7 @@ impl ScalarLowering {
         }
         let first_parameter: usize = self.parameter_count;
         self.local_count = 0;
+        self.defer_count = 0; self.loop_defer_base = 0;
         self.structured_cfg = false;
         self.return_struct_id = self.function_return_struct_from_ast(function_index);
         self.return_destination = 0;

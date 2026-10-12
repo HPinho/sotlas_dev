@@ -1674,6 +1674,40 @@ Linux/macOS source-map methods were registered after general-suite discovery
 and checked separately (two expected Windows skips); the Linux method was
 executed in WSL. CI and macOS runtime certification remain required.
 
+### SV8.37 — lexical defer and structured cleanup
+
+The Sotlas parser now accepts standalone lexical blocks. Native structured
+lowering registers deferred calls, assignments and blocks without running them
+at registration. Actions execute in reverse order at block exit, early return,
+break, continue and loop backedge. Loop jumps preserve defers outside the loop,
+and terminated paths do not also receive ordinary backedge cleanup.
+
+Deferred actions retain the lexical bindings visible at registration and read
+their current mutable storage at cleanup. Shadowed identifiers and temporary
+locals in deferred blocks do not overwrite later live binding metadata.
+Scalar and record return values are captured before deferred writes execute.
+The no-defer path bypasses cleanup scratch allocation.
+
+The current native contract is ownership-free. Capturing or declaring
+ownership-qualified values in deferred payloads requires reservations and
+drop/ARC integration that are not implemented by this block. Nested defers,
+nonlocal jumps inside payloads, error propagation and bare-name cleanup fail
+closed. Active defers are bounded to 128 per function; structured depth retains
+the existing 64-level bound. This is not unwind/ARC closure.
+
+Migration accounting remains tied to the broad contracts in the closure
+checklist. Scoped execution gates establish partial capabilities; their count
+must not be presented as a percentage completion of the 43 broad items. A
+70% migration claim requires a separate full-contract audit and is not certified
+by this milestone.
+
+Local validation: the Windows regression suite passed **2,813 tests with 67
+platform/toolchain skips** in 642.009 seconds. The final standalone-block CFG
+selection adjustment then passed **66 frontend/Windows-driver tests**, including
+native Stage 2/3 identity. All **54 frontend tests** passed on Linux (WSL) and
+Windows Python 3.10.11. Linux native generation and Darwin compiler cross-build
+passed. CI and macOS runtime certification remain required.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test
