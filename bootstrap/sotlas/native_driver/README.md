@@ -522,8 +522,9 @@ are rejected rather than silently replaced with zero.
 Scalar module constants support bounded arithmetic, bit operations, Boolean
 logic and comparisons, with stored compile-time results. Signed overflow,
 division by zero, invalid shifts and nonfinite floating constant results fail
-before output. Forward references and general constant function calls remain
-outside the native profile.
+before output. Forward scalar constant references are resolved after complete
+declaration registration; dependency cycles fail before output. General
+constant function calls remain outside the native profile.
 
 Scientific literals accept `e` or `E` and an optional exponent sign. The
 decimal exponent is at most 18 in magnitude, and the reduced rational must
@@ -534,6 +535,17 @@ length/type validation. Large repetitions execute a native fill loop and
 evaluate the initializer once. Scalar, floating and Boolean `if/else` values
 use lazy native CFG arms in returns, calls and loops. Aggregate and ownership
 conditional values remain outside this profile.
+
+## Constant dependencies and control flow
+
+Constant `if/else`, `&&` and `||` expressions evaluate only the selected path.
+Inactive arms still undergo type and name validation, and cannot hide function
+calls or cyclic dependencies. Static initializers may refer to later scalar
+constants. Validation preserves real dependency cache values and restores all
+temporary IR identities. Tables remain bounded to 64 declarations, nesting to
+64 levels and each temporary expression to 128 instructions. Null pointer
+initializers, identity casts and transparent unsafe scalar values retain their
+existing behavior.
 
 ## Exclusive POD transfers and internal whisper parameters
 

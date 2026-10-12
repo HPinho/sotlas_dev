@@ -36,12 +36,16 @@ contracts. Local validation must pass CI before being called certified.
   - [x] Fold typed integer/float arithmetic, bit operations, shifts, Boolean logic and comparisons before emission.
   - [x] Reject signed overflow, division/remainder by zero, invalid shifts and nonfinite floating constant results.
   - [x] Validate folded operand/result types; float bits cannot become integer initializers through incompatible constant references.
-  - [ ] Complete forward constant references, conditional constant expressions and remaining contracted types/forms.
+  - [x] Register declarations before evaluation and resolve forward scalar dependencies with cycle detection.
+  - [x] Fold conditional values and Boolean short-circuit expressions without executing inactive arithmetic.
+  - [x] Validate types, names and permitted syntax in inactive arms; validation never caches provisional zero values.
+  - [x] Bound dependency tables, expression depth and temporary instructions, with rollback of temporary identities.
+  - [ ] Complete remaining contracted constant types/forms, numeric conversions and any canonical constant-call contract.
 - [ ] Implement module constants with floats and other contracted types.
   - [x] Lower typed integer, Boolean, f32 and f64 literal constants, including unary-negative literals.
   - [x] Check unused constants with the same type and range rules as expressions.
   - [x] Restore temporary IR arena counts and value identities after declaration validation.
-  - [x] References to prior scalar module constants emit their stored folded bits.
+  - [x] References to scalar module constants emit their resolved folded bits, including later declarations.
   - [ ] Support other contracted constant types and remaining expression forms.
 - [ ] Implement nonzero static initializers.
   - [x] Emit typed integer/float/Boolean scalar initializers and repeated scalar arrays into writable ELF `.data`.
@@ -118,6 +122,9 @@ contracts. Local validation must pass CI before being called certified.
 | Ownership metadata from actual Sotlas parsing and lowering | `test_native_lowering_preserves_parameter_binding_and_return_domains` |
 | Whisper forwarding, no-escape and overlapping consumption | `test_native_whisper_reads_and_forwarding_preserve_owner`, `test_native_whisper_rejects_mutation_escape_and_overlapping_move` |
 | Independent POD storage through unsafe value bindings | `test_unsafe_pod_value_bindings_keep_independent_storage` |
+| Forward dependencies and static initialization before constant declarations | `test_forward_constants_initialize_storage_before_functions` |
+| Conditional and Boolean constant short-circuit execution | `test_constant_conditional_and_boolean_arms_evaluate_lazily` |
+| Cycle, inactive-arm validation, cache and capacity checks | `test_constant_cycles_and_invalid_forward_dependencies_fail_closed`, `test_constant_inactive_arms_still_check_types_names_and_calls`, `test_inactive_conditional_dependency_keeps_its_real_cached_value`, `test_constant_dependency_capacity_and_nested_depth_are_bounded` |
 
 These gates build the current sources through the strict public Stage-0
 frontend in a fresh directory. They do not select a cached Stage-1 executable.
@@ -143,6 +150,12 @@ cross-build passed three additional gates. The C11 regression step passed
 The complete Windows regression suite then passed 2,791 tests with 65
 platform/toolchain skips in 785.416 seconds, using the final source revision.
 
+SV8.35 local evidence: the complete Windows regression suite passed 2,798
+tests with 65 platform/toolchain skips in 628.822 seconds. The expanded
+41-test frontend set passed on Windows, Linux (WSL) and Windows Python
+3.10.11. Windows/Linux native generation identity and the Darwin compiler
+cross-build remained valid with the new constant dependency/control evaluator.
+
 ## Remaining limits
 
 Native ownership analysis currently accepts explicit exclusive qualifiers on
@@ -163,8 +176,11 @@ must not be presented as proof of ARC or general exactly-once destruction.
 
 Scalar module constants retain the native numeric bounds and 64-declaration
 limit. Folding accepts up to 128 temporary IR instructions per expression;
-general calls, forward references and conditional constant expressions remain
-outside this contract. Scientific exponents are bounded to 18 and the reduced
+general calls and remaining constant types/conversions remain outside this
+contract. Declaration dependencies must be acyclic, including references in
+inactive arms. Expression and evaluation nesting are bounded to 64 levels;
+selected arithmetic follows the existing signed-overflow and unsigned-wrap
+rules. Scientific exponents are bounded to 18 and the reduced
 rational must fit the existing coefficient/denominator limits. Local scalar
 arrays remain bounded to 4,096 elements. Diagnostics display at
 most 160 source bytes; combined project input still uses `<native-project>`

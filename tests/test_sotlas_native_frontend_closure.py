@@ -11,6 +11,72 @@ class NativeFrontendClosureTests(unittest.TestCase):
     execute = integer.NativeI32Tests.execute
     assert_c11_reference = integer.NativeI32Tests.assert_c11_reference
 
+    def test_constant_validation_preserves_null_identity_cast_and_unsafe_values(self):
+        source='''static mut empty:*mut u8=null;const FIRST:u32=5 as u32;
+const SECOND:u32=unsafe{37};pub fn main_entry()->u32{
+if unsafe{empty}!=null{return 1;}return FIRST+SECOND;}'''
+        self.execute(self.compile('constant_existing_forms',source))
+
+    def test_constant_conditional_and_boolean_arms_evaluate_lazily(self):
+        source='''static mut answer:u32=VALUE;
+const VALUE:u32=if ENABLED{if FLAG{BASE+21}else{1/0}}else{1/0};
+const SAFE:bool=false && (1/0>0);const READY:bool=true || (1/0==0);
+const ENABLED:bool=READY && !SAFE;const BASE:u32=21;const FLAG:bool=true;
+const SCALE:f32=if FLAG{1.5+0.5}else{1.0/0.0};
+pub fn main_entry()->u32{if unsafe{answer}!=42 || SCALE!=2.0 || SAFE || !READY{return 1;}return VALUE;}'''
+        self.execute(self.compile('lazy_constant_control',source))
+
+    def test_inactive_conditional_dependency_keeps_its_real_cached_value(self):
+        source='''const FIRST:u32=if true{42}else{SECOND};
+const SECOND:u32=if FLAG{21*2}else{7};const FLAG:bool=true;
+const ZERO:u8=MAX+1;const MAX:u8=255;
+pub fn main_entry()->u32{if FIRST!=42 || SECOND!=42 || ZERO!=0{return 1;}return SECOND;}'''
+        self.execute(self.compile('constant_validation_cache',source))
+
+    def test_constant_inactive_arms_still_check_types_names_and_calls(self):
+        cases=(
+            'const A:u32=if true{42}else{1.5};',
+            'const A:bool=true || 42;',
+            'const A:u32=if true{42}else{UNKNOWN};',
+            'fn compute()->u32{return 7;}const A:u32=if true{42}else{compute()};',
+            'const A:u32=if true{42}else{A};',
+            'const A:u32=if false{42}else{1/0};',
+            'const A:bool=true && (1/0==0);',
+        )
+        for index,source in enumerate(cases):
+            with self.subTest(index=index):
+                self.compile('constant_inactive_rejection_'+str(index),source+'pub fn main_entry()->u32{return 42;}',success=False)
+
+    def test_constant_dependency_capacity_and_nested_depth_are_bounded(self):
+        for count,success in ((64,True),(65,False)):
+            declarations=''.join('const C'+str(index)+':u32='+('C'+str(index+1) if index+1<count else '42')+';' for index in range(count))
+            with self.subTest(count=count):
+                obj=self.compile('constant_chain_'+str(count),declarations+'pub fn main_entry()->u32{return C0;}',success=success)
+                if success:self.execute(obj)
+        deep='42'
+        for _ in range(70):deep='if true{'+deep+'}else{42}'
+        self.compile('constant_depth_exhaustion','const A:u32='+deep+';pub fn main_entry()->u32{return 42;}',success=False)
+
+    def test_forward_constants_initialize_storage_before_functions(self):
+        source='''static mut answer:u32=TOTAL;static mut samples:[f32;2]=[SCALE;2];
+const TOTAL:u32=BASE*2;const SCALE:f32=OFFSET+0.5;const BASE:u32=21;const OFFSET:f32=1.5;
+pub fn main_entry()->u32{if unsafe{answer}!=42 || unsafe{samples[1]}!=2.0{return 1;}return TOTAL;}'''
+        self.execute(self.compile('forward_constant_storage',source))
+
+    def test_constant_cycles_and_invalid_forward_dependencies_fail_closed(self):
+        cases=(
+            'const A:u32=A;',
+            'const A:u32=B;const B:u32=A;',
+            'const A:u32=B;const B:u32=C;const C:u32=A;',
+            'const A:u32=B;const B:f32=1.5;',
+            'const A:i8=B+1;const B:i8=127;',
+            'const A:u32=MISSING;',
+            'const A:u32=1;const A:u32=2;',
+        )
+        for index,source in enumerate(cases):
+            with self.subTest(index=index):
+                self.compile('constant_dependency_rejection_'+str(index),source+'pub fn main_entry()->u32{return 42;}',success=False)
+
     def test_native_lowering_preserves_parameter_binding_and_return_domains(self):
         program='module unit;struct Token{pub value:u32;}fn read(value:whisper Token)->u32{return value.value;}fn make()->sole Token{return Token{value:42};}fn transfer(value:sole Token)->sole Token{return value;}pub fn main_entry()->u32{let owner:sole Token=make();return read(owner);}'
         source='''import sotlas::compiler::token::*;

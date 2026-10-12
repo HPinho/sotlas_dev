@@ -1611,6 +1611,35 @@ cross-build passed alongside the ownership command gate. The C11 regression
 step passed **707 tests**. CI certification and macOS runtime execution remain
 required; this evidence does not close the remaining parent checklist items.
 
+### SV8.35 — constant dependencies and lazy constant control flow
+
+Native module lowering now registers layouts and scalar constant declarations
+before evaluating dependencies and publishing initialized storage. Later
+declarations are available to constants and static initializers. Resolution
+tracks pending, resolving, ready and failed declarations; cycles fail before
+object emission rather than exposing provisional zero values.
+
+Constant `if/else`, `&&` and `||` expressions evaluate only their selected path.
+Both arms still undergo the ordinary typed lowering checks. Unknown names,
+type mismatches, cyclic references and general function calls cannot hide in
+inactive arms. Arithmetic in an inactive arm is not evaluated. Validation
+restores temporary IR counts and value identities, and resolves referenced
+constants to their actual values before caching them.
+
+The gate covers integer, float and Boolean results, initialized storage,
+unsigned wrapping, signed-overflow rejection, dependency cycles, 64-declaration
+capacity and bounded nested expressions. Null initializers, identity casts and
+transparent unsafe scalar constants retain their prior behavior. General
+constant calls, remaining conversion forms and aggregate/string constant
+values remain outside this native contract.
+
+Local validation: the complete Windows regression suite passed **2,798 tests
+with 65 platform/toolchain skips** in 628.822 seconds. The frontend closure
+set passed **41 tests** on Windows, Linux (WSL) and Windows Python 3.10.11.
+Original-source native compiler generation and Stage 2/3 identity passed on
+Windows and Linux, alongside the Darwin compiler cross-build. CI and macOS
+runtime certification remain required.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test
