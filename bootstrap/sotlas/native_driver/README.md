@@ -672,6 +672,31 @@ temporary IR identities. Tables remain bounded to 64 declarations, nesting to
 initializers, identity casts and transparent unsafe scalar values retain their
 existing behavior.
 
+## Internal direct access
+
+`direct T` supports internal function parameters for the same fixed scalars
+and pointer-free POD records accepted by the ownership profile. It is a
+read-only, non-consuming access domain. Direct calls and forwarding preserve
+an exclusive caller's live state, including repeated read aliases. Forwarding
+to an internal whisper parameter is also accepted. Scalar parameters use
+immutable values; direct record parameters receive the existing record address
+without creating the ordinary argument-copy storage.
+
+```sotlas
+struct Token { pub value: u32; }
+fn read(value: direct Token) -> u32 { return value.value; }
+fn forward(value: direct Token) -> u32 { return read(value); }
+```
+
+Mutation, storing or returning a whole direct value, casts/address escape,
+foreign calls carrying that value and forwarding to a consuming parameter are
+rejected. A call cannot borrow an owner while consuming it in another argument.
+Fields, globals, direct returns and direct locals remain unsupported. Instance
+receivers, stored aliases, general alias lifetimes and defer captures of
+qualified values remain outside this profile. Static internal calls use the
+same checked parameter contract. Domain tags remain in AST and TargetValue
+metadata; this access requires no retain/release runtime.
+
 ## Exclusive POD transfers and internal whisper parameters
 
 Explicit `sole T` and `exclusive T` qualifiers support fixed scalars and
@@ -686,7 +711,7 @@ internal address ABI; scalar parameters use immutable values. Read-only calls
 and forwarding leave the caller's exclusive owner live. Mutation, storage,
 whole-value return, address escape and borrowing across foreign calls are rejected. Passing one
 owner as both a borrowed and consuming argument in the same call is rejected.
-The profile reports `ownership_analysis=exclusive-pod,whisper-internal`.
+The profile reports `ownership_analysis=exclusive-pod,whisper-internal,direct-internal`.
 
 These contracts do not provide shared ARC, heap ownership, custom destructors,
 weak storage/invalidation or a general borrowed-reference ABI. Their runtime

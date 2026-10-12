@@ -242,10 +242,10 @@ impl Sema {
         while index < node_count {
             let node: AstNode = unsafe { *(nodes + index) };
             if node.kind == AstKind::TypeRef && node.int_value != 0 {
-                if (node.int_value != 1 && node.int_value != 4) || !self.ownership_pod_type(nodes, node_count, index, source, source_len, 0)
+                if (node.int_value != 1 && node.int_value != 4 && node.int_value != 6) || !self.ownership_pod_type(nodes, node_count, index, source, source_len, 0)
                     || node.parent == 0 || node.parent >= node_count { return self.reject_node(node); }
                 let parent: AstNode = unsafe { *(nodes + node.parent) };
-                if node.int_value == 4 && parent.kind != AstKind::ParamDecl { return self.reject_node(node); }
+                if (node.int_value == 4 || node.int_value == 6) && parent.kind != AstKind::ParamDecl { return self.reject_node(node); }
                 if parent.kind == AstKind::FieldDecl || parent.kind == AstKind::ExprCast
                     || (parent.kind == AstKind::LetStmt && parent.parent != 0
                         && unsafe { (*(nodes + parent.parent)).kind } == AstKind::Module) { return self.reject_node(node); }
@@ -3669,7 +3669,7 @@ impl NativeOwnershipCheck {
         let node: AstNode = unsafe { *(self.nodes + node_index) };
         if node.kind == AstKind::ExprIdent {
             let index: usize = self.slot(node_index);
-            return index < self.count && self.domains[index] == 4;
+            return index < self.count && (self.domains[index] == 4 || self.domains[index] == 6);
         }
         let mut child: usize = node.first_child;
         while child != 0 {
@@ -3761,7 +3761,7 @@ impl NativeOwnershipCheck {
                     let param: AstNode = unsafe { *(self.nodes + parameter) };
                     if param.kind == AstKind::ParamDecl {
                         consumes = self.domain(parameter) == 1;
-                        borrow = self.domain(parameter) == 4;
+                        borrow = self.domain(parameter) == 4 || self.domain(parameter) == 6;
                         parameter = param.next_sibling;
                     }
                 }
@@ -3786,7 +3786,7 @@ impl NativeOwnershipCheck {
             let no: usize = unsafe { (*(self.nodes + yes)).next_sibling };
             if no == 0 || no >= self.node_count { return self.fail(node_index); }
             let domain: i64 = self.expression_domain(node_index);
-            if domain != 0 && domain != 1 && domain != 4 { return self.fail(node_index); }
+            if domain != 0 && domain != 1 && domain != 4 && domain != 6 { return self.fail(node_index); }
             let scope: usize = self.count;
             let mut before: [u8;256] = 0; let mut after_yes: [u8;256] = 0;
             let mut index: usize = 0;

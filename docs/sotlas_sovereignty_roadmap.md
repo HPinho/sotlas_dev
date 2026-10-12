@@ -1849,6 +1849,40 @@ tests**, including the previous matrix regression. The Linux native match CLI,
 original-source generation and Darwin cross-build passed three additional
 gates. macOS runtime execution and CI certification remain required.
 
+### SV8.42 — native internal direct access and original record storage
+
+The Sotlas semantic checker accepts DIRECT for internal POD parameters and
+preserves its domain in the AST and TargetValue metadata. Direct access is
+read-only and non-consuming. Calls, repeated aliases, direct forwarding,
+forwarding to whisper, static functions, scalar calculations and structured
+loops preserve an exclusive caller's state. Consuming forwarding and a borrow
+overlapping consumption in another argument are rejected.
+
+The native call lowering reads the actual parameter domain. Direct record
+arguments use the existing address instead of the ordinary record argument
+copy; scalar arguments retain the immutable-value ABI. The IR execution probe
+checks both the DIRECT parameter metadata and the exclusive caller operand's
+original domain flag. Owning/value and whisper record argument behavior retains
+its existing contract. No retain/release runtime is introduced.
+
+Mutation, whole-value storage/return, pointer/address escape and foreign escape
+fail closed. Qualifier placement remains parameter-only. Instance receivers,
+stored aliases, full alias lifetimes and qualified defer captures remain open.
+The native capability report includes `direct-internal`. Five frontend gates
+and three platform file-driver gates exercise these contracts and their failure
+paths, including output preservation after a rejected mutation.
+
+Local validation: the final Windows suite passed **2,852 tests with 71
+platform/toolchain skips** in 641.197 seconds. The frontend/Windows-driver
+run passed **100 tests**, including Stage 2/3 and direct execution through the
+Sotlas-written file CLI. All **86 frontend gates** passed on Linux (WSL);
+Windows Python 3.10.11 passed those gates and the previous matrix regression
+(**87 tests**). Linux direct CLI, original-source generation identity and Darwin
+compiler cross-build passed three additional gates. The existing all-domain
+rejection gate now uses a pointer payload for DIRECT, preserving its rejection
+and artifact checks while the new POD parameter contract is accepted.
+macOS runtime execution and CI certification remain required.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test

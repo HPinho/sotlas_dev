@@ -4,6 +4,7 @@ import struct
 import os
 import sys
 import signal
+import re
 import test_sotlas_native_i32 as integer
 
 
@@ -15,6 +16,73 @@ class NativeFrontendClosureTests(unittest.TestCase):
     execute = integer.NativeI32Tests.execute
     assert_c11_reference = integer.NativeI32Tests.assert_c11_reference
     windows_process_exit_code = integer.NativeI32Tests.windows_process_exit_code
+
+    def test_native_direct_forwarding_and_read_aliases_preserve_the_owner(self):
+        source='''struct Token{pub value:u32;}fn read(value:direct Token)->u32{return value.value;}
+fn whisper_read(value:whisper Token)->u32{return value.value;}
+fn forward(value:direct Token)->u32{return whisper_read(value);}
+fn pair(left:direct Token,right:direct Token)->u32{return left.value+right.value;}
+fn consume(value:sole Token)->u32{return value.value;}
+pub fn main_entry()->u32{let value:sole Token=Token{value:21};
+if read(value)!=21 || forward(value)!=21 || pair(value,value)!=42{return 1;}
+return read(value)+consume(value);}'''
+        self.execute(self.compile('native_direct_read_forward',source))
+
+    def test_native_direct_scalar_and_static_calls_execute_with_typed_results(self):
+        source='''struct Token{pub value:u32;}impl Token{fn read(value:direct Token)->u32{return value.value;}}
+fn number(value:direct u32)->u32{return value+1;}
+fn boolean(value:direct bool)->bool{return value==true;}
+fn decimal(value:direct f32)->f32{return value*2.0;}
+pub fn main_entry()->u32{let value:sole Token=Token{value:41};let expected:f32=3.0;
+if !boolean(true) || decimal(1.5)!=expected{return 1;}return number(Token::read(value));}'''
+        self.execute(self.compile('native_direct_types_static',source))
+
+    def test_native_direct_loops_branches_and_void_forwarding_do_not_consume(self):
+        source='''struct Token{pub value:u32;}static mut total:u32=0;
+fn observe(value:direct Token)->void{unsafe{total=total+value.value;}}
+fn forward(value:direct Token)->void{observe(value);}
+fn repeat(value:direct Token)->u32{let mut count:u32=0;while count<2{
+if count==0{forward(value);}else{observe(value);}count=count+1;}return value.value;}
+fn consume(value:sole Token)->u32{return value.value;}
+pub fn main_entry()->u32{let value:sole Token=Token{value:21};
+if repeat(value)!=21 || unsafe{total}!=42{return 1;}return consume(value)+21;}'''
+        self.execute(self.compile('native_direct_structured',source))
+
+    def test_native_direct_rejects_mutation_storage_returns_ffi_and_overlap(self):
+        prefix='struct Token{pub value:u32;}fn consume(value:sole Token)->u32{return value.value;}'
+        cases=('fn wrong(mut value:direct Token)->u32{value.value=1;return 42;}',
+               'fn wrong(value:direct Token)->u32{let copy:Token=value;return 42;}',
+               'fn wrong(value:direct Token)->Token{return value;}',
+               'fn wrong(value:direct Token)->u32{return consume(value);}',
+               'fn wrong(value:direct Token)->*const Token{return unsafe{value as *const Token};}',
+               'fn wrong(value:direct Token)->u32{defer consume(value);return 42;}',
+               'fn wrong()->direct Token{return Token{value:42};}',
+               'fn wrong()->u32{let value:direct Token=Token{value:42};return 42;}',
+               'struct Stored{pub value:direct Token;}',
+               'static mut stored:direct u32=0;',
+               '@extern(C) fn foreign(value:Token)->u32;fn wrong(value:direct Token)->u32{return unsafe{foreign(value)};}',
+               '@extern(C) fn wrong(value:direct Token)->u32;')
+        for index,source in enumerate(cases):
+            with self.subTest(index=index):self.compile('native_direct_bad_'+str(index),prefix+source+'pub fn main_entry()->u32{return 42;}',success=False)
+        self.compile('native_direct_overlap',prefix+'fn pair(value:direct Token,bias:u32)->u32{return value.value+bias;}pub fn main_entry()->u32{let value:sole Token=Token{value:42};return pair(value,consume(value));}',success=False)
+
+    def test_native_direct_ir_preserves_domain_and_borrows_original_record_storage(self):
+        class Capture:
+            def compile(self,name,source):self.source=source;return None
+            def execute(self,obj):pass
+        capture=Capture()
+        NativeFrontendClosureTests.test_native_lowering_preserves_parameter_binding_and_return_domains(capture)
+        source=capture.source.replace('whisper Token','direct Token').replace('domain==4','domain==6').replace('!=1024','!=1536')
+        source=re.sub(r'let input:\*const u8="([^"]+)";let length:usize=\d+;',
+                      lambda match:'let input:*const u8="'+match.group(1)+'";let length:usize='+str(len(match.group(1).encode('utf-8')))+';',source)
+        probe='''index=0;let mut found:bool=false;
+while index<ir.instruction_count as usize{let instruction:TargetInstruction=unsafe{*(instructions as *const TargetInstruction+index)};
+if instruction.opcode==TargetOpcode::Call && sema.source_slice_equals(text,unsafe{g_extended_len},instruction.symbol.offset,instruction.symbol.length,"read",4){
+let input:TargetOperand=unsafe{*(operands as *const TargetOperand+instruction.first_operand as usize)};
+if unsafe{(*(vals+input.value_id as usize-1)).flags}!=256{return 8;}found=true;}index=index+1;}
+if !found{return 9;}return 42;}'''
+        source=source[:-len('return 42;}')]+probe
+        self.execute(self.compile('native_direct_ir_storage',source))
 
     def test_native_match_proves_boolean_and_enum_coverage_without_wildcards(self):
         source='''enum Code{First=1,Last=9}const DONE:Code=Code::Last;

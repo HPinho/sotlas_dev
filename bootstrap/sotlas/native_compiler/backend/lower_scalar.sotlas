@@ -1960,6 +1960,24 @@ impl ScalarLowering {
         return 0;
     }
 
+    pub fn function_parameter_domain_from_ast(self: &Self, function_index: usize, ordinal: u32) -> i64 {
+        if function_index == 0 || function_index >= self.node_count { return 0; }
+        let mut child: usize = unsafe { (*(self.nodes + function_index)).first_child };
+        let mut parameter: u32 = 0;
+        while child != 0 && child < self.node_count {
+            let node: AstNode = unsafe { *(self.nodes + child) };
+            if node.kind == AstKind::ParamDecl {
+                if parameter == ordinal {
+                    if node.first_child == 0 || node.first_child >= self.node_count { return 0; }
+                    return unsafe { (*(self.nodes + node.first_child)).int_value };
+                }
+                parameter = parameter + 1;
+            }
+            child = node.next_sibling;
+        }
+        return 0;
+    }
+
     pub fn allocate_struct(mut self: &mut Self, struct_id: u32, node: usize) -> u32 {
         if struct_id == 0 || struct_id as usize > self.struct_count { return 0; }
         let size: u32 = self.struct_sizes[struct_id as usize - 1];
@@ -3062,10 +3080,14 @@ impl ScalarLowering {
                 if argument_struct == 0 && self.conditional_record_result(argument_index, 0) { return 0; }
                 if argument_struct != 0 {
                     if self.cfg_struct_id(argument_index, 0) != argument_struct { return 0; }
-                    let copy: u32 = self.allocate_struct(argument_struct, argument_index);
-                    if copy == 0 || !self.cfg_copy_fields(copy, argument_value,
-                        argument_struct, 0, 0, argument_index, 0) { return 0; }
-                    argument_value = copy;
+                    // Verified direct parameters borrow the existing record address.
+                    // Owning/value parameters retain their independent-copy ABI.
+                    if self.function_parameter_domain_from_ast(callee_decl, argument_count) != 6 {
+                        let copy: u32 = self.allocate_struct(argument_struct, argument_index);
+                        if copy == 0 || !self.cfg_copy_fields(copy, argument_value,
+                            argument_struct, 0, 0, argument_index, 0) { return 0; }
+                        argument_value = copy;
+                    }
                 }
                 argument_values[argument_count as usize] = argument_value;
                 argument_count = argument_count + 1;
@@ -3677,9 +3699,11 @@ impl ScalarLowering {
             let struct_id: u32 = self.function_parameter_struct_from_ast(callee_decl, argument_count);
             if struct_id != 0 {
                 if self.cfg_struct_id(argument_index, 0) != struct_id { return false; }
-                let copy: u32 = self.allocate_struct(struct_id, argument_index);
-                if copy == 0 || !self.cfg_copy_fields(copy, argument_value, struct_id, 0, 0, argument_index, 0) { return false; }
-                argument_value = copy;
+                if self.function_parameter_domain_from_ast(callee_decl, argument_count) != 6 {
+                    let copy: u32 = self.allocate_struct(struct_id, argument_index);
+                    if copy == 0 || !self.cfg_copy_fields(copy, argument_value, struct_id, 0, 0, argument_index, 0) { return false; }
+                    argument_value = copy;
+                }
             }
             argument_values[argument_count as usize] = argument_value;
             argument_count = argument_count + 1;

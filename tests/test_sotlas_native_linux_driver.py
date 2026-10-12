@@ -30,6 +30,26 @@ def merged_native_driver_source() -> bytes:
 class NativeLinuxDriverTests(unittest.TestCase):
 
     @unittest.skipUnless(LINUX_X64, "requires native platform execution")
+    def test_native_direct_check_compile_run_without_host_tools(self):
+        source = self.directory / 'native_direct.sotlas'
+        output = self.directory / 'native_direct_image'
+        source.write_text('module probe;struct Token{pub value:u32;}\nfn read(value:direct Token)->u32{return value.value;}\nfn forward(value:direct Token)->u32{return read(value);}\nfn consume(value:sole Token)->u32{return value.value;}\npub fn main_entry()->u32{let value:sole Token=Token{value:21};return forward(value)+consume(value);}', encoding='utf-8')
+        environment = {'PATH': str(self.directory / 'no-host-tools')}
+        if os.name == 'nt':
+            environment['SystemRoot'] = os.environ.get('SystemRoot', 'C:\\Windows')
+        profile = self.run_tool([str(self.seed), '--capabilities'], env=environment)
+        self.assertIn(b'direct-internal', profile.stdout)
+        self.run_tool([str(self.seed), '--check', str(source)], env=environment)
+        self.run_tool([str(self.seed), str(source), str(output)], env=environment)
+        self.run_tool([str(output)], expected=42, env=environment)
+        original = output.read_bytes()
+        source.write_text('module probe;struct Token{pub value:u32;}\nfn read(mut value:direct Token)->u32{value.value=0;return 42;}\npub fn main_entry()->u32{return 42;}', encoding='utf-8')
+        for arguments in ([str(self.seed), '--check', str(source)], [str(self.seed), str(source), str(output)]):
+            self.run_tool(arguments, expected=6, env=environment)
+            self.assertEqual(output.read_bytes(), original)
+
+
+    @unittest.skipUnless(LINUX_X64, "requires native platform execution")
     def test_native_match_check_compile_run_without_host_tools(self):
         source = self.directory / 'native_match.sotlas'
         output = self.directory / 'native_match_image'
@@ -140,7 +160,7 @@ class NativeLinuxDriverTests(unittest.TestCase):
         self.run_tool([str(self.seed), "--check", str(source)], env=environment)
         self.run_tool([str(self.seed), str(source), str(output)], env=environment)
         self.run_tool([str(output)], expected=42, env=environment)
-        unsupported = ["module gate;pub struct Token{pub value:u32;}fn use(x:"+domain+(" *mut Token" if domain in ("sole","whisper") else " Token")+")->u32{return 42;}" for domain in ("sole","shared","region","device","external","island","whisper","direct")]
+        unsupported = ["module gate;pub struct Token{pub value:u32;}fn use(x:"+domain+(" *mut Token" if domain in ("sole","whisper","direct") else " Token")+")->u32{return 42;}" for domain in ("sole","shared","region","device","external","island","whisper","direct")]
         unsupported.append("module gate;fn load()->u32{return 42;}flow Compute{stage seed=load;}")
         for index, text in enumerate(unsupported):
             with self.subTest(index=index):
