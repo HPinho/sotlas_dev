@@ -64,7 +64,7 @@ fn fail(code: u32) -> u32 {
 
 // Report the actual owned profile without initializing compiler arenas.
 fn driver_print_profile(help: bool) -> u32 {
-    let mut text: *const u8 = "sotlas-native capabilities v1\nbackend=x86_64\ninteger_bits=8,16,32,64\nfloats=f32,f64\nfloat_literals=coefficient<10^18;decimal-places<=18\nfloat_abi=internal-bits\nnumeric_casts=integer-float-checked\nfloat_external_abi=unsupported\nownership_analysis=exclusive-pod,whisper-internal\nownership_runtime=unsupported\nflow_execution=unsupported\n";
+    let mut text: *const u8 = "sotlas-native capabilities v1\nbackend=x86_64\ninteger_bits=8,16,32,64\nfloats=f32,f64\nfloat_literals=coefficient<10^18;decimal-places<=18\nfloat_abi=internal-bits\nnumeric_casts=integer-float-checked\nfloat_external_abi=unsupported\nownership_analysis=exclusive-pod,whisper-internal,direct-internal\nownership_runtime=unsupported\nflow_execution=unsupported\n";
     if help { text = "Usage: sotlas-native INPUT OUTPUT [--object|--compiler]\n       sotlas-native --check INPUT\n       sotlas-native --project[-object|-compiler] OUTPUT INPUT...\n       sotlas-native --check-build ROOT ENTRY\n       sotlas-native --build[-obj|-cc] OUTPUT ROOT ENTRY\n       sotlas-native --capabilities\nNative profiles are bounded; use --capabilities to inspect limits.\n"; }
     let mut length: usize = 0;
     while length < 2048 && unsafe { *(text + length) } != 0 { length = length + 1; }
