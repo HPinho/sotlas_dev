@@ -544,8 +544,10 @@ ownership transfers. Non-POD ownership payloads remain outside this profile.
 with explicit scalar discriminants. The selector is evaluated once. Patterns
 may be scalar literals, negative integer literals, typed module constants or
 variants of the selector's enum. Duplicate values and incompatible patterns
-are rejected. Every match requires a final `_` arm, including Boolean and enum
-matches; coverage without a wildcard remains outside this profile.
+are rejected. Integer matches require a final `_` arm. Boolean matches may
+omit it when both values are covered; enum matches may omit it when every
+declared discriminant is covered. Named enum constants retain their nominal
+type and cannot act as patterns of a different enum or a plain integer.
 
 ```sotlas
 fn select(value: u32) -> u32 {
@@ -555,6 +557,11 @@ fn select(value: u32) -> u32 {
     }
 }
 ```
+
+Wildcard-free matches check the selector's representation before dispatch.
+An invalid enum value produced through `unsafe` traps before any arm runs,
+instead of selecting the final variant. This is a fail-fast check; trap unwind
+and deferred cleanup on hardware faults remain outside the native profile.
 
 Arms accept blocks or one statement, with optional commas between arms.
 Arm-local bindings stay scoped. Nested matches, mutable state, record returns
@@ -573,7 +580,8 @@ and branch instructions, with no host runtime for dispatch.
 
 Local arrays of pointer-free records accept exact-length value lists and
 repetition. Elements have independent value storage, including nested records
-and the existing fixed scalar-array fields. Indexing supports field reads,
+and the existing fixed scalar-array fields. Record strides need not be powers
+of two: checked indexing scales by the declared layout size. Indexing supports field reads,
 field writes, whole-element assignment, local copies, internal calls, record
 returns and conditional values. Index/field chains such as `items[i].value`
 are parsed directly.

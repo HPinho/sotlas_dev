@@ -6132,6 +6132,78 @@ impl ScalarLowering {
         return 0;
     }
 
+    pub fn match_coverage_complete(self: &Self, typ: TargetTypeTag, enum_id: u32,
+        patterns: *const u64, count: usize) -> bool {
+        if patterns == null || count == 0 || count > 64 { return false; }
+        if typ == TargetTypeTag::Bool {
+            let mut zero: bool = false; let mut one: bool = false;
+            let mut i: usize = 0;
+            while i < count {
+                let bits: u64 = unsafe { *(patterns + i) };
+                if bits == 0 { zero = true; } else if bits == 1 { one = true; } else { return false; }
+                i = i + 1;
+            }
+            return zero && one;
+        }
+        if enum_id == 0 || enum_id as usize > self.enum_count { return false; }
+        let start: usize = self.enum_variant_starts[enum_id as usize - 1] as usize;
+        let variants: usize = self.enum_variant_counts[enum_id as usize - 1] as usize;
+        if variants == 0 || start > self.variant_total_count || variants > self.variant_total_count - start { return false; }
+        let mut variant: usize = 0;
+        while variant < variants {
+            let expected: u64 = self.variant_values[start + variant];
+            let mut covered: bool = false; let mut i: usize = 0;
+            while i < count { if unsafe { *(patterns + i) } == expected { covered = true; break; } i = i + 1; }
+            if !covered { return false; }
+            variant = variant + 1;
+        }
+        return true;
+    }
+
+    pub fn cfg_match_validity_guard(mut self: &mut Self, value: u32, typ: TargetTypeTag,
+        patterns: *const u64, count: usize, node: usize) -> bool {
+        if value == 0 || patterns == null || count == 0 || count > 64 { return false; }
+        let valid: u32 = self.cfg_reserve_block();
+        if valid == 0 { return false; }
+        let mut i: usize = 0;
+        while i < count {
+            let next: u32 = self.cfg_reserve_block();
+            let literal: u32 = self.append_value(typ, 0, 0);
+            if next == 0 || literal == 0 || !self.append_instruction(TargetOpcode::ConstInt, literal, typ, 0, 0, node) { return false; }
+            unsafe { (*(self.instructions + self.instruction_count - 1)).immediate_bits = *(patterns + i); }
+            let first: u32 = self.operand_count as u32;
+            let condition: u32 = self.append_value(TargetTypeTag::Bool, 0, 0);
+            if condition == 0 || !self.append_operand(value) || !self.append_operand(literal)
+                || !self.append_instruction(TargetOpcode::Compare, condition, TargetTypeTag::Bool, first, 2, node) { return false; }
+            unsafe { (*(self.instructions + self.instruction_count - 1)).immediate_bits = 86; }
+            let test: u32 = self.operand_count as u32;
+            if !self.append_operand(condition) || !self.append_instruction(TargetOpcode::CondBranch, 0, TargetTypeTag::Bool, test, 1, node) { return false; }
+            let branch: usize = self.instruction_count - 1;
+            let targets: u32 = self.target_count as u32;
+            if !self.append_target(valid) || !self.append_target(next) { return false; }
+            unsafe { (*(self.instructions + branch)).first_target = targets; (*(self.instructions + branch)).target_count = 2; }
+            if !self.cfg_finish() { return false; }
+            self.cfg_begin(next); i = i + 1;
+        }
+        // Invalid representations use the existing checked-index trap. No
+        // match arm or cleanup action executes after this failed domain guard.
+        let invalid: u32 = self.cfg_current;
+        let storage: u32 = self.append_value(TargetTypeTag::Pointer, 0, 0);
+        if storage == 0 || !self.append_instruction(TargetOpcode::AllocStack, storage, TargetTypeTag::Pointer, 0, 0, node) { return false; }
+        unsafe { (*(self.instructions + self.instruction_count - 1)).immediate_bits = 1; }
+        let position: u32 = self.append_value(TargetTypeTag::U64, 0, 0);
+        if position == 0 || !self.append_instruction(TargetOpcode::ConstInt, position, TargetTypeTag::U64, 0, 0, node) { return false; }
+        unsafe { (*(self.instructions + self.instruction_count - 1)).immediate_bits = 1; }
+        let first: u32 = self.operand_count as u32;
+        let address: u32 = self.append_value(TargetTypeTag::Pointer, 0, 0);
+        if address == 0 || !self.append_operand(storage) || !self.append_operand(position)
+            || !self.append_instruction(TargetOpcode::IndexAddr, address, TargetTypeTag::Pointer, first, 2, node) { return false; }
+        unsafe { (*(self.instructions + self.instruction_count - 1)).immediate_bits = 4294967297; }
+        if !self.cfg_jump(invalid, node) { return false; }
+        self.cfg_begin(valid);
+        return true;
+    }
+
     pub fn cfg_match_statement(mut self: &mut Self, index: usize, return_type: TargetTypeTag,
         first_parameter: usize, parameter_count: usize, break_id: u32, continue_id: u32, depth: usize) -> bool {
         if index == 0 || index >= self.node_count || depth >= 64 { return self.reject(index); }
@@ -6181,10 +6253,25 @@ impl ScalarLowering {
                 if node.kind != AstKind::ExprLiteral && node.kind != AstKind::ExprIdent
                     && node.kind != AstKind::ExprUnary && node.kind != AstKind::ExprPath { return self.reject(pattern); }
                 if enum_id != 0 {
-                    let split: usize = self.find_match_path_separator(node);
-                    if node.kind != AstKind::ExprPath || split == 0
-                        || self.find_enum(node.str_offset, split) != enum_id { return self.reject(pattern); }
+                    let mut pattern_enum: u32 = 0;
+                    if node.kind == AstKind::ExprPath {
+                        pattern_enum = self.find_enum(node.str_offset, self.find_match_path_separator(node));
+                    } else if node.kind == AstKind::ExprIdent {
+                        let declared: usize = sem.infer_expression_type_ref(self.nodes, self.node_count, pattern, self.source, self.source_len);
+                        if declared != 0 && declared < self.node_count {
+                            let reference: AstNode = unsafe { *(self.nodes + declared) };
+                            pattern_enum = self.find_enum(reference.str_offset, reference.str_len);
+                        }
+                    }
+                    if pattern_enum != enum_id { return self.reject(pattern); }
                 } else if node.kind == AstKind::ExprPath { return self.reject(pattern); }
+                else if node.kind == AstKind::ExprIdent {
+                    let declared: usize = sem.infer_expression_type_ref(self.nodes, self.node_count, pattern, self.source, self.source_len);
+                    if declared != 0 && declared < self.node_count {
+                        let reference: AstNode = unsafe { *(self.nodes + declared) };
+                        if self.find_enum(reference.str_offset, reference.str_len) != 0 { return self.reject(pattern); }
+                    }
+                }
                 let mut bits: u64 = 0;
                 if !self.constant_literal_bits(pattern, typ, &mut bits) { return self.reject(pattern); }
                 let mut prior: usize = 0;
@@ -6193,11 +6280,14 @@ impl ScalarLowering {
             }
             count = count + 1; arm = arm_node.next_sibling;
         }
-        if count == 0 || !wildcard { return self.reject(index); }
+        if count == 0 || (!wildcard && !self.match_coverage_complete(typ, enum_id,
+            unsafe { patterns as *const u64 }, count)) { return self.reject(index); }
         // Keep the subject SSA value live across the decision chain; evaluate it once.
         let value: u32 = self.lower_expression(subject, typ, first_parameter, parameter_count);
+        if value == 0 { return self.reject(subject); }
+        if !wildcard && !self.cfg_match_validity_guard(value, typ, unsafe { patterns as *const u64 }, count, subject) { return self.reject(subject); }
         let join: u32 = self.cfg_reserve_block();
-        if value == 0 || join == 0 { return self.reject(subject); }
+        if join == 0 { return self.reject(subject); }
         let scope: usize = self.local_count;
         let mut any_open: bool = false; let mut first_body: u32 = 0;
         arm = first_arm; let mut ordinal: usize = 0;

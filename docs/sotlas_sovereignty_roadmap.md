@@ -1813,6 +1813,42 @@ execution passed, while macOS execution remains a CI requirement. These gates
 exercise check/compile/run with an empty tool PATH and preserve the previous
 executable when wildcard coverage is missing. CI certification remains pending.
 
+### SV8.41 — finite match coverage and selector validity
+
+Native Boolean and explicit-enum matches may omit the wildcard when their
+patterns cover every declared value. Integer matches still require a wildcard.
+Enum constants preserve nominal identity: constants from another enum or an
+integer type cannot substitute for an enum pattern, and enum constants cannot
+be used as plain integer patterns. Duplicate folded values remain rejected.
+
+Wildcard-free dispatch includes a representation guard. A raw value outside
+the proven finite domain traps through the existing checked-index operation,
+before any arm executes. The final arm is entered only after domain membership
+has been established. This check introduces no host runtime or new ABI; trap
+unwind and cleanup on hardware faults remain pending.
+
+Six gates cover finite coverage, nominal mismatches, early-return ownership
+joins, defer order, all 64 enum cases, missing cases and invalid raw values.
+The three native file-driver gates now exercise wildcard-free Boolean and enum
+matches through the Sotlas-written check/compile/run path.
+
+Record-array execution also exposed the old scalar-only stride restriction in
+IndexAddr validation/emission. The neutral IR and native writer now accept
+positive strides through INT32_MAX; non-power-of-two layouts use native integer
+scaling after the existing bounds check. The execution gate covers 12-byte
+records and 32-byte records with inline arrays, including the final element.
+Payload patterns, guards, ranges and match expressions remain open.
+
+Local validation: the final Windows suite passed **2,844 tests with 69
+platform/toolchain skips** in 702.435 seconds. The frontend/Windows-driver
+run passed **94 tests**, including native Stage 2/3 and wildcard-free match
+execution. All **81 frontend gates** passed on Linux (WSL), where the invalid
+enum case was confirmed to terminate with SIGILL; Windows confirms the illegal
+instruction exception in a child process. Windows Python 3.10.11 passed **82
+tests**, including the previous matrix regression. The Linux native match CLI,
+original-source generation and Darwin cross-build passed three additional
+gates. macOS runtime execution and CI certification remain required.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test
