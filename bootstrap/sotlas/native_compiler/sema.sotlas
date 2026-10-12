@@ -3646,6 +3646,24 @@ impl NativeOwnershipCheck {
         }
         return false;
     }
+    // Capturing owned bindings requires a separate reservation/cleanup
+    // contract. Reject it before lowering instead of treating it as a read.
+    pub fn defer_ownership_free(self: &Self, index: usize, depth: usize) -> bool {
+        if index == 0 || index >= self.node_count || depth >= 64 { return false; }
+        let node: AstNode = unsafe { *(self.nodes + index) };
+        if node.kind == AstKind::TypeRef && node.int_value != 0 { return false; }
+        if node.kind == AstKind::ExprIdent {
+            let binding: usize = self.slot(index);
+            if binding < self.count && self.domains[binding] != 0 { return false; }
+        }
+        let mut child: usize = node.first_child;
+        while child != 0 {
+            if child >= self.node_count || !self.defer_ownership_free(child, depth + 1) { return false; }
+            child = unsafe { (*(self.nodes + child)).next_sibling };
+        }
+        return true;
+    }
+
     pub fn collect_borrow_roots(self: &Self, index: usize, mask: *mut u8, depth: usize) -> bool {
         if index == 0 || index >= self.node_count || mask == null || depth >= 64 { return false; }
         let node: AstNode = unsafe { *(self.nodes + index) };
@@ -3766,7 +3784,9 @@ impl NativeOwnershipCheck {
         while index != 0 {
             if index >= self.node_count { self.error_node = index; return 0; }
             let node: AstNode = unsafe { *(self.nodes + index) };
-            if node.kind == AstKind::LetStmt {
+            if node.kind == AstKind::DeferStmt {
+                if !self.defer_ownership_free(node.first_child, 0) { self.error_node = index; return 0; }
+            } else if node.kind == AstKind::LetStmt {
                 let mut value: usize = node.first_child;
                 if value != 0 && unsafe { (*(self.nodes + value)).kind } == AstKind::TypeRef { value = unsafe { (*(self.nodes + value)).next_sibling }; }
                 if self.domain(index) == 0 && self.expression_domain(value) != 0 { self.error_node = value; return 0; }

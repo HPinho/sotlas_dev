@@ -11,6 +11,57 @@ class NativeFrontendClosureTests(unittest.TestCase):
     execute = integer.NativeI32Tests.execute
     assert_c11_reference = integer.NativeI32Tests.assert_c11_reference
 
+    def test_standalone_blocks_preserve_scope_without_defer(self):
+        source='''pub fn main_entry()->u32{let mut value:u32=0;
+{let scoped:u32=42;value=scoped;}return value;}'''
+        self.execute(self.compile('native_standalone_block',source))
+        self.compile('native_standalone_scope_escape',source.replace('return value;','return scoped;'),success=False)
+
+    def test_native_defer_calls_run_lifo_on_scope_and_early_return(self):
+        source='''static mut trace:u32=0;fn append(value:u32)->void{unsafe{trace=trace*10+value;}}
+fn perform(flag:bool)->void{let mut value:u32=1;defer append(value);value=2;
+{defer append(3);}if flag{defer append(4);return;}defer append(5);}
+pub fn main_entry()->u32{perform(true);if unsafe{trace}!=342{return 1;}unsafe{trace=0;}
+perform(false);if unsafe{trace}!=352{return 2;}return 42;}'''
+        self.execute(self.compile('native_defer_lifo',source))
+
+    def test_native_defer_blocks_preserve_shadowed_bindings_and_live_locals(self):
+        source='''static mut trace:u32=0;fn append(value:u32)->void{unsafe{trace=trace*10+value;}}
+fn perform()->void{let value:u32=2;defer {let scratch:u32=1;if scratch==1{append(value);}}
+{let value:u32=9;defer append(value);}let later:u32=7;append(later);}
+pub fn main_entry()->u32{perform();if unsafe{trace}!=972{return 1;}return 42;}'''
+        self.execute(self.compile('native_defer_binding_identity',source))
+
+    def test_native_defer_assignments_run_after_return_value_evaluation(self):
+        source='''struct Token{pub value:u32;}
+fn scalar()->u32{let mut value:u32=42;defer value=0;return value;}
+fn record()->Token{let mut value:Token=Token{value:42};defer value.value=0;return value;}
+pub fn main_entry()->u32{let value:Token=record();if scalar()!=42 || value.value!=42{return 1;}return value.value;}'''
+        self.execute(self.compile('native_defer_return_snapshot',source))
+
+    def test_native_defer_loop_jumps_cleanup_once_before_backedge(self):
+        source='''static mut trace:u32=0;fn append(value:u32)->void{unsafe{trace=trace*10+value;}}
+fn perform()->void{defer append(9);let mut index:u32=0;
+while index<3{index=index+1;defer append(index);{defer append(4);if index==1{continue;}if index==2{break;}}}}
+pub fn main_entry()->u32{perform();if unsafe{trace}!=41429{return 1;}return 42;}'''
+        self.execute(self.compile('native_defer_loop_cleanup',source))
+
+    def test_native_defer_rejects_nonlocal_jumps_nested_defers_and_owned_capture(self):
+        cases=(
+            'pub fn main_entry()->u32{defer {return;}return 42;}',
+            'pub fn main_entry()->u32{while true{defer {break;}break;}return 42;}',
+            'pub fn main_entry()->u32{defer {defer {}}return 42;}',
+            'pub fn main_entry()->u32{let value:u32=42;defer value;return 42;}',
+            'struct Token{pub value:u32;}fn consume(value:sole Token)->u32{return value.value;}pub fn main_entry()->u32{let value:sole Token=Token{value:42};defer consume(value);return 42;}',
+            'struct Token{pub value:u32;}fn consume(value:sole Token)->u32{return value.value;}pub fn main_entry()->u32{defer {let value:sole Token=Token{value:42};consume(value);consume(value);}return 42;}',
+        )
+        for index,source in enumerate(cases):
+            with self.subTest(index=index):self.compile('native_defer_rejection_'+str(index),source,success=False)
+
+    def test_native_defer_capacity_fails_closed(self):
+        source='fn cleanup()->void{}pub fn main_entry()->u32{'+('defer cleanup();'*129)+'return 42;}'
+        self.compile('native_defer_capacity',source,success=False)
+
     def test_record_conditional_values_copy_nested_fields_and_select_one_arm(self):
         source='''struct Inner{pub number:u32;pub factor:f32;}
 struct Packet{pub inner:Inner;pub flags:[bool;4];}

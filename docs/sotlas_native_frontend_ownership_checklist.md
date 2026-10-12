@@ -29,6 +29,7 @@ contracts. Local validation must pass CI before being called certified.
   - [ ] Complete slices, aggregate elements and remaining array forms.
 - [ ] Implement string and slice values beyond the current literal forms.
 - [ ] Complete conditional expressions and remaining control-flow forms.
+  - [x] Parse standalone lexical blocks and preserve their local binding scopes in the structured CFG.
   - [x] Native scalar, float and Boolean `if/else` values execute one selected arm, including nested `else if`, calls, returns and loops.
   - [x] Execute record conditional values with independent storage, nested fields, calls, returns, loops and assignments.
   - [x] Transfer exclusive POD conditional results and merge moved states per selected path.
@@ -100,7 +101,14 @@ contracts. Local validation must pass CI before being called certified.
 - [ ] Integrate ownership with bindings, arrays, aggregates, globals and calls.
 - [ ] Guarantee exactly-once destruction on every accepted path.
 - [ ] Complete cleanup on branches, loops, early returns and failures.
+  - [x] Execute ownership-free lexical defers once on block exit, early return and structured loop jumps.
 - [ ] Complete `defer`, LIFO execution and cleanup interaction.
+  - [x] Lower direct deferred calls, assignments and blocks in LIFO order.
+  - [x] Preserve registration-time lexical binding identity while reading current mutable storage at cleanup.
+  - [x] Evaluate scalar/record return values before executing deferred writes.
+  - [x] Clean loop-scope defers before break, continue and backedge without cleaning enclosing function defers early.
+  - [x] Reject nested defers, nonlocal control transfers, unsupported ownership captures and exhausted defer tables.
+  - [ ] Complete owned captures, ARC/drop interaction, deferred internal loop jumps and error/unwind cleanup.
 - [ ] Migrate effect analysis and propagation.
 - [ ] Migrate `unsafe`, target-capability and foreign-boundary validation.
   - [x] Equal-width integer/float pointer reinterpretation requires explicit `unsafe`; missing `unsafe` and width changes fail before output.
@@ -131,6 +139,9 @@ contracts. Local validation must pass CI before being called certified.
 | Record conditional storage, ABI and exclusive transfers | `test_record_conditional_values_copy_nested_fields_and_select_one_arm`, `test_exclusive_conditional_values_move_owners_per_path` |
 | Reference identity and conditional borrow/consume rejection | `test_conditional_pointer_values_preserve_reference_identity`, `test_conditional_borrow_cannot_overlap_owner_consumption` |
 | Original project file positions after reordering/import removal | `test_project_diagnostics_map_original_files_after_import_removal` in the three driver suites |
+| Native lexical defer LIFO and early return | `test_native_defer_calls_run_lifo_on_scope_and_early_return` |
+| Defer binding identity and return snapshots | `test_native_defer_blocks_preserve_shadowed_bindings_and_live_locals`, `test_native_defer_assignments_run_after_return_value_evaluation` |
+| Defer loop cleanup and explicit unsupported/capacity rejection | `test_native_defer_loop_jumps_cleanup_once_before_backedge`, `test_native_defer_rejects_nonlocal_jumps_nested_defers_and_owned_capture`, `test_native_defer_capacity_fails_closed` |
 | Conditional and Boolean constant short-circuit execution | `test_constant_conditional_and_boolean_arms_evaluate_lazily` |
 | Cycle, inactive-arm validation, cache and capacity checks | `test_constant_cycles_and_invalid_forward_dependencies_fail_closed`, `test_constant_inactive_arms_still_check_types_names_and_calls`, `test_inactive_conditional_dependency_keeps_its_real_cached_value`, `test_constant_dependency_capacity_and_nested_depth_are_bounded` |
 
@@ -171,6 +182,13 @@ tests. All 47 frontend tests passed on Windows, Linux (WSL) and Windows Python
 compiler cross-build passed three gates. Linux/macOS source-map methods added
 after general-suite discovery were checked separately (two Windows skips),
 with the Linux method executed in WSL. macOS runtime remains a CI gate.
+
+SV8.37 local evidence: the Windows regression run passed 2,813 tests with 67
+skips in 642.009 seconds. The final standalone-block selection adjustment then
+passed 66 frontend/Windows-driver tests, including Stage 2/3 identity. All 54
+frontend gates passed on Linux (WSL) and Windows Python 3.10.11. Linux native
+generation and Darwin compiler cross-build remained valid. Full ownership
+capture/drop/unwind integration and a 70% full-list claim remain uncertified.
 
 ## Remaining limits
 

@@ -538,6 +538,20 @@ copy the selected arm into independent storage, including nested fields and
 the accepted fixed-array fields. Exclusive POD conditional results preserve
 ownership transfers. Non-POD ownership payloads remain outside this profile.
 
+## Lexical defer and cleanup
+
+The native structured CFG executes direct deferred calls, assignments and
+blocks in reverse registration order. Cleanup runs on normal block exit,
+early return and loop break/continue/backedge. Loop jumps clean only scopes
+inside that loop. Scalar and record return values are evaluated before deferred
+writes run. Captured identifiers refer to bindings visible at registration;
+later shadows do not change the capture, and mutable storage is read at cleanup.
+
+Each function accepts at most 128 active lexical defers. Nested defers,
+return/break/continue inside a deferred payload, deferred error propagation,
+bare-name cleanup and capture/declaration of ownership-qualified values are
+rejected. This contract does not provide ARC/drop integration or unwind.
+
 ## Project diagnostics
 
 Project compiler diagnostics map resolved source positions back to the original
