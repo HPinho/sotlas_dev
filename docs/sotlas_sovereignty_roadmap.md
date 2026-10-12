@@ -1780,6 +1780,39 @@ case (**66 tests**). Linux original-source generation identity and Darwin
 compiler cross-build passed two additional gates. CI and macOS runtime
 certification remain required.
 
+### SV8.40 — native match statements and live-path ownership joins
+
+The Sotlas parser preserves `MatchStmt` and `MatchArm` nodes, with source spans
+for selectors, patterns and bodies. Native lowering evaluates the selector
+once and emits a bounded comparison/branch chain through the existing Target
+IR. Scalar integer types, Boolean values and explicit-discriminant enums are
+supported; enum patterns must belong to the selector's enum. Named scalar
+module constants and negative integer patterns preserve their declared widths.
+
+Coverage requires a final wildcard. Duplicate values, mismatched patterns,
+missing coverage and more than 64 arms fail closed. Block or single-statement
+arms follow the existing parser syntax, with optional commas. Bindings remain
+local to their arm. Nested matches, mutable storage, record returns and lexical
+cleanup execute natively. Exclusive state joins combine continuing arms and
+exclude returned arms, rejecting a later consume after a possible earlier move.
+Owner-free loop jumps use the existing path-specific cleanup.
+
+Wildcard-free exhaustiveness, payload bindings, guards, ranges, match
+expressions and owned loop-jump joins remain pending. The dispatcher uses no
+host runtime. Ten gates cover single evaluation, scalar widths, enum identity,
+scopes, mutation, cleanup, return snapshots, ownership, syntax and capacity.
+
+Local validation: the general Windows suite passed **2,835 tests with 67
+platform/toolchain skips** in 650.096 seconds. The frontend/Windows-driver
+run passed **87 tests**, including Stage 2/3. All **75 frontend gates** passed
+on Linux (WSL); Windows Python 3.10.11 passed those gates plus the previous
+matrix regression (**76 tests**). Linux original-source generation and Darwin
+cross-build passed. Three file-driver match gates were registered after general
+suite discovery and checked separately: actual Windows and Linux native CLI
+execution passed, while macOS execution remains a CI requirement. These gates
+exercise check/compile/run with an empty tool PATH and preserve the previous
+executable when wildcard coverage is missing. CI certification remains pending.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test

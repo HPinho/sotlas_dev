@@ -538,6 +538,37 @@ copy the selected arm into independent storage, including nested fields and
 the accepted fixed-array fields. Exclusive POD conditional results preserve
 ownership transfers. Non-POD ownership payloads remain outside this profile.
 
+## Native match statements
+
+`match` selects on fixed integer types, Boolean values and the existing enums
+with explicit scalar discriminants. The selector is evaluated once. Patterns
+may be scalar literals, negative integer literals, typed module constants or
+variants of the selector's enum. Duplicate values and incompatible patterns
+are rejected. Every match requires a final `_` arm, including Boolean and enum
+matches; coverage without a wildcard remains outside this profile.
+
+```sotlas
+fn select(value: u32) -> u32 {
+    match value {
+        0 => { return 42; }
+        _ => { return 1; }
+    }
+}
+```
+
+Arms accept blocks or one statement, with optional commas between arms.
+Arm-local bindings stay scoped. Nested matches, mutable state, record returns
+and lexical defers execute through the native CFG. Exclusive states merge
+across live arms, while returned arms do not invalidate the continuing path.
+Break/continue work in loops when no qualified owner is visible at the match;
+owned jump joins remain rejected until their edge analysis is available.
+
+Matches accept at most 64 arms and retain the structured lowering depth bound.
+Float/pointer/owned selectors, payload bindings, ranges, guards and match values
+used as expressions remain unsupported. The subject and patterns retain their
+source spans in `MatchStmt`/`MatchArm` nodes. Lowering emits existing comparison
+and branch instructions, with no host runtime for dispatch.
+
 ## Local record arrays
 
 Local arrays of pointer-free records accept exact-length value lists and

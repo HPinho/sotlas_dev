@@ -13,6 +13,24 @@ MAC_X64 = sys.platform == "darwin" and platform.machine().lower() in ("x86_64", 
 
 
 class NativeDarwinDriverTests(unittest.TestCase):
+
+    @unittest.skipUnless(MAC_X64, "requires native platform execution")
+    def test_native_match_check_compile_run_without_host_tools(self):
+        source = self.directory / 'native_match.sotlas'
+        output = self.directory / 'native_match_image'
+        source.write_text('module probe;static mut trace:u32=0;\nfn append(value:u32)->void{unsafe{trace=trace*10+value;}}\nfn choose(value:i32)->u32{defer append(9);match value{\n-1=>{defer append(4);return 42;} _=>return 1;}}\npub fn main_entry()->u32{let value:u32=choose(-1);if unsafe{trace}!=49{return 2;}return value;}', encoding='utf-8')
+        environment = {'PATH': str(self.directory / 'no-host-tools')}
+        if os.name == 'nt':
+            environment['SystemRoot'] = os.environ.get('SystemRoot', 'C:\\Windows')
+        self.run_tool([str(self.seed), '--check', str(source)], env=environment)
+        self.run_tool([str(self.seed), str(source), str(output)], env=environment)
+        self.run_tool([str(output)], expected=42, env=environment)
+        original = output.read_bytes()
+        source.write_text('module probe;pub fn main_entry()->u32{match 0{0=>return 42;}}', encoding='utf-8')
+        for arguments in ([str(self.seed), '--check', str(source)], [str(self.seed), str(source), str(output)]):
+            self.run_tool(arguments, expected=7, env=environment)
+            self.assertEqual(output.read_bytes(), original)
+
     @classmethod
     def setUpClass(cls):
         cls.temp = tempfile.TemporaryDirectory(prefix="sotlas-darwin-native-")
