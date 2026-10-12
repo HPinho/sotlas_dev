@@ -1708,6 +1708,40 @@ native Stage 2/3 identity. All **54 frontend tests** passed on Linux (WSL) and
 Windows Python 3.10.11. Linux native generation and Darwin compiler cross-build
 passed. CI and macOS runtime certification remain required.
 
+### SV8.38 — native static scalar array lists
+
+The Sotlas frontend folds explicit global array lists using the same typed
+constant evaluator as scalar declarations. Lists accept integer, floating and
+Boolean elements, forward constant references and lazy conditional values.
+Every element must match the declared type and the list must match the exact
+array length. Runtime calls, pointer/record elements and invalid arithmetic
+remain rejected.
+
+The Sotlas object writer emits each element at its declared width in writable
+ELF data, preserving mixed zero/nonzero entries and floating bits. All-zero
+lists retain zero storage. Native executable linking preserves these sections
+for the existing ELF, PE and Mach-O targets. Global Boolean indexed loads now
+participate in native conditions instead of being rejected by the scalar load
+type filter.
+
+A flat table holds at most 4,096 explicit elements across the module. Shape,
+types and capacity are checked before a range is committed. Compact repeated
+initializers keep their existing representation and capacity behavior. The
+table cursor resets for each module lowering.
+
+Five execution gates cover scalar widths, forward constants, indexed mutation,
+exact ELF section bytes, all-zero storage, invalid initializers and the shared
+table boundary. The integer/float cases also compare against canonical C11
+execution. This milestone advances static initialization parity; aggregate,
+string and relocatable pointer initializers remain open.
+
+Local validation: the complete Windows suite passed **2,819 tests with 67
+platform/toolchain skips** in 752.214 seconds. All **59 frontend gates** passed
+on Windows and Linux (WSL); the same gates plus the previous matrix regression
+case passed **60 tests** with Windows Python 3.10.11. Linux original-source
+native generation identity and the Darwin compiler cross-build passed two
+additional gates. macOS runtime execution and CI certification remain required.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test

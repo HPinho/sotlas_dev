@@ -1,5 +1,6 @@
 """Execution gates for native frontend closure and explicit runtime rejection."""
 import unittest
+import struct
 import test_sotlas_native_i32 as integer
 
 
@@ -10,6 +11,68 @@ class NativeFrontendClosureTests(unittest.TestCase):
     link_image = integer.NativeI32Tests.link_image
     execute = integer.NativeI32Tests.execute
     assert_c11_reference = integer.NativeI32Tests.assert_c11_reference
+
+    def test_static_lists_fold_forward_constants_and_preserve_mutable_storage(self):
+        source='''static mut TABLE:[u32;4]=[0,BASE,BASE+2,if READY{42}else{1/0}];
+static mut FLAGS:[bool;3]=[false,READY,!READY];static mut ZERO:[u32;3]=[0,0,0];
+static mut REPEATED:[u16;2]=[7;2];static mut COUNT:u32=3;
+const READY:bool=true;const BASE:u32=20;
+pub fn main_entry()->u32{if unsafe{TABLE[0]}!=0 || unsafe{TABLE[1]}!=20 || unsafe{TABLE[2]}!=22{return 1;}
+if unsafe{FLAGS[0]} || !unsafe{FLAGS[1]} || unsafe{FLAGS[2]} || unsafe{ZERO[2]}!=0{return 2;}
+unsafe{TABLE[0]=TABLE[1]+TABLE[2];ZERO[1]=9;FLAGS[2]=true;COUNT=COUNT+1;}
+if unsafe{REPEATED[1]}!=7 || unsafe{ZERO[1]}!=9 || !unsafe{FLAGS[2]} || unsafe{COUNT}!=4{return 3;}
+return unsafe{TABLE[0]};}'''
+        self.execute(self.compile('static_list_constant_storage',source))
+
+    def test_static_lists_preserve_scalar_widths_signedness_and_float_bits(self):
+        cases=(('u8','0,21,255','255'),('i8','0,-21,-128','-128'),
+               ('u16','0,21,65535','65535'),('i16','0,-21,-32768','-32768'),
+               ('u32','0,21,4294967295','4294967295'),('i32','0,-21,-2147483648','-2147483648'),
+               ('u64','0,21,18446744073709551615','18446744073709551615'),
+               ('i64','0,-21,-9223372036854775808','-9223372036854775808'),
+               ('f32','0.0,1.25,-2.5','-2.5'),('f64','0.0,1.25,-2.5','-2.5'))
+        for typ,values,last in cases:
+            with self.subTest(typ=typ):
+                source=f'''static mut DATA:[{typ};3]=[{values}];
+pub fn main_entry()->u32{{let last:{typ}=unsafe{{DATA[2]}};let expected:{typ}={last};if last!=expected{{return 1;}}
+unsafe{{DATA[0]=last;}}if unsafe{{DATA[0]}}!=last{{return 2;}}return 42;}}'''
+                obj=self.compile('static_list_'+typ,source)
+                self.execute(obj)
+                self.assert_c11_reference(obj)
+
+    def test_static_list_object_bytes_and_zero_section_are_distinct(self):
+        source='''static mut DATA:[u16;4]=[0,4660,65535,42];static mut ZERO:[u16;3]=[0,0,0];
+pub fn main_entry()->u32{if unsafe{ZERO[1]}!=0{return 1;}return unsafe{DATA[3]} as u32;}'''
+        obj=self.compile('static_list_sections',source)
+        self.execute(obj)
+        raw=obj.read_bytes()
+        shoff=struct.unpack_from('<Q',raw,40)[0]
+        entry_size,count,names_index=struct.unpack_from('<HHH',raw,58)
+        headers=[struct.unpack_from('<IIQQQQIIQQ',raw,shoff+i*entry_size) for i in range(count)]
+        names=raw[headers[names_index][4]:headers[names_index][4]+headers[names_index][5]]
+        sections={names[h[0]:names.index(b'\0',h[0])].decode():h for h in headers}
+        data=sections['.data'];zero=sections['.bss']
+        self.assertEqual(raw[data[4]:data[4]+data[5]],struct.pack('<4H',0,4660,65535,42))
+        self.assertEqual(zero[1],8)  # SHT_NOBITS stores no initialized bytes.
+        self.assertEqual(zero[5],6)
+
+    def test_static_lists_reject_shape_type_runtime_and_pointer_initializers(self):
+        cases=('static mut DATA:[u8;3]=[1,2];','static mut DATA:[u8;2]=[1,2,3];',
+               'static mut DATA:[u8;2]=[1,256];','static mut DATA:[u32;2]=[1,true];',
+               'static mut DATA:[bool;2]=[false,2];','static mut DATA:[f32;2]=[1.0,true];',
+               'static mut DATA:[u32;2]=[1,UNKNOWN];','static mut DATA:[u32;2]=[1,1/0];',
+               'fn value()->u32{return 2;}static mut DATA:[u32;2]=[1,value()];',
+               'static mut DATA:[*mut u8;2]=[null,null];',
+               'struct Token{pub value:u32;}static mut DATA:[Token;1]=[Token{value:42}];')
+        for index,source in enumerate(cases):
+            with self.subTest(index=index):
+                self.compile('bad_static_list_'+str(index),source+'pub fn main_entry()->u32{return 42;}',success=False)
+
+    def test_static_list_capacity_is_shared_across_declarations(self):
+        values=','.join('0' for _ in range(2048))
+        prefix=f'static mut FIRST:[u8;2048]=[{values}];static mut SECOND:[u8;2048]=[{values}];'
+        self.execute(self.compile('static_list_capacity_exact',prefix+'pub fn main_entry()->u32{return 42;}'))
+        self.compile('static_list_capacity_overflow',prefix+'static mut THIRD:[u8;1]=[1];pub fn main_entry()->u32{return 42;}',success=False)
 
     def test_standalone_blocks_preserve_scope_without_defer(self):
         source='''pub fn main_entry()->u32{let mut value:u32=0;
