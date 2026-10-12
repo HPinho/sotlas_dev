@@ -5346,7 +5346,14 @@ impl ScalarLowering {
             let is_loop: bool = node.kind == AstKind::WhileStmt;
             let is_branch: bool = node.kind == AstKind::IfStmt;
             let is_defer: bool = node.kind == AstKind::DeferStmt;
-            let is_lexical_block: bool = node.kind == AstKind::Block && node.parent != function_index;
+            // Only a standalone block introduces the extra lexical scope here.
+            // If/while bodies belong to their control-flow node and must keep
+            // the established lowering choice for simple scalar functions.
+            let mut is_lexical_block: bool = false;
+            if node.kind == AstKind::Block && node.parent != 0 && node.parent < self.node_count {
+                let parent_kind: AstKind = unsafe { (*(self.nodes + node.parent)).kind };
+                is_lexical_block = parent_kind == AstKind::Block || parent_kind == AstKind::UnsafeBlock;
+            }
             let mut is_local_array: bool = false;
             if node.kind == AstKind::LetStmt && node.first_child != 0
                 && node.first_child < self.node_count {
