@@ -1518,7 +1518,17 @@ impl Parser {
                 expr = cast_node;
             }
         }
-        while self.match_token(TokenKind::OpenBracket) {
+        while self.match_token(TokenKind::OpenBracket) || self.match_token(TokenKind::Dot) {
+            if self.match_token(TokenKind::Dot) {
+                self.advance();
+                let field: Token = self.current();
+                if field.kind != TokenKind::Ident { self.reject_current(); return 0; }
+                self.advance();
+                let access: usize = self.alloc_node(AstKind::ExprFieldAccess, field.span);
+                if access == 0 || !self.set_node_text(access, field) || !self.append_child(access, expr) { return 0; }
+                expr = access;
+                continue;
+            }
             let open: Token = self.advance();
             let index_expr: usize = self.parse_expression();
             if index_expr == 0 || !self.match_token(TokenKind::CloseBracket) {

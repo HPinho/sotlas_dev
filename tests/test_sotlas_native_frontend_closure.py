@@ -12,6 +12,68 @@ class NativeFrontendClosureTests(unittest.TestCase):
     execute = integer.NativeI32Tests.execute
     assert_c11_reference = integer.NativeI32Tests.assert_c11_reference
 
+    def test_local_record_array_lists_copy_and_mutate_nested_payloads(self):
+        source='''struct Inner{pub value:u32;}struct Packet{pub inner:Inner;pub flags:[bool;2];}
+fn read(packet:Packet)->u32{return packet.inner.value;}
+pub fn main_entry()->u32{let original:Packet=Packet{inner:Inner{value:21},flags:[false;2]};
+let mut packets:[Packet;2]=[original,Packet{inner:Inner{value:9},flags:[false;2]}];
+packets[0].inner.value=42;packets[0].flags[1]=true;packets[1].flags[0]=true;
+let mut copy:Packet=packets[0];copy.inner.value=7;
+if original.inner.value!=21 || packets[0].inner.value!=42 || copy.inner.value!=7{return 1;}
+if !packets[0].flags[1] || !packets[1].flags[0]{return 2;}
+packets[1]=packets[0];packets[0].inner.value=3;return read(packets[1]);}'''
+        self.execute(self.compile('record_array_lists',source))
+
+    def test_local_record_array_repetition_evaluates_once_and_copies_each_slot(self):
+        source='''struct Token{pub value:u32;}static mut calls:u32=0;
+fn create()->Token{unsafe{calls=calls+1;}return Token{value:42};}
+pub fn main_entry()->u32{let mut items:[Token;64]=[create();64];items[0].value=7;
+let mut index:u64=1;while index<64{if items[index].value!=42{return 1;}index=index+1;}
+if unsafe{calls}!=1{return 2;}return items[63].value;}'''
+        self.execute(self.compile('record_array_repeat',source))
+
+    def test_local_record_arrays_cross_return_conditional_and_defer_paths(self):
+        source='''struct Token{pub value:u32;}static mut trace:u32=0;
+fn choose(flag:bool)->Token{let mut items:[Token;2]=[Token{value:42};2];
+defer {items[0].value=7;unsafe{trace=items[1].value;}}
+return if flag{items[0]}else{items[1]};}
+pub fn main_entry()->u32{let value:Token=choose(true);if unsafe{trace}!=42{return 1;}return value.value;}'''
+        self.execute(self.compile('record_array_return_cleanup',source))
+
+    def test_local_record_array_element_returns_preserve_value_storage(self):
+        source='''struct Token{pub value:i32;}fn create()->Token{
+let items:[Token;2]=[Token{value:-21},Token{value:42}];return items[1];}
+fn read(value:Token)->i32{return value.value;}
+pub fn main_entry()->u32{let mut items:[Token;2]=[create();2];
+let copy=items[0];items[0].value=7;
+if copy.value!=42 || read(items[1])!=42{return 1;}return copy.value as u32;}'''
+        self.execute(self.compile('record_array_element_return',source))
+
+    def test_native_object_call_patch_table_accepts_compiler_sized_workloads(self):
+        prefix='fn noop()->void{}pub fn main_entry()->u32{'
+        self.execute(self.compile('native_many_call_patches',prefix+'noop();'*4100+'return 42;}'))
+        self.execute(self.compile('native_call_patch_capacity_exact',prefix+'noop();'*8192+'return 42;}'))
+        self.compile('native_call_patch_capacity',prefix+'noop();'*8193+'return 42;}',success=False)
+
+    def test_local_record_arrays_reject_layout_type_and_escape_errors(self):
+        prefix='struct Token{pub value:u32;}struct Other{pub value:u32;}'
+        cases=('let items:[Token;2]=[Token{value:1}];',
+               'let items:[Token;2]=[Token{value:1},Other{value:2}];',
+               'let items:[Token;2]=[Other{value:1};2];',
+               'let items:[Token;2]=0;',
+               'let mut items:[Token;2]=[Token{value:1};2];items[0]=Other{value:2};',
+               'let items:[Token;2]=[Token{value:1};2];let bad:Other=items[0];',
+               'let items:[Token;2]=[Token{value:1};2];let bad:u32=items[0];',
+               'let items:[Token;2]=[Token{value:1};2];let bad:*mut Token=items[0];',
+               'let items:[Token;2]=[Token{value:1};2];let bad:Token=items[2];')
+        for index,body in enumerate(cases):
+            with self.subTest(index=index):self.compile('record_array_bad_'+str(index),prefix+'pub fn main_entry()->u32{'+body+'return 42;}',success=False)
+        self.compile('record_array_pointer_payload','struct Ptr{pub value:*mut u8;}pub fn main_entry()->u32{let items:[Ptr;2]=[Ptr{value:null};2];return 42;}',success=False)
+        self.compile('record_array_immutable_mutation',prefix+'pub fn main_entry()->u32{let items:[Token;2]=[Token{value:42};2];items[0].value=1;return 42;}',success=False)
+        self.compile('record_array_foreign_escape',prefix+'@extern(C) fn escape(value:*mut Token)->u32;pub fn main_entry()->u32{let items:[Token;2]=[Token{value:42};2];return unsafe{escape(items[0])};}',success=False)
+        self.compile('record_array_owned_erasure',prefix+'pub fn main_entry()->u32{let value:sole Token=Token{value:42};let items:[Token;2]=[value;2];return 42;}',success=False)
+        self.compile('record_array_frame_capacity','struct Large{pub bytes:[u8;32];}pub fn main_entry()->u32{let items:[Large;4096]=[Large{bytes:[0;32]};4096];return 42;}',success=False)
+
     def test_static_lists_fold_forward_constants_and_preserve_mutable_storage(self):
         source='''static mut TABLE:[u32;4]=[0,BASE,BASE+2,if READY{42}else{1/0}];
 static mut FLAGS:[bool;3]=[false,READY,!READY];static mut ZERO:[u32;3]=[0,0,0];

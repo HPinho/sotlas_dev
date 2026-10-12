@@ -26,7 +26,10 @@ contracts. Local validation must pass CI before being called certified.
   - [x] Repetition evaluates its value once; large arrays use a bounded native fill loop.
   - [x] Boolean arrays participate in native conditions and indexed reads.
   - [x] Boolean array fields preserve POD layout, copying and independent mutation.
-  - [ ] Complete slices, aggregate elements and remaining array forms.
+  - [x] Execute local pointer-free record array lists/repetition with independent copies, nested fields, element assignment, calls and record returns.
+  - [x] Evaluate repeated record initializers once and copy large arrays in a native loop.
+  - [x] Reject incompatible record layouts, owned-value erasure, pointer payloads, literal out-of-range indices and per-declaration storage exhaustion.
+  - [ ] Complete slices, aggregate array parameters/returns, record array fields and remaining array forms.
 - [ ] Implement string and slice values beyond the current literal forms.
 - [ ] Complete conditional expressions and remaining control-flow forms.
   - [x] Parse standalone lexical blocks and preserve their local binding scopes in the structured CFG.
@@ -145,6 +148,8 @@ contracts. Local validation must pass CI before being called certified.
 | Native lexical defer LIFO and early return | `test_native_defer_calls_run_lifo_on_scope_and_early_return` |
 | Static list constants, scalar widths, mutation and exact ELF section bytes | `test_static_lists_fold_forward_constants_and_preserve_mutable_storage`, `test_static_lists_preserve_scalar_widths_signedness_and_float_bits`, `test_static_list_object_bytes_and_zero_section_are_distinct` |
 | Static list shape/type/runtime rejection and shared capacity bound | `test_static_lists_reject_shape_type_runtime_and_pointer_initializers`, `test_static_list_capacity_is_shared_across_declarations` |
+| Local record array copies, fields and one-evaluation repetition | `test_local_record_array_lists_copy_and_mutate_nested_payloads`, `test_local_record_array_repetition_evaluates_once_and_copies_each_slot` |
+| Record element return/conditional/defer integration and rejection | `test_local_record_array_element_returns_preserve_value_storage`, `test_local_record_arrays_cross_return_conditional_and_defer_paths`, `test_local_record_arrays_reject_layout_type_and_escape_errors` |
 | Defer binding identity and return snapshots | `test_native_defer_blocks_preserve_shadowed_bindings_and_live_locals`, `test_native_defer_assignments_run_after_return_value_evaluation` |
 | Defer loop cleanup and explicit unsupported/capacity rejection | `test_native_defer_loop_jumps_cleanup_once_before_backedge`, `test_native_defer_rejects_nonlocal_jumps_nested_defers_and_owned_capture`, `test_native_defer_capacity_fails_closed` |
 | Conditional and Boolean constant short-circuit execution | `test_constant_conditional_and_boolean_arms_evaluate_lazily` |

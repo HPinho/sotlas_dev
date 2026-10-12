@@ -2565,11 +2565,15 @@ impl Sema {
             return 0;
         }
         let receiver: AstNode = unsafe { *(nodes + receiver_index) };
-        if receiver.kind != AstKind::ExprIdent {
+        let mut binding_receiver: usize = receiver_index;
+        if receiver.kind == AstKind::ExprIndex && receiver.first_child != 0 && receiver.first_child < node_count {
+            binding_receiver = receiver.first_child;
+        }
+        if unsafe { (*(nodes + binding_receiver)).kind } != AstKind::ExprIdent {
             return 0;
         }
         let binding_index: usize = self.find_visible_binding(
-            nodes, node_count, receiver_index, source, source_len
+            nodes, node_count, binding_receiver, source, source_len
         );
         let type_index: usize = self.binding_type_ref(nodes, node_count, binding_index);
         if type_index == 0 {
@@ -2611,6 +2615,15 @@ impl Sema {
             }
         }
         let mut end: usize = typ.str_len;
+        if receiver.kind == AstKind::ExprIndex {
+            if start >= end || unsafe { *(source + typ.str_offset + start) } != 91 { return 0; }
+            start = start + 1;
+            while start < end && unsafe { *(source + typ.str_offset + start) } == 32 { start = start + 1; }
+            let mut separator: usize = start;
+            while separator < end && unsafe { *(source + typ.str_offset + separator) } != 59 { separator = separator + 1; }
+            if separator == end { return 0; }
+            end = separator;
+        }
         while end > start {
             let ch: u8 = unsafe { *(source + typ.str_offset + end - 1) };
             if ch == 32 || ch == 9 || ch == 10 || ch == 13 {
@@ -3171,7 +3184,9 @@ impl Sema {
                 && self.pointer_type_matches_pointee(
                     nodes, node_count, actual_type, expected_type, source, source_len
                 );
-            if !direct_match && !dereference_match {
+            let indexed_match: bool = expression.kind == AstKind::ExprIndex
+                && self.indexed_element_matches(source, source_len, actual, expected);
+            if !direct_match && !dereference_match && !indexed_match {
                 self.error_count = self.error_count + 1;
                 self.error_line = expression.span.line;
                 self.error_col = expression.span.col;
@@ -3771,6 +3786,13 @@ impl NativeOwnershipCheck {
             return true;
         }
         if node.kind == AstKind::StructFieldInit && self.expression_domain(node.first_child) != 0 { return self.fail(node_index); }
+        if node.kind == AstKind::ExprArrayLiteral || node.kind == AstKind::ExprArrayRepeat {
+            let mut element: usize = node.first_child;
+            while element != 0 {
+                if element >= self.node_count || self.expression_domain(element) != 0 { return self.fail(node_index); }
+                element = unsafe { (*(self.nodes + element)).next_sibling };
+            }
+        }
         let mut child: usize = node.first_child;
         while child != 0 {
             if child >= self.node_count || !self.expression(child, false, depth + 1) { return false; }
