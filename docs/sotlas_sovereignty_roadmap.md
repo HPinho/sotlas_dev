@@ -1742,6 +1742,44 @@ case passed **60 tests** with Windows Python 3.10.11. Linux original-source
 native generation identity and the Darwin compiler cross-build passed two
 additional gates. macOS runtime execution and CI certification remain required.
 
+### SV8.39 — local record arrays through native value lowering
+
+The native parser accepts interleaved field/index chains. The Sotlas lowering
+tracks record element layouts in the local array metadata, preserves exact
+strides and copies fields into independent element storage. Lists and repetition
+support pointer-free records with nested records and existing scalar-array
+fields. Large repetitions evaluate their source once and execute a native copy
+loop instead of duplicating initialization IR for every element.
+
+Indexed elements participate in field mutation, whole-element assignment,
+local value copies, calls, direct record returns and conditional record results.
+Deferred writes execute after return storage has been copied. Return checking
+compares an indexed element's declared type rather than its whole array type.
+Ownership analysis rejects qualified values copied into ordinary arrays.
+
+This block accepts at most 4,096 elements and 64 KiB of record element storage
+per declaration. Pointer/ownership fields, wrong record types, immutable writes,
+implicit foreign pointer escape and literal out-of-range indices fail closed.
+Record zero shorthand, slices, aggregate array ABI and record arrays inside
+records remain pending. Five execution gates cover these capabilities and
+their rejection paths. General array parity remains open.
+
+The complete driver build exposed the previous 4,096-call patch limit on
+Windows. Object emission now holds 8,192 call patches and up to 12,288 combined
+relocations (including the unchanged 4,096 data-patch limit). Bounded scratch
+tables use the existing global emission context rather than growing the
+writer's stack or relaxing local-array limits. An additional gate executes
+4,100 and 8,192 calls and rejects 8,193 calls. Emission remains sequential.
+
+Local validation: the final Windows regression suite passed **2,825 tests with
+67 platform/toolchain skips** in 654.763 seconds. The frontend/Windows-driver
+run passed **77 tests**, including native Stage 2/3 generation. All **65 final
+frontend gates** passed on Linux (WSL), including exact call-patch capacity;
+Windows Python 3.10.11 passed those gates and the previous matrix regression
+case (**66 tests**). Linux original-source generation identity and Darwin
+compiler cross-build passed two additional gates. CI and macOS runtime
+certification remain required.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test

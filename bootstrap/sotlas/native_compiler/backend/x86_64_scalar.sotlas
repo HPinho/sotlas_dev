@@ -2226,6 +2226,13 @@ fn darwin_process_entry_name(name: *const u8, length: usize) -> bool {
 // against undefined global symbols. Callers must validate SSA dominance first.
 @export
 @system
+// Object emission already uses module-global storage metadata. These bounded
+// scratch tables avoid inflating the native writer stack as the compiler grows.
+pub static mut g_object_call_offsets: [usize; 8192] = 0;
+pub static mut g_object_call_functions: [u32; 8192] = 0;
+pub static mut g_object_relocation_offsets: [usize; 12288] = 0;
+pub static mut g_object_relocation_symbols: [u32; 12288] = 0;
+
 pub fn emit_elf64_module_object(
     source: *const u8,
     source_len: usize,
@@ -2358,8 +2365,6 @@ pub fn emit_elf64_module_object(
     let mut code: usize = text_offset;
     let mut function_offsets: [usize; 512] = 0;
     let mut function_sizes: [usize; 512] = 0;
-    let mut call_patch_offsets: [usize; 4096] = 0;
-    let mut call_patch_functions: [u32; 4096] = 0;
     let mut call_patch_count: u32 = 0;
     let mut data_patch_offsets: [usize; 4096] = 0;
     let mut data_patch_sym_offsets: [usize; 4096] = 0;
@@ -3132,7 +3137,7 @@ pub fn emit_elf64_module_object(
                     let callee_index: u32 = object_find_function(
                         source, source_len, functions, ir.function_count, instruction.symbol
                     );
-                    if callee_index >= ir.function_count || call_patch_count >= 4096 { return false; }
+                    if callee_index >= ir.function_count || call_patch_count >= 8192 { return false; }
                     let callee: TargetFunction = unsafe { *(functions + callee_index) };
                     if callee.parameter_count != instruction.operand_count || instruction.operand_count > 24 { return false; }
                     if callee.return_type == TargetTypeTag::Void {
@@ -3175,8 +3180,8 @@ pub fn emit_elf64_module_object(
                         argument_index = argument_index + 1;
                     }
                     if !append_object_byte(output, capacity, &mut code, 232) { return false; }
-                    call_patch_offsets[call_patch_count as usize] = code;
-                    call_patch_functions[call_patch_count as usize] = callee_index;
+                    unsafe { g_object_call_offsets[call_patch_count as usize] = code; }
+                    unsafe { g_object_call_functions[call_patch_count as usize] = callee_index; }
                     call_patch_count = call_patch_count + 1;
                     if !append_object_u32(output, capacity, &mut code, 0) { return false; }
                     if !append_object_adjust_rsp(output, capacity, &mut code, outgoing_bytes, false) {
@@ -3293,16 +3298,14 @@ pub fn emit_elf64_module_object(
     }
 
     let text_size: usize = code - text_offset;
-    let mut relocation_offsets: [usize; 4096] = 0;
-    let mut relocation_symbols: [u32; 4096] = 0;
     let mut relocation_count: u32 = 0;
     let mut call_index: u32 = 0;
     while call_index < call_patch_count {
-        let patch_offset: usize = call_patch_offsets[call_index as usize];
-        let callee_index: u32 = call_patch_functions[call_index as usize];
+        let patch_offset: usize = unsafe { g_object_call_offsets[call_index as usize] };
+        let callee_index: u32 = unsafe { g_object_call_functions[call_index as usize] };
         if (unsafe { (*(functions + callee_index)).flags } & TARGET_FUNCTION_EXTERNAL) != 0 {
-            relocation_offsets[relocation_count as usize] = patch_offset - text_offset;
-            relocation_symbols[relocation_count as usize] = symbol_of_function[callee_index as usize];
+            unsafe { g_object_relocation_offsets[relocation_count as usize] = patch_offset - text_offset; }
+            unsafe { g_object_relocation_symbols[relocation_count as usize] = symbol_of_function[callee_index as usize]; }
             relocation_count = relocation_count + 1;
         } else if !put_u32(output, capacity, patch_offset,
             (text_offset + function_offsets[callee_index as usize]) as u32 - (patch_offset as u32 + 4)) {
@@ -3391,9 +3394,9 @@ pub fn emit_elf64_module_object(
                     b_idx = b_idx + 1;
                 }
             }
-            if sym_num != 0 && relocation_count < 4096 {
-                relocation_offsets[relocation_count as usize] = p_off - text_offset;
-                relocation_symbols[relocation_count as usize] = sym_num;
+            if sym_num != 0 && relocation_count < 12288 {
+                unsafe { g_object_relocation_offsets[relocation_count as usize] = p_off - text_offset; }
+                unsafe { g_object_relocation_symbols[relocation_count as usize] = sym_num; }
                 relocation_count = relocation_count + 1;
             } else { return false; }
             data_p = data_p + 1;
@@ -3585,13 +3588,13 @@ pub fn emit_elf64_module_object(
         let mut relocation_index: u32 = 0;
         while relocation_index < relocation_count {
             let entry: usize = rela_offset + relocation_index as usize * 24;
-            let orig_sym: u32 = relocation_symbols[relocation_index as usize];
+            let orig_sym: u32 = unsafe { g_object_relocation_symbols[relocation_index as usize] };
             let mut final_sym: u32 = orig_sym;
             if relocation_index < call_relocation_count
                 && orig_sym > defined_count && orig_sym <= defined_count + external_count {
                 final_sym = orig_sym + data_sym_total as u32;
             }
-            if !put_u64(output, capacity, entry, relocation_offsets[relocation_index as usize] as u64)
+            if !put_u64(output, capacity, entry, unsafe { g_object_relocation_offsets[relocation_index as usize] } as u64)
                 || !put_u32(output, capacity, entry + 8, 4)
                 || !put_u32(output, capacity, entry + 12, final_sym)
                 || !put_u32(output, capacity, entry + 16, 4294967292)
@@ -3715,9 +3718,9 @@ pub fn emit_elf64_module_object(
     let mut relocation_index: u32 = 0;
     while relocation_index < relocation_count {
         let entry: usize = rela_offset + relocation_index as usize * 24;
-        if !put_u64(output, capacity, entry, relocation_offsets[relocation_index as usize] as u64)
+        if !put_u64(output, capacity, entry, unsafe { g_object_relocation_offsets[relocation_index as usize] } as u64)
             || !put_u32(output, capacity, entry + 8, 4)
-            || !put_u32(output, capacity, entry + 12, relocation_symbols[relocation_index as usize])
+            || !put_u32(output, capacity, entry + 12, unsafe { g_object_relocation_symbols[relocation_index as usize] })
             || !put_u32(output, capacity, entry + 16, 4294967292)
             || !put_u32(output, capacity, entry + 20, 4294967295) {
             return false;

@@ -538,6 +538,42 @@ copy the selected arm into independent storage, including nested fields and
 the accepted fixed-array fields. Exclusive POD conditional results preserve
 ownership transfers. Non-POD ownership payloads remain outside this profile.
 
+## Local record arrays
+
+Local arrays of pointer-free records accept exact-length value lists and
+repetition. Elements have independent value storage, including nested records
+and the existing fixed scalar-array fields. Indexing supports field reads,
+field writes, whole-element assignment, local copies, internal calls, record
+returns and conditional values. Index/field chains such as `items[i].value`
+are parsed directly.
+
+Repeated initializers run once. Arrays larger than 16 elements copy that value
+with a native loop. Record arrays accept at most 4,096 elements and 64 KiB of
+element storage per declaration. Literal indices outside their declared range
+are rejected; dynamic indices retain the checked native indexing operation.
+
+```sotlas
+struct Token { pub value: u32; }
+pub fn main_entry() -> u32 {
+    let mut items: [Token; 2] = [Token { value: 42 }; 2];
+    let copy: Token = items[0];
+    items[0].value = 7;
+    return copy.value;
+}
+```
+
+Pointer fields and ownership-qualified payloads remain unsupported. Owned
+values cannot be copied into ordinary arrays. Record zero shorthand, aggregate
+array parameters/returns and record arrays stored inside other records remain
+outside this contract. Deferred ownership-free actions may read/write these
+local elements; record return values are copied before deferred writes run.
+
+The object writer supports up to 8,192 call patches and 4,096 data patches,
+with a combined relocation table of 12,288 entries. Its scratch tables share
+the compiler's existing module-global emission context; emission is sequential.
+Capacity exhaustion still rejects the object. Large local scalar arrays retain
+their existing 4,096-element bound.
+
 ## Static scalar tables
 
 Global scalar arrays accept explicit lists with exactly the declared number of
