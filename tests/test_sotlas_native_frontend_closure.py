@@ -234,11 +234,21 @@ fn overlap(a:direct u32,b:sole Packet)->u32{return a+b.value;}'''
             'fn wrong()->u32{let owner:sole Packet=Packet{value:21};'
             'return overlap(if owner.value==21 { 1 } else { 2 },owner);}',success=False)
 
+    def test_sv847_nested_read_result_does_not_retain_spurious_borrow(self):
+        """The result of an internal scalar read is independent of its owner."""
+        source='''struct Token{pub value:u32;}
+impl Token{fn read(value:direct Token)->u32{return value.value;}}
+fn number(v:direct u32)->u32{return v+1;}
+pub fn main_entry()->u32{let owner:sole Token=Token{value:41};
+return number(Token::read(owner));}'''
+        self.execute(self.compile('sv847_nested_call_borrow_identity',source))
+
     def test_sv847_ownership_projected_defer_reservation_and_scope_release(self):
         """Projecting an array field retains its owner through lexical cleanup."""
         source='''struct Packet{pub values:[u32;2];}static mut total:u32=0;
 fn read(v:direct u32)->void{unsafe{total=v;}}
-pub fn main_entry()->u32{let mut owner:sole Packet=Packet{values:[20,21]};
+pub fn main_entry()->u32{let source:Packet=Packet{values:[20,21]};
+let mut owner:sole Packet=source;
 {defer read(owner.values[1]);owner.values[1]=42;}
 if unsafe{total}!=42{return 1;}
 let moved:sole Packet=owner;return moved.values[1];}'''
