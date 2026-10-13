@@ -748,6 +748,22 @@ This check leaves the deferred observer's allowed independent logging intact.
 It does not implement general effect inference, ARC/drop, region lifetimes,
 global package capabilities or resource cleanup.
 
+## SV8.48b — typed native call capability metadata
+
+Sotlas AST lowering now attaches two-bit ownership facts per argument to each
+native `TargetOpcode::Call`. The existing instruction header carries this
+semantic information in `flags` and `immediate_bits`: plain arguments are 0,
+`sole` transfers are 1, `whisper` borrows are 2, and `direct` borrows are 3.
+Up to 24 source parameters are retained in declared order; a hidden
+aggregate-return destination is plain. The Target IR validator rejects
+out-of-range or unrecognized tagged capability data; old manually constructed
+Call entries with zero metadata remain compatible.
+
+This is an in-memory typed call boundary and does not change ABI, machine
+instructions, emitted object contents, ARC, resource cleanup or imported
+signature resolution. The cross-platform native test suite remains the
+certification gate before calling this advance green.
+
 ## Project diagnostics
 
 Project compiler diagnostics map resolved source positions back to the original

@@ -11,6 +11,12 @@ pub const TARGET_BLOCK_NONE: u32 = 0;
 pub const TARGET_FLAG_SEMANTIC_ONLY: u32 = 1;
 pub const TARGET_FLAG_SYSTEM: u32 = 2;
 pub const TARGET_FUNCTION_EXTERNAL: u32 = 4;
+// SV8.48b: optional typed call capabilities carried in the existing IR
+// instruction header. The call's immediate_bits packs two bits per argument:
+// 0=plain, 1=sole/exclusive transfer, 2=whisper, 3=direct borrow.
+// Legacy manually constructed IR calls with flags=0 and immediate_bits=0
+// remain valid; machine emitters ignore this semantic-only metadata.
+pub const TARGET_CALL_CAPABILITIES_TYPED: u32 = 16;
 // Value metadata keeps domain identity independently of machine storage type.
 // 0=plain, 1=exclusive, 2=shared, 3=island, 4=whisper, 5=region,
 // 6=direct, 7=device, 8=external. These bits do not change the record ABI.
@@ -1105,6 +1111,17 @@ pub fn target_module_validate_cfg(
                         return false;
                     }
                 } else if instruction.opcode == TargetOpcode::Call {
+                    // New Sotlas AST lowering writes a typed capability profile;
+                    // older hand-authored IR may omit it (both fields zero).
+                    // A forged/truncated profile must fail before machine output.
+                    if instruction.flags != 0 || instruction.immediate_bits != 0 {
+                        if instruction.flags != TARGET_CALL_CAPABILITIES_TYPED
+                            || instruction.operand_count > 24
+                            || (instruction.immediate_bits >>
+                                ((instruction.operand_count as u64) * 2)) != 0 {
+                            return false;
+                        }
+                    }
                     if instruction.type_tag == TargetTypeTag::Invalid
                         || instruction.symbol.length == 0
                         || instruction.phi_input_count != 0

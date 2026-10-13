@@ -72,6 +72,21 @@ class SotlasNativeTargetIRContractTests(unittest.TestCase):
         self.assertNotIn("CEmitter", source)
         self.assertNotIn("@extern(C)", source)
 
+    def test_native_call_capability_metadata_is_validated_before_emission(self):
+        """Typed per-argument capability roles are bounded and fail closed."""
+        base = ROOT / "bootstrap" / "sotlas" / "native_compiler" / "backend"
+        ir = (base / "target_ir.sotlas").read_text(encoding="utf-8")
+        lowering = (base / "lower_scalar.sotlas").read_text(encoding="utf-8")
+        self.assertIn("pub const TARGET_CALL_CAPABILITIES_TYPED: u32 = 16;", ir)
+        self.assertIn("instruction.flags != TARGET_CALL_CAPABILITIES_TYPED", ir)
+        self.assertIn("instruction.operand_count > 24", ir)
+        self.assertIn("(instruction.immediate_bits >>", ir)
+        self.assertIn("pub fn call_capability_profile", lowering)
+        self.assertIn("self.function_parameter_domain_from_ast(", lowering)
+        self.assertIn("call.flags = TARGET_CALL_CAPABILITIES_TYPED;", lowering)
+        self.assertIn("call.immediate_bits = call_capabilities;", lowering)
+        self.assertIn("(*(self.instructions + self.instruction_count - 1)).immediate_bits = call_capabilities;", lowering)
+
     def test_native_main_has_a_target_ir_entry_point_separate_from_c_emission(self):
         native_root = ROOT / "bootstrap" / "sotlas" / "native_compiler"
         dependency_names = (

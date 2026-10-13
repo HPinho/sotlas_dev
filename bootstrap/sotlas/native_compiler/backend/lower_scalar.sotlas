@@ -1978,6 +1978,36 @@ impl ScalarLowering {
         return 0;
     }
 
+    // SV8.48b: preserve typed ownership facts at the Target IR call
+    // boundary. Two capability bits per source argument occupy at most
+    // 48 bits of Call.immediate_bits. Any aggregate return destination is
+    // a final ABI-only pointer argument with plain (zero) capability.
+    // UINT64_MAX is not a valid packed profile and signals fail-closed.
+    pub fn call_capability_profile(self: &Self, function_index: usize,
+        argument_count: u32) -> u64 {
+        if function_index == 0 || function_index >= self.node_count
+            || argument_count > 24 { return 18446744073709551615; }
+        let declared: u32 = self.function_parameter_count_from_ast(function_index);
+        if argument_count < declared || argument_count > declared + 1 {
+            return 18446744073709551615;
+        }
+        let mut bits: u64 = 0;
+        let mut argument: u32 = 0;
+        while argument < declared {
+            let domain: i64 = self.function_parameter_domain_from_ast(
+                function_index, argument
+            );
+            let mut role: u64 = 0;
+            if domain == 1 { role = 1; }
+            else if domain == 4 { role = 2; }
+            else if domain == 6 { role = 3; }
+            else if domain != 0 { return 18446744073709551615; }
+            bits = bits | (role << ((argument as u64) * 2));
+            argument = argument + 1;
+        }
+        return bits;
+    }
+
     pub fn allocate_struct(mut self: &mut Self, struct_id: u32, node: usize) -> u32 {
         if struct_id == 0 || struct_id as usize > self.struct_count { return 0; }
         let size: u32 = self.struct_sizes[struct_id as usize - 1];
@@ -3137,10 +3167,18 @@ impl ScalarLowering {
                 published_argument = published_argument + 1;
             }
 
+            let call_capabilities: u64 = self.call_capability_profile(
+                callee_decl, argument_count
+            );
+            if call_capabilities == 18446744073709551615 { return 0; }
             if aggregate_return != 0 {
                 if !self.append_instruction(TargetOpcode::Call, 0, TargetTypeTag::Void,
                     first_operand, argument_count, expression_index) { return 0; }
-                unsafe { (*(self.instructions + self.instruction_count - 1)).symbol = callee_symbol; }
+                unsafe {
+                    (*(self.instructions + self.instruction_count - 1)).symbol = callee_symbol;
+                    (*(self.instructions + self.instruction_count - 1)).flags = TARGET_CALL_CAPABILITIES_TYPED;
+                    (*(self.instructions + self.instruction_count - 1)).immediate_bits = call_capabilities;
+                }
                 return aggregate_destination;
             }
 
@@ -3217,6 +3255,8 @@ impl ScalarLowering {
             let call_index: usize = self.instruction_count - 1;
             let mut call: TargetInstruction = unsafe { *(self.instructions + call_index) };
             call.symbol = callee_symbol;
+            call.flags = TARGET_CALL_CAPABILITIES_TYPED;
+            call.immediate_bits = call_capabilities;
             unsafe { *(self.instructions + call_index) = call; }
             return result;
         }
