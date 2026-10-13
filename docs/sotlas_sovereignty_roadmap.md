@@ -1975,6 +1975,18 @@ The new gate proves native execution of two borrowed calls, their sequencing wit
 
 **Verification:** native CI certification is pending for this cut; it is not a new green baseline before the matrix succeeds. **Next: SV8.46** — explicit effect/escape facts on native typed expressions and fail-closed validation of deferred invocation effects, followed by ownership-aware cleanup work.
 
+### SV8.46 — native deferred borrowed-argument effect proof (2026-10-13)
+
+**Certified green baseline:** `e14c3c686bfe45b3de4ad48315bb96283e02a3f2` / [CI #38390785874](https://github.com/HPinho/sotlas_dev/actions/runs/38390785874). All three platform matrix gates passed for SV8.45.
+
+This cut adds a limited *effect proof* to the Sotlas-owned AST ownership verifier, without importing C11/Python semantics. A deferred call that captures a qualified POD owner must have arguments whose evaluation is statically free of mutation, `unsafe`, pointer/address operations and unknown calls. Nested internal calls are resolved through the actual native AST and their bodies are checked transitively, with bounded depth (32) and fail-closed recursion. Calls without implementations, unresolved foreign calls, cycles and unsupported effectful syntax cannot masquerade as certified read-only argument evaluation. The proof applies to standalone and block forms of borrowed deferred calls.
+
+The *deferred observer's body itself* is not falsely classified as pure: an internal `direct` or `whisper` observer may continue to update unrelated global logs using its existing certified semantics. The verifier continues to ensure that borrowed owner states do not change, consumption before lexical cleanup is prohibited and all old defers without qualified roots are unchanged. New native execution gates evaluate nested pure helpers at cleanup and transfer the owner afterward; negative gates reject unsafe/global writes and transitive side effects in deferred argument expressions.
+
+This does **not** finish generic effects, target capability contracts, alias lifetimes, unwind or ARC/drop; checklist parent stays open. No additional sovereignty milestone or Python/C reduction percentage is credited. **Validation:** source-level structural checks have been done, but the Linux/Windows/macOS CI matrix must pass before this candidate replaces its baseline.
+
+**Next planned: SV8.47** — effect/capability contracts carried in typed AST and verified at native call boundaries, starting from a bounded fail-closed subset without changing the canonical frontend oracle.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test
