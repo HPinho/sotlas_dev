@@ -2253,6 +2253,9 @@ impl ScalarLowering {
         if field_id == 0 { return false; }
         let field_slot: usize = (field_id - 1) as usize;
         let field_type: TargetTypeTag = self.field_type_tags[field_slot] as TargetTypeTag;
+        if self.structured_cfg && self.field_byte_counts[field_slot] != 0 {
+            return self.copy_array_into_field(base_ptr,field_slot,value_index,first_parameter,parameter_count);
+        }
         if self.structured_cfg && self.field_struct_ids[field_slot] != 0 {
             let nested_struct: u32 = self.field_struct_ids[field_slot];
             if self.cfg_struct_id(value_index, 0) != nested_struct { return false; }
@@ -3264,6 +3267,10 @@ impl ScalarLowering {
                     }
                     if self.field_byte_counts[f_idx] != 0 {
                         let repeat: AstNode = unsafe { *(self.nodes + val_expr_index) };
+                        if repeat.kind == AstKind::ExprIdent || repeat.kind == AstKind::ExprFieldAccess {
+                            if !self.structured_cfg || !self.copy_array_into_field(ptr_value,f_idx,val_expr_index,first_parameter,parameter_count) { return 0; }
+                            init_index = init_node.next_sibling; continue;
+                        }
                         if repeat.kind == AstKind::ExprArrayLiteral {
                             let array_type: TargetTypeTag = self.field_array_types[f_idx] as TargetTypeTag;
                             let stride: u32 = self.scalar_memory_size(array_type);
@@ -5133,6 +5140,41 @@ impl ScalarLowering {
                 unsafe { (*(self.instructions + self.instruction_count - 1)).immediate_bits = (destination_offset + offset) as u64; }
             }
             i = i + 1;
+        }
+        return true;
+    }
+
+    pub fn copy_array_into_field(mut self: &mut Self, destination: u32, field: usize,
+        expression_index: usize, first_parameter: usize, parameter_count: usize) -> bool {
+        if field >= self.field_total_count || expression_index == 0 || expression_index >= self.node_count { return false; }
+        let expression: AstNode = unsafe { *(self.nodes + expression_index) };
+        let typ: TargetTypeTag = self.field_array_types[field] as TargetTypeTag;
+        let count: u32 = self.field_byte_counts[field];
+        let mut source_address: u32 = 0; let mut source_offset: u32 = 0;
+        if expression.kind == AstKind::ExprIdent {
+            let slot: usize = self.cfg_find_local(expression.str_offset,expression.str_len);
+            if slot >= self.local_count || self.local_struct_ids[slot] != 0
+                || self.local_array_counts[slot] != count || self.local_array_types[slot] != typ as u32 { return false; }
+            source_address = self.local_value_ids[slot];
+        } else if expression.kind == AstKind::ExprFieldAccess {
+            let record: u32 = self.cfg_struct_id(expression.first_child,0);
+            let source_field: u32 = self.find_field(record,expression.str_offset,expression.str_len);
+            if source_field == 0 { return false; }
+            let slot: usize = source_field as usize - 1;
+            if self.field_byte_counts[slot] != count || self.field_array_types[slot] != typ as u32 { return false; }
+            source_address = self.cfg_struct_address(expression.first_child,first_parameter,parameter_count,0);
+            source_offset = self.field_offsets[slot];
+        } else { return false; }
+        if source_address == 0 || count == 0 || typ == TargetTypeTag::Pointer { return false; }
+        let stride: u32 = self.scalar_memory_size(typ); let mut position: u32 = 0;
+        while position < count {
+            let value: u32 = self.append_value(typ,0,0); let first: u32 = self.operand_count as u32;
+            if value == 0 || !self.append_operand(source_address)
+                || !self.append_instruction(TargetOpcode::Load,value,typ,first,1,expression_index) { return false; }
+            unsafe { (*(self.instructions + self.instruction_count - 1)).immediate_bits = (source_offset + position*stride) as u64; }
+            if !self.cfg_store(destination,value,typ,expression_index) { return false; }
+            unsafe { (*(self.instructions + self.instruction_count - 1)).immediate_bits = (self.field_offsets[field] + position*stride) as u64; }
+            position = position+1;
         }
         return true;
     }

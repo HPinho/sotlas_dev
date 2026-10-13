@@ -95,6 +95,10 @@ fields and resource-bearing payloads remain outside this contract. See the
 [native migration checklist](docs/sotlas_native_frontend_ownership_checklist.md).
 The [owned packet example](examples/native_owned_packet.sotlas) demonstrates
 typed fields, borrowing and transfer with native exit code 42.
+Internal POD methods accept checked `direct`/`whisper` receivers. Read-only
+deferred calls reserve their owners until lexical cleanup, and runtime Boolean
+short-circuit expressions merge ownership states. The native CLI reports
+specific moved-value, mutation, escape and deferred-reservation diagnostics.
 
 ---
 

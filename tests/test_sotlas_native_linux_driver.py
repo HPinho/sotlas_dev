@@ -30,6 +30,26 @@ def merged_native_driver_source() -> bytes:
 class NativeLinuxDriverTests(unittest.TestCase):
 
     @unittest.skipUnless(LINUX_X64, "requires native platform execution")
+    def test_native_frontend_ownership_eight_advances_and_diagnostics(self):
+        source = self.directory / 'native_owned_arrays.sotlas'
+        output = self.directory / 'native_owned_arrays_image'
+        source.write_text('module probe;struct Token{pub values:[u16;3];}\nstatic mut total:u32=0;\nimpl Token{fn read(self:direct Self)->u32{return (self.values[0] as u32)+(self.values[1] as u32)+(self.values[2] as u32);}}\nfn identity(value:u32)->u32{return value;}\nfn observe(value:whisper Token)->void{unsafe{total=value.read();}}\nfn consume(value:sole Token)->u32{return value.read();}\nfn consume_bool(value:sole Token)->bool{return true;}\npub fn main_entry()->u32{let input:[u16;3]=[10,12,20];let value:sole Token=Token{values:input};\n{defer observe(value);}let skipped:bool=false&&consume_bool(value);\nif skipped || unsafe{total}!=42{return 1;}if identity(value.read())!=42{return 2;}return consume(value);}', encoding='utf-8')
+        environment = {'PATH': str(self.directory / 'no-host-tools')}
+        if os.name == 'nt':
+            environment['SystemRoot'] = os.environ.get('SystemRoot', 'C:\\Windows')
+        self.run_tool([str(self.seed), '--check', str(source)], env=environment)
+        self.run_tool([str(self.seed), str(source), str(output)], env=environment)
+        self.run_tool([str(output)], expected=42, env=environment)
+        original = output.read_bytes()
+        cases = [('module probe;struct Token{pub value:u32;}fn consume(value:sole Token)->u32{return value.value;}pub fn main_entry()->u32{let value:sole Token=Token{value:42};consume(value);return value.value;}', 'use of moved or maybe-moved value'), ('module probe;struct Token{pub value:u32;}fn wrong(mut value:direct Token)->u32{value.value=42;return 42;}pub fn main_entry()->u32{return 42;}', 'borrowed value cannot be mutated'), ('module probe;struct Token{pub value:u32;}fn wrong(value:whisper Token)->*const Token{return unsafe{value as *const Token};}pub fn main_entry()->u32{return 42;}', 'borrowed value cannot escape'), ('module probe;struct Token{pub value:u32;}fn observe(value:direct Token)->void{return;}fn consume(value:sole Token)->u32{return value.value;}pub fn main_entry()->u32{let value:sole Token=Token{value:42};defer observe(value);return consume(value);}', 'deferred borrow prevents ownership transfer')]
+        for invalid, message in cases:
+            source.write_text(invalid, encoding='utf-8')
+            for arguments in ([str(self.seed), '--check', str(source)], [str(self.seed), str(source), str(output)]):
+                result = self.run_tool(arguments, expected=6, env=environment)
+                self.assertIn(message.encode(), result.stderr)
+                self.assertEqual(output.read_bytes(), original)
+
+    @unittest.skipUnless(LINUX_X64, "requires native platform execution")
     def test_native_owned_array_records_check_compile_run_without_host_tools(self):
         source = self.directory / 'native_owned_arrays.sotlas'
         output = self.directory / 'native_owned_arrays_image'

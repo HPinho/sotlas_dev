@@ -650,8 +650,11 @@ later shadows do not change the capture, and mutable storage is read at cleanup.
 
 Each function accepts at most 128 active lexical defers. Nested defers,
 return/break/continue inside a deferred payload, deferred error propagation,
-bare-name cleanup and capture/declaration of ownership-qualified values are
-rejected. This contract does not provide ARC/drop integration or unwind.
+bare-name cleanup and qualified declarations in deferred payloads are rejected.
+Read-only calls may capture qualified POD roots. The verifier reserves those
+roots until lexical cleanup and rejects intervening moves or consuming calls.
+Deferred blocks/assignments with qualified captures remain rejected. This
+contract does not provide ARC/drop integration or unwind.
 
 ## Project diagnostics
 
@@ -684,6 +687,8 @@ once. Record copies retain independent field storage.
 `sole` transfers and returns preserve move checking. Internal `direct` and
 `whisper` parameters can read these fields without consuming the caller.
 Borrowed mutation, whole-record escape and use after transfer are rejected.
+Local scalar arrays and other scalar array fields can initialize or overwrite
+these fields by value, with exact type/count checking and independent storage.
 Pointers, qualified elements, nested array types and arrays of records remain
 outside this field contract. Heap cleanup and ARC are not provided by POD moves.
 
@@ -714,14 +719,21 @@ without creating the ordinary argument-copy storage.
 struct Token { pub value: u32; }
 fn read(value: direct Token) -> u32 { return value.value; }
 fn forward(value: direct Token) -> u32 { return read(value); }
+impl Token {
+    fn inspect(self: direct Self) -> u32 { return self.value; }
+}
 ```
 
-Mutation, storing or returning a whole direct value, casts/address escape,
+Mutation, storing or returning a whole direct value, pointer/address escape,
 foreign calls carrying that value and forwarding to a consuming parameter are
 rejected. A call cannot borrow an owner while consuming it in another argument.
-Fields, globals, direct returns and direct locals remain unsupported. Instance
-receivers, stored aliases, general alias lifetimes and defer captures of
-qualified values remain outside this profile. Static internal calls use the
+Fields, globals, direct returns and direct locals remain unsupported. Internal
+POD instance receivers support `self: direct Self` and `self: whisper Self`;
+an explicitly named receiver must match the enclosing record. Borrowed receivers
+cannot overlap a consuming argument in the same call. Scalar field projections
+can be converted to scalar values. Read-only deferred calls reserve their
+qualified roots until lexical cleanup. Stored aliases, general alias lifetimes
+and remaining qualified capture forms stay outside this profile. Static internal calls use the
 same checked parameter contract. Domain tags remain in AST and TargetValue
 metadata; this access requires no retain/release runtime.
 
@@ -730,6 +742,9 @@ metadata; this access requires no retain/release runtime.
 Explicit `sole T` and `exclusive T` qualifiers support fixed scalars and
 pointer-free POD records in locals, internal parameters and returns. Native
 analysis tracks moves, use after move and conditional `MAYBE_MOVED` states.
+Runtime `&&`/`||` operands merge skipped and evaluated ownership states; a move
+on only one path becomes `MAYBE_MOVED`. A statically skipped Boolean literal
+operand preserves the owner, while an evaluated consuming operand moves it.
 Consuming an outer owner on a repeating loop path is rejected. Domain erasure
 through ordinary bindings, assignments, whole-value returns, aggregate fields
 or transparent unsafe expressions is rejected.
