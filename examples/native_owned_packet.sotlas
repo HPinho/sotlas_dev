@@ -1,0 +1,27 @@
+module native_owned_packet;
+
+// Compile with the native file driver and run the resulting executable.
+// Exit code 42 confirms the packet was read and transferred successfully.
+struct Packet {
+    pub words: [u32; 3];
+    pub valid: [bool; 2];
+}
+
+fn inspect(packet: direct Packet) -> u32 {
+    if !packet.valid[0] || !packet.valid[1] { return 1; }
+    return packet.words[0] + packet.words[1] + packet.words[2];
+}
+
+fn transfer(packet: sole Packet) -> sole Packet {
+    return packet;
+}
+
+pub fn main_entry() -> u32 {
+    let original: sole Packet = Packet {
+        words: [10, 12, 20],
+        valid: [true; 2]
+    };
+    if inspect(original) != 42 { return 1; }
+    let received: sole Packet = transfer(original);
+    return inspect(received);
+}

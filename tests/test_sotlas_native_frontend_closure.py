@@ -17,6 +17,90 @@ class NativeFrontendClosureTests(unittest.TestCase):
     assert_c11_reference = integer.NativeI32Tests.assert_c11_reference
     windows_process_exit_code = integer.NativeI32Tests.windows_process_exit_code
 
+    def test_native_owned_array_records_move_return_and_borrow(self):
+        source='''struct Packet{pub values:[u32;3];pub flags:[bool;2];}
+fn create()->sole Packet{return Packet{values:[14;3],flags:[true;2]};}
+fn read(value:direct Packet)->u32{if !value.flags[1]{return 1;}
+let mut i:u32=0;let mut sum:u32=0;while i<3{sum=sum+value.values[i];i=i+1;}return sum;}
+fn observe(value:whisper Packet)->u32{return value.values[0];}
+fn transfer(value:sole Packet)->sole Packet{return value;}
+pub fn main_entry()->u32{let first:sole Packet=create();
+if read(first)!=42 || observe(first)!=14{return 1;}
+let second:sole Packet=transfer(first);return read(second);}'''
+        self.execute(self.compile('owned_array_record_transfer',source))
+
+    def test_native_owned_nested_array_records_keep_value_storage_independent(self):
+        source='''struct Inner{pub data:[u32;3];}struct Packet{pub inner:Inner;pub ratio:[f64;2];}
+fn read(value:direct Packet)->u32{return value.inner.data[2];}
+fn consume(value:sole Packet)->u32{return read(value);}
+pub fn main_entry()->u32{let original:Packet=Packet{inner:Inner{data:[21;3]},ratio:[1.5;2]};
+let mut owner:sole Packet=original;owner.inner.data[2]=42;owner.ratio[1]=2.5;
+if original.inner.data[2]!=21 || original.ratio[1]!=1.5 || owner.ratio[1]!=2.5{return 1;}
+return consume(owner);}'''
+        self.execute(self.compile('owned_nested_array_record',source))
+
+    def test_native_owned_array_records_reject_moved_and_maybe_moved_reads(self):
+        prefix='''struct Packet{pub values:[u32;3];}fn consume(value:sole Packet)->u32{return value.values[0];}
+fn read(value:direct Packet)->u32{return value.values[0];}'''
+        cases=('let other:sole Packet=value;return value.values[0];',
+               'if flag{consume(value);}return read(value);',
+               'consume(value);value.values[1]=42;return 42;',
+               'let plain:Packet=value;return plain.values[0];')
+        for index,body in enumerate(cases):
+            self.compile('owned_array_moved_'+str(index),prefix+
+                'fn wrong(flag:bool)->u32{let mut value:sole Packet=Packet{values:[14;3]};'+body+'}',success=False)
+
+    def test_native_borrowed_array_records_reject_mutation_and_escape(self):
+        for domain in ('direct','whisper'):
+            for index,body in enumerate((
+                'value.values[0]=42;return 42;',
+                'let copy:Packet=value;return 42;',
+                'let ptr:*const u32=unsafe{value.values as *const u32};return 42;',
+                'defer read(value);return 42;',
+            )):
+                source='struct Packet{pub values:[u32;3];}fn read(value:'+domain+' Packet)->u32{'+body+'}'
+                self.compile('borrow_array_escape_'+domain+str(index),source,success=False)
+
+    def test_native_owned_array_record_field_limits_fail_closed(self):
+        for index,typ in enumerate(('[u32;0]','[u32;257]','[*mut u32;3]',
+                                   '[[u32;2];3]','[sole u32;3]','[Inner;3]')):
+            self.compile('owned_array_field_limit_'+str(index),
+                'struct Inner{pub value:u32;}struct Packet{pub values:'+typ+';}'
+                'fn read(value:direct Packet)->u32{return 42;}',success=False)
+
+    def test_native_owned_array_record_boundary_and_scalar_layouts_execute(self):
+        source='''struct Packet{pub bytes:[u8;256];pub numbers:[i16;2];pub ratios:[f32;2];}
+fn read(value:direct Packet)->u32{let expected:f32=1.5;
+if value.bytes[255]!=42 || value.numbers[1]!=-7 || value.ratios[0]!=expected{return 1;}return 42;}
+pub fn main_entry()->u32{let value:sole Packet=Packet{bytes:[42;256],numbers:[-7;2],ratios:[1.5;2]};return read(value);}'''
+        self.execute(self.compile('owned_array_field_boundary',source))
+
+    def test_native_record_array_lists_evaluate_in_order_once_and_copy(self):
+        source='''struct Packet{pub values:[u32;3];pub flags:[bool;2];pub floats:[f64;2];}
+static mut calls:u32=0;fn next()->u32{unsafe{calls=calls+1;}return unsafe{calls};}
+fn read(value:direct Packet)->u32{if value.values[0]!=1 || value.values[1]!=2 || value.values[2]!=3
+|| !value.flags[0] || value.flags[1] || value.floats[0]+value.floats[1]!=4.0{return 1;}return 42;}
+pub fn main_entry()->u32{let plain:Packet=Packet{values:[next(),next(),next()],flags:[true,false],floats:[1.5,2.5]};
+let owner:sole Packet=plain;if unsafe{calls}!=3{return 2;}return read(owner);}'''
+        obj=self.compile('record_array_field_lists',source)
+        self.execute(obj)
+
+    def test_native_record_array_fields_reject_shape_and_scalar_type_errors(self):
+        for index,initializer in enumerate(('[1,2]','[1,2,3,4]','[1,true,3]',
+                                            '[1,256,3]','[true;3]','[1;2]','[256;3]')):
+            self.compile('record_array_field_type_'+str(index),
+                'struct Packet{pub values:[u8;3];}pub fn main_entry()->u32{'
+                'let value:sole Packet=Packet{values:'+initializer+'};return 42;}',success=False)
+
+    def test_native_array_element_arithmetic_infers_elements_for_returns_and_calls(self):
+        source='''struct Packet{pub values:[u32;3];}fn add(value:u32)->u32{return value;}
+fn read(value:direct Packet)->u32{return add(value.values[0]+value.values[1]+value.values[2]);}
+pub fn main_entry()->u32{let value:sole Packet=Packet{values:[10,12,20]};return read(value);}'''
+        self.execute(self.compile('array_field_element_inference',source))
+        self.compile('array_field_element_mismatch',
+            'struct Packet{pub values:[u32;3];}fn read(value:direct Packet)->bool{'
+            'return value.values[0]+value.values[1];}',success=False)
+
     def test_native_direct_forwarding_and_read_aliases_preserve_the_owner(self):
         source='''struct Token{pub value:u32;}fn read(value:direct Token)->u32{return value.value;}
 fn whisper_read(value:whisper Token)->u32{return value.value;}

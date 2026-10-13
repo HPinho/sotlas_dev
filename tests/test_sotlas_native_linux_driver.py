@@ -30,6 +30,23 @@ def merged_native_driver_source() -> bytes:
 class NativeLinuxDriverTests(unittest.TestCase):
 
     @unittest.skipUnless(LINUX_X64, "requires native platform execution")
+    def test_native_owned_array_records_check_compile_run_without_host_tools(self):
+        source = self.directory / 'native_owned_arrays.sotlas'
+        output = self.directory / 'native_owned_arrays_image'
+        source.write_text('module probe;struct Packet{pub values:[u32;3];}\nfn read(value:direct Packet)->u32{return value.values[0]+value.values[1]+value.values[2];}\npub fn main_entry()->u32{let value:sole Packet=Packet{values:[10,12,20]};return read(value);}', encoding='utf-8')
+        environment = {'PATH': str(self.directory / 'no-host-tools')}
+        if os.name == 'nt':
+            environment['SystemRoot'] = os.environ.get('SystemRoot', 'C:\\Windows')
+        self.run_tool([str(self.seed), '--check', str(source)], env=environment)
+        self.run_tool([str(self.seed), str(source), str(output)], env=environment)
+        self.run_tool([str(output)], expected=42, env=environment)
+        original = output.read_bytes()
+        source.write_text('module probe;struct Packet{pub values:[u32;3];}\npub fn main_entry()->u32{let value:sole Packet=Packet{values:[1,2]};return 42;}', encoding='utf-8')
+        for arguments in ([str(self.seed), '--check', str(source)], [str(self.seed), str(source), str(output)]):
+            self.run_tool(arguments, expected=7, env=environment)
+            self.assertEqual(output.read_bytes(), original)
+
+    @unittest.skipUnless(LINUX_X64, "requires native platform execution")
     def test_native_direct_check_compile_run_without_host_tools(self):
         source = self.directory / 'native_direct.sotlas'
         output = self.directory / 'native_direct_image'

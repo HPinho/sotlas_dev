@@ -87,6 +87,15 @@ typed buffers and precision casts through an internal bit-pattern ABI. Run
 build tools once a native seed is installed. Ownership runtime, Flow execution
 and external floating ABI remain outside this native profile.
 
+Native exclusive POD records can now contain fixed scalar array fields of up
+to 256 elements. Typed lists and nonzero repetition initialize these fields;
+record moves, returns, independent value copies and internal `direct`/`whisper`
+reads use the same native layout. Pointer elements, nested arrays, record array
+fields and resource-bearing payloads remain outside this contract. See the
+[native migration checklist](docs/sotlas_native_frontend_ownership_checklist.md).
+The [owned packet example](examples/native_owned_packet.sotlas) demonstrates
+typed fields, borrowing and transfer with native exit code 42.
+
 ---
 
 ## 🎯 Sotlas design goals

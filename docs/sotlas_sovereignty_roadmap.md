@@ -1883,6 +1883,51 @@ rejection gate now uses a pointer payload for DIRECT, preserving its rejection
 and artifact checks while the new POD parameter contract is accepted.
 macOS runtime execution and CI certification remain required.
 
+### SV8.43 — native ownership for records with scalar array fields
+
+The Sotlas ownership verifier now recognizes fixed scalar arrays inside POD
+records, including fields of recursively nested plain records. Exclusive
+bindings, consuming calls, returns, `direct` reads and `whisper` reads use the
+existing record layout and retain the same move/borrow checks. Plain-to-owned
+value copies keep independent inline array storage. No heap runtime or drop
+glue is required for these resource-free payloads.
+
+Array field constructors now accept nonzero repetition and explicit value
+lists. Lists evaluate each element once in source order; repetition evaluates
+its value once and stores that value in every slot. Lowering verifies the
+declared count, scalar type and literal range before emitting an object.
+The field limit remains 1 through 256 elements. Primitive integers, Boolean
+values and f32/f64 are accepted; pointer elements, qualified elements, arrays
+of records and nested array types remain rejected.
+The optional legacy C emitter still refuses nonzero field repetition after
+semantic acceptance; native object execution provides this implementation.
+Its older semantic-refusal gate now checks that explicit emitter boundary.
+
+Native type inference resolves indexed scalar values to existing element
+TypeRef identities rather than propagating the container type through
+arithmetic, calls and returns. The source AST is not mutated. The platform CLI
+gates exercise this with a sum of three borrowed array elements and preserve
+the previous output when a malformed initializer is rejected.
+
+Nine frontend gates cover transfer/return, nested independent storage, moved
+and maybe-moved reads, borrow mutation/escape, capacity/type rejection, typed
+field layouts, ordered list evaluation and indexed arithmetic. Windows,
+Linux and Intel macOS file-driver gates check the native `check`, compile and
+execute path without host build tools. The public
+`examples/native_owned_packet.sotlas` demonstrates borrowing and transfer.
+General ownership-bearing array elements, lifetimes, ARC, qualified defer
+captures and resource cleanup remain separate migration requirements.
+
+Local validation: the frontend/Windows-driver run passed 110 tests, including
+original-source Stage 2/3 identity. Linux native CLI execution, original-source
+generation identity and Darwin compiler cross-build passed three gates. The
+public owned-packet example executed successfully on Windows. All 95 frontend
+tests passed on Linux (WSL) and Windows Python 3.10.11 with the final source
+revision. The full Windows regression suite passed 2,864 tests with 73
+platform/toolchain skips in 654.002 seconds. The older struct semantic gate
+also passed with its updated legacy-emitter boundary expectation.
+Intel macOS runtime execution and CI certification remain required.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test

@@ -672,6 +672,34 @@ temporary IR identities. Tables remain bounded to 64 declarations, nesting to
 initializers, identity casts and transparent unsafe scalar values retain their
 existing behavior.
 
+## Owned records with scalar array fields
+
+Exclusive POD records may contain inline arrays of 1 through 256 primitive
+integer, Boolean or floating values. These fields use the existing native
+record layout, including recursively nested plain records. Constructors accept
+typed lists and repetition; the count and every element must match the declared
+field type. Lists evaluate in source order, and repetition evaluates its value
+once. Record copies retain independent field storage.
+
+`sole` transfers and returns preserve move checking. Internal `direct` and
+`whisper` parameters can read these fields without consuming the caller.
+Borrowed mutation, whole-record escape and use after transfer are rejected.
+Pointers, qualified elements, nested array types and arrays of records remain
+outside this field contract. Heap cleanup and ARC are not provided by POD moves.
+
+Run the public example with an installed native file driver:
+
+```sh
+sotlas-native --check examples/native_owned_packet.sotlas
+sotlas-native examples/native_owned_packet.sotlas owned-packet
+./owned-packet
+```
+
+The executable returns 42 on success. On Windows, use `owned-packet.exe` as the
+output name and run `.\owned-packet.exe`. The native seed performs these commands
+without a Python interpreter, C compiler or external linker; producing that
+initial seed still uses Stage 0.
+
 ## Internal direct access
 
 `direct T` supports internal function parameters for the same fixed scalars
