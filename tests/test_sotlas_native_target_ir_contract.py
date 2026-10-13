@@ -99,6 +99,33 @@ class SotlasNativeTargetIRContractTests(unittest.TestCase):
             self.assertEqual((count & 1) == 1, count % 2 == 1)
             self.assertEqual(count >> 1, count // 2)
 
+    def test_sv848b_stage1_large_native_ir_has_real_backing_capacity(self):
+        """Reinforce the native Windows cross-build without weakening its gate."""
+        source = (ROOT / "bootstrap" / "sotlas" / "native_compiler" /
+                  "main.sotlas").read_text(encoding="utf-8")
+        bounds = {
+            "TARGET_VALUE_CAPACITY": ("TargetValue", "g_target_values", 131072),
+            "TARGET_INSTR_CAPACITY": ("TargetInstruction", "g_target_instructions", 262144),
+            "TARGET_OPERAND_CAPACITY": ("TargetOperand", "g_target_operands", 524288),
+            "TARGET_BLOCK_CAPACITY": ("TargetBlock", "g_target_blocks", 65536),
+        }
+        for limit, (element, variable, expected) in bounds.items():
+            with self.subTest(capacity=limit):
+                self.assertIn(
+                    f"pub const {limit}: usize = {expected};", source
+                )
+                self.assertIn(
+                    f"static mut {variable}: [{element}; {expected}] = 0;", source
+                )
+        # Keep the stage-one frontend parser's existing accepted source bound
+        # rather than bypassing diagnostics or changing the test workload.
+        self.assertIn("AST_NODE_BUFFER_CAPACITY: usize = 262144", source)
+        self.assertIn("lower_scalar_module(&mut lowering", source)
+        self.assertIn("TARGET_VALUE_CAPACITY,", source)
+        self.assertIn("TARGET_INSTR_CAPACITY,", source)
+        self.assertIn("TARGET_OPERAND_CAPACITY,", source)
+        self.assertIn("TARGET_BLOCK_CAPACITY,", source)
+
     def test_native_main_has_a_target_ir_entry_point_separate_from_c_emission(self):
         native_root = ROOT / "bootstrap" / "sotlas" / "native_compiler"
         dependency_names = (
