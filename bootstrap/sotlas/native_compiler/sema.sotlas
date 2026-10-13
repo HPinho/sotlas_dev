@@ -3934,7 +3934,35 @@ impl NativeOwnershipCheck {
             while body != 0 {
                 if body >= self.node_count { return false; }
                 let declaration: AstNode = unsafe { *(self.nodes + body) };
-                if declaration.kind == AstKind::Block {
+                if declaration.kind == AstKind::ParamDecl {
+                    // A consuming or pointer-escaping input is a capability,
+                    // even when the callee body has no mutable statements.
+                    let type_index: usize = declaration.first_child;
+                    if type_index == 0 || type_index >= self.node_count { return false; }
+                    let typ: AstNode = unsafe { *(self.nodes + type_index) };
+                    if typ.kind != AstKind::TypeRef
+                        || (typ.int_value != 0 && typ.int_value != 4 && typ.int_value != 6) {
+                        return false;
+                    }
+                    if sem.is_pointer_type_ref(
+                        self.nodes,self.node_count,type_index,self.source,self.source_len
+                    ) {
+                        // Preserve the existing readonly instance receiver.
+                        if !sem.source_slice_equals(
+                            self.source,self.source_len,
+                            declaration.str_offset,declaration.str_len,"self",4
+                        ) || !sem.source_slice_equals(
+                            self.source,self.source_len,
+                            typ.str_offset,typ.str_len,"&Self",5
+                        ) { return false; }
+                    }
+                } else if declaration.kind == AstKind::TypeRef {
+                    // Owned, borrowed and pointer results cannot be treated
+                    // as independent effect-free scalar values.
+                    if declaration.int_value != 0 || sem.is_pointer_type_ref(
+                        self.nodes,self.node_count,body,self.source,self.source_len
+                    ) { return false; }
+                } else if declaration.kind == AstKind::Block {
                     if checked_body || !self.deferred_argument_effects(body, depth + 1) {
                         return false;
                     }

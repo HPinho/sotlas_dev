@@ -276,6 +276,28 @@ fn wrong()->u32{let owner:sole Packet=Packet{values:[21;2]};
 {defer read(owner.values[0]);let moved:sole Packet=owner;}
 return 42;}''',success=False)
 
+    def test_sv848_deferred_helper_borrowed_input_is_effect_free(self):
+        """A readonly direct helper remains valid during deferred cleanup."""
+        source='''struct Token{pub value:u32;}static mut total:u32=0;
+fn peek(value:direct Token)->u32{return value.value;}
+fn observe(value:whisper Token,extra:u32)->void{
+unsafe{total=total+value.value+extra;}}
+pub fn main_entry()->u32{let owner:sole Token=Token{value:21};
+{defer observe(owner,peek(owner));}
+if unsafe{total}!=42{return 1;}
+let moved:sole Token=owner;return moved.value+21;}'''
+        self.execute(self.compile('sv848_direct_helper_capability',source))
+
+    def test_sv848_deferred_helper_sole_input_cannot_be_pure(self):
+        """Even a readonly body is not pure when the call consumes sole."""
+        source='''struct Token{pub value:u32;}
+fn take(value:sole Token)->u32{return value.value;}
+fn observe(value:direct Token,extra:u32)->void{return;}
+pub fn main_entry()->u32{let owner:sole Token=Token{value:41};
+let other:sole Token=Token{value:1};
+{defer observe(owner,take(other));}return 42;}'''
+        self.compile('sv848_consuming_helper_reject',source,success=False)
+
     def test_native_short_circuit_ownership_preserves_statically_skipped_owners(self):
         source='''struct Token{pub value:u32;}static mut calls:u32=0;
 fn consume(value:sole Token)->bool{unsafe{calls=calls+1;}return value.value==42;}

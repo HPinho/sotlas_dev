@@ -2026,6 +2026,16 @@ All existing tests are retained; a new explicit positive regression gate checks 
 
 **Status:** candidate single-commit fix; success not asserted before full CI. The last certified green baseline remains `b497a22a41852d8723de34ece67a24c86532a711` / [CI #38397024494](https://github.com/HPinho/sotlas_dev/actions/runs/38397024494). Continue to SV8.48 only after green. No Python/C-elimination percentage or sovereignty checkpoint is advanced.
 
+### SV8.48a — native deferred helper call-boundary capabilities (2026-10-13)
+
+**Certified green baseline:** `41e25edfc0b870661003488a630ad17aab87e0e4` / [CI #38439105217](https://github.com/HPinho/sotlas_dev/actions/runs/38439105217), including Linux, Windows and macOS.
+
+The native Sotlas ownership/effect verifier now inspects typed helper signatures as well as bodies when proving that a nested call used by an owned-borrow `defer` has no unmodeled effects. A call to an apparently readonly function still transfers ownership if a parameter is `sole`; such consuming or unknown-domain parameters fail closed. Ordinary typed POD inputs and read-only `direct`/`whisper` inputs remain allowed. Pointer-bearing parameters are rejected except the already supported read-only native `self:&Self` receiver; pointer and ownership-qualified results are not certified independent value outputs. The existing bounded AST/body traversal checks mutable operations, unsafe effects and transitive call chains.
+
+New native tests cover an accepted read-only direct helper invoked during deferred cleanup, plus a forbidden sole-consuming helper whose body only reads. All prior frontend/ownership tests, Stage 2/3 fixed-point checks and cross-platform gates stay unchanged. This implements a **bounded call-boundary sub-contract**, not general ownership/lifetime analysis, effect inference, ARC/drop or capability propagation through native IR.
+
+**Candidate until CI certification:** do not promote this commit over the green baseline until the full matrix passes. **Next SV8.48b:** explicit typed effect/capability facts propagated toward native call IR and escape-aware foreign-boundary gates. No new sovereignty checkpoint or Python/C reduction percentage is claimed.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test
