@@ -330,6 +330,7 @@ if sema.ownership_error_reason == 2 { return driver_position_error(6,sema.error_
 if sema.ownership_error_reason == 3 { return driver_position_error(6,sema.error_line,sema.error_col,"borrowed value cannot be mutated",32,TokenKind::Error); }
 if sema.ownership_error_reason == 4 { return driver_position_error(6,sema.error_line,sema.error_col,"borrowed value cannot escape",28,TokenKind::Error); }
 if sema.ownership_error_reason == 5 { return driver_position_error(6,sema.error_line,sema.error_col,"deferred borrow prevents ownership transfer",43,TokenKind::Error); }
+if sema.ownership_error_reason == 6 { return driver_position_error(6,sema.error_line,sema.error_col,"deferred argument has unproven effects",38,TokenKind::Error); }
 return driver_position_error(6,sema.error_line,sema.error_col,"semantic error",14,TokenKind::Error); }
     let mut lowering: ScalarLowering = ScalarLowering::new(node_buffer, parser.node_count,
         source, source_length, unsafe { driver_values as *mut TargetValue }, 65536,

@@ -3801,16 +3801,28 @@ impl NativeOwnershipCheck {
         if node.kind == AstKind::UnsafeExpr || node.kind == AstKind::ExprFieldAccess {
             return self.collect_borrow_roots(node.first_child, mask, depth + 1);
         }
+        if node.kind == AstKind::ExprIndex || node.kind == AstKind::ExprBinary
+            || node.kind == AstKind::ExprUnary || node.kind == AstKind::ExprCast {
+            let mut child: usize = node.first_child;
+            while child != 0 {
+                if child >= self.node_count
+                    || !self.collect_borrow_roots(child,mask,depth+1) { return false; }
+                child = unsafe { (*(self.nodes + child)).next_sibling };
+            }
+            return true;
+        }
         if node.kind == AstKind::ExprConditional {
             let condition: usize = node.first_child;
             if condition == 0 || condition >= self.node_count { return false; }
             let yes: usize = unsafe { (*(self.nodes + condition)).next_sibling };
             if yes == 0 || yes >= self.node_count { return false; }
             let no: usize = unsafe { (*(self.nodes + yes)).next_sibling };
-            return self.collect_borrow_roots(yes, mask, depth + 1) && self.collect_borrow_roots(no, mask, depth + 1);
+            return self.collect_borrow_roots(condition,mask,depth+1)
+                && self.collect_borrow_roots(yes, mask, depth + 1)
+                && self.collect_borrow_roots(no, mask, depth + 1);
         }
-        // A returned value or constructor has independent value storage.
-        return true;
+        // Opaque owner-bearing expressions are not proven borrowed views.
+        return !self.contains_owner(index, depth + 1);
     }
 
     pub fn scalar_projection(self: &Self, index: usize, depth: usize) -> bool {
@@ -3856,6 +3868,54 @@ impl NativeOwnershipCheck {
         return true;
     }
 
+    // SV8.47: effect-free names are parameters or lexical local declarations
+    // preceding the reference. Global, out-of-scope and unknown sources do not
+    // silently inherit purity. Qualified paths are resolved as calls instead.
+    pub fn deferred_effect_local(self: &Self, index: usize) -> bool {
+        if index == 0 || index >= self.node_count { return false; }
+        let reference: AstNode = unsafe { *(self.nodes + index) };
+        if reference.kind != AstKind::ExprIdent { return false; }
+        let mut sem: Sema = Sema::new();
+        let mut ancestor: usize = reference.parent;
+        let mut depth: usize = 0;
+        while ancestor != 0 {
+            if ancestor >= self.node_count || depth >= 64 { return false; }
+            let scope: AstNode = unsafe { *(self.nodes + ancestor) };
+            if scope.kind == AstKind::Block || scope.kind == AstKind::UnsafeBlock {
+                let mut sibling: usize = scope.first_child;
+                let mut examined: usize = 0;
+                while sibling != 0 {
+                    if sibling >= self.node_count || examined >= self.node_count { return false; }
+                    let binding: AstNode = unsafe { *(self.nodes + sibling) };
+                    if binding.kind == AstKind::LetStmt && binding.span.offset < reference.span.offset
+                        && sem.same_source_text(self.source,self.source_len,reference,binding) {
+                        return true;
+                    }
+                    sibling = binding.next_sibling;
+                    examined = examined + 1;
+                }
+            }
+            if scope.kind == AstKind::FnDecl {
+                let mut sibling: usize = scope.first_child;
+                let mut examined: usize = 0;
+                while sibling != 0 {
+                    if sibling >= self.node_count || examined >= self.node_count { return false; }
+                    let parameter: AstNode = unsafe { *(self.nodes + sibling) };
+                    if parameter.kind == AstKind::ParamDecl
+                        && sem.same_source_text(self.source,self.source_len,reference,parameter) {
+                        return true;
+                    }
+                    sibling = parameter.next_sibling;
+                    examined = examined + 1;
+                }
+                return false;
+            }
+            ancestor = scope.parent;
+            depth = depth + 1;
+        }
+        return false;
+    }
+
     // SV8.46: only argument computations of an owned deferred borrow are
     // proven effect-free. The eventual deferred observer is *not* claimed
     // pure: it may write independent state, but cannot mutate/escape its
@@ -3866,7 +3926,13 @@ impl NativeOwnershipCheck {
         let node: AstNode = unsafe { *(self.nodes + index) };
         if node.kind == AstKind::UnsafeExpr || node.kind == AstKind::UnsafeBlock
             || node.kind == AstKind::AssignStmt || node.kind == AstKind::DeferStmt
-            || node.kind == AstKind::TryExpr || node.kind == AstKind::ExprCast {
+            || node.kind == AstKind::TryExpr || node.kind == AstKind::ExprCast
+            || node.kind == AstKind::AsmStmt || node.kind == AstKind::ClinchStmt
+            || node.kind == AstKind::DiscernStmt || node.kind == AstKind::TrapfnDecl
+            || node.kind == AstKind::WhileStmt || node.kind == AstKind::MatchStmt {
+            return false;
+        }
+        if node.kind == AstKind::ExprIdent && !self.deferred_effect_local(index) {
             return false;
         }
         if node.kind == AstKind::ExprUnary && (node.int_value == 82 || node.int_value == 92) {
@@ -3894,6 +3960,23 @@ impl NativeOwnershipCheck {
                 body = declaration.next_sibling;
             }
             if !checked_body { return false; }
+            // Calee path identifiers are symbols, not value expressions.
+            // Traverse only a receiver and the actual argument expressions.
+            let callee_expression: usize = node.first_child;
+            if callee_expression == 0 || callee_expression >= self.node_count { return false; }
+            let name: AstNode = unsafe { *(self.nodes + callee_expression) };
+            if name.kind == AstKind::ExprFieldAccess {
+                if !self.deferred_argument_effects(name.first_child,depth+1) { return false; }
+            } else if name.kind != AstKind::ExprIdent && name.kind != AstKind::ExprPath {
+                return false;
+            }
+            let mut argument: usize = name.next_sibling;
+            while argument != 0 {
+                if argument >= self.node_count
+                    || !self.deferred_argument_effects(argument,depth+1) { return false; }
+                argument = unsafe { (*(self.nodes + argument)).next_sibling };
+            }
+            return true;
         }
         let mut child: usize = node.first_child;
         while child != 0 {
@@ -3944,7 +4027,7 @@ impl NativeOwnershipCheck {
             let statement: AstNode = unsafe { *(self.nodes + action) };
             if statement.kind != AstKind::ExprCall || self.expression_domain(action) != 0
                 || !self.deferred_call_effects(action) {
-                return self.fail_reason(action,5);
+                return self.fail_reason(action,6);
             }
             let mut before: [u8;256] = 0;
             let mut slot: usize = 0;
@@ -4126,7 +4209,7 @@ impl NativeOwnershipCheck {
                         if !self.reserve_readonly_defer_block(node.first_child) { return 0; }
                     } else if payload.kind == AstKind::ExprCall {
                         if !self.deferred_call_effects(node.first_child) {
-                            self.fail_reason(node.first_child,5); return 0;
+                            self.fail_reason(node.first_child,6); return 0;
                         }
                         let mut before: [u8;256] = 0; let mut slot: usize = 0;
                         while slot < self.count { before[slot] = self.states[slot]; slot = slot+1; }

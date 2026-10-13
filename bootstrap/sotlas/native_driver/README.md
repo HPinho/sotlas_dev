@@ -677,6 +677,25 @@ remains legal. Ownership moves stay prohibited until lexical cleanup. Existing
 ownership-free defers and the LIFO/source-order contract are unchanged.
 This is not general effect inference, ARC, drop glue, or unwind handling.
 
+## SV8.47 — checked effect names and projected borrow roots
+
+The native effect checker resolves a deferred helper's argument identifiers to
+function parameters or earlier lexical declarations. Internal instance/static
+callees are identified through their checked AST identities, not by treating
+the method name as a variable. Unsupported global state dependencies, inline
+assembly, mutation, `unsafe`, recursion and unbounded loops are not proven
+effect-free. This conservative restriction applies to owned-borrow defer
+arguments, not to the observer body's existing checked logging behavior.
+Errors use the dedicated `deferred argument has unproven effects` cause in
+the three native CLIs with their existing positions and preserved output files.
+
+Direct/whisper borrow tracking also follows an indexed array field back to its
+owner and includes conditional guard expressions when accumulating borrowed
+roots. Such owners cannot be consumed by another argument to the same call.
+A deferred projection holds its reservation through cleanup; a post-scope move
+remains permitted. Unsupported owner-bearing expressions reject rather than
+erasing identity. This is not general lifetimes, stored aliases or ARC/drop.
+
 ## Project diagnostics
 
 Project compiler diagnostics map resolved source positions back to the original

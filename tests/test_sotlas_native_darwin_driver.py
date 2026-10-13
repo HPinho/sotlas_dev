@@ -15,6 +15,26 @@ MAC_X64 = sys.platform == "darwin" and platform.machine().lower() in ("x86_64", 
 class NativeDarwinDriverTests(unittest.TestCase):
 
     @unittest.skipUnless(MAC_X64, "requires native platform execution")
+    def test_sv847_native_deferred_effect_specific_diagnostic(self):
+        source = self.directory / "sv847_effect_diagnostic.sotlas"
+        output = self.directory / "sv847_preserved_image"
+        source.write_text(
+            "module probe;struct Packet{pub value:u32;}static mut hits:u32=0;"
+            "fn observe(v:direct Packet,x:u32)->void{return;}"
+            "fn impure()->u32{unsafe{hits=hits+1;}return 2;}"
+            "pub fn main_entry()->u32{let owner:sole Packet=Packet{value:42};"
+            "defer observe(owner,impure());return 42;}", encoding="utf-8")
+        output.write_bytes(b"keep existing output")
+        env = {"PATH": str(self.directory / "no-host-tools")}
+        if os.name == "nt":
+            env["SystemRoot"] = os.environ.get("SystemRoot", "C:\\Windows")
+        for args in ([str(self.seed), "--check", str(source)],
+                     [str(self.seed), str(source), str(output)]):
+            result = self.run_tool(args, expected=6, env=env)
+            self.assertIn(b"deferred argument has unproven effects", result.stderr)
+            self.assertEqual(output.read_bytes(), b"keep existing output")
+
+    @unittest.skipUnless(MAC_X64, "requires native platform execution")
     def test_native_frontend_ownership_eight_advances_and_diagnostics(self):
         source = self.directory / 'native_owned_arrays.sotlas'
         output = self.directory / 'native_owned_arrays_image'
