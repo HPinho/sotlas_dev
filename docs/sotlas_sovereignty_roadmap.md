@@ -2046,6 +2046,13 @@ New native tests cover an accepted read-only direct helper invoked during deferr
 
 **Limits:** in-memory typed call-domain metadata is not yet a complete canonical effect system, runtime ARC/drop, proof of imported-module signatures, or serialization into portable module objects. No reduction in Python or C usage or new sovereignty checkpoint is claimed. **Candidate until this commit's full CI is green**; keep previous green baseline. **Next SV8.48c:** cross-function signature consistency and explicit escape/capability checks at foreign/system call boundaries, or regression repair if CI fails.
 
+### SV8.48b regression repair — Windows native bootstrap (2026-10-13)
+
+CI #38455787897 failed at the same native Windows driver Stage1 compile step on every Ubuntu, Windows and macOS matrix job. The diagnostic, expanded line 23494 column 36, maps to windows.sotlas line 1121: the parity comparison after an unsigned slash-count modulo in the nested Windows argv parser. The same Windows module passed in green baseline 5e6c8fd / CI #38448890155. The additional IR-capability logic increased code generation work; the precise backend limit has not been independently proven.
+
+Repair: keep the full typed call IR capability semantics and existing validation, but remove a redundant declared-arity pass from call_capability_profile: all call sites already validate source arity and any single hidden aggregate-return argument. The domain encoder retains its 24-argument bound and fail-closed unsupported roles. In the Windows driver, use the equivalent (slashes & 1) == 1 and (slashes >> 1) for unsigned usize, eliminating modulo and division inside the nested CFG at the point reported. Add a static plus arithmetic parity test. All runtime quoting, AST/IR, cross-platform and self-bootstrap gates remain unchanged.
+
+Status: candidate until all 9 CI jobs pass. Last certified baseline 5e6c8fd. Next planned item SV8.48c only after green; no change to Python/C reduction or sovereignty milestone percentages.
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test
