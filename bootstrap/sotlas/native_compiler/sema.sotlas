@@ -3856,6 +3856,46 @@ impl NativeOwnershipCheck {
         return true;
     }
 
+    // A deferred block may borrow owned POD roots only through a bounded
+    // sequence of non-owning, direct calls. At registration, validate *each*
+    // call and reserve its roots for the whole lexical cleanup scope. This is
+    // not a general owned closure: assignments, nested scopes, consuming calls
+    // and resource-bearing return values remain fail-closed.
+    pub fn reserve_readonly_defer_block(mut self: &mut Self, block: usize) -> bool {
+        if block == 0 || block >= self.node_count { return self.fail_reason(block,5); }
+        let payload: AstNode = unsafe { *(self.nodes + block) };
+        if payload.kind != AstKind::Block || payload.first_child == 0 {
+            return self.fail_reason(block,5);
+        }
+        let mut action: usize = payload.first_child;
+        let mut count: usize = 0;
+        while action != 0 {
+            if action >= self.node_count || count >= 128 { return self.fail_reason(block,5); }
+            let statement: AstNode = unsafe { *(self.nodes + action) };
+            if statement.kind != AstKind::ExprCall || self.expression_domain(action) != 0 {
+                return self.fail_reason(action,5);
+            }
+            let mut before: [u8;256] = 0;
+            let mut slot: usize = 0;
+            while slot < self.count {
+                before[slot] = self.states[slot];
+                slot = slot + 1;
+            }
+            if !self.expression(action,false,0) { return false; }
+            slot = 0;
+            while slot < self.count {
+                if before[slot] != self.states[slot] {
+                    return self.fail_reason(action,5);
+                }
+                slot = slot + 1;
+            }
+            if !self.reserve_defer_roots(action,0) { return false; }
+            action = statement.next_sibling;
+            count = count + 1;
+        }
+        return true;
+    }
+
     pub fn expression(mut self: &mut Self, node_index: usize, take: bool, depth: usize) -> bool {
         if node_index == 0 { return true; }
         if node_index >= self.node_count || depth >= 64 { return self.fail(node_index); }
@@ -4007,17 +4047,25 @@ impl NativeOwnershipCheck {
             let node: AstNode = unsafe { *(self.nodes + index) };
             if node.kind == AstKind::DeferStmt {
                 if !self.defer_ownership_free(node.first_child,0) {
-                    if node.first_child == 0 || node.first_child >= self.node_count
-                        || unsafe { (*(self.nodes + node.first_child)).kind } != AstKind::ExprCall { self.error_node = index; return 0; }
-                    let mut before: [u8;256] = 0; let mut slot: usize = 0;
-                    while slot < self.count { before[slot] = self.states[slot]; slot = slot+1; }
-                    if !self.expression(node.first_child,false,0) { return 0; }
-                    slot = 0;
-                    while slot < self.count {
-                        if before[slot] != self.states[slot] { self.fail_reason(index,5); return 0; }
-                        slot = slot+1;
+                    if node.first_child == 0 || node.first_child >= self.node_count {
+                        self.fail_reason(index,5); return 0;
                     }
-                    if !self.reserve_defer_roots(node.first_child,0) { return 0; }
+                    let payload: AstNode = unsafe { *(self.nodes + node.first_child) };
+                    if payload.kind == AstKind::Block {
+                        if !self.reserve_readonly_defer_block(node.first_child) { return 0; }
+                    } else if payload.kind == AstKind::ExprCall {
+                        let mut before: [u8;256] = 0; let mut slot: usize = 0;
+                        while slot < self.count { before[slot] = self.states[slot]; slot = slot+1; }
+                        if !self.expression(node.first_child,false,0) { return 0; }
+                        slot = 0;
+                        while slot < self.count {
+                            if before[slot] != self.states[slot] { self.fail_reason(index,5); return 0; }
+                            slot = slot+1;
+                        }
+                        if !self.reserve_defer_roots(node.first_child,0) { return 0; }
+                    } else {
+                        self.fail_reason(index,5); return 0;
+                    }
                 }
             } else if node.kind == AstKind::LetStmt {
                 let mut value: usize = node.first_child;

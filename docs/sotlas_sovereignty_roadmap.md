@@ -1965,6 +1965,16 @@ Stage 2/3 identity and Darwin compiler cross-build passed three additional
 gates. The Windows fixed-point gates also passed in the general suite.
 macOS runtime execution and CI certification remain required.
 
+### SV8.45 — bounded owned read-only deferred blocks (2026-10-13)
+
+**Certified starting point:** [CI run #latest green](https://github.com/HPinho/sotlas_dev/actions/runs/38374537558) at `2e63cb719d661ee4c3440a363a9b1e5453b2976b`. This cut extends the Sotlas-written frontend ownership verifier and the already certified native lexical defer lowering, **not** the Python/C11 implementation.
+
+Qualified POD owners can already be reserved by one direct deferred read-only call. This advance accepts a bounded `defer { observe(owner); observe(owner); }` block: each statement must be an internal direct call with an unowned result, must preserve every owner state at registration, and must reserve all qualified roots until the enclosing lexical scope cleans up. Multiple reads execute in written order during cleanup, under the existing LIFO ordering among defer registrations. Consumption between registration and cleanup is rejected; moves become valid again after the scope exits.
+
+The new gate proves native execution of two borrowed calls, their sequencing with another defer and a post-cleanup transfer. Negative gates retain fail-closed behavior for consuming/mutating payloads, owner moves before cleanup, owned value copies, nested defers and noncall control flow. There is **no** resource-bearing closure, ARC/drop, unwind, stored borrow or generally typed effect contract; the parent checklist item remains open. No sovereignty checkpoint increment or Python/C-removal percentage is credited.
+
+**Verification:** native CI certification is pending for this cut; it is not a new green baseline before the matrix succeeds. **Next: SV8.46** — explicit effect/escape facts on native typed expressions and fail-closed validation of deferred invocation effects, followed by ownership-aware cleanup work.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test
