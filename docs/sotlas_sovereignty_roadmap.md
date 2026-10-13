@@ -1987,6 +1987,18 @@ This does **not** finish generic effects, target capability contracts, alias lif
 
 **Next planned: SV8.47** — effect/capability contracts carried in typed AST and verified at native call boundaries, starting from a bounded fail-closed subset without changing the canonical frontend oracle.
 
+### SV8.47 — four frontend plus four ownership hardening contracts (2026-10-13)
+
+**Certified baseline:** `b497a22a41852d8723de34ece67a24c86532a711` / [CI #38397024494](https://github.com/HPinho/sotlas_dev/actions/runs/38397024494). The last native deferred-argument effects work passed the complete cross-platform matrix.
+
+**Frontend (4 bounded advances):** (F1) lexical parameter/local identity for pure argument expressions instead of silently trusting unrecognized global reads, (F2) checked AST instance/static method callee resolution without confusing callee symbols with variables, (F3) explicit fail-closed rejection of unsafe/assembly/mutation/loops/opaque effects in deferred argument computations, and (F4) effect-specific file/line/column diagnostics on Linux, Windows and Intel macOS, preserving pre-existing artifacts.
+
+**Ownership (4 bounded advances):** (O1) owner-preserving borrow masks for array index projections, (O2) include conditional guards alongside selected branches when gathering borrowed roots, (O3) reject same-call overlap of those roots with consuming sole arguments and reject unsupported owner-bearing expressions, and (O4) retain projected owner reservations through lexical deferred cleanup while permitting a move after exiting the scope.
+
+The new native frontend suite contains positive execution and negative compiler tests for lexical helper lets, typed instance helpers, global/unsafe/recursive/looping effects, indexed and conditional owner masking, lexical cleanup and moved-owner rejection. Three file driver tests assert the dedicated effect cause in native `--check` and compile and verify existing output preservation. None of the previous tests is weakened or removed.
+
+These are **partial subcontracts** of open items, not eight complete parent feature families. Complete typed AST parity, namespaces, `shared` ARC/drop, lifetimes, resource unwind, and general effects remain open. The sovereignty checkpoint score stays at 9/10 (90% of declared profile checkpoints), not an estimate of Python/C reduction. **Certification pending for this commit**; only adopt as baseline after CI green. **Next SV8.48:** typed effect/capability call boundary facts and further owner alias lifetime/escape checks, or regression repair first if any matrix job fails.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test

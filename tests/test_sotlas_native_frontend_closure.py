@@ -178,6 +178,78 @@ fn local_write()->u32{let mut v:u32=0;v=1;return v;}'''
                     'pub fn main_entry()->u32{let value:sole Token=Token{value:42};'
                     +body+'return 42;}',success=False)
 
+    def test_sv847_frontend_lexical_local_effects_execute(self):
+        """Transitive deferred helpers understand parameters and prior lets."""
+        source='''struct Packet{pub value:u32;}static mut result:u32=0;
+fn local_extra(v:u32)->u32{let next:u32=v+1;return next+1;}
+fn observe(value:direct Packet,extra:u32)->void{unsafe{result=value.value+extra;}}
+pub fn main_entry()->u32{let owner:sole Packet=Packet{value:38};
+{defer observe(owner,local_extra(2));}
+if unsafe{result}!=42{return 1;}return 42;}'''
+        self.execute(self.compile('sv847_lexical_effect_helper',source))
+
+    def test_sv847_frontend_method_effects_execute(self):
+        """A checked instance method may compute a deferred borrowed argument."""
+        source='''struct Packet{pub value:u32;}struct Offset{pub value:u32;}
+static mut result:u32=0;
+impl Offset{fn plus(self:&Self,number:u32)->u32{return self.value+number;}}
+fn observe(value:whisper Packet,extra:u32)->void{unsafe{result=value.value+extra;}}
+pub fn main_entry()->u32{let owner:sole Packet=Packet{value:38};
+let offset:Offset=Offset{value:2};{defer observe(owner,offset.plus(2));}
+if unsafe{result}!=42{return 1;}return 42;}'''
+        self.execute(self.compile('sv847_method_effect_helper',source))
+
+    def test_sv847_frontend_unproven_effect_forms_fail_closed(self):
+        """Impure, recursive, opaque and unsupported helper forms fail closed."""
+        prefix='''struct Packet{pub value:u32;}static mut total:u32=0;
+fn observe(owner:direct Packet,extra:u32)->void{return;}
+fn side_effect()->u32{unsafe{total=total+1;}return 2;}
+fn forwarded()->u32{return side_effect();}
+fn recursive()->u32{return recursive();}
+fn looped()->u32{while true{return 2;}return 1;}'''
+        forms=('defer observe(owner,side_effect());',
+               'defer observe(owner,forwarded());',
+               'defer observe(owner,recursive());',
+               'defer observe(owner,looped());',
+               'defer observe(owner,unsafe{side_effect()});')
+        for index,body in enumerate(forms):
+            with self.subTest(case=index):
+                self.compile('sv847_effect_reject_'+str(index),prefix+
+                    'pub fn main_entry()->u32{let owner:sole Packet=Packet{value:40};'
+                    +body+'return 42;}',success=False)
+
+    def test_sv847_ownership_indexed_borrow_cannot_be_consumed_in_same_call(self):
+        """An indexed projection must reserve the underlying owner."""
+        prefix='''struct Packet{pub values:[u32;2];}
+fn overlap(a:direct u32,b:sole Packet)->u32{return a+b.values[0];}'''
+        self.compile('sv847_borrow_index_overlap',prefix+
+            'fn wrong()->u32{let owner:sole Packet=Packet{values:[21;2]};'
+            'return overlap(owner.values[0],owner);}',success=False)
+
+    def test_sv847_ownership_conditional_guard_borrow_cannot_be_consumed(self):
+        """The condition of a direct argument also carries borrowed roots."""
+        prefix='''struct Packet{pub value:u32;}
+fn overlap(a:direct u32,b:sole Packet)->u32{return a+b.value;}'''
+        self.compile('sv847_borrow_guard_overlap',prefix+
+            'fn wrong()->u32{let owner:sole Packet=Packet{value:21};'
+            'return overlap(if owner.value==21 { 1 } else { 2 },owner);}',success=False)
+
+    def test_sv847_ownership_projected_defer_reservation_and_scope_release(self):
+        """Projecting an array field retains its owner through lexical cleanup."""
+        source='''struct Packet{pub values:[u32;2];}static mut total:u32=0;
+fn read(v:direct u32)->void{unsafe{total=v;}}
+pub fn main_entry()->u32{let mut owner:sole Packet=Packet{values:[20,21]};
+{defer read(owner.values[1]);owner.values[1]=42;}
+if unsafe{total}!=42{return 1;}
+let moved:sole Packet=owner;return moved.values[1];}'''
+        self.execute(self.compile('sv847_projected_defer',source))
+        self.compile('sv847_projected_defer_early_move',
+            '''struct Packet{pub values:[u32;2];}
+fn read(v:direct u32)->void{return;}
+fn wrong()->u32{let owner:sole Packet=Packet{values:[21;2]};
+{defer read(owner.values[0]);let moved:sole Packet=owner;}
+return 42;}''',success=False)
+
     def test_native_short_circuit_ownership_preserves_statically_skipped_owners(self):
         source='''struct Token{pub value:u32;}static mut calls:u32=0;
 fn consume(value:sole Token)->bool{unsafe{calls=calls+1;}return value.value==42;}

@@ -86,6 +86,16 @@ contracts. Local validation must pass CI before being called certified.
   - [x] Report specific moved-value, borrowed-mutation, escape and deferred-reservation causes through the native platform CLIs.
   - [ ] Complete detailed semantic causes, diagnostic context and canonical error parity.
 
+
+### SV8.47 — four bounded frontend cuts (2026-10-13)
+
+- [x] **Symbols/scope:** identify parameter and preceding lexical-local bindings while checking effects of transitive native AST helper calls; unproven global/out-of-scope references fail closed.
+- [x] **Methods/calls:** resolve internal instance/static helper call targets using the typed native call AST, evaluating receiver and argument nodes rather than mistaking callee names for local bindings.
+- [x] **Expression acceptance:** reject unsafe, mutable assignment, assembly, trap, unknown call, nonterminating loop and unsupported effect-bearing forms in owned deferred argument evaluation.
+- [x] **Diagnostics:** emit a source-positioned dedicated deferred-argument-effect cause consistently in the three Sotlas-native file drivers, preserving existing output artifacts.
+
+These items are partial refinements of open parent migration contracts, not complete symbol parity, general expression typing or canonical diagnostic parity.
+
 ## Ownership, states, effects and cleanup
 
 - [ ] Migrate canonical ownership analysis into Sotlas.
@@ -151,9 +161,22 @@ contracts. Local validation must pass CI before being called certified.
   - [x] Rejection resets output length, preserves IR, and leaves the output buffer unchanged.
   - [ ] Implement the corresponding ownership/state/cleanup runtime operations and their complete source-level diagnostics.
 
+
+### SV8.47 — four bounded ownership cuts (2026-10-13)
+
+- [x] Trace **indexed array projections** to the owner for direct/whisper borrow masks, rather than treating indexed values as independent storage.
+- [x] Trace **conditional guard operands**, in addition to selected arms, to their owner before deciding whether a call borrows an owner.
+- [x] Reject **borrow/consume overlap in the same native call**, including borrowed array-field indexes and conditionally computed scalar arguments; fail closed for unknown owner-bearing expression forms.
+- [x] Preserve **projected defer owner reservations** through lexical cleanup and allow ownership transfer after the enclosing scope exits, without ARC/drop or stored weak references.
+
+The complete alias graph, retained borrows, general lifetimes and resource cleanup remain open.
+
 ## New acceptance evidence
 
 | Contract | Gate |
+| SV8.47 lexical locals, instance helper calls and unsupported effects | `test_sv847_frontend_lexical_local_effects_execute`, `test_sv847_frontend_method_effects_execute`, `test_sv847_frontend_unproven_effect_forms_fail_closed` |
+| SV8.47 indexed/conditional borrow masks and deferred lexical release | `test_sv847_ownership_indexed_borrow_cannot_be_consumed_in_same_call`, `test_sv847_ownership_conditional_guard_borrow_cannot_be_consumed`, `test_sv847_ownership_projected_defer_reservation_and_scope_release` |
+| SV8.47 native file driver effect reason (all three platforms) | `test_sv847_native_deferred_effect_specific_diagnostic` |
 |---|---|
 | Reserved semantic opcodes: neutral validation, native rejection and untouched output | `tests/test_sotlas_native_frontend_closure.py::test_semantic_runtime_markers_are_preserved_but_never_emitted_as_noops` |
 | Float/Boolean/signed-minimum module constants and native/C11 result comparison | `tests/test_sotlas_native_frontend_closure.py::test_typed_module_constants_include_float_bool_and_signed_minimum` |
