@@ -243,10 +243,25 @@ pub fn main_entry()->u32{let owner:sole Token=Token{value:41};
 return number(Token::read(owner));}'''
         self.execute(self.compile('sv847_nested_call_borrow_identity',source))
 
+    def test_sv847_deferred_direct_scalar_cannot_escape_to_global(self):
+        """Reject stored direct aliases for the exact location of CI's failure."""
+        source='''static mut total:u32=0;
+fn read(v:direct u32)->void{unsafe{total=v;}}
+pub fn main_entry()->u32{return 42;}'''
+        self.compile('sv847_direct_scalar_escape_rejected', source, success=False)
+        path = self.directory / 'sv847_direct_scalar_escape_rejected.sotlas'
+        output = path.with_suffix('.o')
+        result = integer.subprocess.run(
+            [str(self.producer), '--compile-obj', str(path), str(output)],
+            capture_output=True, timeout=60)
+        self.assertEqual(result.returncode, 10, result.stderr)
+        self.assertIn(b'err line 3, col 42', result.stderr)
+        self.assertFalse(output.exists())
+
     def test_sv847_ownership_projected_defer_reservation_and_scope_release(self):
         """Projecting an array field retains its owner through lexical cleanup."""
         source='''struct Packet{pub values:[u32;2];}static mut total:u32=0;
-fn read(v:direct u32)->void{unsafe{total=v;}}
+fn read(v:direct u32)->void{unsafe{total=total+v;}}
 pub fn main_entry()->u32{let values:[u32;2]=[20,21];
 let source:Packet=Packet{values:values};
 let mut owner:sole Packet=source;
