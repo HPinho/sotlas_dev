@@ -733,6 +733,21 @@ A deferred projection holds its reservation through cleanup; a post-scope move
 remains permitted. Unsupported owner-bearing expressions reject rather than
 erasing identity. This is not general lifetimes, stored aliases or ARC/drop.
 
+## SV8.48a — native deferred helper capabilities
+
+Helpers invoked as arguments of an owned-borrow deferred call must now satisfy
+the checked typed call boundary as well as the existing transitive body proof.
+Consuming `sole` parameters and unknown ownership domains cannot be certified
+effect-free, even if the function body only reads a field. Ordinary POD input
+values and read-only `direct`/`whisper` parameters remain supported.
+Pointer parameters fail closed except a checked native `self:&Self` instance
+receiver; pointer or ownership-qualified results are not independent
+effect-free scalar outputs.
+
+This check leaves the deferred observer's allowed independent logging intact.
+It does not implement general effect inference, ARC/drop, region lifetimes,
+global package capabilities or resource cleanup.
+
 ## Project diagnostics
 
 Project compiler diagnostics map resolved source positions back to the original
