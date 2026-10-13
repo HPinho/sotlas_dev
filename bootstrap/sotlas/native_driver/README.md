@@ -660,6 +660,23 @@ until the lexical scope exits. Deferred assignments, nested defers, owned-value
 copies, arbitrary statements and general qualified captures remain rejected.
 This contract does not provide ARC/drop integration or unwind.
 
+## Deferred owned-borrow argument effects (SV8.46)
+
+When a `defer` captures a qualified POD owner through a read-only internal
+`direct` or `whisper` call, native semantic analysis proves that its argument
+expressions have no unmodeled effects at cleanup. Literals, field reads,
+arithmetic and bounded, transitively checked local pure helper calls are allowed.
+Unsafe expressions, pointer/address operations, mutations and unknown or
+recursive helper calls fail closed. The analysis has a maximum call/AST depth
+of 32; no host-language optimizer, C11-generated code or Python analysis is
+used.
+
+The **deferred observer itself is not required to be pure**: logging to
+unrelated global storage inside an existing checked `direct` observer
+remains legal. Ownership moves stay prohibited until lexical cleanup. Existing
+ownership-free defers and the LIFO/source-order contract are unchanged.
+This is not general effect inference, ARC, drop glue, or unwind handling.
+
 ## Project diagnostics
 
 Project compiler diagnostics map resolved source positions back to the original

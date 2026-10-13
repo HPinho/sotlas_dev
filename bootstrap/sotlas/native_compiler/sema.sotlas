@@ -3856,6 +3856,76 @@ impl NativeOwnershipCheck {
         return true;
     }
 
+    // SV8.46: only argument computations of an owned deferred borrow are
+    // proven effect-free. The eventual deferred observer is *not* claimed
+    // pure: it may write independent state, but cannot mutate/escape its
+    // direct/whisper owner. Unknown, foreign and cyclic callees fail closed.
+    // This walks the original typed AST, not string matches or C metadata.
+    pub fn deferred_argument_effects(self: &Self, index: usize, depth: usize) -> bool {
+        if index == 0 || index >= self.node_count || depth >= 32 { return false; }
+        let node: AstNode = unsafe { *(self.nodes + index) };
+        if node.kind == AstKind::UnsafeExpr || node.kind == AstKind::UnsafeBlock
+            || node.kind == AstKind::AssignStmt || node.kind == AstKind::DeferStmt
+            || node.kind == AstKind::TryExpr || node.kind == AstKind::ExprCast {
+            return false;
+        }
+        if node.kind == AstKind::ExprUnary && (node.int_value == 82 || node.int_value == 92) {
+            return false;
+        }
+        if node.kind == AstKind::ExprCall {
+            let mut sem: Sema = Sema::new();
+            let callee: usize = sem.ownership_called_function(
+                self.nodes, self.node_count, index, self.source, self.source_len
+            );
+            if callee == 0 || callee >= self.node_count { return false; }
+            let called: AstNode = unsafe { *(self.nodes + callee) };
+            if called.kind != AstKind::FnDecl { return false; }
+            let mut body: usize = called.first_child;
+            let mut checked_body: bool = false;
+            while body != 0 {
+                if body >= self.node_count { return false; }
+                let declaration: AstNode = unsafe { *(self.nodes + body) };
+                if declaration.kind == AstKind::Block {
+                    if checked_body || !self.deferred_argument_effects(body, depth + 1) {
+                        return false;
+                    }
+                    checked_body = true;
+                }
+                body = declaration.next_sibling;
+            }
+            if !checked_body { return false; }
+        }
+        let mut child: usize = node.first_child;
+        while child != 0 {
+            if child >= self.node_count || !self.deferred_argument_effects(child, depth + 1) {
+                return false;
+            }
+            child = unsafe { (*(self.nodes + child)).next_sibling };
+        }
+        return true;
+    }
+
+    // Only calls capturing an owned POD root need this incremental effect
+    // proof. Existing ownership-free defers and observer bodies are unchanged.
+    pub fn deferred_call_effects(self: &Self, index: usize) -> bool {
+        if index == 0 || index >= self.node_count { return false; }
+        let call: AstNode = unsafe { *(self.nodes + index) };
+        if call.kind != AstKind::ExprCall || call.first_child == 0
+            || call.first_child >= self.node_count { return false; }
+        if !self.contains_owner(index,0) { return true; }
+        let callee: AstNode = unsafe { *(self.nodes + call.first_child) };
+        if callee.kind == AstKind::ExprFieldAccess
+            && !self.deferred_argument_effects(callee.first_child,0) { return false; }
+        let mut argument: usize = callee.next_sibling;
+        while argument != 0 {
+            if argument >= self.node_count || !self.deferred_argument_effects(argument,0) {
+                return false;
+            }
+            argument = unsafe { (*(self.nodes + argument)).next_sibling };
+        }
+        return true;
+    }
+
     // A deferred block may borrow owned POD roots only through a bounded
     // sequence of non-owning, direct calls. At registration, validate *each*
     // call and reserve its roots for the whole lexical cleanup scope. This is
@@ -3872,7 +3942,8 @@ impl NativeOwnershipCheck {
         while action != 0 {
             if action >= self.node_count || count >= 128 { return self.fail_reason(block,5); }
             let statement: AstNode = unsafe { *(self.nodes + action) };
-            if statement.kind != AstKind::ExprCall || self.expression_domain(action) != 0 {
+            if statement.kind != AstKind::ExprCall || self.expression_domain(action) != 0
+                || !self.deferred_call_effects(action) {
                 return self.fail_reason(action,5);
             }
             let mut before: [u8;256] = 0;
@@ -4054,6 +4125,9 @@ impl NativeOwnershipCheck {
                     if payload.kind == AstKind::Block {
                         if !self.reserve_readonly_defer_block(node.first_child) { return 0; }
                     } else if payload.kind == AstKind::ExprCall {
+                        if !self.deferred_call_effects(node.first_child) {
+                            self.fail_reason(node.first_child,5); return 0;
+                        }
                         let mut before: [u8;256] = 0; let mut slot: usize = 0;
                         while slot < self.count { before[slot] = self.states[slot]; slot = slot+1; }
                         if !self.expression(node.first_child,false,0) { return 0; }

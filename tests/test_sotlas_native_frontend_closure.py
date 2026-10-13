@@ -136,6 +136,48 @@ fn consume(value:sole Token)->u32{return value.value;}'''
                     'pub fn main_entry()->u32{let mut value:sole Token=Token{value:42};'+body+'}',
                     success=False)
 
+    def test_native_deferred_owned_argument_pure_calls_execute_transitively(self):
+        """Nested local arithmetic is certified before cleanup-time evaluation."""
+        source='''struct Token{pub value:u32;}static mut total:u32=0;
+fn increment(v:u32)->u32{return v+1;}
+fn twice(v:u32)->u32{return increment(v)+increment(v);}
+fn observe(owner:direct Token,extra:u32)->void{
+unsafe{total=total*10+owner.value+extra;}}
+pub fn main_entry()->u32{let value:sole Token=Token{value:2};
+{defer{observe(value,increment(1));observe(value,twice(1));}}
+if unsafe{total}!=46{return 1;}
+let moved:sole Token=value;return moved.value+40;}'''
+        self.execute(self.compile('defer_effect_pure_transitive',source))
+
+    def test_native_deferred_owned_argument_pure_call_in_single_defer(self):
+        """Standalone defer uses the same effect verifier as deferred blocks."""
+        source='''struct Token{pub value:u32;}static mut total:u32=0;
+fn add(v:u32)->u32{return v+2;}
+fn observe(owner:whisper Token,extra:u32)->void{unsafe{total=owner.value+extra;}}
+pub fn main_entry()->u32{let value:sole Token=Token{value:38};
+{defer observe(value,add(2));}
+if unsafe{total}!=42{return 1;}return 42;}'''
+        self.execute(self.compile('defer_effect_pure_single',source))
+
+    def test_native_deferred_owned_argument_effects_fail_closed(self):
+        """Unknown global writes, unsafe argument calls and pointer escapes are not pure."""
+        prefix='''struct Token{pub value:u32;}static mut hits:u32=0;
+fn observe(owner:direct Token,extra:u32)->void{return;}
+fn change()->u32{unsafe{hits=hits+1;}return 1;}
+fn forward()->u32{return change();}
+fn local_write()->u32{let mut v:u32=0;v=1;return v;}'''
+        cases=(
+            'defer observe(value,change());',
+            'defer{observe(value,forward());}',
+            'defer observe(value,local_write());',
+            'defer{observe(value,unsafe{change()});}',
+        )
+        for index,body in enumerate(cases):
+            with self.subTest(index=index):
+                self.compile('defer_effect_reject_'+str(index),prefix+
+                    'pub fn main_entry()->u32{let value:sole Token=Token{value:42};'
+                    +body+'return 42;}',success=False)
+
     def test_native_short_circuit_ownership_preserves_statically_skipped_owners(self):
         source='''struct Token{pub value:u32;}static mut calls:u32=0;
 fn consume(value:sole Token)->bool{unsafe{calls=calls+1;}return value.value==42;}
