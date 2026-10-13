@@ -1928,6 +1928,43 @@ platform/toolchain skips in 654.002 seconds. The older struct semantic gate
 also passed with its updated legacy-emitter boundary expectation.
 Intel macOS runtime execution and CI certification remain required.
 
+### SV8.44 — four frontend and four ownership advances
+
+This revision advances eight bounded native contracts. It does not mark the
+broader migration requirements complete.
+
+| Area | Advance | Execution/rejection evidence |
+|---|---|---|
+| Frontend 1 | Copy local scalar arrays and record array fields into scalar array fields, including whole-field assignment | `test_native_array_fields_copy_local_and_record_arrays_independently`, `test_native_array_field_value_copies_reject_length_and_element_mismatch` |
+| Frontend 2 | Infer instance-method result types through returns and nested calls | `test_native_method_results_preserve_types_in_nested_calls` |
+| Frontend 3 | Accept internal direct/whisper receiver signatures and validate the enclosing record identity, including Self | `test_native_direct_and_whisper_receivers_forward_without_consumption`, `test_native_borrowed_receivers_reject_foreign_types_mutation_and_overlap` |
+| Frontend 4 | Report moved-value, borrowed-mutation, escape and deferred-reservation causes with existing native source positions | `test_native_frontend_ownership_eight_advances_and_diagnostics` in all three platform driver suites |
+| Ownership 1 | Convert scalar projections from qualified POD records without allowing pointer/whole-value escape | `test_native_owned_scalar_projections_cast_without_alias_escape` |
+| Ownership 2 | Track receiver borrowing through forwarding and reject receiver/argument consumption overlap | `test_native_borrowed_receivers_reject_foreign_types_mutation_and_overlap` |
+| Ownership 3 | Reserve qualified roots for deferred read-only calls and release reservations at lexical exit | `test_native_deferred_borrows_read_current_storage_and_release_at_scope_exit`, `test_native_deferred_borrows_reject_consumption_before_cleanup` |
+| Ownership 4 | Merge runtime short-circuit move states and preserve statically skipped literal operands | `test_native_short_circuit_ownership_preserves_statically_skipped_owners`, `test_native_short_circuit_ownership_rejects_moved_and_maybe_moved_paths` |
+
+Array field copies retain exact scalar type/count checks and independent inline
+storage. Read-only receivers cannot mutate, escape or consume their caller.
+Deferred reads observe current storage at cleanup; an intervening move is
+rejected, including consuming returns. Ownership reservations are scoped and
+do not implement ARC/drop/unwind. Only direct deferred calls acquire this new
+qualified-capture contract; qualified deferred blocks/assignments stay rejected.
+Both short-circuit operands are validated; runtime-dependent consumption
+creates a maybe-moved state, while a skipped literal path restores its owner.
+
+Ten frontend gates and three platform CLI gates were added. The older borrowed
+array rejection fixture now checks a qualified deferred block rather than a
+read-only deferred call. Its mutation/storage/pointer-escape negatives remain,
+and the new deferred-call gates check both execution and rejected consumption.
+Local validation: the full Windows suite passed 2,877 tests with 75
+platform/toolchain skips in 847.858 seconds. All 105 frontend gates passed on
+Windows, Linux (WSL) and Windows Python 3.10.11. The new Windows native CLI gate
+passed independently; Linux native CLI diagnostics/execution, original-source
+Stage 2/3 identity and Darwin compiler cross-build passed three additional
+gates. The Windows fixed-point gates also passed in the general suite.
+macOS runtime execution and CI certification remain required.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test

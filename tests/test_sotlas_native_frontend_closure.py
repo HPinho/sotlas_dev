@@ -17,6 +17,99 @@ class NativeFrontendClosureTests(unittest.TestCase):
     assert_c11_reference = integer.NativeI32Tests.assert_c11_reference
     windows_process_exit_code = integer.NativeI32Tests.windows_process_exit_code
 
+    def test_native_array_fields_copy_local_and_record_arrays_independently(self):
+        source='''struct Packet{pub values:[u32;3];pub flags:[bool;2];}
+pub fn main_entry()->u32{let mut input:[u32;3]=[10,12,20];let flags:[bool;2]=[true,false];
+let mut first:Packet=Packet{values:input,flags:flags};input[0]=99;
+let mut second:Packet=Packet{values:first.values,flags:first.flags};first.values[1]=99;
+if second.values[0]!=10 || second.values[1]!=12 || !second.flags[0]{return 1;}
+second.values=input;if second.values[0]!=99 || input[1]!=12{return 2;}
+second.values[0]=10;return second.values[0]+second.values[1]+second.values[2];}'''
+        self.execute(self.compile('array_field_value_copies',source))
+
+    def test_native_array_field_value_copies_reject_length_and_element_mismatch(self):
+        for index,typ in enumerate(('[u32;2]','[u16;3]','[bool;3]')):
+            self.compile('array_field_copy_type_'+str(index),
+                'struct Packet{pub values:[u32;3];}pub fn main_entry()->u32{let input:'+typ+'=0;'
+                'let value:Packet=Packet{values:input};return 42;}',success=False)
+
+    def test_native_method_results_preserve_types_in_nested_calls(self):
+        source='''struct Token{pub value:u32;}impl Token{
+fn number(self:&Self)->u32{return self.value;}fn truth(self:&Self)->bool{return self.value==42;}}
+fn identity(value:u32)->u32{return value;}
+pub fn main_entry()->u32{let value:Token=Token{value:42};if !value.truth(){return 1;}return identity(value.number());}'''
+        self.execute(self.compile('method_result_inference',source))
+        self.compile('method_result_mismatch',
+            'struct Token{pub value:u32;}impl Token{fn number(self:&Self)->u32{return self.value;}}'
+            'fn wrong()->bool{let value:Token=Token{value:42};return value.number();}',success=False)
+
+    def test_native_direct_and_whisper_receivers_forward_without_consumption(self):
+        source='''struct Token{pub value:u32;}impl Token{
+fn read(self:direct Token)->u32{return self.value;}
+fn observe(self:whisper Token)->u32{return self.value;}
+fn forward(self:direct Token,extra:u32)->u32{return self.observe()+extra;}}
+fn consume(value:sole Token)->u32{return value.value;}
+pub fn main_entry()->u32{let value:sole Token=Token{value:21};
+if value.read()!=21 || value.forward(21)!=42{return 1;}return value.observe()+consume(value);}'''
+        self.execute(self.compile('borrowed_receivers',source))
+
+    def test_native_borrowed_receivers_reject_foreign_types_mutation_and_overlap(self):
+        prefix='struct Token{pub value:u32;}struct Other{pub value:u32;}'
+        cases=('impl Token{fn wrong(self:direct Other)->u32{return 42;}}',
+               'impl Token{fn wrong(mut self:direct Token)->u32{self.value=42;return 42;}}',
+               'impl Token{fn wrong(self:whisper Token)->Token{return self;}}',
+               'impl Token{fn read(self:direct Token,extra:u32)->u32{return self.value+extra;}}'
+               'fn consume(value:sole Token)->u32{return value.value;}'
+               'fn wrong()->u32{let value:sole Token=Token{value:21};return value.read(consume(value));}')
+        for index,body in enumerate(cases):
+            self.compile('borrowed_receiver_error_'+str(index),prefix+body,success=False)
+
+    def test_native_owned_scalar_projections_cast_without_alias_escape(self):
+        source='''struct Token{pub number:u16;pub data:[u16;2];pub decimal:f32;}
+fn read(value:direct Token)->u32{return (value.number as u32)+(value.data[1] as u32);}
+fn float_read(value:whisper Token)->f64{return value.decimal as f64;}
+pub fn main_entry()->u32{let value:sole Token=Token{number:21,data:[21;2],decimal:1.5};
+if float_read(value)!=1.5{return 1;}return read(value);}'''
+        self.execute(self.compile('owned_projection_casts',source))
+        for index,cast in enumerate(('value as *const Token','value.data as *const u16','(&value.number) as *const u16')):
+            self.compile('projection_escape_'+str(index),
+                'struct Token{pub number:u16;pub data:[u16;2];}'
+                'fn wrong(value:direct Token)->*const u16{return unsafe{'+cast+'};}',success=False)
+
+    def test_native_deferred_borrows_read_current_storage_and_release_at_scope_exit(self):
+        source='''struct Token{pub value:u32;}static mut total:u32=0;
+fn observe(value:direct Token)->void{unsafe{total=total*10+value.value;}}
+fn consume(value:sole Token)->u32{return value.value;}
+pub fn main_entry()->u32{let mut value:sole Token=Token{value:1};
+{defer observe(value);defer observe(value);value.value=4;}
+if unsafe{total}!=44{return 1;}return consume(value)+38;}'''
+        self.execute(self.compile('deferred_borrow_scope',source))
+
+    def test_native_deferred_borrows_reject_consumption_before_cleanup(self):
+        prefix='''struct Token{pub value:u32;}fn observe(value:direct Token)->void{return;}
+fn consume(value:sole Token)->u32{return value.value;}'''
+        for index,body in enumerate(('defer observe(value);return consume(value);',
+                                     'defer observe(value);let other:sole Token=value;return 42;',
+                                     'defer consume(value);return 42;')):
+            self.compile('deferred_borrow_move_'+str(index),prefix+
+                'pub fn main_entry()->u32{let value:sole Token=Token{value:42};'+body+'}',success=False)
+
+    def test_native_short_circuit_ownership_preserves_statically_skipped_owners(self):
+        source='''struct Token{pub value:u32;}static mut calls:u32=0;
+fn consume(value:sole Token)->bool{unsafe{calls=calls+1;}return value.value==42;}
+fn read(value:direct Token)->u32{return value.value;}
+pub fn main_entry()->u32{let first:sole Token=Token{value:42};let second:sole Token=Token{value:42};
+let a:bool=false&&consume(first);let b:bool=true||consume(second);
+if a || !b || unsafe{calls}!=0{return 1;}return (read(first)+read(second))/2;}'''
+        self.execute(self.compile('short_circuit_move_skipped',source))
+
+    def test_native_short_circuit_ownership_rejects_moved_and_maybe_moved_paths(self):
+        prefix='struct Token{pub value:u32;}fn consume(value:sole Token)->bool{return true;}'
+        for index,condition in enumerate(('flag&&consume(value)','flag||consume(value)',
+                                          'true&&consume(value)','false||consume(value)')):
+            self.compile('short_circuit_move_error_'+str(index),prefix+
+                'fn wrong(flag:bool)->u32{let value:sole Token=Token{value:42};let result:bool='+condition+';return value.value;}',success=False)
+
     def test_native_owned_array_records_move_return_and_borrow(self):
         source='''struct Packet{pub values:[u32;3];pub flags:[bool;2];}
 fn create()->sole Packet{return Packet{values:[14;3],flags:[true;2]};}
@@ -56,7 +149,7 @@ fn read(value:direct Packet)->u32{return value.values[0];}'''
                 'value.values[0]=42;return 42;',
                 'let copy:Packet=value;return 42;',
                 'let ptr:*const u32=unsafe{value.values as *const u32};return 42;',
-                'defer read(value);return 42;',
+                'defer{let copy:Packet=value;}return 42;',
             )):
                 source='struct Packet{pub values:[u32;3];}fn read(value:'+domain+' Packet)->u32{'+body+'}'
                 self.compile('borrow_array_escape_'+domain+str(index),source,success=False)

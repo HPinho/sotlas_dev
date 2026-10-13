@@ -325,7 +325,13 @@ fn driver_compile_loaded(
     if module_index == 0 || parser.error_count != 0 { return driver_position_error(5,parser.error_line,parser.error_col,"syntax error",12,parser.error_expected); }
     let mut sema: Sema = Sema::new();
     if !sema.check_top_level_declarations(node_buffer, parser.node_count,
-        module_index, source, source_length) { return driver_position_error(6,sema.error_line,sema.error_col,"semantic error",14,TokenKind::Error); }
+        module_index, source, source_length) {
+if sema.ownership_error_reason == 1 { return driver_position_error(6,sema.error_line,sema.error_col,"ownership constraint violated",29,TokenKind::Error); }
+if sema.ownership_error_reason == 2 { return driver_position_error(6,sema.error_line,sema.error_col,"use of moved or maybe-moved value",33,TokenKind::Error); }
+if sema.ownership_error_reason == 3 { return driver_position_error(6,sema.error_line,sema.error_col,"borrowed value cannot be mutated",32,TokenKind::Error); }
+if sema.ownership_error_reason == 4 { return driver_position_error(6,sema.error_line,sema.error_col,"borrowed value cannot escape",28,TokenKind::Error); }
+if sema.ownership_error_reason == 5 { return driver_position_error(6,sema.error_line,sema.error_col,"deferred borrow prevents ownership transfer",43,TokenKind::Error); }
+return driver_position_error(6,sema.error_line,sema.error_col,"semantic error",14,TokenKind::Error); }
     let mut lowering: ScalarLowering = ScalarLowering::new(node_buffer, parser.node_count,
         source, source_length, unsafe { driver_values as *mut TargetValue }, 65536,
         unsafe { driver_parameters as *mut TargetParameter }, 16384,

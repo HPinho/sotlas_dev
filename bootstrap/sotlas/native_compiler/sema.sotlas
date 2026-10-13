@@ -26,6 +26,7 @@ pub struct Sema {
     pub error_count: usize;
     pub error_line: u32;
     pub error_col: u32;
+    pub ownership_error_reason: u32;
     pub is_in_system: bool;
     pub is_in_unsafe: bool;
     pub symbol_count: usize;
@@ -37,6 +38,7 @@ impl Sema {
             error_count: 0,
             error_line: 0,
             error_col: 0,
+            ownership_error_reason: 0,
             is_in_system: false,
             is_in_unsafe: false,
             symbol_count: 0
@@ -226,9 +228,13 @@ impl Sema {
             || self.source_slice_equals(source, source_len, node.str_offset, node.str_len, "f32", 3)
             || self.source_slice_equals(source, source_len, node.str_offset, node.str_len, "f64", 3) { return true; }
         let mut index: usize = 1;
+        let impl_index: usize = self.enclosing_impl(nodes,node_count,typ);
         while index < node_count {
             let declaration: AstNode = unsafe { *(nodes + index) };
-            if declaration.kind == AstKind::StructDecl && self.same_source_text(source, source_len, node, declaration) {
+            let self_type: bool = self.source_slice_equals(source,source_len,node.str_offset,node.str_len,"Self",4)
+                && impl_index != 0 && impl_index < node_count
+                && self.same_source_text(source,source_len,unsafe { *(nodes + impl_index) },declaration);
+            if declaration.kind == AstKind::StructDecl && (self.same_source_text(source, source_len, node, declaration) || self_type) {
                 let mut field: usize = declaration.first_child;
                 while field != 0 {
                     if field >= node_count { return false; }
@@ -333,7 +339,7 @@ impl Sema {
                 if owns {
                     let mut analysis: NativeOwnershipCheck = NativeOwnershipCheck {
                         nodes:nodes,node_count:node_count,source:source,source_len:source_len,
-                        bindings:[0;256],states:[0;256],domains:[0;256],count:0,error_node:0,return_domain:0
+                        bindings:[0;256],states:[0;256],domains:[0;256],deferred:[0;256],count:0,error_node:0,error_reason:0,return_domain:0
                     };
                     let mut child: usize = function.first_child; let mut body: usize = 0;
                     while child != 0 {
@@ -346,6 +352,7 @@ impl Sema {
                     }
                     if body == 0 { return self.reject_node(function); }
                     if analysis.sequence(unsafe { (*(nodes + body)).first_child }, 0) == 0 {
+                        self.ownership_error_reason = analysis.error_reason;
                         if analysis.error_node == 0 || analysis.error_node >= node_count { return self.reject_node(function); }
                         return self.reject_node(unsafe { *(nodes + analysis.error_node) });
                     }
@@ -1511,6 +1518,7 @@ impl Sema {
             return false;
         }
         let type_ref: AstNode = unsafe { *(nodes + param.first_child) };
+        if type_ref.int_value == 4 || type_ref.int_value == 6 { return false; }
         if type_ref.str_len == 0 || type_ref.str_offset >= source_len {
             return false;
         }
@@ -1787,6 +1795,13 @@ impl Sema {
                 nodes, node_count, method_index, source, source_len
             );
             if receiver_index != 0 {
+                let receiver: AstNode = unsafe { *(nodes + receiver_index) };
+                let receiver_type: AstNode = unsafe { *(nodes + receiver.first_child) };
+                if (receiver_type.int_value == 4 || receiver_type.int_value == 6)
+                    && !self.same_source_text(source,source_len,receiver_type,impl_node)
+                    && !self.source_slice_equals(source,source_len,receiver_type.str_offset,receiver_type.str_len,"Self",4) {
+                    return self.reject_node(receiver);
+                }
                 if self.is_by_value_self_receiver(nodes, node_count, receiver_index, source, source_len) {
                     let receiver: AstNode = unsafe { *(nodes + receiver_index) };
                     return self.reject_node(receiver);
@@ -3024,6 +3039,8 @@ impl Sema {
                     source,
                     source_len
                 );
+            } else if callee.kind == AstKind::ExprFieldAccess {
+                function_index = self.ownership_called_function(nodes,node_count,expression_index,source,source_len);
             } else {
                 return 0;
             }
@@ -3062,17 +3079,18 @@ impl Sema {
             return true;
         }
         let callee: AstNode = unsafe { *(nodes + call.first_child) };
-        if callee.kind != AstKind::ExprIdent {
+        if callee.kind != AstKind::ExprIdent && callee.kind != AstKind::ExprFieldAccess {
             return true;
         }
-        let function_index: usize = self.find_module_function(
-            nodes, node_count, call.first_child, source, source_len
-        );
+        let function_index: usize = self.ownership_called_function(nodes,node_count,call_index,source,source_len);
         if function_index == 0 {
             return true;
         }
         let function: AstNode = unsafe { *(nodes + function_index) };
         let mut parameter_index: usize = function.first_child;
+        if callee.kind == AstKind::ExprFieldAccess && parameter_index != 0 && parameter_index < node_count {
+            parameter_index = unsafe { (*(nodes + parameter_index)).next_sibling };
+        }
         let mut argument_index: usize = callee.next_sibling;
         while parameter_index != 0 && argument_index != 0 {
             if parameter_index >= node_count || argument_index >= node_count {
@@ -3641,13 +3659,22 @@ pub struct NativeOwnershipCheck {
     pub bindings: [usize; 256];
     pub states: [u8; 256];
     pub domains: [u8; 256];
+    pub deferred: [u8; 256];
     pub count: usize;
     pub error_node: usize;
+    pub error_reason: u32;
     pub return_domain: i64;
 }
 
 impl NativeOwnershipCheck {
-    pub fn fail(mut self: &mut Self, node: usize) -> bool { self.error_node = node; return false; }
+    pub fn fail(mut self: &mut Self, node: usize) -> bool {
+        self.error_node = node;
+        if self.error_reason == 0 { self.error_reason = 1; }
+        return false;
+    }
+    pub fn fail_reason(mut self: &mut Self, node: usize, reason: u32) -> bool {
+        self.error_reason = reason; return self.fail(node);
+    }
     pub fn domain(self: &Self, binding: usize) -> i64 {
         if binding == 0 || binding >= self.node_count { return 0; }
         let node: AstNode = unsafe { *(self.nodes + binding) };
@@ -3673,6 +3700,7 @@ impl NativeOwnershipCheck {
         self.bindings[self.count] = node;
         self.domains[self.count] = self.domain(node) as u8;
         self.states[self.count] = 1;
+        self.deferred[self.count] = 0;
         self.count = self.count + 1;
         return true;
     }
@@ -3785,6 +3813,49 @@ impl NativeOwnershipCheck {
         return true;
     }
 
+    pub fn scalar_projection(self: &Self, index: usize, depth: usize) -> bool {
+        if index == 0 || index >= self.node_count || depth >= 64 { return false; }
+        let node: AstNode = unsafe { *(self.nodes + index) };
+        let mut sem: Sema = Sema::new();
+        if node.kind == AstKind::ExprIndex {
+            let typ: usize = sem.infer_expression_type_ref(self.nodes,self.node_count,node.first_child,self.source,self.source_len);
+            return typ != 0 && typ < self.node_count
+                && sem.ownership_pod_array(unsafe { *(self.nodes + typ) },self.source,self.source_len);
+        }
+        if node.kind == AstKind::ExprFieldAccess {
+            let typ: usize = sem.find_struct_field_for_access(self.nodes,self.node_count,index,self.source,self.source_len);
+            if typ == 0 || typ >= self.node_count { return false; }
+            let field: AstNode = unsafe { *(self.nodes + typ) };
+            return sem.fixed_integer_type_tag(self.nodes,self.node_count,typ,self.source,self.source_len) != 0
+                || sem.source_slice_equals(self.source,self.source_len,field.str_offset,field.str_len,"f32",3)
+                || sem.source_slice_equals(self.source,self.source_len,field.str_offset,field.str_len,"f64",3)
+                || sem.source_slice_equals(self.source,self.source_len,field.str_offset,field.str_len,"bool",4);
+        }
+        if node.kind == AstKind::ExprLiteral { return true; }
+        if node.kind == AstKind::UnsafeExpr { return self.scalar_projection(node.first_child,depth+1); }
+        if node.kind == AstKind::ExprBinary {
+            let left: usize = node.first_child;
+            return left != 0 && left < self.node_count && self.scalar_projection(left,depth+1)
+                && self.scalar_projection(unsafe { (*(self.nodes + left)).next_sibling },depth+1);
+        }
+        return false;
+    }
+
+    pub fn reserve_defer_roots(mut self: &mut Self, index: usize, depth: usize) -> bool {
+        if index == 0 || index >= self.node_count || depth >= 64 { return self.fail(index); }
+        let node: AstNode = unsafe { *(self.nodes + index) };
+        if node.kind == AstKind::ExprIdent {
+            let owner: usize = self.slot(index);
+            if owner < self.count && self.domains[owner] != 0 { self.deferred[owner] = 1; }
+        }
+        let mut child: usize = node.first_child;
+        while child != 0 {
+            if child >= self.node_count || !self.reserve_defer_roots(child,depth+1) { return false; }
+            child = unsafe { (*(self.nodes + child)).next_sibling };
+        }
+        return true;
+    }
+
     pub fn expression(mut self: &mut Self, node_index: usize, take: bool, depth: usize) -> bool {
         if node_index == 0 { return true; }
         if node_index >= self.node_count || depth >= 64 { return self.fail(node_index); }
@@ -3795,16 +3866,25 @@ impl NativeOwnershipCheck {
         if node.kind == AstKind::ExprIdent {
             let index: usize = self.slot(node_index);
             if index < self.count && self.domains[index] != 0 {
-                if self.states[index] != 1 { return self.fail(node_index); }
+                if self.states[index] != 1 { return self.fail_reason(node_index,2); }
                 if take {
+                    if self.deferred[index] != 0 { return self.fail_reason(node_index,5); }
                     if self.domains[index] != 1 { return self.fail(node_index); }
                     self.states[index] = 2;
                 }
             }
             return true;
         }
-        if (node.kind == AstKind::ExprUnary && node.int_value == 92) || node.kind == AstKind::ExprCast {
-            if self.contains_owner(node.first_child, depth + 1) { return self.fail(node_index); }
+        if node.kind == AstKind::ExprUnary && node.int_value == 92 {
+            if self.contains_owner(node.first_child, depth + 1) { return self.fail_reason(node_index,4); }
+        }
+        if node.kind == AstKind::ExprCast && self.contains_owner(node.first_child,depth+1) {
+            let operand: usize = node.first_child;
+            let cast_type: usize = unsafe { (*(self.nodes + operand)).next_sibling };
+            let mut cast_sem: Sema = Sema::new();
+            if cast_type == 0 || cast_type >= self.node_count
+                || cast_sem.is_pointer_type_ref(self.nodes,self.node_count,cast_type,self.source,self.source_len)
+                || !self.scalar_projection(operand,0) { return self.fail_reason(node_index,4); }
         }
         if node.kind == AstKind::ExprCall {
             let callee_index: usize = node.first_child;
@@ -3812,14 +3892,21 @@ impl NativeOwnershipCheck {
             let callee: AstNode = unsafe { *(self.nodes + callee_index) };
             let mut sem: Sema = Sema::new();
             let function: usize = sem.ownership_called_function(self.nodes, self.node_count, node_index, self.source, self.source_len);
-            if callee.kind == AstKind::ExprFieldAccess && self.contains_owner(callee_index, depth + 1) { return self.fail(node_index); }
             let mut parameter: usize = 0;
             if function != 0 { parameter = unsafe { (*(self.nodes + function)).first_child }; }
+            let mut borrowed: [u8;256] = 0;
             if callee.kind == AstKind::ExprFieldAccess && parameter != 0 && parameter < self.node_count {
+                let receiver_domain: i64 = self.domain(parameter);
+                if self.contains_owner(callee.first_child,depth+1)
+                    && receiver_domain != 4 && receiver_domain != 6 { return self.fail_reason(node_index,4); }
+                if (receiver_domain == 4 || receiver_domain == 6)
+                    && !self.collect_borrow_roots(callee.first_child,unsafe { borrowed as *mut u8 },0) { return self.fail(node_index); }
+                if !self.expression(callee.first_child,false,depth+1) { return false; }
                 parameter = unsafe { (*(self.nodes + parameter)).next_sibling };
+            } else if callee.kind == AstKind::ExprFieldAccess && self.contains_owner(callee_index,depth+1) {
+                return self.fail_reason(node_index,4);
             }
             let mut argument: usize = callee.next_sibling;
-            let mut borrowed: [u8;256] = 0;
             while argument != 0 {
                 let mut consumes: bool = false;
                 let mut borrow: bool = false;
@@ -3868,6 +3955,27 @@ impl NativeOwnershipCheck {
             }
             return true;
         }
+        if node.kind == AstKind::ExprBinary && (node.int_value == 110 || node.int_value == 111) {
+            let left: usize = node.first_child;
+            if left == 0 || left >= self.node_count || !self.expression(left,false,depth+1) { return self.fail(node_index); }
+            let right: usize = unsafe { (*(self.nodes + left)).next_sibling };
+            let scope: usize = self.count;
+            let mut before: [u8;256] = 0; let mut slot: usize = 0;
+            while slot < scope { before[slot] = self.states[slot]; slot = slot+1; }
+            if !self.expression(right,false,depth+1) { return false; }
+            let first: AstNode = unsafe { *(self.nodes + left) };
+            let mut literal_sem: Sema = Sema::new();
+            let yes: bool = first.kind == AstKind::ExprLiteral && literal_sem.source_slice_equals(self.source,self.source_len,first.str_offset,first.str_len,"true",4);
+            let no: bool = first.kind == AstKind::ExprLiteral && literal_sem.source_slice_equals(self.source,self.source_len,first.str_offset,first.str_len,"false",5);
+            let skipped: bool = (no && node.int_value == 110) || (yes && node.int_value == 111);
+            slot = 0;
+            while slot < scope {
+                if skipped { self.states[slot] = before[slot]; }
+                else if !yes && !no && self.domains[slot] != 0 && before[slot] != self.states[slot] { self.states[slot] = 3; }
+                slot = slot+1;
+            }
+            return true;
+        }
         if node.kind == AstKind::StructFieldInit && self.expression_domain(node.first_child) != 0 { return self.fail(node_index); }
         if node.kind == AstKind::ExprArrayLiteral || node.kind == AstKind::ExprArrayRepeat {
             let mut element: usize = node.first_child;
@@ -3884,13 +3992,33 @@ impl NativeOwnershipCheck {
         return true;
     }
     pub fn sequence(mut self: &mut Self, first: usize, depth: usize) -> i64 {
+        let mut reservations: [u8;256] = 0; let mut slot: usize = 0;
+        while slot < self.count { reservations[slot] = self.deferred[slot]; slot = slot+1; }
+        let result: i64 = self.sequence_inner(first,depth);
+        slot = 0;
+        while slot < self.count { self.deferred[slot] = reservations[slot]; slot = slot+1; }
+        return result;
+    }
+    pub fn sequence_inner(mut self: &mut Self, first: usize, depth: usize) -> i64 {
         if depth >= 64 { self.error_node = first; return 0; }
         let mut index: usize = first;
         while index != 0 {
             if index >= self.node_count { self.error_node = index; return 0; }
             let node: AstNode = unsafe { *(self.nodes + index) };
             if node.kind == AstKind::DeferStmt {
-                if !self.defer_ownership_free(node.first_child, 0) { self.error_node = index; return 0; }
+                if !self.defer_ownership_free(node.first_child,0) {
+                    if node.first_child == 0 || node.first_child >= self.node_count
+                        || unsafe { (*(self.nodes + node.first_child)).kind } != AstKind::ExprCall { self.error_node = index; return 0; }
+                    let mut before: [u8;256] = 0; let mut slot: usize = 0;
+                    while slot < self.count { before[slot] = self.states[slot]; slot = slot+1; }
+                    if !self.expression(node.first_child,false,0) { return 0; }
+                    slot = 0;
+                    while slot < self.count {
+                        if before[slot] != self.states[slot] { self.fail_reason(index,5); return 0; }
+                        slot = slot+1;
+                    }
+                    if !self.reserve_defer_roots(node.first_child,0) { return 0; }
+                }
             } else if node.kind == AstKind::LetStmt {
                 let mut value: usize = node.first_child;
                 if value != 0 && unsafe { (*(self.nodes + value)).kind } == AstKind::TypeRef { value = unsafe { (*(self.nodes + value)).next_sibling }; }
@@ -4008,7 +4136,7 @@ impl NativeOwnershipCheck {
                 let left: usize = node.first_child;
                 if left == 0 || left >= self.node_count { self.error_node = index; return 0; }
                 let target_node: AstNode = unsafe { *(self.nodes + left) };
-                if self.contains_borrow(left, 0) { self.error_node = left; return 0; }
+                if self.contains_borrow(left, 0) { self.fail_reason(left,3); return 0; }
                 let owner: usize = self.slot(left);
                 if target_node.kind == AstKind::ExprIdent && owner < self.count && self.domains[owner] != 0 {
                     if self.states[owner] == 1 { self.error_node = index; return 0; }

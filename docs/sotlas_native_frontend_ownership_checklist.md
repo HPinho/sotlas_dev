@@ -17,7 +17,9 @@ contracts. Local validation must pass CI before being called certified.
 - [ ] Complete package and module dependency resolution.
 - [ ] Compile modules separately rather than combining their source streams.
 - [ ] Complete contracted type inference and coercions.
+  - [x] Resolve instance-method result types for returns and nested call arguments; reject incompatible results.
 - [ ] Complete methods, receivers and calls outside the current native profile.
+  - [x] Accept internal direct/whisper POD receivers, including Self, and reject receivers naming a different record.
 - [ ] Migrate generic features accepted by the canonical frontend.
 - [ ] Implement payload enums and their native layout.
 - [ ] Implement contracted `match` and selection forms with coverage checking.
@@ -34,6 +36,7 @@ contracts. Local validation must pass CI before being called certified.
   - [x] Boolean array fields preserve POD layout, copying and independent mutation.
   - [x] Initialize fixed scalar array fields with typed lists and nonzero repetition; validate exact field lengths and element ranges.
   - [x] Move, return and borrow exclusive records containing scalar array fields, including recursively nested plain records and independent value storage.
+  - [x] Copy local scalar arrays and scalar array fields into record fields with independent storage and exact element/count checks.
   - [x] Execute local pointer-free record array lists/repetition with independent copies, nested fields, element assignment, calls and record returns.
   - [x] Evaluate repeated record initializers once and copy large arrays in a native loop.
   - [x] Reject incompatible record layouts, owned-value erasure, pointer payloads, literal out-of-range indices and per-declaration storage exhaustion.
@@ -80,6 +83,7 @@ contracts. Local validation must pass CI before being called certified.
   - [x] Native `check` and `compile` report the same syntax errors and preserve existing output on failure.
   - [x] Map combined project compiler positions back to original files, lines and columns after import removal and module reordering.
   - [x] Preserve original source excerpts and previous output artifacts on project syntax/semantic failures.
+  - [x] Report specific moved-value, borrowed-mutation, escape and deferred-reservation causes through the native platform CLIs.
   - [ ] Complete detailed semantic causes, diagnostic context and canonical error parity.
 
 ## Ownership, states, effects and cleanup
@@ -95,11 +99,13 @@ contracts. Local validation must pass CI before being called certified.
   - [x] Merge exclusive states at structured branches and scalar conditional expressions; exclude returned paths.
   - [x] Reject repeated consumption of an outer owner across a loop backedge.
   - [x] Aggregate conditional result transfers preserve exclusive move state and reject domain erasure.
+  - [x] Merge ownership states across runtime Boolean short-circuit operands; statically skipped literal paths preserve the original state.
   - [ ] Complete nested loop jumps and general ownership CFG joins.
 - [ ] Implement transfers through calls, returns, fields and payloads.
   - [x] Internal exclusive POD call, return and binding transfers execute natively.
   - [x] Static and instance method results preserve ownership; qualified consuming calls record the move.
   - [x] Transparent unsafe expressions preserve moves and independent POD value storage.
+  - [x] Convert scalar fields and scalar array elements of qualified POD records without allowing whole-value or pointer escape.
   - [x] Reject domain erasure from owned return values, ordinary assignments, aggregate fields and transparent unsafe expressions.
 - [ ] Implement `shared`, aliases and reference accounts.
 - [ ] Implement retain, release, destroy and drop glue in Sotlas.
@@ -107,12 +113,14 @@ contracts. Local validation must pass CI before being called certified.
 - [ ] Implement `whisper`, reference validity and weak invalidation.
   - [x] Internal POD parameters allow read-only calls and forwarding without consuming their caller's owner.
   - [x] Reject mutation, storage, whole-value return, pointer escape, borrowed-value FFI and borrow/consume overlap in one call.
+  - [x] Execute read-only whisper instance receivers and reserve deferred read calls through lexical cleanup.
   - [ ] Implement stored weak references and runtime invalidation.
 - [ ] Implement `direct`, alias graphs, forwarding and no-escape checking.
   - [x] Execute internal read-only direct POD parameters, direct forwarding and forwarding to whisper without consuming the caller's owner.
   - [x] Pass direct record arguments using their existing storage; preserve DIRECT metadata in actual parsed/lowered IR.
   - [x] Reject mutation, whole-value storage/return, foreign escape, consuming forwarding and borrow/consume overlap.
-  - [ ] Complete instance receivers, stored aliases, general alias graphs/lifetimes and qualified defer captures.
+  - [x] Execute direct instance receivers and reject receiver borrowing that overlaps consumption in another argument.
+  - [ ] Complete stored aliases, general alias graphs/lifetimes and remaining qualified receiver/capture forms.
 - [ ] Implement `island` isolation rules.
 - [ ] Implement contracted `handover` and `quarantine` transitions.
 - [ ] Implement native `device` and `external` contracts.
@@ -126,6 +134,7 @@ contracts. Local validation must pass CI before being called certified.
   - [x] Evaluate scalar/record return values before executing deferred writes.
   - [x] Clean loop-scope defers before break, continue and backedge without cleaning enclosing function defers early.
   - [x] Reject nested defers, nonlocal control transfers, unsupported ownership captures and exhausted defer tables.
+  - [x] Reserve qualified POD roots for read-only deferred calls, reject moves before cleanup and release reservations at lexical exit.
   - [ ] Complete owned captures, ARC/drop interaction, deferred internal loop jumps and error/unwind cleanup.
 - [ ] Migrate effect analysis and propagation.
 - [ ] Migrate `unsafe`, target-capability and foreign-boundary validation.
@@ -222,6 +231,13 @@ capture/drop/unwind integration and a 70% full-list claim remain uncertified.
 
 ## Remaining limits
 
+SV8.44 local evidence: four frontend and four ownership contracts advanced,
+with ten new frontend gates and three platform CLI gates. The full Windows
+suite passed 2,877 tests with 75 platform/toolchain skips in 847.858 seconds.
+All 105 frontend tests passed on Windows, Linux (WSL) and Windows Python
+3.10.11. Linux native CLI, Stage 2/3 identity and Darwin compiler cross-build
+passed three additional gates. macOS runtime and CI certification remain required.
+
 SV8.43 local evidence: the full Windows suite passed 2,864 tests with 73
 platform/toolchain skips in 654.002 seconds. The frontend/Windows-driver run
 passed 110 tests, including native generation identity. All 95 frontend tests
@@ -231,8 +247,8 @@ three additional gates. The public owned-packet example executed on Windows.
 Intel macOS runtime execution and CI certification remain required.
 
 Native ownership analysis currently accepts explicit exclusive qualifiers on
-fixed scalars and pointer-free POD records, and whisper parameters on the same
-POD types. Record parameters use the internal address ABI; scalar parameters
+fixed scalars and pointer-free POD records, and direct/whisper internal
+parameters and matched receivers on the same POD types. Record parameters use the internal address ABI; scalar parameters
 use immutable values. This does not establish a general borrowed-reference ABI.
 Analysis tracks at most 256 bindings and 64 nested analysis levels. Owned fields,
 globals, pointer payloads, custom destructors, shared accounts and heap cleanup
@@ -242,8 +258,11 @@ records and fixed scalar array fields of 1 through 256 elements. Array elements
 must be primitive integers, Boolean values or f32/f64; nested arrays, pointers,
 qualified elements and arrays of records remain rejected. Record field lists
 evaluate elements in source order once; repetition evaluates its value once.
-The existing conservative rejection of casts containing qualified roots still
-applies, including scalar projections. This change does not add resource cleanup.
+Scalar record projections can be converted to scalar values. Whole qualified
+values and array-to-pointer/address escapes remain rejected. Deferred read-only
+calls can capture qualified POD roots; those roots cannot move before lexical
+cleanup. Qualified captures in deferred blocks/assignments and resource cleanup
+remain outside the contract. This does not add ARC or weak-reference storage.
 Transparent unsafe value expressions retain independent POD binding storage.
 Raw-pointer record dereferences retain the existing native record-view path;
 general by-value loads from raw pointers are not certified by these new gates.
