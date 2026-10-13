@@ -2036,6 +2036,16 @@ New native tests cover an accepted read-only direct helper invoked during deferr
 
 **Candidate until CI certification:** do not promote this commit over the green baseline until the full matrix passes. **Next SV8.48b:** explicit typed effect/capability facts propagated toward native call IR and escape-aware foreign-boundary gates. No new sovereignty checkpoint or Python/C reduction percentage is claimed.
 
+### SV8.48b — per-argument ownership capabilities in native Target IR (2026-10-13)
+
+**Certified baseline:** `5e6c8fd343478dac43ab5c0c83f0fc66f86dc820` passed the full Linux/Windows/macOS matrix at [CI #38448890155](https://github.com/HPinho/sotlas_dev/actions/runs/38448890155).
+
+**Change:** Sotlas-written AST lowering now retains typed ownership roles at each native `TargetOpcode::Call` boundary using pre-existing `TargetInstruction.flags` and `immediate_bits` fields, without changing struct layout, calling convention, emitted bytes or Target IR version. For the existing bounded 24-operand native call subset, a compact two-bit role per argument represents 0=plain, 1=sole/exclusive transfer, 2=whisper borrow, 3=direct borrow. Aggregate-return hidden storage receives a plain role; source parameter roles remain in declaration order. Unknown domains fail closed. Call instructions carrying metadata must have exactly the typed-capability flag and zero out-of-range bits, verified in `target_module_validate_cfg` before emission. Legacy manually produced Call instructions with both metadata fields zero remain compatible.
+
+**Acceptance:** positive native x86-64 execution of ordinary, direct and sole parameters in one call graph; aggregate-return sret ABI preserved; static IR contract checks verify metadata placement and shape validation. Existing native self-build, all previous ownership/effect/cleanup gates and platform cross-matrix tests remain unchanged.
+
+**Limits:** in-memory typed call-domain metadata is not yet a complete canonical effect system, runtime ARC/drop, proof of imported-module signatures, or serialization into portable module objects. No reduction in Python or C usage or new sovereignty checkpoint is claimed. **Candidate until this commit's full CI is green**; keep previous green baseline. **Next SV8.48c:** cross-function signature consistency and explicit escape/capability checks at foreign/system call boundaries, or regression repair if CI fails.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test

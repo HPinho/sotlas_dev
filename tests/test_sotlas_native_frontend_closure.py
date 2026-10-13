@@ -298,6 +298,28 @@ let other:sole Token=Token{value:1};
 {defer observe(owner,take(other));}return 42;}'''
         self.compile('sv848_consuming_helper_reject',source,success=False)
 
+    def test_sv848b_target_ir_call_capabilities_preserve_owned_borrowed_and_plain(self):
+        """Native lowering carries source call domains without changing execution."""
+        source='''struct Token{pub value:u32;}
+fn read(value:direct Token)->u32{return value.value;}
+fn consume(value:sole Token)->u32{return value.value;}
+fn sum(a:u32,b:u32)->u32{return a+b;}
+pub fn main_entry()->u32{
+let read_owner:sole Token=Token{value:20};
+let moved_owner:sole Token=Token{value:22};
+let first:u32=read(read_owner);
+return sum(first,consume(moved_owner));}'''
+        self.execute(self.compile('sv848b_call_capability_domains',source))
+
+    def test_sv848b_target_ir_hidden_record_return_keeps_call_abi(self):
+        """SRet hidden pointer stays plain while source parameters retain domains."""
+        source='''struct Token{pub value:u32;}
+fn build(value:u32)->Token{return Token{value:value};}
+fn read(value:direct Token)->u32{return value.value;}
+pub fn main_entry()->u32{
+let value:Token=build(42);return read(value);}'''
+        self.execute(self.compile('sv848b_call_capability_sret',source))
+
     def test_native_short_circuit_ownership_preserves_statically_skipped_owners(self):
         source='''struct Token{pub value:u32;}static mut calls:u32=0;
 fn consume(value:sole Token)->bool{unsafe{calls=calls+1;}return value.value==42;}
