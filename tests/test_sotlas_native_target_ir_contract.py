@@ -87,6 +87,18 @@ class SotlasNativeTargetIRContractTests(unittest.TestCase):
         self.assertIn("call.immediate_bits = call_capabilities;", lowering)
         self.assertIn("(*(self.instructions + self.instruction_count - 1)).immediate_bits = call_capabilities;", lowering)
 
+    def test_sv848b_windows_slashes_unsigned_parity_contract(self):
+        """Equivalent parity without native modulo in nested argv parsing."""
+        path = ROOT / "bootstrap" / "sotlas" / "native_driver" / "windows.sotlas"
+        source = path.read_text(encoding="utf-8")
+        self.assertIn("if (slashes & 1) == 1 {", source)
+        self.assertIn("count = slashes >> 1;", source)
+        self.assertNotIn("count = slashes / 2;", source)
+        self.assertNotIn("slashes % 2", source)
+        for count in range(513):
+            self.assertEqual((count & 1) == 1, count % 2 == 1)
+            self.assertEqual(count >> 1, count // 2)
+
     def test_native_main_has_a_target_ir_entry_point_separate_from_c_emission(self):
         native_root = ROOT / "bootstrap" / "sotlas" / "native_compiler"
         dependency_names = (

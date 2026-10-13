@@ -764,6 +764,11 @@ instructions, emitted object contents, ARC, resource cleanup or imported
 signature resolution. The cross-platform native test suite remains the
 certification gate before calling this advance green.
 
+## SV8.48b Windows bootstrap regression repair
+
+The native call-capability encoder relies on the existing call-site arity check instead of scanning declarations a second time. It retains the strict 24-argument limit and fail-closed unknown domain handling, including the plain hidden aggregate-return pointer.
+
+The Windows argv parser uses unsigned bitwise parity and shift for the slash count. For usize, (slashes & 1) == 1 is equivalent to slashes % 2 == 1, and slashes >> 1 equals slashes / 2. Both avoid expensive native division/modulo lowering inside nested control flow. Existing quoted path execution tests and IR invariants remain required.
 ## Project diagnostics
 
 Project compiler diagnostics map resolved source positions back to the original

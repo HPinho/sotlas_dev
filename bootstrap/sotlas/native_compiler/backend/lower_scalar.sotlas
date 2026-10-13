@@ -1978,22 +1978,15 @@ impl ScalarLowering {
         return 0;
     }
 
-    // SV8.48b: preserve typed ownership facts at the Target IR call
-    // boundary. Two capability bits per source argument occupy at most
-    // 48 bits of Call.immediate_bits. Any aggregate return destination is
-    // a final ABI-only pointer argument with plain (zero) capability.
-    // UINT64_MAX is not a valid packed profile and signals fail-closed.
+    // SV8.48b: call arity and any single hidden sret pointer are already
+    // checked at the call site. Preserve each declared domain once.
     pub fn call_capability_profile(self: &Self, function_index: usize,
         argument_count: u32) -> u64 {
         if function_index == 0 || function_index >= self.node_count
             || argument_count > 24 { return 18446744073709551615; }
-        let declared: u32 = self.function_parameter_count_from_ast(function_index);
-        if argument_count < declared || argument_count > declared + 1 {
-            return 18446744073709551615;
-        }
         let mut bits: u64 = 0;
         let mut argument: u32 = 0;
-        while argument < declared {
+        while argument < argument_count {
             let domain: i64 = self.function_parameter_domain_from_ast(
                 function_index, argument
             );

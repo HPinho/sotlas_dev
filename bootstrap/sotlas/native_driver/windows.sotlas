@@ -1110,7 +1110,7 @@ fn windows_parse_arguments() -> u64 {
                     position = position + 1;
                 }
                 let mut count:usize = slashes;
-                if position < limit && unsafe{*(command + position)} == 34 { count = slashes / 2; }
+                if position < limit && unsafe{*(command + position)} == 34 { count = slashes >> 1; }
                 let mut emitted:usize = 0;
                 while emitted < count {
                     if !windows_append_argument(argument,index,92) { return 0; }
@@ -1118,7 +1118,7 @@ fn windows_parse_arguments() -> u64 {
                     emitted = emitted + 1;
                 }
                 if position < limit && unsafe{*(command + position)} == 34 {
-                    if slashes % 2 == 1 {
+                    if (slashes & 1) == 1 {
                         if !windows_append_argument(argument,index,34) { return 0; }
                         index = index + 1;
                     } else { quoted = !quoted; }
