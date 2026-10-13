@@ -94,6 +94,48 @@ fn consume(value:sole Token)->u32{return value.value;}'''
             self.compile('deferred_borrow_move_'+str(index),prefix+
                 'pub fn main_entry()->u32{let value:sole Token=Token{value:42};'+body+'}',success=False)
 
+    def test_native_owned_defer_blocks_execute_checked_read_calls_in_order(self):
+        """A native deferred block may read qualified POD owners without moving them."""
+        source='''struct Token{pub value:u32;}static mut total:u32=0;
+fn observe(value:direct Token)->void{unsafe{total=total*10+value.value;}}
+fn consume(value:sole Token)->u32{return value.value;}
+pub fn main_entry()->u32{let mut value:sole Token=Token{value:1};
+{defer{observe(value);observe(value);}value.value=4;}
+if unsafe{total}!=44{return 1;}
+let moved:sole Token=value;return consume(moved)+38;}'''
+        self.execute(self.compile('owned_defer_block_two_calls',source))
+
+    def test_native_owned_defer_blocks_preserve_lifo_and_scope_release(self):
+        """Block cleanup remains LIFO with ordinary defers; moves resume after exit."""
+        source='''struct Token{pub value:u32;}static mut order:u32=0;
+fn observe(value:whisper Token)->void{unsafe{order=order*10+value.value;}}
+pub fn main_entry()->u32{let value:sole Token=Token{value:2};
+{defer{observe(value);observe(value);}defer observe(value);}
+if unsafe{order}!=222{return 1;}
+let moved:sole Token=value;return moved.value+40;}'''
+        self.execute(self.compile('owned_defer_block_lifo',source))
+
+    def test_native_owned_defer_blocks_reject_consumption_mutation_and_noncall_payloads(self):
+        """Unsupported owned captures cannot masquerade as safe deferred blocks."""
+        prefix='''struct Token{pub value:u32;}
+fn observe(value:direct Token)->void{return;}
+fn consume(value:sole Token)->u32{return value.value;}'''
+        cases=(
+            'defer{observe(value);consume(value);}return 42;',
+            'defer{observe(value);value.value=9;}return 42;',
+            'defer{observe(value);}let other:sole Token=value;return 42;',
+            'defer{observe(value);}return consume(value);',
+            'defer{consume(value);}return 42;',
+            'defer{if true{observe(value);}}return 42;',
+            'defer{observe(value);defer observe(value);}return 42;',
+            'defer{let copy:Token=value;}return 42;',
+        )
+        for index,body in enumerate(cases):
+            with self.subTest(index=index):
+                self.compile('owned_defer_block_reject_'+str(index),prefix+
+                    'pub fn main_entry()->u32{let mut value:sole Token=Token{value:42};'+body+'}',
+                    success=False)
+
     def test_native_short_circuit_ownership_preserves_statically_skipped_owners(self):
         source='''struct Token{pub value:u32;}static mut calls:u32=0;
 fn consume(value:sole Token)->bool{unsafe{calls=calls+1;}return value.value==42;}

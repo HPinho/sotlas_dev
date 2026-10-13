@@ -653,8 +653,12 @@ return/break/continue inside a deferred payload, deferred error propagation,
 bare-name cleanup and qualified declarations in deferred payloads are rejected.
 Read-only calls may capture qualified POD roots. The verifier reserves those
 roots until lexical cleanup and rejects intervening moves or consuming calls.
-Deferred blocks/assignments with qualified captures remain rejected. This
-contract does not provide ARC/drop integration or unwind.
+Qualified POD roots can also be borrowed by a bounded deferred block
+containing only direct, non-owning calls. Those calls execute in source order
+during cleanup while defer registrations remain LIFO; moves remain prohibited
+until the lexical scope exits. Deferred assignments, nested defers, owned-value
+copies, arbitrary statements and general qualified captures remain rejected.
+This contract does not provide ARC/drop integration or unwind.
 
 ## Project diagnostics
 
