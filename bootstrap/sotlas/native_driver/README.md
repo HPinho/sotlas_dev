@@ -769,6 +769,17 @@ certification gate before calling this advance green.
 The native call-capability encoder relies on the existing call-site arity check instead of scanning declarations a second time. It retains the strict 24-argument limit and fail-closed unknown domain handling, including the plain hidden aggregate-return pointer.
 
 The Windows argv parser uses unsigned bitwise parity and shift for the slash count. For usize, (slashes & 1) == 1 is equivalent to slashes % 2 == 1, and slashes >> 1 equals slashes / 2. Both avoid expensive native division/modulo lowering inside nested control flow. Existing quoted path execution tests and IR invariants remain required.
+## SV8.48b native Stage1 IR headroom
+
+The self-hosting Stage1 now allocates 131,072 TargetValue slots, 262,144
+TargetInstruction slots, 524,288 TargetOperand slots, and 65,536 TargetBlock
+slots, with the same bounds enforced by the native IR builder. This prepares
+for large combined-module cross-builds such as the Windows file driver and
+does not change the language, parser capacity, ABI, ownership validation or
+emitted Target IR format. Capacity constants are required to match their
+actual static backing arrays by a dedicated contract gate. The full matrix
+must succeed before treating this as a certified fix.
+
 ## Project diagnostics
 
 Project compiler diagnostics map resolved source positions back to the original
