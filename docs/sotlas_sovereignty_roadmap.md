@@ -2017,6 +2017,15 @@ All existing tests are retained; a new explicit positive regression gate checks 
 
 **Certification remains pending:** last full green baseline is `b497a22a41852d8723de34ece67a24c86532a711` ([CI #38397024494](https://github.com/HPinho/sotlas_dev/actions/runs/38397024494)). Do not move it until the new matrix is completely green; keep SV8.48 pending. This repair does not change the claimed sovereignty checkpoint count or the Python/C dependency reduction.
 
+### SV8.47 regression root cause: direct-borrow storage into a global (2026-10-13)
+
+[CI #38419894158](https://github.com/HPinho/sotlas_dev/actions/runs/38419894158) on `d7a8d9bd9ab8292baae50eb0892363452a46d5a1` has exactly one failing test across every Linux, Windows and Intel macOS Python matrix job: `test_sv847_ownership_projected_defer_reservation_and_scope_release`. The returned error **line 3, column 42** did not follow any of the earlier inline-array/array-local setup changes. Crucial diagnostic interpretation: `NativeI32Tests.compile` *prepends* `module probe;
+` to the source string. Thus the diagnostic points to `v` in `fn read(v:direct u32)->void{unsafe{total=v;}}`, **not** to the array initializer that sits on the third line of the test's own string. The three previous attempted source-setup changes did not address this node.
+
+**Corrective semantics:** a `direct u32` parameter is an active borrowed alias and may not escape by being stored verbatim in the global `total`. The native ownership analyzer correctly fails closed because the RHS has a nonzero borrow domain; lowering should not suppress that rejection. The test only needs an independent scalar snapshot: `unsafe{total=total+v;}` computes a plain scalar result, stores that result and still records the updated value seen when the `defer` runs. Preserve the accepted *borrowed indexed argument*, update-before-cleanup, expected `total==42`, post-scope move and the negative move-before-cleanup test. Add a separate negative test that `unsafe{total=v;}` in the same direct-deferred context stays rejected. Existing native code and all other acceptance gates remain intact.
+
+**Status:** candidate single-commit fix; success not asserted before full CI. The last certified green baseline remains `b497a22a41852d8723de34ece67a24c86532a711` / [CI #38397024494](https://github.com/HPinho/sotlas_dev/actions/runs/38397024494). Continue to SV8.48 only after green. No Python/C-elimination percentage or sovereignty checkpoint is advanced.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test

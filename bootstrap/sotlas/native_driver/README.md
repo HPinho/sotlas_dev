@@ -690,6 +690,19 @@ Embedding an array-list literal directly into the same record initializer is
 tracked as a separate validation gap instead of silently treating a
 type-error during test setup as a `defer`-ownership failure.
 
+### SV8.47 direct-borrow cleanup regression — corrected error position
+
+In `NativeI32Tests.compile`, an extra `module probe;` line precedes the supplied source.
+The recurring error at line 3, column 42 consequently pointed to the RHS
+`v` in `unsafe{total=v;}`, not the record/array initializer. Storing
+a `direct u32` alias into a global is correctly rejected by the native
+ownership checker. To record the borrowed scalar's *value* during cleanup,
+the checked positive test stores an independent computed scalar:
+`unsafe{total=total+v;}`. A new negative gate preserves rejection of
+the original direct alias storage. Indexed projection, lexical defer
+registration, observation of the updated value, permitted post-scope move and
+rejection of premature moves all remain in place.
+
 ## SV8.47 regression note
 
 Resolved internal scalar calls return independent values, not borrow aliases of
