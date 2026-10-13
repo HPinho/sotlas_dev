@@ -677,6 +677,17 @@ remains legal. Ownership moves stay prohibited until lexical cleanup. Existing
 ownership-free defers and the LIFO/source-order contract are unchanged.
 This is not general effect inference, ARC, drop glue, or unwind handling.
 
+## SV8.47 regression note
+
+Resolved internal scalar calls return independent values, not borrow aliases of
+their argument owners. The checker must retain owner roots for direct indexed
+and conditional references but must not carry those roots through the already
+checked independent scalar return. The lexical pure-name verifier uses bounded,
+shared local/parameter scanning to avoid unnecessary native codegen growth.
+The deferred indexed-array test constructs a plain value before transferring
+it into a mutable sole owner, preserving the scope-reservation contract.
+The last certified CI remains the SV8.46 green run until all platforms pass.
+
 ## SV8.47 — checked effect names and projected borrow roots
 
 The native effect checker resolves a deferred helper's argument identifiers to

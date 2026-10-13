@@ -3821,7 +3821,22 @@ impl NativeOwnershipCheck {
                 && self.collect_borrow_roots(yes, mask, depth + 1)
                 && self.collect_borrow_roots(no, mask, depth + 1);
         }
-        // Opaque owner-bearing expressions are not proven borrowed views.
+        // A resolved internal call produces its own scalar result. Its
+        // receiver/arguments were checked by expression() before the outer
+        // call consumes anything; they are not stored borrows of that result.
+        if node.kind == AstKind::ExprCall && self.expression_domain(index) == 0 {
+            let mut sem: Sema = Sema::new();
+            let result: usize = sem.infer_expression_type_ref(
+                self.nodes,self.node_count,index,self.source,self.source_len
+            );
+            if result == 0 || result >= self.node_count
+                || sem.is_pointer_type_ref(
+                    self.nodes,self.node_count,result,self.source,self.source_len
+                ) { return false; }
+            let typ: AstNode = unsafe { *(self.nodes + result) };
+            return typ.kind == AstKind::TypeRef && typ.int_value == 0;
+        }
+        // All other opaque owner-bearing expressions fail closed.
         return !self.contains_owner(index, depth + 1);
     }
 
@@ -3868,52 +3883,20 @@ impl NativeOwnershipCheck {
         return true;
     }
 
-    // SV8.47: effect-free names are parameters or lexical local declarations
-    // preceding the reference. Global, out-of-scope and unknown sources do not
-    // silently inherit purity. Qualified paths are resolved as calls instead.
+    // Reuse the canonical lexical resolver instead of a second scoping
+    // algorithm. Module globals are excluded from pure deferred arguments.
     pub fn deferred_effect_local(self: &Self, index: usize) -> bool {
         if index == 0 || index >= self.node_count { return false; }
-        let reference: AstNode = unsafe { *(self.nodes + index) };
-        if reference.kind != AstKind::ExprIdent { return false; }
         let mut sem: Sema = Sema::new();
-        let mut ancestor: usize = reference.parent;
-        let mut depth: usize = 0;
-        while ancestor != 0 {
-            if ancestor >= self.node_count || depth >= 64 { return false; }
-            let scope: AstNode = unsafe { *(self.nodes + ancestor) };
-            if scope.kind == AstKind::Block || scope.kind == AstKind::UnsafeBlock {
-                let mut sibling: usize = scope.first_child;
-                let mut examined: usize = 0;
-                while sibling != 0 {
-                    if sibling >= self.node_count || examined >= self.node_count { return false; }
-                    let binding: AstNode = unsafe { *(self.nodes + sibling) };
-                    if binding.kind == AstKind::LetStmt && binding.span.offset < reference.span.offset
-                        && sem.same_source_text(self.source,self.source_len,reference,binding) {
-                        return true;
-                    }
-                    sibling = binding.next_sibling;
-                    examined = examined + 1;
-                }
-            }
-            if scope.kind == AstKind::FnDecl {
-                let mut sibling: usize = scope.first_child;
-                let mut examined: usize = 0;
-                while sibling != 0 {
-                    if sibling >= self.node_count || examined >= self.node_count { return false; }
-                    let parameter: AstNode = unsafe { *(self.nodes + sibling) };
-                    if parameter.kind == AstKind::ParamDecl
-                        && sem.same_source_text(self.source,self.source_len,reference,parameter) {
-                        return true;
-                    }
-                    sibling = parameter.next_sibling;
-                    examined = examined + 1;
-                }
-                return false;
-            }
-            ancestor = scope.parent;
-            depth = depth + 1;
-        }
-        return false;
+        let binding: usize = sem.find_visible_binding(
+            self.nodes,self.node_count,index,self.source,self.source_len
+        );
+        if binding == 0 || binding >= self.node_count { return false; }
+        let node: AstNode = unsafe { *(self.nodes + binding) };
+        if node.kind == AstKind::ParamDecl { return true; }
+        if node.kind != AstKind::LetStmt || node.parent == 0
+            || node.parent >= self.node_count { return false; }
+        return unsafe { (*(self.nodes + node.parent)).kind } != AstKind::Module;
     }
 
     // SV8.46: only argument computations of an owned deferred borrow are
