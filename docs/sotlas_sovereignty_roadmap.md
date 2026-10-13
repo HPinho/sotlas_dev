@@ -2007,6 +2007,16 @@ These are **partial subcontracts** of open items, not eight complete parent feat
 
 All existing tests are retained; a new explicit positive regression gate checks that a typed static result does not retain the original owner's borrow. **Previous certified baseline remains `b497a22a41852d8723de34ece67a24c86532a711` / [CI #38397024494](https://github.com/HPinho/sotlas_dev/actions/runs/38397024494). Do not promote this fix until the full CI matrix is green. **Next SV item remains SV8.48**; Python/C removal percentages are unchanged.
 
+### SV8.47 CI #38413498370: isolated remaining array-field setup (2026-10-13)
+
+[CI run #38413498370](https://github.com/HPinho/sotlas_dev/actions/runs/38413498370) on `9953faa2c7d138634e15d67aae6a07abead48f41` reports one failed test in each completed Linux, Windows and Intel macOS matrix job: `test_sv847_ownership_projected_defer_reservation_and_scope_release`. The other old regression gates, native Windows driver compilation, static/direct scalar result tests and Stage 2/3 checks passed. The failure is a deterministic native compile exit 10 at source line 3, column 42: the test's plain-typed record initializer used a direct array-list expression for the record's field. The exact phase behind that token-level error remains unverified; it is not evidence that the deferred indexed read itself failed.
+
+**Single-test setup isolation (no acceptance weakening):** use the independently certified array-local list initializer followed by record-field value copy (`let values:[u32;2]=[20,21]; let source:Packet=Packet{values:values}; let mut owner:sole Packet=source;`). The failing test still must compile and run the *same* deferred indexed owner projection, update its underlying element before cleanup, observe the updated element, transfer the entire owner after scope exit and reject a move before cleanup. The already green `test_native_array_fields_copy_local_and_record_arrays_independently` separately checks array-local initialization, independent field storage and mutations; it is retained unchanged as the setup gate. **No existing test is deleted and no previously positive effect or ownership case is changed to a negative expectation.**
+
+**Outstanding gap:** direct inline array-list initializers embedded in POD record fields in the combination seen above are not certified by this run; test and implement that exact construction separately before calling it complete. This is not a justification for silently weakening general array initializer rules.
+
+**Certification remains pending:** last full green baseline is `b497a22a41852d8723de34ece67a24c86532a711` ([CI #38397024494](https://github.com/HPinho/sotlas_dev/actions/runs/38397024494)). Do not move it until the new matrix is completely green; keep SV8.48 pending. This repair does not change the claimed sovereignty checkpoint count or the Python/C dependency reduction.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test

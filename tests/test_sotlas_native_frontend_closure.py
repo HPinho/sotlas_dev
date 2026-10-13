@@ -247,7 +247,8 @@ return number(Token::read(owner));}'''
         """Projecting an array field retains its owner through lexical cleanup."""
         source='''struct Packet{pub values:[u32;2];}static mut total:u32=0;
 fn read(v:direct u32)->void{unsafe{total=v;}}
-pub fn main_entry()->u32{let source:Packet=Packet{values:[20,21]};
+pub fn main_entry()->u32{let values:[u32;2]=[20,21];
+let source:Packet=Packet{values:values};
 let mut owner:sole Packet=source;
 {defer read(owner.values[1]);owner.values[1]=42;}
 if unsafe{total}!=42{return 1;}

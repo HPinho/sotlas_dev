@@ -677,6 +677,19 @@ remains legal. Ownership moves stay prohibited until lexical cleanup. Existing
 ownership-free defers and the LIFO/source-order contract are unchanged.
 This is not general effect inference, ARC, drop glue, or unwind handling.
 
+### SV8.47 regression clarification — field-array setup
+
+The native projected-`defer` acceptance gate now constructs its
+two-element array through a verified local array-list initializer, copies
+that value independently into a POD record field, then transfers the
+record to a mutable sole owner. Both steps have explicit native execution
+coverage. The deferred indexed read and its reservation, before-cleanup
+mutation, after-cleanup move and premature-move rejection are unchanged.
+
+Embedding an array-list literal directly into the same record initializer is
+tracked as a separate validation gap instead of silently treating a
+type-error during test setup as a `defer`-ownership failure.
+
 ## SV8.47 regression note
 
 Resolved internal scalar calls return independent values, not borrow aliases of
