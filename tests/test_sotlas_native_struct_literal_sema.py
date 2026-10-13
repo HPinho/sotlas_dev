@@ -170,7 +170,9 @@ int main(void) {
     if (expect_semantic_failure_at("missing_field", missing_field, 3) != 0) return 7;
     if (expect_semantic_failure_at("nested_type_mismatch", nested_type_mismatch, 5) != 0) return 8;
     if (expect_semantic_failure_at("array_count_mismatch", array_count_mismatch, 3) != 0) return 9;
-    if (expect_semantic_failure_at("array_nonzero_repeat", array_nonzero_repeat, 3) != 0) return 10;
+    // Native object lowering now executes typed nonzero field repetition.
+    // The optional legacy C emitter still refuses this source shape.
+    if (expect_emitter_boundary("array_nonzero_repeat", array_nonzero_repeat) != 0) return 10;
     if (expect_semantic_failure_at("return_type_mismatch", return_type_mismatch, 4) != 0) return 11;
     return 0;
 }

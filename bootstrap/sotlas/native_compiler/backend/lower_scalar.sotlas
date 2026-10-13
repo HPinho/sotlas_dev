@@ -3264,6 +3264,23 @@ impl ScalarLowering {
                     }
                     if self.field_byte_counts[f_idx] != 0 {
                         let repeat: AstNode = unsafe { *(self.nodes + val_expr_index) };
+                        if repeat.kind == AstKind::ExprArrayLiteral {
+                            let array_type: TargetTypeTag = self.field_array_types[f_idx] as TargetTypeTag;
+                            let stride: u32 = self.scalar_memory_size(array_type);
+                            let mut element: usize = repeat.first_child;
+                            let mut position: u32 = 0;
+                            while element != 0 {
+                                if element >= self.node_count || position >= self.field_byte_counts[f_idx] { return 0; }
+                                let value: u32 = self.lower_expression(element, array_type, first_parameter, parameter_count);
+                                if value == 0 || !self.cfg_store(ptr_value, value, array_type, element) { return 0; }
+                                unsafe { (*(self.instructions + self.instruction_count - 1)).immediate_bits = (f_offset + position * stride) as u64; }
+                                position = position + 1;
+                                element = unsafe { (*(self.nodes + element)).next_sibling };
+                            }
+                            if position != self.field_byte_counts[f_idx] { return 0; }
+                            init_index = init_node.next_sibling;
+                            continue;
+                        }
                         if repeat.kind != AstKind::ExprArrayRepeat || repeat.first_child == 0 { return 0; }
                         let repeat_value: AstNode = unsafe { *(self.nodes + repeat.first_child) };
                         let count_value: u32 = self.lower_integer_literal(repeat_value.next_sibling, TargetTypeTag::U32);

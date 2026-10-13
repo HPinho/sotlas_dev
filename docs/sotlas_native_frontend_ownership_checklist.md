@@ -32,6 +32,8 @@ contracts. Local validation must pass CI before being called certified.
   - [x] Repetition evaluates its value once; large arrays use a bounded native fill loop.
   - [x] Boolean arrays participate in native conditions and indexed reads.
   - [x] Boolean array fields preserve POD layout, copying and independent mutation.
+  - [x] Initialize fixed scalar array fields with typed lists and nonzero repetition; validate exact field lengths and element ranges.
+  - [x] Move, return and borrow exclusive records containing scalar array fields, including recursively nested plain records and independent value storage.
   - [x] Execute local pointer-free record array lists/repetition with independent copies, nested fields, element assignment, calls and record returns.
   - [x] Evaluate repeated record initializers once and copy large arrays in a native loop.
   - [x] Reject incompatible record layouts, owned-value erasure, pointer payloads, literal out-of-range indices and per-declaration storage exhaustion.
@@ -220,6 +222,14 @@ capture/drop/unwind integration and a 70% full-list claim remain uncertified.
 
 ## Remaining limits
 
+SV8.43 local evidence: the full Windows suite passed 2,864 tests with 73
+platform/toolchain skips in 654.002 seconds. The frontend/Windows-driver run
+passed 110 tests, including native generation identity. All 95 frontend tests
+passed on Linux (WSL) and Windows Python 3.10.11. Linux native CLI execution,
+original-source generation identity and Darwin compiler cross-build passed
+three additional gates. The public owned-packet example executed on Windows.
+Intel macOS runtime execution and CI certification remain required.
+
 Native ownership analysis currently accepts explicit exclusive qualifiers on
 fixed scalars and pointer-free POD records, and whisper parameters on the same
 POD types. Record parameters use the internal address ABI; scalar parameters
@@ -228,7 +238,12 @@ Analysis tracks at most 256 bindings and 64 nested analysis levels. Owned fields
 globals, pointer payloads, custom destructors, shared accounts and heap cleanup
 remain outside this contract. Unsupported domains are rejected semantically.
 Owned record fields are limited to fixed scalars and recursively nested plain
-records; array fields remain outside the ownership profile.
+records and fixed scalar array fields of 1 through 256 elements. Array elements
+must be primitive integers, Boolean values or f32/f64; nested arrays, pointers,
+qualified elements and arrays of records remain rejected. Record field lists
+evaluate elements in source order once; repetition evaluates its value once.
+The existing conservative rejection of casts containing qualified roots still
+applies, including scalar projections. This change does not add resource cleanup.
 Transparent unsafe value expressions retain independent POD binding storage.
 Raw-pointer record dereferences retain the existing native record-view path;
 general by-value loads from raw pointers are not certified by these new gates.

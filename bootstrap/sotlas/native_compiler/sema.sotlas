@@ -170,6 +170,53 @@ impl Sema {
         return false;
     }
 
+    // Fixed scalar arrays contain no aliases or resource handles. Keep this
+    // field-only contract aligned with the native record layout's 256 limit.
+    pub fn ownership_pod_array(self: &Self, node: AstNode,
+        source: *const u8, source_len: usize) -> bool {
+        if source == null || node.str_offset > source_len
+            || node.str_len > source_len - node.str_offset || node.str_len < 5 { return false; }
+        let end: usize = node.str_offset + node.str_len;
+        let mut cursor: usize = node.str_offset;
+        if unsafe { *(source + cursor) } != 91 { return false; }
+        cursor = cursor + 1;
+        while cursor < end && unsafe { *(source + cursor) } == 32 { cursor = cursor + 1; }
+        let start: usize = cursor;
+        while cursor < end && unsafe { *(source + cursor) } != 59 { cursor = cursor + 1; }
+        if cursor == end { return false; }
+        let mut type_end: usize = cursor;
+        while type_end > start && unsafe { *(source + type_end - 1) } == 32 { type_end = type_end - 1; }
+        let length: usize = type_end - start;
+        let scalar: bool = self.source_slice_equals(source,source_len,start,length,"bool",4)
+            || self.source_slice_equals(source,source_len,start,length,"u8",2)
+            || self.source_slice_equals(source,source_len,start,length,"i8",2)
+            || self.source_slice_equals(source,source_len,start,length,"u16",3)
+            || self.source_slice_equals(source,source_len,start,length,"i16",3)
+            || self.source_slice_equals(source,source_len,start,length,"u32",3)
+            || self.source_slice_equals(source,source_len,start,length,"i32",3)
+            || self.source_slice_equals(source,source_len,start,length,"u64",3)
+            || self.source_slice_equals(source,source_len,start,length,"i64",3)
+            || self.source_slice_equals(source,source_len,start,length,"usize",5)
+            || self.source_slice_equals(source,source_len,start,length,"isize",5)
+            || self.source_slice_equals(source,source_len,start,length,"f32",3)
+            || self.source_slice_equals(source,source_len,start,length,"f64",3);
+        if !scalar { return false; }
+        cursor = cursor + 1;
+        while cursor < end && unsafe { *(source + cursor) } == 32 { cursor = cursor + 1; }
+        let digits: usize = cursor;
+        let mut count: usize = 0;
+        while cursor < end {
+            let ch: u8 = unsafe { *(source + cursor) };
+            if ch < 48 || ch > 57 { break; }
+            count = count * 10 + (ch - 48) as usize;
+            if count > 256 { return false; }
+            cursor = cursor + 1;
+        }
+        if cursor == digits || count == 0 { return false; }
+        while cursor < end && unsafe { *(source + cursor) } == 32 { cursor = cursor + 1; }
+        return cursor + 1 == end && unsafe { *(source + cursor) } == 93;
+    }
+
     pub fn ownership_pod_type(self: &Self, nodes: *const AstNode,
         node_count: usize, typ: usize, source: *const u8, source_len: usize, depth: usize) -> bool {
         if typ == 0 || typ >= node_count || depth >= 32 { return false; }
@@ -188,7 +235,8 @@ impl Sema {
                     let member: AstNode = unsafe { *(nodes + field) };
                     if member.first_child == 0 || member.first_child >= node_count
                         || unsafe { (*(nodes + member.first_child)).int_value } != 0
-                        || !self.ownership_pod_type(nodes, node_count, member.first_child, source, source_len, depth + 1) { return false; }
+                        || (!self.ownership_pod_array(unsafe { *(nodes + member.first_child) }, source, source_len)
+                            && !self.ownership_pod_type(nodes, node_count, member.first_child, source, source_len, depth + 1)) { return false; }
                     field = member.next_sibling;
                 }
                 return true;
@@ -2228,8 +2276,8 @@ impl Sema {
         }
         let field: AstNode = unsafe { *(nodes + field_index) };
         if field.first_child == 0 || field.first_child >= node_count
-            || !self.fixed_array_type_matches_zero_repeat(
-                nodes, node_count, field.first_child, repeat_index, source, source_len
+            || !self.fixed_array_type_matches_repeat(
+                nodes, node_count, field.first_child, repeat_index, source, source_len, false
             ) {
             return self.reject_node(repeat);
         }
@@ -2335,9 +2383,15 @@ impl Sema {
                 ) {
                     return false;
                 }
+            } else if value.kind == AstKind::ExprArrayLiteral {
+                if !self.ownership_pod_array(unsafe { *(nodes + type_index) }, source, source_len) {
+                    return self.reject_node(value);
+                }
+                // Lowering checks the list length and every element against
+                // the declared scalar field type before object emission.
             } else if value.kind == AstKind::ExprArrayRepeat {
-                if !self.fixed_array_type_matches_zero_repeat(
-                    nodes, node_count, type_index, value_index, source, source_len
+                if !self.fixed_array_type_matches_repeat(
+                    nodes, node_count, type_index, value_index, source, source_len, false
                 ) {
                     return self.reject_node(value);
                 }
@@ -2874,9 +2928,21 @@ impl Sema {
             if expression.first_child == 0 || expression.first_child >= node_count {
                 return 0;
             }
-            return self.infer_expression_type_ref(
+            let array_index: usize = self.infer_expression_type_ref(
                 nodes, node_count, expression.first_child, source, source_len
             );
+            if array_index == 0 || array_index >= node_count { return 0; }
+            let array_type: AstNode = unsafe { *(nodes + array_index) };
+            // An indexed value has the element type, not the container type.
+            // Reuse an existing TypeRef identity; do not mutate the source AST.
+            let mut candidate: usize = 1;
+            while candidate < node_count {
+                let element: AstNode = unsafe { *(nodes + candidate) };
+                if element.kind == AstKind::TypeRef && element.int_value == 0
+                    && self.indexed_element_matches(source, source_len, array_type, element) { return candidate; }
+                candidate = candidate + 1;
+            }
+            return array_index;
         }
         if expression.kind == AstKind::ExprUnary {
             if expression.int_value == 98 {
