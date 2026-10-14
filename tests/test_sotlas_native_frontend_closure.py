@@ -848,7 +848,7 @@ return consume(owner);}''',
                 self.execute(self.compile('sv849a_uniform_jump_'+str(index),prefix+body))
 
     def test_sv849a_native_owned_loop_jump_states_fail_closed(self):
-        """Reject conditional moved owners, backedge moves and mixed exits."""
+        """Reject conditional moved owners, backedge moves and opaque exits."""
         prefix='''struct Token{pub value:u32;}
 fn consume(value:sole Token)->u32{return value.value;}'''
         cases=(
@@ -864,11 +864,11 @@ let owner:sole Token=Token{value:42};let mut count:u32=0;
 while count<3{count=count+1;
 if count==1{let moved:sole Token=owner;continue;}else{continue;}}
 return 42;}''',
-            # Mixed break/continue paths need general per-edge states.
+            # A consumed condition cannot feed a live continue backedge.
             '''pub fn main_entry()->u32{
 let owner:sole Token=Token{value:42};let mut count:u32=0;
 while count<3{count=count+1;
-if count==1{break;}else{continue;}}
+if consume(owner)==42{break;}else{continue;}}
 return consume(owner);}''',
             # An implicit fallthrough arm is not a uniform loop exit.
             '''pub fn main_entry()->u32{
@@ -887,6 +887,12 @@ return consume(owner);}''',
         prefix='''struct Token{pub value:u32;}
 fn consume(value:sole Token)->u32{return value.value;}'''
         cases=(
+            # Exact former SV8.49a rejection: SV8.49b proves both states live.
+            '''pub fn main_entry()->u32{
+let owner:sole Token=Token{value:42};let mut count:u32=0;
+while count<3{count=count+1;
+if count==1{break;}else{continue;}}
+return consume(owner);}''',
             '''pub fn main_entry()->u32{
 let owner:sole Token=Token{value:42};let mut count:u32=0;
 while count<4{count=count+1;
@@ -950,6 +956,61 @@ return consume(owner);}''',
             with self.subTest(index=index):
                 self.compile('sv849b_mixed_owned_reject_'+str(index),
                     prefix+body,success=False)
+
+    def test_sv849c_break_only_consumption_executes_on_both_branch_orders(self):
+        prefix='''struct Token{pub value:u32;}static mut calls:u32=0;
+fn consume(value:sole Token)->void{unsafe{calls=calls+1;}}
+fn read(value:direct Token)->u32{return value.value;}'''
+        for index,body in enumerate((
+            'if count==2{consume(owner);break;}else{if read(owner)!=42{return 1;}continue;}',
+            'if count<2{if read(owner)!=42{return 1;}continue;}else{consume(owner);break;}',
+        )):
+            source=prefix+'pub fn main_entry()->u32{let owner:sole Token=Token{value:42};let mut count:u32=0;'
+            source+='while count<3{count=count+1;'+body+'}if unsafe{calls}!=1{return 2;}return 42;}'
+            self.execute(self.compile('sv849c_break_consume_'+str(index),source))
+
+    def test_sv849c_match_loop_edges_execute_and_cleanup_once(self):
+        source='''struct Token{pub value:u32;}static mut trace:u32=0;
+fn observe(value:direct Token)->void{unsafe{trace=trace*10+value.value;}}
+fn consume(value:sole Token)->void{return;}
+pub fn main_entry()->u32{let owner:sole Token=Token{value:42};let witness:sole Token=Token{value:2};
+let mut count:u32=0;while count<3{count=count+1;match count{
+1=>{defer observe(witness);continue;},_=>{defer observe(witness);consume(owner);break;}}}
+if unsafe{trace}!=22{return 1;}return 42;}'''
+        self.execute(self.compile('sv849c_match_owned_edges',source))
+
+    def test_sv849c_uniform_match_loop_exits_preserve_live_owners(self):
+        prefix='struct Token{pub value:u32;}fn consume(value:sole Token)->u32{return value.value;}'
+        for index,jump in enumerate(('break','continue')):
+            source=prefix+'pub fn main_entry()->u32{let owner:sole Token=Token{value:42};let mut count:u32=0;'
+            source+='while count<3{count=count+1;match count{1=>{'+jump+';},_=>{'+jump+';}}}return consume(owner);}'
+            self.execute(self.compile('sv849c_uniform_match_'+str(index),source))
+
+    def test_sv849c_nested_loop_exit_summaries_do_not_leak(self):
+        source='''struct Token{pub value:u32;}static mut calls:u32=0;
+fn consume(value:sole Token)->void{unsafe{calls=calls+1;}}
+pub fn main_entry()->u32{let outer:sole Token=Token{value:42};let mut count:u32=0;
+while count<2{count=count+1;let inner:sole Token=Token{value:1};let mut step:u32=0;
+while step<2{step=step+1;if step==1{continue;}else{consume(inner);break;}}
+if count==1{continue;}else{consume(outer);break;}}
+if unsafe{calls}!=3{return 1;}return 42;}'''
+        self.execute(self.compile('sv849c_nested_edge_summaries',source))
+
+    def test_sv849c_consumed_exit_and_continue_paths_fail_closed(self):
+        prefix='struct Token{pub value:u32;}fn consume(value:sole Token)->void{return;}'
+        cases=(
+            'if count==1{consume(owner);break;}else{continue;}',
+            'if count==1{continue;}else{consume(owner);break;}',
+            'match count{1=>{consume(owner);break;},_=>{continue;}}',
+            'match count{1=>{continue;},_=>{consume(owner);break;}}',
+            'match count{1=>{consume(owner);continue;},_=>{break;}}',
+            'match count{1=>{break;},_=>{consume(owner);continue;}}',
+            'match count{1=>{break;},_=>{count=count+1;}}',
+        )
+        for index,body in enumerate(cases):
+            self.compile('sv849c_edge_state_reject_'+str(index),prefix+
+                'pub fn main_entry()->u32{let owner:sole Token=Token{value:42};let mut count:u32=0;'
+                'while count<3{count=count+1;'+body+'}return owner.value;}',success=False)
 
     def test_native_defer_loop_jumps_cleanup_once_before_backedge(self):
         source='''static mut trace:u32=0;fn append(value:u32)->void{unsafe{trace=trace*10+value;}}

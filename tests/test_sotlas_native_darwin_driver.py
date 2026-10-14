@@ -15,6 +15,24 @@ MAC_X64 = sys.platform == "darwin" and platform.machine().lower() in ("x86_64", 
 class NativeDarwinDriverTests(unittest.TestCase):
 
     @unittest.skipUnless(MAC_X64, "requires native platform execution")
+    def test_native_sv849c_loop_exit_states_and_cleanup(self):
+        source = self.directory / 'loop_edge_states.sotlas'
+        output = self.directory / 'loop_edge_states_image'
+        source.write_text('module probe;struct Token{pub value:u32;}static mut trace:u32=0;\nfn observe(value:direct Token)->void{unsafe{trace=trace*10+value.value;}}\nfn consume(value:sole Token)->void{return;}\npub fn main_entry()->u32{let owner:sole Token=Token{value:42};let witness:sole Token=Token{value:2};\nlet mut count:u32=0;while count<3{count=count+1;match count{\n1=>{defer observe(witness);continue;},_=>{defer observe(witness);consume(owner);break;}}}\nif unsafe{trace}!=22{return 1;}return 42;}', encoding='utf-8')
+        environment = {'PATH': str(self.directory / 'no-host-tools')}
+        if os.name == 'nt':
+            environment['SystemRoot'] = os.environ.get('SystemRoot', 'C:\\Windows')
+        self.run_tool([str(self.seed), '--check', str(source)], env=environment)
+        self.run_tool([str(self.seed), str(source), str(output)], env=environment)
+        self.run_tool([str(output)], expected=42, env=environment)
+        original = output.read_bytes()
+        source.write_text('module probe;struct Token{pub value:u32;}static mut trace:u32=0;\nfn observe(value:direct Token)->void{unsafe{trace=trace*10+value.value;}}\nfn consume(value:sole Token)->void{return;}\npub fn main_entry()->u32{let owner:sole Token=Token{value:42};let witness:sole Token=Token{value:2};\nlet mut count:u32=0;while count<3{count=count+1;match count{\n1=>{defer observe(witness);continue;},_=>{defer observe(witness);consume(owner);break;}}}\nif unsafe{trace}!=22{return 1;}return owner.value;}', encoding='utf-8')
+        for arguments in ([str(self.seed), '--check', str(source)], [str(self.seed), str(source), str(output)]):
+            result = self.run_tool(arguments, expected=6, env=environment)
+            self.assertIn(b'moved or maybe-moved', result.stderr)
+            self.assertEqual(output.read_bytes(), original)
+
+    @unittest.skipUnless(MAC_X64, "requires native platform execution")
     def test_sv847_native_deferred_effect_specific_diagnostic(self):
         source = self.directory / "sv847_effect_diagnostic.sotlas"
         output = self.directory / "sv847_preserved_image"
