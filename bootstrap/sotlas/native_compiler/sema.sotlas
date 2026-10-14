@@ -4269,6 +4269,9 @@ impl NativeOwnershipCheck {
                     while slot < scope { self.states[slot] = before[slot]; slot = slot + 1; }
                     let result: i64 = self.sequence(unsafe { (*(self.nodes + body)).first_child }, depth + 1);
                     if result == 0 { self.error_node = index; return 0; }
+                    // A mixed break/continue would need distinct match-arm
+                    // edge states; do not collapse it into a live fallthrough.
+                    if result == 5 { self.error_node = index; return 0; }
                     if result >= 3 {
                         slot = 0;
                         while slot < scope { if self.domains[slot] != 0 { self.error_node = index; return 0; } slot = slot + 1; }
@@ -4314,6 +4317,24 @@ impl NativeOwnershipCheck {
                 }
                 self.count = scope;
                 if yes_result == 2 && no_result == 2 { return 2; }
+                // SV8.49b: this bounded mixed exit has one break edge and
+                // one continue edge. Compare separate branch owner snapshots
+                // against the entry state: neither may consume/rebind a sole
+                // owner. The enclosing while will validate the backedge.
+                // 5 denotes both loop edges, never ordinary fallthrough.
+                if (yes_result == 3 && no_result == 4)
+                    || (yes_result == 4 && no_result == 3) {
+                    slot = 0;
+                    while slot < scope {
+                        if self.domains[slot] != 0
+                            && (after_yes[slot] != before[slot]
+                                || self.states[slot] != before[slot]) {
+                            self.error_node = index; return 0;
+                        }
+                        slot = slot + 1;
+                    }
+                    return 5;
+                }
                 // SV8.49a: both arms leaving this loop with the same
                 // break/continue are a single, provable control transfer.
                 // Merge ownership for the break exit; a continue must still
@@ -4357,6 +4378,19 @@ impl NativeOwnershipCheck {
                 }
                 let result: i64 = self.sequence(unsafe { (*(self.nodes + body)).first_child }, depth + 1);
                 if result == 0 { return 0; }
+                // For mixed loop edges, the if/else checked each individual
+                // owner snapshot; the while rechecks that the surviving path
+                // has not mutated an owner before its next iteration.
+                if result == 5 {
+                    slot = 0;
+                    while slot < scope {
+                        if self.domains[slot] != 0
+                            && before[slot] != self.states[slot] {
+                            self.error_node = index; return 0;
+                        }
+                        slot = slot + 1;
+                    }
+                }
                 self.count = scope; slot = 0;
                 while slot < scope {
                     if self.domains[slot] != 0 && before[slot] != self.states[slot] {

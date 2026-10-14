@@ -882,6 +882,75 @@ return consume(owner);}''',
                 self.compile('sv849a_owned_jump_reject_'+str(index),
                     prefix+body,success=False)
 
+    def test_sv849b_native_mixed_loop_edges_preserve_sole_owner(self):
+        """Break/continue branch snapshots keep the surrounding owner live."""
+        prefix='''struct Token{pub value:u32;}
+fn consume(value:sole Token)->u32{return value.value;}'''
+        cases=(
+            '''pub fn main_entry()->u32{
+let owner:sole Token=Token{value:42};let mut count:u32=0;
+while count<4{count=count+1;
+if count==1{continue;}else{break;}}
+return consume(owner);}''',
+            '''pub fn main_entry()->u32{
+let owner:sole Token=Token{value:42};let mut count:u32=0;
+while count<4{count=count+1;
+if count==2{break;}else{continue;}}
+return consume(owner);}''',
+        )
+        for index,body in enumerate(cases):
+            with self.subTest(index=index):
+                self.execute(self.compile('sv849b_mixed_jump_'+str(index),prefix+body))
+
+    def test_sv849b_native_mixed_edges_preserve_owned_defer_cleanup(self):
+        """Each branch must execute its lexical defer before jumping."""
+        source='''struct Token{pub value:u32;}static mut trace:u32=0;
+fn read(value:direct Token)->void{unsafe{trace=trace*10+value.value;}}
+fn consume(value:sole Token)->u32{return value.value;}
+pub fn main_entry()->u32{
+let owner:sole Token=Token{value:2};let mut step:u32=0;
+while step<3{step=step+1;
+if step==1{defer read(owner);continue;}else{defer read(owner);break;}}
+if unsafe{trace}!=22{return 1;}return consume(owner)+40;}'''
+        self.execute(self.compile('sv849b_mixed_owned_defer',source))
+
+    def test_sv849b_native_mixed_edges_reject_owner_moves_and_opaque_joins(self):
+        """Never silently join consumed owners on break/continue edges."""
+        prefix='''struct Token{pub value:u32;}
+fn consume(value:sole Token)->u32{return value.value;}'''
+        cases=(
+            '''pub fn main_entry()->u32{
+let owner:sole Token=Token{value:42};let mut count:u32=0;
+while count<3{count=count+1;
+if count==1{let moved:sole Token=owner;break;}else{continue;}}
+return consume(owner);}''',
+            '''pub fn main_entry()->u32{
+let owner:sole Token=Token{value:42};let mut count:u32=0;
+while count<3{count=count+1;
+if count==1{break;}else{let moved:sole Token=owner;continue;}}
+return consume(owner);}''',
+            '''pub fn main_entry()->u32{
+let owner:sole Token=Token{value:42};let mut count:u32=0;
+while count<3{count=count+1;
+if count==1{let moved:sole Token=owner;continue;}else{break;}}
+return consume(owner);}''',
+            '''pub fn main_entry()->u32{
+let owner:sole Token=Token{value:42};let mut count:u32=0;
+while count<3{count=count+1;
+if count==1{continue;}else{let moved:sole Token=owner;break;}}
+return consume(owner);}''',
+            # A mixed edge in a match arm still lacks per-edge match states.
+            '''pub fn main_entry()->u32{
+let owner:sole Token=Token{value:42};let mut count:u32=0;
+while count<3{count=count+1;
+match count{1=>{if count==1{break;}else{continue;}},_=>{break;}}}
+return consume(owner);}''',
+        )
+        for index,body in enumerate(cases):
+            with self.subTest(index=index):
+                self.compile('sv849b_mixed_owned_reject_'+str(index),
+                    prefix+body,success=False)
+
     def test_native_defer_loop_jumps_cleanup_once_before_backedge(self):
         source='''static mut trace:u32=0;fn append(value:u32)->void{unsafe{trace=trace*10+value;}}
 fn perform()->void{defer append(9);let mut index:u32=0;
