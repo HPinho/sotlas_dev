@@ -2138,6 +2138,16 @@ The last certified green baseline stays 8b8d3c28a9ad06db08df73b61c2cdf904473ce4b
 
 **Remaining:** specialized single-function U32 and conditional three-block assembly entry points do not receive all tables needed by the shared verifier. Cross-object/foreign rights, ownership runtime cleanup and measured Python/C dependency reduction remain open. **Next: SV8.48g** legacy single-function/conditional boundary parity with explicit negative/positive gates, then inter-module signatures.
 
+### SV8.48g — legacy scalar typed-call and side-table proof (2026-10-14)
+
+**Certified baseline:** `83b991cefc60cfe6a3a35289b45815cb6096a42d` passed full [CI #38598947342](https://github.com/HPinho/sotlas_dev/actions/runs/38598947342) (Linux, Windows, Intel macOS and native installation/execution checks).
+
+**Bounded migration from the frontend/ownership checklist:** the legacy one-function x86-64 assembly emitter lacks the TargetValue and external-signature tables required for full `target_module_validate_calls`. Rather than pretend to certify those calls, it now preflights all instructions and permits tagged calls only with **plain (zero-bit) capabilities, exact self-function symbol, U32 signature and matching arity**; tagged external, borrowed/sole/whisper/direct calls or forged profiles fail before emission. Previously supported *untagged* standalone external calls remain explicitly legacy, not certified for capabilities or effects. This preserves the existing emitter ABI and prevents unauthorized typed claims in codegen.
+
+The three-block conditional assembly emitter rejects nonempty Phi tables and Call/Phi operations before emitting output; the constant-only assembly entry point rejects unrepresentable Phi/target side tables and per-instruction hidden metadata. This does not infer effects or add a general ownership runtime; tests guard the source-level entry boundaries and the established native Stage2/Stage3 positive suites and platform matrix remain required. **This candidate has not yet passed CI.**
+
+**Next: SV8.48h** expand the canonical typed ownership/effect proof to separately compiled module signatures and foreign boundaries (including persistent metadata and no unproven legacy call equivalence), without changing Stage2/Stage3 native fixed point.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test

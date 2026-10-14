@@ -5065,6 +5065,49 @@ pub fn emit_x86_64_scalar_function(
         return false;
     }
 
+    // SV8.48g: this legacy entry point has no TargetValue table or
+    // declared external callee signatures. Preserve untagged assembly calls,
+    // but certify tagged calls only when they are plain self-recursion with
+    // the exact known U32 ABI. Borrow/move and foreign capabilities cannot be
+    // checked here, so they fail before any assembly bytes are emitted.
+    if unsafe { (*target_module).phi_input_count } != 0
+        || unsafe { (*target_module).target_count } != 0 {
+        return false;
+    }
+    let mut signature_instruction: u32 = 0;
+    while signature_instruction < unsafe { (*target_module).instruction_count } {
+        let candidate: TargetInstruction = unsafe { *(instructions + signature_instruction) };
+        if candidate.phi_input_count != 0 || candidate.target_count != 0 { return false; }
+        if candidate.opcode == TargetOpcode::Call
+            && (candidate.flags != 0 || candidate.immediate_bits != 0) {
+            if candidate.flags != TARGET_CALL_CAPABILITIES_TYPED
+                || candidate.immediate_bits != 0
+                || candidate.type_tag != TargetTypeTag::U32
+                || candidate.operand_count != function.parameter_count
+                || candidate.symbol.length != function.name.length
+                || candidate.symbol.offset > source_len
+                || candidate.symbol.length > source_len - candidate.symbol.offset {
+                return false;
+            }
+            let mut symbol_index: usize = 0;
+            while symbol_index < function.name.length {
+                if unsafe {
+                    *(source + candidate.symbol.offset + symbol_index)
+                        != *(source + function.name.offset + symbol_index)
+                } { return false; }
+                symbol_index = symbol_index + 1;
+            }
+            let mut signature_index: u32 = 0;
+            while signature_index < function.parameter_count {
+                if unsafe { (*(parameters + signature_index)).type_tag } != TargetTypeTag::U32 {
+                    return false;
+                }
+                signature_index = signature_index + 1;
+            }
+        }
+        signature_instruction = signature_instruction + 1;
+    }
+
     let mut name_index: usize = 0;
     while name_index < function.name.length {
         let byte: u8 = unsafe { *(source + function.name.offset + name_index) };
@@ -5621,6 +5664,17 @@ pub fn emit_x86_64_scalar_if_return(
         || function.block_count != 3 {
         return false;
     }
+    // SV8.48g: the three-block legacy ABI has branch targets but no Phi
+    // inputs or callee-signature tables. Reject unsupported merge/call facts
+    // before writing bytes rather than silently disregarding their metadata.
+    if unsafe { (*target_module).phi_input_count } != 0 { return false; }
+    let mut contract_instruction: u32 = 0;
+    while contract_instruction < unsafe { (*target_module).instruction_count } {
+        let candidate: TargetInstruction = unsafe { *(instructions + contract_instruction) };
+        if candidate.phi_input_count != 0 || candidate.opcode == TargetOpcode::Phi
+            || candidate.opcode == TargetOpcode::Call { return false; }
+        contract_instruction = contract_instruction + 1;
+    }
     let mut name_index: usize = 0;
     while name_index < function.name.length {
         if !valid_symbol_byte(
@@ -5882,7 +5936,9 @@ pub fn emit_x86_64_scalar_constant(
         || unsafe { (*target_module).parameter_count } != 0
         || unsafe { (*target_module).block_count } != 1
         || unsafe { (*target_module).instruction_count } != 2
-        || unsafe { (*target_module).operand_count } != 1 {
+        || unsafe { (*target_module).operand_count } != 1
+        || unsafe { (*target_module).phi_input_count } != 0
+        || unsafe { (*target_module).target_count } != 0 {
         return false;
     }
 
@@ -5899,6 +5955,8 @@ pub fn emit_x86_64_scalar_constant(
         || constant.opcode != TargetOpcode::ConstInt
         || constant.result_value == 0 || constant.type_tag != TargetTypeTag::U32
         || constant.immediate_bits > 4294967295
+        || constant.phi_input_count != 0 || constant.target_count != 0
+        || ret.phi_input_count != 0 || ret.target_count != 0
         || constant.operand_count != 0
         || ret.opcode != TargetOpcode::Return || ret.operand_count != 1
         || ret.first_operand != 0 || operand.value_id != constant.result_value

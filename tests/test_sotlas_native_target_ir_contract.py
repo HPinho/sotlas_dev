@@ -388,6 +388,47 @@ class SotlasNativeTargetIRContractTests(unittest.TestCase):
                 self.assertNotIn("append_bytes(", preflight)
         # Native selfhost and full Linux/Windows/macOS CI remain mandatory.
 
+    def test_sv848g_legacy_scalar_entry_points_fail_closed_on_unproven_calls(self):
+        """No legacy emitter may silently accept missing capability/CFG facts."""
+        root = ROOT / "bootstrap" / "sotlas" / "native_compiler" / "backend"
+        emitter = (root / "x86_64_scalar.sotlas").read_text(encoding="utf-8")
+        single = emitter.split("pub fn emit_x86_64_scalar_function(", 1)[1]
+        single = single.split("pub fn emit_x86_64_scalar_module(", 1)[0]
+        gate = single.split("let mut name_index: usize = 0;", 1)[0]
+        self.assertIn("candidate.flags != TARGET_CALL_CAPABILITIES_TYPED", gate)
+        self.assertIn("candidate.immediate_bits != 0", gate)
+        self.assertIn("candidate.operand_count != function.parameter_count", gate)
+        self.assertIn("candidate.symbol.length != function.name.length", gate)
+        self.assertIn("*(source + candidate.symbol.offset + symbol_index)", gate)
+        self.assertIn("*(source + function.name.offset + symbol_index)", gate)
+        self.assertIn("(*(parameters + signature_index)).type_tag", gate)
+        self.assertIn("candidate.phi_input_count != 0 || candidate.target_count != 0", gate)
+        self.assertIn("(*target_module).phi_input_count", gate)
+        self.assertIn("(*target_module).target_count", gate)
+        self.assertNotIn("append_bytes(", gate)
+        # The untagged legacy call route stays accepted, but typed external
+        # calls and typed borrow/move signatures have no proof in this ABI.
+        self.assertIn("&& (candidate.flags != 0 || candidate.immediate_bits != 0)", gate)
+
+        conditional = emitter.split("pub fn emit_x86_64_scalar_if_return(", 1)[1]
+        conditional = conditional.split("pub fn emit_x86_64_scalar_constant(", 1)[0]
+        preflight = conditional.split("let mut name_index: usize = 0;", 1)[0]
+        self.assertIn("(*target_module).phi_input_count", preflight)
+        self.assertIn("candidate.opcode == TargetOpcode::Phi", preflight)
+        self.assertIn("candidate.opcode == TargetOpcode::Call", preflight)
+        self.assertNotIn("append_bytes(", preflight)
+
+        constant = emitter.split("pub fn emit_x86_64_scalar_constant(", 1)[1]
+        constant = constant.split("pub fn emit_x86_64_scalar_cfg(", 1)[0]
+        preflight = constant.split("let mut name_index: usize = 0;", 1)[0]
+        self.assertIn("(*target_module).phi_input_count", preflight)
+        self.assertIn("(*target_module).target_count", preflight)
+        self.assertIn("constant.phi_input_count != 0", preflight)
+        self.assertIn("ret.target_count != 0", preflight)
+        self.assertNotIn("append_bytes(", preflight)
+        # The full positive/negative native execution suites and fixed-point
+        # platform matrix are still required for CI certification.
+
     def test_native_main_has_a_target_ir_entry_point_separate_from_c_emission(self):
         native_root = ROOT / "bootstrap" / "sotlas" / "native_compiler"
         dependency_names = (
