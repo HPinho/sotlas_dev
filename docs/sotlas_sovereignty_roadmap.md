@@ -5,6 +5,42 @@
 **Green baseline at track start:** `7162167dec6fd5fa0a216121b147335d222e43f1` / CI #1063  
 **Current certified baseline:** `f963c933af39e5dba989594efb34bfbfdf535823` / [CI #1130](https://github.com/HPinho/sotlas_dev/actions/runs/37649186099) (completed successfully; verified 2026-10-07)
 
+## SV8.49c — per-edge POD ownership and matrix regression repair (2026-10-14)
+
+The local main was synchronized to `3f2fa08`. CI #1222 failed on Linux,
+Windows and Intel macOS at the same SV8.49a negative case: its unchanged owner
+break/continue program contradicted the new SV8.49b acceptance contract.
+That exact source is now a permanent execution case. The negative slot tests
+consumption in the condition before a continue backedge; moved-owner and
+opaque-fallthrough rejection coverage is retained.
+
+The native ownership verifier keeps a separate break-edge state table for
+mixed loop exits. A consuming break arm is accepted when the continue arm
+preserves its owners. The enclosing while validates the continue backedge and
+joins break states with the zero-iteration exit, marking differences
+MAYBE_MOVED. Post-loop use remains rejected. Nested loops save and restore
+their parent's break summaries.
+
+Direct match-arm break/continue exits now propagate the same outcomes, with
+separate break-state merging and unchanged continue-state checks. Uniform
+break and continue matches are accepted. Normal fallthrough mixed with loop
+jumps, nested mixed if exits inside match arms, and general resource cleanup
+remain outside this contract. This is POD ownership analysis, not ARC/drop.
+
+Five frontend gates cover both branch orders, match cleanup, uniform match
+exits, nested loop summaries and unsafe edge rejection. Three native platform
+CLI gates validate check/compile/run and output preservation on a rejected
+post-loop read. Final local validation passed 2,927 Windows tests with 79
+platform/toolchain skips in 843.420 seconds. All 137 frontend gates passed on
+Windows, Linux (WSL) and Windows Python 3.10.11. Linux native CLI execution,
+original-source Stage 2/3 identity and Darwin compiler cross-build passed
+three gates; the Windows native generation chain passed in the full suite.
+The temporary hosted C-emission fixed-point oracle also exposed unsupported
+conditional-value syntax in two new verifier locals. Equivalent structured
+if/assign statements preserve that rebuild gate without adding a fallback or
+changing the per-edge semantics; all six SV8 gates passed after the adjustment.
+The last certified baseline remains `ce93fa9` / CI #1221 until new CI passes.
+
 ## SV8.49b — native mixed break/continue ownership gates (2026-10-14)
 
 **Last verified green baseline:** `ce93fa901716671a85437e8be1d047540afa7d4c` /

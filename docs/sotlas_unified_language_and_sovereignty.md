@@ -4,7 +4,7 @@
 
 **Snapshot:** 2026-10-14, America/Sao_Paulo
 
-**Source revision:** `fce5384` (SV8.48g)
+**Source revision:** `3f2fa08` plus the SV8.49c local candidate
 
 **Purpose:** one English reference for implemented contracts, remaining language work,
 optional foreign interoperability and removal of mandatory Python/C toolchain dependencies.
@@ -67,10 +67,11 @@ invocations and may require the stated seed, platform or toolchain. The historic
 sovereignty checkpoint score measures selected architectural milestones, not the
 percentage of Python/C dependencies eliminated or the amount of work remaining.
 
-**Evidence boundary:** this document records repository evidence. It does not
-run or independently certify a new compiler build. The current SV8.48g entry
-names `83b991c` and CI run `38598947342` as its green baseline, while `fce5384`
-is the newer candidate. Later CI results must update that distinction.
+**Evidence boundary:** the latest inspected green baseline is `ce93fa9`,
+CI #1221 / run `38621972769`. The subsequent `3f2fa08` run #1222 failed on an
+outdated mixed-loop rejection assertion. SV8.49c repairs that test contract and
+adds per-edge ownership analysis. Local execution and full regression evidence
+are recorded below; the new candidate requires its own CI certification.
 
 ## 2. Current implementation
 
@@ -449,7 +450,12 @@ continue/continue outcomes through nested if/else while merging sole owner
 states. Moves on loop backedges and uncertain break exits fail closed.
 SV8.49b (candidate after green CI #1221) accepts mixed break/continue
 branches only with independently checked, unchanged live owner states and
-lexical defer cleanup. Moved owners and mixed match-arm exits still fail closed.
+lexical defer cleanup. CI #1222 exposed an outdated SV8.49a negative test for
+that newly supported case; SV8.49c preserves it as execution coverage and adds
+a consuming-condition rejection. SV8.49c also separates break/continue states:
+consumption is allowed only on terminating break paths, post-loop use becomes
+MAYBE_MOVED, direct match-arm exits propagate and nested loop summaries are
+restored. General fallthrough/jump and nested mixed match-arm exits remain open.
 SV8.48h remains the separate-module/foreign capability workstream; broader
 resource-bearing loop-edge joins, ARC, lifetime enforcement and complete
 effects are still open.
@@ -673,7 +679,8 @@ These items are partial refinements of open parent migration contracts, not comp
   - [x] Merge ownership states across runtime Boolean short-circuit operands; statically skipped literal paths preserve the original state.
   - [x] **SV8.49a bounded uniform loop-jump ownership:** a native `if/else` with both arms ending in the same `break` or `continue` now propagates that exit and merges sole states conservatively; moved owners on continue backedges and conditional break exits fail closed.
   - [x] **SV8.49b bounded mixed loop exits:** if/else break/continue or continue/break now executes natively only when each arm preserves every live outer owner; proof uses independent branch snapshots, with lexical defer cleanup verified.
-  - [ ] Complete mixed edges that move/rebind owners, match-arm/nested loop-edge states, early-return joins and general ownership CFG merges.
+  - [x] **SV8.49c bounded per-edge states:** mixed if/match break and continue exits keep separate break summaries; only terminating break paths may consume outer POD owners, while continue must preserve the backedge state. Loop exits conservatively mark differing states MAYBE_MOVED; nested loop summaries are saved/restored.
+  - [ ] Complete fallthrough/jump mixtures, nested mixed exits inside match arms, early-return joins, resource-bearing payloads and general ownership CFG merges.
 - [ ] Implement transfers through calls, returns, fields and payloads.
   - [x] Internal exclusive POD call, return and binding transfers execute natively.
   - [x] Static and instance method results preserve ownership; qualified consuming calls record the move.
@@ -754,7 +761,6 @@ The complete alias graph, retained borrows, general lifetimes and resource clean
 #### New acceptance evidence
 
 | Contract | Gate |
-|---|---|
 | SV8.49b mixed branch loop-edge owner preservation, defer cleanup and fail-closed moves | `test_sv849b_native_mixed_loop_edges_preserve_sole_owner`, `test_sv849b_native_mixed_edges_preserve_owned_defer_cleanup`, `test_sv849b_native_mixed_edges_reject_owner_moves_and_opaque_joins` |
 | SV8.49a uniform nested branch loop-jump acceptance and owned CFG exit rejection | `test_sv849a_native_owned_uniform_loop_jumps_execute`, `test_sv849a_native_owned_loop_jump_states_fail_closed` |
 | SV8.48g legacy scalar entry points reject unproven typed calls and absent side tables | `test_sv848g_legacy_scalar_entry_points_fail_closed_on_unproven_calls` |
@@ -770,6 +776,7 @@ The complete alias graph, retained borrows, general lifetimes and resource clean
 | SV8.47 independently certified array-field preparation and unchanged indexed deferred cleanup | `test_native_array_fields_copy_local_and_record_arrays_independently` and `test_sv847_ownership_projected_defer_reservation_and_scope_release` |
 | SV8.47 indexed/conditional borrow masks and deferred lexical release | `test_sv847_ownership_indexed_borrow_cannot_be_consumed_in_same_call`, `test_sv847_ownership_conditional_guard_borrow_cannot_be_consumed`, `test_sv847_ownership_projected_defer_reservation_and_scope_release` |
 | SV8.47 native file driver effect reason (all three platforms) | `test_sv847_native_deferred_effect_specific_diagnostic` |
+|---|---|
 | Reserved semantic opcodes: neutral validation, native rejection and untouched output | `tests/test_sotlas_native_frontend_closure.py::test_semantic_runtime_markers_are_preserved_but_never_emitted_as_noops` |
 | Float/Boolean/signed-minimum module constants and native/C11 result comparison | `tests/test_sotlas_native_frontend_closure.py::test_typed_module_constants_include_float_bool_and_signed_minimum` |
 | Invalid unused constants rejected before output | `tests/test_sotlas_native_frontend_closure.py::test_invalid_unused_constants_fail_closed` |
@@ -851,6 +858,15 @@ generation and Darwin compiler cross-build remained valid. Full ownership
 capture/drop/unwind integration and a 70% full-list claim remain uncertified.
 
 #### Remaining limits
+
+SV8.49c local evidence: 2,927 Windows tests passed with 79 platform/toolchain
+skips in 843.420 seconds. All 137 frontend tests passed on Windows, Linux
+(WSL) and Windows Python 3.10.11. Native Linux CLI, Stage 2/3 identity and
+Darwin compiler cross-build passed three gates; all six hosted SV8 oracle
+gates passed after preserving its structured-source contract. The previous
+mixed-loop negative source is retained as a positive execution fixture, and
+its negative slot now rejects consuming conditions before a continue backedge.
+Intel macOS execution and the new full CI matrix remain required.
 
 SV8.44 local evidence: four frontend and four ownership contracts advanced,
 with ten new frontend gates and three platform CLI gates. The full Windows
@@ -1878,6 +1894,19 @@ output name and run `.\owned-packet.exe`. The native seed performs these command
 without a Python interpreter, C compiler or external linker; producing that
 initial seed still uses Stage 0.
 
+#### Loop exits and POD ownership
+
+Mixed if/else and direct match-arm break/continue exits keep separate owner
+states. Continue paths must preserve the loop-entry state. Break paths may
+consume a POD owner, but post-loop use is rejected when the break state differs
+from the possible zero-iteration exit. Nested loops restore enclosing edge
+summaries. Uniform match break/continue exits preserve the same checks.
+
+Lexical defers execute on the actual jump path; an active deferred borrow still
+prevents consuming its reserved owner. Fallthrough/jump mixtures, nested mixed
+if exits inside match arms and general resource cleanup remain outside this
+bounded profile. These gates do not implement ARC or non-POD drop.
+
 #### Internal direct access
 
 `direct T` supports internal function parameters for the same fixed scalars
@@ -2115,7 +2144,7 @@ their claims must be interpreted through the current implementation contracts.
 | [CHANGELOG.md](../CHANGELOG.md) | Historical snapshot / change history | `59e11c24075334268572d66d1c386127f13b7a0de9483d63433e437d2e4bc324` |
 | [README.md](../README.md) | Language, safety, usage or architecture reference | `51dac0dda2d7d5e8f6c26f0cf7b30a5582596d449fdfe03330d7e70456eedfab` |
 | [README.pt-BR.md](../README.pt-BR.md) | Language, safety, usage or architecture reference | `01f6118e45200152a9cf93c49507c58a3c9aa93138b7287ba09ed7125022b364` |
-| [bootstrap/sotlas/native_driver/README.md](../bootstrap/sotlas/native_driver/README.md) | Current native contracts; incorporated in full | `f2de57e40460d7626c6c17c2fa30a329e38bfefc08541823a8c3f32aeae37576` |
+| [bootstrap/sotlas/native_driver/README.md](../bootstrap/sotlas/native_driver/README.md) | Current native contracts; incorporated in full | `5882cf80d5b0b240661487a7e03c9dd8e9b0c935f3aa68ed5ee6804da54746d9` |
 | [bootstrap/sotlas/native_examples/README.md](../bootstrap/sotlas/native_examples/README.md) | Example scope and reproduction instructions | `4c6c8e3e582db954a4c43584753c1e19d451f42fe0a349e19840b859344ef344` |
 | [docs/QUICKSTART.md](QUICKSTART.md) | Language, safety, usage or architecture reference | `6c9cfef7030008db2cc4f8ae7a43715d659847e4cd6b7f205564ebfa168f122f` |
 | [docs/README.md](README.md) | Language, safety, usage or architecture reference | `f6484916915718109cbb6779835a5db404d1b4fe1f4781ca96cbdfdaf09dc36d` |
@@ -2157,9 +2186,9 @@ their claims must be interpreted through the current implementation contracts.
 | [docs/sotlas_implementation_status.md](sotlas_implementation_status.md) | Dated implementation/evidence snapshot | `654445b9d20be3d95ceb846d6f56b7351a24a0627210b9e5c3d3aea4f4530a29` |
 | [docs/sotlas_m16_3_recursion_contract.md](sotlas_m16_3_recursion_contract.md) | Language, safety, usage or architecture reference | `c821ac00990678d0f775c67b9ba91f5cd16678f744be112e23405d9b3584cbf7` |
 | [docs/sotlas_master_roadmap.md](sotlas_master_roadmap.md) | Architectural design and language vocabulary | `068cd228ffeb958e609c03de54892266a58fbd7dc07738887c6d63b6d7935a6a` |
-| [docs/sotlas_native_frontend_ownership_checklist.md](sotlas_native_frontend_ownership_checklist.md) | Current native contracts; incorporated in full | `294a722564f89ace6b4cfc63e3cdc12e9d1ae7e7a4c920cf8c26b7caad9f520e` |
+| [docs/sotlas_native_frontend_ownership_checklist.md](sotlas_native_frontend_ownership_checklist.md) | Current native contracts; incorporated in full | `a449e35525c90ca84d072ca91a22baa17cc13737a0d86b7d82a2e69c29e55be0` |
 | [docs/sotlas_release_roadmap.md](sotlas_release_roadmap.md) | Development dependencies, backlog and release policy | `fa56feeee089333c67d97c98399ac1ed61c11c91a107d01af9bd404e409ad57c` |
-| [docs/sotlas_sovereignty_roadmap.md](sotlas_sovereignty_roadmap.md) | Native generation and dependency migration | `fe2d92b88426514b5a7f9543cf316f6b206af8049d79530fa8b42860fd110f77` |
+| [docs/sotlas_sovereignty_roadmap.md](sotlas_sovereignty_roadmap.md) | Native generation and dependency migration | `ddb82a3406f3f3caf983a520a0ff09188e3e516cd679af83ca7d872b5d15d3d9` |
 | [docs/sotlas_v1_audit_and_roadmap.md](sotlas_v1_audit_and_roadmap.md) | Development dependencies, backlog and release policy | `7fe9cacfc713e60540c910aec8c8f5767e2d0984b84b4b61324975a370bfc6eb` |
 | [docs/target_ir_preview.md](target_ir_preview.md) | Language, safety, usage or architecture reference | `de11d5b90ca1f6cd7e55f6226f93e85eb1998efa506654ac59121790724b6c28` |
 | [docs/the_sotlas_book.md](the_sotlas_book.md) | Language, safety, usage or architecture reference | `1c10647fee6cbadc7d0b58884f76e57f716b8054b2be0731191af14b72cca60a` |

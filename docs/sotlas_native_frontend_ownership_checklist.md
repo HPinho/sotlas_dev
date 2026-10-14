@@ -112,7 +112,8 @@ These items are partial refinements of open parent migration contracts, not comp
   - [x] Merge ownership states across runtime Boolean short-circuit operands; statically skipped literal paths preserve the original state.
   - [x] **SV8.49a bounded uniform loop-jump ownership:** a native `if/else` with both arms ending in the same `break` or `continue` now propagates that exit and merges sole states conservatively; moved owners on continue backedges and conditional break exits fail closed.
   - [x] **SV8.49b bounded mixed loop exits:** if/else break/continue or continue/break now executes natively only when each arm preserves every live outer owner; proof uses independent branch snapshots, with lexical defer cleanup verified.
-  - [ ] Complete mixed edges that move/rebind owners, match-arm/nested loop-edge states, early-return joins and general ownership CFG merges.
+  - [x] **SV8.49c bounded per-edge states:** mixed if/match break and continue exits keep separate break summaries; only terminating break paths may consume outer POD owners, while continue must preserve the backedge state. Loop exits conservatively mark differing states MAYBE_MOVED; nested loop summaries are saved/restored.
+  - [ ] Complete fallthrough/jump mixtures, nested mixed exits inside match arms, early-return joins, resource-bearing payloads and general ownership CFG merges.
 - [ ] Implement transfers through calls, returns, fields and payloads.
   - [x] Internal exclusive POD call, return and binding transfers execute natively.
   - [x] Static and instance method results preserve ownership; qualified consuming calls record the move.
@@ -290,6 +291,15 @@ generation and Darwin compiler cross-build remained valid. Full ownership
 capture/drop/unwind integration and a 70% full-list claim remain uncertified.
 
 ## Remaining limits
+
+SV8.49c local evidence: 2,927 Windows tests passed with 79 platform/toolchain
+skips in 843.420 seconds. All 137 frontend tests passed on Windows, Linux
+(WSL) and Windows Python 3.10.11. Native Linux CLI, Stage 2/3 identity and
+Darwin compiler cross-build passed three gates; all six hosted SV8 oracle
+gates passed after preserving its structured-source contract. The previous
+mixed-loop negative source is retained as a positive execution fixture, and
+its negative slot now rejects consuming conditions before a continue backedge.
+Intel macOS execution and the new full CI matrix remain required.
 
 SV8.44 local evidence: four frontend and four ownership contracts advanced,
 with ten new frontend gates and three platform CLI gates. The full Windows

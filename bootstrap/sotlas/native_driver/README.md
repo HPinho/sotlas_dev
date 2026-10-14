@@ -960,6 +960,19 @@ output name and run `.\owned-packet.exe`. The native seed performs these command
 without a Python interpreter, C compiler or external linker; producing that
 initial seed still uses Stage 0.
 
+## Loop exits and POD ownership
+
+Mixed if/else and direct match-arm break/continue exits keep separate owner
+states. Continue paths must preserve the loop-entry state. Break paths may
+consume a POD owner, but post-loop use is rejected when the break state differs
+from the possible zero-iteration exit. Nested loops restore enclosing edge
+summaries. Uniform match break/continue exits preserve the same checks.
+
+Lexical defers execute on the actual jump path; an active deferred borrow still
+prevents consuming its reserved owner. Fallthrough/jump mixtures, nested mixed
+if exits inside match arms and general resource cleanup remain outside this
+bounded profile. These gates do not implement ARC or non-POD drop.
+
 ## Internal direct access
 
 `direct T` supports internal function parameters for the same fixed scalars
