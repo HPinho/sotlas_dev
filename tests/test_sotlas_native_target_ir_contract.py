@@ -200,6 +200,76 @@ class SotlasNativeTargetIRContractTests(unittest.TestCase):
         # The real PE rebuild + exact Stage2/Stage3 binary equality gate is
         # not replaced or skipped by this structural regression test.
 
+    def test_sv848b_installed_native_driver_ir_arenas_match_compiler_profile(self):
+        """The packaged Linux seed must not retain older lowering arena limits."""
+        root = ROOT / "bootstrap" / "sotlas"
+        compiler = (root / "native_compiler" / "main.sotlas").read_text(
+            encoding="utf-8"
+        )
+        packaging = (ROOT / "packaging" / "native_linux.py").read_text(
+            encoding="utf-8"
+        )
+        arenas = (
+            ("VALUE", "TargetValue", "driver_values", 131072),
+            ("INSTR", "TargetInstruction", "driver_instructions", 262144),
+            ("OPERAND", "TargetOperand", "driver_operands", 524288),
+            ("BLOCK", "TargetBlock", "driver_blocks", 65536),
+            ("FUNCTION", "TargetFunction", "driver_functions", 8192),
+        )
+        remaining = (
+            ("TargetParameter", "driver_parameters", 16384),
+            ("TargetPhiInput", "driver_phi_inputs", 16384),
+            ("u32", "driver_targets", 65536),
+        )
+        for platform in ("linux", "windows", "darwin"):
+            with self.subTest(platform=platform):
+                driver = (
+                    root / "native_driver" / f"{platform}.sotlas"
+                ).read_text(encoding="utf-8")
+                self.assertIn("ScalarLowering::new(", driver)
+                self.assertIn(
+                    "if !lower_scalar_module(&mut lowering, module_index, &mut ir) {",
+                    driver,
+                )
+                for kind, element, name, limit in arenas:
+                    with self.subTest(platform=platform, arena=kind):
+                        self.assertIn(
+                            f"pub const TARGET_{kind}_CAPACITY: usize = {limit};",
+                            compiler,
+                        )
+                        self.assertIn(
+                            f"static mut {name}: [{element}; {limit}] = 0;",
+                            driver,
+                        )
+                        self.assertIn(
+                            f"unsafe {{ {name} as *mut {element} }}, {limit}",
+                            driver,
+                        )
+                for element, name, limit in remaining:
+                    with self.subTest(platform=platform, arena=name):
+                        self.assertIn(
+                            f"static mut {name}: [{element}; {limit}] = 0;",
+                            driver,
+                        )
+                        self.assertIn(
+                            f"unsafe {{ {name} as *mut {element} }}, {limit}",
+                            driver,
+                        )
+                self.assertIn(
+                    f'files["src/sotlas/compiler/{platform}_driver.sotlas"]',
+                    packaging,
+                )
+        # Packaging must build the freestanding native Linux seed from
+        # precisely the source whose arena bounds were verified above.
+        self.assertIn(
+            'ROOT / "bootstrap/sotlas/native_driver/linux.sotlas"',
+            packaging,
+        )
+        self.assertIn('build_stage1_native_compiler(producer', packaging)
+        self.assertIn('"--compile-obj"', packaging)
+        # Keep the end-to-end packaging workflow and native Windows fixed
+        # point checks enabled; this static guard supplements them.
+
     def test_native_main_has_a_target_ir_entry_point_separate_from_c_emission(self):
         native_root = ROOT / "bootstrap" / "sotlas" / "native_compiler"
         dependency_names = (

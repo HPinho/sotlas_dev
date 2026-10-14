@@ -810,6 +810,24 @@ The driver retains its existing guarded allocations and diagnostics; all
 actual Windows native PE fixed-point and quoted-path tests remain required.
 A structural CI contract verifies capacity parity between the native compiler
 and Windows driver to prevent another partial capacity update.
+## SV8.48b — installed native Linux seed and driver arena parity
+
+All three independently compiled native file drivers now provide the same
+Target IR arena headroom as `native_compiler/main.sotlas`:
+131072 `TargetValue` entries, 262144 `TargetInstruction` entries, 524288
+`TargetOperand` entries, 65536 `TargetBlock` entries and 8192
+`TargetFunction` entries. Both the real static backing arrays
+and the capacities passed to `ScalarLowering::new` are aligned for Linux,
+Windows and Intel macOS; all existing validation and overflow rejection
+remains enforced.
+
+The distributed Linux-native seed is built from `linux_driver.sotlas`, not
+`native_compiler/main.sotlas`. It must be able to rebuild the bundled
+Windows driver and the Darwin driver without host compilers. A contract
+test verifies all three drivers against the canonical capacity profile;
+the installer and all real native smoke/Stage2/Stage3/PE/Mach-O gates remain
+mandatory for certification.
+
 ## Project diagnostics
 
 Project compiler diagnostics map resolved source positions back to the original
