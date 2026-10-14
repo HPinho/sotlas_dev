@@ -2069,6 +2069,15 @@ Status: candidate until all 9 CI jobs pass. Last certified baseline 5e6c8fd. Nex
 
 The static native source gate confirms the independent decoder boundary and fail-closed conditions. **The existing actual-Windows original-modules Stage2/Stage3 executable fixed-point test remains mandatory and unchanged**, along with quoted-path, output preservation, and all Linux/macOS tests. Baseline stays `5e6c8fd` until the new matrix is green; this is a candidate, not a claim of certification. **Next:** SV8.48c only after all nine platform suites pass. No Python/C percentage is inferred.
 
+### SV8.48b Windows Stage2/Stage3 arena mismatch repair (2026-10-14)
+
+Actions [#38491311681](https://github.com/HPinho/sotlas_dev/actions/runs/38491311681) on `1c1f124b127348cd62bae947aea5d4edb8ed89d1` passes Linux, macOS Intel and the Windows native Stage1 bootstrap. Only the Windows Python 3.10/3.11/3.12 jobs fail the mandatory `test_original_modules_build_native_stage2_stage3_fixed_point`, at `windows.sotlas:1131:49` while the native Windows seed recompiles its own project.
+
+**Confirmed configuration mismatch:** the earlier [SV8.48b capacity repair](https://github.com/HPinho/sotlas_dev/commit/db52f8040065b2b9419ad337514746a5f9638aaf) enlarged `native_compiler/main.sotlas`'s Target IR static arenas, but omitted the independent arrays and `ScalarLowering::new` arguments inside `native_driver/windows.sotlas`. The Windows stage2 compiler therefore still used the smaller values/instructions/operands/CFG-block arenas; it also retained a smaller native function table. Late-source `unsupported native form` remains consistent with capacity pressure, but the first exhausted resource is not separately instrumented.
+
+**Repair:** match the Windows file driver to the already accepted compiler arenas: 131072 `TargetValue`, 262144 `TargetInstruction`, 524288 `TargetOperand`, 65536 `TargetBlock`, 8192 `TargetFunction`. Set both each actual static array allocation and its corresponding passed constructor capacity. Keep existing operand/CFG/value overflow checks, source diagnostics, target emission validation, PE ABI, direct/whisper/sole call metadata, argv parser, and all existing tests unchanged. Add a permanent structural regression test checking compiler-versus-driver capacity parity, plus constructor and remaining arena wiring. The actual Windows Stage2 → Stage3 byte-for-byte equality test remains the acceptance gate.
+
+Last fully certified green baseline remains `5e6c8fd343478dac43ab5c0c83f0fc66f86dc820` ([#38448890155](https://github.com/HPinho/sotlas_dev/actions/runs/38448890155)). The repair is not certified until the new CI is green; if it still fails, report measured lowerer capacity/reason instead of changing the CLI parser or bumping limits blindly. SV8.48c stays next after CI green. No independently measured Python/C elimination percentage is claimed.
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test
