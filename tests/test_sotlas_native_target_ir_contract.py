@@ -332,6 +332,35 @@ class SotlasNativeTargetIRContractTests(unittest.TestCase):
         self.assertIn("name: TargetSourceSlice { offset: 0, length: 0 }", lower)
         self.assertIn("argument_values[argument_count as usize] = aggregate_destination;", lower)
 
+    def test_sv848e_specialized_cfg_emitters_validate_typed_calls(self):
+        """Both specialized CFG entry points enforce the full call contract."""
+        root = ROOT / "bootstrap" / "sotlas" / "native_compiler" / "backend"
+        source = (root / "x86_64_scalar.sotlas").read_text(encoding="utf-8")
+        target = (root / "target_ir.sotlas").read_text(encoding="utf-8")
+        verifier = target.split("pub fn target_module_validate_calls(", 1)[1]
+        verifier = verifier.split("pub fn target_module_validate_ssa_dominance(", 1)[0]
+        self.assertIn("target_module_validate_cfg(", verifier)
+        self.assertIn("operands, phi_inputs, targets", verifier)
+        self.assertIn("if actual_role != expected_role { return false; }", verifier)
+        self.assertIn("if actual_role != 0 { return false; }", verifier)
+        for name in ("emit_elf64_scalar_function_object",
+                     "emit_x86_64_scalar_cfg"):
+            with self.subTest(emitter=name):
+                entry = source.split(f"pub fn {name}(", 1)[1]
+                entry = entry.split("\npub fn ", 1)[0]
+                self.assertIn("if !target_module_validate_calls(", entry)
+                self.assertIn("source, source_len, target_module", entry)
+                self.assertIn("blocks, instructions, operands, phi_inputs, targets", entry)
+                self.assertNotIn("if !target_module_validate_cfg(", entry)
+                self.assertLess(
+                    entry.index("if !target_module_validate_calls("),
+                    entry.index("let mut name_index:", entry.index("if !target_module_validate_calls("))
+                    if "let mut name_index:" in entry else entry.index("let function: TargetFunction"),
+                )
+        # These emitters still support only their previously certified scalar
+        # CFG subsets. The full native PE/Mach-O/ELF regression suites and
+        # the installed freestanding Linux seed remain mandatory gates.
+
     def test_native_main_has_a_target_ir_entry_point_separate_from_c_emission(self):
         native_root = ROOT / "bootstrap" / "sotlas" / "native_compiler"
         dependency_names = (

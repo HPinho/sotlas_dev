@@ -407,8 +407,11 @@ pub fn emit_elf64_scalar_function_object(
         return false;
     }
     if unsafe { (*target_module).phi_input_count } != 0 && phi_inputs == null { return false; }
-    if !target_module_validate_cfg(
-        target_module, functions, parameters, values, blocks, instructions, operands, phi_inputs, targets
+    // SV8.48e: the typed call verifier performs the full CFG/Phi proof
+    // first, then rejects mismatched direct-call ABI/capability signatures.
+    if !target_module_validate_calls(
+        source, source_len, target_module, functions, parameters, values,
+        blocks, instructions, operands, phi_inputs, targets
     ) { return false; }
 
     let function: TargetFunction = unsafe { *functions };
@@ -5976,8 +5979,12 @@ pub fn emit_x86_64_scalar_cfg(
         || (abi == 2 && function.parameter_count > 4) {
         return false;
     }
-    if !target_module_validate_cfg(target_module, functions, parameters, values,
-        blocks, instructions, operands, phi_inputs, targets) { return false; }
+    // SV8.48e: keep the existing full-CFG gate and include the same
+    // call-symbol/type/ownership proof before emitting any assembly bytes.
+    if !target_module_validate_calls(
+        source, source_len, target_module, functions, parameters, values,
+        blocks, instructions, operands, phi_inputs, targets
+    ) { return false; }
     let mut name_index: usize = 0;
     while name_index < function.name.length {
         if !valid_symbol_byte(unsafe { *(source + function.name.offset + name_index) }, name_index == 0) {
