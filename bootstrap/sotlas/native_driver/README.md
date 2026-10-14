@@ -896,6 +896,21 @@ emitters require a separate signature-parity pass (SV8.48g).
 Cross-object/foreign capability guarantees and Python/C bootstrap removal
 remain open. Acceptance requires the complete CI matrix.
 
+## SV8.48g — legacy single-function capability boundary
+
+The legacy x86-64 U32 single-function assembly entry point has no TargetValue
+domains or imported callee-signature table. Typed call metadata is therefore
+accepted only for plain-role calls directly to the same function with an exact
+U32 signature and parameter arity. Forged typed capabilities and external
+typed calls fail before any output; existing untagged external assembly calls
+remain explicitly uncertified legacy compatibility.
+
+The restricted three-block conditional and constant assembly entry points
+now reject unrepresentable Phi/target side tables before writing assembly.
+No general cross-object ownership/effects, lifetime, ARC/drop or Python/C
+bootstrap migration is claimed. Existing Stage2/3 and full CI matrix remain
+required.
+
 ## Project diagnostics
 
 Project compiler diagnostics map resolved source positions back to the original
