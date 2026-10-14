@@ -2110,6 +2110,14 @@ Tagged ownership roles (plain/sole/whisper/direct) are checked against callee SS
 
 **Limit:** this is the **unified ELF object writer boundary**, not a claim that every specialized assembly/PE/Mach-O writer independently calls the validator, or that separately compiled modules/foreign linkers have cross-module proof. Mark SV8.48d as a candidate pending a new fully green matrix. **Next SV8.48e:** typed call validation at other emission entry points, then stronger declared FFI/system capability checks, after green. No new Python or C reduction figure is asserted.
 
+### SV8.48d regression correction: distinct synthetic sret role (2026-10-14)
+
+CI #38572500561 at commit 4a42688 failed four previously green ownership frontend tests on every Linux, Windows and macOS runner. All affected tests contain functions returning sole records. The newly mandatory typed call validator incorrectly compared the callee's owned return-destination SSA domain to the final hidden sret pointer argument, which has a plain call capability by ABI contract.
+
+The fix recognizes only the final unnamed internal pointer parameter of a void ABI function as a synthetic sret destination, requires its call role to remain exactly plain, and preserves its underlying owned return value domain. Every named argument still undergoes exact type and ownership-role comparison. Malformed unnamed arguments in non-final, non-pointer or non-void positions remain rejected. The old four acceptance tests and their negative move guards remain required; two additional targeted tests now protect this ABI distinction.
+
+The last certified green baseline stays 8b8d3c28a9ad06db08df73b61c2cdf904473ce4b (workflow #38566049760). The next feature SV8.48e remains pending a new complete green matrix. No changes to Python/C elimination estimates.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test

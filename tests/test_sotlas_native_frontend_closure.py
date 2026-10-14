@@ -340,6 +340,19 @@ pub fn main_entry()->u32{let owner:sole Token=Token{value:42};
 take(owner);return owner.value;}'''
         self.compile('sv848c_void_sole_move',source,success=False)
 
+    def test_sv848d_sole_sret_is_plain_call_destination(self):
+        """Sole result survives sret, and its former owner stays moved."""
+        source='''struct Token{pub value:u32;}
+fn make(value:u32)->sole Token{return Token{value:value};}
+fn forward(value:sole Token)->sole Token{return value;}
+fn read(value:direct Token)->u32{return value.value;}
+pub fn main_entry()->u32{let first:sole Token=make(21);
+let second:sole Token=forward(first);return read(second)+21;}'''
+        self.execute(self.compile('sv848d_sole_sret', source))
+        self.compile('sv848d_sole_sret_moved', source.replace(
+            'return read(second)+21;', 'return read(first)+21;'),
+            success=False)
+
     def test_sv848d_elf_boundary_accepts_typed_mixed_calls_with_cfg(self):
         """Emit one program with sret, void borrow, sole move and Phi branches."""
         source='''struct Token{pub value:u32;}static mut total:u32=0;

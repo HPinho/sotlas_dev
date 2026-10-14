@@ -857,6 +857,15 @@ linking, effects, ARC/drop and full FFI or cross-module capability proof
 remain open. ABI, IR layout and existing binary fixed-point CI gates are
 unchanged.
 
+## SV8.48d owned aggregate-return call validation
+
+The unified ELF signature validator treats the final unnamed pointer
+parameter of a void-ABI internal function as a synthetic return destination.
+Its call role must be plain even when the destination SSA value preserves
+sole ownership from a returned record. Named parameters still require exact
+plain/sole/whisper/direct role equality; forged synthetic positions fail.
+All native Stage2/Stage3 and platform matrix acceptance gates remain intact.
+
 ## Project diagnostics
 
 Project compiler diagnostics map resolved source positions back to the original
