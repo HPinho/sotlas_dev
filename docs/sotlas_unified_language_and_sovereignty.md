@@ -56,7 +56,14 @@ There are three distinct scopes:
 
 An unchecked parent requirement can contain completed subitems. A release-phase
 label of “100%” applies to its frozen subset; it does not certify full native
-frontend parity or complete removal of hosted build dependencies. The historical
+frontend parity or complete removal of hosted build dependencies.
+
+The Sotlas code fences reproduced in this consolidation are classified as
+`DESIGN_ONLY` in `docs/public_snippets.json`: a copied snippet is not itself
+a new executable acceptance test. Existing native/reference feature tests,
+platform gates and the original source documents establish which bounded
+contracts have actually executed. CLI command fences are illustrative
+invocations and may require the stated seed, platform or toolchain. The historical
 sovereignty checkpoint score measures selected architectural milestones, not the
 percentage of Python/C dependencies eliminated or the amount of work remaining.
 
@@ -736,6 +743,7 @@ The complete alias graph, retained borrows, general lifetimes and resource clean
 #### New acceptance evidence
 
 | Contract | Gate |
+|---|---|
 | SV8.48g legacy scalar entry points reject unproven typed calls and absent side tables | `test_sv848g_legacy_scalar_entry_points_fail_closed_on_unproven_calls` |
 | SV8.48f mandatory typed-call preflight for legacy multi-function emitters | `test_sv848f_legacy_multifunction_emitters_preflight_typed_calls` |
 | SV8.48e mandatory signature proof at specialized single-function CFG emitters | `test_sv848e_specialized_cfg_emitters_validate_typed_calls` |
@@ -749,7 +757,6 @@ The complete alias graph, retained borrows, general lifetimes and resource clean
 | SV8.47 independently certified array-field preparation and unchanged indexed deferred cleanup | `test_native_array_fields_copy_local_and_record_arrays_independently` and `test_sv847_ownership_projected_defer_reservation_and_scope_release` |
 | SV8.47 indexed/conditional borrow masks and deferred lexical release | `test_sv847_ownership_indexed_borrow_cannot_be_consumed_in_same_call`, `test_sv847_ownership_conditional_guard_borrow_cannot_be_consumed`, `test_sv847_ownership_projected_defer_reservation_and_scope_release` |
 | SV8.47 native file driver effect reason (all three platforms) | `test_sv847_native_deferred_effect_specific_diagnostic` |
-|---|---|
 | Reserved semantic opcodes: neutral validation, native rejection and untouched output | `tests/test_sotlas_native_frontend_closure.py::test_semantic_runtime_markers_are_preserved_but_never_emitted_as_noops` |
 | Float/Boolean/signed-minimum module constants and native/C11 result comparison | `tests/test_sotlas_native_frontend_closure.py::test_typed_module_constants_include_float_bool_and_signed_minimum` |
 | Invalid unused constants rejected before output | `tests/test_sotlas_native_frontend_closure.py::test_invalid_unused_constants_fail_closed` |

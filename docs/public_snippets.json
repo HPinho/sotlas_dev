@@ -187,6 +187,13 @@
       "status": "DESIGN_ONLY",
       "source": null,
       "verification": "scope-document-is-not-implementation-evidence"
+    },
+    {
+      "id": "unified-sovereignty-reference-snippets",
+      "document": "docs/sotlas_unified_language_and_sovereignty.md",
+      "status": "DESIGN_ONLY",
+      "source": null,
+      "verification": "consolidated-reference-examples-require-individual-native-or-canonical-validation"
     }
   ]
 }
