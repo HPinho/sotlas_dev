@@ -1227,7 +1227,9 @@ pub fn target_module_validate_calls(
     values: *const TargetValue,
     blocks: *const TargetBlock,
     instructions: *const TargetInstruction,
-    operands: *const TargetOperand
+    operands: *const TargetOperand,
+    phi_inputs: *const TargetPhiInput,
+    targets: *const u32
 ) -> bool {
     if source == null || target_module == null || functions == null
         || (unsafe { (*target_module).parameter_count } != 0 && parameters == null)
@@ -1237,7 +1239,7 @@ pub fn target_module_validate_calls(
         || (unsafe { (*target_module).operand_count } != 0 && operands == null)
         || !target_module_validate_cfg(
             target_module, functions, parameters, values, blocks, instructions,
-            operands, null, null
+            operands, phi_inputs, targets
         ) {
         return false;
     }

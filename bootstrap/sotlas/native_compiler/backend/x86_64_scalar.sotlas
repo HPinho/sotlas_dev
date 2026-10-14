@@ -2257,8 +2257,12 @@ pub fn emit_elf64_module_object(
         || ir.value_count > 536870000 {
         return false;
     }
-    if !target_module_validate_cfg(
-        target_module, functions, parameters, values, blocks, instructions, operands, phi_inputs, targets
+    // SV8.48d: this boundary performs the full CFG/Phi/target validation
+    // inside the call-signature validator, then checks callee symbols,
+    // parameter ABI types, and tagged ownership roles before any bytes emit.
+    if !target_module_validate_calls(
+        source, source_len, target_module, functions, parameters, values,
+        blocks, instructions, operands, phi_inputs, targets
     ) { return false; }
 
     // A marker is not evidence of ownership/state/defer runtime behavior.

@@ -2098,6 +2098,18 @@ Last fully certified green baseline remains `5e6c8fd343478dac43ab5c0c83f0fc66f86
 
 **Important scope boundary:** `target_module_validate_calls` is an explicit call-signature validator and is **not yet invoked automatically by every emitter**. This SV8.48c sub-contract strengthens that validator and ensures typed metadata is present on native void calls, but does not claim complete cross-module signature proof, safe arbitrary C FFI, resource lifetime inference, ARC/drop, or effect inference. Continue with SV8.48d to wire reliable call-signature validation into native emitters with appropriate complete CFG/SSA coverage and compiler-symbol handling. **Status:** candidate until new CI green. No new measured Python/C reduction or sovereignty checkpoint is claimed.
 
+### SV8.48d — mandatory typed call-signature gate at unified ELF object emission (2026-10-14)
+
+**Certified baseline:** `8b8d3c28a9ad06db08df73b61c2cdf904473ce4b` / [CI #38566049760](https://github.com/HPinho/sotlas_dev/actions/runs/38566049760), full workflow green including Linux, Windows, Intel macOS and the native packaging/fixed-point jobs.
+
+**Implementation:** integrate the explicit Sotlas-written `target_module_validate_calls` with the universal native `emit_elf64_module_object` entry point. Before writing any object bytes, the entry point now requires the full CFG validator **and** verified call target/arity/type/capability signatures. Fix the call validator's previous null Phi/target placeholders by forwarding the caller-supplied full `TargetPhiInput` and block-target tables. This preserves valid conditional branches and loop CFGs, and prevents the earlier unbound validator from being incorrectly applied to CFG-rich modules. The existing single CFG validation call is replaced, not duplicated, so the full structural pass runs once before call signatures.
+
+Tagged ownership roles (plain/sole/whisper/direct) are checked against callee SSA parameter domain flags; external declarations without certified domain SSA must use plain roles. Unknown/mismatched roles, callee symbols, arity and scalar type mismatches fail closed. Existing untagged legacy IR remains compatible; no ABI/IR struct layout, source grammar, backend machine encoding, or ownership semantics are changed.
+
+**Acceptance:** execute a native program whose single module contains an aggregate-return sret helper, direct-borrow void observer, sole-consuming helper, scalar function call and an `if` CFG branch; enforce a structural gate verifying that the unified emitter passes full Phi/target buffers into its mandatory typed call validator. Prior Stage1, installed Linux seed, Windows PE Stage2/Stage3 binary equality, Darwin Mach-O, and all other tests remain intact.
+
+**Limit:** this is the **unified ELF object writer boundary**, not a claim that every specialized assembly/PE/Mach-O writer independently calls the validator, or that separately compiled modules/foreign linkers have cross-module proof. Mark SV8.48d as a candidate pending a new fully green matrix. **Next SV8.48e:** typed call validation at other emission entry points, then stronger declared FFI/system capability checks, after green. No new Python or C reduction figure is asserted.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test
