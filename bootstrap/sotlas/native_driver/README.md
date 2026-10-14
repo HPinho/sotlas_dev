@@ -828,6 +828,20 @@ test verifies all three drivers against the canonical capacity profile;
 the installer and all real native smoke/Stage2/Stage3/PE/Mach-O gates remain
 mandatory for certification.
 
+## SV8.48c — typed void calls and capability-signature agreement
+
+Native void-returning calls now carry the same per-argument 2-bit ownership
+profile as scalar and record-return calls. The existing `target_module_validate_calls`
+checks tagged roles against callee SSA parameters' ownership-domain flags,
+rejecting forged or contradictory metadata and unproved non-plain roles at
+external declarations. It also retains type and arity equality checks.
+
+The explicit signature validator is not yet a mandatory phase at every
+native emission entry point; that separate end-to-end proof remains open.
+No new FFI, lifetime, ARC/drop, ABI, source serialization or system capability
+rights are enabled. All previous Windows Stage2/Stage3, installed Linux seed,
+and macOS native selfhost tests remain mandatory.
+
 ## Project diagnostics
 
 Project compiler diagnostics map resolved source positions back to the original

@@ -2088,6 +2088,16 @@ Last fully certified green baseline remains `5e6c8fd343478dac43ab5c0c83f0fc66f86
 
 **Certification:** This commit is a candidate until the full workflow passes, including the installed Linux seed building both Windows and Darwin targets. The last entirely green baseline remains `5e6c8fd343478dac43ab5c0c83f0fc66f86dc820` / [CI #38448890155](https://github.com/HPinho/sotlas_dev/actions/runs/38448890155). SV8.48c remains the next planned feature only after green. Architecture checkpoint evidence and independently measured Python/C removal percentages are not changed.
 
+### SV8.48c — native typed void-call coverage and declared capability agreement (2026-10-14)
+
+**New certified baseline:** `8785c79f1608e88495b1ee49d5ab19dd7f399bc5` succeeded in the complete matrix and installed-native package gates in both [#38503673523](https://github.com/HPinho/sotlas_dev/actions/runs/38503673523) and [#38527902706](https://github.com/HPinho/sotlas_dev/actions/runs/38527902706). Do not weaken the real Windows Stage2/Stage3 native PE fixed-point, Linux freestanding seed, and macOS gates.
+
+**Narrow fix to typed call coverage:** the preexisting scalar and record-return lowering tags `TargetOpcode::Call` with two-bit ownership-capability roles, but `lower_direct_void_call_statement` emitted only the ABI call symbol. A void observer or consumer now emits the same typed per-argument profile and rejects unrepresentable ownership roles. The explicit `target_module_validate_calls` call-signature checker now also compares the tagged per-argument roles to the callee's own canonical SSA parameter domain flags (0 plain, 1 sole, 4 whisper, 6 direct), in addition to exact argument scalar types and arity. External declarations have no SSA domain flags and therefore may only be matched to plain roles in this bounded proof.
+
+**Acceptance:** native execution of a borrowed `direct` observer chained through a `whisper` void relay; fail-closed consumption of sole on a void call; a structural validator gate for exact role agreement and foreign-domain rejection. ABI, instruction layout, legacy manually authored untagged calls and compiler paths are unchanged.
+
+**Important scope boundary:** `target_module_validate_calls` is an explicit call-signature validator and is **not yet invoked automatically by every emitter**. This SV8.48c sub-contract strengthens that validator and ensures typed metadata is present on native void calls, but does not claim complete cross-module signature proof, safe arbitrary C FFI, resource lifetime inference, ARC/drop, or effect inference. Continue with SV8.48d to wire reliable call-signature validation into native emitters with appropriate complete CFG/SSA coverage and compiler-symbol handling. **Status:** candidate until new CI green. No new measured Python/C reduction or sovereignty checkpoint is claimed.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test

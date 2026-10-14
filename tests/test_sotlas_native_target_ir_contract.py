@@ -270,6 +270,26 @@ class SotlasNativeTargetIRContractTests(unittest.TestCase):
         # Keep the end-to-end packaging workflow and native Windows fixed
         # point checks enabled; this static guard supplements them.
 
+    def test_sv848c_void_call_capabilities_and_callee_domains_are_checked(self):
+        """Typed void calls cannot lose roles; foreign roles fail closed."""
+        root = ROOT / "bootstrap" / "sotlas" / "native_compiler" / "backend"
+        lowering = (root / "lower_scalar.sotlas").read_text(encoding="utf-8")
+        target = (root / "target_ir.sotlas").read_text(encoding="utf-8")
+        body = lowering.split("pub fn lower_direct_void_call_statement(", 1)[1]
+        body = body.split("pub fn lower_return_statement(", 1)[0]
+        self.assertIn("self.call_capability_profile(callee_decl, argument_count)", body)
+        self.assertIn("call.flags = TARGET_CALL_CAPABILITIES_TYPED;", body)
+        self.assertIn("call.immediate_bits = capabilities;", body)
+        self.assertIn("capabilities == 18446744073709551615", body)
+        calls = target.split("pub fn target_module_validate_calls(", 1)[1]
+        calls = calls.split("pub fn target_module_validate_ssa_dominance(", 1)[0]
+        self.assertIn("instruction.flags == TARGET_CALL_CAPABILITIES_TYPED", calls)
+        self.assertIn("TARGET_VALUE_DOMAIN_MASK", calls)
+        self.assertIn("TARGET_VALUE_DOMAIN_SHIFT", calls)
+        self.assertIn("if actual_role != expected_role { return false; }", calls)
+        self.assertIn("if actual_role != 0 { return false; }", calls)
+        self.assertIn("if argument_type != parameter.type_tag { return false; }", calls)
+
     def test_native_main_has_a_target_ir_entry_point_separate_from_c_emission(self):
         native_root = ROOT / "bootstrap" / "sotlas" / "native_compiler"
         dependency_names = (

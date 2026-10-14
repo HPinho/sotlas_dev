@@ -320,6 +320,26 @@ pub fn main_entry()->u32{
 let value:Token=build(42);return read(value);}'''
         self.execute(self.compile('sv848b_call_capability_sret',source))
 
+    def test_sv848c_typed_void_observers_preserve_borrow_and_effects(self):
+        """Void observer calls keep typed direct, whisper and value ABI."""
+        source='''struct Token{pub value:u32;}static mut total:u32=0;
+fn observe(value:whisper Token,bonus:u32)->void{
+unsafe{total=total+value.value+bonus;}}
+fn relay(value:direct Token)->void{observe(value,1);}
+pub fn main_entry()->u32{let owner:sole Token=Token{value:20};
+relay(owner);observe(owner,1);
+if unsafe{total}!=42{return 1;}
+let moved:sole Token=owner;return moved.value+22;}'''
+        self.execute(self.compile('sv848c_typed_void_borrow',source))
+
+    def test_sv848c_void_observer_cannot_erase_sole_move(self):
+        """A void callee's consuming capability still moves sole storage."""
+        source='''struct Token{pub value:u32;}
+fn take(value:sole Token)->void{return;}
+pub fn main_entry()->u32{let owner:sole Token=Token{value:42};
+take(owner);return owner.value;}'''
+        self.compile('sv848c_void_sole_move',source,success=False)
+
     def test_native_short_circuit_ownership_preserves_statically_skipped_owners(self):
         source='''struct Token{pub value:u32;}static mut calls:u32=0;
 fn consume(value:sole Token)->bool{unsafe{calls=calls+1;}return value.value==42;}
