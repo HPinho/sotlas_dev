@@ -361,6 +361,33 @@ class SotlasNativeTargetIRContractTests(unittest.TestCase):
         # CFG subsets. The full native PE/Mach-O/ELF regression suites and
         # the installed freestanding Linux seed remain mandatory gates.
 
+    def test_sv848f_legacy_multifunction_emitters_preflight_typed_calls(self):
+        """Legacy U32 module emitters must prove CFG and call roles before output."""
+        root = ROOT / "bootstrap" / "sotlas" / "native_compiler" / "backend"
+        source = (root / "x86_64_scalar.sotlas").read_text(encoding="utf-8")
+        target = (root / "target_ir.sotlas").read_text(encoding="utf-8")
+        validator = target.split("pub fn target_module_validate_calls(", 1)[1]
+        validator = validator.split("pub fn target_module_validate_ssa_dominance(", 1)[0]
+        self.assertIn("target_module_validate_cfg(", validator)
+        self.assertIn("if actual_role != expected_role { return false; }", validator)
+        self.assertIn("if argument_type != parameter.type_tag { return false; }", validator)
+        # No Phi/target arrays in legacy ABI: nonzero counts fail closed.
+        self.assertIn("(target_section.phi_input_count != 0 && phi_inputs == null)", target)
+        self.assertIn("(target_section.target_count != 0 && targets == null)", target)
+        for name, first_output in (
+            ("emit_elf64_scalar_module_object", "let function_count: u32 ="),
+            ("emit_x86_64_scalar_module", "let mut length: usize = 0;"),
+        ):
+            with self.subTest(emitter=name):
+                entry = source.split(f"pub fn {name}(", 1)[1]
+                preflight = entry.split(first_output, 1)[0]
+                self.assertIn("if !target_module_validate_calls(", preflight)
+                self.assertIn("source, source_len, target_module, functions, parameters, values,", preflight)
+                self.assertIn("blocks, instructions, operands, null, null", preflight)
+                self.assertNotIn("if !target_module_validate_cfg(", preflight)
+                self.assertNotIn("append_bytes(", preflight)
+        # Native selfhost and full Linux/Windows/macOS CI remain mandatory.
+
     def test_native_main_has_a_target_ir_entry_point_separate_from_c_emission(self):
         native_root = ROOT / "bootstrap" / "sotlas" / "native_compiler"
         dependency_names = (

@@ -882,6 +882,20 @@ conventions and remain for a separate change, along with cross-object and
 foreign capability guarantees. All Stage2/Stage3, PE, Mach-O and native seed
 tests must remain green.
 
+## SV8.48f — legacy multi-function typed-call gates
+
+The legacy ELF64 multi-function scalar object writer and x86-64 multi-function
+assembly writer now invoke the shared CFG and typed direct-call verifier before
+any output. Their one-block U32 profile carries no Phi or target arrays: the
+validator rejects nonzero declared counts when those pointers are null.
+Existing subsets and untagged IR compatibility stay intact; machine ABI and
+emitted formats do not change.
+
+Remaining specialized single-function U32 and three-block conditional assembly
+emitters require a separate signature-parity pass (SV8.48g).
+Cross-object/foreign capability guarantees and Python/C bootstrap removal
+remain open. Acceptance requires the complete CI matrix.
+
 ## Project diagnostics
 
 Project compiler diagnostics map resolved source positions back to the original

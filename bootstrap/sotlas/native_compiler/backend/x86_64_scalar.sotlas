@@ -945,6 +945,13 @@ pub fn emit_elf64_scalar_module_object(
         || unsafe { (*target_module).value_count } > 536870910 {
         return false;
     }
+    // SV8.48f: legacy multi-function IR has no Phi or branch tables.
+    // Prove CFG and typed direct-call signatures before writing bytes.
+    // Null side tables reject any nonzero declared counts.
+    if !target_module_validate_calls(
+        source, source_len, target_module, functions, parameters, values,
+        blocks, instructions, operands, null, null
+    ) { return false; }
     let function_count: u32 = unsafe { (*target_module).function_count };
     let text_offset: usize = 64;
     let mut function_offsets: [usize; 128] = 0;
@@ -5277,6 +5284,13 @@ pub fn emit_x86_64_scalar_module(
         || unsafe { (*target_module).value_count } > 536870911 {
         return false;
     }
+    // SV8.48f: legacy multi-function IR has no Phi or branch tables.
+    // Prove CFG and typed direct-call signatures before writing bytes.
+    // Null side tables reject any nonzero declared counts.
+    if !target_module_validate_calls(
+        source, source_len, target_module, functions, parameters, values,
+        blocks, instructions, operands, null, null
+    ) { return false; }
     let mut length: usize = 0;
     let mut function_index: u32 = 0;
     while function_index < unsafe { (*target_module).function_count } {
