@@ -313,6 +313,25 @@ class SotlasNativeTargetIRContractTests(unittest.TestCase):
         # The native installed-seed, Windows PE Stage2/Stage3 fixed point and
         # macOS Mach-O matrix checks remain mandatory execution gates.
 
+    def test_sv848d_sret_plain_call_role_preserves_owned_return(self):
+        """Synthetic ABI pointer cannot be mistaken for a sole argument."""
+        root = ROOT / "bootstrap" / "sotlas" / "native_compiler" / "backend"
+        ir = (root / "target_ir.sotlas").read_text(encoding="utf-8")
+        lower = (root / "lower_scalar.sotlas").read_text(encoding="utf-8")
+        check = ir.split("pub fn target_module_validate_calls(", 1)[1]
+        check = check.split("pub fn target_module_validate_ssa_dominance(", 1)[0]
+        self.assertIn("if parameter.name.length == 0 {", check)
+        self.assertIn("parameter.name.offset != 0", check)
+        self.assertIn("argument_index + 1 != instruction.operand_count", check)
+        self.assertIn("callee.return_type != TargetTypeTag::Void", check)
+        self.assertIn("parameter.type_tag != TargetTypeTag::Pointer", check)
+        self.assertIn("|| actual_role != 0 { return false; }", check)
+        self.assertIn("if actual_role != expected_role { return false; }", check)
+        self.assertIn("if actual_role != 0 { return false; }", check)
+        self.assertIn("self.mark_value_domain(self.return_destination, return_type_index)", lower)
+        self.assertIn("name: TargetSourceSlice { offset: 0, length: 0 }", lower)
+        self.assertIn("argument_values[argument_count as usize] = aggregate_destination;", lower)
+
     def test_native_main_has_a_target_ir_entry_point_separate_from_c_emission(self):
         native_root = ROOT / "bootstrap" / "sotlas" / "native_compiler"
         dependency_names = (
