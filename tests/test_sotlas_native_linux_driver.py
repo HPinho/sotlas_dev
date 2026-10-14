@@ -742,6 +742,11 @@ class NativeLinuxDriverTests(unittest.TestCase):
         self.run_tool([str(native_stage2), "--project-resolve-compiler",
                        str(native_stage3), *map(str, sources)], 600, env=environment)
         self.assertEqual(native_stage2.read_bytes(), native_stage3.read_bytes())
+        self.assertEqual(self.run_tool([str(native_stage3), "--compare", str(native_stage2), str(native_stage3)], env=environment).stdout, b"byte-identical\n")
+        self.assertEqual(self.run_tool([str(native_stage2), "--fingerprint", str(native_stage2)], env=environment).stdout,
+                         self.run_tool([str(native_stage3), "--fingerprint", str(native_stage3)], env=environment).stdout)
+        self.run_tool([str(native_stage3), "--verify-seed", str(native_stage3)], env=environment)
+        self.run_tool([str(native_stage3), "--self-test"], env=environment)
         source = self.directory / "resolved_stage3_example.sotlas"
         source.write_bytes((ROOT / "examples/native_float_profile.sotlas").read_bytes())
         output = self.directory / "resolved_stage3_example"

@@ -3,7 +3,40 @@
 **Status:** active implementation track  
 **Started:** 2026-10-03 (America/Fortaleza)  
 **Green baseline at track start:** `7162167dec6fd5fa0a216121b147335d222e43f1` / CI #1063  
-**Current certified baseline:** `f963c933af39e5dba989594efb34bfbfdf535823` / [CI #1130](https://github.com/HPinho/sotlas_dev/actions/runs/37649186099) (completed successfully; verified 2026-10-07)
+**Latest inspected green baseline:** `ce93fa9` / [CI #1221](https://github.com/HPinho/sotlas_dev/actions/runs/38621972769). The SV8.50 candidate requires its own CI certification.
+
+
+## SV8.50 — native runtime and migration boundaries (2026-10-14)
+
+Starting from `b40a8fa`, this candidate implements four bounded contracts in
+each of nine migration areas. The complete 36-item inventory and evidence are
+in [the native migration checklist](sotlas_native_frontend_ownership_checklist.md).
+
+The new `runtime/native/managed.sotlas` provides caller-backed arenas, local
+reference headers, generation-checked weak upgrades and explicit runtime
+authority/state/range guards. It compiles through the owned x86-64 object/link
+path. A native project gate uses the actual library source with host tools
+absent. Automatic ARC/drop, stored language borrows and canonical state/effect
+syntax remain separate migration requirements.
+
+Native address conversions use `PointerCast`, preserve 64 bits and require
+unsafe; narrowing, signed and floating address conversions are rejected.
+Branch assignments select structured CFG lowering. IR preflight and ELF input
+checks are strengthened before machine emission/linking.
+
+All three native platform drivers gain four report commands and four bootstrap
+audit commands. Generation gates use those native commands on actual Stage 2/3
+artifacts while retaining the existing byte identity assertions. Fingerprints
+and executable envelope checks do not authenticate a seed or prove full parity.
+
+Final local validation passed 2,967 Windows tests with 79 platform/toolchain
+skips in 897.171 seconds. All 40 added gates passed on Windows, Linux through
+WSL and Windows Python 3.10.11. Linux original-source Stage 2/3 identity and
+complete Darwin compiler cross-generation passed in 104.232 seconds; Windows
+Stage 2/3 passed in the full suite. Native Intel macOS execution still requires
+CI. CI certification remains pending. Python/C bootstrap removal is not
+established by these bounded advances.
+
 
 ## SV8.49c — per-edge POD ownership and matrix regression repair (2026-10-14)
 

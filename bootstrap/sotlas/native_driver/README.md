@@ -1030,3 +1030,29 @@ capability remains unsupported. Domains are retained in AST qualifiers and
 TargetValue metadata for accepted bindings, parameters and aggregate return
 destinations. See the [closure checklist](../../../docs/sotlas_native_frontend_ownership_checklist.md)
 for the remaining migration requirements.
+
+
+## Native audit and reporting commands (SV8.50)
+
+Linux, Windows and Intel macOS drivers expose the same bounded command contract:
+
+| Command | Result |
+|---|---|
+| `--version` | Native driver and in-memory Target IR contract versions |
+| `--limits` | Compiler/project bounds, including parameters, blocks and arrays |
+| `--target` | Actual image format, architecture, pointer width and ABI limits |
+| `--exit-codes` | Error-code mapping, including audit failures |
+| `--compare LEFT RIGHT` | Streams both artifacts; returns 0 and `byte-identical` only for equal bytes; returns 14 on a content/length mismatch |
+| `--fingerprint FILE` | Streams FNV-1a-64 and prints 16 lowercase hexadecimal digits; this is not a cryptographic hash |
+| `--verify-seed FILE` | Checks the native platform/x86-64 executable envelope; returns 15 for unsupported/truncated headers; does not authenticate or execute the file |
+| `--self-test` | Compiles an in-memory scalar program through frontend, typed IR and owned object emission; writes no artifact and does not execute the result |
+
+Audit reads use fixed 4 KiB scratch buffers, retry interruptions and fill short
+reads before comparing. File handles are closed on every handled result path.
+Missing/unreadable files use the existing open/read error codes. Additional
+arguments to report commands and missing/extra audit operands fail with usage
+code 1. These commands start no Python, C compiler or external linker.
+
+Generation gates exercise the audit commands using actual Stage 2/3 artifacts
+with host tools absent. Complete canonical parity and authenticated seed
+distribution remain open requirements.

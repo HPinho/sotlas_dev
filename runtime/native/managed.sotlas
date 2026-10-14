@@ -1,0 +1,125 @@
+module sotlas::runtime::managed;
+
+// Caller-owned storage. These APIs are single-threaded and perform no hidden
+// allocation, OS calls or foreign calls. They do not implement automatic ARC.
+pub struct NativeArena {
+    pub buffer: *mut u8;
+    pub capacity: usize;
+    pub used: usize;
+    pub epoch: u64;
+}
+
+pub fn native_arena_init(buffer: *mut u8, capacity: usize) -> NativeArena {
+    let mut size: usize = capacity;
+    if buffer == null { size = 0; }
+    return NativeArena { buffer:buffer, capacity:size, used:0, epoch:1 };
+}
+
+// Alignment is relative to the actual backing address. Failure leaves the
+// allocation cursor unchanged. Zero-sized requests are deliberately rejected.
+pub fn native_arena_alloc(mut arena: *mut NativeArena, size: usize, alignment: usize) -> *mut u8 {
+    if arena == null || size == 0 || alignment == 0
+        || alignment > 4096 || (alignment & (alignment-1)) != 0 { return null; }
+    unsafe {
+        if arena.buffer == null || arena.used > arena.capacity { return null; }
+        let base: usize = arena.buffer as usize;
+        if arena.used > 18446744073709551615 - base { return null; }
+        let address: usize = base + arena.used;
+        let padding: usize = (alignment - (address & (alignment-1))) & (alignment-1);
+        let available: usize = arena.capacity - arena.used;
+        if padding > available || size > available-padding
+            || padding > 18446744073709551615-address
+            || size > 18446744073709551615-address-padding { return null; }
+        let backing: *mut u8 = arena.buffer;
+        let offset: usize = arena.used + padding;
+        let result: *mut u8 = backing + offset;
+        arena.used = arena.used + padding + size;
+        return result;
+    }
+}
+
+pub struct NativeArenaMark { pub used: usize; pub epoch: u64; pub owner: *const NativeArena; }
+
+pub fn native_arena_mark(arena: *const NativeArena) -> NativeArenaMark {
+    if arena == null { return NativeArenaMark { used:0, epoch:0, owner:null }; }
+    unsafe { return NativeArenaMark { used:arena.used, epoch:arena.epoch, owner:arena }; }
+}
+
+// Rewind invalidates every previous mark, including marks from a later cursor.
+// The caller must ensure that no pointer into discarded storage remains live.
+pub fn native_arena_rewind(mut arena: *mut NativeArena, mark: NativeArenaMark) -> bool {
+    if arena == null { return false; }
+    unsafe {
+        if mark.epoch == 0 || mark.epoch != arena.epoch || mark.used > arena.used || mark.owner != arena
+            || arena.used > arena.capacity || arena.epoch == 18446744073709551615 { return false; }
+        arena.used = mark.used;
+        arena.epoch = arena.epoch + 1;
+        return true;
+    }
+}
+
+// A control block must outlive all weak tokens. Generation reuse and atomic
+// concurrency are intentionally unsupported. The payload remains caller-owned.
+pub struct NativeRefHeader { pub strong: u64; pub generation: u64; pub live: bool; }
+
+pub fn native_ref_init() -> NativeRefHeader {
+    return NativeRefHeader { strong:1, generation:1, live:true };
+}
+
+pub fn native_ref_retain(mut header: *mut NativeRefHeader) -> bool {
+    if header == null { return false; }
+    unsafe {
+        if !header.live || header.strong == 0 || header.strong == 18446744073709551615 { return false; }
+        header.strong = header.strong + 1;
+        return true;
+    }
+}
+
+// True authorizes the caller to destroy its payload exactly once. Repeated
+// releases and attempts to resurrect a dead control block return false.
+pub fn native_ref_release(mut header: *mut NativeRefHeader) -> bool {
+    if header == null { return false; }
+    unsafe {
+        if !header.live || header.strong == 0 { return false; }
+        header.strong = header.strong - 1;
+        if header.strong != 0 { return false; }
+        header.live = false;
+        // Saturation still invalidates all tokens because live is false.
+        if header.generation != 18446744073709551615 { header.generation = header.generation + 1; }
+        return true;
+    }
+}
+
+// A successful upgrade owns a new strong reference, which must be released.
+pub fn native_ref_upgrade(header: *mut NativeRefHeader, generation: u64) -> bool {
+    if header == null || generation == 0 { return false; }
+    unsafe { if header.generation != generation { return false; } }
+    return native_ref_retain(header);
+}
+
+// Explicit runtime guards. These do not infer effects or replace the canonical
+// language authority/state syntax. Masks must be granted by the embedding app.
+pub fn native_authority_allows(granted: u64, required: u64) -> bool {
+    return (granted & required) == required;
+}
+
+pub fn native_authority_narrow(granted: u64, delegated: u64, result: *mut u64) -> bool {
+    if result == null || !native_authority_allows(granted,delegated) { return false; }
+    unsafe { *result = delegated; }
+    return true;
+}
+
+pub fn native_state_transition(state: *mut u32, expected: u32, next: u32,
+    granted: u64, required: u64) -> bool {
+    if state == null || !native_authority_allows(granted,required) { return false; }
+    unsafe {
+        if *state != expected { return false; }
+        *state = next;
+    }
+    return true;
+}
+
+// Subtraction prevents overflow when callers supply untrusted offsets/sizes.
+pub fn native_contract_range(capacity: usize, offset: usize, size: usize) -> bool {
+    return offset <= capacity && size <= capacity-offset;
+}

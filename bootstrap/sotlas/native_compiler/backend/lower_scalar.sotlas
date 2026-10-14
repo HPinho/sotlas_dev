@@ -2665,6 +2665,29 @@ impl ScalarLowering {
                 return TARGET_VALUE_NONE;
             }
             let cast_type: TargetTypeTag = self.type_tag_for(cast_type_index);
+            let address_source: TargetTypeTag = self.condition_expression_type(value_index,first_parameter,parameter_count);
+            if (address_source == TargetTypeTag::Pointer && (cast_type == TargetTypeTag::U64 || cast_type == TargetTypeTag::Usize))
+                || (cast_type == TargetTypeTag::Pointer && (address_source == TargetTypeTag::U64 || address_source == TargetTypeTag::Usize)
+                    && !(value_node.kind == AstKind::ExprUnary && value_node.int_value == 92)) {
+                let mut address_sema: Sema = Sema::new();
+                if !address_sema.is_in_unsafe_block(self.nodes,self.node_count,expression_index)
+                    || (type_tag != TargetTypeTag::Invalid && type_tag != cast_type) { return 0; }
+                // Aggregate storage uses Pointer internally, but a source
+                // record is not a raw pointer and cannot expose that storage
+                // through a numeric cast. A typed raw record pointer is valid.
+                if address_source == TargetTypeTag::Pointer && self.cfg_struct_id(value_index,0) != 0 {
+                    let address_ref: usize = self.pointer_expression_type_ref(value_index);
+                    if (value_node.kind == AstKind::ExprUnary && value_node.int_value == 82)
+                        || address_ref == 0
+                        || !address_sema.is_pointer_type_ref(self.nodes,self.node_count,address_ref,self.source,self.source_len) { return 0; }
+                }
+                let address_value: u32 = self.lower_expression(value_index,address_source,first_parameter,parameter_count);
+                let address_first: u32 = self.operand_count as u32;
+                let address_result: u32 = self.append_value(cast_type,0,0);
+                if address_value == 0 || address_result == 0 || !self.append_operand(address_value)
+                    || !self.append_instruction(TargetOpcode::PointerCast,address_result,cast_type,address_first,1,expression_index) { return 0; }
+                return address_result;
+            }
             if self.structured_cfg && cast_type == TargetTypeTag::Pointer
                 && value_node.kind == AstKind::ExprUnary && value_node.int_value == 92 {
                 let binding_index: usize = value_node.first_child;
@@ -3546,7 +3569,8 @@ impl ScalarLowering {
                 right_index, first_parameter, parameter_count);
             if offset_type != TargetTypeTag::Invalid { right_type = offset_type; }
             if right_type != TargetTypeTag::U32
-                && right_type != TargetTypeTag::U64 {
+                && right_type != TargetTypeTag::U64
+                && right_type != TargetTypeTag::Usize {
                 return TARGET_VALUE_NONE;
             }
             let right_value: u32 = self.lower_expression(
@@ -5561,13 +5585,14 @@ impl ScalarLowering {
                 nested_field = unsafe { (*(self.nodes + node.first_child)).kind } == AstKind::ExprFieldAccess;
             }
             let mut is_field_assignment: bool = false;
+            let is_assignment: bool = node.kind == AstKind::AssignStmt;
             if node.kind == AstKind::AssignStmt && node.first_child != 0
                 && node.first_child < self.node_count {
                 is_field_assignment = unsafe {
                     (*(self.nodes + node.first_child)).kind
                 } == AstKind::ExprFieldAccess;
             }
-            if is_loop || is_branch || is_defer || is_lexical_block || is_local_array || needs_lazy_condition || is_field_assignment || is_aggregate_call || unsafe_block || nested_field || method_call || array_index || scalar_call {
+            if is_loop || is_branch || is_defer || is_lexical_block || is_local_array || needs_lazy_condition || is_assignment || is_field_assignment || is_aggregate_call || unsafe_block || nested_field || method_call || array_index || scalar_call {
                 let mut parent: usize = node.parent;
                 let mut depth: usize = 0;
                 let mut nested_in_if: bool = false;
@@ -5584,6 +5609,7 @@ impl ScalarLowering {
                             no_loop_unsafe = true;
                         }
                         if is_field_assignment && nested_in_if { nested_field_store = true; }
+                        if is_assignment && nested_in_if { needs_cfg = true; }
                         break;
                     }
                     if unsafe { (*(self.nodes + parent)).kind } == AstKind::IfStmt {
