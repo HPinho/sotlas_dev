@@ -65,7 +65,11 @@ fn fail(code: u32) -> u32 {
 // Report the actual owned profile without initializing compiler arenas.
 fn driver_print_profile(help: bool) -> u32 {
     let mut text: *const u8 = "sotlas-native capabilities v1\nbackend=x86_64\ninteger_bits=8,16,32,64\nfloats=f32,f64\nfloat_literals=coefficient<10^18;decimal-places<=18\nfloat_abi=internal-bits\nnumeric_casts=integer-float-checked\nfloat_external_abi=unsupported\nownership_analysis=exclusive-pod,whisper-internal,direct-internal\nownership_runtime=unsupported\nflow_execution=unsupported\n";
-    if help { text = "Usage: sotlas-native INPUT OUTPUT [--object|--compiler]\n       sotlas-native --check INPUT\n       sotlas-native --project[-object|-compiler] OUTPUT INPUT...\n       sotlas-native --check-build ROOT ENTRY\n       sotlas-native --build[-obj|-cc] OUTPUT ROOT ENTRY\n       sotlas-native --capabilities\nNative profiles are bounded; use --capabilities to inspect limits.\n"; }
+    if help { text = "Usage: sotlas-native INPUT OUTPUT [--object|--compiler]\n       sotlas-native --check INPUT\n       sotlas-native --project[-object|-compiler] OUTPUT INPUT...\n       sotlas-native --check-build ROOT ENTRY\n       sotlas-native --build[-obj|-cc] OUTPUT ROOT ENTRY\n       sotlas-native --capabilities\nInspect --version, --limits, --target, --exit-codes or --capabilities.\nBootstrap: --compare LEFT RIGHT, --fingerprint FILE, --verify-seed FILE, --self-test.\n"; }
+    return driver_print_text(text);
+}
+
+fn driver_print_text(text: *const u8) -> u32 {
     let mut length: usize = 0;
     while length < 2048 && unsafe { *(text + length) } != 0 { length = length + 1; }
     if length == 2048 { return fail(13); }
@@ -77,6 +81,148 @@ fn driver_print_profile(help: bool) -> u32 {
         position = position + written as usize;
     }
     return 0;
+}
+
+
+fn driver_query_mode(option: *const u8) -> u32 {
+    if option_equals(option,"--version",9) { return 1; }
+    if option_equals(option,"--limits",8) { return 2; }
+    if option_equals(option,"--target",8) { return 3; }
+    if option_equals(option,"--exit-codes",12) { return 4; }
+    return 0;
+}
+fn driver_query_print(mode: u32) -> u32 {
+    let mut text: *const u8 = "native-driver-contract=1\ntarget-ir=1\n";
+    if mode == 2 { text = "single_source_bytes<2097152\nproject_modules<=64\nproject_source_bytes<2097152\nfunctions<=512\nparameters_per_function<=24\nblocks_per_function<=2048\nlocal_bindings<=128\nlocal_scalar_array_elements<=4096\nrecord_array_storage_bytes<=65536\ndefer_slots<=128\n"; }
+    if mode == 3 { text = "architecture=x86_64\npointer_bits=64\nendianness=little\nobject=ELF64-relocatable\nimage=ELF64\ninternal_float_abi=integer-bits\nforeign_float_abi=unsupported\n"; }
+    if mode == 4 { text = "0=success\n1=usage\n2=open\n3=read-or-close\n4=lexical\n5=syntax\n6=semantic\n7=lowering\n8=object\n9=link\n10=output-open\n11=output-write\n12=project-resolution\n13=report-write\n14=artifacts-differ\n15=seed-envelope\n"; }
+    return driver_print_text(text);
+}
+
+static mut driver_audit_left: [u8;4096] = 0;
+static mut driver_audit_right: [u8;4096] = 0;
+
+// Fill short reads before comparing chunks. Interrupted reads are retried.
+fn driver_audit_read(fd: u64, buffer: *mut u8) -> i64 {
+    let mut count: u64 = 0;
+    while count < 4096 {
+        let got: i64 = sotlas_linux_read(fd,unsafe{buffer+count},4096-count);
+        if got == -4 { continue; }
+        if got < 0 || got as u64 > 4096-count { return -1; }
+        if got == 0 { break; }
+        count = count + got as u64;
+    }
+    return count as i64;
+}
+
+// This proves byte identity, not a feature-complete bootstrap fixed point.
+fn driver_compare_files(left: *const u8, right: *const u8) -> u32 {
+    if left == null || right == null { return fail(1); }
+    let a: i64 = sotlas_linux_open(left,0,0);
+    if a < 0 { return fail(2); }
+    let b: i64 = sotlas_linux_open(right,0,0);
+    if b < 0 { let closed: i64 = sotlas_linux_close(a as u64); return fail(2); }
+    let first: *mut u8 = unsafe{driver_audit_left as *mut u8};
+    let second: *mut u8 = unsafe{driver_audit_right as *mut u8};
+    let mut status: u32 = 0;
+    while true {
+        let count_a: i64 = driver_audit_read(a as u64,first);
+        let count_b: i64 = driver_audit_read(b as u64,second);
+        if count_a < 0 || count_b < 0 { status = 3; break; }
+        if count_a != count_b { status = 14; break; }
+        let mut index: u64 = 0;
+        while index < count_a as u64 {
+            if unsafe{*(first+index)} != unsafe{*(second+index)} { status = 14; break; }
+            index = index+1;
+        }
+        if status != 0 || count_a == 0 { break; }
+    }
+    let close_a: i64 = sotlas_linux_close(a as u64);
+    let close_b: i64 = sotlas_linux_close(b as u64);
+    if close_a < 0 || close_b < 0 { return fail(3); }
+    if status != 0 { return fail(status); }
+    return driver_print_text("byte-identical\n");
+}
+
+// FNV-1a is a reproducibility fingerprint, not a cryptographic signature.
+fn driver_fingerprint_file(path: *const u8) -> u32 {
+    if path == null { return fail(1); }
+    let opened: i64 = sotlas_linux_open(path,0,0);
+    if opened < 0 { return fail(2); }
+    let buffer: *mut u8 = unsafe{driver_audit_left as *mut u8};
+    let mut hash: u64 = 14695981039346656037;
+    let mut status: u32 = 0;
+    while true {
+        let count: i64 = driver_audit_read(opened as u64,buffer);
+        if count < 0 { status=3; break; }
+        if count == 0 { break; }
+        let mut index: u64 = 0;
+        while index < count as u64 {
+            hash = (hash ^ unsafe{*(buffer+index)} as u64)*1099511628211;
+            index=index+1;
+        }
+    }
+    let closed: i64 = sotlas_linux_close(opened as u64);
+    if closed < 0 || status != 0 { return fail(3); }
+    let digits: *const u8 = "0123456789abcdef";
+    let mut index: u64 = 0;
+    while index < 16 {
+        let nibble: u64 = (hash >> ((15-index)*4)) & 15;
+        unsafe{*(buffer+index)=*(digits+nibble);}
+        index=index+1;
+    }
+    unsafe{*(buffer+16)=10;*(buffer+17)=0;}
+    return driver_print_text(buffer);
+}
+
+// Check the platform/architecture envelope before accepting a seed artifact.
+// This does not authenticate its origin or prove that it is a compiler.
+fn driver_verify_seed(path: *const u8) -> u32 {
+    if path == null { return fail(1); }
+    let opened: i64 = sotlas_linux_open(path,0,0);
+    if opened < 0 { return fail(2); }
+    let buffer: *mut u8 = unsafe{driver_audit_left as *mut u8};
+    let count: i64 = driver_audit_read(opened as u64,buffer);
+    let closed: i64 = sotlas_linux_close(opened as u64);
+    if count < 0 || closed < 0 { return fail(3); }
+    if count < 64 || unsafe{*buffer} != 127 || unsafe{*(buffer+1)} != 69
+            || unsafe{*(buffer+2)} != 76 || unsafe{*(buffer+3)} != 70
+            || unsafe{*(buffer+4)} != 2 || unsafe{*(buffer+5)} != 1
+            || unsafe{*(buffer+6)} != 1 || unsafe{*(buffer+16)} != 2
+            || unsafe{*(buffer+17)} != 0 || unsafe{*(buffer+18)} != 62
+            || unsafe{*(buffer+19)} != 0 { return fail(15); }
+    return driver_print_text("seed-envelope=x86_64-ELF64\n");
+}
+
+fn driver_self_test() -> u32 {
+    let sample: *const u8 = "module native_self_test;pub fn main_entry()->u32{let value:u64=21;return (value+21) as u32;}";
+    let destination: *mut u8 = unsafe{driver_source_bytes as *mut u8};
+    let mut length: u64 = 0;
+    while length < 1024 && unsafe{*(sample+length)} != 0 {
+        unsafe{*(destination+length)=*(sample+length);}
+        length=length+1;
+    }
+    if length == 1024 { return fail(7); }
+    driver_set_error_path("<self-test>");
+    let result: u32 = driver_compile_loaded(length as usize,null,true,false,true,false);
+    if result != 0 { return result; }
+    return driver_print_text("self-test=frontend,typed-ir,owned-object\n");
+}
+
+fn driver_audit_dispatch(argc: u64, argv: *const *const u8, option: *const u8) -> u32 {
+    if option_equals(option,"--compare",9) {
+        if argc != 4 { return fail(1); }
+        return driver_compare_files(unsafe{*(argv+2)},unsafe{*(argv+3)});
+    }
+    if option_equals(option,"--fingerprint",13) {
+        if argc != 3 { return fail(1); }
+        return driver_fingerprint_file(unsafe{*(argv+2)});
+    }
+    if option_equals(option,"--verify-seed",13) {
+        if argc != 3 { return fail(1); }
+        return driver_verify_seed(unsafe{*(argv+2)});
+    }
+    return 4294967295;
 }
 
 // Diagnostics describe one file, or the combined stream of a native project.
@@ -995,6 +1141,9 @@ pub fn sotlas_linux_main(argc: u64, argv: *const *const u8) -> u32 {
     if argc == 2 && argv != null {
         let option: *const u8 = unsafe { *(argv + 1) };
         if option == null { return fail(1); }
+        let query: u32 = driver_query_mode(option);
+        if query != 0 { return driver_query_print(query); }
+        if option_equals(option,"--self-test",11) { return driver_self_test(); }
         if option_equals(option, "--help", 6) { return driver_print_profile(true); }
         if option_equals(option, "--capabilities", 14) { return driver_print_profile(false); }
         return fail(1);
@@ -1002,6 +1151,10 @@ pub fn sotlas_linux_main(argc: u64, argv: *const *const u8) -> u32 {
     if argc < 3 || argv == null { return fail(1); }
     let first_option: *const u8 = unsafe { *(argv + 1) };
     if first_option == null { return fail(1); }
+    let audit: u32 = driver_audit_dispatch(argc,argv,first_option);
+    if audit != 4294967295 { return audit; }
+    if driver_query_mode(first_option) != 0 || option_equals(first_option,"--self-test",11) { return fail(1); }
+
     if option_equals(first_option, "--check", 7) {
         return driver_check_single(argc, argv);
     }

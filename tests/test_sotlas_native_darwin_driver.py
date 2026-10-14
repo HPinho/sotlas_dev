@@ -293,6 +293,11 @@ class NativeDarwinDriverTests(unittest.TestCase):
         self.run_tool([str(self.seed), "--project-resolve-compiler", str(stage2), *map(str, sources)], env=self.environment, timeout=900)
         self.run_tool([str(stage2), "--project-resolve-compiler", str(stage3), *map(str, sources)], env=self.environment, timeout=900)
         self.assertEqual(stage2.read_bytes(), stage3.read_bytes())
+        self.assertEqual(self.run_tool([str(stage3), "--compare", str(stage2), str(stage3)], env=self.environment).stdout, b"byte-identical\n")
+        self.assertEqual(self.run_tool([str(stage2), "--fingerprint", str(stage2)], env=self.environment).stdout,
+                         self.run_tool([str(stage3), "--fingerprint", str(stage3)], env=self.environment).stdout)
+        self.run_tool([str(stage3), "--verify-seed", str(stage3)], env=self.environment)
+        self.run_tool([str(stage3), "--self-test"], env=self.environment)
         source = self.directory / "stage3_program.sotlas"
         source.write_bytes((ROOT / "examples/native_float_profile.sotlas").read_bytes())
         output = self.directory / "stage3_program"

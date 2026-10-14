@@ -85,7 +85,8 @@ pub enum TargetOpcode {
     ConstFloat = 38,
     FloatNeg = 39,
     FloatCast = 40,
-    NumericCast = 41
+    NumericCast = 41,
+    PointerCast = 42
 }
 
 pub struct TargetSourceSlice {
@@ -550,7 +551,21 @@ pub fn target_module_value_invalid(
     value_index: u32
 ) -> bool {
     let value: TargetValue = unsafe { *(values + value_index) };
-    return value.id != value_index + 1 || value.type_tag == TargetTypeTag::Invalid;
+    return value.id != value_index + 1 || !target_type_is_value(value.type_tag)
+        || ((value.flags & TARGET_VALUE_DOMAIN_MASK) >> TARGET_VALUE_DOMAIN_SHIFT) > 8;
+}
+
+pub fn target_type_is_value(type_tag: TargetTypeTag) -> bool {
+    let tag: u32 = type_tag as u32;
+    return tag >= 1 && tag <= 15;
+}
+
+pub fn target_type_is_return(type_tag: TargetTypeTag) -> bool {
+    return target_type_is_value(type_tag) || type_tag == TargetTypeTag::Void;
+}
+
+pub fn target_source_slice_valid(slice: TargetSourceSlice, source_len: usize) -> bool {
+    return slice.offset <= source_len && slice.length <= source_len-slice.offset;
 }
 
 pub fn target_module_values_valid(
@@ -607,7 +622,7 @@ pub fn target_module_validate_cfg(
         if (function.flags & TARGET_FUNCTION_EXTERNAL) != 0 {
             if function.flags != TARGET_FUNCTION_EXTERNAL
                 || function.block_count != 0
-                || function.return_type == TargetTypeTag::Invalid
+                || !target_type_is_return(function.return_type)
                 || function.name.length == 0
                 || function.name.offset > 536870911
                 || !target_range_is_valid(
@@ -621,7 +636,7 @@ pub fn target_module_validate_cfg(
                     *(parameters + function.first_parameter + external_parameter)
                 };
                 if parameter.value_id != TARGET_VALUE_NONE
-                    || parameter.type_tag == TargetTypeTag::Invalid {
+                    || !target_type_is_value(parameter.type_tag) {
                     return false;
                 }
                 external_parameter = external_parameter + 1;
@@ -630,7 +645,7 @@ pub fn target_module_validate_cfg(
             continue;
         }
         if function.block_count == 0
-            || function.return_type == TargetTypeTag::Invalid
+            || !target_type_is_return(function.return_type)
             || !target_range_is_valid(
                 function.first_parameter, function.parameter_count,
                 target_section.parameter_count
@@ -647,6 +662,7 @@ pub fn target_module_validate_cfg(
                 *(parameters + function.first_parameter + parameter_offset)
             };
             if parameter.value_id == TARGET_VALUE_NONE
+                || !target_type_is_value(parameter.type_tag)
                 || parameter.value_id > target_section.value_count
                 || !target_value_matches(
                     values, target_section.value_count, parameter.value_id, parameter.type_tag
@@ -958,6 +974,14 @@ pub fn target_module_validate_cfg(
                                 && instruction.immediate_bits == 0)) {
                         return false;
                     }
+                } else if instruction.opcode == TargetOpcode::PointerCast {
+                    if instruction.result_value == TARGET_VALUE_NONE || instruction.operand_count != 1 { return false; }
+                    let cast_operand: TargetOperand = unsafe { *(operands+instruction.first_operand) };
+                    if cast_operand.value_id == 0 || cast_operand.value_id > target_section.value_count { return false; }
+                    let from: TargetTypeTag = unsafe { (*(values+cast_operand.value_id-1)).type_tag };
+                    let to: TargetTypeTag = instruction.type_tag;
+                    if !((from == TargetTypeTag::Pointer && (to == TargetTypeTag::U64 || to == TargetTypeTag::Usize))
+                        || (to == TargetTypeTag::Pointer && (from == TargetTypeTag::U64 || from == TargetTypeTag::Usize))) { return false; }
                 } else if instruction.opcode == TargetOpcode::IntCast {
                     if instruction.result_value == TARGET_VALUE_NONE
                         || !target_type_is_integer(instruction.type_tag)
@@ -1244,6 +1268,27 @@ pub fn target_module_validate_calls(
         return false;
     }
     let target_section: TargetModule = unsafe { *target_module };
+    // Source identities are part of the IR boundary, including declarations
+    // that are never called. Validate before any writer reads symbol bytes.
+    let mut name_index: u32 = 0;
+    while name_index < target_section.function_count {
+        let named_function: TargetFunction = unsafe { *(functions+name_index) };
+        if named_function.name.length == 0
+            || !target_source_slice_valid(named_function.name,source_len) { return false; }
+        name_index = name_index+1;
+    }
+    name_index = 0;
+    while name_index < target_section.parameter_count {
+        let named_parameter: TargetParameter = unsafe { *(parameters+name_index) };
+        if !target_source_slice_valid(named_parameter.name,source_len) { return false; }
+        name_index = name_index+1;
+    }
+    name_index = 0;
+    while name_index < target_section.value_count {
+        let named_value: TargetValue = unsafe { *(values+name_index) };
+        if !target_source_slice_valid(named_value.source_name,source_len) { return false; }
+        name_index = name_index+1;
+    }
     let mut function_index: u32 = 0;
     while function_index < target_section.function_count {
         let caller: TargetFunction = unsafe { *(functions + function_index) };

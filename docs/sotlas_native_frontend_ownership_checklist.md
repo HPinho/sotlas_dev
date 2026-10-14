@@ -10,6 +10,56 @@ contracts. Local validation must pass CI before being called certified.
 
 ## Frontend parity
 
+### SV8.50 — four advances in each migration area (2026-10-14)
+
+The following 36 bounded contracts are implemented in Sotlas. Native execution
+gates cover accepted behavior and malformed inputs. They do not close the nine
+parent migration areas. In particular, the new explicit runtime API does not
+make native `shared`, `region`, `whisper` storage or automatic drop glue supported.
+
+| Area | Four delivered contracts | Evidence |
+|---|---|---|
+| Frontend | Nested block comments; numeric separator/radix-prefix validation; string line-break rejection, including escaped breaks; source NUL rejection inside code/comments/literals | `test_sotlas_native_boundary_expansion` |
+| Native ownership primitives | Initialize a local strong control block; checked retain; final release authorizes one destruction; generation-checked weak upgrade acquires a strong reference | `test_sotlas_native_managed_runtime` |
+| Sotlas memory runtime | Initialize a caller-backed arena; allocate with actual-address alignment and checked capacity; capture an arena-specific mark; rewind with epoch invalidation and unchanged state on failure | `test_sotlas_native_managed_runtime` |
+| State/effect/authority/contract guards | Check all required authority bits; delegate only a subset; guard a state transition with expected state and authority; validate a range without overflow | `test_sotlas_native_managed_runtime` |
+| Native IR/lowering | Reject invalid/void SSA value types; reject unrecognized ownership IDs; distinguish parameter/value and return type sets; validate function/parameter/value source spans before call-aware emission | `test_sotlas_native_boundary_expansion`, Target IR contract gates |
+| Owned backend/ABI | Pointer/U64 roundtrip; pointer/usize roundtrip and usize pointer offsets; require unsafe for address conversions; reject narrowing/signed/float address conversions | `test_sotlas_native_boundary_expansion` |
+| Owned objects/linking | Validate ELF version/header envelope; reject a nonempty undefined section; validate the section-name table; reject a forged undefined symbol | `test_sotlas_native_boundary_expansion` |
+| Native CLI | `--version` reports contract versions; `--limits` reports bounds; `--target` reports the platform and ABI limits; `--exit-codes` reports the error contract | `test_sotlas_native_tool_operations` |
+| Bootstrap tooling | Stream byte comparison; stream FNV-1a fingerprints; check the native seed platform/architecture envelope; self-test frontend, typed IR and owned object emission | `test_sotlas_native_tool_operations`, platform Stage 2/3 gates |
+
+The reference header is local, non-atomic and caller-owned. Its address must stay
+valid while tokens exist; reinitializing a live control-block address with old
+tokens outstanding is outside the contract. Final release returns permission to
+destroy the payload; it does not free memory or invoke a destructor. Native
+execution also verifies release through lexical `defer` and early returns.
+
+Arena callers provide valid backing storage and retain its lifetime. Marks must
+be produced by the API and used with the original arena at its stable address;
+rewind invalidates old marks and requires the caller to stop using discarded
+allocations. These APIs do not prove lifetimes statically or implement a heap.
+
+Authority/state guards are explicit runtime operations, not canonical syntax
+or complete native effect inference. The native x86-64 pointer conversion keeps
+all 64 address bits and uses a distinct `PointerCast` instruction. It does not
+validate mapping/provenance or change the foreign floating-point ABI. Scalar and
+pointer assignments inside branches now select structured CFG lowering instead
+of the incompatible legacy guard-return path.
+
+The seed envelope check does not authenticate an executable or establish that
+it is a compiler. FNV-1a is a reproducibility aid, not a cryptographic signature.
+Stage 2/3 gates retain byte identity assertions and now exercise native compare,
+fingerprint, envelope checks and self-tests with host tools absent. Complete
+language parity, package distribution and broader fixed-point closure remain open.
+
+Final local candidate validation: 2,967 Windows regression tests passed with 79
+platform/toolchain skips in 897.171 seconds. All 40 added execution/audit gates
+passed on Windows, Linux through WSL and Windows Python 3.10.11. Linux original
+source Stage 2/3 byte identity and complete Darwin compiler cross-generation
+passed in 104.232 seconds. The Windows generation gate also passed in the full
+suite. These results do not substitute for native Intel macOS execution in CI.
+
 - [ ] Migrate all acceptance and rejection rules still implemented by the Python frontend.
 - [ ] Complete native typed AST representation for the remaining contracted features.
 - [ ] Preserve types, ownership, states, effects, contracts and source positions through the backend.

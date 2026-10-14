@@ -4,7 +4,7 @@
 
 **Snapshot:** 2026-10-14, America/Sao_Paulo
 
-**Source revision:** `3f2fa08` plus the SV8.49c local candidate
+**Source revision:** `b40a8fa` plus the SV8.50 local candidate
 
 **Purpose:** one English reference for implemented contracts, remaining language work,
 optional foreign interoperability and removal of mandatory Python/C toolchain dependencies.
@@ -68,12 +68,20 @@ sovereignty checkpoint score measures selected architectural milestones, not the
 percentage of Python/C dependencies eliminated or the amount of work remaining.
 
 **Evidence boundary:** the latest inspected green baseline is `ce93fa9`,
-CI #1221 / run `38621972769`. The subsequent `3f2fa08` run #1222 failed on an
-outdated mixed-loop rejection assertion. SV8.49c repairs that test contract and
-adds per-edge ownership analysis. Local execution and full regression evidence
-are recorded below; the new candidate requires its own CI certification.
+CI #1221 / run `38621972769`. The subsequent #1222 rejection-contract regression
+was repaired in `b40a8fa` with the SV8.49c ownership work and local regression
+validation. This document describes the newer SV8.50 candidate. Its local gates
+are recorded below; CI certification remains pending.
 
 ## 2. Current implementation
+
+SV8.50 adds 36 bounded contracts across nine migration areas. Section 12 lists
+the four advances per area and their gates. The explicit Sotlas runtime contains
+arenas, local reference control blocks and authority/state/range guards. These
+do not establish automatic ARC or full canonical ownership/effect/state parity.
+Native pointer conversions, IR/object preflight, CLI reports and bootstrap audit
+commands are implemented; broader migration parents remain open.
+
 
 ### 2.1 Native compiler and execution
 
@@ -511,6 +519,33 @@ an operating system, scheduler or working hardware driver.
 
 ## 10. Runtime, standard library and tooling
 
+### Explicit native Sotlas runtime API (SV8.50)
+
+The source [managed.sotlas](../runtime/native/managed.sotlas) has no foreign
+calls. Use the current explicit-source native project profile with this library
+and an application. The caller supplies storage and valid pointer lifetimes.
+Automatic ownership lowering, heap allocation, atomic ARC and full canonical
+state/effect inference remain open; these are explicit single-threaded APIs.
+
+| API | Implemented contract |
+|---|---|
+| `native_arena_init` | Initialize a caller-backed arena |
+| `native_arena_alloc` | Align the actual address and reject overflow/exhaustion without changing the cursor |
+| `native_arena_mark` | Capture stable arena identity, cursor and generation |
+| `native_arena_rewind` | Rewind a current mark from the same arena and invalidate old marks |
+| `native_ref_init` | Initialize one strong reference |
+| `native_ref_retain` | Reject dead, zero and saturated counts |
+| `native_ref_release` | Authorize caller payload destruction once at the final release |
+| `native_ref_upgrade` | Acquire a strong reference only from a live generation |
+| `native_authority_allows` | Check all required capability bits |
+| `native_authority_narrow` | Delegate a subset without changing output on rejection |
+| `native_state_transition` | Guard a state write by expected state and authority |
+| `native_contract_range` | Validate an offset/size range without addition overflow |
+
+The detailed lifetime, mark, control-block and destruction obligations are in
+[the runtime contract](../runtime/README.md#explicit-native-sotlas-runtime-sv850).
+
+
 Existing standard-library contracts cover borrowed string slices, UTF-8
 validation, bounded numeric parsing, caller-backed/arena/allocator-backed
 strings, arenas/bump allocation, ring buffers, ARC counters, concrete vector/
@@ -576,6 +611,56 @@ positive, negative and execution coverage. Subitems record smaller validated
 contracts. Local validation must pass CI before being called certified.
 
 #### Frontend parity
+
+##### SV8.50 — four advances in each migration area (2026-10-14)
+
+The following 36 bounded contracts are implemented in Sotlas. Native execution
+gates cover accepted behavior and malformed inputs. They do not close the nine
+parent migration areas. In particular, the new explicit runtime API does not
+make native `shared`, `region`, `whisper` storage or automatic drop glue supported.
+
+| Area | Four delivered contracts | Evidence |
+|---|---|---|
+| Frontend | Nested block comments; numeric separator/radix-prefix validation; string line-break rejection, including escaped breaks; source NUL rejection inside code/comments/literals | `test_sotlas_native_boundary_expansion` |
+| Native ownership primitives | Initialize a local strong control block; checked retain; final release authorizes one destruction; generation-checked weak upgrade acquires a strong reference | `test_sotlas_native_managed_runtime` |
+| Sotlas memory runtime | Initialize a caller-backed arena; allocate with actual-address alignment and checked capacity; capture an arena-specific mark; rewind with epoch invalidation and unchanged state on failure | `test_sotlas_native_managed_runtime` |
+| State/effect/authority/contract guards | Check all required authority bits; delegate only a subset; guard a state transition with expected state and authority; validate a range without overflow | `test_sotlas_native_managed_runtime` |
+| Native IR/lowering | Reject invalid/void SSA value types; reject unrecognized ownership IDs; distinguish parameter/value and return type sets; validate function/parameter/value source spans before call-aware emission | `test_sotlas_native_boundary_expansion`, Target IR contract gates |
+| Owned backend/ABI | Pointer/U64 roundtrip; pointer/usize roundtrip and usize pointer offsets; require unsafe for address conversions; reject narrowing/signed/float address conversions | `test_sotlas_native_boundary_expansion` |
+| Owned objects/linking | Validate ELF version/header envelope; reject a nonempty undefined section; validate the section-name table; reject a forged undefined symbol | `test_sotlas_native_boundary_expansion` |
+| Native CLI | `--version` reports contract versions; `--limits` reports bounds; `--target` reports the platform and ABI limits; `--exit-codes` reports the error contract | `test_sotlas_native_tool_operations` |
+| Bootstrap tooling | Stream byte comparison; stream FNV-1a fingerprints; check the native seed platform/architecture envelope; self-test frontend, typed IR and owned object emission | `test_sotlas_native_tool_operations`, platform Stage 2/3 gates |
+
+The reference header is local, non-atomic and caller-owned. Its address must stay
+valid while tokens exist; reinitializing a live control-block address with old
+tokens outstanding is outside the contract. Final release returns permission to
+destroy the payload; it does not free memory or invoke a destructor. Native
+execution also verifies release through lexical `defer` and early returns.
+
+Arena callers provide valid backing storage and retain its lifetime. Marks must
+be produced by the API and used with the original arena at its stable address;
+rewind invalidates old marks and requires the caller to stop using discarded
+allocations. These APIs do not prove lifetimes statically or implement a heap.
+
+Authority/state guards are explicit runtime operations, not canonical syntax
+or complete native effect inference. The native x86-64 pointer conversion keeps
+all 64 address bits and uses a distinct `PointerCast` instruction. It does not
+validate mapping/provenance or change the foreign floating-point ABI. Scalar and
+pointer assignments inside branches now select structured CFG lowering instead
+of the incompatible legacy guard-return path.
+
+The seed envelope check does not authenticate an executable or establish that
+it is a compiler. FNV-1a is a reproducibility aid, not a cryptographic signature.
+Stage 2/3 gates retain byte identity assertions and now exercise native compare,
+fingerprint, envelope checks and self-tests with host tools absent. Complete
+language parity, package distribution and broader fixed-point closure remain open.
+
+Final local candidate validation: 2,967 Windows regression tests passed with 79
+platform/toolchain skips in 897.171 seconds. All 40 added execution/audit gates
+passed on Windows, Linux through WSL and Windows Python 3.10.11. Linux original
+source Stage 2/3 byte identity and complete Darwin compiler cross-generation
+passed in 104.232 seconds. The Windows generation gate also passed in the full
+suite. These results do not substitute for native Intel macOS execution in CI.
 
 - [ ] Migrate all acceptance and rejection rules still implemented by the Python frontend.
 - [ ] Complete native typed AST representation for the remaining contracted features.
@@ -1965,6 +2050,32 @@ TargetValue metadata for accepted bindings, parameters and aggregate return
 destinations. See the [closure checklist](sotlas_native_frontend_ownership_checklist.md)
 for the remaining migration requirements.
 
+
+#### Native audit and reporting commands (SV8.50)
+
+Linux, Windows and Intel macOS drivers expose the same bounded command contract:
+
+| Command | Result |
+|---|---|
+| `--version` | Native driver and in-memory Target IR contract versions |
+| `--limits` | Compiler/project bounds, including parameters, blocks and arrays |
+| `--target` | Actual image format, architecture, pointer width and ABI limits |
+| `--exit-codes` | Error-code mapping, including audit failures |
+| `--compare LEFT RIGHT` | Streams both artifacts; returns 0 and `byte-identical` only for equal bytes; returns 14 on a content/length mismatch |
+| `--fingerprint FILE` | Streams FNV-1a-64 and prints 16 lowercase hexadecimal digits; this is not a cryptographic hash |
+| `--verify-seed FILE` | Checks the native platform/x86-64 executable envelope; returns 15 for unsupported/truncated headers; does not authenticate or execute the file |
+| `--self-test` | Compiles an in-memory scalar program through frontend, typed IR and owned object emission; writes no artifact and does not execute the result |
+
+Audit reads use fixed 4 KiB scratch buffers, retry interruptions and fill short
+reads before comparing. File handles are closed on every handled result path.
+Missing/unreadable files use the existing open/read error codes. Additional
+arguments to report commands and missing/extra audit operands fail with usage
+code 1. These commands start no Python, C compiler or external linker.
+
+Generation gates exercise the audit commands using actual Stage 2/3 artifacts
+with host tools absent. Complete canonical parity and authenticated seed
+distribution remain open requirements.
+
 ## 14. Standard library API contracts
 
 The following incorporates `stdlib/core/README.md` at the snapshot revision.
@@ -2144,7 +2255,7 @@ their claims must be interpreted through the current implementation contracts.
 | [CHANGELOG.md](../CHANGELOG.md) | Historical snapshot / change history | `59e11c24075334268572d66d1c386127f13b7a0de9483d63433e437d2e4bc324` |
 | [README.md](../README.md) | Language, safety, usage or architecture reference | `51dac0dda2d7d5e8f6c26f0cf7b30a5582596d449fdfe03330d7e70456eedfab` |
 | [README.pt-BR.md](../README.pt-BR.md) | Language, safety, usage or architecture reference | `01f6118e45200152a9cf93c49507c58a3c9aa93138b7287ba09ed7125022b364` |
-| [bootstrap/sotlas/native_driver/README.md](../bootstrap/sotlas/native_driver/README.md) | Current native contracts; incorporated in full | `5882cf80d5b0b240661487a7e03c9dd8e9b0c935f3aa68ed5ee6804da54746d9` |
+| [bootstrap/sotlas/native_driver/README.md](../bootstrap/sotlas/native_driver/README.md) | Current native contracts; incorporated in full | `6fd92f10a66e117daef02e2717d3adda1b0522c4e9f13c4affcda391e1e4d96e` |
 | [bootstrap/sotlas/native_examples/README.md](../bootstrap/sotlas/native_examples/README.md) | Example scope and reproduction instructions | `4c6c8e3e582db954a4c43584753c1e19d451f42fe0a349e19840b859344ef344` |
 | [docs/QUICKSTART.md](QUICKSTART.md) | Language, safety, usage or architecture reference | `6c9cfef7030008db2cc4f8ae7a43715d659847e4cd6b7f205564ebfa168f122f` |
 | [docs/README.md](README.md) | Language, safety, usage or architecture reference | `f6484916915718109cbb6779835a5db404d1b4fe1f4781ca96cbdfdaf09dc36d` |
@@ -2186,9 +2297,9 @@ their claims must be interpreted through the current implementation contracts.
 | [docs/sotlas_implementation_status.md](sotlas_implementation_status.md) | Dated implementation/evidence snapshot | `654445b9d20be3d95ceb846d6f56b7351a24a0627210b9e5c3d3aea4f4530a29` |
 | [docs/sotlas_m16_3_recursion_contract.md](sotlas_m16_3_recursion_contract.md) | Language, safety, usage or architecture reference | `c821ac00990678d0f775c67b9ba91f5cd16678f744be112e23405d9b3584cbf7` |
 | [docs/sotlas_master_roadmap.md](sotlas_master_roadmap.md) | Architectural design and language vocabulary | `068cd228ffeb958e609c03de54892266a58fbd7dc07738887c6d63b6d7935a6a` |
-| [docs/sotlas_native_frontend_ownership_checklist.md](sotlas_native_frontend_ownership_checklist.md) | Current native contracts; incorporated in full | `a449e35525c90ca84d072ca91a22baa17cc13737a0d86b7d82a2e69c29e55be0` |
+| [docs/sotlas_native_frontend_ownership_checklist.md](sotlas_native_frontend_ownership_checklist.md) | Current native contracts; incorporated in full | `9cd1a1d483655f00bae133eba14e34d739c45a03fea8ad8af21499c66047da86` |
 | [docs/sotlas_release_roadmap.md](sotlas_release_roadmap.md) | Development dependencies, backlog and release policy | `fa56feeee089333c67d97c98399ac1ed61c11c91a107d01af9bd404e409ad57c` |
-| [docs/sotlas_sovereignty_roadmap.md](sotlas_sovereignty_roadmap.md) | Native generation and dependency migration | `ddb82a3406f3f3caf983a520a0ff09188e3e516cd679af83ca7d872b5d15d3d9` |
+| [docs/sotlas_sovereignty_roadmap.md](sotlas_sovereignty_roadmap.md) | Native generation and dependency migration | `b88870c209f040aa5e446a08260144d84d4984bf495fe90bba858c8235bce224` |
 | [docs/sotlas_v1_audit_and_roadmap.md](sotlas_v1_audit_and_roadmap.md) | Development dependencies, backlog and release policy | `7fe9cacfc713e60540c910aec8c8f5767e2d0984b84b4b61324975a370bfc6eb` |
 | [docs/target_ir_preview.md](target_ir_preview.md) | Language, safety, usage or architecture reference | `de11d5b90ca1f6cd7e55f6226f93e85eb1998efa506654ac59121790724b6c28` |
 | [docs/the_sotlas_book.md](the_sotlas_book.md) | Language, safety, usage or architecture reference | `1c10647fee6cbadc7d0b58884f76e57f716b8054b2be0731191af14b72cca60a` |
@@ -2200,7 +2311,7 @@ their claims must be interpreted through the current implementation contracts.
 | [examples/12_sotlas_by_example/README.md](../examples/12_sotlas_by_example/README.md) | Example scope and reproduction instructions | `da9fa772030b1660c1095d08aede4ac00191a01406575e8e1f72c4c0cb5c8d20` |
 | [examples/13_opencl_vector_add/README.md](../examples/13_opencl_vector_add/README.md) | Example scope and reproduction instructions | `c54620aa7b2c67800515aeff5c80c438e9d3609013057dae7a8402bc2a8f2551` |
 | [examples/STATUS.md](../examples/STATUS.md) | Example scope and reproduction instructions | `d3efe2a667f4d11e5fd026673f7a299d972481d7f0df182a3b14a3a24a37b48c` |
-| [runtime/README.md](../runtime/README.md) | Language, safety, usage or architecture reference | `c09a3a20631c522f696c70044c8e30e12f17bdc9e4c6b11ed79a9d504213d043` |
+| [runtime/README.md](../runtime/README.md) | Language, safety, usage or architecture reference | `6fbe980e1a4a5790f78893769a9a607b93c28453b651d470768f550444070879` |
 | [spec/linguist/README.md](../spec/linguist/README.md) | Website, ecosystem and integration metadata | `5f1226c0de92f224ac61e88bbf054f7ec2fdcc0455dcb8d2eb318c8b596ec6ff` |
 | [spec/sotlas_semantics.md](../spec/sotlas_semantics.md) | Architectural design and language vocabulary | `ee4086af4abbdca5b799362e6c2d1b7666e4849022c14865b116fa6b6e9f7383` |
 | [stdlib/core/README.md](../stdlib/core/README.md) | Library API contracts; incorporated in full | `574954d60b526dc10973ec56569c6482b2dc2412f39290acb9eb9389925059ed` |
