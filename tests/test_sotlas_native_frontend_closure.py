@@ -827,6 +827,61 @@ fn record()->Token{let mut value:Token=Token{value:42};defer value.value=0;retur
 pub fn main_entry()->u32{let value:Token=record();if scalar()!=42 || value.value!=42{return 1;}return value.value;}'''
         self.execute(self.compile('native_defer_return_snapshot',source))
 
+    def test_sv849a_native_owned_uniform_loop_jumps_execute(self):
+        """Both if arms can transfer identically without abandoning ownership."""
+        prefix='''struct Token{pub value:u32;}
+fn consume(value:sole Token)->u32{return value.value;}'''
+        cases=(
+            '''pub fn main_entry()->u32{
+let owner:sole Token=Token{value:42};let mut count:u32=0;
+while count<3{count=count+1;
+if count<2{continue;}else{continue;}}
+return consume(owner);}''',
+            '''pub fn main_entry()->u32{
+let owner:sole Token=Token{value:42};let mut count:u32=0;
+while count<3{count=count+1;
+if count==1{break;}else{break;}}
+return consume(owner);}''',
+        )
+        for index,body in enumerate(cases):
+            with self.subTest(index=index):
+                self.execute(self.compile('sv849a_uniform_jump_'+str(index),prefix+body))
+
+    def test_sv849a_native_owned_loop_jump_states_fail_closed(self):
+        """Reject conditional moved owners, backedge moves and mixed exits."""
+        prefix='''struct Token{pub value:u32;}
+fn consume(value:sole Token)->u32{return value.value;}'''
+        cases=(
+            # The break exit may contain an owner only on one arm.
+            '''pub fn main_entry()->u32{
+let owner:sole Token=Token{value:42};let mut count:u32=0;
+while count<3{count=count+1;
+if count==1{let moved:sole Token=owner;break;}else{break;}}
+return consume(owner);}''',
+            # A next iteration cannot revive an owner consumed before continue.
+            '''pub fn main_entry()->u32{
+let owner:sole Token=Token{value:42};let mut count:u32=0;
+while count<3{count=count+1;
+if count==1{let moved:sole Token=owner;continue;}else{continue;}}
+return 42;}''',
+            # Mixed break/continue paths need general per-edge states.
+            '''pub fn main_entry()->u32{
+let owner:sole Token=Token{value:42};let mut count:u32=0;
+while count<3{count=count+1;
+if count==1{break;}else{continue;}}
+return consume(owner);}''',
+            # An implicit fallthrough arm is not a uniform loop exit.
+            '''pub fn main_entry()->u32{
+let owner:sole Token=Token{value:42};let mut count:u32=0;
+while count<3{count=count+1;
+if count==1{break;}else{count=count+1;}}
+return consume(owner);}''',
+        )
+        for index,body in enumerate(cases):
+            with self.subTest(index=index):
+                self.compile('sv849a_owned_jump_reject_'+str(index),
+                    prefix+body,success=False)
+
     def test_native_defer_loop_jumps_cleanup_once_before_backedge(self):
         source='''static mut trace:u32=0;fn append(value:u32)->void{unsafe{trace=trace*10+value;}}
 fn perform()->void{defer append(9);let mut index:u32=0;
