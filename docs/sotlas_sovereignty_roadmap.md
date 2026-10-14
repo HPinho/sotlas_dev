@@ -5,6 +5,32 @@
 **Green baseline at track start:** `7162167dec6fd5fa0a216121b147335d222e43f1` / CI #1063  
 **Current certified baseline:** `f963c933af39e5dba989594efb34bfbfdf535823` / [CI #1130](https://github.com/HPinho/sotlas_dev/actions/runs/37649186099) (completed successfully; verified 2026-10-07)
 
+## SV8.49b — native mixed break/continue ownership gates (2026-10-14)
+
+**Last verified green baseline:** `ce93fa901716671a85437e8be1d047540afa7d4c` /
+[CI #1221](https://github.com/HPinho/sotlas_dev/actions/runs/38621972769).
+
+The Sotlas-written `NativeOwnershipCheck.sequence_inner` now supports bounded
+mixed `break`/`continue` paths when a full `if/else` transfers control on
+both arms. It proves separate branch snapshots match the entry owner states,
+propagates an explicit mixed-edge outcome and rechecks the enclosing while
+backedge. Lexical cleanup is exercised with read-only deferred captures.
+Any outer sole owner moved/rebound in either arm, mixed match-arm transfers,
+and opaque/joined loop paths still fail closed.
+
+**Verification:** native positive execution and negative rejection gates in
+`test_sv849b_native_mixed_loop_edges_preserve_sole_owner`,
+`test_sv849b_native_mixed_edges_preserve_owned_defer_cleanup` and
+`test_sv849b_native_mixed_edges_reject_owner_moves_and_opaque_joins`.
+The candidate remains uncertified until its own full Linux/Windows/Intel-macOS
+and Stage2/3 CI matrix is green. No Python/C semantic fallback or relaxation
+of existing CI tests was introduced.
+
+**Next frontend/ownership item: SV8.49c.** Explicit per-edge owner states
+for paths that legitimately consume an owner only on a terminating break path,
+with certified cleanup and use-after-maybe-move diagnostics. Cross-object
+capability signature work SV8.48h remains open separately.
+
 ## SV8.49a — native frontend/ownership uniform loop exits (2026-10-14)
 
 **Baseline:** `82f7f2b3c47aacdea2680a4c327e39d24c26585f` / [CI #1220](https://github.com/HPinho/sotlas_dev/actions/runs/38614802316), green on Linux, Windows and Intel macOS. This is the last confirmed full matrix, not a claim that this patch has passed.

@@ -111,7 +111,8 @@ These items are partial refinements of open parent migration contracts, not comp
   - [x] Aggregate conditional result transfers preserve exclusive move state and reject domain erasure.
   - [x] Merge ownership states across runtime Boolean short-circuit operands; statically skipped literal paths preserve the original state.
   - [x] **SV8.49a bounded uniform loop-jump ownership:** a native `if/else` with both arms ending in the same `break` or `continue` now propagates that exit and merges sole states conservatively; moved owners on continue backedges and conditional break exits fail closed.
-  - [ ] Complete mixed break/continue/return edges, nested loop jumps and general ownership CFG joins.
+  - [x] **SV8.49b bounded mixed loop exits:** if/else break/continue or continue/break now executes natively only when each arm preserves every live outer owner; proof uses independent branch snapshots, with lexical defer cleanup verified.
+  - [ ] Complete mixed edges that move/rebind owners, match-arm/nested loop-edge states, early-return joins and general ownership CFG merges.
 - [ ] Implement transfers through calls, returns, fields and payloads.
   - [x] Internal exclusive POD call, return and binding transfers execute natively.
   - [x] Static and instance method results preserve ownership; qualified consuming calls record the move.
@@ -192,6 +193,7 @@ The complete alias graph, retained borrows, general lifetimes and resource clean
 ## New acceptance evidence
 
 | Contract | Gate |
+| SV8.49b mixed branch loop-edge owner preservation, defer cleanup and fail-closed moves | `test_sv849b_native_mixed_loop_edges_preserve_sole_owner`, `test_sv849b_native_mixed_edges_preserve_owned_defer_cleanup`, `test_sv849b_native_mixed_edges_reject_owner_moves_and_opaque_joins` |
 | SV8.49a uniform nested branch loop-jump acceptance and owned CFG exit rejection | `test_sv849a_native_owned_uniform_loop_jumps_execute`, `test_sv849a_native_owned_loop_jump_states_fail_closed` |
 | SV8.48g legacy scalar entry points reject unproven typed calls and absent side tables | `test_sv848g_legacy_scalar_entry_points_fail_closed_on_unproven_calls` |
 | SV8.48f mandatory typed-call preflight for legacy multi-function emitters | `test_sv848f_legacy_multifunction_emitters_preflight_typed_calls` |
