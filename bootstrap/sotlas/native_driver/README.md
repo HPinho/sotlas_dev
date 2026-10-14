@@ -780,6 +780,23 @@ emitted Target IR format. Capacity constants are required to match their
 actual static backing arrays by a dedicated contract gate. The full matrix
 must succeed before treating this as a certified fix.
 
+## SV8.48b Windows native Stage2 fixed-point CFG hardening
+
+The Windows-native command-line parser is split into an outer argument/whitespace
+loop and `windows_parse_one_argument`, which implements the same Windows
+quote, doubled quote and backslash escape rules as the original. Repeated byte
+append plus index increment and bounds failure are consolidated in
+`windows_push_argument_byte`; it returns the reserved index 4096 on
+failure and never exceeds the original 4095 payload-character rule.
+
+The outer loop ensures that the consumed index strictly advances, limiting
+progress and rejecting incomplete quotes exactly as before. The parser retains
+the 67 argument / 32768 command bytes contracts and NUL-terminated global
+argument pointers. The independent function boundaries reduce the deeply
+nested native CFG in the Windows PE bootstrap without disabling any parser
+checks. The existing Windows Stage2/Stage3 fixed-point and quoted-path runtime
+tests remain unchanged and are required before certifying this repair.
+
 ## Project diagnostics
 
 Project compiler diagnostics map resolved source positions back to the original
