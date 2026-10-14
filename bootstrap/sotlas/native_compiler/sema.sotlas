@@ -4314,7 +4314,27 @@ impl NativeOwnershipCheck {
                 }
                 self.count = scope;
                 if yes_result == 2 && no_result == 2 { return 2; }
-                if yes_result >= 3 || no_result >= 3 { self.error_node = index; return 0; }
+                // SV8.49a: both arms leaving this loop with the same
+                // break/continue are a single, provable control transfer.
+                // Merge ownership for the break exit; a continue must still
+                // pass the surrounding while backedge ownership check.
+                // Mixed jumps, implicit fallthrough and return/jump mixtures
+                // remain rejected until per-edge CFG states are represented.
+                if yes_result >= 3 || no_result >= 3 {
+                    if yes_result != no_result
+                        || (yes_result != 3 && yes_result != 4) {
+                        self.error_node = index; return 0;
+                    }
+                    slot = 0;
+                    while slot < scope {
+                        if self.domains[slot] != 0
+                            && after_yes[slot] != self.states[slot] {
+                            self.states[slot] = 3;
+                        }
+                        slot = slot + 1;
+                    }
+                    return yes_result;
+                }
                 slot = 0;
                 while slot < scope {
                     if no_result == 2 { self.states[slot] = after_yes[slot]; }

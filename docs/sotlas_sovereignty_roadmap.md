@@ -5,6 +5,27 @@
 **Green baseline at track start:** `7162167dec6fd5fa0a216121b147335d222e43f1` / CI #1063  
 **Current certified baseline:** `f963c933af39e5dba989594efb34bfbfdf535823` / [CI #1130](https://github.com/HPinho/sotlas_dev/actions/runs/37649186099) (completed successfully; verified 2026-10-07)
 
+## SV8.49a — native frontend/ownership uniform loop exits (2026-10-14)
+
+**Baseline:** `82f7f2b3c47aacdea2680a4c327e39d24c26585f` / [CI #1220](https://github.com/HPinho/sotlas_dev/actions/runs/38614802316), green on Linux, Windows and Intel macOS. This is the last confirmed full matrix, not a claim that this patch has passed.
+
+The Sotlas-written `NativeOwnershipCheck.sequence_inner` now propagates a
+proven identical `break`/`break` or `continue`/`continue` from both
+branches of an `if/else`. It conservatively joins `sole` owner states:
+disagreement becomes `MAYBE_MOVED`; the existing while analyzer rejects
+an owner moved on a `continue` backedge and refuses use after a possibly
+consuming `break`. Mixed jumps, implicit fallthrough and general loop-edge
+joins remain fail-closed. Positive native execution and negative diagnostic
+gates are `test_sv849a_native_owned_uniform_loop_jumps_execute` and
+`test_sv849a_native_owned_loop_jump_states_fail_closed`. No Python/C
+compiler semantic fallback is added, and no hosted files are removed.
+
+**Next frontend/ownership cut: SV8.49b.** Prove distinct break/continue
+ownership joins using explicit per-edge snapshots in Sotlas-native semantics,
+while guarding cleanup/defer and early-return interactions. Separately,
+SV8.48h (cross-object capability signatures) stays open until complete
+native module and FFI boundaries have matching ABI/effect evidence.
+
 ## Goal
 
 The long-term goal is for the normal Sotlas development and execution path to no
