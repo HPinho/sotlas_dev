@@ -842,6 +842,21 @@ No new FFI, lifetime, ARC/drop, ABI, source serialization or system capability
 rights are enabled. All previous Windows Stage2/Stage3, installed Linux seed,
 and macOS native selfhost tests remain mandatory.
 
+## SV8.48d — checked signatures at ELF object emission
+
+The unified native ELF64 object writer now requires the typed
+`target_module_validate_calls` proof before generating object bytes. This
+verifies full CFG/Phi/branch targets and all direct call symbols, arity, scalar
+ABI types and tagged ownership capabilities against declared callees. The
+validator uses the real module Phi and target buffers instead of passing
+null pointers. This retains valid loops/conditional blocks; there is no
+second CFG pass on the same boundary.
+
+This is bounded to `emit_elf64_module_object`. Other emitters, cross-object
+linking, effects, ARC/drop and full FFI or cross-module capability proof
+remain open. ABI, IR layout and existing binary fixed-point CI gates are
+unchanged.
+
 ## Project diagnostics
 
 Project compiler diagnostics map resolved source positions back to the original

@@ -340,6 +340,21 @@ pub fn main_entry()->u32{let owner:sole Token=Token{value:42};
 take(owner);return owner.value;}'''
         self.compile('sv848c_void_sole_move',source,success=False)
 
+    def test_sv848d_elf_boundary_accepts_typed_mixed_calls_with_cfg(self):
+        """Emit one program with sret, void borrow, sole move and Phi branches."""
+        source='''struct Token{pub value:u32;}static mut total:u32=0;
+fn make(value:u32)->Token{return Token{value:value};}
+fn observe(value:direct Token,extra:u32)->void{
+unsafe{total=total+value.value+extra;}}
+fn take(value:sole Token)->u32{return value.value;}
+fn add(a:u32,b:u32)->u32{return a+b;}
+pub fn main_entry()->u32{
+let plain:Token=make(20);observe(plain,2);
+let owner:sole Token=Token{value:20};let result:u32=take(owner);
+if unsafe{total}!=22{return 1;}
+return add(result,22);}'''
+        self.execute(self.compile('sv848d_elf_typed_calls_and_cfg',source))
+
     def test_native_short_circuit_ownership_preserves_statically_skipped_owners(self):
         source='''struct Token{pub value:u32;}static mut calls:u32=0;
 fn consume(value:sole Token)->bool{unsafe{calls=calls+1;}return value.value==42;}

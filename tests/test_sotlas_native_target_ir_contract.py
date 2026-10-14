@@ -290,6 +290,29 @@ class SotlasNativeTargetIRContractTests(unittest.TestCase):
         self.assertIn("if actual_role != 0 { return false; }", calls)
         self.assertIn("if argument_type != parameter.type_tag { return false; }", calls)
 
+    def test_sv848d_elf_writer_requires_full_typed_call_validation(self):
+        """The native object writer validates call domains with CFG Phi edges."""
+        root = ROOT / "bootstrap" / "sotlas" / "native_compiler" / "backend"
+        target = (root / "target_ir.sotlas").read_text(encoding="utf-8")
+        emitter = (root / "x86_64_scalar.sotlas").read_text(encoding="utf-8")
+        calls = target.split("pub fn target_module_validate_calls(", 1)[1]
+        calls = calls.split("pub fn target_module_validate_ssa_dominance(", 1)[0]
+        self.assertIn("phi_inputs: *const TargetPhiInput,", calls)
+        self.assertIn("targets: *const u32", calls)
+        self.assertIn("operands, phi_inputs, targets", calls)
+        self.assertIn("if actual_role != expected_role { return false; }", calls)
+        self.assertIn("if argument_type != parameter.type_tag { return false; }", calls)
+        self.assertIn("if actual_role != 0 { return false; }", calls)
+        unified = emitter.split("pub fn emit_elf64_module_object(", 1)[1]
+        entry = unified.split("// A marker is not evidence", 1)[0]
+        self.assertIn("if !target_module_validate_calls(", entry)
+        self.assertIn(
+            "blocks, instructions, operands, phi_inputs, targets", entry
+        )
+        self.assertNotIn("if !target_module_validate_cfg(", entry)
+        # The native installed-seed, Windows PE Stage2/Stage3 fixed point and
+        # macOS Mach-O matrix checks remain mandatory execution gates.
+
     def test_native_main_has_a_target_ir_entry_point_separate_from_c_emission(self):
         native_root = ROOT / "bootstrap" / "sotlas" / "native_compiler"
         dependency_names = (
