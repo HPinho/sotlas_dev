@@ -2128,6 +2128,16 @@ The last certified green baseline stays 8b8d3c28a9ad06db08df73b61c2cdf904473ce4b
 
 **Limits:** the specialized multi-function scalar assembly and legacy ELF scalar module emitters have different, narrower manually-authored IR conventions. Their integration is deferred to SV8.48f so we do not accidentally reject previously valid hand-authored IR without explicit parity tests. Separately compiled symbols, general FFI/system effect rights, ARC/drop and lifetimes remain open. No new measured Python/C reduction is claimed. **Next:** SV8.48f other legacy call-bearing entry points after green.
 
+### SV8.48f — legacy multi-function scalar emission preflight (2026-10-14)
+
+**Green baseline:** commit `86c6279b206f891a0f1db5c5630d725d283ac974` passed [CI #38588993763](https://github.com/HPinho/sotlas_dev/actions/runs/38588993763), including Linux/Windows/Intel macOS and native installed Linux seed, PE/Mach-O execution and packaging. This is the SV8.48f baseline, **not** proof that the new candidate passed CI.
+
+**Change:** before writing any bytes, require `target_module_validate_calls` at both `emit_elf64_scalar_module_object` and `emit_x86_64_scalar_module`. Both already receive full functions/parameters/values/blocks/instructions/operands tables. Their restricted one-block U32 IR defines no Phi or branch-target tables: null pointers for those tables are safe only because `target_module_validate_cfg` rejects nonzero declared counts. The shared verifier checks CFG structure and direct-call callee identity, return/argument ABI types, arity and tagged ownership roles. Existing opcode subsets and legacy untagged compatibility remain unchanged.
+
+**Acceptance:** `test_sv848f_legacy_multifunction_emitters_preflight_typed_calls` guards both preflight boundaries and missing-side-table fail-closed behavior. Existing native multi-function assembly/ELF positive and bad-call tests, Stage2/Stage3 compiler selfhost, installed Linux seed and Windows/Intel macOS matrix remain mandatory. The new commit was not compiled or executed locally; CI verification is pending.
+
+**Remaining:** specialized single-function U32 and conditional three-block assembly entry points do not receive all tables needed by the shared verifier. Cross-object/foreign rights, ownership runtime cleanup and measured Python/C dependency reduction remain open. **Next: SV8.48g** legacy single-function/conditional boundary parity with explicit negative/positive gates, then inter-module signatures.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test
