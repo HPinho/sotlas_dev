@@ -2118,6 +2118,16 @@ The fix recognizes only the final unnamed internal pointer parameter of a void A
 
 The last certified green baseline stays 8b8d3c28a9ad06db08df73b61c2cdf904473ce4b (workflow #38566049760). The next feature SV8.48e remains pending a new complete green matrix. No changes to Python/C elimination estimates.
 
+### SV8.48e — specialized native scalar CFG emitter call signatures (2026-10-14)
+
+**Certified new baseline:** commit `5e70f47785a53d5dd2af724a085c7bbfff053302` passed full [CI #38579850351](https://github.com/HPinho/sotlas_dev/actions/runs/38579850351), including Linux/Windows/Intel macOS tests and installed native packaging. The prior SV8.48d owned-record sret role regression is closed against this baseline.
+
+**Narrow implementation:** make two previously CFG-only native emitter boundaries, `emit_elf64_scalar_function_object` and `emit_x86_64_scalar_cfg`, require `target_module_validate_calls` before emitting any output bytes. This verifier first checks the **same full CFG, including Phi and branch targets**, then validates direct-call symbol, exact scalar ABI arity and types, and any tagged plain/sole/whisper/direct parameter roles against declared function domains. In each emitter one CFG-only gate is replaced rather than doubled. The IR/ABI representations, support for legacy untagged calls, and both emitters' previous supported instruction and parameter subsets are untouched. The unified ELF64 module writer continues to enforce its own existing typed-call gate.
+
+**Acceptance:** permanent source-level contract test proves both entry points require the full verifier with the correct tables and no duplicate CFG-only gate. Existing scalar CFG and ELF object suites, full native selfhost, installed Linux seed and Windows PE/Mach-O fixed-point matrix remain mandatory. This is a candidate pending a new full green CI run; this change has not been executed locally.
+
+**Limits:** the specialized multi-function scalar assembly and legacy ELF scalar module emitters have different, narrower manually-authored IR conventions. Their integration is deferred to SV8.48f so we do not accidentally reject previously valid hand-authored IR without explicit parity tests. Separately compiled symbols, general FFI/system effect rights, ARC/drop and lifetimes remain open. No new measured Python/C reduction is claimed. **Next:** SV8.48f other legacy call-bearing entry points after green.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test

@@ -866,6 +866,22 @@ sole ownership from a returned record. Named parameters still require exact
 plain/sole/whisper/direct role equality; forged synthetic positions fail.
 All native Stage2/Stage3 and platform matrix acceptance gates remain intact.
 
+## SV8.48e — specialized scalar CFG signature gates
+
+Two specialized native emitters that already receive complete CFG/Phi and
+target tables now use the full typed call-signature validator instead of a
+CFG-only check: `emit_elf64_scalar_function_object` and
+`emit_x86_64_scalar_cfg`. The verifier performs the CFG proof once and
+checks direct-call symbols, parameter arity, scalar types, and any tagged
+ownership roles before writing object or assembly bytes.
+
+This does not change the machine ABI, IR layout, supported scalar instruction
+subsets, legacy untagged calls, or the unified ELF object writer. Older
+multi-function scalar assembly and object emitters have different IR
+conventions and remain for a separate change, along with cross-object and
+foreign capability guarantees. All Stage2/Stage3, PE, Mach-O and native seed
+tests must remain green.
+
 ## Project diagnostics
 
 Project compiler diagnostics map resolved source positions back to the original
