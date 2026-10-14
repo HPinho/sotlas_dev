@@ -126,6 +126,28 @@ class SotlasNativeTargetIRContractTests(unittest.TestCase):
         self.assertIn("TARGET_OPERAND_CAPACITY,", source)
         self.assertIn("TARGET_BLOCK_CAPACITY,", source)
 
+    def test_windows_native_stage2_argument_parser_split_preserves_bounds(self):
+        """The native PE selfhost compiler keeps bounded argv decode isolated."""
+        path = ROOT / "bootstrap" / "sotlas" / "native_driver" / "windows.sotlas"
+        source = path.read_text(encoding="utf-8")
+        subparser = source.split("fn windows_parse_one_argument(", 1)[1]
+        subparser = subparser.split("fn windows_parse_arguments()", 1)[0]
+        outer = source.split("fn windows_parse_arguments()", 1)[1]
+        outer = outer.split("@system pub fn main_entry()", 1)[0]
+        self.assertIn("windows_push_argument_byte(argument,index,", subparser)
+        self.assertIn("if index == 4096 { return 0; }", subparser)
+        self.assertIn("if quoted { return 0; }", subparser)
+        self.assertIn("windows_argument_pointers[argument]", subparser)
+        self.assertIn("windows_parse_one_argument(command,limit,position,argument)", outer)
+        self.assertIn("if next == 0 || next <= position { return 0; }", outer)
+        self.assertIn("if argument >= 67 { return 0; }", outer)
+        self.assertIn("if limit == 32768 { return 0; }", outer)
+        self.assertIn("if (slashes & 1) == 1 {", subparser)
+        self.assertIn("count = slashes >> 1;", subparser)
+        self.assertNotIn("windows_append_argument(argument,index,", subparser)
+        self.assertNotIn("windows_append_argument(argument,index,", outer)
+        # The actual Windows Stage2 -> Stage3 PE fixed-point execution remains
+        # mandatory in test_sotlas_native_windows_driver.
     def test_native_main_has_a_target_ir_entry_point_separate_from_c_emission(self):
         native_root = ROOT / "bootstrap" / "sotlas" / "native_compiler"
         dependency_names = (

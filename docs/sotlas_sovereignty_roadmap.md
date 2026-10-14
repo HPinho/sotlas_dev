@@ -2061,6 +2061,14 @@ Status: candidate until all 9 CI jobs pass. Last certified baseline 5e6c8fd. Nex
 
 **Uncertainty:** the exact first exhausted capacity is not instrumented in the existing Stage1 diagnostics; this is a capacity-based repair candidate, not yet proven green. If the failure persists, instrument the failing lowering path to expose the actual rejection reason rather than making another blind size adjustment. Only the full matrix can certify a new baseline. **Next:** SV8.48c after green; Python/C reduction remains unmeasured.
 
+### SV8.48b Windows Stage2 → Stage3 native CFG regression (2026-10-13)
+
+[CI #38472529418](https://github.com/HPinho/sotlas_dev/actions/runs/38472529418) at `db52f8040065b2b9419ad337514746a5f9638aaf` demonstrates that restoring matched Stage1 IR capacities fixed all Linux and Intel-macOS suites and the Windows Stage1 bootstrap/driver compile. Only the three Windows Python-version jobs fail now, each at `test_original_modules_build_native_stage2_stage3_fixed_point`: the already built native Windows seed rejects its own source in `--project-resolve-compiler`, reporting **`windows.sotlas:1123:31`** (`index = index + 1;`) in the deeply nested Windows command-line argument decoder. The native Stage1 object is already compiled successfully, so raising global IR capacities again or altering the unsigned parity arithmetic is not justified by the new evidence.
+
+**Repair:** extract a bounded Windows `windows_parse_one_argument` subparser from the outer whitespace/argument loop. Extract the repeated append+advance+failure operation into a small `windows_push_argument_byte` function, to avoid cloning return/error/mutation branches deep inside the combined CFG. Preserve byte-for-byte quoting and backslash rules; exact 67-argument, 4095-byte-per-argument and 32768-byte command-line limits; fail-closed incomplete quotes; terminating NUL writes; and the original global pointer array. The helper reports the consumed position, with 0/error and nonprogress checks in the outer parser, so it cannot loop indefinitely. Keep unsigned bitwise parity and shifts as previously documented.
+
+The static native source gate confirms the independent decoder boundary and fail-closed conditions. **The existing actual-Windows original-modules Stage2/Stage3 executable fixed-point test remains mandatory and unchanged**, along with quoted-path, output preservation, and all Linux/macOS tests. Baseline stays `5e6c8fd` until the new matrix is green; this is a candidate, not a claim of certification. **Next:** SV8.48c only after all nine platform suites pass. No Python/C percentage is inferred.
+
 ### Stage evidence and dependency accounting
 
 Local structural-block regression evidence (2026-10-07): the complete test
