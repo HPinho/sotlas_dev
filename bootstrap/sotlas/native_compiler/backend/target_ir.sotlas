@@ -1301,6 +1301,35 @@ pub fn target_module_validate_calls(
                             *(parameters + callee.first_parameter + argument_index)
                         };
                         if argument_type != parameter.type_tag { return false; }
+                        // SV8.48c: for typed calls, verify each 2-bit
+                        // argument capability against the callee's own
+                        // parameter domain, not merely its scalar ABI type.
+                        if instruction.flags == TARGET_CALL_CAPABILITIES_TYPED {
+                            let actual_role: u64 = (instruction.immediate_bits >>
+                                ((argument_index as u64) * 2)) & 3;
+                            if (callee.flags & TARGET_FUNCTION_EXTERNAL) != 0 {
+                                // Imported declarations expose no owned
+                                // parameter SSA domain; no non-plain
+                                // capability is certified across FFI.
+                                if actual_role != 0 { return false; }
+                            } else {
+                                if parameter.value_id == TARGET_VALUE_NONE
+                                    || parameter.value_id > target_section.value_count {
+                                    return false;
+                                }
+                                let domain_flags: u32 = unsafe {
+                                    (*(values + parameter.value_id as usize - 1)).flags
+                                };
+                                let domain: u32 = (domain_flags & TARGET_VALUE_DOMAIN_MASK)
+                                    >> TARGET_VALUE_DOMAIN_SHIFT;
+                                let mut expected_role: u64 = 0;
+                                if domain == 1 { expected_role = 1; }
+                                else if domain == 4 { expected_role = 2; }
+                                else if domain == 6 { expected_role = 3; }
+                                else if domain != 0 { return false; }
+                                if actual_role != expected_role { return false; }
+                            }
+                        }
                         argument_index = argument_index + 1;
                     }
                 }

@@ -3787,9 +3787,16 @@ impl ScalarLowering {
         ) {
             return false;
         }
+        // SV8.48c: void calls also carry the same typed ownership
+        // signature as value-returning calls. No implicit alias may be
+        // smuggled through an unmarked observer call.
+        let capabilities: u64 = self.call_capability_profile(callee_decl, argument_count);
+        if capabilities == 18446744073709551615 { return false; }
         let call_index: usize = self.instruction_count - 1;
         let mut call: TargetInstruction = unsafe { *(self.instructions + call_index) };
         call.symbol = symbol;
+        call.flags = TARGET_CALL_CAPABILITIES_TYPED;
+        call.immediate_bits = capabilities;
         unsafe { *(self.instructions + call_index) = call; }
         return true;
     }
