@@ -797,6 +797,19 @@ nested native CFG in the Windows PE bootstrap without disabling any parser
 checks. The existing Windows Stage2/Stage3 fixed-point and quoted-path runtime
 tests remain unchanged and are required before certifying this repair.
 
+## SV8.48b Windows self-hosted Target IR arena parity
+
+The Windows native driver owns a separate set of static Target IR arenas. Its
+arrays and `ScalarLowering::new` arguments now match the compiler's certified
+large combined-module capacities: 131072 values, 262144 instructions, 524288
+operands, 65536 CFG blocks and 8192 function entries. The previously enlarged
+`native_compiler/main.sotlas` buffers were not sufficient because the
+Windows file driver does not use those globals when rebuilding Stage2/Stage3.
+
+The driver retains its existing guarded allocations and diagnostics; all
+actual Windows native PE fixed-point and quoted-path tests remain required.
+A structural CI contract verifies capacity parity between the native compiler
+and Windows driver to prevent another partial capacity update.
 ## Project diagnostics
 
 Project compiler diagnostics map resolved source positions back to the original

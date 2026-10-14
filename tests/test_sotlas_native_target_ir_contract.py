@@ -148,6 +148,58 @@ class SotlasNativeTargetIRContractTests(unittest.TestCase):
         self.assertNotIn("windows_append_argument(argument,index,", outer)
         # The actual Windows Stage2 -> Stage3 PE fixed-point execution remains
         # mandatory in test_sotlas_native_windows_driver.
+    def test_sv848b_windows_driver_ir_arenas_match_compiler_profile(self):
+        """Native Stage2/Stage3 must not silently retain Stage1's old arenas."""
+        root = ROOT / "bootstrap" / "sotlas"
+        compiler = (root / "native_compiler" / "main.sotlas").read_text(
+            encoding="utf-8"
+        )
+        windows = (root / "native_driver" / "windows.sotlas").read_text(
+            encoding="utf-8"
+        )
+        arenas = (
+            ("VALUE", "TargetValue", "driver_values", 131072),
+            ("INSTR", "TargetInstruction", "driver_instructions", 262144),
+            ("OPERAND", "TargetOperand", "driver_operands", 524288),
+            ("BLOCK", "TargetBlock", "driver_blocks", 65536),
+            ("FUNCTION", "TargetFunction", "driver_functions", 8192),
+        )
+        for kind, element, name, capacity in arenas:
+            with self.subTest(arena=kind):
+                self.assertIn(
+                    f"pub const TARGET_{kind}_CAPACITY: usize = {capacity};",
+                    compiler,
+                )
+                self.assertIn(
+                    f"static mut {name}: [{element}; {capacity}] = 0;",
+                    windows,
+                )
+                self.assertIn(
+                    f"unsafe {{ {name} as *mut {element} }}, {capacity}",
+                    windows,
+                )
+        # The other independently bounded arenas remain wired through.
+        for element, name, capacity in (
+            ("TargetParameter", "driver_parameters", 16384),
+            ("TargetPhiInput", "driver_phi_inputs", 16384),
+            ("u32", "driver_targets", 65536),
+        ):
+            with self.subTest(arena=name):
+                self.assertIn(
+                    f"static mut {name}: [{element}; {capacity}] = 0;",
+                    windows,
+                )
+                self.assertIn(
+                    f"unsafe {{ {name} as *mut {element} }}, {capacity}",
+                    windows,
+                )
+        self.assertIn(
+            "if !lower_scalar_module(&mut lowering, module_index, &mut ir) {",
+            windows,
+        )
+        # The real PE rebuild + exact Stage2/Stage3 binary equality gate is
+        # not replaced or skipped by this structural regression test.
+
     def test_native_main_has_a_target_ir_entry_point_separate_from_c_emission(self):
         native_root = ROOT / "bootstrap" / "sotlas" / "native_compiler"
         dependency_names = (
