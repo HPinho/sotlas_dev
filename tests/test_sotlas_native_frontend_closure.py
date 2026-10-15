@@ -945,11 +945,11 @@ let owner:sole Token=Token{value:42};let mut count:u32=0;
 while count<3{count=count+1;
 if count==1{continue;}else{let moved:sole Token=owner;break;}}
 return consume(owner);}''',
-            # A mixed edge in a match arm still lacks per-edge match states.
+            # A consumed break edge remains maybe-moved after a mixed match.
             '''pub fn main_entry()->u32{
 let owner:sole Token=Token{value:42};let mut count:u32=0;
 while count<3{count=count+1;
-match count{1=>{if count==1{break;}else{continue;}},_=>{break;}}}
+match count{1=>{if count==1{consume(owner);break;}else{continue;}},_=>{break;}}}
 return consume(owner);}''',
         )
         for index,body in enumerate(cases):

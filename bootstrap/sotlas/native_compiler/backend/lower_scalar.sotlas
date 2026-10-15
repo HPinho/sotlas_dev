@@ -824,6 +824,9 @@ impl ScalarLowering {
                 if next_ch == 110 { ch = 10; }
                 else if next_ch == 114 { ch = 13; }
                 else if next_ch == 116 { ch = 9; }
+                else if next_ch == 98 { ch = 8; }
+                else if next_ch == 102 { ch = 12; }
+                else if next_ch == 118 { ch = 11; }
                 else if next_ch == 48 { ch = 0; }
                 else if next_ch == 92 { ch = 92; }
                 else if next_ch == 34 { ch = 34; }
@@ -844,7 +847,8 @@ impl ScalarLowering {
                     ch = byte_value as u8;
                     src_i = src_i + 2;
                 }
-                else { ch = next_ch; }
+                else if next_ch == 39 { ch = 39; }
+                else { return TARGET_VALUE_NONE; }
             }
             if cur_len >= 65535 { return TARGET_VALUE_NONE; }
             unsafe { g_rodata_buf[cur_len] = ch; }

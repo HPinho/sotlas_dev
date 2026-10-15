@@ -1071,6 +1071,9 @@ impl Sema {
                 else if escaped == 110 { value = 10; }
                 else if escaped == 114 { value = 13; }
                 else if escaped == 116 { value = 9; }
+                else if escaped == 98 { value = 8; }
+                else if escaped == 102 { value = 12; }
+                else if escaped == 118 { value = 11; }
                 else if escaped != 39 && escaped != 34 && escaped != 92 { return false; }
             }
             unsafe{*output=value;}return true;
@@ -4331,6 +4334,7 @@ impl NativeOwnershipCheck {
                 let mut arm: usize = unsafe { (*(self.nodes + subject)).next_sibling };
                 let mut live: bool = false; let mut arms: usize = 0;
                 let mut loop_exit: i64 = 0; let mut has_break: bool = false;
+                let mut arm_breaks: [u8;256] = 0;
                 let mut fallthrough: bool = false;
                 while arm != 0 {
                     if arm >= self.node_count || arms >= 64 { self.error_node = index; return 0; }
@@ -4342,23 +4346,22 @@ impl NativeOwnershipCheck {
                     while slot < scope { self.states[slot] = before[slot]; slot = slot + 1; }
                     let result: i64 = self.sequence(unsafe { (*(self.nodes + body)).first_child }, depth + 1);
                     if result == 0 { self.error_node = index; return 0; }
-                    // A mixed break/continue would need distinct match-arm
-                    // edge states; do not collapse it into a live fallthrough.
-                    if result == 5 { self.error_node = index; return 0; }
                     if result >= 3 {
-                        if fallthrough || (result != 3 && result != 4) { self.error_node = index; return 0; }
+                        if fallthrough || result > 5 { self.error_node = index; return 0; }
                         slot = 0;
                         while slot < scope {
-                            if self.domains[slot] != 0 && result == 4 && self.states[slot] != before[slot] {
+                            if self.domains[slot] != 0 && result != 3 && self.states[slot] != before[slot] {
                                 self.error_node = index; return 0;
                             }
-                            if result == 3 {
-                                if !has_break { self.mixed_break_states[slot] = self.states[slot]; }
-                                else if self.domains[slot] != 0 && self.mixed_break_states[slot] != self.states[slot] { self.mixed_break_states[slot] = 3; }
+                            if result != 4 {
+                                let mut breaking: u8=self.states[slot];
+                                if result == 5 { breaking=self.mixed_break_states[slot]; }
+                                if !has_break { arm_breaks[slot]=breaking; }
+                                else if self.domains[slot] != 0 && arm_breaks[slot] != breaking { arm_breaks[slot]=3; }
                             }
                             slot = slot + 1;
                         }
-                        if result == 3 { has_break = true; }
+                        if result != 4 { has_break = true; }
                         if loop_exit == 0 { loop_exit = result; }
                         else if loop_exit != result { loop_exit = 5; }
                     } else if result == 1 {
@@ -4381,7 +4384,9 @@ impl NativeOwnershipCheck {
                 if !live { return 2; }
                 slot = 0;
                 while slot < scope {
+                    if has_break { self.mixed_break_states[slot]=arm_breaks[slot]; }
                     if loop_exit == 5 { self.states[slot] = before[slot]; }
+                    else if loop_exit == 3 { self.states[slot]=arm_breaks[slot]; }
                     else { self.states[slot] = merged[slot]; }
                     slot = slot + 1;
                 }
@@ -4396,10 +4401,11 @@ impl NativeOwnershipCheck {
                 let mut before: [u8;256] = 0; let mut after_yes: [u8;256] = 0;
                 let mut slot: usize = 0;
                 while slot < scope { before[slot] = self.states[slot]; slot = slot + 1; }
+                let mut yes_breaks: [u8;256] = 0;
                 let yes_result: i64 = self.sequence(unsafe { (*(self.nodes + yes)).first_child }, depth + 1);
                 if yes_result == 0 { return 0; }
                 self.count = scope; slot = 0;
-                while slot < scope { after_yes[slot] = self.states[slot]; self.states[slot] = before[slot]; slot = slot + 1; }
+                while slot < scope { after_yes[slot] = self.states[slot]; yes_breaks[slot] = self.mixed_break_states[slot]; self.states[slot] = before[slot]; slot = slot + 1; }
                 let mut no_result: i64 = 1;
                 if no != 0 {
                     if no >= self.node_count { self.error_node = index; return 0; }
@@ -4411,49 +4417,36 @@ impl NativeOwnershipCheck {
                 }
                 self.count = scope;
                 if yes_result == 2 && no_result == 2 { return 2; }
-                // SV8.49b: this bounded mixed exit has one break edge and
-                // one continue edge. Compare separate branch owner snapshots
-                // against the entry state. Continue must preserve its owners;
-                // break may consume them and keeps a separate exit summary.
-                // 5 denotes both loop edges, never ordinary fallthrough.
-                if (yes_result == 3 && no_result == 4)
-                    || (yes_result == 4 && no_result == 3) {
-                    slot = 0;
-                    while slot < scope {
-                        let mut continuing: u8 = self.states[slot];
-                        let mut breaking: u8 = after_yes[slot];
-                        if yes_result == 4 {
-                            continuing = after_yes[slot]; breaking = self.states[slot];
-                        }
-                        if self.domains[slot] != 0 && continuing != before[slot] {
-                            self.error_node = index; return 0;
-                        }
-                        self.mixed_break_states[slot] = breaking;
-                        self.states[slot] = continuing;
-                        slot = slot + 1;
-                    }
-                    return 5;
-                }
-                // SV8.49a: both arms leaving this loop with the same
-                // break/continue are a single, provable control transfer.
-                // Merge ownership for the break exit; a continue must still
-                // pass the surrounding while backedge ownership check.
-                // Implicit fallthrough and return/jump mixtures
-                // remain rejected until per-edge CFG states are represented.
+                // Closed loop exits carry independent break and continue states.
+                // Result 5 contains both edges and never ordinary fallthrough.
                 if yes_result >= 3 || no_result >= 3 {
-                    if yes_result != no_result
-                        || (yes_result != 3 && yes_result != 4) {
+                    if yes_result < 3 || yes_result > 5 || no_result < 3 || no_result > 5 {
                         self.error_node = index; return 0;
                     }
-                    slot = 0;
+                    let has_break: bool=yes_result != 4 || no_result != 4;
+                    let has_continue: bool=yes_result != 3 || no_result != 3;
+                    slot=0;
                     while slot < scope {
-                        if self.domains[slot] != 0
-                            && after_yes[slot] != self.states[slot] {
-                            self.states[slot] = 3;
+                        let mut breaking: u8=0;
+                        if yes_result == 3 { breaking=after_yes[slot]; }
+                        if yes_result == 5 { breaking=yes_breaks[slot]; }
+                        if no_result != 4 {
+                            let mut other: u8=self.states[slot];
+                            if no_result == 5 { other=self.mixed_break_states[slot]; }
+                            if yes_result == 4 { breaking=other; }
+                            else if self.domains[slot] != 0 && breaking != other { breaking=3; }
                         }
-                        slot = slot + 1;
+                        if self.domains[slot] != 0 && ((yes_result != 3 && after_yes[slot] != before[slot])
+                            || (no_result != 3 && self.states[slot] != before[slot])) {
+                            self.error_node=index;return 0;
+                        }
+                        self.mixed_break_states[slot]=breaking;
+                        if has_continue { self.states[slot]=before[slot]; }
+                        else { self.states[slot]=breaking; }
+                        slot=slot+1;
                     }
-                    return yes_result;
+                    if has_break && has_continue { return 5; }
+                    if has_break { return 3; }return 4;
                 }
                 slot = 0;
                 while slot < scope {

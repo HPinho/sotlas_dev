@@ -595,6 +595,20 @@ pub fn target_instruction_metadata_valid(instruction: TargetInstruction) -> bool
             && instruction.symbol.offset == 0 && instruction.symbol.length == 0
             && instruction.phi_input_count == 0;
     }
+    if instruction.opcode == TargetOpcode::Phi {
+        return instruction.flags == 0 && instruction.immediate_bits == 0
+            && instruction.symbol.offset == 0 && instruction.symbol.length == 0 && instruction.target_count == 0;
+    }
+    if instruction.opcode == TargetOpcode::Load || instruction.opcode == TargetOpcode::Store {
+        return instruction.flags == 0 && instruction.symbol.offset == 0 && instruction.symbol.length == 0
+            && instruction.phi_input_count == 0 && instruction.target_count == 0;
+    }
+    if instruction.opcode == TargetOpcode::IntCast || instruction.opcode == TargetOpcode::FloatCast
+        || instruction.opcode == TargetOpcode::FloatNeg || instruction.opcode == TargetOpcode::NumericCast {
+        return instruction.flags == 0 && instruction.immediate_bits == 0
+            && instruction.symbol.offset == 0 && instruction.symbol.length == 0
+            && instruction.phi_input_count == 0 && instruction.target_count == 0;
+    }
     return true;
 }
 

@@ -342,3 +342,74 @@ pub fn native_state_transition_token(state: *mut u32, expected: u32, next: u32,
     return native_state_transition_current(state,expected,next,allowed_states,
         token.owner,token.generation,token.required);
 }
+
+pub fn native_arena_calloc(arena: *mut NativeArena, count: usize, stride: usize, alignment: usize) -> *mut u8 {
+    let maximum: usize=18446744073709551615;
+    if count == 0 || stride == 0 || count > maximum/stride { return null; }
+    return native_arena_alloc_zero(arena,count*stride,alignment);
+}
+
+// This is a cursor/range query, not proof that an allocation is still alive.
+pub fn native_arena_contains(arena: *const NativeArena, memory: *const u8, size: usize) -> bool {
+    if arena == null || memory == null { return false; }
+    unsafe {
+        if arena.buffer == null || arena.used > arena.capacity || arena.epoch == 0 { return false; }
+        let base: usize=arena.buffer as usize;let address: usize=memory as usize;
+        let maximum: usize=18446744073709551615;
+        if arena.used > maximum-base || address < base { return false; }
+        let offset: usize=address-base;
+        return offset <= arena.used && size <= arena.used-offset;
+    }
+}
+
+// Only a known allocation at the cursor can grow; callers supply its true size.
+pub fn native_arena_grow_last(mut arena: *mut NativeArena, memory: *mut u8, old_size: usize, new_size: usize) -> bool {
+    if old_size == 0 || new_size < old_size || !native_arena_contains(arena,memory,old_size) { return false; }
+    unsafe {
+        let base: usize=arena.buffer as usize;let address: usize=memory as usize;
+        let offset: usize=address-base;
+        if old_size != arena.used-offset || new_size > arena.capacity-offset { return false; }
+        if new_size > 18446744073709551615-address { return false; }
+        arena.used=offset+new_size;
+    }
+    return true;
+}
+
+// Shrinking invalidates marks and requires disuse of the truncated suffix.
+pub fn native_arena_shrink_last(mut arena: *mut NativeArena, memory: *mut u8, old_size: usize, new_size: usize) -> bool {
+    if old_size == 0 || new_size > old_size || !native_arena_contains(arena,memory,old_size) { return false; }
+    unsafe {
+        let base: usize=arena.buffer as usize;let address: usize=memory as usize;
+        let offset: usize=address-base;
+        if old_size != arena.used-offset || arena.epoch == 18446744073709551615 { return false; }
+        arena.used=offset+new_size;arena.epoch=arena.epoch+1;
+    }
+    return true;
+}
+
+// Checked arithmetic guards publish an output only after the whole operation.
+pub fn native_contract_add(left: u64, right: u64, output: *mut u64) -> bool {
+    let maximum: u64=18446744073709551615;
+    if output == null || right > maximum-left { return false; }
+    unsafe{*output=left+right;}return true;
+}
+
+pub fn native_contract_sub(left: u64, right: u64, output: *mut u64) -> bool {
+    if output == null || right > left { return false; }
+    unsafe{*output=left-right;}return true;
+}
+
+pub fn native_contract_mul(left: u64, right: u64, output: *mut u64) -> bool {
+    let maximum: u64=18446744073709551615;
+    if output == null { return false; }
+    if right != 0 && left > maximum/right { return false; }
+    unsafe{*output=left*right;}return true;
+}
+
+pub fn native_contract_align(value: u64, alignment: u64, output: *mut u64) -> bool {
+    let maximum: u64=18446744073709551615;
+    if output == null || alignment == 0 || (alignment & (alignment-1)) != 0 { return false; }
+    let padding: u64=(alignment-(value & (alignment-1))) & (alignment-1);
+    if padding > maximum-value { return false; }
+    unsafe{*output=value+padding;}return true;
+}

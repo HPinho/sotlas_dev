@@ -10,6 +10,144 @@ contracts. Local validation must pass CI before being called certified.
 
 ## Frontend parity
 
+### SV8.54 — 36 native contracts across nine open areas (2026-10-15)
+
+No whole migration topic is complete, so this package retains four advances
+in each of all nine topics. It starts from `74881ce`; its CI result is pending.
+The checks below represent implemented bounded contracts, not whole-area closure.
+
+#### SV8.54 Frontend
+
+- [x] Decode backspace escapes consistently in native byte characters and strings.
+- [x] Decode form-feed escapes consistently in native byte characters and strings.
+- [x] Decode vertical-tab escapes consistently in native byte characters and strings.
+- [x] Reject unknown string escapes instead of silently removing their backslash.
+
+Gate: `test_sotlas_native_migration_sv854`.
+
+#### SV8.54 Native ownership
+
+- [x] Join a nested mixed then-branch with another closed loop exit using separate edge states.
+- [x] Join a nested mixed else-branch without losing the continuing owner snapshot.
+- [x] Accept closed nested break/continue paths inside match arms while checking moves.
+- [x] Preserve sibling break summaries across nested match evaluation.
+
+Gate: `test_sotlas_native_migration_sv854`.
+
+#### SV8.54 Sotlas memory runtime
+
+- [x] Allocate cleared arena arrays after checking count/stride multiplication.
+- [x] Query whether a range lies within the allocated arena cursor.
+- [x] Grow a known last allocation in place while checking capacity and address wrap.
+- [x] Shrink a known last allocation and invalidate outstanding arena marks.
+
+Gate: `test_sotlas_native_migration_sv854`.
+
+#### SV8.54 States, effects, authority and contracts
+
+- [x] Execute a checked U64 addition contract without publishing overflowed output.
+- [x] Execute a checked U64 subtraction contract without publishing underflowed output.
+- [x] Execute a checked U64 multiplication contract with zero/division guards.
+- [x] Execute checked power-of-two alignment without wraparound or partial output.
+
+Gate: `test_sotlas_native_migration_sv854`.
+
+#### SV8.54 Native IR and lowering
+
+- [x] Reject unrelated symbol, immediate, flag and branch metadata on phi instructions.
+- [x] Reject unrelated symbol, flag and edge metadata on loads.
+- [x] Reject unrelated symbol, flag and edge metadata on stores.
+- [x] Reject unrelated metadata on integer/float/numeric casts and float negation.
+
+Gate: `test_sotlas_native_migration_sv854`.
+
+#### SV8.54 Owned backend and ABI
+
+- [x] Reject U8 immediates containing bits above the declared byte width.
+- [x] Require an eight-bit two-complement immediate representation for I8.
+- [x] Reject U16 immediates containing bits above the declared halfword width.
+- [x] Require a sixteen-bit two-complement immediate representation for I16.
+
+Gate: `test_sotlas_native_migration_sv854`.
+
+#### SV8.54 Owned objects and linking
+
+- [x] Reject nonzero entry addresses in ELF relocatable headers.
+- [x] Reject reserved object flags while preserving the internal Linux/Darwin operation bits.
+- [x] Validate every section name inside the section-name string table.
+- [x] Bound the symbol local/nonlocal boundary field to its symbol table.
+
+Gate: `test_sotlas_native_tool_operations_sv854`.
+
+#### SV8.54 Native CLI
+
+- [x] Check independent source paths from a bounded manifest with --check-list.
+- [x] Validate objects from a manifest with --verify-object-list.
+- [x] Resolve the requested entry in every listed object without images using --check-entry-list.
+- [x] Link listed objects through the owned ELF linker using --link-elf-list.
+
+Gate: `test_sotlas_native_tool_operations_sv854`.
+
+#### SV8.54 Bootstrap and self-hosting
+
+- [x] Compare listed artifacts using --compare-list without premature success output.
+- [x] Validate all listed seed envelopes using --verify-seed-list.
+- [x] Create an exclusive stamp of an ordered seed set using --stamp-seed-set.
+- [x] Reject changed content, ordering, count or stamp metadata using --verify-seed-set.
+
+Gate: `test_sotlas_native_tool_operations_sv854`.
+
+Nested ownership joins represent closed break/continue exits, including
+mixed exits in nested if/match branches. Continue edges preserve the incoming
+exclusive POD owner; break edges are merged separately and can make owners
+maybe-moved after a loop. Return/jump/fallthrough mixtures and arbitrary CFG
+ownership remain open. The earlier mixed-match rejection fixture now consumes
+the owner on its break edge; a separate positive gate covers the newly accepted
+live-owner case. Move safety remains checked in both fixtures.
+
+Arena contains is a range/cursor query, not a lifetime or allocation identity
+proof. Grow/shrink require the caller to supply the actual last allocation and
+its true old size. Grow preserves existing bytes but does not clear new bytes;
+shrink invalidates marks and requires disuse of its truncated suffix. These
+remain explicit single-threaded primitives. Arithmetic guards are explicit
+runtime contracts, not migration of full canonical contract/effect syntax.
+
+IR load/store immediates retain their existing storage semantics; unrelated
+symbol/flag/edge fields are rejected. Narrow machine immediates use low-width
+two-complement patterns. ELF preflight preserves internal OS flag bits 0/1.
+The symbol boundary is checked for range; the legacy internal function/data
+ordering is retained. Standard external ELF local-symbol ordering remains open.
+
+Manifest commands share a 65,535-byte text budget, 16 paths and a 4,095-byte
+path limit. Empty lines and whole-line # comments are ignored, horizontal
+whitespace at path edges is trimmed, and LF/CRLF are accepted. Embedded NUL,
+empty lists, oversize input and excess paths are rejected. Paths are relative
+to the process working directory. There is no shell expansion or quote syntax.
+Independent check inputs are not merged. ELF list linking retains the existing
+8 MiB object and 16 MiB image limits. Entry-list checking uses the host image
+linker in memory, with success reported after every object passes.
+
+Seed-set stamps are 32-byte SOTSET01 records. They hold FNV-1a over fixed-size
+records of each seed's content fingerprint and byte size in list order, total
+bytes, count, version and zero reserved bytes. Each seed must pass the host
+platform envelope gate. Stamps are reproducibility evidence, not authentication
+or proof of full compiler parity; identical bytes at different paths are the
+same artifact for this purpose. Files must remain stable while a command runs.
+Existing stamp files cannot be overwritten. A failed new-file write can leave
+a partial file. General package manifests, typed interfaces and distribution
+remain separate requirements.
+
+Final local validation: 3,082 Windows regression tests passed with 79
+platform/toolchain skips in 855.727 seconds. All 36 new gates passed on Linux
+through WSL (35.147 seconds) and Windows Python 3.10.11 (29.201 seconds).
+The strengthened seed-order check also passed separately on Windows and Linux.
+All 137 existing native frontend closure gates passed. Original-source Stage
+2/3 identity passed on Windows in the full suite and Linux in a separate gate;
+complete Darwin compiler cross-generation passed on both hosts. The two Linux
+generation gates took 89.806 seconds. Native Intel macOS execution and the
+candidate's CI result remain pending.
+
+
 ### SV8.53 — 36 native migration contracts (2026-10-14)
 
 Based on `7c42ad7`, this package implements four bounded contracts in each of

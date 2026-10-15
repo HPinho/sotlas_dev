@@ -7,6 +7,27 @@
 
 
 
+## SV8.54 — nested ownership joins and native manifests (2026-10-15)
+
+Starting from `74881ce`, this candidate implements 36 bounded contracts across
+all nine still-open migration areas. Closed nested if/match loop edges retain
+independent break and continue owner states. Arenas gain checked array allocation
+and last-allocation reuse. Explicit arithmetic guards, scalar metadata preflight
+and narrow immediate validation extend the native runtime/backend contract.
+
+Object preflight checks entry/reserved flags, section names and symbol boundary
+ranges while preserving the internal ABI. All drivers gain file manifests for
+source/object checking, entry resolution, ELF linking, comparison and seed-set
+stamps. [The checklist](sotlas_native_frontend_ownership_checklist.md) records all
+36 delivered contracts, exact limits and gates. Whole-language ownership,
+effects/contracts, modules and toolchain independence remain open.
+
+Local validation passed 3,082 Windows tests with 79 skips in 855.727 seconds.
+All 36 new gates passed on Linux through WSL and Windows Python 3.10.11;
+the additional seed-order check passed on both native hosts. The existing
+137 frontend closure gates, Windows/Linux Stage 2/3 identity and complete
+Darwin compiler cross-generation passed. Candidate CI remains pending.
+
 ## SV8.53 — array shapes, runtime batches and artifact preflight (2026-10-14)
 
 Starting from `7c42ad7`, this candidate adds 36 bounded contracts, four in each
