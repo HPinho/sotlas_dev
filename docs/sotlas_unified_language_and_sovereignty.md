@@ -75,6 +75,13 @@ validation. SV8.50 was committed as `3e4320e`. The owner reported the
 workflow green for SV8.51 (`24d5627`); its run number was not independently
 inspected. This document includes the SV8.56 candidate, whose CI remains pending.
 
+**SV8.57 regression note (2026-10-15):** CI #1232 exposed a missing
+`link_image` delegation in the SV8.57 Python *test harness*. The repair
+restores execution through the existing owned native object linker and keeps
+all SV8.57 positive/negative gates enabled. It does not change the Sotlas
+compiler or certify the candidate; baseline #1231 remains the last verified
+green workflow.
+
 **SV8.57 candidate (2026-10-15):** the native frontend now recognizes
 `%=`, `&=`, `|=`, `^=`, `<<=` and `>>=` for mutable local
 identifier targets. It retains a single RHS evaluation and rejects complex
