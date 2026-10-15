@@ -3,9 +3,39 @@
 **Status:** active implementation track  
 **Started:** 2026-10-03 (America/Fortaleza)  
 **Green baseline at track start:** `7162167dec6fd5fa0a216121b147335d222e43f1` / CI #1063  
-**Latest inspected green baseline:** `0df0bb95bfc3ae9300d49be8063703d722d32d87` / [CI #1233](https://github.com/HPinho/sotlas_dev/actions/runs/38781346034), including Linux/Windows/Intel-macOS jobs and native compiler fixed point.
+**Latest inspected green baseline:** `fd6dd7d89cff9b38fa6fbe58bb34551b30806f37` / [CI #1234](https://github.com/HPinho/sotlas_dev/actions/runs/38790093635) (Linux/Windows/Intel macOS, native compiler fixed point).
 
 
+
+## SV8.59 — compiler-lowered lexical cleanup of native managed resources (2026-10-15)
+
+**Green baseline:** `fd6dd7d89cff9b38fa6fbe58bb34551b30806f37` /
+[CI #1234](https://github.com/HPinho/sotlas_dev/actions/runs/38790093635)
+(Linux, Windows and Intel macOS).
+
+The Sotlas-written `runtime/native/managed.sotlas` now provides
+`native_managed_bytes_close(*mut NativeManagedBytes) -> void`: it verifies
+the original generation, releases one strong claim, zeros its registered
+payload on final release and poisons the mutable resource slot on success.
+When explicitly registered by source code as `defer native_managed_bytes_close(ptr);`,
+the already-native compiler emits the call on lexical block exit, early
+function return or supported loop jumps. Repeated cleanup through the same
+slot has no second release. Non-final release preserves the payload; stale
+handles, mismatched generation and invalid states remain fail-closed.
+
+The `test_sotlas_native_migration_sv859` suite adds native compile/link/
+execute and rejection gates for lexical cleanup, duplicate defers, return,
+non-final and final releases. The caller still provides stable disjoint
+backing/control/handle memory and accounts for any separate strong claims.
+The compiler does not infer destructors, inject automatic ARC/drop glue or
+prove non-POD lifetimes. The candidate remains uncertified until its
+complete platform and fixed-point workflow passes.
+
+**Next SV8.60:** make ownership-bearing values eligible for synthesized,
+exactly-once cleanup in a certified bounded native profile, or complete a
+typed separately compiled module ABI/capability interface. Keep unsupported
+resource shapes fail-closed and maintain zero Python/C fallback in native
+runtime code.
 
 ## SV8.58 — explicit managed byte resources in native Sotlas runtime (2026-10-15)
 

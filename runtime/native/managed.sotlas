@@ -644,3 +644,22 @@ pub fn native_managed_bytes_release(resource: *const NativeManagedBytes) -> u32 
     }
     return outcome;
 }
+
+// SV8.59: explicit slot-based destruction for lexical native defer cleanup.
+// This helper closes one strong claim and poisons that handle after a valid
+// release. Aliases to the same handle must not be used after close; external
+// retains require separately managed strong claims. This is not automatic ARC.
+pub fn native_managed_bytes_close(mut resource: *mut NativeManagedBytes) -> void {
+    if resource == null { return; }
+    let view: *const NativeManagedBytes = unsafe { resource as *const NativeManagedBytes };
+    if !native_managed_bytes_current(view) { return; }
+    let outcome: u32 = native_managed_bytes_release(view);
+    if outcome != 0 {
+        unsafe {
+            resource.control = null;
+            resource.bytes = null;
+            resource.length = 0;
+            resource.generation = 0;
+        }
+    }
+}
