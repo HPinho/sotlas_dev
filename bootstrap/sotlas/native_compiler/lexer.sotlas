@@ -219,7 +219,7 @@ impl Lexer {
                         self.error_line = start_line; self.error_col = start_col;
                         return Token::new(TokenKind::Error, start_line, start_col);
                     }
-                    while !self.is_at_end() && self.peek() >= 48 && self.peek() <= 57 { self.advance(); }
+                    while !self.is_at_end() && ((self.peek() >= 48 && self.peek() <= 57) || self.peek() == 95) { self.advance(); }
                 }
             }
             let length: usize = self.cursor - start_offset;

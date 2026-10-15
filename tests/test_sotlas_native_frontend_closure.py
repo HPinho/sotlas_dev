@@ -1005,7 +1005,7 @@ if unsafe{calls}!=3{return 1;}return 42;}'''
             'match count{1=>{continue;},_=>{consume(owner);break;}}',
             'match count{1=>{consume(owner);continue;},_=>{break;}}',
             'match count{1=>{break;},_=>{consume(owner);continue;}}',
-            'match count{1=>{break;},_=>{count=count+1;}}',
+            'match count{1=>{consume(owner);break;},_=>{count=count+1;}}',
         )
         for index,body in enumerate(cases):
             self.compile('sv849c_edge_state_reject_'+str(index),prefix+

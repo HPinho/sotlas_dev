@@ -529,6 +529,7 @@ return driver_position_error(6,sema.error_line,sema.error_col,"semantic error",1
         object_buffer, 8388608, length_pointer) { return fail(8); }
     // Checking includes native object validation, but performs no output I/O
     // and does not require an executable entry or resolved foreign symbols.
+    unsafe{driver_last_object_length[0]=object_length;}
     if check_only { return 0; }
     let mut artifact: *const u8 = object_buffer as *const u8;
     let mut artifact_length: usize = object_length;
@@ -1622,7 +1623,118 @@ fn driver_seed_set_stamp(path: *const u8, stamp: *const u8, verify: bool) -> u32
     return driver_artifact_set_stamp(path,stamp,verify,true);
 }
 
+
+// Last successful checked object; used only inside this synchronous process.
+static mut driver_last_object_length:[usize;1]=0;
+
+fn driver_json_piece(buffer:*mut u8, offset:usize, text:*const u8) -> usize {
+    let mut index:usize=0;while unsafe{*(text+index)} != 0 {
+        unsafe{*(buffer+offset+index)=*(text+index);}index=index+1;
+    }return offset+index;
+}
+
+fn driver_json_report(input:*const u8, mode:u32) -> u32 {
+    let mut numbers:[u64;3]=0;let mut rows:usize=3;
+    if mode == 1 {
+        let bytes:*mut u8=unsafe{driver_object_bytes as *mut u8};
+        let length:i64=driver_read_artifact(input,bytes,8388608);
+        if length == -2 { return fail(2); }if length < 0 { return fail(3); }
+        if !validate_elf64_object(bytes,length as usize) { return fail(8); }
+        let headers:usize=get_u64(bytes,length as usize,40) as usize;
+        let count:u64=get_u16(bytes,length as usize,60) as u64;numbers[0]=count;
+        let mut index:u64=1;while index < count {
+            let header:usize=headers+index as usize*64;let kind:u32=get_u32(bytes,length as usize,header+4);
+            if kind == 2 { numbers[1]=get_u64(bytes,length as usize,header+32)/24; }
+            if kind == 4 { numbers[2]=numbers[2]+get_u64(bytes,length as usize,header+32)/24; }index=index+1;
+        }
+    } else if mode == 2 {
+        let envelope:u32=driver_seed_envelope(input);if envelope != 0 { return envelope; }
+        let hashed:u32=driver_hash_file(input);if hashed != 0 { return hashed; }
+        unsafe{numbers[0]=driver_hash[0];numbers[1]=driver_size[0];}rows=2;
+    } else {
+        if mode == 4 { let checked:u32=driver_project_manifest(input,null,2);if checked != 0 { return checked; } }
+        let hashed:u32=driver_artifact_set_hash(input,false);if hashed != 0 { return hashed; }
+        unsafe{numbers[0]=driver_set_hash[0];numbers[1]=driver_set_size[0];numbers[2]=driver_manifest_count[0];}
+    }
+    let buffer:*mut u8=unsafe{driver_audit_left as *mut u8};let digits:*const u8="0123456789abcdef";
+    let mut offset:usize=driver_json_piece(buffer,0,"{");let mut row:usize=0;
+    while row < rows {
+        if row != 0 { offset=driver_json_piece(buffer,offset,","); }
+        let mut key:*const u8="files_hex";
+        if row == 0 { key="fingerprint_hex"; }else if row == 1 { key="bytes_hex"; }
+        if mode == 1 { key="relocations_hex";if row == 0 { key="sections_hex"; }else if row == 1 { key="symbols_hex"; } }
+        offset=driver_json_piece(buffer,offset,"\"");offset=driver_json_piece(buffer,offset,key);
+        offset=driver_json_piece(buffer,offset,"\":\"");let mut column:usize=0;
+        while column < 16 {
+            let shift:u64=((15-column) as u64)*4;
+            unsafe{*(buffer+offset+column)=*(digits+((numbers[row] >> shift) & 15));}column=column+1;
+        }
+        offset=offset+16;offset=driver_json_piece(buffer,offset,"\"");row=row+1;
+    }
+    offset=driver_json_piece(buffer,offset,"}\n");unsafe{*(buffer+offset)=0;}return driver_print_text(buffer);
+}
+
+fn driver_checked_project_object(input:*const u8) -> u32 {
+    unsafe{driver_last_object_length[0]=0;}return driver_project_manifest(input,null,2);
+}
+
+fn driver_verify_project_object(input:*const u8, expected:*const u8) -> u32 {
+    let checked:u32=driver_checked_project_object(input);if checked != 0 { return checked; }
+    let size:usize=unsafe{driver_last_object_length[0]};let built:*const u8=unsafe{driver_object_bytes as *const u8};
+    let actual:*mut u8=unsafe{driver_image_bytes as *mut u8};let length:i64=driver_read_artifact(expected,actual,8388608);
+    if length == -2 { return fail(2); }if length < 0 { return fail(3); }
+    if !validate_elf64_object(actual,length as usize) { return fail(8); }
+    if size != length as usize { return fail(14); }let mut index:usize=0;
+    while index < size { if unsafe{*(built+index)} != unsafe{*(actual+index)} { return fail(14); }index=index+1; }
+    return driver_print_text("project-object=matched\n");
+}
+
+fn driver_compare_project_objects(left:*const u8, right:*const u8) -> u32 {
+    let checked:u32=driver_checked_project_object(left);if checked != 0 { return checked; }
+    let size:usize=unsafe{driver_last_object_length[0]};let built:*const u8=unsafe{driver_object_bytes as *const u8};
+    let saved:*mut u8=unsafe{driver_image_bytes as *mut u8};let mut index:usize=0;
+    while index < size { unsafe{*(saved+index)=*(built+index);}index=index+1; }
+    let checked_right:u32=driver_checked_project_object(right);if checked_right != 0 { return checked_right; }
+    if size != unsafe{driver_last_object_length[0]} { return fail(14); }index=0;
+    while index < size { if unsafe{*(built+index)} != unsafe{*(saved+index)} { return fail(14); }index=index+1; }
+    return driver_print_text("project-objects=identical\n");
+}
+
+fn driver_project_object_stamp(input:*const u8, stamp:*const u8, verify:bool) -> u32 {
+    let checked:u32=driver_checked_project_object(input);if checked != 0 { return checked; }
+    let size:usize=unsafe{driver_last_object_length[0]};let built:*const u8=unsafe{driver_object_bytes as *const u8};
+    let mut hash:u64=14695981039346656037;let mut index:usize=0;
+    while index < size { hash=(hash ^ (unsafe{*(built+index)} as u64))*1099511628211;index=index+1; }
+    let expected:*mut u8=unsafe{driver_audit_right as *mut u8};let magic:*const u8="SOTOBJ01";index=0;
+    while index < 8 {
+        unsafe{*(expected+index)=*(magic+index);*(expected+8+index)=((hash >> ((index as u64)*8)) & 255) as u8;
+            *(expected+16+index)=(((size as u64) >> ((index as u64)*8)) & 255) as u8;}index=index+1;
+    }
+    unsafe{*(expected+24)=1;*(expected+25)=3;}index=26;
+    while index < 32 { unsafe{*(expected+index)=0;}index=index+1; }
+    if !verify { return driver_write_artifact(stamp,expected,32,true); }
+    let actual:*mut u8=unsafe{driver_audit_left as *mut u8};let length:i64=driver_read_artifact(stamp,actual,32);
+    if length == -2 { return fail(2); }if length != 32 { return fail(16); }index=0;
+    while index < 32 { if unsafe{*(expected+index)} != unsafe{*(actual+index)} { return fail(16); }index=index+1; }
+    return driver_print_text("project-object-stamp=matched\n");
+}
+
 fn driver_extended_dispatch(argc: u64, argv: *const *const u8, option: *const u8) -> u32 {
+    if option_equals(option,"--object-info-json",18) || option_equals(option,"--seed-info-json",16)
+        || option_equals(option,"--artifact-set-info-json",24) || option_equals(option,"--project-set-info-json",23) {
+        if argc != 3 { return fail(1); }let mut mode:u32=1;
+        if option_equals(option,"--seed-info-json",16) { mode=2; }
+        if option_equals(option,"--artifact-set-info-json",24) { mode=3; }
+        if option_equals(option,"--project-set-info-json",23) { mode=4; }
+        return driver_json_report(unsafe{*(argv+2)},mode);
+    }
+    if option_equals(option,"--verify-project-object",23) || option_equals(option,"--compare-project-objects",25)
+        || option_equals(option,"--stamp-project-object",22) || option_equals(option,"--verify-project-object-stamp",29) {
+        if argc != 4 { return fail(1); }let first:*const u8=unsafe{*(argv+2)};let second:*const u8=unsafe{*(argv+3)};
+        if option_equals(option,"--verify-project-object",23) { return driver_verify_project_object(first,second); }
+        if option_equals(option,"--compare-project-objects",25) { return driver_compare_project_objects(first,second); }
+        return driver_project_object_stamp(first,second,option_equals(option,"--verify-project-object-stamp",29));
+    }
     if option_equals(option,"--project-list-resolve-object",29) || option_equals(option,"--project-list-compiler",23)
         || option_equals(option,"--project-list-resolve-compiler",31) || option_equals(option,"--project-list-macho",20) {
         if argc != 4 { return fail(1); }let mut mode: u32=5;

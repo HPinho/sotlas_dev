@@ -1,0 +1,31 @@
+module sotlas::runtime::binary;
+
+// Caller-backed, unaligned binary I/O. Outputs must be valid and disjoint.
+pub fn native_binary_range(data: *const u8, capacity: usize, offset: usize, width: u32) -> bool {
+    if data == null || (width != 1 && width != 2 && width != 4 && width != 8)
+        || offset > capacity || width as usize > capacity-offset { return false; }
+    let base: usize=unsafe{data as usize};
+    return offset <= 18446744073709551615-base && width as usize <= 18446744073709551615-base-offset;
+}
+pub fn native_binary_load_le(data: *const u8, capacity: usize, offset: usize, width: u32, output: *mut u64) -> bool {
+    if output == null || !native_binary_range(data,capacity,offset,width) { return false; }
+    let mut value:u64=0;let mut index:u32=0;
+    while index < width { value=value | ((unsafe{*(data+offset+index as usize)} as u64) << ((index as u64)*8));index=index+1; }
+    unsafe{*output=value;}return true;
+}
+pub fn native_binary_load_be(data: *const u8, capacity: usize, offset: usize, width: u32, output: *mut u64) -> bool {
+    if output == null || !native_binary_range(data,capacity,offset,width) { return false; }
+    let mut value:u64=0;let mut index:u32=0;
+    while index < width { value=(value << 8) | (unsafe{*(data+offset+index as usize)} as u64);index=index+1; }
+    unsafe{*output=value;}return true;
+}
+pub fn native_binary_store_le(data: *mut u8, capacity: usize, offset: usize, width: u32, value: u64) -> bool {
+    if !native_binary_range(data,capacity,offset,width) { return false; }
+    if width < 8 && (value >> ((width as u64)*8)) != 0 { return false; }
+    let mut index:u32=0;while index < width { unsafe{*(data+offset+index as usize)=(value >> ((index as u64)*8)) as u8;}index=index+1; }return true;
+}
+pub fn native_binary_store_be(data: *mut u8, capacity: usize, offset: usize, width: u32, value: u64) -> bool {
+    if !native_binary_range(data,capacity,offset,width) { return false; }
+    if width < 8 && (value >> ((width as u64)*8)) != 0 { return false; }
+    let mut index:u32=0;while index < width { unsafe{*(data+offset+index as usize)=(value >> (((width-index-1) as u64)*8)) as u8;}index=index+1; }return true;
+}

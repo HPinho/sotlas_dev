@@ -4338,7 +4338,7 @@ impl NativeOwnershipCheck {
                 let mut live: bool = false; let mut arms: usize = 0;
                 let mut loop_exit: i64 = 0; let mut has_break: bool = false;
                 let mut arm_breaks: [u8;256] = 0;
-                let mut fallthrough: bool = false;
+                let mut fallthrough: bool = false;let mut preserving_edges: bool=true;
                 while arm != 0 {
                     if arm >= self.node_count || arms >= 64 { self.error_node = index; return 0; }
                     let pattern: usize = unsafe { (*(self.nodes + arm)).first_child };
@@ -4350,7 +4350,14 @@ impl NativeOwnershipCheck {
                     let result: i64 = self.sequence(unsafe { (*(self.nodes + body)).first_child }, depth + 1);
                     if result == 0 { self.error_node = index; return 0; }
                     if result >= 3 {
-                        if fallthrough || result > 5 { self.error_node = index; return 0; }
+                        if result > 5 { self.error_node = index; return 0; }
+                        if result == 5 || self.loop_depth == 0 { preserving_edges=false; }
+                        slot=0;
+                        while slot < self.loop_scope {
+                            if self.domains[slot] != 0 && self.states[slot] != self.loop_entry_states[slot] { preserving_edges=false; }
+                            slot=slot+1;
+                        }
+                        if fallthrough && !preserving_edges { self.error_node=index;return 0; }
                         slot = 0;
                         while slot < scope {
                             if self.domains[slot] != 0 && result != 3 && self.states[slot] != before[slot] {
@@ -4368,10 +4375,11 @@ impl NativeOwnershipCheck {
                         if loop_exit == 0 { loop_exit = result; }
                         else if loop_exit != result { loop_exit = 5; }
                     } else if result == 1 {
-                        if loop_exit != 0 { self.error_node = index; return 0; }
+                        if loop_exit != 0 && !preserving_edges { self.error_node=index;return 0; }
+                        if !fallthrough && loop_exit != 0 { live=false; }
                         fallthrough = true;
                     }
-                    if result == 1 || result >= 3 {
+                    if result == 1 || (result >= 3 && !fallthrough) {
                         slot = 0;
                         while slot < scope {
                             if !live { merged[slot] = self.states[slot]; }
@@ -4388,12 +4396,13 @@ impl NativeOwnershipCheck {
                 slot = 0;
                 while slot < scope {
                     if has_break { self.mixed_break_states[slot]=arm_breaks[slot]; }
-                    if loop_exit == 5 { self.states[slot] = before[slot]; }
+                    if fallthrough { self.states[slot]=merged[slot]; }
+                    else if loop_exit == 5 { self.states[slot] = before[slot]; }
                     else if loop_exit == 3 { self.states[slot]=arm_breaks[slot]; }
                     else { self.states[slot] = merged[slot]; }
                     slot = slot + 1;
                 }
-                if loop_exit != 0 { return loop_exit; }
+                if loop_exit != 0 && !fallthrough { return loop_exit; }
             } else if node.kind == AstKind::IfStmt {
                 let condition: usize = node.first_child;
                 if condition == 0 || condition >= self.node_count || !self.expression(condition, false, 0) { self.error_node = index; return 0; }

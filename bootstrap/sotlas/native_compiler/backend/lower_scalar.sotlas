@@ -147,8 +147,14 @@ fn native_decimal_float_bits(source: *const u8, length: usize,
         let mut decimal_exponent: u32 = 0;
         while index < length {
             let ch: u8 = unsafe { *(source + index) };
-            if ch < 48 || ch > 57 || decimal_exponent > 18 { return false; }
-            decimal_exponent = decimal_exponent * 10 + (ch - 48) as u32;
+            if ch != 95 {
+                if ch < 48 || ch > 57 || decimal_exponent > 18 { return false; }
+                decimal_exponent = decimal_exponent * 10 + (ch - 48) as u32;
+            } else {
+                if index == 0 || index+1 >= length { return false; }
+                let previous: u8=unsafe{*(source+index-1)};let following: u8=unsafe{*(source+index+1)};
+                if previous < 48 || previous > 57 || following < 48 || following > 57 { return false; }
+            }
             index = index + 1;
         }
         if decimal_exponent > 18 { return false; }

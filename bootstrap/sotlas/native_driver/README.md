@@ -1205,3 +1205,30 @@ proofs or authentication. Inputs must remain stable during reads. Invalid
 projects preserve existing outputs; failed writes may leave partial new files.
 
 Gate: `test_sotlas_native_tool_operations_sv856`.
+
+## SV8.60: JSON reports and native rebuilt-object audits
+
+| Command | Contract |
+|---|---|
+| `--object-info-json OBJECT` | Validated sections_hex, symbols_hex and relocations_hex |
+| `--seed-info-json IMAGE` | Validated fingerprint_hex and bytes_hex |
+| `--artifact-set-info-json LIST` | Ordered fingerprint_hex, bytes_hex and files_hex |
+| `--project-set-info-json LIST` | Native-check a resolved project before reporting source-set identity |
+| `--verify-project-object LIST OBJECT` | Natively rebuild a resolved project and compare the validated object bytes |
+| `--compare-project-objects LEFT_LIST RIGHT_LIST` | Rebuild both projects and compare emitted ELF object bytes |
+| `--stamp-project-object LIST OUTPUT` | Rebuild a project, then exclusively create its SOTOBJ01 object stamp |
+| `--verify-project-object-stamp LIST STAMP` | Rebuild a project and verify its SOTOBJ01 object identity |
+
+JSON fields are 16-character lowercase hexadecimal strings; no report is
+emitted before validation. Native rebuild audits use the same resolved project
+check/emission pipeline and manifest limits as existing project checks. They
+compare actual emitted objects; this is distinct from source-set comparison
+and is not a proof of full compiler Stage 2/3 identity.
+
+SOTOBJ01 is 32 bytes: eight magic bytes, little-endian U64 FNV-1a fingerprint,
+little-endian U64 object length, version byte 1, kind byte 3, six zero reserved
+bytes. FNV is not authentication. Sources/files must remain stable during reads.
+Stamp creation is exclusive; failed writes can leave partial new files.
+Existing outputs are preserved on rejection. No tool subprocess is started.
+
+Gate: `test_sotlas_native_tool_operations_sv860`.

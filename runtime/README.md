@@ -190,3 +190,33 @@ all ranges and outputs must remain valid. They do not allocate or prove
 lifetimes/thread safety. Arithmetic and extraction leave output unchanged on
 failure. Word APIs use existing scalar IR, without dedicated CPU instruction
 selection or foreign calls. Gate: `test_sotlas_native_migration_sv856`.
+
+## SV8.60 strong slots, checked narrowing and binary I/O
+
+| API | Contract |
+|---|---|
+| `native_managed_bytes_empty` | Inspect a fully cleared strong slot |
+| `native_managed_bytes_clone_into` | Retain into an empty independent destination slot |
+| `native_managed_bytes_upgrade_into` | Upgrade a matching weak token into an empty destination |
+| `native_managed_bytes_take` | Transfer one claim and clear its source slot |
+| `native_managed_bytes_swap` | Swap valid live/empty slots without retain/release |
+| `native_contract_u8` | Checked U64-to-U8 output |
+| `native_contract_u16` | Checked U64-to-U16 output |
+| `native_contract_u32` | Checked U64-to-U32 output |
+| `native_contract_i32` | Checked I64-to-I32 output |
+| `native_binary_load_le` | Unaligned checked little-endian load |
+| `native_binary_load_be` | Unaligned checked big-endian load |
+| `native_binary_store_le` | Checked little-endian store without silent truncation |
+| `native_binary_store_be` | Checked big-endian store without silent truncation |
+
+Strong-slot and narrowing APIs are in `runtime/native/managed.sotlas`; binary
+I/O is in `runtime/native/binary.sotlas`. All execute through the native scalar
+backend without foreign calls. Storage validity, disjoint metadata/output and
+lifetimes remain caller responsibilities. Clone/upgrade/take require a fully
+cleared destination. Raw copies are not tracked; automatic ARC and synthesized
+destructors remain open. Signed/unsigned narrowing does not alter ordinary casts.
+
+Binary widths are 1, 2, 4 or 8 bytes. Loads leave output unchanged on failure;
+stores validate extents/value width before writes. These APIs describe ordinary
+memory, not volatile MMIO, atomics or synchronization. They need no alignment.
+Gate: `test_sotlas_native_migration_sv860`.
