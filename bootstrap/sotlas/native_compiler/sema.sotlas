@@ -4417,6 +4417,19 @@ impl NativeOwnershipCheck {
                 }
                 self.count = scope;
                 if yes_result == 2 && no_result == 2 { return 2; }
+                // A returning arm has no loop successor. Keep only the live
+                // loop edge, including its independent mixed break summary.
+                if yes_result == 2 && no_result >= 3 && no_result <= 5 { return no_result; }
+                if no_result == 2 && yes_result >= 3 && yes_result <= 5 {
+                    slot=0;
+                    while slot < scope {
+                        self.states[slot]=after_yes[slot];
+                        if yes_result == 5 { self.mixed_break_states[slot]=yes_breaks[slot]; }
+                        slot=slot+1;
+                    }
+                    return yes_result;
+                }
+
                 // Closed loop exits carry independent break and continue states.
                 // Result 5 contains both edges and never ordinary fallthrough.
                 if yes_result >= 3 || no_result >= 3 {

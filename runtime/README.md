@@ -142,3 +142,26 @@ bytes are unused. Contains cannot establish identity, alias safety or pointer
 liveness after rewind. Arithmetic output pointers must reference writable U64
 storage; output is unchanged on rejection. All primitives remain explicit and
 single-threaded. Gate: `test_sotlas_native_migration_sv854`.
+
+## SV8.55 byte ranges, arithmetic and word operations
+
+| API | Contract |
+|---|---|
+| `native_memory_find` | Find the first byte; leave output unchanged when absent or invalid |
+| `native_memory_reverse` | Reverse a checked caller-owned byte range |
+| `native_memory_swap` | Swap disjoint ranges; exact identity is a no-op and partial overlap is rejected |
+| `native_arena_copy` | Copy bytes into checked arena storage using overlap-safe movement |
+| `native_contract_div` | Reject division by zero before output |
+| `native_contract_shift_left` | Check count and shifted-value overflow before output |
+| `native_contract_index` | Check index/count/stride and return a byte offset |
+| `native_contract_extent` | Check a complete offset/count/stride span against capacity |
+| `native_word_rotate_left` | U64 rotate-left; count modulo 64 |
+| `native_word_rotate_right` | U64 rotate-right; count modulo 64 |
+| `native_word_swap_bytes` | Reverse the eight bytes of a U64 value |
+| `native_word_popcount` | Count set bits in a U64 value |
+
+Memory/arithmetic APIs are in `runtime/native/managed.sotlas`; word APIs are in
+`runtime/native/word.sotlas`. They execute through the existing owned scalar IR
+without foreign calls. Dedicated CPU instruction selection is not added by these
+functions. Caller-backed memory validity, arena lifetime and writable outputs
+remain caller obligations. Gate: `test_sotlas_native_migration_sv855`.

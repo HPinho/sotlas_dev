@@ -1151,3 +1151,29 @@ Stamp creation refuses existing files; a write failure may leave a partial new
 file. These manifests do not provide package resolution or typed interfaces.
 
 Gate: `test_sotlas_native_tool_operations_sv854`.
+
+## SV8.55: project and artifact-set manifests
+
+| Command | Contract |
+|---|---|
+| `--check-project-list LIST` | Check ordered project sources without output |
+| `--check-project-list-resolve LIST` | Resolve supplied imports, then check without output |
+| `--project-list-object OUTPUT LIST` | Emit an object from ordered project sources |
+| `--build-project-list OUTPUT LIST` | Resolve supplied imports and emit a host executable |
+| `--artifact-set-info LIST` | Three U64 hex lines: ordered fingerprint, total bytes, file count |
+| `--stamp-artifact-set LIST OUTPUT` | Exclusively create a SOTART01 stamp for arbitrary files |
+| `--verify-artifact-set LIST STAMP` | Validate bytes, ordering, count and stamp metadata |
+| `--compare-sets LEFT_LIST RIGHT_LIST` | Compare corresponding file bytes and counts |
+
+These commands retain the shared text/path limits. Project check accepts 1–16
+paths; object/image output retains the existing minimum of two modules. Project
+compilation still concatenates ordered sources; typed module interfaces and
+package resolution are not implemented by these commands.
+
+SOTART01 uses the ordered FNV/size record format without seed envelope checks.
+It is a reproducibility aid, not authentication. Existing SOTSET01 seed checks
+retain envelope validation. Compare-sets uses actual byte comparison, including
+length differences. Files must remain stable while a command reads them. New
+stamps are exclusive; failed writes can leave a partial newly created file.
+
+Gate: `test_sotlas_native_tool_operations_sv855`.

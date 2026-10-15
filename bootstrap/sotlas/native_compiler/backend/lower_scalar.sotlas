@@ -847,6 +847,37 @@ impl ScalarLowering {
                     ch = byte_value as u8;
                     src_i = src_i + 2;
                 }
+                else if next_ch == 117 {
+                    if src_i+1 >= end_i || unsafe{*(self.source+node.str_offset+src_i+1)} != 123 { return 0; }
+                    let mut cursor: usize=src_i+2;let mut scalar: u32=0;let mut digits: u32=0;
+                    while cursor < end_i && unsafe{*(self.source+node.str_offset+cursor)} != 125 {
+                        let byte: u8=unsafe{*(self.source+node.str_offset+cursor)};let mut digit: u32=255;
+                        if byte >= 48 && byte <= 57 { digit=(byte-48) as u32; }
+                        if byte >= 65 && byte <= 70 { digit=(byte-55) as u32; }
+                        if byte >= 97 && byte <= 102 { digit=(byte-87) as u32; }
+                        if digit > 15 || digits == 6 { return 0; }
+                        scalar=scalar*16+digit;digits=digits+1;cursor=cursor+1;
+                    }
+                    if cursor == end_i || digits == 0 || scalar > 1114111
+                        || (scalar >= 55296 && scalar <= 57343) { return 0; }
+                    src_i=cursor;
+                    let mut width: usize=1;
+                    if scalar > 127 { width=2; }if scalar > 2047 { width=3; }if scalar > 65535 { width=4; }
+                    let limit: usize=65535;
+                    if cur_len >= limit || width > limit-cur_len { return 0; }
+                    if width == 1 { ch=scalar as u8; }
+                    else {
+                        let mut prefix: u32=192;if width == 3 { prefix=224; }if width == 4 { prefix=240; }
+                        let mut byte_index: usize=0;
+                        while byte_index+1 < width {
+                            let shift: u32=((width-byte_index-1)*6) as u32;
+                            let mut encoded: u32=128 | ((scalar >> shift) & 63);
+                            if byte_index == 0 { encoded=prefix | (scalar >> shift); }
+                            unsafe{g_rodata_buf[cur_len]=encoded as u8;}cur_len=cur_len+1;byte_index=byte_index+1;
+                        }
+                        ch=(128 | (scalar & 63)) as u8;
+                    }
+                }
                 else if next_ch == 39 { ch = 39; }
                 else { return TARGET_VALUE_NONE; }
             }

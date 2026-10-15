@@ -1590,17 +1590,18 @@ fn driver_object_info(input: *const u8) -> u32 {
 // Sixteen plain paths; trim horizontal edges, accept LF/CRLF and # comments.
 static mut driver_manifest_bytes: [u8;65536] = 0;
 static mut driver_manifest_arguments: [usize;20] = 0;
+static mut driver_manifest_size: [usize;1] = 0;
 static mut driver_manifest_count: [u64;1] = 0;
 static mut driver_set_hash: [u64;1] = 0;
 static mut driver_set_size: [u64;1] = 0;
 
 fn driver_manifest_load(path: *const u8, base: u64) -> u32 {
-    if base != 2 && base != 4 { return fail(1); }
+    if base != 2 && base != 3 && base != 4 { return fail(1); }
     let bytes: *mut u8=unsafe{driver_manifest_bytes as *mut u8};
     let length: i64=driver_read_artifact(path,bytes,65535);
     if length == -2 { return fail(2); }if length < 0 { return fail(3); }
     let size: usize=length as usize;let mut index: usize=0;
-    unsafe{driver_manifest_count[0]=0;}
+    unsafe{driver_manifest_count[0]=0;driver_manifest_size[0]=size;}
     while index < size { if unsafe{*(bytes+index)} == 0 { return fail(1); }index=index+1; }
     index=0;
     while index < size {
@@ -1657,13 +1658,13 @@ fn driver_manifest_link(path: *const u8, output: *const u8, entry: *const u8) ->
 
 // FNV over fixed-size (content fingerprint, file size) records in list order.
 // This is a reproducibility stamp, not cryptographic authentication.
-fn driver_seed_set_hash(path: *const u8) -> u32 {
+fn driver_artifact_set_hash(path: *const u8, seeds: bool) -> u32 {
     let status: u32=driver_manifest_load(path,2);if status != 0 { return status; }
     let count: u64=unsafe{driver_manifest_count[0]};
     let mut combined: u64=14695981039346656037;let mut total: u64=0;let mut index: u64=0;
     while index < count {
         let seed: *const u8=unsafe{driver_manifest_arguments[(index+2) as usize] as *const u8};
-        let envelope: u32=driver_seed_envelope(seed);if envelope != 0 { return envelope; }
+        if seeds { let envelope: u32=driver_seed_envelope(seed);if envelope != 0 { return envelope; } }
         let hashed: u32=driver_hash_file(seed);if hashed != 0 { return hashed; }
         let fingerprint: u64=unsafe{driver_hash[0]};let size: u64=unsafe{driver_size[0]};
         if size > 18446744073709551615-total { return fail(16); }total=total+size;
@@ -1675,9 +1676,10 @@ fn driver_seed_set_hash(path: *const u8) -> u32 {
     unsafe{driver_set_hash[0]=combined;driver_set_size[0]=total;}return 0;
 }
 
-fn driver_seed_set_stamp(path: *const u8, stamp: *const u8, verify: bool) -> u32 {
-    let status: u32=driver_seed_set_hash(path);if status != 0 { return status; }
-    let expected: *mut u8=unsafe{driver_audit_right as *mut u8};let magic: *const u8="SOTSET01";
+fn driver_artifact_set_stamp(path: *const u8, stamp: *const u8, verify: bool, seeds: bool) -> u32 {
+    let status: u32=driver_artifact_set_hash(path,seeds);if status != 0 { return status; }
+    let expected: *mut u8=unsafe{driver_audit_right as *mut u8};let mut magic: *const u8="SOTART01";
+    if seeds { magic="SOTSET01"; }
     let hash: u64=unsafe{driver_set_hash[0]};let size: u64=unsafe{driver_set_size[0]};let mut index: u64=0;
     while index < 8 { unsafe{*(expected+index)=*(magic+index);
         *(expected+8+index)=((hash >> (index*8)) & 255) as u8;
@@ -1689,10 +1691,85 @@ fn driver_seed_set_stamp(path: *const u8, stamp: *const u8, verify: bool) -> u32
     let length: i64=driver_read_artifact(stamp,actual,32);
     if length == -2 { return fail(2); }if length != 32 { return fail(16); }
     index=0;while index < 32 { if unsafe{*(actual+index)} != unsafe{*(expected+index)} { return fail(16); }index=index+1; }
-    return driver_print_text("seed-set=matched\n");
+    if seeds { return driver_print_text("seed-set=matched\n"); }return driver_print_text("artifact-set=matched\n");
+}
+
+
+// Reuse the explicit project pipeline; list inputs remain bounded to 16 paths.
+fn driver_project_manifest(path: *const u8, output: *const u8, mode: u32) -> u32 {
+    let checking: bool=mode <= 2;let mut base: u64=3;if checking { base=2; }
+    let status: u32=driver_manifest_load(path,base);if status != 0 { return status; }
+    let count: u64=unsafe{driver_manifest_count[0]};let arguments: u64=count+base;
+    if !checking { unsafe{driver_manifest_arguments[2]=output as usize;} }
+    return driver_compile_project(arguments,driver_manifest_argv(),mode != 4,false,mode == 2 || mode == 4,checking);
+}
+
+fn driver_artifact_set_info(path: *const u8) -> u32 {
+    let status: u32=driver_artifact_set_hash(path,false);if status != 0 { return status; }
+    let mut numbers: [u64;3]=0;
+    unsafe{numbers[0]=driver_set_hash[0];numbers[1]=driver_set_size[0];numbers[2]=driver_manifest_count[0];}
+    let buffer: *mut u8=unsafe{driver_audit_left as *mut u8};let digits: *const u8="0123456789abcdef";
+    let mut row: u64=0;
+    while row < 3 {
+        let mut column: u64=0;
+        while column < 16 {
+            let shift: u64=(15-column)*4;
+            unsafe{*(buffer+row*17+column)=*(digits+((numbers[row as usize] >> shift) & 15));}column=column+1;
+        }
+        unsafe{*(buffer+row*17+16)=10;}row=row+1;
+    }
+    unsafe{*(buffer+51)=0;}return driver_print_text(buffer);
+}
+
+static mut driver_compare_manifest_bytes: [u8;65536] = 0;
+static mut driver_compare_manifest_offsets: [usize;16] = 0;
+
+fn driver_compare_sets(left: *const u8, right: *const u8) -> u32 {
+    let status: u32=driver_manifest_load(left,2);if status != 0 { return status; }
+    let count: u64=unsafe{driver_manifest_count[0]};let size: usize=unsafe{driver_manifest_size[0]};
+    let original: *const u8=unsafe{driver_manifest_bytes as *const u8};
+    let copied: *mut u8=unsafe{driver_compare_manifest_bytes as *mut u8};let mut index: usize=0;
+    while index <= size { unsafe{*(copied+index)=*(original+index);}index=index+1; }
+    let address: usize=unsafe{original as usize};index=0;
+    while index < count as usize {
+        unsafe{driver_compare_manifest_offsets[index]=driver_manifest_arguments[index+2]-address;}index=index+1;
+    }
+    let loaded: u32=driver_manifest_load(right,2);if loaded != 0 { return loaded; }
+    if count != unsafe{driver_manifest_count[0]} { return fail(14); }index=0;
+    while index < count as usize {
+        let first: *const u8=unsafe{copied+driver_compare_manifest_offsets[index]};
+        let second: *const u8=unsafe{driver_manifest_arguments[index+2] as *const u8};
+        let compared: u32=driver_compare_files_quiet(first,second);if compared != 0 { return compared; }
+        index=index+1;
+    }
+    return driver_print_text("artifact-sets=identical\n");
+}
+
+fn driver_seed_set_stamp(path: *const u8, stamp: *const u8, verify: bool) -> u32 {
+    return driver_artifact_set_stamp(path,stamp,verify,true);
 }
 
 fn driver_extended_dispatch(argc: u64, argv: *const *const u8, option: *const u8) -> u32 {
+    if option_equals(option,"--check-project-list",20) || option_equals(option,"--check-project-list-resolve",28) {
+        if argc != 3 { return fail(1); }let mut mode: u32=1;
+        if option_equals(option,"--check-project-list-resolve",28) { mode=2; }
+        return driver_project_manifest(unsafe{*(argv+2)},null,mode);
+    }
+    if option_equals(option,"--project-list-object",21) || option_equals(option,"--build-project-list",20) {
+        if argc != 4 { return fail(1); }let mut mode: u32=3;
+        if option_equals(option,"--build-project-list",20) { mode=4; }
+        return driver_project_manifest(unsafe{*(argv+3)},unsafe{*(argv+2)},mode);
+    }
+    if option_equals(option,"--artifact-set-info",19) {
+        if argc != 3 { return fail(1); }return driver_artifact_set_info(unsafe{*(argv+2)});
+    }
+    if option_equals(option,"--stamp-artifact-set",20) || option_equals(option,"--verify-artifact-set",21) {
+        if argc != 4 { return fail(1); }
+        return driver_artifact_set_stamp(unsafe{*(argv+2)},unsafe{*(argv+3)},option_equals(option,"--verify-artifact-set",21),false);
+    }
+    if option_equals(option,"--compare-sets",14) {
+        if argc != 4 { return fail(1); }return driver_compare_sets(unsafe{*(argv+2)},unsafe{*(argv+3)});
+    }
     if option_equals(option,"--check-list",12) || option_equals(option,"--verify-object-list",20)
         || option_equals(option,"--compare-list",14) || option_equals(option,"--verify-seed-list",18) {
         if argc != 3 { return fail(1); }let mut mode: u32=2;

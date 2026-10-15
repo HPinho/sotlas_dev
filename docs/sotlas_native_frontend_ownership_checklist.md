@@ -10,6 +10,146 @@ contracts. Local validation must pass CI before being called certified.
 
 ## Frontend parity
 
+### SV8.55 — 36 native contracts (2026-10-15)
+
+Starting from `d9abed4`, this candidate adds four bounded contracts in each
+of nine still-open migration areas. Every check below has an execution or
+rejection gate. Full migration parents and candidate CI remain open.
+
+#### SV8.55 Frontend
+
+- [x] Encode one-byte Unicode scalar escapes in native strings.
+- [x] Encode two-byte Unicode scalar escapes as UTF-8.
+- [x] Encode three-byte Unicode scalar escapes while rejecting surrogate code points.
+- [x] Encode four-byte Unicode scalar escapes while enforcing the Unicode scalar ceiling.
+
+Gate: `test_sotlas_native_migration_sv855`.
+
+#### SV8.55 Native ownership
+
+- [x] Join a returning arm with a closed break edge without keeping dead owner state.
+- [x] Join a returning arm with a preserving continue edge and reject consumed backedges.
+- [x] Preserve nested mixed break/continue summaries when the other arm returns.
+- [x] Accept nested return/loop-edge joins inside match arms.
+
+Gate: `test_sotlas_native_migration_sv855`.
+
+#### SV8.55 Sotlas memory runtime
+
+- [x] Find the first matching byte while publishing an index only on success.
+- [x] Reverse a checked byte range in place, including odd and empty lengths.
+- [x] Swap disjoint byte ranges while rejecting partial overlap before writes.
+- [x] Copy a byte range into checked arena storage without host allocation.
+
+Gate: `test_sotlas_native_migration_sv855`.
+
+#### SV8.55 States, effects, authority and contracts
+
+- [x] Guard unsigned division against zero without publishing a failed result.
+- [x] Guard left shifts against invalid counts and value overflow.
+- [x] Guard index-to-byte-offset conversion against bounds and stride overflow.
+- [x] Guard a complete offset/count/stride extent against capacity and overflow.
+
+Gate: `test_sotlas_native_migration_sv855`.
+
+#### SV8.55 Native IR and lowering
+
+- [x] Reject unrelated metadata on arithmetic, bitwise and logical instructions.
+- [x] Reject unrelated symbol, flag and edge metadata on comparisons.
+- [x] Reject unrelated symbol, flag and edge metadata on indexed addresses.
+- [x] Reject unrelated symbol, flag and edge metadata on pointer offsets.
+
+Gate: `test_sotlas_native_migration_sv855`.
+
+#### SV8.55 Owned backend execution and word API
+
+- [x] Execute a native Sotlas U64 rotate-left operation with counts modulo 64.
+- [x] Execute a native Sotlas U64 rotate-right operation with counts modulo 64.
+- [x] Execute a native Sotlas U64 byte swap with a checked involution example.
+- [x] Execute a native Sotlas U64 population count for empty, sparse and full words.
+
+Gate: `test_sotlas_native_migration_sv855`.
+
+#### SV8.55 Owned objects and linking
+
+- [x] Accept only the contracted System V/Linux ELF OSABI identities.
+- [x] Reject uncontracted nonzero ELF ABI versions.
+- [x] Reject nonzero reserved ELF identification padding.
+- [x] Require file-backed section offsets to satisfy declared alignment.
+
+Gate: `test_sotlas_native_tool_operations_sv855`.
+
+#### SV8.55 Native CLI
+
+- [x] Check an ordered project from a manifest with --check-project-list.
+- [x] Check dependency-resolved manifest projects with --check-project-list-resolve.
+- [x] Emit an ordered project object from a manifest with --project-list-object.
+- [x] Build and execute a dependency-resolved manifest project with --build-project-list.
+
+Gate: `test_sotlas_native_tool_operations_sv855`.
+
+#### SV8.55 Bootstrap and self-hosting
+
+- [x] Report ordered fingerprints, total size and count for arbitrary artifacts with --artifact-set-info.
+- [x] Create an exclusive SOTART01 artifact stamp with --stamp-artifact-set.
+- [x] Verify bytes, ordering and format metadata with --verify-artifact-set.
+- [x] Compare corresponding artifact bytes and counts across manifests with --compare-sets.
+
+Gate: `test_sotlas_native_tool_operations_sv855`.
+
+Unicode string escapes use `\u{HEX}` with 1–6 hexadecimal digits. Scalars
+above U+10FFFF and surrogates are rejected. The four frontend checks distinguish
+the four UTF-8 encoding widths; they do not establish a general Unicode library,
+normalization or non-byte character values. Strings keep their existing raw
+pointer/terminator representation and rodata capacity. An embedded zero scalar
+is a zero byte, not a length-aware string API.
+
+Ownership joins now discard a returning arm when the surviving arm contains
+closed loop exits. Only surviving continue edges must preserve entry owners;
+consumed break edges still make owners maybe-moved after a possibly empty loop.
+Return plus ordinary fallthrough retains its previous behavior. Arbitrary CFG,
+open fallthrough/jump mixtures and automatic resource-domain runtime remain open.
+
+Memory APIs require valid caller-backed ranges. Find leaves its output unchanged
+on failure; reverse and swap reject invalid arithmetic before writes. Swap
+allows exact identity but rejects partial overlap. Arena copy uses overlap-safe
+movement after checked allocation and does not implement a heap or lifetime proof.
+Arithmetic guards publish only after validation; they are explicit runtime
+contracts rather than canonical contract/effect migration.
+
+The new `runtime/native/word.sotlas` implements rotate-left/right, byte swap and
+population count with existing native scalar IR. This is an executable low-level
+API, not instruction selection for dedicated ROL/ROR/BSWAP/POPCNT instructions,
+CPU feature detection or a promise about emitted instruction counts. It has no
+foreign calls. Other IR metadata and ELF identity/alignment checks reject
+unsupported inputs without expanding the external object ABI.
+
+Project manifest commands share the existing ordered/resolved project pipeline
+and source concatenation. Check accepts 1–16 paths; object/image emission keeps
+the existing minimum of two modules and accepts at most 16 listed paths. They
+retain 65,535 manifest bytes, 4,095-byte paths and cwd-relative interpretation.
+Typed separate module interfaces, package resolution and incremental builds
+remain open.
+
+SOTART01 stamps use the same ordered FNV/size records as seed sets, without
+requiring executable envelopes. Artifact-set-info reports aggregate fingerprint,
+total byte size and file count as three U64 hexadecimal lines. Compare-sets
+checks corresponding files byte-for-byte and rejects different counts before
+reporting success. Paths are not artifact identity. Source files, objects or
+images may be included; files must remain stable during operations. Stamps are
+not cryptographic authentication. Creation is exclusive and a failed new-file
+write may leave a partial artifact. Existing SOTSET01 seed semantics are retained.
+
+Final local validation: 3,118 Windows regression tests passed with 79
+platform/toolchain skips in 1,052.646 seconds. All 36 new gates passed on Linux
+through WSL (44.083 seconds) and Windows Python 3.10.11 (37.889 seconds).
+The 137 existing native frontend closure gates passed. Original-source Stage
+2/3 identity passed on Windows in the full suite and Linux in a separate gate;
+complete Darwin compiler cross-generation passed on both hosts. The two Linux
+generation gates took 134.872 seconds. Native Intel macOS execution and the
+candidate's CI result remain pending.
+
+
 ### SV8.54 — 36 native contracts across nine open areas (2026-10-15)
 
 No whole migration topic is complete, so this package retains four advances

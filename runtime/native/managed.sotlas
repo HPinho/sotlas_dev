@@ -413,3 +413,69 @@ pub fn native_contract_align(value: u64, alignment: u64, output: *mut u64) -> bo
     if padding > maximum-value { return false; }
     unsafe{*output=value+padding;}return true;
 }
+
+pub fn native_memory_find(bytes: *const u8, count: usize, needle: u8, output: *mut usize) -> bool {
+    if bytes == null || output == null || count == 0 { return false; }
+    let address: usize=unsafe{bytes as usize};
+    if count > 18446744073709551615-address { return false; }
+    let mut index: usize=0;
+    while index < count {
+        if unsafe{*(bytes+index)} == needle { unsafe{*output=index;}return true; }
+        index=index+1;
+    }
+    return false;
+}
+
+pub fn native_memory_reverse(bytes: *mut u8, count: usize) -> bool {
+    if count == 0 { return true; }if bytes == null { return false; }
+    let address: usize=unsafe{bytes as usize};
+    if count > 18446744073709551615-address { return false; }
+    let mut index: usize=0;
+    while index < count/2 {
+        unsafe{let temporary: u8=*(bytes+index);*(bytes+index)=*(bytes+count-index-1);*(bytes+count-index-1)=temporary;}
+        index=index+1;
+    }
+    return true;
+}
+
+pub fn native_memory_swap(left: *mut u8, right: *mut u8, count: usize) -> bool {
+    if count == 0 { return true; }if left == null || right == null { return false; }
+    let a: usize=unsafe{left as usize};let b: usize=unsafe{right as usize};
+    if count > 18446744073709551615-a || count > 18446744073709551615-b { return false; }
+    if a == b { return true; }if a < b+count && b < a+count { return false; }
+    let mut index: usize=0;
+    while index < count { unsafe{let temporary: u8=*(left+index);*(left+index)=*(right+index);*(right+index)=temporary;}index=index+1; }
+    return true;
+}
+
+pub fn native_arena_copy(arena: *mut NativeArena, source: *const u8, count: usize, alignment: usize) -> *mut u8 {
+    if source == null || count == 0 { return null; }
+    let address: usize=unsafe{source as usize};
+    if count > 18446744073709551615-address { return null; }
+    let destination: *mut u8=native_arena_alloc(arena,count,alignment);
+    if destination == null { return null; }
+    if !native_memory_move(destination,source,count) { return null; }
+    return destination;
+}
+
+pub fn native_contract_div(left: u64, right: u64, output: *mut u64) -> bool {
+    if output == null || right == 0 { return false; }unsafe{*output=left/right;}return true;
+}
+
+pub fn native_contract_shift_left(value: u64, count: u32, output: *mut u64) -> bool {
+    let maximum: u64=18446744073709551615;
+    if output == null || count >= 64 { return false; }
+    let shift: u64=count as u64;if value > (maximum >> shift) { return false; }
+    unsafe{*output=value << shift;}return true;
+}
+
+pub fn native_contract_index(count: u64, index: u64, stride: u64, output: *mut u64) -> bool {
+    let maximum: u64=18446744073709551615;
+    if output == null || index >= count || stride == 0 || index > maximum/stride { return false; }
+    unsafe{*output=index*stride;}return true;
+}
+
+pub fn native_contract_extent(offset: u64, count: u64, stride: u64, capacity: u64, output: *mut u64) -> bool {
+    if output == null || stride == 0 || offset > capacity || count > (capacity-offset)/stride { return false; }
+    unsafe{*output=offset+count*stride;}return true;
+}
