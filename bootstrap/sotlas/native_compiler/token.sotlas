@@ -111,6 +111,10 @@ pub enum TokenKind {
     CloseBrace = 113,
     OpenBracket = 114,
     CloseBracket = 115,
+    PlusEqual = 121,
+    MinusEqual = 122,
+    StarEqual = 123,
+    SlashEqual = 124,
     Error = 120
 }
 

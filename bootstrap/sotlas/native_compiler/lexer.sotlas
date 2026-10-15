@@ -313,14 +313,24 @@ impl Lexer {
             return self.token_from_span(TokenKind::Dot, start_line, start_col, start_offset);
         }
         if ch == 45 { // '-'
+            if self.peek() == 61 { self.advance(); return self.token_from_span(TokenKind::MinusEqual,start_line,start_col,start_offset); }
             if self.peek() == 62 { self.advance(); return self.token_from_span(TokenKind::Arrow, start_line, start_col, start_offset); }
             return self.token_from_span(TokenKind::Minus, start_line, start_col, start_offset);
         }
 
         // Operadores simples
-        if ch == 43 { return self.token_from_span(TokenKind::Plus, start_line, start_col, start_offset); }
-        if ch == 42 { return self.token_from_span(TokenKind::Star, start_line, start_col, start_offset); }
-        if ch == 47 { return self.token_from_span(TokenKind::Slash, start_line, start_col, start_offset); }
+        if ch == 43 {
+            if self.peek() == 61 { self.advance(); return self.token_from_span(TokenKind::PlusEqual,start_line,start_col,start_offset); }
+            return self.token_from_span(TokenKind::Plus,start_line,start_col,start_offset);
+        }
+        if ch == 42 {
+            if self.peek() == 61 { self.advance(); return self.token_from_span(TokenKind::StarEqual,start_line,start_col,start_offset); }
+            return self.token_from_span(TokenKind::Star,start_line,start_col,start_offset);
+        }
+        if ch == 47 {
+            if self.peek() == 61 { self.advance(); return self.token_from_span(TokenKind::SlashEqual,start_line,start_col,start_offset); }
+            return self.token_from_span(TokenKind::Slash,start_line,start_col,start_offset);
+        }
         if ch == 37 { return self.token_from_span(TokenKind::Percent, start_line, start_col, start_offset); }
         if ch == 38 {
             if self.peek() == 38 {

@@ -817,6 +817,11 @@ fn driver_resolve_append_file(source: *const u8, file: usize) -> bool {
 // complete native compiler pipeline succeeds.
 fn driver_resolve_project(file_count: usize) -> usize {
     if file_count == 0 || file_count > 64 { return 0; }
+    // Each project check owns a fresh dependency graph, including audit batches.
+    let mut edge_index: usize=0;
+    while edge_index < 4096 {
+        unsafe{*(driver_module_edges as *mut u8+edge_index)=0;}edge_index=edge_index+1;
+    }
     let source: *const u8 = unsafe { driver_project_raw as *const u8 };
     let mut file: usize = 0;
     while file < file_count {
@@ -1565,7 +1570,11 @@ fn driver_project_manifest(path: *const u8, output: *const u8, mode: u32) -> u32
     let status: u32=driver_manifest_load(path,base);if status != 0 { return status; }
     let count: u64=unsafe{driver_manifest_count[0]};let arguments: u64=count+base;
     if !checking { unsafe{driver_manifest_arguments[2]=output as usize;} }
-    return driver_compile_project(arguments,driver_manifest_argv(),mode != 4,false,mode == 2 || mode == 4,checking);
+    if mode == 8 { unsafe{driver_macho_target[0]=1;} }
+    let object_only: bool=mode <= 3 || mode == 5;
+    let compiler_entry: bool=mode == 6 || mode == 7;
+    let resolved: bool=mode == 2 || mode == 4 || mode == 5 || mode == 7;
+    return driver_compile_project(arguments,driver_manifest_argv(),object_only,compiler_entry,resolved,checking);
 }
 
 fn driver_artifact_set_info(path: *const u8) -> u32 {
@@ -1614,6 +1623,28 @@ fn driver_seed_set_stamp(path: *const u8, stamp: *const u8, verify: bool) -> u32
 }
 
 fn driver_extended_dispatch(argc: u64, argv: *const *const u8, option: *const u8) -> u32 {
+    if option_equals(option,"--project-list-resolve-object",29) || option_equals(option,"--project-list-compiler",23)
+        || option_equals(option,"--project-list-resolve-compiler",31) || option_equals(option,"--project-list-macho",20) {
+        if argc != 4 { return fail(1); }let mut mode: u32=5;
+        if option_equals(option,"--project-list-compiler",23) { mode=6; }
+        if option_equals(option,"--project-list-resolve-compiler",31) { mode=7; }
+        if option_equals(option,"--project-list-macho",20) { mode=8; }
+        return driver_project_manifest(unsafe{*(argv+3)},unsafe{*(argv+2)},mode);
+    }
+    if option_equals(option,"--project-set-info",18) || option_equals(option,"--stamp-project",15)
+        || option_equals(option,"--verify-project-stamp",22) || option_equals(option,"--compare-projects",18) {
+        let info: bool=option_equals(option,"--project-set-info",18);
+        if (info && argc != 3) || (!info && argc != 4) { return fail(1); }
+        let first: *const u8=unsafe{*(argv+2)};
+        let checked: u32=driver_project_manifest(first,null,2);if checked != 0 { return checked; }
+        if info { return driver_artifact_set_info(first); }
+        let second: *const u8=unsafe{*(argv+3)};
+        if option_equals(option,"--compare-projects",18) {
+            let checked_right: u32=driver_project_manifest(second,null,2);
+            if checked_right != 0 { return checked_right; }return driver_compare_sets(first,second);
+        }
+        return driver_artifact_set_stamp(first,second,option_equals(option,"--verify-project-stamp",22),false);
+    }
     if option_equals(option,"--check-project-list",20) || option_equals(option,"--check-project-list-resolve",28) {
         if argc != 3 { return fail(1); }let mut mode: u32=1;
         if option_equals(option,"--check-project-list-resolve",28) { mode=2; }

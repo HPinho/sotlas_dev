@@ -1177,3 +1177,31 @@ length differences. Files must remain stable while a command reads them. New
 stamps are exclusive; failed writes can leave a partial newly created file.
 
 Gate: `test_sotlas_native_tool_operations_sv855`.
+
+## SV8.56: compiler manifests and checked project audits
+
+| Command | Contract |
+|---|---|
+| `--project-list-resolve-object OUTPUT LIST` | Resolve supplied imports and emit one project object |
+| `--project-list-compiler OUTPUT LIST` | Emit a host compiler image from ordered sources |
+| `--project-list-resolve-compiler OUTPUT LIST` | Resolve supplied imports and emit a host compiler image |
+| `--project-list-macho OUTPUT LIST` | Cross-emit an x86-64 Mach-O application from ordered sources |
+| `--project-set-info LIST` | Native-check a resolved project, then report its ordered fingerprint, bytes and count |
+| `--stamp-project LIST OUTPUT` | Native-check a resolved project, then exclusively create a SOTART01 source stamp |
+| `--verify-project-stamp LIST STAMP` | Native-check a resolved project, then verify source identity and stamp metadata |
+| `--compare-projects LEFT_LIST RIGHT_LIST` | Native-check both resolved projects, then compare corresponding source bytes |
+
+Compiler images retain host entry contracts: Windows `main_entry()`; Linux
+`sotlas_linux_main(argc:u64,argv:*const *const u8)`; Darwin
+`sotlas_darwin_main(argc:u64,argv:*const *const u8)`, all returning `u32`.
+Manifest output still concatenates sources and requires 2–16 modules. Check/audit
+accepts 1–16. Shared byte/path limits and cwd-relative paths are unchanged.
+Mach-O cross-generation does not execute the image on another host.
+
+Project audits run the resolved check pipeline before reporting success or
+creating a stamp. They reset dependency graphs between checks and reuse the
+SOTART01 format; these are source identity checks, not Stage 2/3 fixed-point
+proofs or authentication. Inputs must remain stable during reads. Invalid
+projects preserve existing outputs; failed writes may leave partial new files.
+
+Gate: `test_sotlas_native_tool_operations_sv856`.
