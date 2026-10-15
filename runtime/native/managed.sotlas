@@ -58,8 +58,8 @@ pub fn native_arena_rewind(mut arena: *mut NativeArena, mark: NativeArenaMark) -
     }
 }
 
-// A control block must outlive all weak tokens. Generation reuse and atomic
-// concurrency are intentionally unsupported. The payload remains caller-owned.
+// A control block must outlive all weak tokens. Generations never wrap and
+// concurrent access is unsupported. The payload remains caller-owned.
 pub struct NativeRefHeader { pub strong: u64; pub generation: u64; pub live: bool; }
 
 pub fn native_ref_init() -> NativeRefHeader {
@@ -237,4 +237,108 @@ pub fn native_state_transition_current(state: *mut u32, expected: u32, next: u32
         || !native_authority_current(authority,generation,required) { return false; }
     unsafe{if *state != expected { return false; }*state=next;}
     return true;
+}
+
+// Batch operations either reject without mutation or update the whole count.
+pub fn native_ref_retain_many(mut header: *mut NativeRefHeader, count: u64) -> bool {
+    if header == null { return false; }
+    unsafe {
+        if !header.live || header.strong == 0 || count > 18446744073709551615-header.strong { return false; }
+        header.strong=header.strong+count;
+    }
+    return true;
+}
+
+// The same release status as native_ref_release_checked; one final destruction.
+pub fn native_ref_release_many(mut header: *mut NativeRefHeader, count: u64) -> u32 {
+    if header == null || count == 0 { return 0; }
+    unsafe {
+        if !header.live || header.strong == 0 || count > header.strong { return 0; }
+        if count < header.strong { header.strong=header.strong-count;return 1; }
+        header.strong=1;
+    }
+    return native_ref_release_checked(header);
+}
+
+// Observation does not acquire a strong reference; no concurrency is promised.
+pub fn native_weak_current(token: NativeWeakToken) -> bool {
+    return native_ref_generation_current(token.owner,token.generation);
+}
+
+fn native_ref_generation_current(header: *const NativeRefHeader, generation: u64) -> bool {
+    if header == null || generation == 0 { return false; }
+    unsafe{if !header.live || header.strong == 0 || header.generation != generation { return false; }}
+    return true;
+}
+
+pub fn native_ref_is_unique(header: *const NativeRefHeader) -> bool {
+    if header == null { return false; }
+    unsafe{if !header.live || header.strong != 1 || header.generation == 0 { return false; }}
+    return true;
+}
+
+pub fn native_memory_fill(destination: *mut u8, count: usize, byte: u8) -> bool {
+    if count == 0 { return true; }
+    if destination == null { return false; }
+    let address: usize=unsafe{destination as usize};
+    if count > 18446744073709551615-address { return false; }
+    let mut index: usize=0;
+    while index < count { unsafe{*(destination+index)=byte;}index=index+1; }
+    return true;
+}
+
+// Byte equality, not a constant-time secret comparison.
+pub fn native_memory_equal(left: *const u8, right: *const u8, count: usize) -> bool {
+    if count == 0 { return true; }
+    if left == null || right == null { return false; }
+    let a: usize=unsafe{left as usize};let b: usize=unsafe{right as usize};
+    if count > 18446744073709551615-a || count > 18446744073709551615-b { return false; }
+    let mut index: usize=0;
+    while index < count { if unsafe{*(left+index)} != unsafe{*(right+index)} { return false; }index=index+1; }
+    return true;
+}
+
+pub fn native_arena_remaining(arena: *const NativeArena) -> usize {
+    if arena == null { return 0; }
+    unsafe {
+        if arena.buffer == null || arena.used > arena.capacity || arena.epoch == 0 { return 0; }
+        return arena.capacity-arena.used;
+    }
+}
+
+// All outstanding arena allocations become invalid; the caller proves disuse.
+pub fn native_arena_reset_zero(arena: *mut NativeArena) -> bool {
+    if arena == null { return false; }
+    let generation: u64=unsafe{arena.epoch};
+    let origin: NativeArenaMark=NativeArenaMark{used:0,epoch:generation,owner:arena};
+    return native_arena_rewind_zero(arena,origin);
+}
+
+pub struct NativeAuthorityToken { pub owner: *const NativeAuthority; pub generation: u64; pub required: u64; }
+
+pub fn native_authority_capture(authority: *const NativeAuthority, required: u64) -> NativeAuthorityToken {
+    if authority != null {
+        let generation: u64=unsafe{authority.generation};
+        if native_authority_current(authority,generation,required) {
+            return NativeAuthorityToken{owner:authority,generation:generation,required:required};
+        }
+    }
+    return NativeAuthorityToken{owner:null,generation:0,required:0};
+}
+
+pub fn native_authority_token_current(token: NativeAuthorityToken) -> bool {
+    return native_authority_current(token.owner,token.generation,token.required);
+}
+
+pub fn native_authority_delegate(token: NativeAuthorityToken, required: u64) -> NativeAuthorityToken {
+    if native_authority_token_current(token) && native_authority_allows(token.required,required) {
+        return NativeAuthorityToken{owner:token.owner,generation:token.generation,required:required};
+    }
+    return NativeAuthorityToken{owner:null,generation:0,required:0};
+}
+
+pub fn native_state_transition_token(state: *mut u32, expected: u32, next: u32,
+    allowed_states: u64, token: NativeAuthorityToken) -> bool {
+    return native_state_transition_current(state,expected,next,allowed_states,
+        token.owner,token.generation,token.required);
 }

@@ -3,6 +3,58 @@ module sotlas::compiler::sema;
 import sotlas::compiler::token::*;
 import sotlas::compiler::ast::*;
 
+
+// Checked numeric slices are shared by literal decoding and fixed array shapes.
+pub fn native_unsigned_slice(bytes: *const u8, length: usize, output: *mut u64) -> bool {
+    if bytes == null || output == null || length == 0 { return false; }
+    let mut radix: u64=10;let mut index: usize=0;
+    if length >= 2 && unsafe{*bytes} == 48 {
+        let marker: u8=unsafe{*(bytes+1)};
+        if marker == 120 || marker == 88 { radix=16;index=2; }
+        if marker == 98 || marker == 66 { radix=2;index=2; }
+        if marker == 111 || marker == 79 { radix=8;index=2; }
+    }
+    let mut value: u64=0;let mut saw: bool=false;let mut separated: bool=false;
+    let maximum: u64=18446744073709551615;
+    while index < length {
+        let ch: u8=unsafe{*(bytes+index)};
+        if ch == 95 {
+            if !saw || separated || index+1 == length { return false; }
+            separated=true;
+        } else {
+            let mut digit: u64=255;
+            if ch >= 48 && ch <= 57 { digit=(ch-48) as u64; }
+            if ch >= 65 && ch <= 70 { digit=(ch-55) as u64; }
+            if ch >= 97 && ch <= 102 { digit=(ch-87) as u64; }
+            if digit >= radix || value > (maximum-digit)/radix { return false; }
+            value=value*radix+digit;saw=true;separated=false;
+        }
+        index=index+1;
+    }
+    if !saw { return false; }unsafe{*output=value;}return true;
+}
+
+pub fn native_fixed_array_count(bytes: *const u8, length: usize) -> usize {
+    if bytes == null || length < 5 || unsafe{*bytes} != 91 { return 0; }
+    let mut index: usize=1;
+    while index < length && unsafe{*(bytes+index)} != 59 { index=index+1; }
+    if index == length { return 0; }index=index+1;
+    while index < length && (unsafe{*(bytes+index)} == 32 || unsafe{*(bytes+index)} == 9
+        || unsafe{*(bytes+index)} == 10 || unsafe{*(bytes+index)} == 13) { index=index+1; }
+    let first: usize=index;
+    while index < length && unsafe{*(bytes+index)} != 93 { index=index+1; }
+    if index == length { return 0; }let mut end: usize=index;index=index+1;
+    while end > first && (unsafe{*(bytes+end-1)} == 32 || unsafe{*(bytes+end-1)} == 9
+        || unsafe{*(bytes+end-1)} == 10 || unsafe{*(bytes+end-1)} == 13) { end=end-1; }
+    while index < length {
+        let ch: u8=unsafe{*(bytes+index)};
+        if ch != 32 && ch != 9 && ch != 10 && ch != 13 { return 0; }index=index+1;
+    }
+    let mut count: u64=0;
+    if !native_unsigned_slice(unsafe{bytes+first},end-first,unsafe{(&mut count) as *mut u64}) { return 0; }
+    return count as usize;
+}
+
 pub const MAX_SYMBOLS: usize = 4096;
 
 pub enum SymbolKind {
@@ -203,20 +255,8 @@ impl Sema {
             || self.source_slice_equals(source,source_len,start,length,"f32",3)
             || self.source_slice_equals(source,source_len,start,length,"f64",3);
         if !scalar { return false; }
-        cursor = cursor + 1;
-        while cursor < end && unsafe { *(source + cursor) } == 32 { cursor = cursor + 1; }
-        let digits: usize = cursor;
-        let mut count: usize = 0;
-        while cursor < end {
-            let ch: u8 = unsafe { *(source + cursor) };
-            if ch < 48 || ch > 57 { break; }
-            count = count * 10 + (ch - 48) as usize;
-            if count > 256 { return false; }
-            cursor = cursor + 1;
-        }
-        if cursor == digits || count == 0 { return false; }
-        while cursor < end && unsafe { *(source + cursor) } == 32 { cursor = cursor + 1; }
-        return cursor + 1 == end && unsafe { *(source + cursor) } == 93;
+        let count: usize=native_fixed_array_count(unsafe{source+node.str_offset},node.str_len);
+        return count != 0 && count <= 256;
     }
 
     pub fn ownership_pod_type(self: &Self, nodes: *const AstNode,
@@ -1018,6 +1058,12 @@ impl Sema {
             if literal.str_len == 3 {
                 if value >= 128 || value == 39 || value == 92 || value == 10 || value == 13 { return false; }
             } else {
+                if literal.str_len == 6 && value == 92 && unsafe{*(bytes+2)} == 120 {
+                    let high: i64=self.integer_digit_value(unsafe{*(bytes+3)},true);
+                    let low: i64=self.integer_digit_value(unsafe{*(bytes+4)},true);
+                    if high < 0 || low < 0 { return false; }
+                    unsafe{*output=(high*16+low) as u64;}return true;
+                }
                 if literal.str_len != 4 || value != 92 { return false; }
                 let escaped: u8 = unsafe{*(bytes+2)};
                 value = escaped as u64;
@@ -2260,56 +2306,11 @@ impl Sema {
                 break;
             }
         }
-        let count_start: usize = i;
-        let mut nonzero: bool = false;
-        while i < typ.str_len {
-            let ch: u8 = unsafe { *(source + typ.str_offset + i) };
-            if ch >= 48 && ch <= 57 {
-                if ch != 48 {
-                    nonzero = true;
-                }
-                i = i + 1;
-            } else {
-                break;
-            }
-        }
-        let type_count_len: usize = i - count_start;
-        if type_count_len == 0 || !nonzero {
-            return false;
-        }
-        while i < typ.str_len {
-            let ch: u8 = unsafe { *(source + typ.str_offset + i) };
-            if ch == 32 || ch == 9 || ch == 10 || ch == 13 {
-                i = i + 1;
-            } else {
-                break;
-            }
-        }
-        if i >= typ.str_len || unsafe { *(source + typ.str_offset + i) } != 93 {
-            return false;
-        }
-        i = i + 1;
-        while i < typ.str_len {
-            let ch: u8 = unsafe { *(source + typ.str_offset + i) };
-            if ch == 32 || ch == 9 || ch == 10 || ch == 13 {
-                i = i + 1;
-            } else {
-                return false;
-            }
-        }
-
-        if type_count_len != count.str_len {
-            return false;
-        }
-        let mut digit_index: usize = 0;
-        while digit_index < type_count_len {
-            if unsafe { *(source + typ.str_offset + count_start + digit_index) }
-                != unsafe { *(source + count.str_offset + digit_index) } {
-                return false;
-            }
-            digit_index = digit_index + 1;
-        }
-        return true;
+        let type_count: usize=native_fixed_array_count(unsafe{source+typ.str_offset},typ.str_len);
+        let mut repeat_count: u64=0;
+        if !native_unsigned_slice(unsafe{source+count.str_offset},count.str_len,
+            unsafe{(&mut repeat_count) as *mut u64}) { return false; }
+        return type_count != 0 && type_count as u64 == repeat_count;
     }
 
     pub fn check_array_repeat_context(

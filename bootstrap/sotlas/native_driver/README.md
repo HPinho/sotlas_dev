@@ -1098,3 +1098,26 @@ Independent objects currently use declared foreign ABI symbols to describe
 cross-object calls. Typed module interfaces, symbol visibility enforcement,
 incremental dependency tracking and complete separate compilation remain open.
 See `test_sotlas_native_multi_object_cli` for acceptance and rejection gates.
+
+## SV8.53: batch validation and seed transfer
+
+| Command | Contract |
+|---|---|
+| `--verify-objects INPUT.o...` | Validate 1–16 ELF objects, including relocation preflight |
+| `--check-many INPUT.sotlas...` | Check 1–16 independent sources without merging or output |
+| `--object-info INPUT.o` | Three U64 hexadecimal lines: sections, symbols including null, relocations |
+| `--check-object-entry INPUT.o ENTRY` | Resolve through the host image linker in memory; no image file |
+| `--compare-many FILE...` | Compare 2–16 artifacts against the first |
+| `--verify-seeds SEED...` | Validate 1–16 seed platform envelopes |
+| `--verify-stamps SEED STAMP...` | Validate 1–16 pairs; report success after all pairs match |
+| `--copy-seed INPUT OUTPUT` | Validate a platform envelope, read at most 8 MiB and create an exclusive byte-exact executable copy |
+
+Batch commands stop at the first failure and print success only after all items
+pass. Check-many keeps files independent: duplicate function names in different
+inputs do not collide, and one file does not supply another file's declarations.
+These commands do not replace typed module interfaces or package resolution.
+Copy-seed refuses existing files and input/output aliases. A write failure may
+leave a partial new file. Seed envelopes and FNV stamps are reproducibility
+checks, not authentication. Inputs must remain stable during a command.
+
+Gates: `test_sotlas_native_tool_operations_sv853`.
