@@ -3942,7 +3942,11 @@ pub fn validate_elf64_object(object: *const u8, length: usize) -> bool {
         || get_u32(object,length,20) != 1 || get_u16(object,length,52) != 64
         || get_u64(object,length,24) != 0 || (get_u32(object,length,48) & ~(3 as u32)) != 0
         || get_u64(object,length,32) != 0 || get_u16(object,length,56) != 0
-        || get_u16(object,length,58) != 64 { return false; }
+        || get_u16(object,length,58) != 64
+        || (unsafe{*(object+7)} != 0 && unsafe{*(object+7)} != 3)
+        || unsafe{*(object+8)} != 0 { return false; }
+    let mut padding: usize=9;
+    while padding < 16 { if unsafe{*(object+padding)} != 0 { return false; }padding=padding+1; }
     let count: u32=get_u16(object,length,60) as u32;
     let headers: usize=get_u64(object,length,40) as usize;
     if count == 0 || count > 32 || headers > length || count as usize*64 > length-headers { return false; }
@@ -3961,6 +3965,7 @@ pub fn validate_elf64_object(object: *const u8, length: usize) -> bool {
         if (flags >> 7) != 0 || (flags & 8) != 0 || alignment > 4096
             || (alignment != 0 && (alignment & (alignment-1)) != 0)
             || (kind != 8 && (offset > length || size > length-offset)) { return false; }
+        if kind != 8 && alignment > 1 && offset % alignment as usize != 0 { return false; }
         if kind == 2 {
             if symtab != 0 || size < 24 || get_u64(object,length,header+56) != 24 || size % 24 != 0 { return false; }
             zero=0;while zero < 24 { if unsafe{*(object+offset+zero)} != 0 { return false; }zero=zero+1; }

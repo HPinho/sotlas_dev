@@ -609,6 +609,21 @@ pub fn target_instruction_metadata_valid(instruction: TargetInstruction) -> bool
             && instruction.symbol.offset == 0 && instruction.symbol.length == 0
             && instruction.phi_input_count == 0 && instruction.target_count == 0;
     }
+    if instruction.opcode == TargetOpcode::Add || instruction.opcode == TargetOpcode::Sub
+        || instruction.opcode == TargetOpcode::Mul || instruction.opcode == TargetOpcode::Div
+        || instruction.opcode == TargetOpcode::Mod || instruction.opcode == TargetOpcode::BitAnd
+        || instruction.opcode == TargetOpcode::BitOr || instruction.opcode == TargetOpcode::BitXor
+        || instruction.opcode == TargetOpcode::ShiftLeft || instruction.opcode == TargetOpcode::ShiftRight
+        || instruction.opcode == TargetOpcode::BoolAnd || instruction.opcode == TargetOpcode::BoolOr {
+        return instruction.flags == 0 && instruction.immediate_bits == 0
+            && instruction.symbol.offset == 0 && instruction.symbol.length == 0
+            && instruction.phi_input_count == 0 && instruction.target_count == 0;
+    }
+    if instruction.opcode == TargetOpcode::Compare || instruction.opcode == TargetOpcode::IndexAddr
+        || instruction.opcode == TargetOpcode::PtrOffset {
+        return instruction.flags == 0 && instruction.symbol.offset == 0 && instruction.symbol.length == 0
+            && instruction.phi_input_count == 0 && instruction.target_count == 0;
+    }
     return true;
 }
 

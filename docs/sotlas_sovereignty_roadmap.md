@@ -7,6 +7,25 @@
 
 
 
+## SV8.55 — returning ownership edges and project manifests (2026-10-15)
+
+Starting from `d9abed4`, this candidate delivers 36 bounded contracts across
+nine open areas. Unicode scalar escapes cover all four UTF-8 widths; closed
+loop ownership edges can join returning arms. Explicit memory/arithmetic APIs
+and a Sotlas word-operations module execute through the owned scalar backend.
+
+IR metadata and ELF identity/alignment checks reject unsupported input. Native
+project manifest commands reuse ordered/resolved compilation; general artifact
+sets gain ordered stamps, reports and byte comparison. [The checklist](sotlas_native_frontend_ownership_checklist.md)
+records each delivery and gate. Dedicated word instruction selection, Unicode
+library breadth, typed modules and automatic ownership runtime remain open.
+
+Local validation passed 3,118 Windows regression tests with 79 skips in
+1,052.646 seconds. All 36 new gates passed on Linux through WSL and Windows
+Python 3.10.11; the 137 existing frontend closure gates passed. Windows/Linux
+Stage 2/3 identity and complete Darwin compiler cross-generation passed.
+Candidate CI remains pending.
+
 ## SV8.54 — nested ownership joins and native manifests (2026-10-15)
 
 Starting from `74881ce`, this candidate implements 36 bounded contracts across

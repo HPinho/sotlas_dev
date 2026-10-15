@@ -1,0 +1,30 @@
+module sotlas::runtime::word;
+
+// Portable word operations lowered through the owned scalar backend. These
+// do not promise dedicated rotate/popcount machine instructions or CPU flags.
+pub fn native_word_rotate_left(value: u64, count: u32) -> u64 {
+    let shift: u64=(count & 63) as u64;
+    if shift == 0 { return value; }
+    return (value << shift) | (value >> (64-shift));
+}
+
+pub fn native_word_rotate_right(value: u64, count: u32) -> u64 {
+    let shift: u64=(count & 63) as u64;
+    if shift == 0 { return value; }
+    return (value >> shift) | (value << (64-shift));
+}
+
+pub fn native_word_swap_bytes(value: u64) -> u64 {
+    let mut result: u64=0;let mut index: u32=0;
+    while index < 8 {
+        let shift: u64=(index as u64)*8;
+        result=(result << 8) | ((value >> shift) & 255);index=index+1;
+    }
+    return result;
+}
+
+pub fn native_word_popcount(value: u64) -> u32 {
+    let mut bits: u64=value;let mut count: u32=0;
+    while bits != 0 { bits=bits & (bits-1);count=count+1; }
+    return count;
+}
