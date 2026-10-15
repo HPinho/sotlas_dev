@@ -93,7 +93,7 @@ fn driver_query_mode(option: *const u8) -> u32 {
 }
 fn driver_query_print(mode: u32) -> u32 {
     let mut text: *const u8 = "native-driver-contract=1\ntarget-ir=1\n";
-    if mode == 2 { text = "single_source_bytes<2097152\nproject_modules<=64\nproject_source_bytes<2097152\nfunctions<=512\nparameters_per_function<=24\nblocks_per_function<=2048\nlocal_bindings<=128\nlocal_scalar_array_elements<=4096\nrecord_array_storage_bytes<=65536\ndefer_slots<=128\n"; }
+    if mode == 2 { text = "single_source_bytes<2097152\nproject_modules<=64\nproject_source_bytes<2097152\nfunctions<=512\nparameters_per_function<=24\nblocks_per_function<=2048\nlocal_bindings<=128\nlocal_scalar_array_elements<=4096\nrecord_array_storage_bytes<=65536\ndefer_slots<=128\nlink_elf_objects<=16\nlink_elf_input_bytes<=8388608\n"; }
     if mode == 3 { text = "architecture=x86_64\npointer_bits=64\nendianness=little\nobject=ELF64-relocatable\nimage=ELF64\ninternal_float_abi=integer-bits\nforeign_float_abi=unsupported\n"; }
     if mode == 4 { text = "0=success\n1=usage\n2=open\n3=read-or-close\n4=lexical\n5=syntax\n6=semantic\n7=lowering\n8=object\n9=link\n10=output-open\n11=output-write\n12=project-resolution\n13=report-write\n14=artifacts-differ\n15=seed-envelope\n16=seed-stamp\n"; }
     return driver_print_text(text);
@@ -1270,6 +1270,47 @@ fn driver_object_operation(argc: u64, argv: *const *const u8, linking: bool) -> 
     return driver_write_artifact(output,image,image_length,false);
 }
 
+
+// Cross-host ELF linking: at most 16 independently emitted objects, 8 MiB total.
+// All inputs are loaded and validated before the output is opened.
+fn driver_link_elf_objects(argc: u64, argv: *const *const u8) -> u32 {
+    if argc < 5 || argc > 20 { return fail(1); }
+    let output: *const u8 = unsafe{*(argv+2)};
+    let entry: *const u8 = unsafe{*(argv+3)};
+    if output == null || entry == null { return fail(1); }
+    let mut entry_length: usize = 0;
+    while entry_length < 4096 && unsafe{*(entry+entry_length)} != 0 {
+        entry_length = entry_length+1;
+    }
+    if entry_length == 0 || entry_length == 4096 { return fail(1); }
+    let bytes: *mut u8 = unsafe{driver_object_bytes as *mut u8};
+    let mut offsets: [usize;16] = 0;
+    let mut lengths: [usize;16] = 0;
+    let mut total: usize = 0;
+    let mut index: usize = 0;
+    while index < (argc-4) as usize {
+        if total == 8388608 { return fail(3); }
+        let path: *const u8 = unsafe{*(argv+index+4)};
+        let part: *mut u8 = unsafe{bytes+total};
+        let length: i64 = driver_read_artifact(path,part,8388608-total);
+        if length == -2 { return fail(2); }
+        if length < 0 { return fail(3); }
+        if !validate_elf64_object(part,length as usize) { return fail(8); }
+        offsets[index] = total;
+        lengths[index] = length as usize;
+        total = total+length as usize;
+        index = index+1;
+    }
+    let image: *mut u8 = unsafe{driver_image_bytes as *mut u8};
+    let mut image_length: usize = 0;
+    let linked: bool = link_elf64_executable(bytes,
+        unsafe{offsets as *const usize},unsafe{lengths as *const usize},
+        index as u32,entry,entry_length,null,0,4194304,false,
+        image,16777216,unsafe{(&mut image_length) as *mut usize});
+    if !linked || image_length == 0 { return fail(9); }
+    return driver_write_artifact(output,image,image_length,false);
+}
+
 fn driver_stamp_seed(seed: *const u8, output: *const u8) -> u32 {
     if seed == null || output == null { return fail(1); }
     let envelope: u32=driver_seed_envelope(seed);if envelope != 0 { return envelope; }
@@ -1328,6 +1369,7 @@ fn driver_extended_dispatch(argc: u64, argv: *const *const u8, option: *const u8
     if option_equals(option,"--check-project",15) { return driver_compile_project(argc,argv,true,false,false,true); }
     if option_equals(option,"--check-project-resolve",23) { return driver_compile_project(argc,argv,true,false,true,true); }
     if option_equals(option,"--verify-object",15) { return driver_object_operation(argc,argv,false); }
+    if option_equals(option,"--link-elf-objects",18) { return driver_link_elf_objects(argc,argv); }
     if option_equals(option,"--link-object",13) { return driver_object_operation(argc,argv,true); }
     if option_equals(option,"--compare-three",15) {
         if argc != 5 { return fail(1); }
