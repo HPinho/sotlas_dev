@@ -8,6 +8,23 @@ language parity. Parent items stay open until every contracted form has native
 positive, negative and execution coverage. Subitems record smaller validated
 contracts. Local validation must pass CI before being called certified.
 
+### SV8.59 — native defer-driven managed resource close (2026-10-15)
+
+**Verified baseline:** `fd6dd7d89cff9b38fa6fbe58bb34551b30806f37` /
+[CI #1234](https://github.com/HPinho/sotlas_dev/actions/runs/38790093635).
+
+- [x] Add Sotlas-native `native_managed_bytes_close` for a mutable resource slot, releasing one live strong claim and poisoning the handle before another cleanup can reuse it.
+- [x] Execute this cleanup through compiler-lowered lexical `defer` on block exit and early return, without C runtime glue.
+- [x] Verify duplicate deferred close is harmless and strong reference counts/weak invalidation track the final release.
+- [x] Verify non-final closing preserves bytes and that stale/forged resource handles cannot change reference state.
+
+Gate: `tests/test_sotlas_native_migration_sv859.py` (native compile, owned
+link and execution; positive and negative state checks). The source programmer
+must explicitly register `defer`; this **does not** synthesize drop glue,
+prove caller-owned backing storage lifetime, make aliases unforgeable or
+provide general automatic ARC. Control/payload/handle storage must remain
+stable and disjoint. This candidate still requires full CI certification.
+
 ### SV8.58 — native managed byte-resource final release (2026-10-15)
 
 **Last green baseline:** `0df0bb95bfc3ae9300d49be8063703d722d32d87` /

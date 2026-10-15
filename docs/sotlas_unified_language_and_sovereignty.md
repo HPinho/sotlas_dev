@@ -67,7 +67,8 @@ invocations and may require the stated seed, platform or toolchain. The historic
 sovereignty checkpoint score measures selected architectural milestones, not the
 percentage of Python/C dependencies eliminated or the amount of work remaining.
 
-**Evidence boundary:** the latest independently verified green baseline is `0df0bb9`,
+**Evidence boundary:** the latest independently verified green baseline is `fd6dd7d`,
+CI #1234 / run `38790093635`. Earlier inspected green: `0df0bb9`,
 CI #1233 / run `38781346034`. Earlier inspected green: `08b0cc4`,
 CI #1231 / run `38762917787`. Previous historical baseline was `ce93fa9`,
 CI #1221 / run `38621972769`. The subsequent #1222 rejection-contract regression
@@ -100,6 +101,16 @@ header and handle storage remain caller-backed, single-threaded and explicitly
 lifetime-constrained; this is not automatic ARC, heap management or a
 replacement for canonical resource ownership. CI #1233 (`0df0bb9`) is the
 verified green baseline, and SV8.58 awaits its own CI.
+
+**SV8.59 candidate (2026-10-15):** the Sotlas-native managed resource
+can now be closed through compiler-lowered lexical `defer` using
+`native_managed_bytes_close`. This releases one strong claim and poisons the
+mutable handle to make duplicate deferred cleanup harmless. Execution gates
+cover block exit, early return, non-final release and stale-handle rejection.
+This is an explicit cleanup registration, not compiler-synthesized ARC/drop;
+backing-storage lifetimes and exclusive handle aliasing remain caller
+obligations. Baseline is green [CI #1234](https://github.com/HPinho/sotlas_dev/actions/runs/38790093635)
+(`fd6dd7d`). SV8.59 awaits its own matrix.
 
 ## 2. Current implementation
 
@@ -718,6 +729,24 @@ candidate, publish only after its gates pass, and continue maintenance without
 relabeling unimplemented architectural goals as completed features.
 
 ## 12. Complete native migration checklist
+
+### SV8.59 — native defer-driven managed resource close (2026-10-15)
+
+**Verified baseline:** `fd6dd7d89cff9b38fa6fbe58bb34551b30806f37` /
+[CI #1234](https://github.com/HPinho/sotlas_dev/actions/runs/38790093635).
+
+- [x] Add Sotlas-native `native_managed_bytes_close` for a mutable resource slot, releasing one live strong claim and poisoning the handle before another cleanup can reuse it.
+- [x] Execute this cleanup through compiler-lowered lexical `defer` on block exit and early return, without C runtime glue.
+- [x] Verify duplicate deferred close is harmless and strong reference counts/weak invalidation track the final release.
+- [x] Verify non-final closing preserves bytes and that stale/forged resource handles cannot change reference state.
+
+Gate: `tests/test_sotlas_native_migration_sv859.py` (native compile, owned
+link and execution; positive and negative state checks). The source programmer
+must explicitly register `defer`; this **does not** synthesize drop glue,
+prove caller-owned backing storage lifetime, make aliases unforgeable or
+provide general automatic ARC. Control/payload/handle storage must remain
+stable and disjoint. This candidate still requires full CI certification.
+
 
 ### SV8.58 — native managed byte-resource final release (2026-10-15)
 
