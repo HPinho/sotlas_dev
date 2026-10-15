@@ -10,6 +10,131 @@ contracts. Local validation must pass CI before being called certified.
 
 ## Frontend parity
 
+### SV8.53 — 36 native migration contracts (2026-10-14)
+
+Based on `7c42ad7`, this package implements four bounded contracts in each of
+the nine migration areas. These checks record implementation and local gates;
+the candidate still requires its own CI result. Full parent areas remain open.
+
+#### SV8.53 Frontend
+
+- [x] Decode exactly two hexadecimal digits in byte character escapes, including values above ASCII.
+- [x] Decode checked hexadecimal, binary and octal dimensions for local scalar arrays.
+- [x] Compare array repeat lengths numerically across radices and separators.
+- [x] Preserve scalar record-array layout and exclusive POD checks with radix dimensions.
+
+Gate: `test_sotlas_native_migration_sv853`.
+
+#### SV8.53 Native ownership primitives
+
+- [x] Retain multiple local strong references with an overflow check before mutation.
+- [x] Release multiple references with distinct invalid, retained and final-destruction statuses.
+- [x] Observe whether a weak token is current without acquiring a strong reference.
+- [x] Observe whether a live local control block has exactly one strong reference.
+
+Gate: `test_sotlas_native_migration_sv853`.
+
+#### SV8.53 Sotlas memory runtime
+
+- [x] Fill a byte range after checking null and address wraparound.
+- [x] Compare byte ranges with explicit empty, null and wraparound behavior.
+- [x] Query remaining arena capacity while rejecting invalid cursor state.
+- [x] Reset an arena by clearing used bytes and invalidating old marks.
+
+Gate: `test_sotlas_native_migration_sv853`.
+
+#### SV8.53 Authority and state guards
+
+- [x] Capture an authority token bound to its owner, generation and required rights.
+- [x] Check a captured token against current owner state after revocation.
+- [x] Delegate a narrower token while rejecting widening and stale grants.
+- [x] Guard a state transition with a current token and destination mask.
+
+Gate: `test_sotlas_native_migration_sv853`.
+
+#### SV8.53 Native IR and lowering
+
+- [x] Reject hidden symbol and unrelated edge metadata on integer constants.
+- [x] Reject reserved flags and unrelated edge metadata on floating constants.
+- [x] Reject hidden immediate, symbol, flag and phi metadata on return instructions.
+- [x] Reject unrelated flag, immediate, symbol and phi metadata on branch instructions.
+
+Gate: `test_sotlas_native_migration_sv853`.
+
+#### SV8.53 Owned backend and ABI
+
+- [x] Sign-extend i8 pointer offsets to machine width before scaling.
+- [x] Sign-extend i16 pointer offsets to machine width before scaling.
+- [x] Zero-extend u8 pointer offsets before scaling and subtraction.
+- [x] Zero-extend u16 pointer offsets before scaling and subtraction.
+
+Gate: `test_sotlas_native_migration_sv853`.
+
+#### SV8.53 Owned objects and linking
+
+- [x] Reject relocation kinds outside the owned ELF relocation contract during preflight.
+- [x] Reject relocation symbol indices outside the linked symbol table.
+- [x] Check the complete relocation patch width against the destination section.
+- [x] Reject relocation destinations that are not program or zero-fill sections.
+
+Gate: `test_sotlas_native_tool_operations_sv853`.
+
+#### SV8.53 Native CLI
+
+- [x] Validate up to 16 ELF inputs with --verify-objects and defer batch success output.
+- [x] Check up to 16 independent sources with --check-many without merging or output files.
+- [x] Report validated section, symbol and relocation counts with --object-info.
+- [x] Resolve a single object entry in memory with --check-object-entry without writing an image.
+
+Gate: `test_sotlas_native_tool_operations_sv853`.
+
+#### SV8.53 Bootstrap and self-hosting tools
+
+- [x] Compare 2–16 artifacts with --compare-many and reject late mismatches without success output.
+- [x] Validate 1–16 native seed envelopes with --verify-seeds before reporting success.
+- [x] Validate 1–16 seed/stamp pairs with --verify-stamps before reporting success.
+- [x] Copy a bounded native seed byte-for-byte into a new exclusive executable file with --copy-seed.
+
+Gate: `test_sotlas_native_tool_operations_sv853`.
+
+The frontend uses checked numeric decoding for bounded array shapes. It does
+not evaluate general constant expressions in type dimensions. Local limits
+remain 4,096 scalar elements; scalar record fields remain at most 256 elements.
+Character hex escapes encode one byte, not Unicode. Raw non-ASCII characters
+remain rejected. The shared numeric decoder also corrects radix count/index
+interpretation in lowering.
+
+The runtime APIs remain explicit, local and non-atomic. Reference observation
+does not establish a borrow lifetime or acquire ownership. Final batch release
+authorizes one caller-managed destruction. Control blocks, authority owners
+and backing memory must stay alive; public record fields are not unforgeable
+security capabilities. Memory equality is not constant-time. Arena reset
+requires proof by the caller that discarded pointers are no longer used.
+
+IR preflight now rejects unrelated metadata on constants and control transfers.
+ELF preflight checks relocation types 1/2/4/10/11, symbol indices, destination
+kinds and patch extents. It does not resolve foreign symbols, prove addend
+representability in a final layout or support every external ELF producer.
+
+Batch commands fail at the first invalid input and emit one success report only
+after all inputs pass. Check-many validates independent files; imports do not
+become separately compiled typed interfaces. Object-info prints three U64 hex
+lines: section count, symbol count (including the null symbol), relocation count.
+Check-object-entry uses the host image linker in memory. Copy-seed accepts an
+input of at most 8 MiB, validates its platform envelope and refuses existing
+outputs, including the input itself. It does not authenticate the seed. Files
+must remain stable during validation and copying. Write failures can leave a
+partial newly created file.
+
+Final local validation: 3,046 Windows regression tests passed with 79
+platform/toolchain skips in 815.285 seconds. All 36 new gates also passed on
+Linux through WSL (31.734 seconds) and Windows Python 3.10.11 (26.873 seconds).
+Original-source Stage 2/3 identity passed on Windows in the full suite and on
+Linux in a separate generation gate. Complete Darwin compiler cross-generation
+also passed; the two Linux generation gates took 87.997 seconds. Native Intel
+macOS execution and the candidate's CI result remain pending.
+
+
 ### SV8.52 — independently compiled ELF objects (2026-10-14)
 
 The native Linux, Windows and Darwin drivers now provide

@@ -1249,15 +1249,17 @@ fn driver_write_artifact(path: *const u8, bytes: *const u8, length: usize, exclu
     let closed: i64=sotlas_darwin_close(fd as u64);if closed < 0 { return fail(11); }return 0;
 }
 
-fn driver_object_operation(argc: u64, argv: *const *const u8, linking: bool) -> u32 {
-    if (!linking && argc != 3) || (linking && argc != 5) { return fail(1); }
+fn driver_object_operation(argc: u64, argv: *const *const u8, linking: bool, check_only: bool) -> u32 {
+    if (!linking && argc != 3) || (linking && !check_only && argc != 5)
+        || (check_only && argc != 4) { return fail(1); }
     let input: *const u8=unsafe{*(argv+2)};
     let bytes: *mut u8=unsafe{driver_object_bytes as *mut u8};
     let length: i64=driver_read_artifact(input,bytes,8388608);
     if length == -2 { return fail(2); }if length < 0 { return fail(3); }
     if !validate_elf64_object(bytes,length as usize) { return fail(8); }
     if !linking { return driver_print_text("object=ELF64-x86_64-valid\n"); }
-    let output: *const u8=unsafe{*(argv+3)};let entry: *const u8=unsafe{*(argv+4)};
+    let output: *const u8=unsafe{*(argv+3)};let mut entry: *const u8=output;
+    if !check_only { entry=unsafe{*(argv+4)}; }
     if output == null || entry == null { return fail(1); }
     let mut entry_length: u64=0;
     while entry_length < 4096 && unsafe{*(entry+entry_length)} != 0 { entry_length=entry_length+1; }
@@ -1269,6 +1271,7 @@ fn driver_object_operation(argc: u64, argv: *const *const u8, linking: bool) -> 
     let result_length: *mut usize=unsafe{(&mut image_length) as *mut usize};
     let linked: bool=link_macho64_executable(bytes,length as usize,entry,entry_length as usize,image,16777216,result_length);
     if !linked || image_length == 0 { return fail(9); }
+    if check_only { return 0; }
     return driver_write_artifact(output,image,image_length,false);
 }
 
@@ -1331,7 +1334,7 @@ fn driver_stamp_seed(seed: *const u8, output: *const u8) -> u32 {
     return driver_write_artifact(output,buffer,32,true);
 }
 
-fn driver_verify_stamp(seed: *const u8, stamp: *const u8) -> u32 {
+fn driver_verify_stamp_quiet(seed: *const u8, stamp: *const u8) -> u32 {
     if seed == null || stamp == null { return fail(1); }
     let envelope: u32=driver_seed_envelope(seed);if envelope != 0 { return envelope; }
     let hashed: u32=driver_hash_file(seed);if hashed != 0 { return hashed; }
@@ -1349,7 +1352,12 @@ fn driver_verify_stamp(seed: *const u8, stamp: *const u8) -> u32 {
     }
     if unsafe{*(buffer+24)} != 3 || unsafe{*(buffer+25)} != 1 { return fail(16); }
     index=26;while index < 32 { if unsafe{*(buffer+index)} != 0 { return fail(16); }index=index+1; }
-    return driver_print_text("seed-stamp=matched\n");
+    return 0;
+}
+
+fn driver_verify_stamp(seed: *const u8, stamp: *const u8) -> u32 {
+    let status: u32=driver_verify_stamp_quiet(seed,stamp);
+    if status != 0 { return status; }return driver_print_text("seed-stamp=matched\n");
 }
 
 fn driver_seed_info(seed: *const u8) -> u32 {
@@ -1367,12 +1375,98 @@ fn driver_seed_info(seed: *const u8) -> u32 {
     return driver_print_text(buffer);
 }
 
+
+// Batch success is emitted only after every item has passed.
+fn driver_batch_operation(argc: u64, argv: *const *const u8, mode: u32) -> u32 {
+    if argc < 3 || argc > 18 { return fail(1); }
+    if mode == 3 && argc < 4 { return fail(1); }
+    let mut index: u64=2;
+    let reference: *const u8=unsafe{*(argv+2)};
+    while index < argc {
+        let path: *const u8=unsafe{*(argv+index)};
+        let mut status: u32=0;
+        if mode == 1 {
+            let bytes: *mut u8=unsafe{driver_object_bytes as *mut u8};
+            let length: i64=driver_read_artifact(path,bytes,8388608);
+            if length == -2 { return fail(2); }if length < 0 { return fail(3); }
+            if !validate_elf64_object(bytes,length as usize) { return fail(8); }
+        } else if mode == 2 {
+            status=driver_read_single(path,null,true,false,true,false);
+        } else if mode == 3 {
+            if index != 2 { status=driver_compare_files_quiet(reference,path); }
+        } else if mode == 4 { status=driver_seed_envelope(path); }
+        else { return fail(1); }
+        if status != 0 { return status; }index=index+1;
+    }
+    return driver_print_text("batch=passed\n");
+}
+
+fn driver_verify_stamps(argc: u64, argv: *const *const u8) -> u32 {
+    if argc < 4 || argc > 34 || (argc & 1) != 0 { return fail(1); }
+    let mut index: u64=2;
+    while index < argc {
+        let status: u32=driver_verify_stamp_quiet(unsafe{*(argv+index)},unsafe{*(argv+index+1)});
+        if status != 0 { return status; }index=index+2;
+    }
+    return driver_print_text("seed-stamps=matched\n");
+}
+
+fn driver_copy_seed(input: *const u8, output: *const u8) -> u32 {
+    let status: u32=driver_seed_envelope(input);if status != 0 { return status; }
+    let bytes: *mut u8=unsafe{driver_object_bytes as *mut u8};
+    let length: i64=driver_read_artifact(input,bytes,8388608);
+    if length == -2 { return fail(2); }if length < 0 { return fail(3); }
+    return driver_write_artifact(output,bytes,length as usize,true);
+}
+
+// Structural counts are hexadecimal U64 values, independent of host formatting.
+fn driver_object_info(input: *const u8) -> u32 {
+    let bytes: *mut u8=unsafe{driver_object_bytes as *mut u8};
+    let length: i64=driver_read_artifact(input,bytes,8388608);
+    if length == -2 { return fail(2); }if length < 0 { return fail(3); }
+    if !validate_elf64_object(bytes,length as usize) { return fail(8); }
+    let headers: usize=get_u64(bytes,length as usize,40) as usize;
+    let count: u64=get_u16(bytes,length as usize,60) as u64;
+    let mut symbols: u64=0;let mut relocations: u64=0;let mut index: u64=1;
+    while index < count {
+        let header: usize=headers+index as usize*64;
+        let kind: u32=get_u32(bytes,length as usize,header+4);
+        if kind == 2 { symbols=get_u64(bytes,length as usize,header+32)/24; }
+        if kind == 4 { relocations=relocations+get_u64(bytes,length as usize,header+32)/24; }
+        index=index+1;
+    }
+    let mut numbers: [u64;3]=[count,symbols,relocations];
+    let buffer: *mut u8=unsafe{driver_audit_left as *mut u8};let digits: *const u8="0123456789abcdef";
+    index=0;while index < 3 {
+        let mut position: u64=0;
+        while position < 16 {
+            let shift: u64=(15-position)*4;
+            unsafe{*(buffer+index*17+position)=*(digits+((numbers[index as usize] >> shift) & 15));}
+            position=position+1;
+        }
+        unsafe{*(buffer+index*17+16)=10;}index=index+1;
+    }
+    unsafe{*(buffer+51)=0;}return driver_print_text(buffer);
+}
+
 fn driver_extended_dispatch(argc: u64, argv: *const *const u8, option: *const u8) -> u32 {
+    if option_equals(option,"--verify-objects",16) { return driver_batch_operation(argc,argv,1); }
+    if option_equals(option,"--check-many",12) { return driver_batch_operation(argc,argv,2); }
+    if option_equals(option,"--compare-many",14) { return driver_batch_operation(argc,argv,3); }
+    if option_equals(option,"--verify-seeds",14) { return driver_batch_operation(argc,argv,4); }
+    if option_equals(option,"--verify-stamps",15) { return driver_verify_stamps(argc,argv); }
+    if option_equals(option,"--copy-seed",11) {
+        if argc != 4 { return fail(1); }return driver_copy_seed(unsafe{*(argv+2)},unsafe{*(argv+3)});
+    }
+    if option_equals(option,"--object-info",13) {
+        if argc != 3 { return fail(1); }return driver_object_info(unsafe{*(argv+2)});
+    }
+    if option_equals(option,"--check-object-entry",20) { return driver_object_operation(argc,argv,true,true); }
     if option_equals(option,"--check-project",15) { return driver_compile_project(argc,argv,true,false,false,true); }
     if option_equals(option,"--check-project-resolve",23) { return driver_compile_project(argc,argv,true,false,true,true); }
-    if option_equals(option,"--verify-object",15) { return driver_object_operation(argc,argv,false); }
+    if option_equals(option,"--verify-object",15) { return driver_object_operation(argc,argv,false,false); }
     if option_equals(option,"--link-elf-objects",18) { return driver_link_elf_objects(argc,argv); }
-    if option_equals(option,"--link-object",13) { return driver_object_operation(argc,argv,true); }
+    if option_equals(option,"--link-object",13) { return driver_object_operation(argc,argv,true,false); }
     if option_equals(option,"--compare-three",15) {
         if argc != 5 { return fail(1); }
         let first: u32=driver_compare_files_quiet(unsafe{*(argv+2)},unsafe{*(argv+3)});

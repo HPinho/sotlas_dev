@@ -7,6 +7,28 @@
 
 
 
+## SV8.53 — array shapes, runtime batches and artifact preflight (2026-10-14)
+
+Starting from `7c42ad7`, this candidate adds 36 bounded contracts, four in each
+migration area. The [checklist](sotlas_native_frontend_ownership_checklist.md)
+marks every implemented contract and names its gate.
+
+Native features include byte hex escapes, radix array dimensions/repeats,
+narrow signed/unsigned pointer offsets, batched local reference operations,
+memory fill/equality and arena reset, revocable authority tokens, stricter
+constant/control metadata and ELF relocation preflight. All platform drivers
+gain eight native commands for independent source/object checks, artifact
+comparison, seed/stamp validation and exclusive seed copying.
+
+Automatic ownership, canonical effects/state migration, typed separate module
+interfaces and full toolchain independence remain open. This candidate does
+not authorize deletion of the Stage-0 Python/C oracle.
+
+Local validation passed 3,046 Windows regression tests with 79 skips in
+815.285 seconds. All 36 new gates passed on Linux through WSL and Windows
+Python 3.10.11. Original-source Stage 2/3 identity passed on Windows/Linux;
+complete Darwin compiler cross-generation passed. Candidate CI remains pending.
+
 ## SV8.52 — native linking of separate ELF objects (2026-10-14)
 
 Based on the owner-reported green `24d5627`, all native drivers now accept

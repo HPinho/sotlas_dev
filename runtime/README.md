@@ -98,3 +98,28 @@ reinitialization is not. Tokens/marks must be issued by the API, not forged.
 These operations remain non-atomic; canonical shared/whisper/authority/state
 syntax and automatic drop lowering are separate migration work. Cleared memory
 is verified through native reads; secure erasure against devices is not claimed.
+
+## SV8.53 explicit native operations
+
+All operations below are implemented in `runtime/native/managed.sotlas` and
+covered by native execution in `test_sotlas_native_migration_sv853`.
+
+| API | Contract |
+|---|---|
+| `native_ref_retain_many` | Checked all-or-nothing local count increase; zero is a no-op on a live header |
+| `native_ref_release_many` | Reject zero/underflow; return 0 invalid, 1 retained, 2 final destruction |
+| `native_weak_current` | Observe owner/generation liveness without acquiring a reference |
+| `native_ref_is_unique` | Observe a live header with one strong reference |
+| `native_memory_fill` | Fill a valid caller-owned range; check address overflow first |
+| `native_memory_equal` | Byte equality, not a constant-time operation; empty null ranges compare equal |
+| `native_arena_remaining` | Return remaining capacity, or zero for invalid/full arenas |
+| `native_arena_reset_zero` | Clear used bytes, reset cursor and advance epoch; caller proves discarded allocations are unused |
+| `native_authority_capture` | Capture owner, generation and required mask; return empty on failure |
+| `native_authority_token_current` | Validate captured rights against the current owner generation |
+| `native_authority_delegate` | Derive a narrower current token; reject widening or revocation |
+| `native_state_transition_token` | Require a current token, expected state and allowed destination |
+
+Control blocks and authority owners require stable backing storage. Public
+token fields are not unforgeable capabilities; the embedding application grants
+rights. Observations do not synchronize concurrent accesses. These APIs do not
+implement automatic ARC, a static lifetime graph or canonical authority syntax.

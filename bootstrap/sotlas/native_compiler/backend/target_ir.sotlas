@@ -585,6 +585,16 @@ pub fn target_instruction_metadata_valid(instruction: TargetInstruction) -> bool
             && instruction.symbol.offset == 0 && instruction.symbol.length == 0
             && instruction.phi_input_count == 0 && instruction.target_count == 0;
     }
+    if instruction.opcode == TargetOpcode::ConstInt || instruction.opcode == TargetOpcode::ConstFloat {
+        return instruction.flags == 0 && instruction.symbol.offset == 0 && instruction.symbol.length == 0
+            && instruction.phi_input_count == 0 && instruction.target_count == 0;
+    }
+    if instruction.opcode == TargetOpcode::Return || instruction.opcode == TargetOpcode::Branch
+        || instruction.opcode == TargetOpcode::CondBranch {
+        return instruction.flags == 0 && instruction.immediate_bits == 0
+            && instruction.symbol.offset == 0 && instruction.symbol.length == 0
+            && instruction.phi_input_count == 0;
+    }
     return true;
 }
 

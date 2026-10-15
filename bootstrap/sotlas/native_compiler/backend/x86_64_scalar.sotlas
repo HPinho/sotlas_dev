@@ -2599,7 +2599,9 @@ pub fn emit_elf64_module_object(
                     let subtract: u32 = (instruction.immediate_bits >> 32) as u32;
                     if object_value_type(values, ir.value_count, base.value_id)
                             != TargetTypeTag::Pointer
-                        || (index_type != TargetTypeTag::U32
+                        || (index_type != TargetTypeTag::U8 && index_type != TargetTypeTag::U16
+                            && index_type != TargetTypeTag::I8 && index_type != TargetTypeTag::I16
+                            && index_type != TargetTypeTag::U32
                             && index_type != TargetTypeTag::U64
                             && index_type != TargetTypeTag::Usize
                             && index_type != TargetTypeTag::I32 && index_type != TargetTypeTag::I64
@@ -2615,6 +2617,13 @@ pub fn emit_elf64_module_object(
                     }
                     // A 32-bit signed offset must extend its sign before
                     // scaling; the regular scalar load zero-extends EAX.
+                    if index_type == TargetTypeTag::I8 || index_type == TargetTypeTag::I16 {
+                        let mut suffix: u8=190;if index_type == TargetTypeTag::I16 { suffix=191; }
+                        if !append_object_byte(output,capacity,&mut code,72)
+                            || !append_object_byte(output,capacity,&mut code,15)
+                            || !append_object_byte(output,capacity,&mut code,suffix)
+                            || !append_object_byte(output,capacity,&mut code,192) { return false; }
+                    }
                     if index_type == TargetTypeTag::I32 {
                         if !append_object_byte(output,capacity,&mut code,72)
                             || !append_object_byte(output,capacity,&mut code,99)
@@ -3852,6 +3861,39 @@ pub fn elf_symbol_table_valid(object: *const u8, length: usize, headers: usize,
     return true;
 }
 
+
+// Validate relocation records even when no executable is requested.
+pub fn elf_relocations_valid(object: *const u8, length: usize, headers: usize, count: u32) -> bool {
+    let mut section: u32=1;
+    while section < count {
+        let header: usize=headers+section as usize*64;
+        if get_u32(object,length,header+4) == 4 {
+            let symbols: u32=get_u32(object,length,header+40);
+            let destination: u32=get_u32(object,length,header+44);
+            let symbol_count: u64=get_u64(object,length,headers+symbols as usize*64+32)/24;
+            let target_header: usize=headers+destination as usize*64;
+            let target_kind: u32=get_u32(object,length,target_header+4);
+            if target_kind != 1 && target_kind != 8 { return false; }
+            let target_size: u64=get_u64(object,length,target_header+32);
+            let first: usize=get_u64(object,length,header+24) as usize;
+            let entries: usize=get_u64(object,length,header+32) as usize/24;
+            let mut index: usize=0;
+            while index < entries {
+                let record: usize=first+index*24;
+                let kind: u32=get_u32(object,length,record+8);
+                let symbol: u32=get_u32(object,length,record+12);
+                let offset: u64=get_u64(object,length,record);
+                if kind != 1 && kind != 2 && kind != 4 && kind != 10 && kind != 11 { return false; }
+                let mut width: u64=4;if kind == 1 { width=8; }
+                if symbol as u64 >= symbol_count || offset > target_size || width > target_size-offset { return false; }
+                index=index+1;
+            }
+        }
+        section=section+1;
+    }
+    return true;
+}
+
 pub fn validate_elf64_object(object: *const u8, length: usize) -> bool {
     if object == null || length < 64 || unsafe{*object} != 127
         || unsafe{*(object+1)} != 69 || unsafe{*(object+2)} != 76 || unsafe{*(object+3)} != 70
@@ -3893,7 +3935,8 @@ pub fn validate_elf64_object(object: *const u8, length: usize) -> bool {
         }
         index=index+1;
     }
-    return elf_symbol_table_valid(object,length,headers,count,symtab);
+    return elf_symbol_table_valid(object,length,headers,count,symtab)
+        && elf_relocations_valid(object,length,headers,count);
 }
 
 @export

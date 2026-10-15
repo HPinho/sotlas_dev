@@ -506,33 +506,7 @@ impl ScalarLowering {
             || type_len > self.source_len - type_offset {
             return 0;
         }
-        let mut sep: usize = 0;
-        let mut i: usize = 0;
-        while i < type_len {
-            if unsafe { *(self.source + type_offset + i) } == 59 {
-                sep = i;
-                break;
-            }
-            i = i + 1;
-        }
-        if sep == 0 { return 0; }
-        let mut count: usize = 0;
-        let mut saw_digit: bool = false;
-        let mut k: usize = sep + 1;
-        while k < type_len {
-            let ch: u8 = unsafe { *(self.source + type_offset + k) };
-            if ch >= 48 && ch <= 57 {
-                if count > 1844674407370955161
-                    || (count == 1844674407370955161 && ch > 53) { return 0; }
-                count = count * 10 + (ch - 48) as usize;
-                saw_digit = true;
-            } else if ch == 93 {
-                break;
-            }
-            k = k + 1;
-        }
-        if !saw_digit { return 0; }
-        return count;
+        return native_fixed_array_count(unsafe{self.source+type_offset},type_len);
     }
 
     pub fn parse_array_type_size(self: &Self, type_offset: usize, type_len: usize) -> usize {
@@ -1575,15 +1549,9 @@ impl ScalarLowering {
         if offset > self.source_len || length > self.source_len - offset || length == 0 {
             return 0;
         }
-        let mut value: u64 = 0;
-        let mut i: usize = 0;
-        while i < length {
-            let ch: u8 = unsafe { *(self.source + offset + i) };
-            if ch >= 48 && ch <= 57 {
-                value = value * 10 + (ch - 48) as u64;
-            }
-            i = i + 1;
-        }
+        let mut value: u64=0;
+        if !native_unsigned_slice(unsafe{self.source+offset},length,
+            unsafe{(&mut value) as *mut u64}) { return 0; }
         return value;
     }
 
@@ -3554,7 +3522,9 @@ impl ScalarLowering {
             let offset_type: TargetTypeTag = self.condition_expression_type(
                 right_index, first_parameter, parameter_count);
             if offset_type != TargetTypeTag::Invalid { right_type = offset_type; }
-            if right_type != TargetTypeTag::U32
+            if right_type != TargetTypeTag::U8 && right_type != TargetTypeTag::U16
+                && right_type != TargetTypeTag::I8 && right_type != TargetTypeTag::I16
+                && right_type != TargetTypeTag::U32
                 && right_type != TargetTypeTag::U64
                 && right_type != TargetTypeTag::Usize && right_type != TargetTypeTag::I32
                 && right_type != TargetTypeTag::I64 && right_type != TargetTypeTag::Isize {
