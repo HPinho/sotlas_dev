@@ -1121,3 +1121,33 @@ leave a partial new file. Seed envelopes and FNV stamps are reproducibility
 checks, not authentication. Inputs must remain stable during a command.
 
 Gates: `test_sotlas_native_tool_operations_sv853`.
+
+## SV8.54: native file manifests and ordered seed-set stamps
+
+| Command | Contract |
+|---|---|
+| `--check-list LIST` | Check independent sources without output |
+| `--verify-object-list LIST` | Validate all listed ELF objects |
+| `--check-entry-list ENTRY LIST` | Resolve the host entry of each object in memory |
+| `--link-elf-list OUTPUT ENTRY LIST` | Link listed objects into a Linux ELF image |
+| `--compare-list LIST` | Compare every artifact with the first; at least two inputs |
+| `--verify-seed-list LIST` | Validate every host platform seed envelope |
+| `--stamp-seed-set LIST OUTPUT` | Exclusively create an ordered set stamp |
+| `--verify-seed-set LIST STAMP` | Validate content, order, size, count and stamp metadata |
+
+Lists accept 1–16 plain paths, LF/CRLF, blank lines and whole-line # comments.
+Horizontal edge whitespace is trimmed; internal spaces are preserved. Paths
+are relative to the process working directory. There is no shell expansion,
+quoting or per-manifest root resolution. Limits: 65,535 text bytes and 4,095
+bytes per path; embedded NUL and empty lists are rejected. ELF linking retains
+the previous combined object/image bounds. Validation commands fail on the
+first invalid item and report success only after all items pass.
+
+SOTSET01 stores a noncryptographic FNV aggregate of ordered (content fingerprint,
+size) records, total size, count, version and reserved zeros. Every seed must
+pass the platform envelope check. Paths are not part of artifact identity and
+identical files are interchangeable. Inputs must remain stable during commands.
+Stamp creation refuses existing files; a write failure may leave a partial new
+file. These manifests do not provide package resolution or typed interfaces.
+
+Gate: `test_sotlas_native_tool_operations_sv854`.

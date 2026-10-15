@@ -1447,7 +1447,132 @@ fn driver_object_info(input: *const u8) -> u32 {
     unsafe{*(buffer+51)=0;}return driver_print_text(buffer);
 }
 
+
+// Manifest paths are relative to the process working directory, not the list.
+// Sixteen plain paths; trim horizontal edges, accept LF/CRLF and # comments.
+static mut driver_manifest_bytes: [u8;65536] = 0;
+static mut driver_manifest_arguments: [usize;20] = 0;
+static mut driver_manifest_count: [u64;1] = 0;
+static mut driver_set_hash: [u64;1] = 0;
+static mut driver_set_size: [u64;1] = 0;
+
+fn driver_manifest_load(path: *const u8, base: u64) -> u32 {
+    if base != 2 && base != 4 { return fail(1); }
+    let bytes: *mut u8=unsafe{driver_manifest_bytes as *mut u8};
+    let length: i64=driver_read_artifact(path,bytes,65535);
+    if length == -2 { return fail(2); }if length < 0 { return fail(3); }
+    let size: usize=length as usize;let mut index: usize=0;
+    unsafe{driver_manifest_count[0]=0;}
+    while index < size { if unsafe{*(bytes+index)} == 0 { return fail(1); }index=index+1; }
+    index=0;
+    while index < size {
+        let mut first: usize=index;
+        while index < size && unsafe{*(bytes+index)} != 10 && unsafe{*(bytes+index)} != 13 { index=index+1; }
+        let mut end: usize=index;
+        while index < size && (unsafe{*(bytes+index)} == 10 || unsafe{*(bytes+index)} == 13) { index=index+1; }
+        while first < end && (unsafe{*(bytes+first)} == 32 || unsafe{*(bytes+first)} == 9) { first=first+1; }
+        while end > first && (unsafe{*(bytes+end-1)} == 32 || unsafe{*(bytes+end-1)} == 9) { end=end-1; }
+        if first == end { continue; }
+        if unsafe{*(bytes+first)} == 35 { continue; }
+        let count: u64=unsafe{driver_manifest_count[0]};
+        if count == 16 || end-first >= 4096 { return fail(1); }
+        unsafe{*(bytes+end)=0;driver_manifest_arguments[(base+count) as usize]=(bytes+first) as usize;
+            driver_manifest_count[0]=count+1;}
+    }
+    if unsafe{driver_manifest_count[0]} == 0 { return fail(1); }return 0;
+}
+
+fn driver_manifest_argv() -> *const *const u8 {
+    let storage: *const usize=unsafe{driver_manifest_arguments as *const usize};
+    let address: usize=unsafe{storage as usize};
+    return unsafe{address as *const *const u8};
+}
+
+fn driver_manifest_batch(path: *const u8, mode: u32) -> u32 {
+    let status: u32=driver_manifest_load(path,2);if status != 0 { return status; }
+    let count: u64=unsafe{driver_manifest_count[0]};
+    let arguments: u64=count+2;
+    return driver_batch_operation(arguments,
+        driver_manifest_argv(),mode);
+}
+
+fn driver_manifest_entries(path: *const u8, entry: *const u8) -> u32 {
+    let status: u32=driver_manifest_load(path,4);if status != 0 { return status; }
+    let count: u64=unsafe{driver_manifest_count[0]};let mut index: u64=0;
+    while index < count {
+        unsafe{driver_manifest_arguments[2]=driver_manifest_arguments[(index+4) as usize];
+            driver_manifest_arguments[3]=entry as usize;}
+        let checked: u32=driver_object_operation(4,driver_manifest_argv(),true,true);
+        if checked != 0 { return checked; }index=index+1;
+    }
+    return driver_print_text("entries=passed\n");
+}
+
+fn driver_manifest_link(path: *const u8, output: *const u8, entry: *const u8) -> u32 {
+    let status: u32=driver_manifest_load(path,4);if status != 0 { return status; }
+    unsafe{driver_manifest_arguments[2]=output as usize;driver_manifest_arguments[3]=entry as usize;}
+    let count: u64=unsafe{driver_manifest_count[0]};
+    let arguments: u64=count+4;
+    return driver_link_elf_objects(arguments,
+        driver_manifest_argv());
+}
+
+// FNV over fixed-size (content fingerprint, file size) records in list order.
+// This is a reproducibility stamp, not cryptographic authentication.
+fn driver_seed_set_hash(path: *const u8) -> u32 {
+    let status: u32=driver_manifest_load(path,2);if status != 0 { return status; }
+    let count: u64=unsafe{driver_manifest_count[0]};
+    let mut combined: u64=14695981039346656037;let mut total: u64=0;let mut index: u64=0;
+    while index < count {
+        let seed: *const u8=unsafe{driver_manifest_arguments[(index+2) as usize] as *const u8};
+        let envelope: u32=driver_seed_envelope(seed);if envelope != 0 { return envelope; }
+        let hashed: u32=driver_hash_file(seed);if hashed != 0 { return hashed; }
+        let fingerprint: u64=unsafe{driver_hash[0]};let size: u64=unsafe{driver_size[0]};
+        if size > 18446744073709551615-total { return fail(16); }total=total+size;
+        let mut byte: u64=0;
+        while byte < 8 { combined=(combined ^ ((fingerprint >> (byte*8)) & 255))*1099511628211;byte=byte+1; }
+        byte=0;while byte < 8 { combined=(combined ^ ((size >> (byte*8)) & 255))*1099511628211;byte=byte+1; }
+        index=index+1;
+    }
+    unsafe{driver_set_hash[0]=combined;driver_set_size[0]=total;}return 0;
+}
+
+fn driver_seed_set_stamp(path: *const u8, stamp: *const u8, verify: bool) -> u32 {
+    let status: u32=driver_seed_set_hash(path);if status != 0 { return status; }
+    let expected: *mut u8=unsafe{driver_audit_right as *mut u8};let magic: *const u8="SOTSET01";
+    let hash: u64=unsafe{driver_set_hash[0]};let size: u64=unsafe{driver_set_size[0]};let mut index: u64=0;
+    while index < 8 { unsafe{*(expected+index)=*(magic+index);
+        *(expected+8+index)=((hash >> (index*8)) & 255) as u8;
+        *(expected+16+index)=((size >> (index*8)) & 255) as u8;}index=index+1; }
+    unsafe{*(expected+24)=driver_manifest_count[0] as u8;*(expected+25)=1;}
+    index=26;while index < 32 { unsafe{*(expected+index)=0;}index=index+1; }
+    if !verify { return driver_write_artifact(stamp,expected,32,true); }
+    let actual: *mut u8=unsafe{driver_audit_left as *mut u8};
+    let length: i64=driver_read_artifact(stamp,actual,32);
+    if length == -2 { return fail(2); }if length != 32 { return fail(16); }
+    index=0;while index < 32 { if unsafe{*(actual+index)} != unsafe{*(expected+index)} { return fail(16); }index=index+1; }
+    return driver_print_text("seed-set=matched\n");
+}
+
 fn driver_extended_dispatch(argc: u64, argv: *const *const u8, option: *const u8) -> u32 {
+    if option_equals(option,"--check-list",12) || option_equals(option,"--verify-object-list",20)
+        || option_equals(option,"--compare-list",14) || option_equals(option,"--verify-seed-list",18) {
+        if argc != 3 { return fail(1); }let mut mode: u32=2;
+        if option_equals(option,"--verify-object-list",20) { mode=1; }
+        if option_equals(option,"--compare-list",14) { mode=3; }
+        if option_equals(option,"--verify-seed-list",18) { mode=4; }
+        return driver_manifest_batch(unsafe{*(argv+2)},mode);
+    }
+    if option_equals(option,"--check-entry-list",18) {
+        if argc != 4 { return fail(1); }return driver_manifest_entries(unsafe{*(argv+3)},unsafe{*(argv+2)});
+    }
+    if option_equals(option,"--link-elf-list",15) {
+        if argc != 5 { return fail(1); }return driver_manifest_link(unsafe{*(argv+4)},unsafe{*(argv+2)},unsafe{*(argv+3)});
+    }
+    if option_equals(option,"--stamp-seed-set",16) || option_equals(option,"--verify-seed-set",17) {
+        if argc != 4 { return fail(1); }
+        return driver_seed_set_stamp(unsafe{*(argv+2)},unsafe{*(argv+3)},option_equals(option,"--verify-seed-set",17));
+    }
     if option_equals(option,"--verify-objects",16) { return driver_batch_operation(argc,argv,1); }
     if option_equals(option,"--check-many",12) { return driver_batch_operation(argc,argv,2); }
     if option_equals(option,"--compare-many",14) { return driver_batch_operation(argc,argv,3); }

@@ -123,3 +123,22 @@ Control blocks and authority owners require stable backing storage. Public
 token fields are not unforgeable capabilities; the embedding application grants
 rights. Observations do not synchronize concurrent accesses. These APIs do not
 implement automatic ARC, a static lifetime graph or canonical authority syntax.
+
+## SV8.54 arena reuse and arithmetic guards
+
+| API | Contract |
+|---|---|
+| `native_arena_calloc` | Check count/stride multiplication and allocate cleared bytes |
+| `native_arena_contains` | Check a range against a valid allocated cursor; not a lifetime proof |
+| `native_arena_grow_last` | Grow the known last allocation in place without clearing its new suffix |
+| `native_arena_shrink_last` | Shrink the known last allocation and invalidate marks |
+| `native_contract_add` | Checked U64 addition; publish only on success |
+| `native_contract_sub` | Checked U64 subtraction; publish only on success |
+| `native_contract_mul` | Checked U64 multiplication; publish only on success |
+| `native_contract_align` | Checked power-of-two alignment; publish only on success |
+
+Grow/shrink callers supply the actual allocation size and prove that truncated
+bytes are unused. Contains cannot establish identity, alias safety or pointer
+liveness after rewind. Arithmetic output pointers must reference writable U64
+storage; output is unchanged on rejection. All primitives remain explicit and
+single-threaded. Gate: `test_sotlas_native_migration_sv854`.
