@@ -67,12 +67,21 @@ invocations and may require the stated seed, platform or toolchain. The historic
 sovereignty checkpoint score measures selected architectural milestones, not the
 percentage of Python/C dependencies eliminated or the amount of work remaining.
 
-**Evidence boundary:** the latest inspected green baseline is `ce93fa9`,
+**Evidence boundary:** the latest independently verified green baseline is `08b0cc4`,
+CI #1231 / run `38762917787`. Previous historical baseline was `ce93fa9`,
 CI #1221 / run `38621972769`. The subsequent #1222 rejection-contract regression
 was repaired in `b40a8fa` with the SV8.49c ownership work and local regression
 validation. SV8.50 was committed as `3e4320e`. The owner reported the
 workflow green for SV8.51 (`24d5627`); its run number was not independently
 inspected. This document includes the SV8.56 candidate, whose CI remains pending.
+
+**SV8.57 candidate (2026-10-15):** the native frontend now recognizes
+`%=`, `&=`, `|=`, `^=`, `<<=` and `>>=` for mutable local
+identifier targets. It retains a single RHS evaluation and rejects complex
+places or invalid owner-bearing aggregates; it does not complete frontend
+parity. Regression coverage: `test_sotlas_native_migration_sv857`.
+The last independently verified green baseline is [CI #1231](https://github.com/HPinho/sotlas_dev/actions/runs/38762917787)
+(`08b0cc4`); the SV8.57 candidate still needs full CI.
 
 ## 2. Current implementation
 
@@ -691,6 +700,20 @@ candidate, publish only after its gates pass, and continue maintenance without
 relabeling unimplemented architectural goals as completed features.
 
 ## 12. Complete native migration checklist
+
+### SV8.57 — compound integer assignments in the Sotlas-written frontend (2026-10-15)
+
+Baseline: `08b0cc4b3009291dfea8fbdba229e5ca9202dbef` / [green CI #1231](https://github.com/HPinho/sotlas_dev/actions/runs/38762917787).
+This candidate expands the existing identifier-only compound assignment contract:
+
+- [x] Recognize and lower `%=` with existing typed integer remainder rules.
+- [x] Recognize and lower `&=`, `|=` and `^=` using the existing native bitwise operators.
+- [x] Recognize and lower `<<=` and `>>=` using the existing native integer shifts.
+- [x] Preserve single RHS evaluation, immutable-binding rejection and fail-closed indexed/owned aggregate destinations.
+
+Gate: `tests/test_sotlas_native_migration_sv857.py`. Compounds use the typed AST's existing binary/assign path; unsupported general lvalues, resource ownership and complete canonical operator parity remain open. No hosted Python/C compiler fallback is introduced. Candidate CI pending.
+
+
 
 The following is the current detailed checklist, incorporated from
 `docs/sotlas_native_frontend_ownership_checklist.md` at the snapshot revision.
