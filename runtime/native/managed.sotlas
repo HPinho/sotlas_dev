@@ -123,3 +123,118 @@ pub fn native_state_transition(state: *mut u32, expected: u32, next: u32,
 pub fn native_contract_range(capacity: usize, offset: usize, size: usize) -> bool {
     return offset <= capacity && size <= capacity-offset;
 }
+
+pub struct NativeWeakToken { pub owner: *mut NativeRefHeader; pub generation: u64; }
+
+pub fn native_ref_weak(header: *mut NativeRefHeader) -> NativeWeakToken {
+    if header == null { return NativeWeakToken{owner:null,generation:0}; }
+    unsafe{
+        if !header.live || header.strong == 0 { return NativeWeakToken{owner:null,generation:0}; }
+        return NativeWeakToken{owner:header,generation:header.generation};
+    }
+}
+
+pub fn native_weak_upgrade(token: NativeWeakToken) -> bool {
+    return native_ref_upgrade(token.owner,token.generation);
+}
+
+// Only recycle a fully released header. A saturated generation cannot wrap
+// back to an old weak token. Retained weak tokens require stable storage.
+pub fn native_ref_recycle(mut header: *mut NativeRefHeader) -> bool {
+    if header == null { return false; }
+    unsafe{
+        if header.live || header.strong != 0 || header.generation == 0 || header.generation == 18446744073709551615 { return false; }
+        header.generation=header.generation+1;header.strong=1;header.live=true;
+    }
+    return true;
+}
+
+// 0=invalid, 1=retained references remain, 2=caller must destroy the payload.
+pub fn native_ref_release_checked(header: *mut NativeRefHeader) -> u32 {
+    if header == null { return 0; }
+    unsafe{if !header.live || header.strong == 0 { return 0; }}
+    if native_ref_release(header) { return 2; }
+    return 1;
+}
+
+pub fn native_arena_alloc_zero(arena: *mut NativeArena, size: usize, alignment: usize) -> *mut u8 {
+    let memory: *mut u8 = native_arena_alloc(arena,size,alignment);
+    if memory == null { return null; }
+    let mut index: usize = 0;
+    while index < size { unsafe{*(memory+index)=0;}index=index+1; }
+    return memory;
+}
+
+// Explicit raw-memory APIs require valid backing ranges supplied by callers.
+// Null pointers are allowed for an empty operation; arithmetic must not wrap.
+pub fn native_memory_copy(destination: *mut u8, source: *const u8, count: usize) -> bool {
+    if count == 0 { return true; }
+    if destination == null || source == null { return false; }
+    let to: usize = unsafe{destination as usize};let from: usize = unsafe{source as usize};
+    if count > 18446744073709551615-to || count > 18446744073709551615-from { return false; }
+    if to < from+count && from < to+count { return false; }
+    let mut index: usize = 0;
+    while index < count { unsafe{*(destination+index)=*(source+index);}index=index+1; }
+    return true;
+}
+
+pub fn native_memory_move(destination: *mut u8, source: *const u8, count: usize) -> bool {
+    if count == 0 { return true; }
+    if destination == null || source == null { return false; }
+    let to: usize = unsafe{destination as usize};let from: usize = unsafe{source as usize};
+    if count > 18446744073709551615-to || count > 18446744073709551615-from { return false; }
+    let mut index: usize = 0;
+    if to > from && to < from+count {
+        index=count;
+        while index > 0 { index=index-1;unsafe{*(destination+index)=*(source+index);} }
+    } else {
+        while index < count { unsafe{*(destination+index)=*(source+index);}index=index+1; }
+    }
+    return true;
+}
+
+// Check every rewind condition before clearing discarded bytes. Clearing is
+// observable native memory behavior; secure erasure against DMA is not proved.
+pub fn native_arena_rewind_zero(mut arena: *mut NativeArena, mark: NativeArenaMark) -> bool {
+    if arena == null { return false; }
+    unsafe{
+        if mark.owner != arena || mark.epoch == 0 || mark.epoch != arena.epoch
+            || mark.used > arena.used || arena.used > arena.capacity
+            || arena.epoch == 18446744073709551615 || arena.buffer == null { return false; }
+        let base: usize=arena.buffer as usize;
+        if arena.used > 18446744073709551615-base { return false; }
+        let backing: *mut u8=arena.buffer;let mut index: usize=mark.used;
+        while index < arena.used { *(backing+index)=0;index=index+1; }
+    }
+    return native_arena_rewind(arena,mark);
+}
+
+pub struct NativeAuthority { pub bits: u64; pub generation: u64; }
+
+pub fn native_authority_init(bits: u64) -> NativeAuthority {
+    return NativeAuthority{bits:bits,generation:1};
+}
+
+pub fn native_authority_revoke(mut authority: *mut NativeAuthority, revoked: u64) -> bool {
+    if authority == null { return false; }
+    unsafe{
+        if authority.generation == 0 || authority.generation == 18446744073709551615 { return false; }
+        authority.bits=authority.bits & ~revoked;authority.generation=authority.generation+1;
+    }
+    return true;
+}
+
+pub fn native_authority_current(authority: *const NativeAuthority, generation: u64, required: u64) -> bool {
+    if authority == null || generation == 0 { return false; }
+    unsafe{return authority.generation == generation && native_authority_allows(authority.bits,required);}
+}
+
+// A state machine with at most 64 states supplies the permitted destination
+// mask. Authority revocation invalidates previously observed generations.
+pub fn native_state_transition_current(state: *mut u32, expected: u32, next: u32,
+    allowed_states: u64, authority: *const NativeAuthority, generation: u64, required: u64) -> bool {
+    if state == null || next >= 64 || ((allowed_states >> (next as u64)) & 1) == 0
+        || !native_authority_current(authority,generation,required) { return false; }
+    unsafe{if *state != expected { return false; }*state=next;}
+    return true;
+}

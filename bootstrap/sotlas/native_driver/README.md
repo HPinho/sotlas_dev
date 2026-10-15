@@ -1056,3 +1056,27 @@ code 1. These commands start no Python, C compiler or external linker.
 Generation gates exercise the audit commands using actual Stage 2/3 artifacts
 with host tools absent. Complete canonical parity and authenticated seed
 distribution remain open requirements.
+
+
+## Native project and artifact operations (SV8.51)
+
+| Command | Contract |
+|---|---|
+| `--check-project INPUT...` | Check 1–64 explicitly ordered files through native lowering/object emission; write no artifact |
+| `--check-project-resolve INPUT...` | Resolve the supplied module dependencies, map diagnostics to original files and check without output |
+| `--verify-object INPUT.o` | Validate bounded ELF64 x86-64 relocatable structure and symbols; unresolved foreign symbols may remain |
+| `--link-object INPUT.o OUTPUT ENTRY` | Use the owned platform linker; validate input and entry/link result before opening output |
+| `--compare-three FIRST SECOND THIRD` | Print `three-byte-identical` only after both streaming comparisons succeed |
+| `--stamp-seed SEED STAMP` | Create a new 32-byte SOTSEED1 stamp; existing output files are rejected |
+| `--verify-stamp SEED STAMP` | Match seed FNV, exact size, native image platform, version and reserved bytes; return 16 on mismatch |
+| `--seed-info SEED` | Print FNV-1a-64 and exact byte count as two 16-digit lowercase hexadecimal lines |
+
+ELF validation is structural, not a guarantee that every relocation or foreign
+symbol can link. Output images use ELF64 on Linux, PE32+ on Windows and Mach-O64
+on Intel macOS. Failed input/entry/link validation preserves previous output.
+Write/close failures retain the existing output-I/O error contract.
+
+Stamps are reproducibility metadata, not signatures. Seed envelope checks are
+still required and do not authenticate origin. Callers keep seed files stable
+during envelope/hash reads. Existing-path rejection uses exclusive file creation,
+including aliases to an existing seed; creation is not a publication transaction.

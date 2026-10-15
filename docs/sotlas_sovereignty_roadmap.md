@@ -6,6 +6,37 @@
 **Latest inspected green baseline:** `ce93fa9` / [CI #1221](https://github.com/HPinho/sotlas_dev/actions/runs/38621972769). The SV8.50 candidate requires its own CI certification.
 
 
+
+## SV8.51 — literals, reusable runtime and native artifact operations (2026-10-14)
+
+The candidate based on `3e4320e` delivers another four bounded contracts in
+each of nine migration areas. The [native checklist](sotlas_native_frontend_ownership_checklist.md)
+records the complete 36-item inventory, gates and remaining limitations.
+
+Native decoding now covers hexadecimal, binary, octal and ASCII character
+values. Checked weak tokens support header recycling without resurrecting old
+generations. The explicit Sotlas runtime gains cleared allocations, memory
+copy/move, clearing rewind and revocable authority/state guards. Signed pointer
+offsets and unsigned literal addresses lower through the owned x86-64 backend.
+
+IR preflight rejects unknown schema/flag metadata. ELF preflight validates
+symbol names, bindings, types/visibility and extents. Native drivers can check
+explicit projects without output, validate objects, link existing objects and
+create/verify reproducibility stamps. Stamps are exclusive new files and use
+FNV for content comparison, not authentication.
+
+Original-source compiler generation, existing reference contracts and full
+regression remain required gates. This package does not establish complete
+canonical parity or authorize removal of the Python/C bootstrap.
+
+Final local validation: 3,003 Windows tests passed with 79 platform/toolchain
+skips in 969.761 seconds. All 36 new gates passed on Windows, Linux through WSL
+and Windows Python 3.10.11; the combined targeted run passed 182 tests. Linux
+Stage 2/3 identity and complete Darwin compiler cross-generation passed in
+125.815 seconds. Windows Stage 2/3 passed in the full suite. CI certification,
+including native Intel macOS execution, remains pending.
+
+
 ## SV8.50 — native runtime and migration boundaries (2026-10-14)
 
 Starting from `b40a8fa`, this candidate implements four bounded contracts in

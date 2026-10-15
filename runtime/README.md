@@ -62,7 +62,7 @@ lower language ownership/state/effect syntax.
 | `native_contract_range` | Validate offset and size using subtraction to avoid overflow |
 
 Callers retain the lifetime and validity of non-null pointers and control blocks.
-Control-block addresses cannot be reinitialized while old tokens remain. Arenas
+Control-block addresses cannot be directly reinitialized while old tokens remain. Arenas
 stay at stable addresses while marks exist; rewind requires discarded pointers
 to stop being used. Marks are issued by the API, not forged from public fields.
 This is neither an atomic/SMP ARC implementation nor static lifetime proof.
@@ -73,3 +73,28 @@ For the current explicit-source profile, compile an application using
 `sotlas-native --project OUTPUT runtime/native/managed.sotlas APP.sotlas`.
 The application calls the exported APIs directly. This profile combines source
 modules; it does not provide separate compilation or installed package resolution.
+
+
+## Reusable weak tokens and memory operations (SV8.51)
+
+| API | New native contract |
+|---|---|
+| `native_ref_weak` | Capture a pointer/generation token; null/dead blocks produce an empty token |
+| `native_weak_upgrade` | Acquire a strong reference from the token's own live control block |
+| `native_ref_recycle` | Reuse fully released storage by advancing generation; reject live/zero/saturated headers |
+| `native_ref_release_checked` | Return 0 for invalid release, 1 for remaining owners, 2 for final caller destruction |
+| `native_arena_alloc_zero` | Allocate and clear the requested bytes, preserving failure behavior |
+| `native_memory_copy` | Reject overlapping or overflowing nonempty ranges; allow empty null ranges |
+| `native_memory_move` | Copy overlapping ranges in the required direction with checked arithmetic |
+| `native_arena_rewind_zero` | Validate before clearing discarded bytes and invalidating marks |
+| `native_authority_init` | Initialize mask and generation 1 |
+| `native_authority_revoke` | Remove bits and advance generation without wrap |
+| `native_authority_current` | Check all required bits at the exact observed generation |
+| `native_state_transition_current` | Require current authority, expected state and a permitted destination among 64 states |
+
+Control blocks and buffers remain caller-owned and must stay valid. Recycling
+through the API is permitted with old weak tokens outstanding; direct header
+reinitialization is not. Tokens/marks must be issued by the API, not forged.
+These operations remain non-atomic; canonical shared/whisper/authority/state
+syntax and automatic drop lowering are separate migration work. Cleared memory
+is verified through native reads; secure erasure against devices is not claimed.

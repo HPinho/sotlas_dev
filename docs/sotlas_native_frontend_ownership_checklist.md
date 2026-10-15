@@ -10,6 +10,69 @@ contracts. Local validation must pass CI before being called certified.
 
 ## Frontend parity
 
+
+### SV8.51 — the next 36 native migration contracts (2026-10-14)
+
+Starting from `3e4320e`, this package adds four bounded contracts in each of the
+nine migration areas. These are executable native advances, not closure of the
+parent migration requirements. The runtime remains explicit and single-threaded.
+
+| Area | Four new contracts | Gate |
+|---|---|---|
+| Frontend | Hexadecimal integer values lower natively; binary integer values; octal integer values; ASCII byte character values with supported escapes | `test_sotlas_native_migration_sv851` |
+| Native ownership primitives | Capture a weak token bound to its control block; upgrade through that token; recycle a released header with generation advancement; distinguish invalid, retained and final releases | `test_sotlas_native_migration_sv851` |
+| Sotlas memory runtime | Allocate cleared arena storage; copy non-overlapping memory with checked arithmetic; move overlapping memory in either direction; clear discarded bytes during checked rewind | `test_sotlas_native_migration_sv851` |
+| Authority/state/effect guards | Initialize an authority mask/generation; revoke bits with generation advancement; reject stale authority observations; guard a destination state mask with current authority | `test_sotlas_native_migration_sv851` |
+| Native IR | Reject unknown opcode IDs; reject reserved function flag bits; reject reserved value flag bits while preserving domains; reject noncanonical PointerCast metadata | `test_sotlas_native_migration_sv851` |
+| Owned backend/ABI | Sign-extend i32 pointer offsets before scaling; handle i64 pointer offsets; handle the native isize source alias; lower unsigned 64-bit literal addresses only under unsafe | `test_sotlas_native_migration_sv851` |
+| Owned objects/linking | Bound symbol names to their own string table; reject unsupported bindings; reject indirect-function/TLS types and reserved visibility bits; bound defined symbol extents to their section | `test_sotlas_native_migration_sv851` |
+| Native CLI | Check explicit projects without output; check dependency-resolved explicit projects without output; validate ELF object structure/symbols; link an existing object with the owned platform linker | `test_sotlas_native_tool_operations_sv851` |
+| Bootstrap tools | Compare three artifacts without premature success output; create an exclusive seed stamp; verify stamp content/size/platform/version; report seed fingerprint and exact size | `test_sotlas_native_tool_operations_sv851` |
+
+Radix values use checked U64 decoding and contextual signed/unsigned limits.
+Hex values execute in scalar constants, array values and match patterns as well
+as ordinary expressions. Binary/octal prefixes accept upper/lowercase forms and
+digit separators; missing digits, invalid digits and overflow are rejected.
+Character values are ASCII bytes, including \0, \n, \r, \t, escaped quote,
+double quote and backslash. Unicode scalars, extended escapes, numeric suffixes
+and radix expressions in array type dimensions remain separate requirements.
+
+Weak tokens carry a stable control-block pointer and generation. Released
+headers may be recycled through the new API while old tokens remain, provided
+their storage remains valid. Recycling advances the generation and rejects
+live, zero-generation and saturated headers. Direct reinitialization or forgery
+of public token/header fields is outside the API contract. No keyword-level
+stored `whisper`, atomic ARC or automatic destruction is introduced here.
+
+Memory callers provide valid backing ranges. Copy rejects overlap; move handles
+overlap. Checked arithmetic never proves that physical addresses are mapped.
+Clearing rewind validates the mark before writes; it is not a DMA/security
+erasure guarantee. Authority generations invalidate old observations after
+revocation, including observations for other remaining bits. State masks are
+bounded to 64 destinations. These remain explicit guards rather than complete
+canonical state/effect/authority syntax migration.
+
+Object validation checks ELF structure and symbols; it does not resolve foreign
+symbols, certify every relocation or guarantee linking. `--link-object` resolves
+with the platform's owned linker and preserves an existing output when input,
+entry or linking is rejected before output I/O.
+
+Seed stamps contain a 32-byte SOTSEED1 record with FNV-1a-64, size, platform and
+format version. Creation requires a new file, so existing artifacts and seed
+aliases cannot be overwritten. Verification rejects changed content, sizes,
+platforms, versions, reserved bytes and truncation. FNV does not authenticate a
+seed or replace a cryptographic signature. Three-artifact comparison proves byte
+identity of supplied artifacts, not full-language bootstrap parity.
+
+Final local validation passed 3,003 Windows regression tests with 79
+platform/toolchain skips in 969.761 seconds. All 36 new gates passed on Windows,
+Linux through WSL and Windows Python 3.10.11. The combined frontend/CLI/migration
+run passed 182 tests. Linux original-source Stage 2/3 identity and complete Darwin
+compiler cross-generation passed in 125.815 seconds; Windows Stage 2/3 passed in
+the full suite. Native Intel macOS execution remains a CI gate. CI certification
+is pending; full migration parents stay open.
+
+
 ### SV8.50 — four advances in each migration area (2026-10-14)
 
 The following 36 bounded contracts are implemented in Sotlas. Native execution
