@@ -557,3 +557,90 @@ pub fn native_contract_i64_div(left: i64, right: i64, output: *mut i64) -> bool 
     if output == null || right == 0 || (left == minimum && right == -1) { return false; }
     unsafe{*output=left/right;}return true;
 }
+
+
+// SV8.58: a caller-backed managed byte resource. The control block, handle
+// and payload must remain at stable, disjoint addresses until all strong and
+// weak users have stopped accessing them. These functions are single-threaded;
+// they implement explicit zero-on-last-release, not compiler-generated ARC.
+pub struct NativeManagedBytes {
+    pub control: *mut NativeRefHeader;
+    pub bytes: *mut u8;
+    pub length: usize;
+    pub generation: u64;
+}
+
+pub fn native_managed_bytes_open(
+    control: *mut NativeRefHeader, bytes: *mut u8, length: usize
+) -> NativeManagedBytes {
+    let empty: NativeManagedBytes = NativeManagedBytes {
+        control:null, bytes:null, length:0, generation:0
+    };
+    if control == null || bytes == null || length == 0 { return empty; }
+    let address: usize = unsafe { bytes as usize };
+    if length > 18446744073709551615-address { return empty; }
+    unsafe {
+        // Bind only a unique, live reference. A shared block cannot be
+        // rebound to unrelated payload memory by a second owner.
+        if !control.live || control.strong != 1 || control.generation == 0 {
+            return empty;
+        }
+        return NativeManagedBytes {
+            control:control, bytes:bytes, length:length,
+            generation:control.generation
+        };
+    }
+}
+
+pub fn native_managed_bytes_current(resource: *const NativeManagedBytes) -> bool {
+    if resource == null { return false; }
+    unsafe {
+        if resource.control == null || resource.bytes == null
+            || resource.length == 0 || resource.generation == 0 { return false; }
+        let address: usize = resource.bytes as usize;
+        if resource.length > 18446744073709551615-address { return false; }
+        let block: *const NativeRefHeader = resource.control as *const NativeRefHeader;
+        return native_ref_generation_current(block,resource.generation);
+    }
+}
+
+pub fn native_managed_bytes_retain(resource: *const NativeManagedBytes) -> bool {
+    if !native_managed_bytes_current(resource) { return false; }
+    unsafe { return native_ref_retain(resource.control); }
+}
+
+pub fn native_managed_bytes_weak(resource: *const NativeManagedBytes) -> NativeWeakToken {
+    if !native_managed_bytes_current(resource) {
+        return NativeWeakToken{owner:null,generation:0};
+    }
+    unsafe { return native_ref_weak(resource.control); }
+}
+
+pub fn native_managed_bytes_upgrade(
+    resource: *const NativeManagedBytes, token: NativeWeakToken
+) -> bool {
+    if !native_managed_bytes_current(resource) { return false; }
+    unsafe {
+        if token.owner != resource.control || token.generation != resource.generation {
+            return false;
+        }
+    }
+    return native_weak_upgrade(token);
+}
+
+// 0=invalid/no change, 1=other strong references remain, 2=payload cleared
+// and weak handles invalidated. The caller must not use the released payload.
+// Retained and invalid releases do not modify its bytes. No foreign runtime.
+pub fn native_managed_bytes_release(resource: *const NativeManagedBytes) -> u32 {
+    if !native_managed_bytes_current(resource) { return 0; }
+    let control: *mut NativeRefHeader = unsafe { resource.control };
+    let bytes: *mut u8 = unsafe { resource.bytes };
+    let count: usize = unsafe { resource.length };
+    let outcome: u32 = native_ref_release_checked(control);
+    if outcome == 2 {
+        // The range was checked before changing the reference count. Its
+        // backing storage and disjointness are explicit caller guarantees.
+        if !native_memory_fill(bytes,count,0) { return 0; }
+    }
+    return outcome;
+}

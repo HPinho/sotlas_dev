@@ -67,7 +67,8 @@ invocations and may require the stated seed, platform or toolchain. The historic
 sovereignty checkpoint score measures selected architectural milestones, not the
 percentage of Python/C dependencies eliminated or the amount of work remaining.
 
-**Evidence boundary:** the latest independently verified green baseline is `08b0cc4`,
+**Evidence boundary:** the latest independently verified green baseline is `0df0bb9`,
+CI #1233 / run `38781346034`. Earlier inspected green: `08b0cc4`,
 CI #1231 / run `38762917787`. Previous historical baseline was `ce93fa9`,
 CI #1221 / run `38621972769`. The subsequent #1222 rejection-contract regression
 was repaired in `b40a8fa` with the SV8.49c ownership work and local regression
@@ -89,6 +90,16 @@ places or invalid owner-bearing aggregates; it does not complete frontend
 parity. Regression coverage: `test_sotlas_native_migration_sv857`.
 The last independently verified green baseline is [CI #1231](https://github.com/HPinho/sotlas_dev/actions/runs/38762917787)
 (`08b0cc4`); the SV8.57 candidate still needs full CI.
+
+**SV8.58 candidate (2026-10-15):** `runtime/native/managed.sotlas`
+now integrates explicit strong/weak reference accounting with generation-bound
+managed byte buffers and zeroing on the *final* release. Its API rejects
+null/empty/stale and cross-resource weak handles. Tests execute the runtime
+as Sotlas-native generated machine code with no C runtime glue. Payload,
+header and handle storage remain caller-backed, single-threaded and explicitly
+lifetime-constrained; this is not automatic ARC, heap management or a
+replacement for canonical resource ownership. CI #1233 (`0df0bb9`) is the
+verified green baseline, and SV8.58 awaits its own CI.
 
 ## 2. Current implementation
 
@@ -707,6 +718,25 @@ candidate, publish only after its gates pass, and continue maintenance without
 relabeling unimplemented architectural goals as completed features.
 
 ## 12. Complete native migration checklist
+
+### SV8.58 — native managed byte-resource final release (2026-10-15)
+
+**Last green baseline:** `0df0bb95bfc3ae9300d49be8063703d722d32d87` /
+[CI #1233](https://github.com/HPinho/sotlas_dev/actions/runs/38781346034).
+
+- [x] Bind a unique live reference header to a checked caller-backed byte payload without C allocation.
+- [x] Retain and upgrade generation-matched weak tokens only for their original managed payload.
+- [x] Keep payload bytes intact on nonfinal release; clear exactly the declared range upon final release and invalidate weak upgrades.
+- [x] Reject null/empty, stale/recycled, shared-at-bind and mismatched-resource states without changing the reference count.
+
+**Execution and rejection gate:** `tests/test_sotlas_native_migration_sv858.py`.
+The Sotlas-owned API is single-threaded and caller-driven: stable/disjoint
+header, handle and payload storage are preconditions. This is **not**
+automatic compiler-emitted ARC, heap allocation, destructor dispatch or
+general owned payload lifetime/escape validation. Those parent items stay open.
+No compiler C/Python fallback or weakened CI gate is introduced. Candidate
+awaits its own complete cross-platform and self-host fixed-point matrix.
+
 
 ### SV8.57 — compound integer assignments in the Sotlas-written frontend (2026-10-15)
 
