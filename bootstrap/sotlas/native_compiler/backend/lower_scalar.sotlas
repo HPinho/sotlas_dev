@@ -1775,30 +1775,11 @@ impl ScalarLowering {
         }
 
         let mut value: u64 = 0;
-        let mut index: usize = 0;
-        let mut saw_digit: bool = false;
-        while index < node.str_len {
-            let ch: u8 = unsafe { *(self.source + node.str_offset + index) };
-            if ch == 95 {
-                index = index + 1;
-                continue;
-            }
-            if ch < 48 || ch > 57 {
-                self.instruction_count = instruction_index;
-                return TARGET_VALUE_NONE;
-            }
-            let digit: u64 = (ch - 48) as u64;
-            if value > 1844674407370955161
-                || (value == 1844674407370955161 && digit > 5) {
-                self.instruction_count = instruction_index;
-                return TARGET_VALUE_NONE;
-            }
-            value = value * 10 + digit;
-            saw_digit = true;
-            index = index + 1;
-        }
-        if !saw_digit || value > self.integer_type_max(type_tag) {
+        let mut literal_sema: Sema = Sema::new();
+        if !literal_sema.integer_literal_bits(self.nodes,self.node_count,node_index,self.source,self.source_len,
+            unsafe{(&mut value) as *mut u64}) || value > self.integer_type_max(type_tag) {
             self.instruction_count = instruction_index;
+            self.value_count = self.value_count-1;
             return TARGET_VALUE_NONE;
         }
         let mut instruction: TargetInstruction = unsafe {
@@ -2665,7 +2646,12 @@ impl ScalarLowering {
                 return TARGET_VALUE_NONE;
             }
             let cast_type: TargetTypeTag = self.type_tag_for(cast_type_index);
-            let address_source: TargetTypeTag = self.condition_expression_type(value_index,first_parameter,parameter_count);
+            let mut address_source: TargetTypeTag = self.condition_expression_type(value_index,first_parameter,parameter_count);
+            if cast_type == TargetTypeTag::Pointer && value_node.kind == AstKind::ExprLiteral
+                && value_node.str_len != 0 && value_node.str_offset < self.source_len {
+                let address_first: u8 = unsafe{*(self.source+value_node.str_offset)};
+                if address_first >= 48 && address_first <= 57 { address_source=TargetTypeTag::U64; }
+            }
             if (address_source == TargetTypeTag::Pointer && (cast_type == TargetTypeTag::U64 || cast_type == TargetTypeTag::Usize))
                 || (cast_type == TargetTypeTag::Pointer && (address_source == TargetTypeTag::U64 || address_source == TargetTypeTag::Usize)
                     && !(value_node.kind == AstKind::ExprUnary && value_node.int_value == 92)) {
@@ -3570,7 +3556,8 @@ impl ScalarLowering {
             if offset_type != TargetTypeTag::Invalid { right_type = offset_type; }
             if right_type != TargetTypeTag::U32
                 && right_type != TargetTypeTag::U64
-                && right_type != TargetTypeTag::Usize {
+                && right_type != TargetTypeTag::Usize && right_type != TargetTypeTag::I32
+                && right_type != TargetTypeTag::I64 && right_type != TargetTypeTag::Isize {
                 return TARGET_VALUE_NONE;
             }
             let right_value: u32 = self.lower_expression(

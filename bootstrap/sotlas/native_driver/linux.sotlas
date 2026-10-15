@@ -95,7 +95,7 @@ fn driver_query_print(mode: u32) -> u32 {
     let mut text: *const u8 = "native-driver-contract=1\ntarget-ir=1\n";
     if mode == 2 { text = "single_source_bytes<2097152\nproject_modules<=64\nproject_source_bytes<2097152\nfunctions<=512\nparameters_per_function<=24\nblocks_per_function<=2048\nlocal_bindings<=128\nlocal_scalar_array_elements<=4096\nrecord_array_storage_bytes<=65536\ndefer_slots<=128\n"; }
     if mode == 3 { text = "architecture=x86_64\npointer_bits=64\nendianness=little\nobject=ELF64-relocatable\nimage=ELF64\ninternal_float_abi=integer-bits\nforeign_float_abi=unsupported\n"; }
-    if mode == 4 { text = "0=success\n1=usage\n2=open\n3=read-or-close\n4=lexical\n5=syntax\n6=semantic\n7=lowering\n8=object\n9=link\n10=output-open\n11=output-write\n12=project-resolution\n13=report-write\n14=artifacts-differ\n15=seed-envelope\n"; }
+    if mode == 4 { text = "0=success\n1=usage\n2=open\n3=read-or-close\n4=lexical\n5=syntax\n6=semantic\n7=lowering\n8=object\n9=link\n10=output-open\n11=output-write\n12=project-resolution\n13=report-write\n14=artifacts-differ\n15=seed-envelope\n16=seed-stamp\n"; }
     return driver_print_text(text);
 }
 
@@ -116,7 +116,7 @@ fn driver_audit_read(fd: u64, buffer: *mut u8) -> i64 {
 }
 
 // This proves byte identity, not a feature-complete bootstrap fixed point.
-fn driver_compare_files(left: *const u8, right: *const u8) -> u32 {
+fn driver_compare_files_quiet(left: *const u8, right: *const u8) -> u32 {
     if left == null || right == null { return fail(1); }
     let a: i64 = sotlas_linux_open(left,0,0);
     if a < 0 { return fail(2); }
@@ -141,21 +141,31 @@ fn driver_compare_files(left: *const u8, right: *const u8) -> u32 {
     let close_b: i64 = sotlas_linux_close(b as u64);
     if close_a < 0 || close_b < 0 { return fail(3); }
     if status != 0 { return fail(status); }
-    return driver_print_text("byte-identical\n");
+    return 0;
+}
+
+fn driver_compare_files(left: *const u8, right: *const u8) -> u32 {
+    let result: u32=driver_compare_files_quiet(left,right);
+    if result != 0 { return result; }return driver_print_text("byte-identical\n");
 }
 
 // FNV-1a is a reproducibility fingerprint, not a cryptographic signature.
-fn driver_fingerprint_file(path: *const u8) -> u32 {
+static mut driver_hash:[u64;1]=0;
+static mut driver_size:[u64;1]=0;
+fn driver_hash_file(path: *const u8) -> u32 {
     if path == null { return fail(1); }
     let opened: i64 = sotlas_linux_open(path,0,0);
     if opened < 0 { return fail(2); }
     let buffer: *mut u8 = unsafe{driver_audit_left as *mut u8};
+    let mut total: u64=0;
     let mut hash: u64 = 14695981039346656037;
     let mut status: u32 = 0;
     while true {
         let count: i64 = driver_audit_read(opened as u64,buffer);
         if count < 0 { status=3; break; }
         if count == 0 { break; }
+        if count as u64 > 18446744073709551615-total { status=3;break; }
+        total=total+count as u64;
         let mut index: u64 = 0;
         while index < count as u64 {
             hash = (hash ^ unsafe{*(buffer+index)} as u64)*1099511628211;
@@ -164,6 +174,11 @@ fn driver_fingerprint_file(path: *const u8) -> u32 {
     }
     let closed: i64 = sotlas_linux_close(opened as u64);
     if closed < 0 || status != 0 { return fail(3); }
+    unsafe{driver_hash[0]=hash;driver_size[0]=total;}return 0;
+}
+fn driver_fingerprint_file(path: *const u8) -> u32 {
+    let result: u32=driver_hash_file(path);if result != 0 { return result; }
+    let hash: u64=unsafe{driver_hash[0]};let buffer: *mut u8=unsafe{driver_audit_left as *mut u8};
     let digits: *const u8 = "0123456789abcdef";
     let mut index: u64 = 0;
     while index < 16 {
@@ -177,7 +192,7 @@ fn driver_fingerprint_file(path: *const u8) -> u32 {
 
 // Check the platform/architecture envelope before accepting a seed artifact.
 // This does not authenticate its origin or prove that it is a compiler.
-fn driver_verify_seed(path: *const u8) -> u32 {
+fn driver_seed_envelope(path: *const u8) -> u32 {
     if path == null { return fail(1); }
     let opened: i64 = sotlas_linux_open(path,0,0);
     if opened < 0 { return fail(2); }
@@ -191,6 +206,10 @@ fn driver_verify_seed(path: *const u8) -> u32 {
             || unsafe{*(buffer+6)} != 1 || unsafe{*(buffer+16)} != 2
             || unsafe{*(buffer+17)} != 0 || unsafe{*(buffer+18)} != 62
             || unsafe{*(buffer+19)} != 0 { return fail(15); }
+    return 0;
+}
+fn driver_verify_seed(path: *const u8) -> u32 {
+    let result: u32=driver_seed_envelope(path);if result != 0 { return result; }
     return driver_print_text("seed-envelope=x86_64-ELF64\n");
 }
 
@@ -429,13 +448,13 @@ fn driver_dispatch_resolved(
 ) -> u32 {
     let mode: u32 = driver_resolve_mode(option);
     if mode == 1 {
-        return driver_compile_project(argc, argv, false, false, true);
+        return driver_compile_project(argc, argv, false, false, true, false);
     }
     if mode == 2 {
-        return driver_compile_project(argc, argv, true, false, true);
+        return driver_compile_project(argc, argv, true, false, true, false);
     }
     if mode == 3 {
-        return driver_compile_project(argc, argv, false, true, true);
+        return driver_compile_project(argc, argv, false, true, true, false);
     }
     return fail(1);
 }
@@ -1078,19 +1097,20 @@ fn driver_read_single(input_name: *const u8, output_name: *const u8,
 // ships. Append one newline per file to match the hosted reference bytes.
 fn driver_compile_project(
     argc: u64, argv: *const *const u8,
-    object_only: bool, compiler_entry: bool, resolve_imports: bool
+    object_only: bool, compiler_entry: bool, resolve_imports: bool, check_only: bool
 ) -> u32 {
-    if argc < 5 || argc > 67 { return fail(1); }
-    let output_name: *const u8 = unsafe { *(argv + 2) };
-    if output_name == null { return fail(1); }
+    let mut input_base: u64=3;let mut output_name: *const u8=null;
+    if check_only { input_base=2; }
+    else { if argc < 5 { return fail(1); }output_name=unsafe{*(argv+2)};if output_name == null{return fail(1);} }
+    if argc < input_base+1 || argc > input_base+64 { return fail(1); }
     let mut source: *mut u8 = unsafe { driver_source_bytes as *mut u8 };
     if resolve_imports { source = unsafe { driver_project_raw as *mut u8 }; }
     let mut source_length: usize = 0;
-    let mut input_index: u64 = 3;
+    let mut input_index: u64 = input_base;
     while input_index < argc {
         let input_name: *const u8 = unsafe { *(argv + input_index) };
         if input_name == null { return fail(1); }
-        let file:usize=(input_index-3) as usize;
+        let file:usize=(input_index-input_base) as usize;
         if !driver_map_path(file,input_name){return fail(12);}
         let opened: i64 = sotlas_linux_open(input_name, 0, 0);
         if opened < 0 { return fail(2); }
@@ -1123,14 +1143,14 @@ fn driver_compile_project(
         input_index = input_index + 1;
     }
     if resolve_imports {
-        source_length = driver_resolve_project((argc - 3) as usize);
+        source_length = driver_resolve_project((argc - input_base) as usize);
         if source_length == 0 { return fail(12); }
     } else {
         let raw:*mut u8=unsafe{driver_project_raw as *mut u8};let mut copied:usize=0;
         while copied<source_length{unsafe{*(raw+copied)=*(source+copied);}copied=copied+1;}
-        unsafe{driver_map_file_count[0]=(argc-3) as usize;driver_map_active[0]=1;}
+        unsafe{driver_map_file_count[0]=(argc-input_base) as usize;driver_map_active[0]=1;}
     }
-    return driver_compile_loaded(source_length, output_name, object_only, compiler_entry, false, false);
+    return driver_compile_loaded(source_length, output_name, object_only, compiler_entry, check_only, false);
 }
 
 // Linux x86-64 commands:
@@ -1151,6 +1171,8 @@ pub fn sotlas_linux_main(argc: u64, argv: *const *const u8) -> u32 {
     if argc < 3 || argv == null { return fail(1); }
     let first_option: *const u8 = unsafe { *(argv + 1) };
     if first_option == null { return fail(1); }
+    let extended: u32=driver_extended_dispatch(argc,argv,first_option);
+    if extended != 4294967295 { return extended; }
     let audit: u32 = driver_audit_dispatch(argc,argv,first_option);
     if audit != 4294967295 { return audit; }
     if driver_query_mode(first_option) != 0 || option_equals(first_option,"--self-test",11) { return fail(1); }
@@ -1175,16 +1197,153 @@ pub fn sotlas_linux_main(argc: u64, argv: *const *const u8) -> u32 {
     let build_mode: u32 = driver_build_mode(first_option);
     if build_mode != 0 { return driver_dispatch_build(argc, argv, build_mode); }
     if option_equals(first_option, "--project", 9) {
-        return driver_compile_project(argc, argv, false, false, false);
+        return driver_compile_project(argc, argv, false, false, false, false);
     }
     if option_equals(first_option, "--project-object", 16) {
-        return driver_compile_project(argc, argv, true, false, false);
+        return driver_compile_project(argc, argv, true, false, false, false);
     }
     if option_equals(first_option, "--project-compiler", 18) {
-        return driver_compile_project(argc, argv, false, true, false);
+        return driver_compile_project(argc, argv, false, true, false, false);
     }
     if argc > 4 {
         return driver_dispatch_resolved(argc, argv, first_option);
     }
     return driver_compile_single(argc, argv);
+}
+
+
+// Bounded reads distinguish an exact-capacity artifact from truncation.
+fn driver_read_artifact(path: *const u8, buffer: *mut u8, capacity: usize) -> i64 {
+    if path == null || buffer == null || capacity == 0 { return -3; }
+    let fd: i64=sotlas_linux_open(path,0,0);if fd < 0 { return -2; }
+    let mut length: usize=0;let mut failed: bool=false;
+    while length < capacity {
+        let got: i64=sotlas_linux_read(fd as u64,unsafe{buffer+length},(capacity-length) as u64);
+        if got == -4 { continue; }
+        if got < 0 || got as u64 > (capacity-length) as u64 { failed=true;break; }
+        if got == 0 { break; }length=length+got as usize;
+    }
+    if !failed && length == capacity {
+        let extra: *mut u8=unsafe{driver_audit_right as *mut u8};let mut got: i64=-4;
+        while got == -4 { got=sotlas_linux_read(fd as u64,extra,1); }
+        if got != 0 { failed=true; }
+    }
+    let closed: i64=sotlas_linux_close(fd as u64);if failed || closed < 0 { return -3; }
+    return length as i64;
+}
+
+fn driver_write_artifact(path: *const u8, bytes: *const u8, length: usize, exclusive: bool) -> u32 {
+    let mut flags: u64=577;if exclusive { flags=705; }
+    let fd: i64=sotlas_linux_open(path,flags,493);if fd < 0 { return fail(10); }
+    let mut index: usize=0;
+    while index < length {
+        let written: i64=sotlas_linux_write(fd as u64,unsafe{bytes+index},(length-index) as u64);
+        if written == -4 { continue; }
+        if written <= 0 || written as u64 > (length-index) as u64 {
+            let closed: i64=sotlas_linux_close(fd as u64);return fail(11);
+        }
+        index=index+written as usize;
+    }
+    let closed: i64=sotlas_linux_close(fd as u64);if closed < 0 { return fail(11); }return 0;
+}
+
+fn driver_object_operation(argc: u64, argv: *const *const u8, linking: bool) -> u32 {
+    if (!linking && argc != 3) || (linking && argc != 5) { return fail(1); }
+    let input: *const u8=unsafe{*(argv+2)};
+    let bytes: *mut u8=unsafe{driver_object_bytes as *mut u8};
+    let length: i64=driver_read_artifact(input,bytes,8388608);
+    if length == -2 { return fail(2); }if length < 0 { return fail(3); }
+    if !validate_elf64_object(bytes,length as usize) { return fail(8); }
+    if !linking { return driver_print_text("object=ELF64-x86_64-valid\n"); }
+    let output: *const u8=unsafe{*(argv+3)};let entry: *const u8=unsafe{*(argv+4)};
+    if output == null || entry == null { return fail(1); }
+    let mut entry_length: u64=0;
+    while entry_length < 4096 && unsafe{*(entry+entry_length)} != 0 { entry_length=entry_length+1; }
+    if entry_length == 0 || entry_length == 4096 { return fail(1); }
+    let mut offset: usize=0;let mut object_length: usize=length as usize;
+    let mut image_length: usize=0;let image: *mut u8=unsafe{driver_image_bytes as *mut u8};
+    let offsets: *const usize=unsafe{(&offset) as *const usize};
+    let lengths: *const usize=unsafe{(&mut object_length) as *const usize};
+    let result_length: *mut usize=unsafe{(&mut image_length) as *mut usize};
+    let linked: bool=link_elf64_executable(bytes,offsets,lengths,1,entry,entry_length as usize,null,0,4194304,false,image,16777216,result_length);
+    if !linked || image_length == 0 { return fail(9); }
+    return driver_write_artifact(output,image,image_length,false);
+}
+
+fn driver_stamp_seed(seed: *const u8, output: *const u8) -> u32 {
+    if seed == null || output == null { return fail(1); }
+    let envelope: u32=driver_seed_envelope(seed);if envelope != 0 { return envelope; }
+    let hashed: u32=driver_hash_file(seed);if hashed != 0 { return hashed; }
+    let buffer: *mut u8=unsafe{driver_audit_left as *mut u8};
+    let magic: *const u8="SOTSEED1";let mut index: u64=0;
+    while index < 8 { unsafe{*(buffer+index)=*(magic+index);}index=index+1; }
+    let hash: u64=unsafe{driver_hash[0]};let size: u64=unsafe{driver_size[0]};index=0;
+    while index < 8 {
+        unsafe{*(buffer+8+index)=((hash >> (index*8)) & 255) as u8;
+            *(buffer+16+index)=((size >> (index*8)) & 255) as u8;}
+        index=index+1;
+    }
+    unsafe{*(buffer+24)=1;*(buffer+25)=1;}
+    index=26;while index < 32 { unsafe{*(buffer+index)=0;}index=index+1; }
+    return driver_write_artifact(output,buffer,32,true);
+}
+
+fn driver_verify_stamp(seed: *const u8, stamp: *const u8) -> u32 {
+    if seed == null || stamp == null { return fail(1); }
+    let envelope: u32=driver_seed_envelope(seed);if envelope != 0 { return envelope; }
+    let hashed: u32=driver_hash_file(seed);if hashed != 0 { return hashed; }
+    let buffer: *mut u8=unsafe{driver_audit_left as *mut u8};
+    let length: i64=driver_read_artifact(stamp,buffer,32);
+    if length == -2 { return fail(2); }if length < 0 { return fail(16); }
+    if length != 32 { return fail(16); }
+    let magic: *const u8="SOTSEED1";let mut index: u64=0;
+    while index < 8 { if unsafe{*(buffer+index)} != unsafe{*(magic+index)} { return fail(16); }index=index+1; }
+    let hash: u64=unsafe{driver_hash[0]};let size: u64=unsafe{driver_size[0]};index=0;
+    while index < 8 {
+        if unsafe{*(buffer+8+index)} != ((hash >> (index*8)) & 255) as u8
+            || unsafe{*(buffer+16+index)} != ((size >> (index*8)) & 255) as u8 { return fail(16); }
+        index=index+1;
+    }
+    if unsafe{*(buffer+24)} != 1 || unsafe{*(buffer+25)} != 1 { return fail(16); }
+    index=26;while index < 32 { if unsafe{*(buffer+index)} != 0 { return fail(16); }index=index+1; }
+    return driver_print_text("seed-stamp=matched\n");
+}
+
+fn driver_seed_info(seed: *const u8) -> u32 {
+    let envelope: u32=driver_seed_envelope(seed);if envelope != 0 { return envelope; }
+    let hashed: u32=driver_hash_file(seed);if hashed != 0 { return hashed; }
+    let buffer: *mut u8=unsafe{driver_audit_left as *mut u8};let digits: *const u8="0123456789abcdef";
+    let hash: u64=unsafe{driver_hash[0]};let size: u64=unsafe{driver_size[0]};let mut index: u64=0;
+    while index < 16 {
+        let shift: u64=(15-index)*4;
+        unsafe{*(buffer+index)=*(digits+((hash >> shift) & 15));
+            *(buffer+17+index)=*(digits+((size >> shift) & 15));}
+        index=index+1;
+    }
+    unsafe{*(buffer+16)=10;*(buffer+33)=10;*(buffer+34)=0;}
+    return driver_print_text(buffer);
+}
+
+fn driver_extended_dispatch(argc: u64, argv: *const *const u8, option: *const u8) -> u32 {
+    if option_equals(option,"--check-project",15) { return driver_compile_project(argc,argv,true,false,false,true); }
+    if option_equals(option,"--check-project-resolve",23) { return driver_compile_project(argc,argv,true,false,true,true); }
+    if option_equals(option,"--verify-object",15) { return driver_object_operation(argc,argv,false); }
+    if option_equals(option,"--link-object",13) { return driver_object_operation(argc,argv,true); }
+    if option_equals(option,"--compare-three",15) {
+        if argc != 5 { return fail(1); }
+        let first: u32=driver_compare_files_quiet(unsafe{*(argv+2)},unsafe{*(argv+3)});
+        if first != 0 { return first; }
+        let second: u32=driver_compare_files_quiet(unsafe{*(argv+3)},unsafe{*(argv+4)});
+        if second != 0 { return second; }return driver_print_text("three-byte-identical\n");
+    }
+    if option_equals(option,"--seed-info",11) {
+        if argc != 3 { return fail(1); }return driver_seed_info(unsafe{*(argv+2)});
+    }
+    if option_equals(option,"--stamp-seed",12) {
+        if argc != 4 { return fail(1); }return driver_stamp_seed(unsafe{*(argv+2)},unsafe{*(argv+3)});
+    }
+    if option_equals(option,"--verify-stamp",14) {
+        if argc != 4 { return fail(1); }return driver_verify_stamp(unsafe{*(argv+2)},unsafe{*(argv+3)});
+    }
+    return 4294967295;
 }

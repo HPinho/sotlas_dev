@@ -1002,7 +1002,59 @@ impl Sema {
             return false;
         }
         let first: u8 = unsafe { *(source + expression.str_offset) };
-        return first >= 48 && first <= 57;
+        return (first >= 48 && first <= 57) || first == 39;
+    }
+
+    // Decode bounded radix integers and ASCII byte characters without host
+    // parsers. Only publish the result after the entire literal is valid.
+    pub fn integer_literal_bits(self: &Self, nodes: *const AstNode, node_count: usize,
+        literal_index: usize, source: *const u8, source_len: usize, output: *mut u64) -> bool {
+        if output == null || !self.expression_is_integer_literal(nodes,node_count,literal_index,source,source_len) { return false; }
+        let literal: AstNode = unsafe{*(nodes+literal_index)};
+        let bytes: *const u8 = unsafe{source+literal.str_offset};
+        if unsafe{*bytes} == 39 {
+            if literal.str_len < 3 || unsafe{*(bytes+literal.str_len-1)} != 39 { return false; }
+            let mut value: u64 = unsafe{*(bytes+1)} as u64;
+            if literal.str_len == 3 {
+                if value >= 128 || value == 39 || value == 92 || value == 10 || value == 13 { return false; }
+            } else {
+                if literal.str_len != 4 || value != 92 { return false; }
+                let escaped: u8 = unsafe{*(bytes+2)};
+                value = escaped as u64;
+                if escaped == 48 { value = 0; }
+                else if escaped == 110 { value = 10; }
+                else if escaped == 114 { value = 13; }
+                else if escaped == 116 { value = 9; }
+                else if escaped != 39 && escaped != 34 && escaped != 92 { return false; }
+            }
+            unsafe{*output=value;}return true;
+        }
+        let mut radix: u64 = 10;let mut index: usize = 0;
+        if literal.str_len >= 2 && unsafe{*bytes} == 48 {
+            let marker: u8 = unsafe{*(bytes+1)};
+            if marker == 120 || marker == 88 { radix=16;index=2; }
+            if marker == 98 || marker == 66 { radix=2;index=2; }
+            if marker == 111 || marker == 79 { radix=8;index=2; }
+        }
+        let mut value: u64 = 0;let mut saw_digit: bool = false;
+        let maximum: u64 = 18446744073709551615;
+        let mut separated: bool = false;
+        while index < literal.str_len {
+            let ch: u8 = unsafe{*(bytes+index)};
+            if ch == 95 {
+                if !saw_digit || separated || index+1 == literal.str_len { return false; }
+                separated=true;
+            } else {
+                let decoded: i64 = self.integer_digit_value(ch,radix==16);
+                if decoded < 0 || decoded as u64 >= radix { return false; }
+                let digit: u64 = decoded as u64;
+                if value > (maximum-digit)/radix { return false; }
+                value=value*radix+digit;saw_digit=true;separated=false;
+            }
+            index=index+1;
+        }
+        if !saw_digit { return false; }
+        unsafe{*output=value;}return true;
     }
 
     pub fn integer_literal_fits_limit(
@@ -1132,6 +1184,23 @@ impl Sema {
             return true;
         }
         let literal: AstNode = unsafe { *(nodes + literal_index) };
+        let first: u8 = unsafe{*(source+literal.str_offset)};
+        let mut extended: bool = first == 39;
+        if literal.str_len >= 2 && first == 48 {
+            let prefix: u8 = unsafe{*(source+literal.str_offset+1)};
+            extended = prefix == 98 || prefix == 66 || prefix == 111 || prefix == 79;
+        }
+        if extended {
+            let mut magnitude: u64 = 0;
+            if !self.integer_literal_bits(nodes,node_count,literal_index,source,source_len,unsafe{(&mut magnitude) as *mut u64}) { return false; }
+            let mut maximum: u64 = 18446744073709551615;
+            if tag == 1 { maximum=127; }else if tag == 2 { maximum=32767; }
+            else if tag == 3 { maximum=2147483647; }else if tag == 4 { maximum=9223372036854775807; }
+            else if tag == 5 { maximum=255; }else if tag == 6 { maximum=65535; }
+            else if tag == 7 { maximum=4294967295; }
+            if negative { maximum=maximum+1; }
+            return magnitude <= maximum;
+        }
         let is_hex: bool = literal.str_len >= 2
             && unsafe { *(source + literal.str_offset) } == 48
             && (unsafe { *(source + literal.str_offset + 1) } == 120

@@ -552,7 +552,7 @@ pub fn target_module_value_invalid(
 ) -> bool {
     let value: TargetValue = unsafe { *(values + value_index) };
     return value.id != value_index + 1 || !target_type_is_value(value.type_tag)
-        || ((value.flags & TARGET_VALUE_DOMAIN_MASK) >> TARGET_VALUE_DOMAIN_SHIFT) > 8;
+        || !target_value_flags_valid(value.flags);
 }
 
 pub fn target_type_is_value(type_tag: TargetTypeTag) -> bool {
@@ -562,6 +562,30 @@ pub fn target_type_is_value(type_tag: TargetTypeTag) -> bool {
 
 pub fn target_type_is_return(type_tag: TargetTypeTag) -> bool {
     return target_type_is_value(type_tag) || type_tag == TargetTypeTag::Void;
+}
+
+pub fn target_opcode_is_valid(opcode: TargetOpcode) -> bool {
+    let code: u32=opcode as u32;
+    return code >= 1 && code <= 42;
+}
+
+pub fn target_function_flags_valid(flags: u32) -> bool {
+    return (flags & ~(TARGET_FLAG_SYSTEM | TARGET_FUNCTION_EXTERNAL)) == 0;
+}
+
+pub fn target_value_flags_valid(flags: u32) -> bool {
+    return (flags & ~(TARGET_VALUE_DOMAIN_MASK | TARGET_FLAG_SYSTEM | TARGET_FLAG_SEMANTIC_ONLY)) == 0
+        && ((flags & TARGET_VALUE_DOMAIN_MASK) >> TARGET_VALUE_DOMAIN_SHIFT) <= 8;
+}
+
+pub fn target_instruction_metadata_valid(instruction: TargetInstruction) -> bool {
+    if !target_opcode_is_valid(instruction.opcode) { return false; }
+    if instruction.opcode == TargetOpcode::PointerCast {
+        return instruction.flags == 0 && instruction.immediate_bits == 0
+            && instruction.symbol.offset == 0 && instruction.symbol.length == 0
+            && instruction.phi_input_count == 0 && instruction.target_count == 0;
+    }
+    return true;
 }
 
 pub fn target_source_slice_valid(slice: TargetSourceSlice, source_len: usize) -> bool {
@@ -619,6 +643,7 @@ pub fn target_module_validate_cfg(
     let mut function_index: u32 = 0;
     while function_index < target_section.function_count {
         let function: TargetFunction = unsafe { *(functions + function_index) };
+        if !target_function_flags_valid(function.flags) { return false; }
         if (function.flags & TARGET_FUNCTION_EXTERNAL) != 0 {
             if function.flags != TARGET_FUNCTION_EXTERNAL
                 || function.block_count != 0
@@ -728,7 +753,7 @@ pub fn target_module_validate_cfg(
                 let is_last: bool = instruction_offset + 1 == block.instruction_count;
                 if (is_last && !target_opcode_is_terminator(instruction.opcode))
                     || (!is_last && target_opcode_is_terminator(instruction.opcode))
-                    || instruction.opcode == TargetOpcode::Invalid
+                    || !target_instruction_metadata_valid(instruction)
                     || !target_range_is_valid(
                         instruction.first_operand, instruction.operand_count,
                         target_section.operand_count

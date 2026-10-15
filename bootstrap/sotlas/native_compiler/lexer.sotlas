@@ -176,7 +176,8 @@ impl Lexer {
         // reservado ao operador de intervalo e nunca é absorvido pelo literal.
         if ch >= 48 && ch <= 57 { // 0-9
             let mut numeric_kind: TokenKind = TokenKind::IntLit;
-            if ch == 48 && (self.peek() == 120 || self.peek() == 88) { // 0x
+            if ch == 48 && (self.peek() == 120 || self.peek() == 88
+                || self.peek() == 98 || self.peek() == 66 || self.peek() == 111 || self.peek() == 79) {
                 self.advance();
                 while !self.is_at_end() {
                     let p: u8 = self.peek();
@@ -365,6 +366,7 @@ impl Lexer {
         if length >= 2 && unsafe { *(self.source+offset) } == 48 {
             let prefix: u8 = unsafe { *(self.source+offset+1) };
             if prefix == 120 || prefix == 88 { first = 2; hexadecimal = true; }
+            if prefix == 98 || prefix == 66 || prefix == 111 || prefix == 79 { first = 2; }
         }
         if first == length { return false; }
         let mut index: usize = first;
