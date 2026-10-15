@@ -528,7 +528,10 @@ impl Parser {
 
         if self.match_token(TokenKind::Equal) || self.match_token(TokenKind::PlusEqual)
             || self.match_token(TokenKind::MinusEqual) || self.match_token(TokenKind::StarEqual)
-            || self.match_token(TokenKind::SlashEqual) {
+            || self.match_token(TokenKind::SlashEqual)
+            || self.match_token(TokenKind::PercentEqual) || self.match_token(TokenKind::AmpEqual)
+            || self.match_token(TokenKind::PipeEqual) || self.match_token(TokenKind::CaretEqual)
+            || self.match_token(TokenKind::ShlEqual) || self.match_token(TokenKind::ShrEqual) {
             let assign_tok: Token = self.advance();
             let assign_node: usize = self.alloc_node(AstKind::AssignStmt, assign_tok.span);
             if assign_node == 0 {
@@ -549,6 +552,12 @@ impl Parser {
                 if assign_tok.kind == TokenKind::MinusEqual { operation.kind=TokenKind::Minus; }
                 if assign_tok.kind == TokenKind::StarEqual { operation.kind=TokenKind::Star; }
                 if assign_tok.kind == TokenKind::SlashEqual { operation.kind=TokenKind::Slash; }
+                if assign_tok.kind == TokenKind::PercentEqual { operation.kind=TokenKind::Percent; }
+                if assign_tok.kind == TokenKind::AmpEqual { operation.kind=TokenKind::Amp; }
+                if assign_tok.kind == TokenKind::PipeEqual { operation.kind=TokenKind::Pipe; }
+                if assign_tok.kind == TokenKind::CaretEqual { operation.kind=TokenKind::Caret; }
+                if assign_tok.kind == TokenKind::ShlEqual { operation.kind=TokenKind::Shl; }
+                if assign_tok.kind == TokenKind::ShrEqual { operation.kind=TokenKind::Shr; }
                 right=self.make_binary(copied,operation,right);if right == 0 { return 0; }
             }
             if !self.append_child(assign_node, left) {

@@ -296,12 +296,20 @@ impl Lexer {
         }
         if ch == 60 { // '<'
             if self.peek() == 61 { self.advance(); return self.token_from_span(TokenKind::LtEq, start_line, start_col, start_offset); }
-            if self.peek() == 60 { self.advance(); return self.token_from_span(TokenKind::Shl, start_line, start_col, start_offset); }
+            if self.peek() == 60 {
+                self.advance();
+                if self.peek() == 61 { self.advance(); return self.token_from_span(TokenKind::ShlEqual, start_line, start_col, start_offset); }
+                return self.token_from_span(TokenKind::Shl, start_line, start_col, start_offset);
+            }
             return self.token_from_span(TokenKind::Lt, start_line, start_col, start_offset);
         }
         if ch == 62 { // '>'
             if self.peek() == 61 { self.advance(); return self.token_from_span(TokenKind::GtEq, start_line, start_col, start_offset); }
-            if self.peek() == 62 { self.advance(); return self.token_from_span(TokenKind::Shr, start_line, start_col, start_offset); }
+            if self.peek() == 62 {
+                self.advance();
+                if self.peek() == 61 { self.advance(); return self.token_from_span(TokenKind::ShrEqual, start_line, start_col, start_offset); }
+                return self.token_from_span(TokenKind::Shr, start_line, start_col, start_offset);
+            }
             return self.token_from_span(TokenKind::Gt, start_line, start_col, start_offset);
         }
         if ch == 58 { // ':'
@@ -331,12 +339,16 @@ impl Lexer {
             if self.peek() == 61 { self.advance(); return self.token_from_span(TokenKind::SlashEqual,start_line,start_col,start_offset); }
             return self.token_from_span(TokenKind::Slash,start_line,start_col,start_offset);
         }
-        if ch == 37 { return self.token_from_span(TokenKind::Percent, start_line, start_col, start_offset); }
+        if ch == 37 {
+            if self.peek() == 61 { self.advance(); return self.token_from_span(TokenKind::PercentEqual,start_line,start_col,start_offset); }
+            return self.token_from_span(TokenKind::Percent,start_line,start_col,start_offset);
+        }
         if ch == 38 {
             if self.peek() == 38 {
                 self.advance();
                 return self.token_from_span(TokenKind::LogicalAnd, start_line, start_col, start_offset);
             }
+            if self.peek() == 61 { self.advance(); return self.token_from_span(TokenKind::AmpEqual,start_line,start_col,start_offset); }
             return self.token_from_span(TokenKind::Amp, start_line, start_col, start_offset);
         }
         if ch == 124 {
@@ -344,9 +356,13 @@ impl Lexer {
                 self.advance();
                 return self.token_from_span(TokenKind::LogicalOr, start_line, start_col, start_offset);
             }
+            if self.peek() == 61 { self.advance(); return self.token_from_span(TokenKind::PipeEqual,start_line,start_col,start_offset); }
             return self.token_from_span(TokenKind::Pipe, start_line, start_col, start_offset);
         }
-        if ch == 94 { return self.token_from_span(TokenKind::Caret, start_line, start_col, start_offset); }
+        if ch == 94 {
+            if self.peek() == 61 { self.advance(); return self.token_from_span(TokenKind::CaretEqual,start_line,start_col,start_offset); }
+            return self.token_from_span(TokenKind::Caret, start_line, start_col, start_offset);
+        }
         if ch == 126 { return self.token_from_span(TokenKind::Tilde, start_line, start_col, start_offset); }
         if ch == 59 { return self.token_from_span(TokenKind::SemiColon, start_line, start_col, start_offset); }
         if ch == 44 { return self.token_from_span(TokenKind::Comma, start_line, start_col, start_offset); }

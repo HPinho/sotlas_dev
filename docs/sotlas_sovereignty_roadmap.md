@@ -7,6 +7,24 @@
 
 
 
+## SV8.57 — six native compound operators and bounded owner safety (2026-10-15)
+
+**Last verified green baseline:** `08b0cc4b3009291dfea8fbdba229e5ca9202dbef` /
+[CI #1231](https://github.com/HPinho/sotlas_dev/actions/runs/38762917787) (Linux, Windows and Intel macOS matrix).
+
+The Sotlas-written token, lexer and parser now accept `%=`, `&=`,
+`|=`, `^=`, `<<=` and `>>=` for mutable identifier places, reusing
+existing type-checked expression/assign lowering. The RHS is evaluated
+once. Immutable bindings, indexed/field/pointer places and owned aggregates
+without an admitted operator fail before native output. Native positive,
+negative and side-effect tests are in `test_sotlas_native_migration_sv857`.
+This does not implement automatic ARC, generics, package modules or an
+independent Python-free bootstrap. This candidate must still pass its full CI.
+
+**Next SV8.58:** progress a fully typed separate-module interface or a
+resource ownership runtime gate, prioritizing replacement of Python/C
+semantics and preserving the green fixed-point matrix.
+
 ## SV8.56 — compound assignments and compiler manifests (2026-10-15)
 
 Starting from `bba4c7a`, this candidate adds 36 bounded contracts across nine

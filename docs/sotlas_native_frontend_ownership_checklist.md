@@ -8,6 +8,18 @@ language parity. Parent items stay open until every contracted form has native
 positive, negative and execution coverage. Subitems record smaller validated
 contracts. Local validation must pass CI before being called certified.
 
+### SV8.57 — compound integer assignments in the Sotlas-written frontend (2026-10-15)
+
+Baseline: `08b0cc4b3009291dfea8fbdba229e5ca9202dbef` / [green CI #1231](https://github.com/HPinho/sotlas_dev/actions/runs/38762917787).
+This candidate expands the existing identifier-only compound assignment contract:
+
+- [x] Recognize and lower `%=` with existing typed integer remainder rules.
+- [x] Recognize and lower `&=`, `|=` and `^=` using the existing native bitwise operators.
+- [x] Recognize and lower `<<=` and `>>=` using the existing native integer shifts.
+- [x] Preserve single RHS evaluation, immutable-binding rejection and fail-closed indexed/owned aggregate destinations.
+
+Gate: `tests/test_sotlas_native_migration_sv857.py`. Compounds use the typed AST's existing binary/assign path; unsupported general lvalues, resource ownership and complete canonical operator parity remain open. No hosted Python/C compiler fallback is introduced. Candidate CI pending.
+
 ## Frontend parity
 
 ### SV8.56 — 36 native contracts (2026-10-15)
