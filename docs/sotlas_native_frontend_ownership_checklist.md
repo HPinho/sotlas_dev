@@ -8,6 +8,156 @@ language parity. Parent items stay open until every contracted form has native
 positive, negative and execution coverage. Subitems record smaller validated
 contracts. Local validation must pass CI before being called certified.
 
+### SV8.60 — 36 native contracts (2026-10-15)
+
+Starting from online revision `88c80e2`, this package builds on SV8.57–SV8.59.
+It adds four bounded deliveries in each of nine open migration topics.
+Whole-topic completion and candidate CI certification remain open.
+
+#### SV8.60 Frontend
+
+- [x] Accept digit-separated positive exponents in native F32 literals.
+- [x] Accept digit-separated negative exponents in native F64 literals.
+- [x] Evaluate scientific float module constants with exponent separators.
+- [x] Reject malformed exponent separators and values outside the existing bounded literal profile.
+
+Gate: `test_sotlas_native_migration_sv860`.
+
+#### SV8.60 Native ownership
+
+- [x] Join a preserving first match break arm with ordinary fallthrough.
+- [x] Join a preserving trailing match break arm with a live preceding arm.
+- [x] Join a preserving first match continue arm with ordinary fallthrough.
+- [x] Join a preserving trailing match continue arm with a live preceding arm.
+
+Gate: `test_sotlas_native_migration_sv860`.
+
+#### SV8.60 Sotlas memory runtime
+
+- [x] Clone a managed byte claim into an empty independent strong slot.
+- [x] Upgrade a matching weak token into an empty strong slot.
+- [x] Transfer a managed claim into an empty slot while poisoning its source.
+- [x] Swap valid managed slots without changing strong reference counts.
+
+Gate: `test_sotlas_native_migration_sv860`.
+
+#### SV8.60 States, effects, authority and contracts
+
+- [x] Check U64-to-U8 narrowing before publishing an output.
+- [x] Check U64-to-U16 narrowing before publishing an output.
+- [x] Check U64-to-U32 narrowing before publishing an output.
+- [x] Check I64-to-I32 narrowing before publishing an output.
+
+Gate: `test_sotlas_native_migration_sv860`.
+
+#### SV8.60 Native IR and lowering
+
+- [x] Reject shared parameter-table rows between independent functions.
+- [x] Reject shared block-table rows between independent functions.
+- [x] Reject duplicate function spellings at the source-aware IR boundary.
+- [x] Reject duplicate nonempty parameter spellings within one IR function.
+
+Gate: `test_sotlas_native_migration_sv860`.
+
+#### SV8.60 Owned backend execution and binary API
+
+- [x] Load unaligned little-endian integers with checked extents.
+- [x] Load unaligned big-endian integers without host byte-order dependence.
+- [x] Store little-endian integers while rejecting truncation before writes.
+- [x] Store big-endian integers with full-width roundtrip coverage.
+
+Gate: `test_sotlas_native_migration_sv860`.
+
+#### SV8.60 Owned objects and linking
+
+- [x] Reject overlapping file-backed ELF section payloads.
+- [x] Reject uncontracted string-table link, info and entry-size metadata.
+- [x] Reject ELF relocation targets that name metadata sections.
+- [x] Require zero section virtual addresses in the accepted relocatable ELF profile.
+
+Gate: `test_sotlas_native_tool_operations_sv860`.
+
+#### SV8.60 Native CLI
+
+- [x] Report validated object counts through --object-info-json.
+- [x] Report executable fingerprints and sizes through --seed-info-json.
+- [x] Report ordered artifact-set identity through --artifact-set-info-json.
+- [x] Check project semantics before --project-set-info-json reports source identity.
+
+Gate: `test_sotlas_native_tool_operations_sv860`.
+
+#### SV8.60 Bootstrap and self-hosting
+
+- [x] Rebuild project objects natively before --verify-project-object compares bytes.
+- [x] Compile both project manifests before --compare-project-objects compares object bytes.
+- [x] Rebuild a project before --stamp-project-object records SOTOBJ01 object identity.
+- [x] Rebuild a project before --verify-project-object-stamp verifies object identity and stamp metadata.
+
+Gate: `test_sotlas_native_tool_operations_sv860`.
+
+Numeric separators are permitted only between decimal exponent digits. The
+existing coefficient/denominator and exponent limits remain in force; this
+does not add arbitrary-precision parsing or the complete IEEE literal range.
+
+Match arms with ordinary fallthrough may coexist with simple break/continue
+edges when those edges preserve every owner visible at the surrounding loop
+entry. Moving an owner before such a match still fails. Closed-edge summaries
+retain their previous behavior. Arms with nested mixed break/continue summaries
+cannot join ordinary fallthrough yet; arbitrary CFG and automatic resource
+cleanup remain open. One old
+rejection fixture now consumes the owner on its break arm; preserving matches
+are covered by new native execution tests.
+
+Managed clone/upgrade/take/swap operate on explicit caller-backed strong slots.
+Destinations for clone/upgrade/take must have all four fields empty. Successful
+clone/upgrade adds one claim; take empties its source without retaining; swap
+changes neither count. Slots, headers and payloads must stay valid, stable and
+disjoint; raw struct copies remain forgeable. Close is still explicitly
+registered with defer. Synthesized cleanup and a typed separate-module ABI,
+identified as priorities after SV8.59, are not completed by these APIs.
+
+Narrowing APIs leave outputs unchanged on rejection and do not change the
+language's ordinary cast rules or migrate canonical contract/effect syntax.
+Binary APIs support widths 1, 2, 4 and 8; check the full extent and reject stores
+that would truncate. Backing storage and disjoint writable outputs remain
+caller obligations. These software routines use the existing owned scalar IR;
+they add neither volatile/atomic/MMIO semantics nor dedicated instruction
+selection. No foreign runtime calls are used.
+
+IR uniqueness checks compare actual source spellings and allow empty parameter
+debug names in manually built IR. Parameter/block partitions must not overlap
+across independent functions. ELF checks narrow the existing relocatable-object
+contract; they do not expand relocation types or the external object ABI.
+
+JSON report fields are fixed-width lowercase hexadecimal strings, explicitly
+named *_hex. Existing text commands remain available. Reports are emitted only
+after validation. Project commands retain bounded manifest input, source
+concatenation and explicit import resolution, not typed separate compilation.
+
+Object audits actually invoke the native project checker/emitter. Byte comparison
+uses the rebuilt ELF object, not source fingerprints. SOTOBJ01 records magic,
+FNV-1a object fingerprint, object length, version 1, kind 3 and zero reserved
+bytes in 32 bytes. It is a reproducibility aid, not authentication. Creation is
+exclusive; invalid projects preserve existing outputs and failed new writes may
+leave partial files. Inputs must remain stable during reads. Object equality
+does not establish full compiler fixed points; the separate Stage 2/3 gates
+remain required. Python/C still provide Stage 0 and have not been removed.
+
+SV8.60 local validation:
+
+- Full Windows suite: **3206 tests run, no failures/errors, 79 existing
+  platform/toolchain skips, 941.781 seconds**.
+- The 36 new gates passed with Windows Python 3.10 (25.582 seconds) and with
+  actual Linux x86-64 execution through WSL (27.523 seconds), with native test
+  images running while external tools were absent from PATH.
+- Linux original-source Stage 2/3 byte identity and full Darwin compiler
+  cross-generation passed: two gates in 95.105 seconds. The full Windows suite
+  also passed the native Windows Stage 2/3 fixed-point gate.
+- Darwin evidence here is cross-generation; native macOS execution awaits CI.
+- Documentation validation passed 147 links, 190 heading anchors and normalized
+  source hashes. Candidate CI remains pending; no workflow was monitored.
+
+
 ### SV8.59 — native defer-driven managed resource close (2026-10-15)
 
 **Verified baseline:** `fd6dd7d89cff9b38fa6fbe58bb34551b30806f37` /

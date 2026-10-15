@@ -3971,6 +3971,20 @@ pub fn validate_elf64_object(object: *const u8, length: usize) -> bool {
             if offset < 64 { return false; }
             if offset < headers+count as usize*64 && headers < offset+size { return false; }
         }
+        if get_u64(object,length,header+16) != 0 { return false; }
+        if kind == 3 && (get_u64(object,length,header+56) != 0
+            || get_u32(object,length,header+40) != 0 || get_u32(object,length,header+44) != 0) { return false; }
+        if kind != 8 && size != 0 {
+            let mut prior:u32=1;
+            while prior < index {
+                let previous:usize=headers+prior as usize*64;
+                let previous_kind:u32=get_u32(object,length,previous+4);
+                let previous_offset:usize=get_u64(object,length,previous+24) as usize;
+                let previous_size:usize=get_u64(object,length,previous+32) as usize;
+                if previous_kind != 8 && previous_size != 0 && offset < previous_offset+previous_size
+                    && previous_offset < offset+size { return false; }prior=prior+1;
+            }
+        }
         if kind == 2 {
             if symtab != 0 || size < 24 || get_u64(object,length,header+56) != 24 || size % 24 != 0 { return false; }
             zero=0;while zero < 24 { if unsafe{*(object+offset+zero)} != 0 { return false; }zero=zero+1; }
@@ -3980,6 +3994,8 @@ pub fn validate_elf64_object(object: *const u8, length: usize) -> bool {
             let linked: u32=get_u32(object,length,header+40);let destination: u32=get_u32(object,length,header+44);
             if linked == 0 || linked >= count || get_u32(object,length,headers+linked as usize*64+4) != 2
                 || destination == 0 || destination >= count { return false; }
+            let destination_kind:u32=get_u32(object,length,headers+destination as usize*64+4);
+            if destination_kind != 1 && destination_kind != 8 { return false; }
         } else if kind != 1 && kind != 3 && kind != 7 && kind != 8 { return false; }
         if index == names {
             if size == 0 || unsafe{*(object+offset)} != 0 || unsafe{*(object+offset+size-1)} != 0 { return false; }

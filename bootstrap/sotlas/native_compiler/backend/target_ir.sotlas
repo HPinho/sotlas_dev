@@ -1331,6 +1331,51 @@ pub fn target_debug_slices_valid(source_len: usize, block_count: u32, blocks: *c
     return true;
 }
 
+// Independent functions cannot claim the same flat parameter/block rows.
+pub fn target_ranges_overlap(first: u32, count: u32, other: u32, other_count: u32) -> bool {
+    if count == 0 || other_count == 0 { return false; }
+    if first <= other { return other-first < count; }return first-other < other_count;
+}
+
+pub fn target_function_partitions_valid(count: u32, functions: *const TargetFunction) -> bool {
+    if count != 0 && functions == null { return false; }
+    let mut index:u32=0;while index < count {
+        let first:TargetFunction=unsafe{*(functions+index)};let mut other:u32=0;
+        while other < index {
+            let second:TargetFunction=unsafe{*(functions+other)};
+            if target_ranges_overlap(first.first_parameter,first.parameter_count,second.first_parameter,second.parameter_count)
+                || target_ranges_overlap(first.first_block,first.block_count,second.first_block,second.block_count) { return false; }
+            other=other+1;
+        }index=index+1;
+    }return true;
+}
+
+pub fn target_names_equal(source: *const u8, length: usize, left: TargetSourceSlice, right: TargetSourceSlice) -> bool {
+    if source == null || left.length == 0 || left.length != right.length
+        || !target_source_slice_valid(left,length) || !target_source_slice_valid(right,length) { return false; }
+    let mut index:usize=0;while index < left.length {
+        if unsafe{*(source+left.offset+index)} != unsafe{*(source+right.offset+index)} { return false; }index=index+1;
+    }return true;
+}
+
+pub fn target_function_names_unique(source: *const u8, length: usize, count: u32, functions: *const TargetFunction) -> bool {
+    if count != 0 && functions == null { return false; }
+    let mut index:u32=0;while index < count { let mut other:u32=0;
+        while other < index {
+            if target_names_equal(source,length,unsafe{(*(functions+index)).name},unsafe{(*(functions+other)).name}) { return false; }other=other+1;
+        }index=index+1;
+    }return true;
+}
+
+pub fn target_parameter_names_unique(source: *const u8, length: usize, count: u32, parameters: *const TargetParameter) -> bool {
+    if count != 0 && parameters == null { return false; }
+    let mut index:u32=0;while index < count { let mut other:u32=0;
+        while other < index {
+            if target_names_equal(source,length,unsafe{(*(parameters+index)).name},unsafe{(*(parameters+other)).name}) { return false; }other=other+1;
+        }index=index+1;
+    }return true;
+}
+
 pub fn target_module_validate_calls(
     source: *const u8,
     source_len: usize,
@@ -1380,9 +1425,13 @@ pub fn target_module_validate_calls(
         if !target_source_slice_valid(named_value.source_name,source_len) { return false; }
         name_index = name_index+1;
     }
+    if !target_function_partitions_valid(target_section.function_count,functions)
+        || !target_function_names_unique(source,source_len,target_section.function_count,functions) { return false; }
     let mut function_index: u32 = 0;
     while function_index < target_section.function_count {
         let caller: TargetFunction = unsafe { *(functions + function_index) };
+        if !target_parameter_names_unique(source,source_len,caller.parameter_count,
+            unsafe{parameters+caller.first_parameter}) { return false; }
         let mut block_offset: u32 = 0;
         while block_offset < caller.block_count {
             let block: TargetBlock = unsafe { *(blocks + caller.first_block + block_offset) };

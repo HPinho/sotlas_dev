@@ -7,6 +7,22 @@
 
 
 
+## SV8.60 — managed strong slots and native object rebuild audits (2026-10-15)
+
+Starting from online `88c80e2`, this package adds 36 bounded contracts across
+nine open migration topics. It extends separated scientific literals and match
+ownership fallthrough, provides explicit managed strong-slot operations and
+checked narrowing, and adds unaligned endian I/O written in Sotlas.
+
+IR function identities/table partitions and ELF section contracts are checked
+before machine artifacts are consumed. JSON reports support tools; rebuilt
+project objects can be compared or recorded in SOTOBJ01 stamps without invoking
+external compilers. [The checklist](sotlas_native_frontend_ownership_checklist.md)
+records all 36 deliveries, gates and limits. Automatic cleanup synthesis, typed
+separate-module ABI, whole-language native parity and independent distribution
+remain open. Candidate CI is pending; source stamps/object audits do not replace
+the existing full compiler fixed-point gates.
+
 ## SV8.59 — compiler-lowered lexical cleanup of native managed resources (2026-10-15)
 
 **Green baseline:** `fd6dd7d89cff9b38fa6fbe58bb34551b30806f37` /

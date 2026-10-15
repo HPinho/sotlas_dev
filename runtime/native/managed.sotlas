@@ -663,3 +663,50 @@ pub fn native_managed_bytes_close(mut resource: *mut NativeManagedBytes) -> void
         }
     }
 }
+
+// Explicit strong-claim slots; caller-owned metadata must be disjoint/stable.
+pub fn native_managed_bytes_empty(resource: *const NativeManagedBytes) -> bool {
+    if resource == null { return false; }
+    unsafe{return resource.control == null && resource.bytes == null && resource.length == 0 && resource.generation == 0;}
+}
+
+pub fn native_managed_bytes_clone_into(source: *const NativeManagedBytes, destination: *mut NativeManagedBytes) -> bool {
+    if !native_managed_bytes_empty(destination) || !native_managed_bytes_current(source) { return false; }
+    if !native_managed_bytes_retain(source) { return false; }
+    unsafe{*destination=*source;}return true;
+}
+
+pub fn native_managed_bytes_upgrade_into(source: *const NativeManagedBytes, token: NativeWeakToken,
+    destination: *mut NativeManagedBytes) -> bool {
+    if !native_managed_bytes_empty(destination) || !native_managed_bytes_upgrade(source,token) { return false; }
+    unsafe{*destination=*source;}return true;
+}
+
+pub fn native_managed_bytes_take(mut source: *mut NativeManagedBytes, destination: *mut NativeManagedBytes) -> bool {
+    if !native_managed_bytes_empty(destination) || !native_managed_bytes_current(source) { return false; }
+    unsafe{*destination=*source;source.control=null;source.bytes=null;source.length=0;source.generation=0;}return true;
+}
+
+pub fn native_managed_bytes_swap(left: *mut NativeManagedBytes, mut right: *mut NativeManagedBytes) -> bool {
+    if (!native_managed_bytes_empty(left) && !native_managed_bytes_current(left))
+        || (!native_managed_bytes_empty(right) && !native_managed_bytes_current(right)) { return false; }
+    if left == right { return true; }
+    unsafe{
+        let control:*mut NativeRefHeader=left.control;let bytes:*mut u8=left.bytes;
+        let length:usize=left.length;let generation:u64=left.generation;
+        *left=*right;right.control=control;right.bytes=bytes;right.length=length;right.generation=generation;
+    }return true;
+}
+
+pub fn native_contract_u8(value: u64, output: *mut u8) -> bool {
+    if output == null || value > 255 { return false; }unsafe{*output=value as u8;}return true;
+}
+pub fn native_contract_u16(value: u64, output: *mut u16) -> bool {
+    if output == null || value > 65535 { return false; }unsafe{*output=value as u16;}return true;
+}
+pub fn native_contract_u32(value: u64, output: *mut u32) -> bool {
+    if output == null || value > 4294967295 { return false; }unsafe{*output=value as u32;}return true;
+}
+pub fn native_contract_i32(value: i64, output: *mut i32) -> bool {
+    if output == null || value < -2147483648 || value > 2147483647 { return false; }unsafe{*output=value as i32;}return true;
+}
