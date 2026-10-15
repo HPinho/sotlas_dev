@@ -526,15 +526,30 @@ impl Parser {
             return 0;
         }
 
-        if self.match_token(TokenKind::Equal) {
+        if self.match_token(TokenKind::Equal) || self.match_token(TokenKind::PlusEqual)
+            || self.match_token(TokenKind::MinusEqual) || self.match_token(TokenKind::StarEqual)
+            || self.match_token(TokenKind::SlashEqual) {
             let assign_tok: Token = self.advance();
             let assign_node: usize = self.alloc_node(AstKind::AssignStmt, assign_tok.span);
             if assign_node == 0 {
                 return 0;
             }
-            let right: usize = self.parse_expression();
-            if right == 0 {
-                return 0;
+            let mut right: usize = self.parse_expression();
+            if right == 0 { return 0; }
+            if assign_tok.kind != TokenKind::Equal {
+                // Only a name can be safely desugared without evaluating a
+                // side-effecting address twice. General places remain gated.
+                let original: AstNode=unsafe{*(self.nodes+left)};
+                if original.kind != AstKind::ExprIdent { self.reject_current();return 0; }
+                let copied: usize=self.alloc_node(AstKind::ExprIdent,original.span);
+                if copied == 0 { return 0; }
+                unsafe{(*(self.nodes+copied)).str_offset=original.str_offset;(*(self.nodes+copied)).str_len=original.str_len;}
+                let mut operation: Token=assign_tok;
+                if assign_tok.kind == TokenKind::PlusEqual { operation.kind=TokenKind::Plus; }
+                if assign_tok.kind == TokenKind::MinusEqual { operation.kind=TokenKind::Minus; }
+                if assign_tok.kind == TokenKind::StarEqual { operation.kind=TokenKind::Star; }
+                if assign_tok.kind == TokenKind::SlashEqual { operation.kind=TokenKind::Slash; }
+                right=self.make_binary(copied,operation,right);if right == 0 { return 0; }
             }
             if !self.append_child(assign_node, left) {
                 return 0;

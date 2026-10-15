@@ -379,7 +379,7 @@ impl Sema {
                 if owns {
                     let mut analysis: NativeOwnershipCheck = NativeOwnershipCheck {
                         nodes:nodes,node_count:node_count,source:source,source_len:source_len,
-                        bindings:[0;256],states:[0;256],domains:[0;256],deferred:[0;256],mixed_break_states:[0;256],count:0,error_node:0,error_reason:0,return_domain:0
+                        bindings:[0;256],states:[0;256],domains:[0;256],deferred:[0;256],mixed_break_states:[0;256],loop_entry_states:[0;256],loop_scope:0,loop_depth:0,count:0,error_node:0,error_reason:0,return_domain:0
                     };
                     let mut child: usize = function.first_child; let mut body: usize = 0;
                     while child != 0 {
@@ -3734,6 +3734,9 @@ pub struct NativeOwnershipCheck {
     pub domains: [u8; 256];
     pub deferred: [u8; 256];
     pub mixed_break_states: [u8; 256];
+    pub loop_entry_states: [u8;256];
+    pub loop_scope: usize;
+    pub loop_depth: u32;
     pub count: usize;
     pub error_node: usize;
     pub error_reason: u32;
@@ -4430,6 +4433,23 @@ impl NativeOwnershipCheck {
                     return yes_result;
                 }
 
+                // An early preserving jump may coexist with fallthrough.
+                // Compare against the loop entry, not merely this if's entry:
+                // a move before the if must not disappear on its continue edge.
+                if (yes_result == 1 && (no_result == 3 || no_result == 4))
+                    || (no_result == 1 && (yes_result == 3 || yes_result == 4)) {
+                    if self.loop_depth == 0 { self.error_node=index;return 0; }
+                    slot=0;
+                    while slot < self.loop_scope {
+                        let mut jumping: u8=self.states[slot];
+                        if no_result == 1 { jumping=after_yes[slot]; }
+                        if self.domains[slot] != 0 && jumping != self.loop_entry_states[slot] {
+                            self.error_node=index;return 0;
+                        }
+                        slot=slot+1;
+                    }
+                    if no_result != 1 { slot=0;while slot < scope { self.states[slot]=after_yes[slot];slot=slot+1; } }
+                } else {
                 // Closed loop exits carry independent break and continue states.
                 // Result 5 contains both edges and never ordinary fallthrough.
                 if yes_result >= 3 || no_result >= 3 {
@@ -4461,10 +4481,11 @@ impl NativeOwnershipCheck {
                     if has_break && has_continue { return 5; }
                     if has_break { return 3; }return 4;
                 }
+                }
                 slot = 0;
                 while slot < scope {
-                    if no_result == 2 { self.states[slot] = after_yes[slot]; }
-                    else if yes_result != 2 && after_yes[slot] != self.states[slot] && self.domains[slot] != 0 { self.states[slot] = 3; }
+                    if no_result == 2 || no_result == 3 || no_result == 4 { self.states[slot] = after_yes[slot]; }
+                    else if yes_result != 2 && yes_result != 3 && yes_result != 4 && after_yes[slot] != self.states[slot] && self.domains[slot] != 0 { self.states[slot] = 3; }
                     slot = slot + 1;
                 }
             } else if node.kind == AstKind::WhileStmt {
@@ -4485,7 +4506,12 @@ impl NativeOwnershipCheck {
                 let mut saved_breaks: [u8;256] = 0;
                 slot = 0;
                 while slot < scope { saved_breaks[slot] = self.mixed_break_states[slot]; slot = slot+1; }
+                let mut saved_entry: [u8;256]=0;let saved_scope: usize=self.loop_scope;let saved_depth: u32=self.loop_depth;
+                slot=0;while slot < scope { saved_entry[slot]=self.loop_entry_states[slot];self.loop_entry_states[slot]=before[slot];slot=slot+1; }
+                self.loop_scope=scope;self.loop_depth=self.loop_depth+1;
                 let result: i64 = self.sequence(unsafe { (*(self.nodes + body)).first_child }, depth + 1);
+                slot=0;while slot < scope { self.loop_entry_states[slot]=saved_entry[slot];slot=slot+1; }
+                self.loop_scope=saved_scope;self.loop_depth=saved_depth;
                 if result == 0 { return 0; }
                 // For mixed loop edges, the if/else checked each individual
                 // owner snapshot; the while rechecks that the surviving path

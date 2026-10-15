@@ -7,6 +7,19 @@
 
 
 
+## SV8.56 — compound assignments and compiler manifests (2026-10-15)
+
+Starting from `bba4c7a`, this candidate adds 36 bounded contracts across nine
+open areas: local compound assignments, preserving conditional loop exits,
+mutable byte buffers, signed arithmetic guards, IR/ELF validation, scalar bit
+operations, compiler manifests and checked project source audits.
+
+[The checklist](sotlas_native_frontend_ownership_checklist.md) records each
+delivery, gate and limit. Whole-topic frontend/ownership/runtime migration,
+typed separate modules and independent distribution remain open. Project
+source stamps complement the existing fixed-point gates; they do not replace
+Stage 2/3 identity evidence. Candidate CI remains pending.
+
 ## SV8.55 — returning ownership edges and project manifests (2026-10-15)
 
 Starting from `d9abed4`, this candidate delivers 36 bounded contracts across

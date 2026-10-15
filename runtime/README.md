@@ -165,3 +165,28 @@ Memory/arithmetic APIs are in `runtime/native/managed.sotlas`; word APIs are in
 without foreign calls. Dedicated CPU instruction selection is not added by these
 functions. Caller-backed memory validity, arena lifetime and writable outputs
 remain caller obligations. Gate: `test_sotlas_native_migration_sv855`.
+
+## SV8.56 mutable byte buffers, signed guards and bit operations
+
+| API | Contract |
+|---|---|
+| `native_buffer_init` | Initialize caller-backed storage; null storage has zero capacity |
+| `native_buffer_append` | Append with checked capacity and overlap-safe movement |
+| `native_buffer_truncate_zero` | Truncate and clear discarded bytes |
+| `native_buffer_consume` | Remove a prefix, compact remaining bytes and clear the old tail |
+| `native_contract_i64_add` | Check signed addition overflow before output |
+| `native_contract_i64_sub` | Check signed subtraction overflow before output |
+| `native_contract_i64_mul` | Check signed multiplication overflow before output |
+| `native_contract_i64_div` | Reject zero divisors and I64 minimum divided by minus one |
+| `native_word_leading_zeros` | U64 leading-zero count; zero returns 64 |
+| `native_word_trailing_zeros` | U64 trailing-zero count; zero returns 64 |
+| `native_word_reverse_bits` | Reverse all 64 bits |
+| `native_word_extract` | Check start/width before output; supports widths 0 through 64 |
+
+Buffer/signed APIs are in `runtime/native/managed.sotlas`; bit APIs are in
+`runtime/native/word.sotlas`. Buffers use explicit `NativeByteBuffer` metadata
+and caller-backed memory. Metadata must be disjoint from backing/source storage;
+all ranges and outputs must remain valid. They do not allocate or prove
+lifetimes/thread safety. Arithmetic and extraction leave output unchanged on
+failure. Word APIs use existing scalar IR, without dedicated CPU instruction
+selection or foreign calls. Gate: `test_sotlas_native_migration_sv856`.

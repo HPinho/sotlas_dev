@@ -624,6 +624,17 @@ pub fn target_instruction_metadata_valid(instruction: TargetInstruction) -> bool
         return instruction.flags == 0 && instruction.symbol.offset == 0 && instruction.symbol.length == 0
             && instruction.phi_input_count == 0 && instruction.target_count == 0;
     }
+    if instruction.opcode == TargetOpcode::AllocStack {
+        return instruction.flags == 0 && instruction.phi_input_count == 0 && instruction.target_count == 0;
+    }
+    if instruction.opcode == TargetOpcode::Call {
+        return (instruction.flags == 0 || instruction.flags == TARGET_CALL_CAPABILITIES_TYPED)
+            && instruction.phi_input_count == 0 && instruction.target_count == 0;
+    }
+    if instruction.opcode == TargetOpcode::SystemOp {
+        return instruction.flags == 0 && instruction.symbol.offset == 0 && instruction.symbol.length == 0
+            && instruction.phi_input_count == 0 && instruction.target_count == 0;
+    }
     return true;
 }
 
@@ -1306,6 +1317,20 @@ pub fn target_module_validate_cfg(
 // Validate call targets against the function table, including external
 // declarations. This keeps a direct call's symbol, arity and scalar types
 // consistent before backend-specific ABI lowering.
+
+pub fn target_debug_slices_valid(source_len: usize, block_count: u32, blocks: *const TargetBlock,
+    instruction_count: u32, instructions: *const TargetInstruction) -> bool {
+    if (block_count != 0 && blocks == null) || (instruction_count != 0 && instructions == null) { return false; }
+    let mut index: u32=0;
+    while index < block_count {
+        if !target_source_slice_valid(unsafe{(*(blocks+index)).label},source_len) { return false; }index=index+1;
+    }
+    index=0;while index < instruction_count {
+        if !target_source_slice_valid(unsafe{(*(instructions+index)).source_point},source_len) { return false; }index=index+1;
+    }
+    return true;
+}
+
 pub fn target_module_validate_calls(
     source: *const u8,
     source_len: usize,
@@ -1332,6 +1357,8 @@ pub fn target_module_validate_calls(
         return false;
     }
     let target_section: TargetModule = unsafe { *target_module };
+    if !target_debug_slices_valid(source_len,target_section.block_count,blocks,
+        target_section.instruction_count,instructions) { return false; }
     // Source identities are part of the IR boundary, including declarations
     // that are never called. Validate before any writer reads symbol bytes.
     let mut name_index: u32 = 0;

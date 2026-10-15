@@ -479,3 +479,81 @@ pub fn native_contract_extent(offset: u64, count: u64, stride: u64, capacity: u6
     if output == null || stride == 0 || offset > capacity || count > (capacity-offset)/stride { return false; }
     unsafe{*output=offset+count*stride;}return true;
 }
+
+pub struct NativeByteBuffer { pub data: *mut u8; pub capacity: usize; pub used: usize; }
+
+pub fn native_buffer_init(data: *mut u8, capacity: usize) -> NativeByteBuffer {
+    let mut size: usize=capacity;if data == null { size=0; }
+    return NativeByteBuffer{data:data,capacity:size,used:0};
+}
+
+pub fn native_buffer_append(mut buffer: *mut NativeByteBuffer, source: *const u8, count: usize) -> bool {
+    if buffer == null { return false; }
+    unsafe {
+        if buffer.used > buffer.capacity || count > buffer.capacity-buffer.used { return false; }
+        if count == 0 { return true; }if buffer.data == null || source == null { return false; }
+        let base: usize=buffer.data as usize;let maximum: usize=18446744073709551615;
+        if buffer.used > maximum-base || count > maximum-base-buffer.used { return false; }
+        let backing: *mut u8=buffer.data;let used: usize=buffer.used;
+        if !native_memory_move(backing+used,source,count) { return false; }
+        buffer.used=used+count;
+    }
+    return true;
+}
+
+pub fn native_buffer_truncate_zero(mut buffer: *mut NativeByteBuffer, length: usize) -> bool {
+    if buffer == null { return false; }
+    unsafe {
+        if buffer.used > buffer.capacity || length > buffer.used { return false; }
+        if length == buffer.used { return true; }if buffer.data == null { return false; }
+        let base: usize=buffer.data as usize;
+        if buffer.used > 18446744073709551615-base { return false; }
+        let backing: *mut u8=buffer.data;let discarded: usize=buffer.used-length;
+        if !native_memory_fill(backing+length,discarded,0) { return false; }buffer.used=length;
+    }
+    return true;
+}
+
+pub fn native_buffer_consume(mut buffer: *mut NativeByteBuffer, count: usize) -> bool {
+    if buffer == null { return false; }
+    unsafe {
+        if buffer.used > buffer.capacity || count > buffer.used { return false; }
+        if count == 0 { return true; }if buffer.data == null { return false; }
+        let base: usize=buffer.data as usize;
+        if buffer.used > 18446744073709551615-base { return false; }
+        let backing: *mut u8=buffer.data;let remaining: usize=buffer.used-count;
+        if !native_memory_move(backing,backing+count,remaining)
+            || !native_memory_fill(backing+remaining,count,0) { return false; }
+        buffer.used=remaining;
+    }
+    return true;
+}
+
+pub fn native_contract_i64_add(left: i64, right: i64, output: *mut i64) -> bool {
+    let maximum: i64=9223372036854775807;let minimum: i64=-9223372036854775808;
+    if output == null || (right > 0 && left > maximum-right) || (right < 0 && left < minimum-right) { return false; }
+    unsafe{*output=left+right;}return true;
+}
+
+pub fn native_contract_i64_sub(left: i64, right: i64, output: *mut i64) -> bool {
+    let maximum: i64=9223372036854775807;let minimum: i64=-9223372036854775808;
+    if output == null || (right > 0 && left < minimum+right) || (right < 0 && left > maximum+right) { return false; }
+    unsafe{*output=left-right;}return true;
+}
+
+pub fn native_contract_i64_mul(left: i64, right: i64, output: *mut i64) -> bool {
+    let maximum: i64=9223372036854775807;let minimum: i64=-9223372036854775808;
+    if output == null { return false; }
+    if left > 0 {
+        if (right > 0 && left > maximum/right) || (right < 0 && right < minimum/left) { return false; }
+    } else if left < 0 {
+        if (right > 0 && left < minimum/right) || (right < 0 && left < maximum/right) { return false; }
+    }
+    unsafe{*output=left*right;}return true;
+}
+
+pub fn native_contract_i64_div(left: i64, right: i64, output: *mut i64) -> bool {
+    let minimum: i64=-9223372036854775808;
+    if output == null || right == 0 || (left == minimum && right == -1) { return false; }
+    unsafe{*output=left/right;}return true;
+}

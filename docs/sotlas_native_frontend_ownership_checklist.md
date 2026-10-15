@@ -10,6 +10,146 @@ contracts. Local validation must pass CI before being called certified.
 
 ## Frontend parity
 
+### SV8.56 — 36 native contracts (2026-10-15)
+
+Starting from `bba4c7a`, this candidate adds four bounded contracts in each
+of nine still-open migration areas. Whole-topic completion and CI certification
+remain open. Every delivery below has an execution or rejection gate.
+
+#### SV8.56 Frontend
+
+- [x] Execute local-name += with mutability checks and exactly one RHS evaluation.
+- [x] Execute local-name -= while rejecting immutable bindings.
+- [x] Execute local-name *= while preserving existing operand type checks.
+- [x] Execute local-name /= and reject unsupported compound assignment places.
+
+Gate: `test_sotlas_native_migration_sv856`.
+
+#### SV8.56 Native ownership
+
+- [x] Accept preserving conditional then-break edges with implicit fallthrough.
+- [x] Accept preserving else-break edges with a live then arm.
+- [x] Accept preserving conditional then-continue edges using the surrounding loop entry.
+- [x] Restore nested loop entry snapshots for preserving else-continue edges.
+
+Gate: `test_sotlas_native_migration_sv856`.
+
+#### SV8.56 Sotlas memory runtime
+
+- [x] Initialize a caller-backed byte buffer with bounded empty/null state.
+- [x] Append bytes with overlap-safe movement and checked capacity.
+- [x] Truncate a byte buffer while clearing its discarded suffix.
+- [x] Consume a byte prefix while compacting contents and clearing the old tail.
+
+Gate: `test_sotlas_native_migration_sv856`.
+
+#### SV8.56 States, effects, authority and contracts
+
+- [x] Guard signed I64 addition before publishing a result.
+- [x] Guard signed I64 subtraction before publishing a result.
+- [x] Guard signed I64 multiplication across sign combinations and the minimum value.
+- [x] Guard signed I64 division against zero and minimum divided by minus one.
+
+Gate: `test_sotlas_native_migration_sv856`.
+
+#### SV8.56 Native IR and lowering
+
+- [x] Reject unrelated flags and edge metadata on stack allocations.
+- [x] Reject reserved flags and edge metadata on direct calls.
+- [x] Reject unrelated symbol, flag and edge metadata on system operations.
+- [x] Validate block labels and instruction source ranges before object emission.
+
+Gate: `test_sotlas_native_migration_sv856`.
+
+#### SV8.56 Owned backend execution and word API
+
+- [x] Execute U64 leading-zero counts with a defined zero result of 64.
+- [x] Execute U64 trailing-zero counts with a defined zero result of 64.
+- [x] Execute full-width U64 bit reversal.
+- [x] Execute checked U64 bit extraction, including zero and full widths.
+
+Gate: `test_sotlas_native_migration_sv856`.
+
+#### SV8.56 Owned objects and linking
+
+- [x] Require a zero program-header entry size when ELF has no program headers.
+- [x] Require aligned section-header geometry outside the ELF header.
+- [x] Reject file-backed section payloads overlapping the ELF header.
+- [x] Reject file-backed section payloads overlapping the section-header table.
+
+Gate: `test_sotlas_native_tool_operations_sv856`.
+
+#### SV8.56 Native CLI
+
+- [x] Emit resolved project objects from --project-list-resolve-object manifests.
+- [x] Select the host compiler entry with --project-list-compiler.
+- [x] Resolve compiler manifests with --project-list-resolve-compiler.
+- [x] Cross-emit a Mach-O application from --project-list-macho manifests.
+
+Gate: `test_sotlas_native_tool_operations_sv856`.
+
+#### SV8.56 Bootstrap and self-hosting
+
+- [x] Validate project semantics before --project-set-info reports source fingerprints.
+- [x] Validate project semantics before --stamp-project creates an exclusive stamp.
+- [x] Check semantics and source identity with --verify-project-stamp.
+- [x] Validate both projects before --compare-projects compares corresponding source bytes.
+
+Gate: `test_sotlas_native_tool_operations_sv856`.
+
+Compound assignment currently accepts identifier places only. The parser
+desugars a copied identifier and one RHS into the existing typed binary/assign
+pipeline; fields, indices and dereferences fail closed. Existing numeric and
+division behavior applies; compound syntax does not add checked arithmetic.
+
+An early conditional break/continue may coexist with fallthrough only when all
+visible owners on that edge preserve the surrounding loop-entry state. Moving
+an owner before the conditional remains an error. Nested loop entry snapshots
+are restored on return to the outer loop. General mixed CFG and automatic
+resource cleanup beyond the existing POD ownership profile remain open.
+
+NativeByteBuffer stores a caller-owned pointer, capacity and used length. Append
+allows overlapping source bytes; truncate/consume clear discarded storage.
+Callers must provide valid backing memory, writable outputs and metadata
+disjoint from backing/source storage. These functions neither allocate nor
+prove lifetimes, ownership or thread safety. Signed guards leave outputs
+unchanged on rejection. They are explicit APIs, not migrated canonical effects
+or contract syntax. Word functions use existing scalar IR rather than dedicated
+LZCNT/TZCNT or bit-reversal instruction selection.
+
+IR checks validate metadata/source ranges; ELF checks validate file geometry.
+They do not expand the accepted relocation ABI or establish that arbitrary
+external objects are safe to execute. Empty/NOBITS payloads keep their existing
+contracts.
+
+New compiler-manifest commands reuse the existing compiler entry signatures
+and ordered/resolved source concatenation. Mach-O output is x86-64 application
+cross-generation; local validation does not claim native macOS execution.
+Shared limits remain 16 paths, 65,535 manifest bytes and 4,095-byte paths;
+emission requires at least two modules. Typed module interfaces and package
+resolution remain open.
+
+Project audits first run the resolved native check pipeline, then reuse SOTART01
+ordered FNV/size records or byte comparison. Dependency graphs are reset between
+checks in the same process. These commands validate source sets, not compiler
+fixed points; stamps are not cryptographic authentication. Files must remain
+stable during reads. Existing stamp outputs are preserved; failed new-file
+writes may leave partial artifacts.
+
+Local validation for this candidate:
+
+- Full Windows regression suite: **3154 tests passed, 79 platform/toolchain
+  skips, 943.042 seconds**. Existing skips were retained.
+- The 36 new gates passed with Windows Python 3.10 (33.976 seconds) and through
+  actual Linux x86-64 execution in WSL (40.880 seconds).
+- Linux original-source Stage 2/3 byte identity and complete Darwin compiler
+  cross-generation passed: two gates, 113.420 seconds. The full Windows suite
+  also includes the native Windows Stage 2/3 fixed-point gate.
+- Local Darwin evidence is cross-generation, not native macOS execution.
+- Candidate CI remains pending; no GitHub workflow was monitored for this package.
+
+
+
 ### SV8.55 — 36 native contracts (2026-10-15)
 
 Starting from `d9abed4`, this candidate adds four bounded contracts in each

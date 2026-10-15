@@ -870,11 +870,11 @@ let owner:sole Token=Token{value:42};let mut count:u32=0;
 while count<3{count=count+1;
 if consume(owner)==42{break;}else{continue;}}
 return consume(owner);}''',
-            # An implicit fallthrough arm is not a uniform loop exit.
+            # A partial break must not consume an owner still visible after the loop.
             '''pub fn main_entry()->u32{
 let owner:sole Token=Token{value:42};let mut count:u32=0;
 while count<3{count=count+1;
-if count==1{break;}else{count=count+1;}}
+if count==1{consume(owner);break;}else{count=count+1;}}
 return consume(owner);}''',
         )
         for index,body in enumerate(cases):

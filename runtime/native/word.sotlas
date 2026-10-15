@@ -28,3 +28,28 @@ pub fn native_word_popcount(value: u64) -> u32 {
     while bits != 0 { bits=bits & (bits-1);count=count+1; }
     return count;
 }
+
+pub fn native_word_leading_zeros(value: u64) -> u32 {
+    if value == 0 { return 64; }
+    let mut mask: u64=9223372036854775808;let mut count: u32=0;
+    while (value & mask) == 0 { count=count+1;mask=mask >> 1; }return count;
+}
+
+pub fn native_word_trailing_zeros(value: u64) -> u32 {
+    if value == 0 { return 64; }
+    let mut bits: u64=value;let mut count: u32=0;
+    while (bits & 1) == 0 { count=count+1;bits=bits >> 1; }return count;
+}
+
+pub fn native_word_reverse_bits(value: u64) -> u64 {
+    let mut bits: u64=value;let mut result: u64=0;let mut count: u32=0;
+    while count < 64 { result=(result << 1) | (bits & 1);bits=bits >> 1;count=count+1; }return result;
+}
+
+pub fn native_word_extract(value: u64, start: u32, width: u32, output: *mut u64) -> bool {
+    if output == null || start > 64 || width > 64-start { return false; }
+    if width == 0 { unsafe{*output=0;}return true; }
+    let mut mask: u64=18446744073709551615;
+    if width < 64 { mask=((1 as u64) << (width as u64))-1; }
+    unsafe{*output=(value >> (start as u64)) & mask;}return true;
+}
