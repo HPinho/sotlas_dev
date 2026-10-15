@@ -3,9 +3,34 @@
 **Status:** active implementation track  
 **Started:** 2026-10-03 (America/Fortaleza)  
 **Green baseline at track start:** `7162167dec6fd5fa0a216121b147335d222e43f1` / CI #1063  
-**Latest inspected green baseline:** `ce93fa9` / [CI #1221](https://github.com/HPinho/sotlas_dev/actions/runs/38621972769). The owner subsequently reported the workflow green for `24d5627` (SV8.51); that run was not independently inspected here.
+**Latest inspected green baseline:** `0df0bb95bfc3ae9300d49be8063703d722d32d87` / [CI #1233](https://github.com/HPinho/sotlas_dev/actions/runs/38781346034), including Linux/Windows/Intel-macOS jobs and native compiler fixed point.
 
 
+
+## SV8.58 — explicit managed byte resources in native Sotlas runtime (2026-10-15)
+
+**Certified baseline:** `0df0bb95bfc3ae9300d49be8063703d722d32d87` /
+[CI #1233](https://github.com/HPinho/sotlas_dev/actions/runs/38781346034).
+
+The Sotlas-written `runtime/native/managed.sotlas` now binds one uniquely
+owned reference-control block to caller-backed bytes. It keeps a generation
+snapshot in the managed resource, allows strong retains and matching weak
+upgrades, and clears the payload exactly when the final strong release occurs.
+Subsequent release/upgrade and old resource bindings fail closed even if the
+reference header is recycled. A final-release status authorizes exactly one
+caller-managed cleanup, without C object glue or a Python semantic fallback.
+
+`test_sotlas_native_migration_sv858` contains native execute/reject gates for
+retained payload, final zeroing, weak invalidation, stale generations, invalid
+binding and foreign weak tokens. Stable, disjoint buffer/control storage remains
+a caller precondition, with no hidden heap allocation, atomic reference counts,
+language-integrated ARC/drop, guaranteed lifetime proof or thread safety.
+This candidate is not certified until its own complete matrix passes.
+
+**Next SV8.59:** make the resource lifecycle callable from compiler-generated
+ownership cleanup or construct a typed cross-module interface boundary with
+positive and negative ABI/capability signatures; retain strict fail-closed
+unsupported paths and preserve native fixed-point CI.
 
 ### SV8.57 regression repair — native execution fixture (2026-10-15)
 

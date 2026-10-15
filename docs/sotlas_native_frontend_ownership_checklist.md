@@ -8,6 +8,24 @@ language parity. Parent items stay open until every contracted form has native
 positive, negative and execution coverage. Subitems record smaller validated
 contracts. Local validation must pass CI before being called certified.
 
+### SV8.58 — native managed byte-resource final release (2026-10-15)
+
+**Last green baseline:** `0df0bb95bfc3ae9300d49be8063703d722d32d87` /
+[CI #1233](https://github.com/HPinho/sotlas_dev/actions/runs/38781346034).
+
+- [x] Bind a unique live reference header to a checked caller-backed byte payload without C allocation.
+- [x] Retain and upgrade generation-matched weak tokens only for their original managed payload.
+- [x] Keep payload bytes intact on nonfinal release; clear exactly the declared range upon final release and invalidate weak upgrades.
+- [x] Reject null/empty, stale/recycled, shared-at-bind and mismatched-resource states without changing the reference count.
+
+**Execution and rejection gate:** `tests/test_sotlas_native_migration_sv858.py`.
+The Sotlas-owned API is single-threaded and caller-driven: stable/disjoint
+header, handle and payload storage are preconditions. This is **not**
+automatic compiler-emitted ARC, heap allocation, destructor dispatch or
+general owned payload lifetime/escape validation. Those parent items stay open.
+No compiler C/Python fallback or weakened CI gate is introduced. Candidate
+awaits its own complete cross-platform and self-host fixed-point matrix.
+
 ### SV8.57 — compound integer assignments in the Sotlas-written frontend (2026-10-15)
 
 Baseline: `08b0cc4b3009291dfea8fbdba229e5ca9202dbef` / [green CI #1231](https://github.com/HPinho/sotlas_dev/actions/runs/38762917787).
