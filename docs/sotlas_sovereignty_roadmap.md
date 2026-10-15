@@ -3,9 +3,26 @@
 **Status:** active implementation track  
 **Started:** 2026-10-03 (America/Fortaleza)  
 **Green baseline at track start:** `7162167dec6fd5fa0a216121b147335d222e43f1` / CI #1063  
-**Latest inspected green baseline:** `ce93fa9` / [CI #1221](https://github.com/HPinho/sotlas_dev/actions/runs/38621972769). The SV8.50 candidate requires its own CI certification.
+**Latest inspected green baseline:** `ce93fa9` / [CI #1221](https://github.com/HPinho/sotlas_dev/actions/runs/38621972769). The owner subsequently reported the workflow green for `24d5627` (SV8.51); that run was not independently inspected here.
 
 
+
+## SV8.52 — native linking of separate ELF objects (2026-10-14)
+
+Based on the owner-reported green `24d5627`, all native drivers now accept
+`--link-elf-objects OUTPUT ENTRY INPUT.o...` and emit a hosted Linux x86-64 image
+through the owned linker. Up to 16 independently compiled objects share an
+8 MiB input budget. Structural validation and symbol resolution finish before
+output is opened. Native gates cover input ordering, cross-object calls,
+duplicate and unresolved symbols, malformed inputs and output preservation.
+
+The [checklist](sotlas_native_frontend_ownership_checklist.md) now marks all 72
+bounded SV8.50/SV8.51 contracts individually. Full typed module interfaces,
+package compilation and multi-object PE/Mach-O output remain open.
+
+Local gates passed: seven new cases on Windows Python 3.10.11 and Linux through
+WSL, 40 final Target IR/CLI regressions, Windows/Linux Stage 2/3 identity and
+complete Darwin compiler cross-generation. Candidate CI remains pending.
 
 ## SV8.51 — literals, reusable runtime and native artifact operations (2026-10-14)
 
@@ -33,8 +50,8 @@ Final local validation: 3,003 Windows tests passed with 79 platform/toolchain
 skips in 969.761 seconds. All 36 new gates passed on Windows, Linux through WSL
 and Windows Python 3.10.11; the combined targeted run passed 182 tests. Linux
 Stage 2/3 identity and complete Darwin compiler cross-generation passed in
-125.815 seconds. Windows Stage 2/3 passed in the full suite. CI certification,
-including native Intel macOS execution, remains pending.
+125.815 seconds. Windows Stage 2/3 passed in the full suite. The owner reported
+the workflow green for `24d5627`; the run number was not independently inspected.
 
 
 ## SV8.50 — native runtime and migration boundaries (2026-10-14)

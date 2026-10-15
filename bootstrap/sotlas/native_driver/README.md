@@ -1080,3 +1080,21 @@ Stamps are reproducibility metadata, not signatures. Seed envelope checks are
 still required and do not authenticate origin. Callers keep seed files stable
 during envelope/hash reads. Existing-path rejection uses exclusive file creation,
 including aliases to an existing seed; creation is not a publication transaction.
+
+## SV8.52: separate ELF inputs
+
+`--link-elf-objects OUTPUT ENTRY INPUT.o...` links 1–16 independently compiled
+ELF64 x86-64 relocatable objects using the Sotlas linker. It is available in all
+three native drivers and always emits a hosted Linux ELF image. PE and Mach-O
+multi-object output are not provided by this command.
+
+The inputs share an 8 MiB budget; the image buffer is 16 MiB. Missing or invalid
+inputs, duplicate definitions, unresolved symbols and an absent entry fail
+before output is opened. Input files are fully loaded first, so an output may
+replace an input intentionally. Output write failures retain the normal CLI
+contract and may leave a partial file. Determinism applies to a fixed input order.
+
+Independent objects currently use declared foreign ABI symbols to describe
+cross-object calls. Typed module interfaces, symbol visibility enforcement,
+incremental dependency tracking and complete separate compilation remain open.
+See `test_sotlas_native_multi_object_cli` for acceptance and rejection gates.

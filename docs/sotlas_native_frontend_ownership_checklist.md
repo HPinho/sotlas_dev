@@ -10,6 +10,37 @@ contracts. Local validation must pass CI before being called certified.
 
 ## Frontend parity
 
+### SV8.52 — independently compiled ELF objects (2026-10-14)
+
+The native Linux, Windows and Darwin drivers now provide
+`--link-elf-objects OUTPUT ENTRY INPUT.o...`. It always produces an x86-64 Linux
+ELF executable, including when invoked on Windows or Darwin. It accepts 1–16
+ELF relocatable inputs, with an 8 MiB combined input budget and a 16 MiB image
+buffer. All inputs are loaded and structurally validated before output I/O.
+The existing owned linker resolves calls across objects and rejects duplicate
+definitions, unresolved calls and missing entry points.
+
+- [x] Load and link bounded, independently compiled objects through a native CLI.
+- [x] Resolve cross-object calls with either input ordering.
+- [x] Reject malformed/missing inputs, duplicate symbols and unresolved calls
+  before replacing an existing output.
+- [x] Enforce object count, entry and combined input capacity bounds.
+- [x] Emit reproducible images for a fixed input order, including a single input.
+- [ ] Complete separate module compilation, typed interface metadata and package
+  dependency resolution without source concatenation.
+- [ ] Extend multi-object CLI linking to owned PE and Mach-O images.
+
+Gate: `test_sotlas_native_multi_object_cli`. This bounded operation does not
+establish general ELF compatibility or whole-language ABI parity. The output
+uses the existing hosted Linux entry contract; it is not a barecore kernel image.
+Local validation: all seven new gates passed on Windows (Python 3.10.11)
+and Linux through WSL. The previous 17 CLI/bootstrap gates also passed.
+The final Target IR and native CLI regression run passed 40 tests.
+Original-source Stage 2/3 identity passed on Windows and Linux; complete Darwin
+compiler cross-generation passed on Linux. Native Intel macOS execution and
+the new candidate's CI result remain pending.
+
+
 
 ### SV8.51 — the next 36 native migration contracts (2026-10-14)
 
@@ -70,8 +101,77 @@ Linux through WSL and Windows Python 3.10.11. The combined frontend/CLI/migratio
 run passed 182 tests. Linux original-source Stage 2/3 identity and complete Darwin
 compiler cross-generation passed in 125.815 seconds; Windows Stage 2/3 passed in
 the full suite. Native Intel macOS execution remains a CI gate. CI certification
-is pending; full migration parents stay open.
+was reported green by the repository owner for `24d5627`. The run number was
+not independently inspected in this update; full migration parents stay open.
 
+
+### Implemented contracts from the green SV8.51 baseline
+
+The following checks refer to the bounded contracts in `24d5627`, not to
+completion of their parent migration areas. Gates are listed above.
+
+#### Frontend
+
+- [x] Hexadecimal integer values lower natively.
+- [x] binary integer values.
+- [x] octal integer values.
+- [x] ASCII byte character values with supported escapes.
+
+#### Native ownership primitives
+
+- [x] Capture a weak token bound to its control block.
+- [x] upgrade through that token.
+- [x] recycle a released header with generation advancement.
+- [x] distinguish invalid, retained and final releases.
+
+#### Sotlas memory runtime
+
+- [x] Allocate cleared arena storage.
+- [x] copy non-overlapping memory with checked arithmetic.
+- [x] move overlapping memory in either direction.
+- [x] clear discarded bytes during checked rewind.
+
+#### Authority/state/effect guards
+
+- [x] Initialize an authority mask/generation.
+- [x] revoke bits with generation advancement.
+- [x] reject stale authority observations.
+- [x] guard a destination state mask with current authority.
+
+#### Native IR
+
+- [x] Reject unknown opcode IDs.
+- [x] reject reserved function flag bits.
+- [x] reject reserved value flag bits while preserving domains.
+- [x] reject noncanonical PointerCast metadata.
+
+#### Owned backend/ABI
+
+- [x] Sign-extend i32 pointer offsets before scaling.
+- [x] handle i64 pointer offsets.
+- [x] handle the native isize source alias.
+- [x] lower unsigned 64-bit literal addresses only under unsafe.
+
+#### Owned objects/linking
+
+- [x] Bound symbol names to their own string table.
+- [x] reject unsupported bindings.
+- [x] reject indirect-function/TLS types and reserved visibility bits.
+- [x] bound defined symbol extents to their section.
+
+#### Native CLI
+
+- [x] Check explicit projects without output.
+- [x] check dependency-resolved explicit projects without output.
+- [x] validate ELF object structure/symbols.
+- [x] link an existing object with the owned platform linker.
+
+#### Bootstrap tools
+
+- [x] Compare three artifacts without premature success output.
+- [x] create an exclusive seed stamp.
+- [x] verify stamp content/size/platform/version.
+- [x] report seed fingerprint and exact size.
 
 ### SV8.50 — four advances in each migration area (2026-10-14)
 
@@ -115,6 +215,71 @@ it is a compiler. FNV-1a is a reproducibility aid, not a cryptographic signature
 Stage 2/3 gates retain byte identity assertions and now exercise native compare,
 fingerprint, envelope checks and self-tests with host tools absent. Complete
 language parity, package distribution and broader fixed-point closure remain open.
+
+### Implemented SV8.50 contracts retained in the current baseline
+
+#### SV8.50 Frontend
+
+- [x] Nested block comments.
+- [x] numeric separator/radix-prefix validation.
+- [x] string line-break rejection, including escaped breaks.
+- [x] source NUL rejection inside code/comments/literals.
+
+#### SV8.50 Native ownership primitives
+
+- [x] Initialize a local strong control block.
+- [x] checked retain.
+- [x] final release authorizes one destruction.
+- [x] generation-checked weak upgrade acquires a strong reference.
+
+#### SV8.50 Sotlas memory runtime
+
+- [x] Initialize a caller-backed arena.
+- [x] allocate with actual-address alignment and checked capacity.
+- [x] capture an arena-specific mark.
+- [x] rewind with epoch invalidation and unchanged state on failure.
+
+#### SV8.50 State/effect/authority/contract guards
+
+- [x] Check all required authority bits.
+- [x] delegate only a subset.
+- [x] guard a state transition with expected state and authority.
+- [x] validate a range without overflow.
+
+#### SV8.50 Native IR/lowering
+
+- [x] Reject invalid/void SSA value types.
+- [x] reject unrecognized ownership IDs.
+- [x] distinguish parameter/value and return type sets.
+- [x] validate function/parameter/value source spans before call-aware emission.
+
+#### SV8.50 Owned backend/ABI
+
+- [x] Pointer/U64 roundtrip.
+- [x] pointer/usize roundtrip and usize pointer offsets.
+- [x] require unsafe for address conversions.
+- [x] reject narrowing/signed/float address conversions.
+
+#### SV8.50 Owned objects/linking
+
+- [x] Validate ELF version/header envelope.
+- [x] reject a nonempty undefined section.
+- [x] validate the section-name table.
+- [x] reject a forged undefined symbol.
+
+#### SV8.50 Native CLI
+
+- [x] `--version` reports contract versions.
+- [x] `--limits` reports bounds.
+- [x] `--target` reports the platform and ABI limits.
+- [x] `--exit-codes` reports the error contract.
+
+#### SV8.50 Bootstrap tooling
+
+- [x] Stream byte comparison.
+- [x] stream FNV-1a fingerprints.
+- [x] check the native seed platform/architecture envelope.
+- [x] self-test frontend, typed IR and owned object emission.
 
 Final local candidate validation: 2,967 Windows regression tests passed with 79
 platform/toolchain skips in 897.171 seconds. All 40 added execution/audit gates
