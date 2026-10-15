@@ -7,6 +7,9 @@ class NativeMigrationSV857Tests(unittest.TestCase):
     tearDownClass=classmethod(previous.NativeMigrationSV856Tests.tearDownClass.__func__)
     compile=previous.NativeMigrationSV856Tests.compile
     execute=previous.NativeMigrationSV856Tests.execute
+    # The shared executor links each compiled object through self.link_image.
+    # Keep the native execution gate, including Windows and Intel macOS.
+    link_image=previous.NativeMigrationSV856Tests.link_image
 
     def verify_operator(self,op,initial,operand,name):
         valid='pub fn main_entry()->u32{let mut value:u32='+str(initial)+';value'+op+str(operand)+';return value;}'

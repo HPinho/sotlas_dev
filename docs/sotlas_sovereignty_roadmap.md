@@ -7,6 +7,20 @@
 
 
 
+### SV8.57 regression repair — native execution fixture (2026-10-15)
+
+CI [#1232](https://github.com/HPinho/sotlas_dev/actions/runs/38775167195)
+reported seven `AttributeError: 'NativeMigrationSV857Tests' object has no
+attribute 'link_image'` errors in the new SV8.57 execution tests on Linux,
+Windows and Intel macOS. The root cause was a missing Python *test harness*
+method binding, not a reason to remove native compile/link/execute gates.
+Restore the same `link_image` delegation already used by SV8.56 so all eight
+SV8.57 tests retain their positive execution and negative rejection checks.
+No Sotlas compiler/lexer/parser, ABI, assertions or previous tests are changed.
+Last certified baseline remains `08b0cc4` / green CI #1231; the repair is
+a candidate until its own full matrix passes. Next native implementation
+remains SV8.58 after regression closure.
+
 ## SV8.57 — six native compound operators and bounded owner safety (2026-10-15)
 
 **Last verified green baseline:** `08b0cc4b3009291dfea8fbdba229e5ca9202dbef` /
