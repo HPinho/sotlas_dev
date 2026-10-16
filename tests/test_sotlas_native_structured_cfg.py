@@ -133,7 +133,7 @@ pub fn main_entry()->u32{return 42;}
         # The driver regression was its 257th literal: bytes existed in rodata,
         # but the address had no symbol or relocation and pointed into text.
         functions = []
-        for function in range(8):
+        for function in range(32):
             bindings = "\n".join(
                 f'let p{index}: *const u8 = "v{function * 64 + index:03d}";'
                 for index in range(64)
@@ -142,7 +142,7 @@ pub fn main_entry()->u32{return 42;}
                 f"fn chunk{function}() -> u32 {{ {bindings} "
                 "return unsafe { *(p63 + 1) } as u32; }"
             )
-        body = "\n".join(functions) + "\npub fn main_entry() -> u32 { return chunk7(); }"
+        body = "\n".join(functions) + "\npub fn main_entry() -> u32 { return chunk31(); }"
         result, output = self.compile("string_capacity", body)
         self.assertEqual(result.returncode, 0, result.stderr)
         data = output.read_bytes()
@@ -166,10 +166,10 @@ pub fn main_entry()->u32{return 42;}
                     struct.unpack_from("<Q", data, start + offset + 8)[0] >> 32
                     for offset in range(0, size, 24)
                 )
-        self.assertEqual(len(string_symbols), 512)
-        self.assertEqual(len([symbol for symbol in string_relocations if symbol in string_symbols]), 512)
+        self.assertEqual(len(string_symbols), 2048)
+        self.assertEqual(len([symbol for symbol in string_relocations if symbol in string_symbols]), 2048)
         self.assertTrue(string_symbols.issubset(string_relocations))
-        overflow = body.replace("return chunk7();", 'let extra: *const u8 = "overflow"; return chunk7();')
+        overflow = body.replace("return chunk31();", 'let extra: *const u8 = "overflow"; return chunk31();')
         rejected, absent = self.compile("string_capacity_overflow", overflow)
         self.assertNotEqual(rejected.returncode, 0)
         self.assertFalse(absent.exists())

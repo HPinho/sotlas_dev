@@ -300,6 +300,8 @@ class NativeDarwinDriverTests(unittest.TestCase):
         self.run_tool([str(stage3), "--self-test"], env=self.environment)
         self.run_tool(["/bin/bash", str(ROOT / "tests/native/match_ranges/verify.sh"),
                        str(stage3), str(self.directory / "match range cases")], timeout=120)
+        self.run_tool(["/bin/bash", str(ROOT / "tests/native/large_modules/verify.sh"),
+                       str(stage3), str(self.directory / "large module cases")], timeout=120)
         source = self.directory / "stage3_program.sotlas"
         source.write_bytes((ROOT / "examples/native_float_profile.sotlas").read_bytes())
         output = self.directory / "stage3_program"

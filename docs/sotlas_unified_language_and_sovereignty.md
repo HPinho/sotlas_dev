@@ -4,7 +4,7 @@
 
 **Snapshot:** 2026-10-16, America/Sao_Paulo
 
-**Source revision:** `899fce1` plus the SV8.63 native match-guard candidate
+**Source revision:** `2e93a8d` plus the SV8.64 native capacity candidate
 
 **Purpose:** one English reference for implemented contracts, remaining language work,
 optional foreign interoperability and removal of mandatory Python/C toolchain dependencies.
@@ -114,6 +114,15 @@ obligations. Baseline is green [CI #1234](https://github.com/HPinho/sotlas_dev/a
 (`fd6dd7d`). SV8.59 awaits its own matrix.
 
 ## 2. Current implementation
+
+**SV8.64 native capacity:** the unified object backend accepts 1,024 function
+declarations, including foreign declarations, and the literal tables accept
+2,048 symbols within the unchanged 65,536-byte decoded pool. Windows and
+Linux/WSL executed exact-boundary programs, rejected one-over inputs while
+preserving existing images, and rebuilt identical Stage 2/3 compilers. Remote
+CI and Intel macOS execution remain pending. See the
+[capacity contract](native_large_modules.md). Full frontend/ownership parity
+and independent distribution remain open.
 
 SV8.63 adds Boolean guards to native match statements, including ranges and
 guarded wildcards. It implements pattern-hit-only evaluation, lazy conditions,
@@ -788,6 +797,19 @@ candidate, publish only after its gates pass, and continue maintenance without
 relabeling unimplemented architectural goals as completed features.
 
 ## 12. Complete native migration checklist
+
+### SV8.64 — native compiler capacity (2026-10-16)
+
+- [x] Expand the unified function symbol, offset and size tables to 1,024 declarations.
+- [x] Expand all literal symbol tables to 2,048 entries and preserve every relocation.
+- [x] Execute programs at both limits and reject one-over inputs without replacing prior executables.
+- [x] Verify the independent 65,536-byte string pool boundary, including NUL bytes.
+- [x] Rebuild Stage 2/3 with byte identity on Windows and Linux/WSL using native seeds.
+
+Local evidence: `tests/native/large_modules/verify.ps1`, `verify.sh`, the
+focused object relocation/byte-limit regressions and CLI limit gate. Intel
+macOS execution and remote CI remain pending. The full backend, ownership,
+frontend and distribution requirements below remain open.
 
 ### SV8.59 — native defer-driven managed resource close (2026-10-15)
 
@@ -2403,7 +2425,7 @@ an I/O failure during writing can leave a partial file. Newly created outputs
 use mode 0755; existing files retain their permissions.
 
 String literals share a pool of 65,536 decoded bytes, including NUL terminators,
-and at most 512 symbols per compilation. Exhausting either limit rejects
+and at most 2,048 symbols per compilation. Exhausting either limit rejects
 lowering before output is opened. Literals are never truncated to fit the pool,
 and every accepted string address has a data-symbol relocation.
 
@@ -2872,7 +2894,7 @@ rules as compilation and preserves outputs on failure.
 
 Input is bounded to 2 MiB. Input plus generated names uses a checked 4 MiB
 arena. Object emission supports 4,096 data relocations, with explicit failure
-on exhausted tables; the function limit remains 512. Candidate CI is required
+on exhausted tables; the unified function limit is 1,024. Candidate CI is required
 before these extensions are certified across all three platforms.
 
 #### Initialized storage and expression values

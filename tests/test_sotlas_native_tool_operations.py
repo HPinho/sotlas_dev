@@ -32,7 +32,9 @@ class NativeToolOperationsTests(unittest.TestCase):
 
     def test_cli_limits_are_machine_readable(self):
         output=self.native('--limits').stdout
-        self.assertIn(b'functions<=512\n',output)
+        self.assertIn(b'functions<=1024\n',output)
+        self.assertIn(b'string_symbols<=2048\n',output)
+        self.assertIn(b'string_bytes<=65536\n',output)
         self.assertIn(b'parameters_per_function<=24\n',output)
         self.assertIn(b'project_modules<=64\n',output)
         self.native('--limits','unexpected',expected=1)

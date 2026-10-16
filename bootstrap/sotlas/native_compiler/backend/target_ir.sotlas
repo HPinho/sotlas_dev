@@ -5,6 +5,7 @@ module sotlas::compiler::backend::target_ir;
 // It is a data boundary only: lowering and machine emission are separate stages.
 
 pub const TARGET_IR_VERSION: u32 = 1;
+pub const TARGET_OBJECT_FUNCTION_CAPACITY: u32 = 1024;
 pub const TARGET_EXTENDED_SOURCE_CAPACITY: usize = 4194304;
 pub const TARGET_VALUE_NONE: u32 = 0;
 pub const TARGET_BLOCK_NONE: u32 = 0;
@@ -1760,11 +1761,11 @@ pub fn target_module_validate_ssa_dominance(
 
 pub static mut g_rodata_buf: [u8; 65536] = 0;
 pub static mut g_rodata_len: usize = 0;
-pub const TARGET_RODATA_SYMBOL_CAPACITY: usize = 512;
-pub static mut g_rodata_sym_offsets: [usize; 512] = 0;
-pub static mut g_rodata_sym_lens: [usize; 512] = 0;
-pub static mut g_rodata_sym_places: [usize; 512] = 0;
-pub static mut g_rodata_sym_sizes: [usize; 512] = 0;
+pub const TARGET_RODATA_SYMBOL_CAPACITY: usize = 2048;
+pub static mut g_rodata_sym_offsets: [usize; 2048] = 0;
+pub static mut g_rodata_sym_lens: [usize; 2048] = 0;
+pub static mut g_rodata_sym_places: [usize; 2048] = 0;
+pub static mut g_rodata_sym_sizes: [usize; 2048] = 0;
 pub static mut g_rodata_sym_count: usize = 0;
 
 pub static mut g_bss_total_size: usize = 0;
