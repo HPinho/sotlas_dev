@@ -421,6 +421,7 @@ impl Lexer {
             if self.matches_str(offset, 2, "as") { return TokenKind::KwAs; }
             if self.matches_str(offset, 2, "in") { return TokenKind::KwIn; }
         } else if len == 3 {
+            if self.matches_str(offset, 3, "for") { return TokenKind::KwFor; }
             if self.matches_str(offset, 3, "pub") { return TokenKind::KwPub; }
             if self.matches_str(offset, 3, "let") { return TokenKind::KwLet; }
             if self.matches_str(offset, 3, "var") { return TokenKind::KwVar; }

@@ -7,6 +7,20 @@
 
 
 
+## SV8.61 — native loop/range syntax, implicit enums and borrowed text (2026-10-15)
+
+Starting from `7a36a3e`, this package adds new source capabilities: unconditional
+loops, exclusive integer for ranges and implicit/mixed scalar enum values.
+The parser builds native AST nodes and structured CFG; generated constants and
+hidden range bindings do not depend on Python or a host string allocator.
+
+A new Sotlas text module provides length-delimited borrowed values, substring
+operations, field/line iteration and decimal parsing. A native program composes
+these APIs to parse key=value records. [The checklist](sotlas_native_frontend_ownership_checklist.md)
+records 36 contracts across these four new capability families, plus execution
+and rejection gates. Built-in slices/str, generics, payload enums, automatic ARC
+and typed separate modules remain open. Candidate CI is pending.
+
 ## SV8.60 — managed strong slots and native object rebuild audits (2026-10-15)
 
 Starting from online `88c80e2`, this package adds 36 bounded contracts across

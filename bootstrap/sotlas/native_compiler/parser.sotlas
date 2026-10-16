@@ -520,6 +520,56 @@ impl Parser {
         return node;
     }
 
+    // Internal literal payload: zero source length plus -(value+1). Source
+    // literals never use this representation; source spans still name syntax.
+    pub fn generated_integer(mut self: &mut Self, point: Span, value: u64) -> usize {
+        if value > 4294967295 { self.reject_current();return 0; }
+        let node:usize=self.alloc_node(AstKind::ExprLiteral,point);
+        if node != 0 { unsafe{(*(self.nodes+node)).int_value=-(value as i64)-1;} }return node;
+    }
+
+    pub fn name_expression(mut self: &mut Self, name: Token) -> usize {
+        return self.alloc_text_node(AstKind::ExprIdent,name);
+    }
+
+    pub fn range_for_statement(mut self: &mut Self, keyword: Token) -> usize {
+        self.advance();let mut mutable:bool=false;
+        if self.match_token(TokenKind::KwMut) || self.match_token(TokenKind::KwVar) || self.match_token(TokenKind::KwLet) {
+            mutable=!self.match_token(TokenKind::KwLet);self.advance();
+        }
+        let name:Token=self.expect(TokenKind::Ident);let separator:Token=self.expect(TokenKind::KwIn);
+        if self.error_count != 0 { return 0; }
+        let start:usize=self.parse_expression();self.expect(TokenKind::DotDot);
+        let finish:usize=self.parse_expression();
+        if start == 0 || finish == 0 || self.error_count != 0 || !self.match_token(TokenKind::OpenBrace) { self.reject_current();return 0; }
+        let user_body:usize=self.parse_block();if user_body == 0 { return 0; }
+        let outer:usize=self.alloc_node(AstKind::Block,keyword.span);
+        // Reserved keyword spellings are hygienic hidden binding names.
+        let cursor:usize=self.alloc_text_node(AstKind::LetStmt,keyword);
+        let limit:usize=self.alloc_text_node(AstKind::LetStmt,separator);
+        let repeating:usize=self.alloc_node(AstKind::WhileStmt,keyword.span);
+        let body:usize=self.alloc_node(AstKind::Block,keyword.span);
+        let binding:usize=self.alloc_text_node(AstKind::LetStmt,name);
+        let increment:usize=self.alloc_node(AstKind::AssignStmt,keyword.span);
+        if outer == 0 || cursor == 0 || limit == 0 || repeating == 0 || body == 0 || binding == 0 || increment == 0 { return 0; }
+        unsafe{(*(self.nodes+cursor)).int_value=1;(*(self.nodes+repeating)).int_value=1;
+            if mutable { (*(self.nodes+binding)).int_value=1; }}
+        let mut compare:Token=keyword;compare.kind=TokenKind::Lt;
+        let condition_left:usize=self.name_expression(keyword);let condition_right:usize=self.name_expression(separator);
+        let condition:usize=self.make_binary(condition_left,compare,condition_right);
+        let mut plus:Token=keyword;plus.kind=TokenKind::Plus;
+        let next_left:usize=self.name_expression(keyword);let one:usize=self.generated_integer(keyword.span,1);
+        let next:usize=self.make_binary(next_left,plus,one);
+        if condition == 0 || next == 0
+            || !self.append_child(cursor,start) || !self.append_child(limit,finish)
+            || !self.append_child(binding,self.name_expression(keyword))
+            || !self.append_child(increment,self.name_expression(keyword)) || !self.append_child(increment,next)
+            || !self.append_child(body,binding) || !self.append_child(body,increment) || !self.append_child(body,user_body)
+            || !self.append_child(repeating,condition) || !self.append_child(repeating,body)
+            || !self.append_child(outer,cursor) || !self.append_child(outer,limit) || !self.append_child(outer,repeating) { return 0; }
+        return outer;
+    }
+
     pub fn parse_expression_statement(mut self: &mut Self) -> usize {
         let left: usize = self.parse_expression();
         if left == 0 {
@@ -585,6 +635,18 @@ impl Parser {
     pub fn parse_statement(mut self: &mut Self) -> usize {
         let tok: Token = self.current();
         if tok.kind == TokenKind::OpenBrace { return self.parse_block(); }
+        if tok.kind == TokenKind::KwFor { return self.range_for_statement(tok); }
+        if tok.kind == TokenKind::KwLoop {
+            self.advance();let loop_node:usize=self.alloc_node(AstKind::WhileStmt,tok.span);
+            let mut equal:Token=tok;equal.kind=TokenKind::EqEq;
+            let left:usize=self.generated_integer(tok.span,1);let right:usize=self.generated_integer(tok.span,1);
+            let condition:usize=self.make_binary(left,equal,right);
+            if !self.match_token(TokenKind::OpenBrace) { self.reject_current();return 0; }
+            let body:usize=self.parse_block();
+            if loop_node == 0 || condition == 0 || body == 0
+                || !self.append_child(loop_node,condition) || !self.append_child(loop_node,body) { return 0; }
+            unsafe{(*(self.nodes+loop_node)).int_value=2;}return loop_node;
+        }
         if tok.kind == TokenKind::KwMatch { return self.parse_match_statement(); }
         if tok.kind == TokenKind::KwLet || tok.kind == TokenKind::KwVar {
             self.advance();
@@ -1057,29 +1119,14 @@ impl Parser {
                         return 0;
                     }
 
-                    // The first native enum subset is deliberately explicit:
-                    // every variant must carry a source integer discriminant.
-                    // Keep the diagnostic anchored on the variant so the old
-                    // implicit-variant rejection contract remains stable.
-                    if !self.match_token(TokenKind::Equal) {
-                        if self.error_count == 0 {
-                            self.error_line = variant_name.span.line;
-                            self.error_col = variant_name.span.col;
-                        }
-                        self.error_count = self.error_count + 1;
-                        return 0;
-                    }
-                    self.advance();
-
-                    let value_tok: Token = self.current();
-                    if value_tok.kind != TokenKind::IntLit {
-                        self.reject_current();
-                        return 0;
-                    }
-                    self.advance();
-                    let value_node: usize = self.alloc_text_node(AstKind::ExprLiteral, value_tok);
-                    if value_node == 0 || !self.append_child(variant_node, value_node) {
-                        return 0;
+                    if self.match_token(TokenKind::Equal) {
+                        self.advance();let value_tok:Token=self.current();
+                        if value_tok.kind != TokenKind::IntLit { self.reject_current();return 0; }
+                        self.advance();let value_node:usize=self.alloc_text_node(AstKind::ExprLiteral,value_tok);
+                        if value_node == 0 || !self.append_child(variant_node,value_node) { return 0; }
+                    } else if !self.match_token(TokenKind::Comma) && !self.match_token(TokenKind::CloseBrace) {
+                        // Payload variants require their own layout and remain closed.
+                        self.reject_current();return 0;
                     }
                     if !self.append_child(enum_node, variant_node) {
                         return 0;

@@ -1,0 +1,116 @@
+module sotlas::runtime::text;
+
+// Explicit borrowed byte slices. The caller retains storage and lifetime
+// responsibility; valid means checked shape, not a proof of accessible memory.
+pub struct NativeByteSlice { pub data:*const u8; pub length:usize; pub valid:bool; }
+pub struct NativeTextSplit { pub found:bool; pub before:NativeByteSlice; pub after:NativeByteSlice; }
+pub struct NativeTextCursor { pub input:NativeByteSlice; pub offset:usize; pub finished:bool; }
+
+pub fn native_text_open(data:*const u8, length:usize) -> NativeByteSlice {
+    let mut valid:bool=true;
+    if (data == null && length != 0) || length > 18446744073709551615-(unsafe{data as usize}) { valid=false; }
+    return NativeByteSlice{data:data,length:length,valid:valid};
+}
+pub fn native_text_invalid() -> NativeByteSlice { return NativeByteSlice{data:null,length:0,valid:false}; }
+pub fn native_text_valid(value:NativeByteSlice) -> bool {
+    return value.valid && native_text_open(value.data,value.length).valid;
+}
+pub fn native_text_sub(value:NativeByteSlice, offset:usize, count:usize) -> NativeByteSlice {
+    if !native_text_valid(value) || offset > value.length || count > value.length-offset { return native_text_invalid(); }
+    if value.data == null { return native_text_open(null,0); }
+    return native_text_open(unsafe{value.data+offset},count);
+}
+pub fn native_text_at(value:NativeByteSlice, offset:usize, output:*mut u8) -> bool {
+    if output == null || !native_text_valid(value) || offset >= value.length { return false; }
+    unsafe{*output=*(value.data+offset);}return true;
+}
+pub fn native_text_compare(left:NativeByteSlice, right:NativeByteSlice, output:*mut i32) -> bool {
+    if output == null || !native_text_valid(left) || !native_text_valid(right) { return false; }
+    let mut index:usize=0;
+    while index < left.length && index < right.length {
+        let a:u8=unsafe{*(left.data+index)};let b:u8=unsafe{*(right.data+index)};
+        if a < b { unsafe{*output=-1;}return true; }if a > b { unsafe{*output=1;}return true; }index=index+1;
+    }
+    let mut result:i32=0;if left.length < right.length { result=-1; }else if left.length > right.length { result=1; }
+    unsafe{*output=result;}return true;
+}
+pub fn native_text_equal(left:NativeByteSlice, right:NativeByteSlice) -> bool {
+    if !native_text_valid(left) || !native_text_valid(right) || left.length != right.length { return false; }
+    let mut index:usize=0;while index < left.length {
+        if unsafe{*(left.data+index)} != unsafe{*(right.data+index)} { return false; }index=index+1;
+    }return true;
+}
+pub fn native_text_starts_with(value:NativeByteSlice, prefix:NativeByteSlice) -> bool {
+    if !native_text_valid(value) || !native_text_valid(prefix) || prefix.length > value.length { return false; }
+    return native_text_equal(native_text_sub(value,0,prefix.length),prefix);
+}
+pub fn native_text_ends_with(value:NativeByteSlice, suffix:NativeByteSlice) -> bool {
+    if !native_text_valid(value) || !native_text_valid(suffix) || suffix.length > value.length { return false; }
+    return native_text_equal(native_text_sub(value,value.length-suffix.length,suffix.length),suffix);
+}
+pub fn native_text_find(value:NativeByteSlice, needle:NativeByteSlice, output:*mut usize) -> bool {
+    if output == null || !native_text_valid(value) || !native_text_valid(needle) || needle.length > value.length { return false; }
+    let mut index:usize=0;while index <= value.length-needle.length {
+        if native_text_equal(native_text_sub(value,index,needle.length),needle) { unsafe{*output=index;}return true; }index=index+1;
+    }return false;
+}
+pub fn native_text_split_once(value:NativeByteSlice, separator:NativeByteSlice) -> NativeTextSplit {
+    let mut offset:usize=0;
+    if separator.length == 0 || !native_text_find(value,separator,unsafe{(&mut offset) as *mut usize}) {
+        return NativeTextSplit{found:false,before:value,after:native_text_invalid()};
+    }
+    let tail:usize=offset+separator.length;
+    return NativeTextSplit{found:true,before:native_text_sub(value,0,offset),after:native_text_sub(value,tail,value.length-tail)};
+}
+pub fn native_text_space(byte:u8) -> bool { return byte == 32 || (byte >= 9 && byte <= 13); }
+pub fn native_text_trim_ascii(value:NativeByteSlice) -> NativeByteSlice {
+    if !native_text_valid(value) { return native_text_invalid(); }
+    let mut first:usize=0;let mut last:usize=value.length;
+    while first < last && native_text_space(unsafe{*(value.data+first)}) { first=first+1; }
+    while last > first && native_text_space(unsafe{*(value.data+last-1)}) { last=last-1; }
+    return native_text_sub(value,first,last-first);
+}
+pub fn native_text_parse_u64(value:NativeByteSlice, output:*mut u64) -> bool {
+    if output == null || !native_text_valid(value) || value.length == 0 { return false; }
+    let mut result:u64=0;let mut index:usize=0;
+    while index < value.length {
+        let byte:u8=unsafe{*(value.data+index)};if byte < 48 || byte > 57 { return false; }
+        let digit:u64=(byte-48) as u64;if result > (18446744073709551615-digit)/10 { return false; }
+        result=result*10+digit;index=index+1;
+    }unsafe{*output=result;}return true;
+}
+pub fn native_text_copy(value:NativeByteSlice, destination:*mut u8, capacity:usize) -> bool {
+    if !native_text_valid(value) || value.length > capacity { return false; }
+    if value.length == 0 { return true; }
+    let address:usize=unsafe{destination as usize};let source:usize=unsafe{value.data as usize};
+    if destination == null || value.length > 18446744073709551615-address { return false; }
+    let mut index:usize=0;
+    if address > source && address-source < value.length {
+        index=value.length;while index != 0 { index=index-1;unsafe{*(destination+index)=*(value.data+index);} }
+    } else { while index < value.length { unsafe{*(destination+index)=*(value.data+index);}index=index+1; } }
+    return true;
+}
+pub fn native_text_cursor(value:NativeByteSlice) -> NativeTextCursor {
+    return NativeTextCursor{input:value,offset:0,finished:!native_text_valid(value)};
+}
+pub fn native_text_split_next(mut cursor:*mut NativeTextCursor, separator:u8) -> NativeByteSlice {
+    if cursor == null { return native_text_invalid(); }
+    unsafe {
+        let value:NativeByteSlice=cursor.input;
+        if cursor.finished || !native_text_valid(value) || cursor.offset > value.length { return native_text_invalid(); }
+        let first:usize=cursor.offset;let mut last:usize=first;
+        while last < value.length && *(value.data+last) != separator { last=last+1; }
+        if last == value.length { cursor.finished=true;cursor.offset=last; }else { cursor.offset=last+1; }
+        return native_text_sub(value,first,last-first);
+    }
+}
+pub fn native_text_line_next(mut cursor:*mut NativeTextCursor) -> NativeByteSlice {
+    if cursor == null { return native_text_invalid(); }
+    unsafe {
+        if cursor.offset >= cursor.input.length { cursor.finished=true;return native_text_invalid(); }
+    }
+    let line:NativeByteSlice=native_text_split_next(cursor,10);
+    if line.valid && line.length != 0 && unsafe{*(line.data+line.length-1)} == 13 {
+        return native_text_sub(line,0,line.length-1);
+    }return line;
+}
