@@ -146,6 +146,17 @@ backing-storage lifetimes and exclusive handle aliasing remain caller
 obligations. Baseline is green [CI #1234](https://github.com/HPinho/sotlas_dev/actions/runs/38790093635)
 (`fd6dd7d`). SV8.59 awaits its own matrix.
 
+**SV8.65 integration candidate (2026-10-16):** a legacy Linux
+regression expected compiler exit 7 on 513 string occurrences, but SV8.64
+correctly permits 2,048. The revised native-driver suite keeps acceptance
+and execution at 512/513/2048, checks true 2049 rejection plus the independent
+65,536-byte decoded pool limit, and preserves the last output on failures.
+The six-case Windows/Unix capacity scripts and all compiler semantics remain
+intact. Last independently confirmed all-green run before this regression:
+[CI #1242](https://github.com/HPinho/sotlas_dev/actions/runs/38901099982)
+(`2e93a8d`). The #1243–#1248 Linux jobs reported this stale fixture failure;
+this candidate awaits full CI.
+
 ## 2. Current implementation
 
 **SV8.64 native capacity:** the unified object backend accepts 1,024 function

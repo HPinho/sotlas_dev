@@ -397,7 +397,22 @@ class NativeLinuxDriverTests(unittest.TestCase):
         self.run_tool([str(self.seed), "--check-build", str(root), str(entry), "unexpected"], expected=1, env=environment)
 
     @unittest.skipUnless(LINUX_X64, "execution requires Linux x86-64")
+    def test_native_capacity_report_matches_emitted_literal_boundaries(self):
+        """The executable, not the test constants, reports its profile."""
+        environment = {"PATH": str(self.directory / "no-host-tools")}
+        limits = self.run_tool([str(self.seed), "--limits"], env=environment)
+        for line in (b"functions<=1024", b"string_symbols<=2048",
+                     b"string_bytes<=65536"):
+            self.assertIn(line, limits.stdout)
+
+    @unittest.skipUnless(LINUX_X64, "execution requires Linux x86-64")
     def test_native_string_symbols_beyond_256_execute_and_overflow_preserves_output(self):
+        """Probe 512, 513, 2048 and *2049* symbols with no hosted tool PATH.
+
+        SV8.64 expanded the accepted literal count from 256 to 2048. An
+        earlier test mistakenly expected a failure at 513; this independent
+        native compiler check must track the actual accepted/rejected limit.
+        """
         functions = []
         for group in range(8):
             bindings = "\n".join(
@@ -409,16 +424,75 @@ class NativeLinuxDriverTests(unittest.TestCase):
         body = "module gate;\n" + "\n".join(functions)
         body += "\npub fn main_entry() -> u32 { return group7(); }"
         source = self.directory / "all_string_symbols.sotlas"
-        source.write_text(body)
         output = self.directory / "all_string_symbols"
         environment = {"PATH": str(self.directory / "no-tools")}
+
+        # The established 512-symbol program remains accepted.
+        self.assertEqual(body.count('= "v'), 512)
+        source.write_text(body, encoding="utf-8")
+        self.run_tool([str(self.seed), "--check", str(source)], env=environment)
         self.run_tool([str(self.seed), str(source), str(output)], env=environment)
         self.run_tool([str(output)], expected=ord("5"), env=environment)
+
+        # 513 symbols are valid after SV8.64, not an overflow. Compile, run,
+        # and verify the result before probing the actual upper boundary.
+        accepted = body.replace("return group7();",
+                                'let extra: *const u8 = "overflow"; return group7();')
+        self.assertEqual(accepted.count('= "v') + accepted.count('= "overflow"'), 513)
+        source.write_text(accepted, encoding="utf-8")
+        self.run_tool([str(self.seed), "--check", str(source)], env=environment)
+        self.run_tool([str(self.seed), str(source), str(output)], env=environment)
+        self.run_tool([str(output)], expected=ord("5"), env=environment)
+
+        # Exercise all 2048 literal relocations, without sharing a source
+        # literal pool and without relying on the standalone shell fixture.
+        large = ['module gate; fn digit(data:*const u8)->u32{'
+                 'return unsafe{*(data+4)} as u32;}']
+        for chunk in range(32):
+            parts = ['let mut total:u32=0;']
+            for index in range(64):
+                parts.append(f'total += digit("s{chunk * 64 + index:04d}");')
+            parts.append('return total;')
+            large.append(f'fn chunk{chunk}()->u32{{' + ''.join(parts) + '}')
+        calls = ''.join(f'total += chunk{chunk}();' for chunk in range(32))
+        large.append('pub fn main_entry()->u32{let mut total:u32=0;'
+                     + calls + 'if total!=107512{return 1;}return 42;}')
+        boundary = "\n".join(large)
+        self.assertEqual(boundary.count('digit("s'), 2048)
+        source.write_text(boundary, encoding="utf-8")
+        self.run_tool([str(self.seed), "--check", str(source)], env=environment)
+        self.run_tool([str(self.seed), str(source), str(output)], env=environment)
+        self.run_tool([str(output)], expected=42, env=environment)
         previous = output.read_bytes()
-        source.write_text(body.replace("return group7();",
-                                      'let extra: *const u8 = "overflow"; return group7();'))
-        self.run_tool([str(self.seed), str(source), str(output)], expected=7, env=environment)
-        self.assertEqual(output.read_bytes(), previous)
+
+        # One additional distinct, live reference must fail *lowering*.
+        # Neither --check nor compilation may touch the previous image.
+        over_limit = boundary.replace('if total!=107512{return 1;}',
+                                      'total += digit("s2048");'
+                                      'if total!=107512{return 1;}')
+        self.assertEqual(over_limit.count('digit("s'), 2049)
+        source.write_text(over_limit, encoding="utf-8")
+        for args in ([str(self.seed), "--check", str(source)],
+                     [str(self.seed), str(source), str(output)]):
+            self.run_tool(args, expected=7, env=environment)
+            self.assertEqual(output.read_bytes(), previous)
+
+        # The decoded byte pool remains independently limited to 65536
+        # including NUL; a symbol-capacity increase cannot bypass it.
+        byte_program = ('module gate;pub fn main_entry()->u32{'
+                        'let data:*const u8="' + 'a' * 65535 + '";'
+                        'if unsafe{*data}!=97{return 1;}return 42;}')
+        source.write_text(byte_program, encoding="utf-8")
+        self.run_tool([str(self.seed), "--check", str(source)], env=environment)
+        self.run_tool([str(self.seed), str(source), str(output)], env=environment)
+        self.run_tool([str(output)], expected=42, env=environment)
+        previous = output.read_bytes()
+        source.write_text(byte_program.replace('a' * 65535, 'a' * 65536),
+                          encoding="utf-8")
+        for args in ([str(self.seed), "--check", str(source)],
+                     [str(self.seed), str(source), str(output)]):
+            self.run_tool(args, expected=7, env=environment)
+            self.assertEqual(output.read_bytes(), previous)
 
     @unittest.skipUnless(LINUX_X64, "execution requires Linux x86-64")
     def test_explicit_multifile_project_object_and_executable_match_producer(self):

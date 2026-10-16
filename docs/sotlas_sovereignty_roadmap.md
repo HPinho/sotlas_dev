@@ -40,6 +40,34 @@ ASCII. Native tests passed on Windows and Linux/WSL; Windows mixed-script
 drawing and cleanup passed. Encoding, layout/shaping and editing scopes remain
 distinct; remote CI is pending. See the [text contract](native_unicode_text.md).
 
+## SV8.65 — full-capacity regression closure and strengthened Linux gates (2026-10-16)
+
+**Last certified main baseline:** `2e93a8d78b720545943e85cccea6bb44c3420854` /
+[CI #1242](https://github.com/HPinho/sotlas_dev/actions/runs/38901099982).
+Commits #1243–#1248 added native capacity and preview application work, but
+their Linux matrix consistently failed an obsolete test expecting the 513th
+string literal to be rejected. The owned compiler now allows 2,048 literal
+symbols. The Windows and macOS suites passing on the latest run do not
+override that Linux failure.
+
+Restore the intended safety invariant **without weakening a test**: extend
+the Linux native file-driver integration test to run 512, 513 and all 2,048
+literal symbols, reject 2,049, independently prove the 65,536-byte decoded
+pool, query the compiler's `--limits` profile, and verify that failing check
+and compile operations preserve a previously generated image byte-for-byte.
+Run these programs using the native Sotlas toolchain with Python/C/external
+tools absent from its PATH. The existing cross-platform large-module
+scripts and Windows GUI/calculator release gates remain unchanged.
+
+No new semantic fallback, compiler source change, new branch or test skip.
+This cut remains a **candidate** until its own complete Linux/Windows/
+Intel macOS, Stage2/Stage3, packaging and runtime matrix passes.
+
+**Next larger implementation block, after green:** SV8.66+ should group
+fully typed separate-module interfaces, cross-object effect/ownership ABI
+proofs, and explicit resource-cleanup migration into a single tested
+sovereignty milestone rather than accumulating tiny standalone patches.
+
 ## SV8.64 — larger native programs (2026-10-16)
 
 The unified Sotlas object backend now accepts 1,024 functions; native literal
