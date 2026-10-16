@@ -22,11 +22,29 @@ the resource ledger and its cleanup are written entirely in Sotlas.
 There is no C intermediate or implicit Python semantic fallback
 in the generated resource execution.
 
+### SV8.66.1 — CI #1250 portable address-slot repair (2026-10-16)
+
+The Linux/Windows/Intel-macOS jobs of
+[CI #1250](https://github.com/HPinho/sotlas_dev/actions/runs/38949008917)
+failed the same 14 new positive native test compilations, all at the
+first pointer-to-pointer local cast from a scalar address array.
+The previous SV8.65 [CI #1249](https://github.com/HPinho/sotlas_dev/actions/runs/38940935785)
+is green. The native profile supports machine-pointer addresses but its
+nested pointer-to-pointer array cast is not certified.
+
+Keep the same complete 15-test ownership suite and its check/build/execute
+contracts. Store registered stable handle addresses in caller-owned
+`usize` entries (`*mut usize`) and cast each loaded scalar address
+explicitly back to the native handle pointer. This retains every LIFO,
+transactional preflight, detach/transfer and weak/strong lifetime guard.
+No test removal, test skip, previous code rollback or Python/C fallback.
+The repair is a **candidate** until its full cross-platform CI is green.
+
 ## Public API
 
 | Function | Contract |
 |---|---|
-| `native_managed_scope_init(entries, capacity)` | Initializes 1–64 slot pointers in caller memory; invalid extent/capacity yields an inert scope |
+| `native_managed_scope_init(entries, capacity)` | Initializes 1–64 caller-owned `usize` address slots (pointer to `usize`); invalid extent/capacity yields an inert scope |
 | `native_managed_scope_valid(scope)` | Checks table shape and bounded count |
 | `native_managed_scope_depth(scope)` | Reads the current number of registrations |
 | `native_managed_scope_contains(scope, handle)` | Tests registration by handle identity |

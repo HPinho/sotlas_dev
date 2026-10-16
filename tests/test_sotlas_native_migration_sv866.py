@@ -29,7 +29,7 @@ let pa:*mut NativeManagedBytes=unsafe{(&mut ra) as *mut NativeManagedBytes};
 let pb:*mut NativeManagedBytes=unsafe{(&mut rb) as *mut NativeManagedBytes};
 let pc:*mut NativeManagedBytes=unsafe{(&mut rc) as *mut NativeManagedBytes};
 let mut slots:[usize;4]=[0;4];
-let table:*mut *mut NativeManagedBytes=unsafe{slots as *mut *mut NativeManagedBytes};
+let table:*mut usize=unsafe{slots as *mut usize};
 let mut manager:NativeManagedScope=native_managed_scope_init(table,4);
 let m:*mut NativeManagedScope=unsafe{(&mut manager) as *mut NativeManagedScope};
 '''
@@ -107,7 +107,7 @@ return 42;''')
     def test_native_scope_transfer_promotes_resource_without_refcount_change(self):
         self.scope('sv866_transfer','''let mut more:[usize;2]=[0;2];
 let mut dest:NativeManagedScope=native_managed_scope_init(
- unsafe{more as *mut *mut NativeManagedBytes},2);
+ unsafe{more as *mut usize},2);
 let dp:*mut NativeManagedScope=unsafe{(&mut dest) as *mut NativeManagedScope};
 native_managed_scope_push(m,pa);native_managed_scope_push(m,pb);
 if !native_managed_scope_transfer(m,dp,pa) || manager.used!=1
@@ -120,7 +120,7 @@ return 42;''')
     def test_native_scope_transfer_full_target_is_atomic(self):
         self.scope('sv866_full_target','''let mut more:[usize;1]=[0;1];
 let mut dest:NativeManagedScope=native_managed_scope_init(
- unsafe{more as *mut *mut NativeManagedBytes},1);
+ unsafe{more as *mut usize},1);
 let dp:*mut NativeManagedScope=unsafe{(&mut dest) as *mut NativeManagedScope};
 native_managed_scope_push(m,pa);native_managed_scope_push(dp,pb);
 if native_managed_scope_transfer(m,dp,pa)
@@ -174,7 +174,7 @@ let mut r:NativeManagedBytes=native_managed_bytes_open(hp,unsafe{a as *mut u8},2
 let rp:*mut NativeManagedBytes=unsafe{(&mut r) as *mut NativeManagedBytes};
 let mut slots:[usize;1]=[0;1];
 let mut scope:NativeManagedScope=native_managed_scope_init(
- unsafe{slots as *mut *mut NativeManagedBytes},1);
+ unsafe{slots as *mut usize},1);
 let sc:*mut NativeManagedScope=unsafe{(&mut scope) as *mut NativeManagedScope};
 if !native_managed_scope_push(sc,rp) || leave(sc)!=42{return 1;}
 if a[0]!=0 || a[1]!=0 || a[2]!=91 || h.strong!=0
