@@ -1,0 +1,36 @@
+module probe::main;
+import sotlas::runtime::window_windows::*;
+
+pub fn main_entry() -> u32 {
+    if !native_window_start() { return 1; }
+    let mut title:[u16;32]=0;
+    let heading:*const u8="Sotlas native window";
+    let mut index:usize=0;
+    while index < 20 { let byte:u8=unsafe { *(heading+index) }; title[index]=byte as u16; index=index+1; }
+    if !native_window_create(unsafe { title as *const u16 },640,360,true) { native_window_stop(); return 2; }
+    let mut text:[u16;128]=0;
+    let initial:*const u8="Type here. Escape closes the window. ";
+    let mut count:usize=0;
+    while count < 37 { let byte:u8=unsafe { *(initial+count) }; text[count]=byte as u16; count=count+1; }
+    // Unicode text travels as UTF-16; this includes U+03A9 (Omega).
+    unsafe { text[count]=937; } count=count+1;
+    let mut event:NativeWindowEvent=NativeWindowEvent{kind:0,code:0,x:0,y:0};
+    let events:*mut NativeWindowEvent=unsafe { (&mut event) as *mut NativeWindowEvent };
+    let mut status:u32=0;
+    while native_window_alive() {
+        if !native_window_next(events,true) { continue; }
+        if event.kind == 4 || (event.kind == 5 && event.code == 27) { break; }
+        if event.kind == 1 {
+            if !native_window_paint(unsafe { text as *const u16 },count as u32) { status=3; break; }
+        }
+        if event.kind == 2 {
+            if event.code == 8 { if count > 0 { count=count-1; } }
+            else if event.code >= 32 && event.code <= 65535 && count < 128 {
+                unsafe { text[count]=event.code as u16; } count=count+1;
+            }
+            native_window_invalidate();
+        }
+    }
+    if !native_window_stop() { return 4; }
+    return status;
+}

@@ -115,6 +115,17 @@ responsibility at this raw API boundary.
 | `sotlas_windows_close_handle` | CloseHandle | u64 | u32 |
 | `sotlas_windows_get_std_handle` | GetStdHandle | u32 | u64 |
 | `sotlas_windows_get_last_error` | GetLastError | none | u32 |
+| `sotlas_windows_load_library` | LoadLibraryW | pointer | u64 |
+| `sotlas_windows_get_proc_address` | GetProcAddress | u64, pointer | u64 |
+
+The PE backend also resolves `sotlas_windows_call_scalar(u64, *const u64) -> u64`
+to an owned machine bridge. The pointer must reference twelve initialized
+scalar slots, and the target must be a live Win64 function with a matching
+scalar/pointer signature. This is an unsafe boundary, with no floating ABI,
+varargs, aggregate ABI, Sotlas callbacks or unwind support. The compiler checks
+the bridge declaration, not a dynamically resolved function signature. See the
+[Windows window probe](../../../examples/native_window/README.md) for its tested
+platform calls, resource ownership and remaining GUI limits.
 
 The bridge follows the [Microsoft x64 calling convention](https://learn.microsoft.com/en-us/cpp/build/x64-calling-convention),
 including register mapping, shadow space and stack arguments. The I/O gates

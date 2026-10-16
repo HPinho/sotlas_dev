@@ -1,0 +1,61 @@
+module probe::smoke;
+import sotlas::runtime::window_windows::*;
+
+fn exercise() -> u32 {
+    if !native_window_start() || !native_window_start() { return 1; }
+    let mut title:[u16;4]=0; title[0]=83; title[1]=937;
+    let name:*const u16=unsafe { title as *const u16 };
+    if native_window_create(null,640,360,false) || native_window_create(name,0,360,false) { return 2; }
+    if !native_window_create(name,320,240,false) || !native_window_alive() { return 3; }
+    if native_window_resource_count(1) == 0 { return 18; }
+    if native_window_create(name,320,240,false) { return 4; }
+    let mut size:NativeWindowSize=NativeWindowSize{width:0,height:0};
+    let dimensions:*mut NativeWindowSize=unsafe { (&mut size) as *mut NativeWindowSize };
+    if !native_window_measure(dimensions) || size.width == 0 || size.height == 0 || native_window_dpi() == 0 { return 5; }
+    let previous:u32=size.width;
+    if !native_window_resize(640,360) || !native_window_measure(dimensions) || size.width <= previous { return 6; }
+    if native_window_resize(0,0) || native_window_paint(null,2) || native_window_paint(name,1025) { return 7; }
+    if !native_window_invalidate() || !native_window_paint(name,2) { return 8; }
+    if !native_window_post(258,937,0) || !native_window_post(513,0,131071) || !native_window_post(256,27,0) { return 9; }
+    let mut event:NativeWindowEvent=NativeWindowEvent{kind:0,code:0,x:0,y:0};
+    let events:*mut NativeWindowEvent=unsafe { (&mut event) as *mut NativeWindowEvent };
+    let mut unicode:bool=false; let mut mouse:bool=false; let mut keyboard:bool=false;
+    let mut attempts:u32=0;
+    while attempts < 64 && (!unicode || !mouse || !keyboard) {
+        attempts=attempts+1;
+        if !native_window_next(events,false) { continue; }
+        if event.kind == 1 { if !native_window_paint(name,2) { return 10; } }
+        if event.kind == 2 && event.code == 937 { unicode=true; }
+        if event.kind == 3 && event.x == -1 && event.y == 1 { mouse=true; }
+        if event.kind == 5 && event.code == 27 { keyboard=true; }
+    }
+    if !unicode || !mouse || !keyboard { return 11; }
+    if !native_window_post(16,0,0) { return 12; }
+    let mut closed:bool=false; attempts=0;
+    while attempts < 64 && !closed {
+        attempts=attempts+1;
+        if native_window_next(events,false) && event.kind == 4 { closed=true; }
+    }
+    if !closed || !native_window_close() || native_window_alive() || !native_window_close() { return 13; }
+    return 42;
+}
+pub fn main_entry() -> u32 {
+    let mut iteration:u32=0;
+    let mut resources:u32=0;
+    let mut user_resources:u32=0;
+    if native_window_alive() || native_window_create(null,640,360,false) || native_window_post(258,42,0) { return 17; }
+    while iteration < 12 {
+        let result:u32=exercise();
+        if result != 42 { native_window_stop(); return result; }
+        let current:u32=native_window_resource_count(0);
+        let current_user:u32=native_window_resource_count(1);
+        if iteration == 1 { resources=current; user_resources=current_user; }
+        if iteration > 1 && (current > resources || current_user > user_resources) { native_window_stop(); return 14; }
+        iteration=iteration+1;
+    }
+    if !native_window_stop() || !native_window_stop() || native_window_alive() { return 15; }
+    // Releasing DLL references and unregistering the class must allow restart.
+    let result:u32=exercise();
+    if !native_window_stop() { return 16; }
+    return result;
+}

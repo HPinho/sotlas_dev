@@ -45,9 +45,15 @@ tracked separately; completion of this block does not certify them.
 
 ### P2 — platform proof
 
-- [ ] Implement a Windows platform probe through the native backend: window lifecycle, event dispatch, drawing, fonts and text input.
-- [ ] Validate required foreign ABI calls, record layouts, handles and any callback boundaries before building UI components on them.
+- [x] Implement a Windows platform probe through the native backend: window lifecycle, event dispatch, drawing, fonts and UTF-16 unit input.
+- [x] Validate required scalar Win64 calls, record layouts and handles; the probe uses the OS procedure rather than Sotlas callbacks.
 - [ ] Exercise resize, display scaling, focus, Unicode input, allocation/initialization failures and repeated open/close without resource leaks.
+
+**P2 first delivery (2026-10-16):** the [Windows window probe](../examples/native_window/README.md)
+passed local hidden-window lifecycle/input/resource gates and a visible drawing
+and text-update check. Resize, basic DPI queries and invalid-input rejection
+are covered; per-monitor scale/focus transitions, complete Unicode editing and
+injected OS allocation failures remain unvalidated. Remote CI is pending.
 
 The concrete OS rendering/text adapters are selected by this probe. The UI API
 and application logic are Sotlas code; platform bindings may call OS services.

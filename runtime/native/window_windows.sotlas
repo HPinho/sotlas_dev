@@ -1,0 +1,260 @@
+module sotlas::runtime::window_windows;
+
+// Windows x64 desktop probe. One window on one owning thread per process.
+// All addresses/handles below belong to OS modules loaded for this session.
+@extern(C) fn sotlas_windows_load_library(name:*const u16) -> u64;
+@extern(C) fn sotlas_windows_get_proc_address(library:u64, name:*const u8) -> u64;
+@extern(C) fn sotlas_windows_call_scalar(function:u64, arguments:*const u64) -> u64;
+
+static mut window_functions:[u64;32]=0;
+static mut window_modules:[u64;3]=0;
+static mut window_class:[u16;32]=0;
+static mut window_instance:u64=0;
+static mut window_handle:u64=0;
+static mut window_registered:bool=false;
+static mut window_ready:bool=false;
+
+pub struct NativeWindowEvent { pub kind:u32; pub code:u32; pub x:i32; pub y:i32; }
+pub struct NativeWindowSize { pub width:u32; pub height:u32; }
+
+fn window_call(id:usize, arguments:*const u64) -> u64 {
+    if id >= 32 { return 0; }
+    let function:u64=unsafe { window_functions[id] };
+    if function == 0 || arguments == null { return 0; }
+    // Every call site provides twelve readable, initialized scalar slots.
+    return sotlas_windows_call_scalar(function,arguments);
+}
+fn window_library(name:*const u8) -> u64 {
+    let mut wide:[u16;64]=0;
+    let mut length:usize=0;
+    while length < 63 && unsafe { *(name+length) } != 0 {
+        let byte:u8=unsafe { *(name+length) };
+        wide[length]=byte as u16;
+        length=length+1;
+    }
+    if unsafe { *(name+length) } != 0 { return 0; }
+    return sotlas_windows_load_library(unsafe { wide as *const u16 });
+}
+fn window_resolve(index:usize, library:usize, name:*const u8) -> bool {
+    let function:u64=sotlas_windows_get_proc_address(unsafe { window_modules[library] },name);
+    unsafe { window_functions[index]=function; }
+    return function != 0;
+}
+pub fn native_window_close() -> bool {
+    let handle:u64=unsafe { window_handle };
+    if handle == 0 { return true; }
+    let mut arguments:[u64;12]=0;
+    arguments[0]=handle;
+    if window_call(7,unsafe { arguments as *const u64 }) as u32 != 0 {
+        if window_call(6,unsafe { arguments as *const u64 }) as u32 == 0 { return false; }
+    }
+    unsafe { window_handle=0; }
+    return true;
+}
+pub fn native_window_stop() -> bool {
+    if !native_window_close() { return false; }
+    let mut arguments:[u64;12]=0;
+    let values:*const u64=unsafe { arguments as *const u64 };
+    if unsafe { window_registered } {
+        let class_data:*const u16=unsafe { window_class as *const u16 };
+        arguments[0]=unsafe { class_data as u64 };
+        arguments[1]=unsafe { window_instance };
+        if window_call(3,values) as u32 == 0 { return false; }
+        unsafe { window_registered=false; }
+    }
+    let mut library:usize=3;
+    while library != 0 {
+        library=library-1; arguments[0]=unsafe { window_modules[library] };
+        if arguments[0] != 0 {
+            if window_call(0,values) as u32 == 0 { return false; }
+            unsafe { window_modules[library]=0; }
+        }
+    }
+    let mut index:usize=0;
+    while index < 32 { unsafe { window_functions[index]=0; } index=index+1; }
+    unsafe { window_instance=0; window_ready=false; }
+    return true;
+}
+pub fn native_window_start() -> bool {
+    if unsafe { window_ready } { return true; }
+    unsafe { window_modules[0]=window_library("kernel32.dll"); }
+    if unsafe { window_modules[0] } == 0 { return false; }
+    if !window_resolve(0,0,"FreeLibrary") { return false; }
+    unsafe { window_modules[1]=window_library("user32.dll"); window_modules[2]=window_library("gdi32.dll"); }
+    if unsafe { window_modules[1] } == 0 || unsafe { window_modules[2] } == 0 { native_window_stop(); return false; }
+    let ready:bool=window_resolve(1,0,"GetModuleHandleW")
+        && window_resolve(2,1,"RegisterClassW") && window_resolve(3,1,"UnregisterClassW")
+        && window_resolve(4,1,"DefWindowProcW") && window_resolve(5,1,"CreateWindowExW")
+        && window_resolve(6,1,"DestroyWindow") && window_resolve(7,1,"IsWindow")
+        && window_resolve(8,1,"ShowWindow") && window_resolve(9,1,"PeekMessageW")
+        && window_resolve(10,1,"TranslateMessage") && window_resolve(11,1,"DispatchMessageW")
+        && window_resolve(12,1,"WaitMessage") && window_resolve(13,1,"BeginPaint")
+        && window_resolve(14,1,"EndPaint") && window_resolve(15,1,"GetClientRect")
+        && window_resolve(16,1,"FillRect") && window_resolve(17,1,"InvalidateRect")
+        && window_resolve(18,1,"PostMessageW") && window_resolve(19,1,"SetWindowPos")
+        && window_resolve(20,1,"GetSysColorBrush") && window_resolve(21,2,"GetStockObject")
+        && window_resolve(22,2,"SelectObject") && window_resolve(23,2,"SetTextColor")
+        && window_resolve(24,2,"SetBkMode") && window_resolve(25,2,"TextOutW")
+        && window_resolve(29,1,"GetDpiForWindow")
+        && window_resolve(30,1,"GetGuiResources") && window_resolve(31,0,"GetCurrentProcess");
+    if !ready { native_window_stop(); return false; }
+    let mut arguments:[u64;12]=0;
+    unsafe { window_instance=window_call(1,arguments as *const u64); }
+    if unsafe { window_instance } == 0 { native_window_stop(); return false; }
+    let name:*const u8="SotlasNativeWindow";
+    let mut index:usize=0;
+    while index < 18 {
+        let byte:u8=unsafe { *(name+index) };
+        unsafe { window_class[index]=byte as u16; } index=index+1;
+    }
+    // WNDCLASSW is 72 bytes on x64; the procedure is Win32's own Win64 code.
+    let mut descriptor:[u64;9]=0;
+    descriptor[0]=3; descriptor[1]=unsafe { window_functions[4] };
+    descriptor[3]=unsafe { window_instance }; descriptor[6]=6;
+    arguments[0]=0; arguments[1]=32512;
+    let load_cursor:u64=sotlas_windows_get_proc_address(unsafe { window_modules[1] },"LoadCursorW");
+    if load_cursor == 0 { native_window_stop(); return false; }
+    descriptor[5]=sotlas_windows_call_scalar(load_cursor,unsafe { arguments as *const u64 });
+    let class_data:*const u16=unsafe { window_class as *const u16 };
+    descriptor[8]=unsafe { class_data as u64 };
+    let description:*const u64=unsafe { descriptor as *const u64 };
+    arguments[0]=unsafe { description as u64 };
+    if window_call(2,unsafe { arguments as *const u64 }) as u16 == 0 { native_window_stop(); return false; }
+    unsafe { window_registered=true; window_ready=true; }
+    return true;
+}
+pub fn native_window_create(title:*const u16, width:u32, height:u32, visible:bool) -> bool {
+    if !unsafe { window_ready } || unsafe { window_handle } != 0 || title == null
+        || width < 160 || height < 120 || width > 4096 || height > 4096 { return false; }
+    let mut arguments:[u64;12]=0;
+    let class_data:*const u16=unsafe { window_class as *const u16 };
+    arguments[1]=unsafe { class_data as u64 };
+    arguments[2]=unsafe { title as u64 }; arguments[3]=13565952;
+    arguments[4]=2147483648; arguments[5]=2147483648;
+    arguments[6]=width as u64; arguments[7]=height as u64;
+    arguments[10]=unsafe { window_instance };
+    let handle:u64=window_call(5,unsafe { arguments as *const u64 });
+    if handle == 0 { return false; }
+    unsafe { window_handle=handle; }
+    if visible {
+        arguments[0]=handle; arguments[1]=5;
+        window_call(8,unsafe { arguments as *const u64 });
+    }
+    return true;
+}
+pub fn native_window_alive() -> bool {
+    let mut arguments:[u64;12]=0; arguments[0]=unsafe { window_handle };
+    return arguments[0] != 0 && window_call(7,unsafe { arguments as *const u64 }) as u32 != 0;
+}
+pub fn native_window_post(message:u32, code:u64, detail:u64) -> bool {
+    if !native_window_alive() { return false; }
+    let mut arguments:[u64;12]=0;
+    arguments[0]=unsafe { window_handle }; arguments[1]=message as u64;
+    arguments[2]=code; arguments[3]=detail;
+    return window_call(18,unsafe { arguments as *const u64 }) as u32 != 0;
+}
+pub fn native_window_resize(width:u32, height:u32) -> bool {
+    if !native_window_alive() || width < 160 || height < 120 || width > 4096 || height > 4096 { return false; }
+    let mut arguments:[u64;12]=0;
+    arguments[0]=unsafe { window_handle }; arguments[4]=width as u64; arguments[5]=height as u64;
+    arguments[6]=22;
+    return window_call(19,unsafe { arguments as *const u64 }) as u32 != 0;
+}
+pub fn native_window_invalidate() -> bool {
+    if !native_window_alive() { return false; }
+    let mut arguments:[u64;12]=0;
+    arguments[0]=unsafe { window_handle }; arguments[2]=1;
+    return window_call(17,unsafe { arguments as *const u64 }) as u32 != 0;
+}
+// Kinds: 0 ignored message, 1 paint, 2 UTF-16 unit, 3 mouse down, 4 close, 5 key.
+// Polls one message. The caller paints kind 1 before polling again.
+pub fn native_window_next(mut event:*mut NativeWindowEvent, wait:bool) -> bool {
+    if event == null || !unsafe { window_ready } { return false; }
+    unsafe { event.kind=0; event.code=0; event.x=0; event.y=0; }
+    if !native_window_alive() { unsafe { event.kind=4; } return true; }
+    let mut message:[u64;6]=0;
+    let mut arguments:[u64;12]=0;
+    let values:*const u64=unsafe { arguments as *const u64 };
+    let message_data:*mut u64=unsafe { message as *mut u64 };
+    arguments[0]=unsafe { message_data as u64 }; arguments[4]=1;
+    if window_call(9,values) as u32 == 0 {
+        if !native_window_alive() { unsafe { event.kind=4; } return true; }
+        if wait {
+            arguments[0]=0; arguments[4]=0;
+            window_call(12,values);
+        }
+        return false;
+    }
+    let kind:u32=message[1] as u32;
+    if kind == 18 || kind == 16 { unsafe { event.kind=4; } return true; }
+    if message[0] != unsafe { window_handle } { return true; }
+    if kind == 15 { unsafe { event.kind=1; } return true; }
+    if kind == 258 { unsafe { event.kind=2; event.code=message[2] as u32; } return true; }
+    if kind == 513 {
+        let x_bits:u16=message[3] as u16; let y_bits:u16=(message[3] >> 16) as u16;
+        let x:i16=x_bits as i16; let y:i16=y_bits as i16;
+        unsafe { event.kind=3; event.x=x as i32; event.y=y as i32; }
+        return true;
+    }
+    if kind == 256 { unsafe { event.kind=5; event.code=message[2] as u32; } }
+    window_call(10,values); window_call(11,values);
+    return true;
+}
+pub fn native_window_paint(text:*const u16, length:u32) -> bool {
+    if !native_window_alive() || text == null || length > 1024 { return false; }
+    let mut paint:[u64;9]=0;
+    let mut rectangle:[i32;4]=0;
+    let mut arguments:[u64;12]=0;
+    let values:*const u64=unsafe { arguments as *const u64 };
+    let paint_data:*mut u64=unsafe { paint as *mut u64 };
+    let rectangle_data:*mut i32=unsafe { rectangle as *mut i32 };
+    arguments[0]=unsafe { window_handle }; arguments[1]=unsafe { paint_data as u64 };
+    let dc:u64=window_call(13,values);
+    if dc == 0 { return false; }
+    arguments[1]=unsafe { rectangle_data as u64 };
+    let mut okay:bool=window_call(15,values) as u32 != 0;
+    arguments[0]=5; let brush:u64=window_call(20,values);
+    if brush == 0 { okay=false; }
+    arguments[0]=dc; arguments[2]=brush;
+    if window_call(16,values) as u32 == 0 { okay=false; }
+    arguments[0]=17; let font:u64=window_call(21,values);
+    arguments[0]=dc; arguments[1]=font;
+    let previous:u64=window_call(22,values);
+    if previous == 0 || previous == 18446744073709551615 { okay=false; }
+    arguments[1]=1; if window_call(24,values) as u32 == 0 { okay=false; }
+    arguments[1]=3153952;
+    if window_call(23,values) as u32 == 4294967295 { okay=false; }
+    arguments[1]=16; arguments[2]=20; arguments[3]=unsafe { text as u64 }; arguments[4]=length as u64;
+    if window_call(25,values) as u32 == 0 { okay=false; }
+    if previous != 0 && previous != 18446744073709551615 {
+        arguments[1]=previous;
+        let restored:u64=window_call(22,values);
+        if restored == 0 || restored == 18446744073709551615 { okay=false; }
+    }
+    arguments[0]=unsafe { window_handle }; arguments[1]=unsafe { paint_data as u64 };
+    if window_call(14,values) as u32 == 0 { okay=false; }
+    return okay;
+}
+pub fn native_window_dpi() -> u32 {
+    let mut arguments:[u64;12]=0; arguments[0]=unsafe { window_handle };
+    return window_call(29,unsafe { arguments as *const u64 }) as u32;
+}
+pub fn native_window_measure(mut size:*mut NativeWindowSize) -> bool {
+    if size == null || !native_window_alive() { return false; }
+    let mut rectangle:[i32;4]=0;
+    let mut arguments:[u64;12]=0;
+    let rectangle_data:*mut i32=unsafe { rectangle as *mut i32 };
+    arguments[0]=unsafe { window_handle }; arguments[1]=unsafe { rectangle_data as u64 };
+    if window_call(15,unsafe { arguments as *const u64 }) as u32 == 0 || rectangle[2] < 0 || rectangle[3] < 0 { return false; }
+    unsafe { size.width=rectangle[2] as u32; size.height=rectangle[3] as u32; }
+    return true;
+}
+// kind 0 counts GDI objects; kind 1 counts USER objects in the current process.
+pub fn native_window_resource_count(kind:u32) -> u32 {
+    if kind > 1 { return 0; }
+    let mut arguments:[u64;12]=0;
+    let values:*const u64=unsafe { arguments as *const u64 };
+    arguments[0]=window_call(31,values);
+    arguments[1]=kind as u64;
+    return window_call(30,values) as u32;
+}
