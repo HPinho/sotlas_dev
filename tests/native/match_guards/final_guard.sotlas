@@ -1,0 +1,2 @@
+module final_guard;
+pub fn main_entry() -> u32 { match 42 { _ if true => return 42; } }

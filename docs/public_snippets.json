@@ -189,6 +189,13 @@
       "verification": "scope-document-is-not-implementation-evidence"
     },
     {
+      "id": "native-match-guards",
+      "document": "docs/native_match_guards.md",
+      "status": "EXPERIMENTAL",
+      "source": "examples/native_guarded_dispatch.sotlas",
+      "verification": "native-stage3-match-fixtures; outside-the-canonical-stage0-c11-runnable-policy"
+    },
+    {
       "id": "native-integer-match-ranges",
       "document": "docs/native_match_ranges.md",
       "status": "EXPERIMENTAL",

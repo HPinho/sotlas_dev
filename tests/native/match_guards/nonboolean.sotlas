@@ -1,0 +1,5 @@
+module nonboolean_guard;
+pub fn main_entry() -> u32 {
+    let flag: u32 = 1;
+    match 42 { 42 if flag => return 42; _ => return 1; }
+}

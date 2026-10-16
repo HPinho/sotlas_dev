@@ -1,0 +1,7 @@
+module consuming_guard;
+struct Token { pub value: u32; }
+fn consume(value: sole Token) -> bool { return value.value == 42; }
+pub fn main_entry() -> u32 {
+    let owner: sole Token = Token { value: 42 };
+    match 42 { 42 if consume(owner) => return 42; _ => return 1; }
+}

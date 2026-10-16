@@ -1,0 +1,18 @@
+module guard_ownership;
+struct Token { pub value: u32; }
+fn read(value: whisper Token) -> bool { return value.value == 42; }
+fn consume(value: sole Token) -> bool { return value.value == 42; }
+fn take(value: sole Token) -> u32 { return value.value; }
+fn borrow() -> u32 {
+    let owner: sole Token = Token { value: 42 };
+    match 42 { 42 if read(owner) => return take(owner); _ => return take(owner); }
+}
+fn skipped() -> u32 {
+    let owner: sole Token = Token { value: 42 };
+    match 42 { 42 if false && consume(owner) => return 1; _ => {} }
+    return owner.value;
+}
+pub fn main_entry() -> u32 {
+    if borrow() != 42 || skipped() != 42 { return 1; }
+    return 42;
+}

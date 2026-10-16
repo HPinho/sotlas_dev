@@ -497,6 +497,7 @@ if sema.ownership_error_reason == 3 { return driver_position_error(6,sema.error_
 if sema.ownership_error_reason == 4 { return driver_position_error(6,sema.error_line,sema.error_col,"borrowed value cannot escape",28,TokenKind::Error); }
 if sema.ownership_error_reason == 5 { return driver_position_error(6,sema.error_line,sema.error_col,"deferred borrow prevents ownership transfer",43,TokenKind::Error); }
 if sema.ownership_error_reason == 6 { return driver_position_error(6,sema.error_line,sema.error_col,"deferred argument has unproven effects",38,TokenKind::Error); }
+if sema.ownership_error_reason == 7 { return driver_position_error(6,sema.error_line,sema.error_col,"match guard cannot consume ownership",36,TokenKind::Error); }
 return driver_position_error(6,sema.error_line,sema.error_col,"semantic error",14,TokenKind::Error); }
     let mut lowering: ScalarLowering = ScalarLowering::new(node_buffer, parser.node_count,
         source, source_length, unsafe { driver_values as *mut TargetValue }, 131072,
@@ -1747,19 +1748,23 @@ fn driver_extended_dispatch(argc: u64, argv: *const *const u8, option: *const u8
         if option_equals(option,"--project-list-macho",20) { mode=8; }
         return driver_project_manifest(unsafe{*(argv+3)},unsafe{*(argv+2)},mode);
     }
-    if option_equals(option,"--project-set-info",18) || option_equals(option,"--stamp-project",15)
-        || option_equals(option,"--verify-project-stamp",22) || option_equals(option,"--compare-projects",18) {
-        let info: bool=option_equals(option,"--project-set-info",18);
+    // Reuse option tests instead of allocating duplicate literal symbols in
+    // the bounded native compiler-source profile.
+    let project_info: bool=option_equals(option,"--project-set-info",18);
+    let project_verify: bool=option_equals(option,"--verify-project-stamp",22);
+    let project_compare: bool=option_equals(option,"--compare-projects",18);
+    if project_info || option_equals(option,"--stamp-project",15) || project_verify || project_compare {
+        let info: bool=project_info;
         if (info && argc != 3) || (!info && argc != 4) { return fail(1); }
         let first: *const u8=unsafe{*(argv+2)};
         let checked: u32=driver_project_manifest(first,null,2);if checked != 0 { return checked; }
         if info { return driver_artifact_set_info(first); }
         let second: *const u8=unsafe{*(argv+3)};
-        if option_equals(option,"--compare-projects",18) {
+        if project_compare {
             let checked_right: u32=driver_project_manifest(second,null,2);
             if checked_right != 0 { return checked_right; }return driver_compare_sets(first,second);
         }
-        return driver_artifact_set_stamp(first,second,option_equals(option,"--verify-project-stamp",22),false);
+        return driver_artifact_set_stamp(first,second,project_verify,false);
     }
     if option_equals(option,"--check-project-list",20) || option_equals(option,"--check-project-list-resolve",28) {
         if argc != 3 { return fail(1); }let mut mode: u32=1;

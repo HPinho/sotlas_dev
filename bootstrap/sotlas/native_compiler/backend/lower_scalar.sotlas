@@ -350,6 +350,8 @@ pub fn native_match_error_text(reason: u32) -> *const u8 {
     if reason == 3 { return "match range is empty or reversed"; }
     if reason == 4 { return "overlapping match patterns"; }
     if reason == 5 { return "non-exhaustive match: cover the domain or add a final wildcard"; }
+    if reason == 6 { return "match guard must be a supported Boolean expression"; }
+    if reason == 7 { return "final match arm must be unguarded"; }
     return "unsupported native form";
 }
 
@@ -359,6 +361,8 @@ pub fn native_match_error_length(reason: u32) -> usize {
     if reason == 3 { return 32; }
     if reason == 4 { return 26; }
     if reason == 5 { return 62; }
+    if reason == 6 { return 50; }
+    if reason == 7 { return 33; }
     return 23;
 }
 
@@ -6516,6 +6520,11 @@ impl ScalarLowering {
         }
         let mut patterns: [u64;64] = 0;
         let mut ends: [u64;64] = 0;
+        let mut guarded: [u8;64] = 0;
+        let mut wildcards: [u8;64] = 0;
+        let mut proof_patterns: [u64;64] = 0;
+        let mut proof_ends: [u64;64] = 0;
+        let mut proof_count: usize = 0;
         let mut arm: usize = unsafe { (*(self.nodes + subject)).next_sibling };
         let first_arm: usize = arm;
         let mut count: usize = 0; let mut wildcard: bool = false;
@@ -6526,8 +6535,16 @@ impl ScalarLowering {
             if arm_node.kind != AstKind::MatchArm || pattern == 0 || pattern >= self.node_count { return self.reject(arm); }
             let node: AstNode = unsafe { *(self.nodes + pattern) };
             let body: usize = node.next_sibling;
-            if body == 0 || body >= self.node_count || unsafe { (*(self.nodes + body)).kind } != AstKind::Block
-                || unsafe { (*(self.nodes + body)).next_sibling } != 0 { return self.reject(arm); }
+            if body == 0 || body >= self.node_count || unsafe { (*(self.nodes + body)).kind } != AstKind::Block {
+                return self.reject(arm);
+            }
+            let guard: usize = unsafe { (*(self.nodes + body)).next_sibling };
+            if guard != 0 {
+                if guard >= self.node_count || unsafe { (*(self.nodes + guard)).next_sibling } != 0
+                    || arm_node.int_value != 1 { return self.reject(arm); }
+                if arm_node.next_sibling == 0 { return self.reject_match(guard, 7); }
+                guarded[count] = 1;
+            } else if arm_node.int_value != 0 { return self.reject(arm); }
             if node.kind == AstKind::PatternRange {
                 if typ == TargetTypeTag::Bool || enum_id != 0 { return self.reject_match(pattern, 1); }
                 let mut low: u64 = 0; let mut high: u64 = 0;
@@ -6535,8 +6552,9 @@ impl ScalarLowering {
                 patterns[count] = low; ends[count] = high;
             } else if node.kind == AstKind::ExprIdent && node.str_len == 1
                 && unsafe { *(self.source + node.str_offset) } == 95 {
-                if arm_node.next_sibling != 0 { return self.reject(pattern); }
-                wildcard = true;
+                if guard == 0 && arm_node.next_sibling != 0 { return self.reject(pattern); }
+                wildcards[count] = 1;
+                if guard == 0 { wildcard = true; }
             } else {
                 if node.kind != AstKind::ExprLiteral && node.kind != AstKind::ExprIdent
                     && node.kind != AstKind::ExprUnary && node.kind != AstKind::ExprPath { return self.reject(pattern); }
@@ -6565,16 +6583,22 @@ impl ScalarLowering {
                 patterns[count] = bits;
                 ends[count] = bits;
             }
-            if !wildcard {
+            if wildcards[count] == 0 {
                 let low: u64 = native_match_order_key(patterns[count], typ);
                 let high: u64 = native_match_order_key(ends[count], typ);
                 let mut prior: usize = 0;
                 while prior < count {
-                    if low <= native_match_order_key(ends[prior], typ)
+                    if guarded[prior] == 0 && wildcards[prior] == 0
+                        && low <= native_match_order_key(ends[prior], typ)
                         && native_match_order_key(patterns[prior], typ) <= high {
                         return self.reject_match(pattern, 4);
                     }
                     prior = prior + 1;
+                }
+                if guard == 0 {
+                    proof_patterns[proof_count] = patterns[count];
+                    proof_ends[proof_count] = ends[count];
+                    proof_count = proof_count + 1;
                 }
             }
             count = count + 1; arm = arm_node.next_sibling;
@@ -6583,10 +6607,10 @@ impl ScalarLowering {
         if !wildcard {
             let mut covered: bool = false;
             if typ == TargetTypeTag::Bool || enum_id != 0 {
-                covered = self.match_coverage_complete(typ, enum_id, unsafe { patterns as *const u64 }, count);
+                covered = self.match_coverage_complete(typ, enum_id, unsafe { proof_patterns as *const u64 }, proof_count);
             } else {
-                covered = self.match_integer_coverage(typ, unsafe { patterns as *const u64 },
-                    unsafe { ends as *const u64 }, count);
+                covered = self.match_integer_coverage(typ, unsafe { proof_patterns as *const u64 },
+                    unsafe { proof_ends as *const u64 }, proof_count);
             }
             if !covered { return self.reject_match(index, 5); }
         }
@@ -6594,7 +6618,7 @@ impl ScalarLowering {
         let value: u32 = self.lower_expression(subject, typ, first_parameter, parameter_count);
         if value == 0 { return self.reject(subject); }
         if !wildcard && (typ == TargetTypeTag::Bool || enum_id != 0)
-            && !self.cfg_match_validity_guard(value, typ, unsafe { patterns as *const u64 }, count, subject) { return self.reject(subject); }
+            && !self.cfg_match_validity_guard(value, typ, unsafe { proof_patterns as *const u64 }, proof_count, subject) { return self.reject(subject); }
         let join: u32 = self.cfg_reserve_block();
         if join == 0 { return self.reject(subject); }
         let scope: usize = self.local_count;
@@ -6604,37 +6628,49 @@ impl ScalarLowering {
             let arm_node: AstNode = unsafe { *(self.nodes + arm) };
             let pattern: usize = arm_node.first_child;
             let body: usize = unsafe { (*(self.nodes + pattern)).next_sibling };
+            let guard: usize = unsafe { (*(self.nodes + body)).next_sibling };
             let selected: u32 = self.cfg_reserve_block();
             if selected == 0 { return self.reject(arm); }
             if first_body == 0 { first_body = selected; }
+            let mut next: u32 = 0;
             if arm_node.next_sibling == 0 {
                 if !self.cfg_jump(selected, arm) { return self.reject(arm); }
             } else {
-                let next: u32 = self.cfg_reserve_block();
-                let condition: u32 = self.append_match_interval(value, typ, patterns[ordinal], ends[ordinal], pattern);
-                if next == 0 || condition == 0 { return self.reject(arm); }
-                let test: u32 = self.operand_count as u32;
-                if !self.append_operand(condition) || !self.append_instruction(TargetOpcode::CondBranch, 0,
-                    TargetTypeTag::Bool, test, 1, pattern) { return self.reject(arm); }
-                let branch: usize = self.instruction_count - 1;
-                let targets: u32 = self.target_count as u32;
-                if !self.append_target(selected) || !self.append_target(next) { return self.reject(arm); }
-                unsafe { (*(self.instructions + branch)).first_target = targets; (*(self.instructions + branch)).target_count = 2; }
-                if !self.cfg_finish() { return self.reject(arm); }
-                self.cfg_begin(selected);
-                if !self.cfg_sequence(unsafe { (*(self.nodes + body)).first_child }, return_type,
-                    first_parameter, parameter_count, break_id, continue_id, depth + 1) { return false; }
-                if self.cfg_current != 0 { any_open = true; if !self.cfg_jump(join, arm) { return self.reject(arm); } }
-                self.local_count = scope;
-                self.cfg_begin(next);
-                ordinal = ordinal + 1; arm = arm_node.next_sibling;
-                continue;
+                next = self.cfg_reserve_block();
+                let mut matched: u32 = selected;
+                if guard != 0 { matched = self.cfg_reserve_block(); }
+                if next == 0 || matched == 0 { return self.reject(arm); }
+                if wildcards[ordinal] != 0 {
+                    if !self.cfg_jump(matched, arm) { return self.reject(arm); }
+                } else {
+                    let condition: u32 = self.append_match_interval(value, typ, patterns[ordinal], ends[ordinal], pattern);
+                    let operand: u32 = self.operand_count as u32;
+                    let targets: u32 = self.target_count as u32;
+                    if condition == 0 || !self.append_operand(condition)
+                        || !self.append_target(matched) || !self.append_target(next)
+                        || !self.append_instruction(TargetOpcode::CondBranch, 0, TargetTypeTag::Bool, operand, 1, pattern) {
+                        return self.reject(arm);
+                    }
+                    unsafe {
+                        (*(self.instructions + self.instruction_count - 1)).first_target = targets;
+                        (*(self.instructions + self.instruction_count - 1)).target_count = 2;
+                    }
+                    if !self.cfg_finish() { return self.reject(arm); }
+                }
+                if guard != 0 {
+                    self.cfg_begin(matched);
+                    if !self.cfg_test(guard, selected, next, first_parameter, parameter_count, depth + 1) {
+                        return self.reject_match(guard, 6);
+                    }
+                }
             }
             self.cfg_begin(selected);
             if !self.cfg_sequence(unsafe { (*(self.nodes + body)).first_child }, return_type,
                 first_parameter, parameter_count, break_id, continue_id, depth + 1) { return false; }
             if self.cfg_current != 0 { any_open = true; if !self.cfg_jump(join, arm) { return self.reject(arm); } }
             self.local_count = scope;
+            if next != 0 { self.cfg_begin(next); }
+            ordinal = ordinal + 1;
             arm = arm_node.next_sibling;
         }
         self.cfg_begin(join);

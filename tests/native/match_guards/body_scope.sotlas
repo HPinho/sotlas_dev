@@ -1,0 +1,4 @@
+module guard_scope;
+pub fn main_entry() -> u32 {
+    match 42 { 42 if hidden == 42 => { let hidden: u32 = 42; return hidden; } _ => return 1; }
+}

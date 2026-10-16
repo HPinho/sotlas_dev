@@ -7,6 +7,20 @@
 
 
 
+## SV8.63 — native match guards (2026-10-16)
+
+Starting from owner-reported green `899fce1`, this cut closes Boolean guards on
+native match statements. Parser, ownership checking and CFG lowering are Sotlas
+code. Guards run only after a pattern hit, false guards continue dispatch and
+only unguarded cases contribute to coverage. Supported POD borrows are allowed;
+guards that may consume owners are rejected.
+
+The combined 24 range/guard cases passed on Windows and Linux/WSL. Both native
+compilers rebuilt with Stage 2/3 byte identity; a guarded command dispatcher
+returned 42 on both. The 16 reality gates passed with the documentation snippet
+registered. No full suite or Intel macOS execution was run locally, and the
+candidate CI is pending. See the [native guard contract](native_match_guards.md).
+
 ## SV8.62 — native integer match ranges (2026-10-15)
 
 This cut implements `first..last` and `first..=last` from native AST through
