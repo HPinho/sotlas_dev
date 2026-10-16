@@ -823,7 +823,8 @@ pub fn native_managed_scope_release_last(mut scope: *mut NativeManagedScope) -> 
 pub fn native_managed_scope_rewind(
     scope: *mut NativeManagedScope, mark: usize
 ) -> bool {
-    if !native_managed_scope_valid(scope) { return false; }
+    if !native_managed_scope_valid(scope)
+        || !native_managed_scope_entries_distinct(scope) { return false; }
     unsafe {
         if mark > scope.used { return false; }
         let mut index: usize = mark;
@@ -856,6 +857,9 @@ pub fn native_managed_scope_transfer(
 ) -> bool {
     if source == destination || !native_managed_scope_valid(source)
         || !native_managed_scope_valid(destination)
+        || !native_managed_scope_tables_disjoint(source,destination)
+        || !native_managed_scope_entries_distinct(source)
+        || !native_managed_scope_entries_distinct(destination)
         || !native_managed_scope_contains(source,resource)
         || native_managed_scope_contains(destination,resource)
         || !native_managed_bytes_current(resource) { return false; }
@@ -864,4 +868,103 @@ pub fn native_managed_scope_transfer(
     }
     if !native_managed_scope_push(destination,resource) { return false; }
     return native_managed_scope_detach(source,resource);
+}
+
+
+// SV8.67: an entry is an exclusive registered handle identity, not the
+// identity of its shared ref header. Multiple separately retained handles
+// to one header are valid, but the same mutable handle cannot be registered
+// twice (even if the table was corrupted through unsafe caller writes).
+pub fn native_managed_scope_entries_distinct(scope: *const NativeManagedScope) -> bool {
+    if !native_managed_scope_valid(scope) { return false; }
+    let mut left: usize = 0;
+    unsafe {
+        while left < scope.used {
+            let address: usize = *(scope.entries+left);
+            if address == 0 { return false; }
+            let mut right: usize = left + 1;
+            while right < scope.used {
+                if *(scope.entries+right) == address { return false; }
+                right = right + 1;
+            }
+            left = left + 1;
+        }
+    }
+    return true;
+}
+
+// Distinct scope objects cannot safely share *any* table bytes, not even
+// unused rows. Both table extents are already proven non-overflowing.
+pub fn native_managed_scope_tables_disjoint(
+    first: *const NativeManagedScope, second: *const NativeManagedScope
+) -> bool {
+    if !native_managed_scope_valid(first) || !native_managed_scope_valid(second) {
+        return false;
+    }
+    unsafe {
+        let begin1: usize = first.entries as usize;
+        let begin2: usize = second.entries as usize;
+        let end1: usize = begin1 + first.capacity * 8;
+        let end2: usize = begin2 + second.capacity * 8;
+        return end1 <= begin2 || end2 <= begin1;
+    }
+}
+
+// All automatic registration below is explicitly requested by source code.
+// No compiler-generated ARC, hidden allocation or foreign runtime is used.
+// Reject full/duplicate/corrupted tables *before* creating any strong claim.
+fn native_managed_scope_can_receive(
+    scope: *const NativeManagedScope, destination: *mut NativeManagedBytes
+) -> bool {
+    if !native_managed_scope_valid(scope)
+        || !native_managed_scope_entries_distinct(scope)
+        || !native_managed_bytes_empty(destination)
+        || native_managed_scope_contains(scope,destination) { return false; }
+    unsafe { return scope.used < scope.capacity; }
+}
+
+// Obtain an independently strong retained slot, then register it to the
+// lexical scope. On registration failure close only the new slot.
+pub fn native_managed_scope_clone_into(
+    scope: *mut NativeManagedScope,
+    source: *const NativeManagedBytes, destination: *mut NativeManagedBytes
+) -> bool {
+    if !native_managed_scope_can_receive(scope,destination)
+        || !native_managed_bytes_current(source) { return false; }
+    if !native_managed_bytes_clone_into(source,destination) { return false; }
+    if native_managed_scope_push(scope,destination) { return true; }
+    native_managed_bytes_close(destination);
+    return false;
+}
+
+// Upgrade a matching weak generation into a new independently strong slot.
+// Expired and foreign weak tokens never change destination/table/refcount.
+pub fn native_managed_scope_upgrade_into(
+    scope: *mut NativeManagedScope,
+    source: *const NativeManagedBytes, weak: NativeWeakToken,
+    destination: *mut NativeManagedBytes
+) -> bool {
+    if !native_managed_scope_can_receive(scope,destination)
+        || !native_managed_bytes_current(source) { return false; }
+    if !native_managed_bytes_upgrade_into(source,weak,destination) { return false; }
+    if native_managed_scope_push(scope,destination) { return true; }
+    native_managed_bytes_close(destination);
+    return false;
+}
+
+// Transfer one existing caller-owned claim into a registered scope slot.
+// A source already registered in this scope must be detached first,
+// otherwise taking it would make the old table entry stale. On failure,
+// the prior source and destination states are restored by inverse take.
+pub fn native_managed_scope_take_into(
+    scope: *mut NativeManagedScope, source: *mut NativeManagedBytes,
+    destination: *mut NativeManagedBytes
+) -> bool {
+    if !native_managed_scope_can_receive(scope,destination)
+        || !native_managed_bytes_current(source)
+        || native_managed_scope_contains(scope,source) { return false; }
+    if !native_managed_bytes_take(source,destination) { return false; }
+    if native_managed_scope_push(scope,destination) { return true; }
+    let restored: bool = native_managed_bytes_take(destination,source);
+    return false;
 }

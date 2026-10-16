@@ -1,4 +1,4 @@
-# Native managed resource scopes — SV8.66
+# Native managed resource scopes — SV8.66–SV8.67
 
 **Scope:** compiled Sotlas machine code, bounded single-threaded profile,
 not a replacement for the canonical Python frontend's entire ownership
@@ -85,7 +85,57 @@ bootstrap and stage-identity gates remain enabled.
 
 **Certified baseline before this cut:** `768b6d1`, green
 [CI #1249](https://github.com/HPinho/sotlas_dev/actions/runs/38940935785).
-The SV8.66 commit is **candidate** until its complete workflow is green.
+SV8.66 became **CI-certified** through the subsequent compatible scalar-address-slot repair [#1251](https://github.com/HPinho/sotlas_dev/actions/runs/38957013245).
+
+## SV8.67 — Scoped strong/weak ownership transactions (2026-10-16)
+
+**Certified baseline:** [CI #1251](https://github.com/HPinho/sotlas_dev/actions/runs/38957013245)
+(`94823c443e741184f3c148e0435e06c72d4cb081`), all Linux/Windows/
+Intel-macOS, native seed and distribution jobs green. SV8.67 is a
+**candidate** until its own cross-platform CI passes.
+
+This larger block strengthens the Sotlas-written scoped resource API.
+A scope now accepts new independently retained strong slots using
+`native_managed_scope_clone_into`, matching generation-aware weak
+tokens using `native_managed_scope_upgrade_into`, and incoming strong
+claims without refcount changes using `native_managed_scope_take_into`.
+All three operations preflight the capacity, unique table state,
+destination emptiness and source liveness *before* changing resource
+state. Unexpected registration failure rolls back the newly published
+strong slot, rather than leaking the claim or corrupting the table.
+
+Additional table-hardening functions
+`native_managed_scope_entries_distinct` and
+`native_managed_scope_tables_disjoint` reject duplicate handle
+addresses (including corrupt entries installed using unsafe code) and
+overlapping scope-table allocations. Checked rewind will not partially
+release distinct live resources if duplicate table entries appear, and
+scope-to-scope transfer will not operate on overlapping tables.
+
+- [x] Register cloned strong claims directly into a scope, retaining
+  exactly once and releasing exactly once at scope cleanup.
+- [x] Promote a valid weak token directly into a scoped strong claim.
+  Expired, mismatched and foreign weak tokens fail without changing
+  destination or refcount.
+- [x] Take an existing strong claim into a new registered slot and poison
+  its previous slot; reject an already registered source and full table.
+- [x] Reject overlapping scope-table buffers, including separately
+  allocated scope structures pointing to the same backing array.
+- [x] Reject corrupted duplicate handle entries before any partial
+  LIFO cleanup.
+- [x] Prove successful adjacent disjoint tables, combined take/weak/defer
+  cleanup, final payload clearing and post-close weak invalidation.
+
+**Verification:** 16 additional native compile/link/execute/rejection tests
+in `tests/test_sotlas_native_migration_sv867.py`, supplementing all 15
+SV8.66 tests unchanged. The CLI native compilation and execution still
+run without Python/C inside the emitted resource program; Python in the
+CI suite is a harness and hosted bootstrap is still present.
+
+**Remaining:** caller supplies stable, disjoint handles/tables/payload
+buffers and calls enrollment APIs explicitly; complete compiler-inserted
+ARC/drop, lifetime/escape/alias proofs, typed object-level imports and
+independent native seed/distribution are **not** certified by this work.
 
 ## Open work toward Python/C independence
 

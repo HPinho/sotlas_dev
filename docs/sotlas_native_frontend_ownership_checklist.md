@@ -2,6 +2,35 @@
 
 Repository: [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev).
 
+## SV8.67 — bounded native scoped ownership transactions (2026-10-16)
+
+**Baseline certified:** [CI #1251](https://github.com/HPinho/sotlas_dev/actions/runs/38957013245),
+commit `94823c443e741184f3c148e0435e06c72d4cb081`. The SV8.67
+candidate requires its own complete matrix.
+
+- [x] Acquire and register a cloned independent strong claim in the same
+  native scope operation, with rollback on unexpected registration failure.
+- [x] Upgrade a matching current weak generation and publish a tracked
+  strong handle without accepting stale, foreign or mismatched tokens.
+- [x] Transfer one caller-owned strong claim into a scope via a fresh
+  destination handle, poisoning the previous handle and preserving refcount.
+- [x] Reject full tables, already-registered sources and nonempty target
+  handles before changing claim state.
+- [x] Detect duplicate slot pointers (including corrupted unsafe writes)
+  before checked rewind can cause partial cleanup.
+- [x] Reject aliasing/overlapping backing buffers during scope-to-scope
+  transfer, permitting adjacent nonoverlapping tables.
+- [x] Execute combined clone/take/weak cleanup via compiler-lowered lexical
+  `defer`; retain all 15 earlier SV8.66 gates.
+- [x] Add 16 native execute/rejection tests:
+  `tests/test_sotlas_native_migration_sv867.py`.
+
+Still open: compiler-synthesized ARC/drop, general borrow/lifetime checks,
+unforgeable ownership under arbitrary raw pointer writes, typed
+independently compiled modules and wholly Python/C-independent
+bootstrap/package creation. See
+[native scope contract](native_scoped_resources.md).
+
 ### SV8.66.1 — CI #1250 portable address-slot repair (2026-10-16)
 
 The Linux/Windows/Intel-macOS jobs of
