@@ -158,6 +158,14 @@ intact. Last independently confirmed all-green run before this regression:
 (`2e93a8d`). The #1243–#1248 Linux jobs reported this stale fixture failure;
 this candidate awaits full CI.
 
+**SV8.66.1 CI #1250 repair (2026-10-16):** Linux, Windows and
+Intel-macOS reported 14 shared new-suite compilation failures at the
+pointer-to-pointer array local introduced by SV8.66. The corrected scoped
+runtime uses native `usize` address slots and explicit pointer casts
+without changing scope cleanup semantics or any of the 15 tests. The
+previous CI #1249 remains the last certified green baseline; the
+repair requires fresh full matrix certification.
+
 **SV8.66 larger native ownership block (2026-10-16):**
 `runtime/native/managed.sotlas` now implements checked, caller-backed,
 bounded resource scope tables. Its Sotlas native API registers strong-claim

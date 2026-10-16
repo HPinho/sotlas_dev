@@ -712,17 +712,19 @@ pub fn native_contract_i32(value: i64, output: *mut i32) -> bool {
 }
 
 
-// SV8.66: bounded resource scopes, with caller-owned metadata. This API has
-// no hosted allocator, language-inferred ARC or concurrency; handles, control
-// blocks, backing buffers and scope tables must remain stable and disjoint.
+// SV8.66: bounded resource scopes, with caller-owned metadata. Table slots
+// store machine-sized addresses, not pointer-to-pointer array locals; the
+// native compiler's pointer-to-pointer array conversion is not certified
+// (CI #1250). Stable/disjoint storage and single-threaded execution remain
+// explicit caller guarantees; no hosted allocator or automatic ARC.
 pub struct NativeManagedScope {
-    pub entries: *mut *mut NativeManagedBytes;
+    pub entries: *mut usize;
     pub capacity: usize;
     pub used: usize;
 }
 
 pub fn native_managed_scope_init(
-    entries: *mut *mut NativeManagedBytes, capacity: usize
+    entries: *mut usize, capacity: usize
 ) -> NativeManagedScope {
     let empty: NativeManagedScope = NativeManagedScope {
         entries:null, capacity:0, used:0
@@ -732,7 +734,7 @@ pub fn native_managed_scope_init(
     if capacity > (18446744073709551615-address)/8 { return empty; }
     let mut index: usize = 0;
     while index < capacity {
-        unsafe { *(entries+index) = null; }
+        unsafe { *(entries+index) = 0; }
         index = index + 1;
     }
     return NativeManagedScope { entries:entries, capacity:capacity, used:0 };
@@ -760,7 +762,7 @@ pub fn native_managed_scope_contains(
     let mut index: usize = 0;
     unsafe {
         while index < scope.used {
-            if *(scope.entries+index) == resource { return true; }
+            if *(scope.entries+index) == resource as usize { return true; }
             index = index + 1;
         }
     }
@@ -775,7 +777,7 @@ pub fn native_managed_scope_push(
         || native_managed_scope_contains(scope,resource) { return false; }
     unsafe {
         if scope.used >= scope.capacity { return false; }
-        *(scope.entries+scope.used) = resource;
+        *(scope.entries+scope.used) = resource as usize;
         scope.used = scope.used + 1;
     }
     return true;
@@ -789,7 +791,7 @@ pub fn native_managed_scope_detach(
     unsafe {
         let mut index: usize = 0;
         while index < scope.used {
-            if *(scope.entries+index) == resource { break; }
+            if *(scope.entries+index) == resource as usize { break; }
             index = index + 1;
         }
         while index + 1 < scope.used {
@@ -797,7 +799,7 @@ pub fn native_managed_scope_detach(
             index = index + 1;
         }
         scope.used = scope.used - 1;
-        *(scope.entries+scope.used) = null;
+        *(scope.entries+scope.used) = 0;
     }
     return true;
 }
@@ -806,12 +808,12 @@ pub fn native_managed_scope_release_last(mut scope: *mut NativeManagedScope) -> 
     if !native_managed_scope_valid(scope) { return false; }
     unsafe {
         if scope.used == 0 { return false; }
-        let slot: *mut NativeManagedBytes = *(scope.entries+scope.used-1);
+        let slot: *mut NativeManagedBytes = (*(scope.entries+scope.used-1)) as *mut NativeManagedBytes;
         if !native_managed_bytes_current(slot) { return false; }
         native_managed_bytes_close(slot);
         if !native_managed_bytes_empty(slot) { return false; }
         scope.used = scope.used - 1;
-        *(scope.entries+scope.used) = null;
+        *(scope.entries+scope.used) = 0;
     }
     return true;
 }
@@ -826,7 +828,7 @@ pub fn native_managed_scope_rewind(
         if mark > scope.used { return false; }
         let mut index: usize = mark;
         while index < scope.used {
-            let slot: *mut NativeManagedBytes = *(scope.entries+index);
+            let slot: *mut NativeManagedBytes = (*(scope.entries+index)) as *mut NativeManagedBytes;
             if !native_managed_bytes_current(slot) { return false; }
             index = index + 1;
         }

@@ -1284,3 +1284,14 @@ The driver does not silently import this module into every program,
 and program authors remain responsible for storage lifetimes, raw-pointer
 aliasing and explicitly registering cleanup. General ARC, typed separate
 modules and wholly hosted-independent initial seed packaging remain open.
+
+### SV8.66.1 address-slot compatibility
+
+On the bounded native profile, scope tables use a caller-backed array of
+`usize` address values, obtained as `*mut usize` and passed to
+`native_managed_scope_init`. The runtime converts each live slot to a
+`*mut NativeManagedBytes` only when validating or closing the handle.
+Do not cast an array of `usize` into a `*mut *mut NativeManagedBytes`
+local: CI #1250 exposed that the nested pointer cast is unsupported by
+the compiler profile. Handle/control/payload/table lifetimes and strict
+nonaliasing preconditions remain unchanged.

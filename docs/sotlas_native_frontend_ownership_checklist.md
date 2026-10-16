@@ -2,6 +2,24 @@
 
 Repository: [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev).
 
+### SV8.66.1 — CI #1250 portable address-slot repair (2026-10-16)
+
+The Linux/Windows/Intel-macOS jobs of
+[CI #1250](https://github.com/HPinho/sotlas_dev/actions/runs/38949008917)
+failed the same 14 new positive native test compilations, all at the
+first pointer-to-pointer local cast from a scalar address array.
+The previous SV8.65 [CI #1249](https://github.com/HPinho/sotlas_dev/actions/runs/38940935785)
+is green. The native profile supports machine-pointer addresses but its
+nested pointer-to-pointer array cast is not certified.
+
+Keep the same complete 15-test ownership suite and its check/build/execute
+contracts. Store registered stable handle addresses in caller-owned
+`usize` entries (`*mut usize`) and cast each loaded scalar address
+explicitly back to the native handle pointer. This retains every LIFO,
+transactional preflight, detach/transfer and weak/strong lifetime guard.
+No test removal, test skip, previous code rollback or Python/C fallback.
+The repair is a **candidate** until its full cross-platform CI is green.
+
 ## SV8.66 — scoped native resource lifecycle: larger complete bounded block (2026-10-16)
 
 **Verified baseline:** `768b6d1d2bd17a46ad2be227d464cdc276717602` /
