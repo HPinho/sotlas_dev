@@ -1,0 +1,26 @@
+module native_config;
+import sotlas::runtime::text::*;
+
+// A portable parser core: byte slices borrow stable literal storage.
+// Success returns 42; malformed records and overflow return distinct errors.
+pub fn main_entry() -> u32 {
+    let input: NativeByteSlice = native_text_open("answer=40\nbonus=2\n", 18);
+    let mut cursor: NativeTextCursor = native_text_cursor(input);
+    let position: *mut NativeTextCursor = unsafe { (&mut cursor) as *mut NativeTextCursor };
+    let mut total: u64 = 0;
+    let mut records: u32 = 0;
+    loop {
+        let line: NativeByteSlice = native_text_line_next(position);
+        if !line.valid { break; }
+        let parts: NativeTextSplit = native_text_split_once(line, native_text_open("=", 1));
+        if !parts.found || parts.before.length == 0 { return 1; }
+        let mut number: u64 = 0;
+        let output: *mut u64 = unsafe { (&mut number) as *mut u64 };
+        if !native_text_parse_u64(parts.after, output) { return 2; }
+        if number > 18446744073709551615 - total { return 3; }
+        total += number;
+        records += 1;
+    }
+    if records != 2 || total != 42 { return 4; }
+    return total as u32;
+}

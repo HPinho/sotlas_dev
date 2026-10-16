@@ -1,0 +1,10 @@
+module use_after_move;
+
+struct Token { pub value: u32; }
+fn consume(value: sole Token) -> u32 { return value.value; }
+
+pub fn main_entry() -> u32 {
+    let owner: sole Token = Token { value: 42 };
+    consume(owner);
+    return owner.value;
+}

@@ -1,5 +1,7 @@
 # Auto-detect text files and perform LF normalization
 * text=auto
+*.sh text eol=lf
+*.bat text eol=crlf
 
 # GitHub Linguist language detection and syntax highlighting
 *.sotlas linguist-language=Rust linguist-detectable=true

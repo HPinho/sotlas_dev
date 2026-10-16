@@ -9,7 +9,7 @@
 [![CI](https://github.com/HPinho/sotlas_dev/actions/workflows/ci.yml/badge.svg)](https://github.com/HPinho/sotlas_dev/actions)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Target](https://img.shields.io/badge/target-x86__64--freestanding-orange.svg)](#)
-[![Architecture](https://img.shields.io/badge/architecture-C11%20%2B%20LLVM%20subsets-green.svg)](#compiler-architecture)
+[![Architecture](https://img.shields.io/badge/architecture-native%20x86--64%20%2B%20reference%20backends-green.svg)](#compiler-architecture)
 [![Language Version](https://img.shields.io/badge/version-1.0.0-purple.svg)](#)
 
 [Overview](#-overview) • [Design Goals](#-sotlas-design-goals) • [Guided Tour](docs/guided_tour.md) • [Architecture](#-compiler-architecture) • [Standard Library](#-standard-library-stdlib) • [Quickstart](#-quickstart) • [Examples](examples/) • [🇧🇷 Leia em Português](README.pt-BR.md)
@@ -196,10 +196,20 @@ made for the candidate.
 
 ## 🏗️ Compiler Architecture
 
-The installed compiler starts with the canonical source frontend. It supports two explicitly scoped lowering paths: the C11 backend and a directly native LLVM backend for the checked SIR subset. The legacy `dump-sir` output is a prototype view; it is not the same contract as canonical checked SIR:
+The Sotlas-written native compiler has its own lexer, parser, semantic analysis,
+Target IR, x86-64 emitter and linker. After obtaining a compatible native seed,
+it rebuilds that compiler directly from Sotlas sources. Its accepted language
+profile remains smaller than the Python reference frontend's profile.
+
+The Python-installed CLI and its C11/LLVM reference paths remain available.
+The legacy `dump-sir` output is a prototype view, separate from checked SIR.
 
 ```mermaid
 graph TD
+    NSRC[Source .sotlas] --> NFRONT[Frontend written in Sotlas]
+    NFRONT --> NIR[Target IR written in Sotlas]
+    NIR --> NBACK[Owned x86-64 emitter and linker]
+    NBACK --> NOUT[ELF / PE / Intel Mach-O bounded profiles]
     SRC[Source Code .sotlas] --> LEX[Lexer & Spans]
     LEX --> PARSE[Canonical EBNF Parser]
     PARSE --> AST[Typed AST]
@@ -213,6 +223,9 @@ graph TD
 ```
 
 ### Key Components:
+- **`bootstrap/sotlas/native_compiler/`**: Sotlas-written lexer, parser, semantic analysis, Target IR, lowering and machine backend.
+- **`bootstrap/sotlas/native_driver/`**: Sotlas-written compiler executables for Linux, Windows and Intel macOS.
+- **`runtime/native/`**: Sotlas-written memory, reference, byte/text and binary helpers, with explicitly bounded contracts.
 - **`compiler/sotlas/frontend/`**: Canonical lexer and parser producing precise diagnostic spans.
 - **`compiler/sotlas/sema/`**: Type checking, scope resolution, symbol tables, and type inference.
 - **`compiler/sotlas/safety/`**: Orthogonal safety system: isolates hardware capabilities (`@system`) from raw memory operations (`unsafe { ... }`).
@@ -244,6 +257,35 @@ The suite parses, type-checks, and emits selected standard-library modules. Nati
 ## 🚀 Quickstart (verified preview subset)
 
 ### 1. Installation
+#### Native self-build from an existing seed
+
+Use a trusted native file-driver seed compatible with the current compiler
+sources. The seed is an executable, not the older C-hosted `selfhost` launcher.
+These scripts never install Python or search for a C compiler:
+
+```powershell
+# Windows x64; choose a fresh output directory.
+.\scripts\build_native.ps1 -Seed C:\seeds\sotlas-native.exe
+```
+
+```bash
+# Linux x86-64 or Intel macOS; choose a seed for the host platform.
+bash scripts/build_native.sh /path/to/sotlas-native
+```
+
+The scripts rebuild Stage 2 and Stage 3, compare their bytes, and use the rebuilt
+compiler to check, compile and execute [a text parser](examples/native_config.sotlas).
+They also verify use-after-move rejection and preservation of an existing
+executable after rejection. Every native invocation runs without host build
+tools on `PATH`. PowerShell or Bash and normal file utilities orchestrate the
+build; compiler implementation and machine emission remain Sotlas code.
+
+There is no automatic hosted fallback. Seed production/distribution and full
+language parity remain open; this workflow certifies the bounded native profile.
+See [the native workflow](docs/native_seed_workflow.md).
+
+#### Python reference installation
+
 Requirements: Python 3.10 or newer and Git. Clone the repository and install
 the preview in an isolated virtual environment:
 
@@ -257,7 +299,7 @@ python -m venv .venv
 python -m pip install -e .
 ```
 
-### 2. Verified compiler path
+### 2. Reference compiler path
 
 Run the checked-in example through the canonical checker and C11 emitter:
 
