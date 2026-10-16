@@ -1295,3 +1295,22 @@ Do not cast an array of `usize` into a `*mut *mut NativeManagedBytes`
 local: CI #1250 exposed that the nested pointer cast is unsupported by
 the compiler profile. Handle/control/payload/table lifetimes and strict
 nonaliasing preconditions remain unchanged.
+
+### SV8.67 scoped strong/weak enrollment
+
+The Sotlas-native managed runtime now supports scope-bound
+`native_managed_scope_clone_into`, `native_managed_scope_upgrade_into`
+and `native_managed_scope_take_into`. Each requires a valid distinct
+scope table, an empty destination handle and a live source as applicable,
+and takes responsibility for one strong claim within the scoped ledger.
+Invalid tokens and full scope tables fail before consuming or retaining
+a claim; an unexpected post-claim registration failure closes/restores
+the incoming slot.
+
+`native_managed_scope_entries_distinct` prevents duplicate mutable
+handle pointers from reaching LIFO cleanup, even after unsafe caller
+corruption. `native_managed_scope_tables_disjoint` prevents scope
+transfers across overlapping storage ranges. This is explicitly
+registered caller-backed ownership, not automatic compiler ARC/drop
+and not a substitute for raw-pointer alias/lifetime proofs.
+Details: [the native scoped resource contract](../../../docs/native_scoped_resources.md).

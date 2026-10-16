@@ -100,7 +100,8 @@ invocations and may require the stated seed, platform or toolchain. The historic
 sovereignty checkpoint score measures selected architectural milestones, not the
 percentage of Python/C dependencies eliminated or the amount of work remaining.
 
-**Evidence boundary:** the latest independently verified green baseline is `768b6d1`,
+**Evidence boundary:** the latest independently verified green baseline is `94823c4`,
+CI #1251 / run `38957013245` (full matrix). Earlier inspected green: `768b6d1`,
 CI #1249 / run `38940935785`. Earlier inspected green: `fd6dd7d`,
 CI #1234 / run `38790093635`. Earlier inspected green: `0df0bb9`,
 CI #1233 / run `38781346034`. Earlier inspected green: `08b0cc4`,
@@ -179,6 +180,18 @@ automatic ARC/drop, general lifetime proofs or a standalone initial seed.
 [Contract](native_scoped_resources.md). Certified baseline:
 [CI #1249](https://github.com/HPinho/sotlas_dev/actions/runs/38940935785)
 (`768b6d1`); this candidate awaits its own complete CI.
+
+**SV8.67 native ownership candidate (2026-10-16):** the bounded
+Sotlas-written resource scope now includes atomic preflight of cloned
+strong-claim enrollment, weak-token upgrade, and claim take/move, with
+rollback on an unexpected registration failure. Its LIFO rewind rejects
+duplicate address slots and scope transfer rejects overlapping backing
+buffers. Sixteen native positive/negative test cases exercise these
+guarantees, keeping all earlier gates enabled. The previous SV8.66.1
+repair is fully certified by [CI #1251](https://github.com/HPinho/sotlas_dev/actions/runs/38957013245)
+(`94823c4`). SV8.67 still awaits its own CI; no claim of language-wide
+ARC, typed modules or Python/C-free initial bootstrap is made.
+[Scope contract](native_scoped_resources.md).
 
 ## 2. Current implementation
 
@@ -864,6 +877,36 @@ candidate, publish only after its gates pass, and continue maintenance without
 relabeling unimplemented architectural goals as completed features.
 
 ## 12. Complete native migration checklist
+
+## SV8.67 — bounded native scoped ownership transactions (2026-10-16)
+
+**Baseline certified:** [CI #1251](https://github.com/HPinho/sotlas_dev/actions/runs/38957013245),
+commit `94823c443e741184f3c148e0435e06c72d4cb081`. The SV8.67
+candidate requires its own complete matrix.
+
+- [x] Acquire and register a cloned independent strong claim in the same
+  native scope operation, with rollback on unexpected registration failure.
+- [x] Upgrade a matching current weak generation and publish a tracked
+  strong handle without accepting stale, foreign or mismatched tokens.
+- [x] Transfer one caller-owned strong claim into a scope via a fresh
+  destination handle, poisoning the previous handle and preserving refcount.
+- [x] Reject full tables, already-registered sources and nonempty target
+  handles before changing claim state.
+- [x] Detect duplicate slot pointers (including corrupted unsafe writes)
+  before checked rewind can cause partial cleanup.
+- [x] Reject aliasing/overlapping backing buffers during scope-to-scope
+  transfer, permitting adjacent nonoverlapping tables.
+- [x] Execute combined clone/take/weak cleanup via compiler-lowered lexical
+  `defer`; retain all 15 earlier SV8.66 gates.
+- [x] Add 16 native execute/rejection tests:
+  `tests/test_sotlas_native_migration_sv867.py`.
+
+Still open: compiler-synthesized ARC/drop, general borrow/lifetime checks,
+unforgeable ownership under arbitrary raw pointer writes, typed
+independently compiled modules and wholly Python/C-independent
+bootstrap/package creation. See
+[native scope contract](native_scoped_resources.md).
+
 
 ## SV8.66 — scoped native resource lifecycle: larger complete bounded block (2026-10-16)
 

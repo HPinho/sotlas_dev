@@ -3,7 +3,7 @@
 **Status:** active implementation track  
 **Started:** 2026-10-03 (America/Fortaleza)  
 **Green baseline at track start:** `7162167dec6fd5fa0a216121b147335d222e43f1` / CI #1063  
-**Latest inspected green baseline:** `768b6d1d2bd17a46ad2be227d464cdc276717602` / [CI #1249](https://github.com/HPinho/sotlas_dev/actions/runs/38940935785) (full Linux/Windows/Intel macOS matrix and native compiler fixed point).
+**Latest inspected green baseline:** `94823c443e741184f3c148e0435e06c72d4cb081` / [CI #1251](https://github.com/HPinho/sotlas_dev/actions/runs/38957013245) (full Linux/Windows/Intel macOS, native compiler fixed point and packaging).
 
 
 
@@ -39,6 +39,36 @@ their byte limit, including supplementary scalars; calculator input remains
 ASCII. Native tests passed on Windows and Linux/WSL; Windows mixed-script
 drawing and cleanup passed. Encoding, layout/shaping and editing scopes remain
 distinct; remote CI is pending. See the [text contract](native_unicode_text.md).
+
+## SV8.67 — native scoped ownership transaction and alias-hardening block (2026-10-16)
+
+**Baseline verde:** `94823c443e741184f3c148e0435e06c72d4cb081` /
+[CI #1251](https://github.com/HPinho/sotlas_dev/actions/runs/38957013245).
+All platform, packaging, native rebuild and fixed-point jobs passed.
+The new work remains uncertified until its own full CI finishes green.
+
+The Sotlas runtime now supports three coordinated resource operations:
+scope-bound clone of a new strong claim, scope-bound weak upgrade with
+generation proof, and scope-bound take/move of an existing claim. Each
+checks its table/destination before mutation and includes recovery on
+unexpected registration failure, preserving exactly-once close semantics.
+Two further native validators reject duplicate handle identities
+(including unsafe table corruption) and overlapping scope-table backing
+storage; LIFO rewind and ownership transfer now fail closed on these
+conditions. The public scope contract, native driver guidance and
+unified roadmap are updated in this same commit.
+
+**Gate:** 16 new `test_sotlas_native_migration_sv867` native
+execution/rejection cases, on top of unchanged SV8.66's 15 gates.
+No C helper, Python semantic fallback, test removal or new Git branch.
+This addresses bounded manually enrolled ownership; it is not general
+compiler-emitted automatic ARC/drop or global lifetime verification.
+
+**Next large SV8.68 block:** typed module/object exports/imports with
+ownership/effect/capability signature validation, and compiler-emitted
+drop/cleanup for a proven bounded native resource shape. Maintain
+green CI #1251 as rollback comparison, keep macOS green and measure
+Python/C reduction only after complete dependency audits.
 
 ### SV8.66.1 — CI #1250 portable address-slot repair (2026-10-16)
 
