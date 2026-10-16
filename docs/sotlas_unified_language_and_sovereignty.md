@@ -2,6 +2,9 @@
 
 **Repository:** [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev)
 
+**Public preview delivery:** [short launch roadmap](preview_launch_roadmap.md).
+The planned declarative GUI is not yet an implemented native feature.
+
 **Snapshot:** 2026-10-16, America/Sao_Paulo
 
 **Source revision:** `2e93a8d` plus the SV8.64 native capacity candidate

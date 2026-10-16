@@ -45,6 +45,11 @@ The 1.0 release scope declares bounded `SUPPORTED` subsets for `sole/exclusive`,
 
 ### Native compiler sovereignty
 
+The [public preview launch roadmap](docs/preview_launch_roadmap.md) defines the
+next application, declarative GUI, kernel example and installation gates.
+The graphical toolkit is planned; current native compiler support does not
+yet certify graphical applications.
+
 The bounded compiler-source profile has native Linux, Windows and Intel macOS
 file drivers and certified Stage 2/Stage 3 byte-identical generation gates. After receiving a native
 seed, those paths compile their original Sotlas sources without Python, a C
