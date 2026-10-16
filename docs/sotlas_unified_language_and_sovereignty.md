@@ -5,9 +5,16 @@
 **Public preview delivery:** [short launch roadmap](preview_launch_roadmap.md).
 The planned declarative GUI is not yet an implemented native feature.
 
+**P1 application candidate (2026-10-16):** the native terminal calculator uses
+a Sotlas evaluator and formatter with native platform I/O. Its model gate and
+12 CLI scenarios passed locally on Windows and Linux/WSL with host tools absent
+from compiler/application PATH. This closes the bounded application core;
+GUI, independent distribution and general native language parity remain open.
+See the [application contract](../examples/calculator/README.md).
+
 **Snapshot:** 2026-10-16, America/Sao_Paulo
 
-**Source revision:** `2e93a8d` plus the SV8.64 native capacity candidate
+**Source revision:** `556be4f` plus the P1 native calculator candidate
 
 **Purpose:** one English reference for implemented contracts, remaining language work,
 optional foreign interoperability and removal of mandatory Python/C toolchain dependencies.

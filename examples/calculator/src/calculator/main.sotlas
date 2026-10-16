@@ -1,0 +1,68 @@
+module calculator::main;
+import sotlas::runtime::calculator::*;
+import calculator::platform::*;
+
+fn write_all(data:*const u8, length:usize) -> bool {
+    let mut position:usize=0;
+    while position < length {
+        let written:i64=calculator_write(unsafe { data+position },length-position);
+        if written <= 0 || written as usize > length-position { return false; }
+        position=position+written as usize;
+    }
+    return true;
+}
+fn write_text(data:*const u8) -> bool {
+    let mut length:usize=0;
+    while unsafe { *(data+length) } != 0 { length=length+1; }
+    return write_all(data,length);
+}
+fn report(data:*const u8, length:usize, oversized:bool) -> u32 {
+    let mut result:CalculatorResult=calculator_evaluate(data,length);
+    if oversized || length > 1024 { result.error=1; result.offset=1024; }
+    let mut bytes:[u8;32]=0;
+    let output:*mut u8=unsafe { bytes as *mut u8 };
+    if result.error != 0 {
+        if !write_text("error: ") || !write_text(calculator_error_message(result.error)) || !write_text(" at byte ") { return 3; }
+        let count:usize=calculator_format(result.offset as f64,output,32);
+        if count == 0 || !write_all(output,count) || !write_text("\n") { return 3; }
+        return 2;
+    }
+    let count:usize=calculator_format(result.value,output,32);
+    if count == 0 || !write_all(output,count) || !write_text("\n") { return 3; }
+    return 0;
+}
+
+// One expression per line; EOF ends the session. Input errors do not end it.
+pub fn main_entry() -> u32 {
+    // One extra byte permits an exact-capacity expression followed by CRLF.
+    let mut input:[u8;1025]=0;
+    let buffer:*mut u8=unsafe { input as *mut u8 };
+    let mut byte:u8=0;
+    let address:*mut u8=unsafe { (&mut byte) as *mut u8 };
+    let mut length:usize=0;
+    let mut oversized:bool=false;
+    let mut status:u32=0;
+    loop {
+        let got:i64=calculator_read(address,1);
+        if got < 0 || got > 1 { return 3; }
+        if got == 0 {
+            if length != 0 || oversized {
+                let result:u32=report(buffer,length,oversized);
+                if result == 3 { return 3; }
+                if result != 0 { status=result; }
+            }
+            return status;
+        }
+        if byte == 10 {
+            if length != 0 && unsafe { *(buffer+length-1) } == 13 { length=length-1; }
+            let result:u32=report(buffer,length,oversized);
+            if result == 3 { return 3; }
+            if result != 0 { status=result; }
+            length=0; oversized=false;
+        } else {
+            if length < 1025 { unsafe { *(buffer+length)=byte; } length=length+1; }
+            else { oversized=true; }
+        }
+    }
+    return status;
+}

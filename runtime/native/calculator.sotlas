@@ -1,0 +1,162 @@
+module sotlas::runtime::calculator;
+
+// Borrowed input must remain readable for this call. No heap storage is used.
+pub struct CalculatorResult { pub value:f64; pub error:u32; pub offset:usize; }
+struct CalculatorParser { data:*const u8; length:usize; offset:usize; error:u32; error_offset:usize; }
+
+fn calculator_fail(mut parser:*mut CalculatorParser, error:u32) -> f64 {
+    unsafe { if parser.error == 0 { parser.error=error; parser.error_offset=parser.offset; } }
+    return 0.0;
+}
+fn calculator_space(mut parser:*mut CalculatorParser) -> u8 {
+    unsafe {
+        while parser.offset < parser.length {
+            let byte:u8=*(parser.data+parser.offset);
+            if byte != 32 && (byte < 9 || byte > 13) { return byte; }
+            parser.offset=parser.offset+1;
+        }
+    }
+    return 0;
+}
+fn calculator_bound(mut parser:*mut CalculatorParser, value:f64) -> f64 {
+    if value != value || value > 1000000000000.0 || value < -1000000000000.0 {
+        return calculator_fail(parser,5);
+    }
+    return value;
+}
+fn calculator_primary(mut parser:*mut CalculatorParser, depth:u32) -> f64 {
+    if depth >= 64 { return calculator_fail(parser,6); }
+    let byte:u8=calculator_space(parser);
+    if byte == 43 || byte == 45 {
+        unsafe { parser.offset=parser.offset+1; }
+        let value:f64=calculator_primary(parser,depth+1);
+        if byte == 45 { return -value; }
+        return value;
+    }
+    if byte == 40 {
+        unsafe { parser.offset=parser.offset+1; }
+        let value:f64=calculator_expression(parser,depth+1);
+        if unsafe { parser.error } != 0 { return 0.0; }
+        if calculator_space(parser) != 41 { return calculator_fail(parser,3); }
+        unsafe { parser.offset=parser.offset+1; }
+        return value;
+    }
+    let mut value:f64=0.0;
+    let mut digits:usize=0;
+    let mut fractional:usize=0;
+    let mut scale:f64=1.0;
+    let mut point:bool=false;
+    unsafe {
+        while parser.offset < parser.length {
+            let current:u8=*(parser.data+parser.offset);
+            if current == 46 && !point { point=true; parser.offset=parser.offset+1; continue; }
+            if current < 48 || current > 57 { break; }
+            if point {
+                fractional=fractional+1;
+                if fractional > 6 { return calculator_fail(parser,7); }
+                scale=scale*10.0;
+                value=value+((current-48) as f64)/scale;
+            } else { value=value*10.0+((current-48) as f64); }
+            if value > 1000000000000.0 { return calculator_fail(parser,5); }
+            digits=digits+1; parser.offset=parser.offset+1;
+        }
+    }
+    if digits == 0 { return calculator_fail(parser,2); }
+    return value;
+}
+fn calculator_term(mut parser:*mut CalculatorParser, depth:u32) -> f64 {
+    let mut value:f64=calculator_primary(parser,depth);
+    while unsafe { parser.error } == 0 {
+        let byte:u8=calculator_space(parser);
+        if byte != 42 && byte != 47 { break; }
+        let position:usize=unsafe { parser.offset };
+        unsafe { parser.offset=parser.offset+1; }
+        let right:f64=calculator_primary(parser,depth);
+        if unsafe { parser.error } != 0 { return 0.0; }
+        if byte == 47 && right == 0.0 {
+            unsafe { parser.offset=position; }
+            return calculator_fail(parser,4);
+        }
+        if byte == 42 { value=value*right; } else { value=value/right; }
+        value=calculator_bound(parser,value);
+    }
+    return value;
+}
+fn calculator_expression(mut parser:*mut CalculatorParser, depth:u32) -> f64 {
+    let mut value:f64=calculator_term(parser,depth);
+    while unsafe { parser.error } == 0 {
+        let byte:u8=calculator_space(parser);
+        if byte != 43 && byte != 45 { break; }
+        unsafe { parser.offset=parser.offset+1; }
+        let right:f64=calculator_term(parser,depth);
+        if unsafe { parser.error } != 0 { return 0.0; }
+        if byte == 43 { value=value+right; } else { value=value-right; }
+        value=calculator_bound(parser,value);
+    }
+    return value;
+}
+
+// Errors: 1 input shape/size, 2 expected number, 3 expected closing paren,
+// 4 division by zero, 5 magnitude, 6 nesting, 7 decimal precision, 8 trailing input.
+pub fn calculator_evaluate(data:*const u8, length:usize) -> CalculatorResult {
+    if data == null || length > 1024 || length > 18446744073709551615-(unsafe { data as usize }) {
+        return CalculatorResult{value:0.0,error:1,offset:0};
+    }
+    let mut parser:CalculatorParser=CalculatorParser{data:data,length:length,offset:0,error:0,error_offset:0};
+    let cursor:*mut CalculatorParser=unsafe { (&mut parser) as *mut CalculatorParser };
+    let value:f64=calculator_expression(cursor,0);
+    calculator_space(cursor);
+    // Offset, rather than sentinel byte, distinguishes end-of-input from NUL.
+    if parser.error == 0 && parser.offset != length { calculator_fail(cursor,8); }
+    let mut result:f64=0.0;
+    if parser.error == 0 { result=value; }
+    return CalculatorResult{value:result,error:parser.error,offset:parser.error_offset};
+}
+
+// Fixed display precision: round to six places, trim trailing zeroes.
+// Returns length, or zero without changing destination on invalid input/capacity.
+// Destination must be writable and must not overlap this function's stack.
+pub fn calculator_format(value:f64, destination:*mut u8, capacity:usize) -> usize {
+    if destination == null || value != value || value > 1000000000000.0 || value < -1000000000000.0 { return 0; }
+    let mut magnitude:f64=value;
+    if magnitude < 0.0 { magnitude=-magnitude; }
+    let scaled:u64=(magnitude*1000000.0+0.5) as u64;
+    let mut buffer:[u8;32]=0;
+    let output:*mut u8=unsafe { buffer as *mut u8 };
+    let mut count:usize=0;
+    if value < 0.0 && scaled != 0 { unsafe { *output=45; } count=1; }
+    let whole:u64=scaled/1000000;
+    let mut divisor:u64=1;
+    while whole/divisor >= 10 { divisor=divisor*10; }
+    loop {
+        unsafe { *(output+count)=(48+(whole/divisor)%10) as u8; }
+        count=count+1;
+        if divisor == 1 { break; }
+        divisor=divisor/10;
+    }
+    let fraction:u64=scaled%1000000;
+    if fraction != 0 {
+        unsafe { *(output+count)=46; } count=count+1; divisor=100000;
+        while divisor != 0 {
+            unsafe { *(output+count)=(48+(fraction/divisor)%10) as u8; }
+            count=count+1; divisor=divisor/10;
+        }
+        while unsafe { *(output+count-1) } == 48 { count=count-1; }
+    }
+    if count > capacity || count > 18446744073709551615-(unsafe { destination as usize }) { return 0; }
+    let mut index:usize=0;
+    while index < count { unsafe { *(destination+index)=*(output+index); } index=index+1; }
+    return count;
+}
+
+pub fn calculator_error_message(error:u32) -> *const u8 {
+    if error == 1 { return "input exceeds 1024 bytes or has invalid storage"; }
+    if error == 2 { return "expected a number or opening parenthesis"; }
+    if error == 3 { return "expected closing parenthesis"; }
+    if error == 4 { return "division by zero"; }
+    if error == 5 { return "result exceeds magnitude limit (1000000000000)"; }
+    if error == 6 { return "expression nesting exceeds 64 levels"; }
+    if error == 7 { return "number exceeds six decimal places"; }
+    if error == 8 { return "unexpected trailing input"; }
+    return "unknown calculator error";
+}

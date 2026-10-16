@@ -50,6 +50,11 @@ next application, declarative GUI, kernel example and installation gates.
 The graphical toolkit is planned; current native compiler support does not
 yet certify graphical applications.
 
+The [terminal calculator](examples/calculator/README.md) is the first application
+in that plan: shared Sotlas evaluator/formatter, precedence and decimal input,
+recoverable errors and native Windows/Linux execution. Its graphical UI is
+the next separate delivery block.
+
 The bounded compiler-source profile has native Linux, Windows and Intel macOS
 file drivers and certified Stage 2/Stage 3 byte-identical generation gates. After receiving a native
 seed, those paths compile their original Sotlas sources without Python, a C

@@ -751,6 +751,8 @@ class NativeLinuxDriverTests(unittest.TestCase):
                        str(native_stage3), str(self.directory / "match range cases")], 120)
         self.run_tool(["/bin/bash", str(ROOT / "tests/native/large_modules/verify.sh"),
                        str(native_stage3), str(self.directory / "large module cases")], 120)
+        from native_calculator_gate import verify_calculator
+        verify_calculator(native_stage3, self.directory / "calculator cases")
         source = self.directory / "resolved_stage3_example.sotlas"
         source.write_bytes((ROOT / "examples/native_float_profile.sotlas").read_bytes())
         output = self.directory / "resolved_stage3_example"

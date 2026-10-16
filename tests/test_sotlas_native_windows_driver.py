@@ -338,6 +338,8 @@ class NativeWindowsDriverTests(unittest.TestCase):
         self.run_tool([str(powershell), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
                        str(ROOT / "tests/native/large_modules/verify.ps1"), str(stage3),
                        str(self.directory / "large module cases")], timeout=120)
+        from native_calculator_gate import verify_calculator
+        verify_calculator(stage3, self.directory / "calculator cases")
         source = self.directory / "stage3_application.sotlas"
         source.write_bytes((ROOT / "examples/native_float_profile.sotlas").read_bytes())
         output = self.directory / "stage3_application.exe"

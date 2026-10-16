@@ -26,11 +26,17 @@ The declarative GUI described here is planned, not an existing toolkit.
 | P5 | Installable native preview | Clean installation builds and runs examples without Python or a C compiler |
 | P6 | Release candidate certification | Advertised platform gates, support matrix, extension and packaged examples agree |
 
+**P1 local completion (2026-10-16):** the [terminal calculator](../examples/calculator/README.md)
+passes its Sotlas-native model gate and 12 CLI scenarios on Windows and
+Linux/WSL. The original example builds with native seeds and host tools absent
+from PATH. Existing Stage 3 gates now cover it. Intel macOS execution and
+remote CI are pending; P2–P6 remain open.
+
 ### P1 — language and library path
 
-- [ ] Implement the calculator model in Sotlas: precedence, parentheses, decimals, invalid input and division by zero.
-- [ ] Provide the text buffers, numeric parsing/formatting, collections, error values and I/O used by this application; document capacity and lifetime limits.
-- [ ] Close compiler gaps exposed by these original sources, preserving equivalent acceptance for checking and compilation and source-located errors.
+- [x] Implement the calculator model in Sotlas: precedence, parentheses, decimals, invalid input and division by zero.
+- [x] Provide the text buffers, numeric parsing/formatting, collections, error values and I/O used by this application; document capacity and lifetime limits.
+- [x] Check and compile these original sources through the native compiler; no compiler extension was required for this bounded application.
 
 The terminal and graphical applications must reuse this same model. Caller-backed
 buffers and explicit cleanup are acceptable when their lifetimes are enforced
