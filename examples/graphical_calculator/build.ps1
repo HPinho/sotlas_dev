@@ -12,7 +12,7 @@ New-Item -ItemType Directory -Force (Join-Path $source 'calculator_app'),(Join-P
 foreach($name in @('main','model')) {
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot "src/calculator_app/$name.sotlas") -Destination (Join-Path $source "calculator_app/$name.sotlas")
 }
-foreach($name in @('calculator','ui','ui_windows','window_windows')) {
+foreach($name in @('calculator','ui','ui_windows','window_windows','unicode')) {
     Copy-Item -LiteralPath (Join-Path $repository "runtime/native/$name.sotlas") -Destination (Join-Path $source "sotlas/runtime/$name.sotlas")
 }
 $entry=Join-Path $source 'calculator_app/main.sotlas'

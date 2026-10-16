@@ -57,7 +57,9 @@ full graphical application support is still being validated.
 The [terminal calculator](examples/calculator/README.md) is the first application
 in that plan: shared Sotlas evaluator/formatter, precedence and decimal input,
 recoverable errors and native Windows/Linux execution. The graphical example
-reuses its evaluator; ASCII/fixed-layout UI limits are documented separately.
+reuses its evaluator; UTF-8 labels, ASCII expression input and fixed-layout
+UI limits are documented separately. The [native text contract](docs/native_unicode_text.md)
+describes validation and UTF-16 conversion.
 
 The bounded compiler-source profile has native Linux, Windows and Intel macOS
 file drivers and certified Stage 2/Stage 3 byte-identical generation gates. After receiving a native

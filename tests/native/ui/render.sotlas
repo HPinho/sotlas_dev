@@ -27,8 +27,11 @@ pub fn main_entry() -> u32 {
     if ui_windows_paint(frame) || native_window_end() { native_window_stop(); return 6; }
     if !calculator_ui_view(scene) { native_window_stop(); return 9; }
     let mut first:*mut UiItem=unsafe { render_items as *mut UiItem };
-    let invalid:*const u8="\0";
+    let international:*const u8="ação Ω 文 😀";
     let bounds:UiRect=ui_rect(24,20,344,28);
+    unsafe { *first=UiItem{id:2001,kind:1,bounds:bounds,label:international,length:18}; }
+    if !ui_windows_paint(frame) { native_window_stop(); return 12; }
+    let invalid:*const u8="\0";
     unsafe { *first=UiItem{id:2001,kind:1,bounds:bounds,label:invalid,length:1}; }
     if ui_windows_paint(frame) || native_window_end() || native_window_unclip() { native_window_stop(); return 10; }
     if !calculator_ui_view(scene) || !ui_windows_paint(frame) { native_window_stop(); return 11; }

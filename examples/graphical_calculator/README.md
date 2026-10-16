@@ -17,7 +17,8 @@ powershell -NoProfile -File examples/graphical_calculator/build.ps1 build/native
 
 Choose a fresh output directory. Click numbers and operations, then `=`. The
 expression remains visible for correction or continued editing. `C` clears;
-`<-` deletes the last character. The keyboard accepts the same arithmetic
+`←` deletes the last character; `×` and `÷` select multiplication and division.
+The keyboard accepts the same arithmetic
 characters, Backspace and Enter. Tab moves focus in declaration order; Enter
 or Space activates a focused button. Escape closes the application.
 
@@ -30,7 +31,7 @@ It is not exact financial decimal arithmetic.
 ## UI library contract
 
 `runtime/native/ui.sotlas` is independent of the platform renderer. A `UiView`
-borrows caller-owned item storage; item labels borrow stable ASCII storage.
+borrows caller-owned item storage; item labels borrow stable UTF-8 storage.
 The example model keeps its expression/result buffers stable through painting.
 This is an explicit lifetime precondition, not a new compiler borrow proof.
 
@@ -45,7 +46,7 @@ This is an explicit lifetime precondition, not a new compiler borrow proof.
 | `ui_windows_paint` | Event-driven Windows drawing and per-item clipping |
 
 The view supports at most 64 items, each with a unique nonzero ID and up to
-128 ASCII label bytes. Geometry must fit the 4096-unit coordinate profile.
+128 UTF-8 label bytes. Geometry must fit the 4096-unit coordinate profile.
 Invalid geometry, labels, duplicate IDs or exhausted item storage set a view
 error and preserve previously inserted items/count. Recreate a view to clear
 an error. Raw view/item pointers must remain valid; fabricating pointers is
@@ -71,14 +72,21 @@ are handled separately so Enter/Space do not apply an action twice.
   Existing Stage 3 gates reuse their rebuilt compiler for the model; Windows
   additionally runs rendering. Remote CI and Intel macOS model execution are pending.
 
-Tests: `tests/native/ui/model.sotlas`, `tests/native/ui/render.sotlas` and the
+The UTF-8/UTF-16 gate also passed on Windows and Linux/WSL; Windows drew a
+mixed-script label containing BMP and supplementary scalars. Font coverage
+and shaping are not certified by a successful drawing call.
+
+Tests: `tests/native/ui/model.sotlas`, `tests/native/ui/unicode.sotlas`,
+`tests/native/ui/render.sotlas` and the
 process adapter `tests/native_ui_gate.py`. UI implementation and tests of its
 semantics are Sotlas; Python only orchestrates processes in the test harness.
 
 ## Remaining scope
 
-This first UI profile uses fixed layout and ASCII labels. It does not provide
-responsive reflow, general text selection/caret editing, UTF-8 shaping/IME,
+This first UI profile uses fixed layout and validated UTF-8 labels. The
+[encoding contract](../../docs/native_unicode_text.md) defines conversion,
+controls and capacity rules. It does not provide
+responsive reflow, general text selection/caret editing, complex text shaping/IME,
 accessibility, clipboard support, multiple windows, touch, animations, GPU
 rendering, a visual editor or hot reload. Narrow windows clip the fixed scene.
 These limits must remain visible in preview documentation. Linux/macOS

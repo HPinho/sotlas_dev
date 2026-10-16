@@ -1,0 +1,72 @@
+module sotlas::runtime::unicode;
+
+// Encoding utilities only. Input/output storage is borrowed and must remain
+// accessible and stable throughout each call. No heap allocation or replacement
+// characters are used to hide malformed input.
+pub struct NativeUtf8Scalar { pub valid:bool; pub scalar:u32; pub next:usize; }
+pub struct NativeUnicodeResult { pub valid:bool; pub units:usize; pub error_offset:usize; }
+
+pub fn native_utf8_scalar(data:*const u8,length:usize,offset:usize) -> NativeUtf8Scalar {
+    let invalid:NativeUtf8Scalar=NativeUtf8Scalar{valid:false,scalar:0,next:offset};
+    if data == null || offset >= length || length > 18446744073709551615-(unsafe { data as usize }) { return invalid; }
+    let first:u8=unsafe { *(data+offset) };
+    if first < 128 { return NativeUtf8Scalar{valid:true,scalar:first as u32,next:offset+1}; }
+    let mut size:usize=0; let mut minimum:u32=0; let mut scalar:u32=0;
+    if first >= 194 && first <= 223 { size=2; minimum=128; scalar=(first & 31) as u32; }
+    else if first >= 224 && first <= 239 { size=3; minimum=2048; scalar=(first & 15) as u32; }
+    else if first >= 240 && first <= 244 { size=4; minimum=65536; scalar=(first & 7) as u32; }
+    else { return invalid; }
+    if size > length-offset { return invalid; }
+    let mut index:usize=1;
+    while index < size {
+        let byte:u8=unsafe { *(data+offset+index) };
+        if byte < 128 || byte > 191 { return invalid; }
+        scalar=scalar*64+((byte & 63) as u32); index=index+1;
+    }
+    if scalar < minimum || scalar > 1114111 || (scalar >= 55296 && scalar <= 57343) { return invalid; }
+    return NativeUtf8Scalar{valid:true,scalar:scalar,next:offset+size};
+}
+
+pub fn native_utf8_measure_utf16(data:*const u8,length:usize) -> NativeUnicodeResult {
+    if (data == null && length != 0) || length > 18446744073709551615-(unsafe { data as usize }) {
+        return NativeUnicodeResult{valid:false,units:0,error_offset:0};
+    }
+    let mut offset:usize=0; let mut count:usize=0;
+    while offset < length {
+        let value:NativeUtf8Scalar=native_utf8_scalar(data,length,offset);
+        if !value.valid { return NativeUnicodeResult{valid:false,units:0,error_offset:offset}; }
+        count=count+1; if value.scalar > 65535 { count=count+1; }
+        offset=value.next;
+    }
+    return NativeUnicodeResult{valid:true,units:count,error_offset:0};
+}
+
+// Capacity and units are u16 code units, not bytes. No terminating NUL is added.
+// Preflight validates the whole input/capacity/overlap before any output write.
+pub fn native_utf8_to_utf16(data:*const u8,length:usize,destination:*mut u16,capacity:usize) -> NativeUnicodeResult {
+    let measured:NativeUnicodeResult=native_utf8_measure_utf16(data,length);
+    if !measured.valid { return measured; }
+    if measured.units == 0 { return measured; }
+    let address:usize=unsafe { destination as usize };
+    let source:usize=unsafe { data as usize };
+    if destination == null || measured.units > capacity || measured.units > (18446744073709551615-address)/2 {
+        return NativeUnicodeResult{valid:false,units:0,error_offset:0};
+    }
+    let bytes:usize=measured.units*2;
+    if (address >= source && address-source < length) || (source >= address && source-address < bytes) {
+        return NativeUnicodeResult{valid:false,units:0,error_offset:0};
+    }
+    let mut offset:usize=0; let mut output:usize=0;
+    while offset < length {
+        let value:NativeUtf8Scalar=native_utf8_scalar(data,length,offset);
+        if !value.valid { return NativeUnicodeResult{valid:false,units:0,error_offset:offset}; }
+        if value.scalar <= 65535 { unsafe { *(destination+output)=value.scalar as u16; } output=output+1; }
+        else {
+            let code:u32=value.scalar-65536;
+            unsafe { *(destination+output)=(55296+code/1024) as u16; *(destination+output+1)=(56320+code%1024) as u16; }
+            output=output+2;
+        }
+        offset=value.next;
+    }
+    return measured;
+}

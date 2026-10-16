@@ -28,10 +28,17 @@ remote CI remain pending. See the [window contract](../examples/native_window/RE
 **P3 first application (2026-10-16):** the graphical calculator now declares
 23 components through a Sotlas UI model and renders with the native Windows
 adapter. Model/layout gates passed on Windows and Linux/WSL; Windows drawing,
-clip cleanup and a visible `7+8 = 15` interaction passed. ASCII labels, fixed
-layout and caller-owned storage are explicit limits. Native language parity,
+clip cleanup and a visible `7+8 = 15` interaction passed. The initial delivery
+used ASCII labels, fixed layout and caller-owned storage. Native language parity,
 complete P2/P3 coverage and remote CI remain open. See the
 [application contract](../examples/graphical_calculator/README.md).
+
+**P3 UTF-8 label candidate (2026-10-16):** a Sotlas runtime codec now validates
+UTF-8 and preflights UTF-16 conversion. UI labels accept validated UTF-8 within
+their byte limit, including supplementary scalars; calculator input remains
+ASCII. Native tests passed on Windows and Linux/WSL; Windows mixed-script
+drawing and cleanup passed. Encoding, layout/shaping and editing scopes remain
+distinct; remote CI is pending. See the [text contract](native_unicode_text.md).
 
 ## SV8.64 — larger native programs (2026-10-16)
 
