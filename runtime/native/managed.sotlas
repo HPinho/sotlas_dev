@@ -710,3 +710,156 @@ pub fn native_contract_u32(value: u64, output: *mut u32) -> bool {
 pub fn native_contract_i32(value: i64, output: *mut i32) -> bool {
     if output == null || value < -2147483648 || value > 2147483647 { return false; }unsafe{*output=value as i32;}return true;
 }
+
+
+// SV8.66: bounded resource scopes, with caller-owned metadata. This API has
+// no hosted allocator, language-inferred ARC or concurrency; handles, control
+// blocks, backing buffers and scope tables must remain stable and disjoint.
+pub struct NativeManagedScope {
+    pub entries: *mut *mut NativeManagedBytes;
+    pub capacity: usize;
+    pub used: usize;
+}
+
+pub fn native_managed_scope_init(
+    entries: *mut *mut NativeManagedBytes, capacity: usize
+) -> NativeManagedScope {
+    let empty: NativeManagedScope = NativeManagedScope {
+        entries:null, capacity:0, used:0
+    };
+    if entries == null || capacity == 0 || capacity > 64 { return empty; }
+    let address: usize = unsafe { entries as usize };
+    if capacity > (18446744073709551615-address)/8 { return empty; }
+    let mut index: usize = 0;
+    while index < capacity {
+        unsafe { *(entries+index) = null; }
+        index = index + 1;
+    }
+    return NativeManagedScope { entries:entries, capacity:capacity, used:0 };
+}
+
+pub fn native_managed_scope_valid(scope: *const NativeManagedScope) -> bool {
+    if scope == null { return false; }
+    unsafe {
+        if scope.entries == null || scope.capacity == 0
+            || scope.capacity > 64 || scope.used > scope.capacity { return false; }
+        let address: usize = scope.entries as usize;
+        return scope.capacity <= (18446744073709551615-address)/8;
+    }
+}
+
+pub fn native_managed_scope_depth(scope: *const NativeManagedScope) -> usize {
+    if !native_managed_scope_valid(scope) { return 0; }
+    unsafe { return scope.used; }
+}
+
+pub fn native_managed_scope_contains(
+    scope: *const NativeManagedScope, resource: *mut NativeManagedBytes
+) -> bool {
+    if !native_managed_scope_valid(scope) || resource == null { return false; }
+    let mut index: usize = 0;
+    unsafe {
+        while index < scope.used {
+            if *(scope.entries+index) == resource { return true; }
+            index = index + 1;
+        }
+    }
+    return false;
+}
+
+pub fn native_managed_scope_push(
+    mut scope: *mut NativeManagedScope, resource: *mut NativeManagedBytes
+) -> bool {
+    if !native_managed_scope_valid(scope)
+        || !native_managed_bytes_current(resource)
+        || native_managed_scope_contains(scope,resource) { return false; }
+    unsafe {
+        if scope.used >= scope.capacity { return false; }
+        *(scope.entries+scope.used) = resource;
+        scope.used = scope.used + 1;
+    }
+    return true;
+}
+
+// Untrack without release; the live claim returns to caller responsibility.
+pub fn native_managed_scope_detach(
+    mut scope: *mut NativeManagedScope, resource: *mut NativeManagedBytes
+) -> bool {
+    if !native_managed_scope_contains(scope,resource) { return false; }
+    unsafe {
+        let mut index: usize = 0;
+        while index < scope.used {
+            if *(scope.entries+index) == resource { break; }
+            index = index + 1;
+        }
+        while index + 1 < scope.used {
+            *(scope.entries+index) = *(scope.entries+index+1);
+            index = index + 1;
+        }
+        scope.used = scope.used - 1;
+        *(scope.entries+scope.used) = null;
+    }
+    return true;
+}
+
+pub fn native_managed_scope_release_last(mut scope: *mut NativeManagedScope) -> bool {
+    if !native_managed_scope_valid(scope) { return false; }
+    unsafe {
+        if scope.used == 0 { return false; }
+        let slot: *mut NativeManagedBytes = *(scope.entries+scope.used-1);
+        if !native_managed_bytes_current(slot) { return false; }
+        native_managed_bytes_close(slot);
+        if !native_managed_bytes_empty(slot) { return false; }
+        scope.used = scope.used - 1;
+        *(scope.entries+scope.used) = null;
+    }
+    return true;
+}
+
+// Validate the entire suffix before mutating it; a stale slot fails closed.
+// Callers may explicitly detach a previously closed slot to recover.
+pub fn native_managed_scope_rewind(
+    scope: *mut NativeManagedScope, mark: usize
+) -> bool {
+    if !native_managed_scope_valid(scope) { return false; }
+    unsafe {
+        if mark > scope.used { return false; }
+        let mut index: usize = mark;
+        while index < scope.used {
+            let slot: *mut NativeManagedBytes = *(scope.entries+index);
+            if !native_managed_bytes_current(slot) { return false; }
+            index = index + 1;
+        }
+        while scope.used > mark {
+            if !native_managed_scope_release_last(scope) { return false; }
+        }
+    }
+    return true;
+}
+
+pub fn native_managed_scope_drain(scope: *mut NativeManagedScope) -> bool {
+    return native_managed_scope_rewind(scope,0);
+}
+
+// Void signature supports Sotlas-native lexical defer. Callers with possible
+// corrupted/stale table entries must use the checked drain first.
+pub fn native_managed_scope_close(scope: *mut NativeManagedScope) -> void {
+    let completed: bool = native_managed_scope_drain(scope);
+}
+
+// Promote one registered strong claim between distinct disjoint scopes.
+pub fn native_managed_scope_transfer(
+    source: *mut NativeManagedScope, destination: *mut NativeManagedScope,
+    resource: *mut NativeManagedBytes
+) -> bool {
+    if source == destination || !native_managed_scope_valid(source)
+        || !native_managed_scope_valid(destination)
+        || !native_managed_scope_contains(source,resource)
+        || native_managed_scope_contains(destination,resource)
+        || !native_managed_bytes_current(resource) { return false; }
+    unsafe {
+        if destination.used >= destination.capacity { return false; }
+    }
+    if !native_managed_scope_push(destination,resource) { return false; }
+    return native_managed_scope_detach(source,resource);
+}

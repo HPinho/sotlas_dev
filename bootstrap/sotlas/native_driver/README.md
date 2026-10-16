@@ -1263,3 +1263,24 @@ all-path proof; a loop that can break does not prove a function return.
 Array/iterator for loops, inclusive/stepped ranges, payload enums and signed
 enum backing types remain outside this new profile. Gate:
 `test_sotlas_native_language_sv861`.
+
+## Native managed scopes (SV8.66)
+
+The opt-in `runtime/native/managed.sotlas` module provides
+`NativeManagedScope`, a bounded table of up to 64 distinct
+`NativeManagedBytes` handle pointers. The generated Sotlas program
+allocates and supplies stable table, header, handle and byte storage:
+no Python/C allocator or foreign linker participates in the native runtime.
+The scope can explicitly register handles, detach/promote ownership, close
+the latest claim, rewind a nested depth, or drain all slots via
+`defer native_managed_scope_close(scope)`. Its checked rewind verifies
+all candidate handles before releasing any to avoid partial cleanup
+on stale or invalid state. The close helper is void to match the existing
+native defer lowering. See
+[the bounded scope contract](../../../docs/native_scoped_resources.md).
+
+It is not installed as a compiler-internal automatic drop runtime.
+The driver does not silently import this module into every program,
+and program authors remain responsible for storage lifetimes, raw-pointer
+aliasing and explicitly registering cleanup. General ARC, typed separate
+modules and wholly hosted-independent initial seed packaging remain open.

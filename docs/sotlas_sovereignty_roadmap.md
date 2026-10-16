@@ -3,7 +3,7 @@
 **Status:** active implementation track  
 **Started:** 2026-10-03 (America/Fortaleza)  
 **Green baseline at track start:** `7162167dec6fd5fa0a216121b147335d222e43f1` / CI #1063  
-**Latest inspected green baseline:** `fd6dd7d89cff9b38fa6fbe58bb34551b30806f37` / [CI #1234](https://github.com/HPinho/sotlas_dev/actions/runs/38790093635) (Linux/Windows/Intel macOS, native compiler fixed point).
+**Latest inspected green baseline:** `768b6d1d2bd17a46ad2be227d464cdc276717602` / [CI #1249](https://github.com/HPinho/sotlas_dev/actions/runs/38940935785) (full Linux/Windows/Intel macOS matrix and native compiler fixed point).
 
 
 
@@ -39,6 +39,37 @@ their byte limit, including supplementary scalars; calculator input remains
 ASCII. Native tests passed on Windows and Linux/WSL; Windows mixed-script
 drawing and cleanup passed. Encoding, layout/shaping and editing scopes remain
 distinct; remote CI is pending. See the [text contract](native_unicode_text.md).
+
+## SV8.66 — scoped resource lifecycle: full native acceptance block (2026-10-16)
+
+**Green baseline:** `768b6d1d2bd17a46ad2be227d464cdc276717602` /
+[CI #1249](https://github.com/HPinho/sotlas_dev/actions/runs/38940935785).
+Candidate until its own full Linux/Windows/Intel-macOS matrix, packaging
+and Stage2/Stage3 native fixed-point gates finish green.
+
+This single commit adds a coherent, bounded resource-lifecycle contract in
+Sotlas-written `runtime/native/managed.sotlas`: 64-entry checked scope
+tables, live owner registration, duplicate/capacity rejection, LIFO release,
+nested mark and transactional rewind, detach, full drain, scope-to-scope
+ownership promotion, and a `void` lexical `defer` close operation.
+All bytes and headers remain caller-backed; no C helper or Python runtime
+path executes in the generated program. Fifteen new positive/negative
+native program gates exercise code generation, weak generation invalidation,
+exactly-once slot cleanup, early exits and fail-closed invalid ownership.
+See [detailed API/verification contract](native_scoped_resources.md) and
+[ownership checklist](sotlas_native_frontend_ownership_checklist.md).
+
+This is a complete **bounded explicit-ownership feature**, not the full
+canonical ownership implementation. The compiler still needs to *synthesize*
+destructors/ARC, validate general lifetimes and aliases, and support typed
+independently compiled modules with cross-object ownership/effect/capability
+signatures. The initial native seed and some distribution paths still rely
+on hosted tools; 0% mandatory Python/C has not been established.
+
+**Next large block SV8.67+:** combine typed native separate-object module
+interfaces, cross-object signature/authority validation and a certified
+compiler-generated cleanup subset before attempting any full-migration
+completion claim.
 
 ## SV8.65 — full-capacity regression closure and strengthened Linux gates (2026-10-16)
 
