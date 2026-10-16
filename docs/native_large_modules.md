@@ -59,3 +59,26 @@ Use the native driver's `--limits` command for its reported capacities.
 The changed compiler implementation is Sotlas. Shell scripts generate test
 inputs and inspect process results; Python remains an optional test harness
 and part of the initial hosted bootstrap, not the native self-build path.
+
+## SV8.65 regression closure and full-limit Linux integration
+
+The CI regressions from #1243 through #1248 were traced to a stale Python
+*test expectation*, not to a compiler rejection failure: the Linux
+`test_native_string_symbols_beyond_256_execute_and_overflow_preserves_output`
+fixture previously expected exit 7 after adding a 513th live string, even
+though SV8.64 explicitly permits **2,048** distinct occurrences.
+
+The strengthened integration suite now checks and runs **512**, **513** and
+**2,048** live literals using the compiled Sotlas-native Linux seed with
+host tools excluded from PATH; verifies the compiler's `--limits` report;
+rejects **2,049** literals with exit 7 in both `--check` and build mode;
+and separately exercises the decoded **65,535 + NUL** byte boundary and its
+65,536-byte one-over input. Rejected checks and builds must preserve the
+previous executable exactly. The original Windows/Unix six-case capacity
+scripts remain active and unchanged.
+
+This is a corrected test contract, not an increase in native capacity or a
+claim of complete frontend parity. The last fully green reference is
+`2e93a8d` / CI #1242; later Linux jobs share the legacy 513th-literal
+test failure. A new commit still requires its own complete Linux/Windows/
+Intel macOS matrix, bootstrap chain, and native self-host fixed-point gates.
