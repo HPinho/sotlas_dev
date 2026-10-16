@@ -172,8 +172,8 @@ if !native_managed_scope_entries_distinct(m)
 return 42;''')
 
     def test_scope_disjoint_tables_accept_adjacent_nonoverlapping_storage(self):
-        self.scope('sv867_adjacent','''let mut table:[usize;2]=[0;2];
-let base:*mut usize=unsafe{table as *mut usize};
+        self.scope('sv867_adjacent','''let mut adjacent_storage:[usize;2]=[0;2];
+let base:*mut usize=unsafe{adjacent_storage as *mut usize};
 let second:*mut usize=unsafe{base+1};
 let mut one:NativeManagedScope=native_managed_scope_init(base,1);
 let mut two:NativeManagedScope=native_managed_scope_init(second,1);
@@ -191,12 +191,12 @@ return 42;''')
 control:null,bytes:null,length:0,generation:0};
 let mut moved:NativeManagedBytes=NativeManagedBytes{
 control:null,bytes:null,length:0,generation:0};
-let cp:*mut NativeManagedBytes=unsafe{(&cloned) as *mut NativeManagedBytes};
+let cloned_handle:*mut NativeManagedBytes=unsafe{(&cloned) as *mut NativeManagedBytes};
 let mp:*mut NativeManagedBytes=unsafe{(&moved) as *mut NativeManagedBytes};
 let weak:NativeWeakToken=native_managed_bytes_weak(pa);
 {defer native_managed_scope_close(m);
 if !native_managed_scope_push(m,pa)
- || !native_managed_scope_upgrade_into(m,pa,weak,cp)
+ || !native_managed_scope_upgrade_into(m,pa,weak,cloned_handle)
  || !native_managed_scope_take_into(m,pb,mp){return 1;}
 if ah.strong!=2 || bh.strong!=1 || manager.used!=3{return 2;}}
 if ah.strong!=0 || bh.strong!=0 || a[0]!=0 || b[0]!=0
