@@ -2,6 +2,25 @@
 
 Repository: [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev).
 
+## Native build entry points (2026-10-15)
+
+- [x] Remove mandatory C-compiler discovery and Python fallback from
+  `scripts/build_native.bat` and `scripts/build_native.sh`.
+- [x] Rebuild both compiler generations from Sotlas modules using a compatible
+  native seed, then require identity before exercising the rebuilt compiler.
+- [x] Run a Sotlas text-parser example and reject use-after-move from both check
+  and compilation with host build tools absent from PATH.
+- [x] Preserve existing output directories and the previous executable when a
+  compilation is rejected.
+
+The complete scripts passed on Windows x64 and Linux x86-64 through WSL.
+The shell syntax check also passed. Intel macOS execution was not run for this
+change. Initial seed production used the existing hosted producer; neither a
+Python process nor a C compiler was invoked during these native rebuilds.
+This replaces the build entry points, not the remaining hosted packager or
+whole-language frontend/ownership analysis. See the
+[native seed workflow, commands and limits](native_seed_workflow.md).
+
 This checklist tracks migration of the contracted canonical language into the
 Sotlas-written compiler. A working bootstrap profile does not establish full
 language parity. Parent items stay open until every contracted form has native
