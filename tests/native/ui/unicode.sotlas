@@ -1,0 +1,76 @@
+module calculator_app::unicode_tests;
+import sotlas::runtime::unicode::*;
+import sotlas::runtime::ui::*;
+static mut unicode_items:[UiItem;2]=0;
+
+fn rejects(data:*const u8,length:usize,offset:usize) -> bool {
+    let mut buffer:[u16;16]=0;
+    let output:*mut u16=unsafe { buffer as *mut u16 };
+    let mut index:usize=0;
+    while index < 16 { buffer[index]=1234; index=index+1; }
+    let result:NativeUnicodeResult=native_utf8_to_utf16(data,length,output,16);
+    if result.valid || result.units != 0 || result.error_offset != offset { return false; }
+    index=0;
+    while index < 16 { if buffer[index] != 1234 { return false; } index=index+1; }
+    return true;
+}
+pub fn main_entry() -> u32 {
+    let mut buffer:[u16;128]=0;
+    let output:*mut u16=unsafe { buffer as *mut u16 };
+    let empty:NativeUnicodeResult=native_utf8_to_utf16(null,0,null,0);
+    if !empty.valid || empty.units != 0 { return 1; }
+    let text:*const u8="A\xc2\xa2\xe2\x82\xac\xf0\x9f\x98\x80";
+    let result:NativeUnicodeResult=native_utf8_to_utf16(text,10,output,128);
+    if !result.valid || result.units != 5 || buffer[0] != 65 || buffer[1] != 162 || buffer[2] != 8364
+        || buffer[3] != 55357 || buffer[4] != 56832 || buffer[5] != 0 { return 2; }
+    let boundaries:*const u8="\xc2\x80\xdf\xbf\xe0\xa0\x80\xed\x9f\xbf\xee\x80\x80\xef\xbf\xbf\xf0\x90\x80\x80\xf4\x8f\xbf\xbf";
+    let limits:NativeUnicodeResult=native_utf8_to_utf16(boundaries,24,output,128);
+    if !limits.valid || limits.units != 10 || buffer[0] != 128 || buffer[1] != 2047 || buffer[2] != 2048
+        || buffer[3] != 55295 || buffer[4] != 57344 || buffer[5] != 65535 || buffer[6] != 55296
+        || buffer[7] != 56320 || buffer[8] != 56319 || buffer[9] != 57343 { return 3; }
+    if !rejects("\x80",1,0) || !rejects("\xc0\x80",2,0) || !rejects("\xc1\xbf",2,0) { return 4; }
+    if !rejects("\xe0\x9f\xbf",3,0) || !rejects("\xed\xa0\x80",3,0) || !rejects("\xed\xbf\xbf",3,0) { return 5; }
+    if !rejects("\xf0\x8f\xbf\xbf",4,0) || !rejects("\xf4\x90\x80\x80",4,0) || !rejects("\xf5\x80\x80\x80",4,0) { return 6; }
+    if !rejects("\xff",1,0) || !rejects("\xe2\x28\xa1",3,0) || !rejects("\xc2",1,0)
+        || !rejects("\xe2\x82",2,0) || !rejects("\xf0\x9f\x98",3,0) { return 7; }
+    if !rejects("ok\xff",3,2) || !rejects(null,1,0) { return 8; }
+    buffer[0]=1234; buffer[1]=1234;
+    let small:NativeUnicodeResult=native_utf8_to_utf16(text,10,output,4);
+    if small.valid || buffer[0] != 1234 || buffer[1] != 1234 { return 9; }
+    let exact:NativeUnicodeResult=native_utf8_to_utf16(text,10,output,5);
+    if !exact.valid || exact.units != 5 { return 10; }
+    let address:usize=unsafe { output as usize };
+    let source:*const u8=unsafe { address as *const u8 };
+    unsafe { *output=65; }
+    let overlap:NativeUnicodeResult=native_utf8_to_utf16(source,1,output,128);
+    if overlap.valid || buffer[0] != 65 { return 11; }
+    let shifted:*const u8=unsafe { source+1 };
+    let before:NativeUnicodeResult=native_utf8_to_utf16(shifted,1,output,128);
+    if before.valid || buffer[0] != 65 { return 17; }
+    buffer[0]=16705; buffer[1]=16962;
+    let inside:*mut u16=unsafe { output+1 };
+    let after:NativeUnicodeResult=native_utf8_to_utf16(source,3,inside,127);
+    if after.valid || buffer[0] != 16705 || buffer[1] != 16962 { return 18; }
+    let missing:NativeUnicodeResult=native_utf8_to_utf16("A",1,null,1);
+    if missing.valid { return 19; }
+    let nul:NativeUnicodeResult=native_utf8_to_utf16("A\0B",3,output,128);
+    if !nul.valid || nul.units != 3 || buffer[0] != 65 || buffer[1] != 0 || buffer[2] != 66 { return 12; }
+    if ui_label_valid("A\0B",3) || ui_label_valid("\xc2\x80",2) || ui_label_valid("\n",1) { return 13; }
+    if !ui_label_valid("a\xcc\x81",3) || !ui_label_valid("\xf0\x9f\x98\x80",4) || !ui_label_valid("× ÷ ←",9) { return 14; }
+    let mut view:UiView=ui_view(unsafe { unicode_items as *mut UiItem },2,0);
+    let scene:*mut UiView=unsafe { (&mut view) as *mut UiView };
+    if !ui_text(scene,1,ui_rect(0,0,100,30),"ação",6) || !ui_button(scene,2,ui_rect(0,40,100,30),"←",3) { return 15; }
+    if ui_click(scene,1,41) != 2 || view.count != 2 { return 16; }
+    let mut label:[u8;129]=0;
+    let bytes:*mut u8=unsafe { label as *mut u8 };
+    let mut index:usize=0;
+    while index < 129 { label[index]=65; index=index+1; }
+    if !ui_label_valid(bytes,128) || ui_label_valid(bytes,129) { return 20; }
+    label[127]=194; label[128]=162;
+    if ui_label_valid(bytes,128) || ui_label_valid(bytes,129) { return 21; }
+    let mut large:[u16;129]=0;
+    let wide:*mut u16=unsafe { large as *mut u16 };
+    let complete:NativeUnicodeResult=native_utf8_to_utf16(bytes,129,wide,128);
+    if !complete.valid || complete.units != 128 || large[127] != 162 || large[128] != 0 { return 22; }
+    return 42;
+}

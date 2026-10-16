@@ -15,13 +15,20 @@ See the [application contract](../examples/calculator/README.md).
 
 **Snapshot:** 2026-10-16, America/Sao_Paulo
 
-**Source revision:** `c0a1a86` plus the first P3 graphical calculator candidate
+**Source revision:** `24ccff5` plus the P3 UTF-8 label candidate
+
+**P3 UTF-8 label candidate:** the native runtime now validates Unicode scalar
+encodings and preflights conversion to caller-backed UTF-16. UI labels share
+this validation; the Windows renderer uses converted unit counts. Codec/UI
+gates passed on Windows and Linux/WSL, with mixed-script Windows drawing and
+cleanup checks. Font coverage, shaping, IME, complete editing and remote CI
+remain pending. See the [encoding contract](native_unicode_text.md).
 
 **P3 application candidate:** the graphical calculator declares text, a
 focusable input, result and twenty buttons through platform-independent Sotlas
 UI functions. Model/layout gates passed on Windows and Linux/WSL; Windows
 render/cleanup and visible click-to-result checks passed. Caller-backed labels,
-ASCII/fixed layout, broader ownership/UI semantics and remote CI limits are
+fixed layout, broader ownership/UI semantics and remote CI limits are
 described in the [application contract](../examples/graphical_calculator/README.md).
 
 **P2 first delivery (2026-10-16):** the owned PE backend adds checked loader

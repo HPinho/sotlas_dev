@@ -70,9 +70,16 @@ system services remain runtime dependencies and must be listed.
 now executes through the native Windows backend. Model/layout tests passed on
 Windows and Linux/WSL; Windows painting/cleanup tests and a visible click-to-result
 check passed locally. Storage/label lifetimes remain explicit caller obligations;
-general ownership proof and complete UI ergonomics are still open. The initial
-profile has ASCII labels, append/Backspace editing and fixed layout. Remote CI
+general ownership proof and complete UI ergonomics are still open. The
+initial profile had ASCII labels, append/Backspace editing and fixed layout. Remote CI
 is pending; the full preview is not certified by this example.
+
+**P3 UTF-8 label delivery (2026-10-16):** labels now accept validated UTF-8 and
+the Windows renderer converts them to UTF-16, including surrogate pairs.
+The native codec/UI gates passed on Windows and Linux/WSL; Windows also passed
+mixed-script drawing and cleanup. Calculator expression input remains ASCII;
+IME, shaping and grapheme editing remain open. See the
+[text contract](native_unicode_text.md). Remote CI is pending.
 
 Use ordinary Sotlas functions and typed records for the initial declarative
 API. No new syntax is promised by this plan. Actions may use explicit IDs and

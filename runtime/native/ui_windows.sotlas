@@ -1,6 +1,7 @@
 module sotlas::runtime::ui_windows;
 import sotlas::runtime::ui::*;
 import sotlas::runtime::window_windows::*;
+import sotlas::runtime::unicode::*;
 
 pub fn ui_windows_paint(view:*const UiView) -> bool {
     if view == null { return false; }
@@ -29,15 +30,14 @@ pub fn ui_windows_paint(view:*const UiView) -> bool {
             }
         }
         let mut text:[u16;128]=0;
-        let mut offset:usize=0;
-        if item.label == null || item.length > 128 { okay=false; }
-        while offset < item.length && okay {
-            let byte:u8=unsafe { *(item.label+offset) };
-            if byte < 32 || byte > 126 { okay=false; }
-            else { text[offset]=byte as u16; }
-            offset=offset+1;
+        if !ui_label_valid(item.label,item.length) { okay=false; }
+        let mut units:usize=0;
+        if okay {
+            let converted:NativeUnicodeResult=native_utf8_to_utf16(item.label,item.length,unsafe { text as *mut u16 },128);
+            if !converted.valid { okay=false; }
+            else { units=converted.units; }
         }
-        if okay { okay=native_window_text(bounds.x+12,bounds.y+12,unsafe { text as *const u16 },item.length as u32,color); }
+        if okay { okay=native_window_text(bounds.x+12,bounds.y+12,unsafe { text as *const u16 },units as u32,color); }
         if !native_window_unclip() { okay=false; }
         index=index+1;
     }

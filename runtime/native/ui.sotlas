@@ -1,6 +1,7 @@
 module sotlas::runtime::ui;
+import sotlas::runtime::unicode::*;
 
-// Borrowed ASCII labels and caller-backed items remain live through rendering.
+// Borrowed UTF-8 labels and caller-backed items remain live through rendering.
 // This first declarative profile is bounded to 64 items and 4096 layout units.
 pub struct UiRect { pub x:i32; pub y:i32; pub width:u32; pub height:u32; pub valid:bool; }
 pub struct UiLayout { pub bounds:UiRect; pub gap:u32; pub cursor:u32; pub horizontal:bool; }
@@ -40,6 +41,16 @@ pub fn ui_view(items:*mut UiItem,capacity:usize,focus:u32) -> UiView {
     if items == null || capacity == 0 || capacity > 64 { error=1; }
     return UiView{items:items,count:0,capacity:capacity,focus:focus,error:error};
 }
+pub fn ui_label_valid(label:*const u8,length:usize) -> bool {
+    if label == null || length > 128 { return false; }
+    let mut offset:usize=0;
+    while offset < length {
+        let value:NativeUtf8Scalar=native_utf8_scalar(label,length,offset);
+        if !value.valid || value.scalar < 32 || (value.scalar >= 127 && value.scalar <= 159) { return false; }
+        offset=value.next;
+    }
+    return true;
+}
 fn ui_add(mut view:*mut UiView,id:u32,kind:u32,bounds:UiRect,label:*const u8,length:usize) -> bool {
     if view == null { return false; }
     unsafe {
@@ -52,12 +63,7 @@ fn ui_add(mut view:*mut UiView,id:u32,kind:u32,bounds:UiRect,label:*const u8,len
             if (*(view.items+index)).id == id { view.error=3; return false; }
             index=index+1;
         }
-        index=0;
-        while index < length {
-            let byte:u8=*(label+index);
-            if byte < 32 || byte > 126 { view.error=4; return false; }
-            index=index+1;
-        }
+        if !ui_label_valid(label,length) { view.error=4; return false; }
         *(view.items+view.count)=UiItem{id:id,kind:kind,bounds:bounds,label:label,length:length};
         view.count=view.count+1;
     }

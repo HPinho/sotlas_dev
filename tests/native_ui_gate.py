@@ -14,13 +14,14 @@ def verify_ui(compiler, output):
     source = output / 'src'
     (source / 'sotlas/runtime').mkdir(parents=True, exist_ok=True)
     (source / 'calculator_app').mkdir(parents=True, exist_ok=True)
-    for name in ('ui', 'ui_windows', 'window_windows', 'calculator'):
+    for name in ('ui', 'ui_windows', 'window_windows', 'calculator', 'unicode'):
         shutil.copyfile(ROOT / f'runtime/native/{name}.sotlas', source / f'sotlas/runtime/{name}.sotlas')
     for name in ('main', 'model'):
         shutil.copyfile(ROOT / f'examples/graphical_calculator/src/calculator_app/{name}.sotlas',
                         source / f'calculator_app/{name}.sotlas')
     shutil.copyfile(ROOT / 'tests/native/ui/model.sotlas', source / 'calculator_app/tests.sotlas')
     shutil.copyfile(ROOT / 'tests/native/ui/render.sotlas', source / 'calculator_app/render_tests.sotlas')
+    shutil.copyfile(ROOT / 'tests/native/ui/unicode.sotlas', source / 'calculator_app/unicode_tests.sotlas')
     environment = {'PATH': str(output / 'no-host-tools')}
     windows = os.name == 'nt'
     if windows:
@@ -35,7 +36,7 @@ def verify_ui(compiler, output):
         if result.returncode != expected:
             raise AssertionError(f'{arguments}: exit {result.returncode}, expected {expected}; {result.stderr!r}')
 
-    names = ('tests', 'render_tests', 'main') if windows else ('tests',)
+    names = ('tests', 'unicode_tests', 'render_tests', 'main') if windows else ('tests', 'unicode_tests')
     for name in names:
         entry = source / f'calculator_app/{name}.sotlas'
         image = output / (name + suffix)
