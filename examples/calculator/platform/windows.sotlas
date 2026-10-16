@@ -1,0 +1,26 @@
+module calculator::platform;
+
+// The owned linker emits the existing KERNEL32 ABI bridges; no C glue is built.
+@extern(C) fn sotlas_windows_get_std_handle(kind:u32) -> u64;
+@extern(C) fn sotlas_windows_get_last_error() -> u32;
+@extern(C) fn sotlas_windows_read_file(handle:u64, buffer:*mut u8, count:u32, read:*mut u32, overlapped:*mut u8) -> u32;
+@extern(C) fn sotlas_windows_write_file(handle:u64, buffer:*const u8, count:u32, written:*mut u32, overlapped:*mut u8) -> u32;
+
+pub fn calculator_read(data:*mut u8, length:usize) -> i64 {
+    if length > 4294967295 { return -1; }
+    let mut count:u32=0;
+    let handle:u64=sotlas_windows_get_std_handle(4294967286);
+    if sotlas_windows_read_file(handle,data,length as u32,unsafe { (&mut count) as *mut u32 },null) == 0 {
+        let error:u32=sotlas_windows_get_last_error();
+        if error == 109 || error == 38 { return 0; }
+        return -1;
+    }
+    return count as i64;
+}
+pub fn calculator_write(data:*const u8, length:usize) -> i64 {
+    if length > 4294967295 { return -1; }
+    let mut count:u32=0;
+    let handle:u64=sotlas_windows_get_std_handle(4294967285);
+    if sotlas_windows_write_file(handle,data,length as u32,unsafe { (&mut count) as *mut u32 },null) == 0 { return -1; }
+    return count as i64;
+}

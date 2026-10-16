@@ -1,0 +1,14 @@
+module calculator::platform;
+@extern(C) fn sotlas_linux_read(fd:u64, data:*mut u8, length:u64) -> i64;
+@extern(C) fn sotlas_linux_write(fd:u64, data:*const u8, length:u64) -> i64;
+
+pub fn calculator_read(data:*mut u8, length:usize) -> i64 {
+    let mut result:i64=sotlas_linux_read(0,data,length as u64);
+    while result == -4 { result=sotlas_linux_read(0,data,length as u64); }
+    return result;
+}
+pub fn calculator_write(data:*const u8, length:usize) -> i64 {
+    let mut result:i64=sotlas_linux_write(1,data,length as u64);
+    while result == -4 { result=sotlas_linux_write(1,data,length as u64); }
+    return result;
+}

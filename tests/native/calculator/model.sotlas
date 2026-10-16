@@ -1,0 +1,58 @@
+module calculator_tests;
+import sotlas::runtime::calculator::*;
+
+fn evaluates(data:*const u8, length:usize, expected:f64) -> bool {
+    let result:CalculatorResult=calculator_evaluate(data,length);
+    let difference:f64=result.value-expected;
+    return result.error == 0 && difference > -0.000000001 && difference < 0.000000001;
+}
+fn rejects(data:*const u8, length:usize, error:u32, offset:usize) -> bool {
+    let result:CalculatorResult=calculator_evaluate(data,length);
+    return result.error == error && result.offset == offset && result.value == 0.0;
+}
+fn formats(value:f64, expected:*const u8, length:usize) -> bool {
+    let mut bytes:[u8;32]=0;
+    let output:*mut u8=unsafe { bytes as *mut u8 };
+    if calculator_format(value,output,32) != length { return false; }
+    let mut index:usize=0;
+    while index < length {
+        if unsafe { *(output+index) } != unsafe { *(expected+index) } { return false; }
+        index=index+1;
+    }
+    return true;
+}
+pub fn main_entry() -> u32 {
+    if !evaluates("2+3*4",5,14.0) || !evaluates("(2+3)*4",7,20.0) { return 1; }
+    if !evaluates("8/4/2",5,1.0) || !evaluates("10-3-2",6,5.0) { return 2; }
+    if !evaluates(" --2 * -3 ",10,-6.0) || !evaluates(".5+1.",5,1.5) { return 3; }
+    if !evaluates("1.25+2.5",8,3.75) || !evaluates("1/3",3,0.3333333333333333) { return 4; }
+    if !evaluates("1000000000000",13,1000000000000.0) || !evaluates("0.000001",8,0.000001) { return 5; }
+    if !rejects("",0,2,0) || !rejects("  ",2,2,2) || !rejects("1+",2,2,2) { return 6; }
+    if !rejects("(1+2",4,3,4) || !rejects("()",2,2,1) { return 7; }
+    if !rejects("1/0",3,4,1) || !rejects("1/(-0)",6,4,1) { return 8; }
+    if !rejects("1000000000001",13,5,12) || !rejects("1000000000000*2",15,5,15) { return 9; }
+    if !rejects("0.1234567",9,7,8) || !rejects("1e3",3,8,1) { return 10; }
+    if !rejects("1 2",3,8,2) || !rejects("2(3)",4,8,1) || !rejects("1..2",4,8,2) { return 11; }
+    if !rejects("1\0+2",4,8,1) || !rejects("\0",1,2,0) { return 12; }
+    if !rejects(null,0,1,0) { return 13; }
+    if !formats(0.0,"0",1) || !formats(-0.0000001,"0",1) { return 14; }
+    if !formats(-1.25,"-1.25",5) || !formats(1.0/3.0,"0.333333",8) { return 15; }
+    if !formats(1.9999999,"2",1) || !formats(0.000001,"0.000001",8) { return 16; }
+    if !formats(1000000000000.0,"1000000000000",13) { return 17; }
+    let mut bytes:[u8;1025]=0;
+    let buffer:*mut u8=unsafe { bytes as *mut u8 };
+    let mut index:usize=0;
+    while index < 1025 { unsafe { *(buffer+index)=48; } index=index+1; }
+    if !evaluates(buffer,1024,0.0) || !rejects(buffer,1025,1,0) { return 18; }
+    index=0;
+    while index < 63 { unsafe { *(buffer+index)=40; *(buffer+126-index)=41; } index=index+1; }
+    unsafe { *(buffer+63)=49; }
+    if !evaluates(buffer,127,1.0) { return 19; }
+    index=0;
+    while index < 64 { unsafe { *(buffer+index)=40; } index=index+1; }
+    if !rejects(buffer,64,6,64) { return 20; }
+    unsafe { *buffer=88; *(buffer+1)=89; }
+    if calculator_format(-1.25,buffer,4) != 0 || unsafe { *buffer } != 88 || unsafe { *(buffer+1) } != 89 { return 21; }
+    if calculator_format(1000000000001.0,buffer,1025) != 0 || calculator_format(1.0,null,32) != 0 { return 22; }
+    return 42;
+}
