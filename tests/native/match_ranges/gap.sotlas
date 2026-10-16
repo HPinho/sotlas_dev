@@ -1,0 +1,5 @@
+module gap;
+pub fn main_entry() -> u32 {
+    let value: u8 = 127;
+    match value { 0..127 => return 1; 128..=255 => return 2; }
+}

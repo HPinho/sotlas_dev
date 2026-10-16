@@ -1,0 +1,6 @@
+module dynamic_bound;
+fn first() -> u8 { return 0; }
+pub fn main_entry() -> u32 {
+    let value: u8 = 42;
+    match value { first()..=255 => return 42; _ => return 1; }
+}

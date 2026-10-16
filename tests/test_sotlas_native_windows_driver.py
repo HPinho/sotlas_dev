@@ -331,6 +331,10 @@ class NativeWindowsDriverTests(unittest.TestCase):
                          self.run_tool([str(stage3), "--fingerprint", str(stage3)], env=self.environment).stdout)
         self.run_tool([str(stage3), "--verify-seed", str(stage3)], env=self.environment)
         self.run_tool([str(stage3), "--self-test"], env=self.environment)
+        powershell = Path(os.environ.get("SystemRoot", "C:/Windows")) / "System32/WindowsPowerShell/v1.0/powershell.exe"
+        self.run_tool([str(powershell), "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+                       str(ROOT / "tests/native/match_ranges/verify.ps1"), str(stage3),
+                       str(self.directory / "match range cases")], timeout=120)
         source = self.directory / "stage3_application.sotlas"
         source.write_bytes((ROOT / "examples/native_float_profile.sotlas").read_bytes())
         output = self.directory / "stage3_application.exe"

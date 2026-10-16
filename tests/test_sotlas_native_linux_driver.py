@@ -747,6 +747,8 @@ class NativeLinuxDriverTests(unittest.TestCase):
                          self.run_tool([str(native_stage3), "--fingerprint", str(native_stage3)], env=environment).stdout)
         self.run_tool([str(native_stage3), "--verify-seed", str(native_stage3)], env=environment)
         self.run_tool([str(native_stage3), "--self-test"], env=environment)
+        self.run_tool(["/bin/bash", str(ROOT / "tests/native/match_ranges/verify.sh"),
+                       str(native_stage3), str(self.directory / "match range cases")], 120)
         source = self.directory / "resolved_stage3_example.sotlas"
         source.write_bytes((ROOT / "examples/native_float_profile.sotlas").read_bytes())
         output = self.directory / "resolved_stage3_example"

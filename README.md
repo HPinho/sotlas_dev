@@ -118,6 +118,7 @@ performance advantages over established systems languages.
 
 | Area | Current 1.0 preview status |
 | :--- | :--- |
+| Sotlas-written native compiler | Bounded x86-64 profile, including [integer match ranges](docs/native_match_ranges.md) with typed bounds, overlap rejection and exhaustive-domain checks; rebuilds from a compatible native seed |
 | Ownership and safety analysis | Verified only for the subsets listed in the [release scope](docs/sotlas_1_0_release_scope.md) |
 | Native C11 output | Bounded source subset; unsupported forms are rejected |
 | Flow on C11 | Pure scalar plans, including graphs with independent stages, expose a generated C entrypoint; C11 currently evaluates stages in deterministic dependency order. Stateful and ownership-bearing plans are rejected |

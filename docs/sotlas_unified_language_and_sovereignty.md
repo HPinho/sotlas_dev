@@ -4,7 +4,7 @@
 
 **Snapshot:** 2026-10-15, America/Sao_Paulo
 
-**Source revision:** `7a36a3e` plus the SV8.61 local candidate
+**Source revision:** `0e45c2b` plus the SV8.62 native integer-match candidate
 
 **Purpose:** one English reference for implemented contracts, remaining language work,
 optional foreign interoperability and removal of mandatory Python/C toolchain dependencies.
@@ -75,7 +75,8 @@ CI #1221 / run `38621972769`. The subsequent #1222 rejection-contract regression
 was repaired in `b40a8fa` with the SV8.49c ownership work and local regression
 validation. SV8.50 was committed as `3e4320e`. The owner reported the
 workflow green for SV8.51 (`24d5627`); its run number was not independently
-inspected. This document includes the SV8.61 candidate, whose CI remains pending.
+inspected. This document includes the SV8.61 and SV8.62 changes; their latest CI
+status has not been inspected here.
 
 **SV8.57 regression note (2026-10-15):** CI #1232 exposed a missing
 `link_image` delegation in the SV8.57 Python *test harness*. The repair
@@ -113,6 +114,15 @@ obligations. Baseline is green [CI #1234](https://github.com/HPinho/sotlas_dev/a
 (`fd6dd7d`). SV8.59 awaits its own matrix.
 
 ## 2. Current implementation
+
+SV8.62 closes bounded integer match ranges in the Sotlas-written compiler:
+`first..last` and `first..=last`, typed constant bounds, overlap rejection and
+complete integer-domain coverage without enumerating values. Existing CFG,
+defer and POD ownership rules apply to the selected bodies. Thirteen focused
+fixture cases and Stage 2/3 identity passed on Windows and Linux/WSL; Intel macOS
+execution and remote CI remain pending. The implementation and diagnostics are
+Sotlas code; the existing Python platform gates only invoke the fixture scripts.
+See [the native match contract](native_match_ranges.md).
 
 SV8.61 delivers new loop/range source syntax, implicit scalar enum values and
 a new borrowed byte-slice text module. Its 36 contracts are recorded in section
@@ -260,7 +270,7 @@ as complete; broader coverage and native migration remain separate obligations.
 | Generics | Canonical/experimental source constructs | Native generic resolution, monomorphization, generic aggregates/methods and libraries |
 | Recursive types/calls | Bounded call/recursion contracts and native ABI evidence | General recursive resource layouts, runtime limits and broad ABI parity |
 | Control flow | Branches, while/loop/integer-for statements, jumps, early returns and conditional values | General CFG, remaining expression bodies, all-path analyses and owned non-POD payloads |
-| Match/discern | Native scalar/Boolean/scalar-enum match with coverage checks | Payload patterns/bindings, guards, ranges and match expressions |
+| Match/discern | Native scalar/Boolean/scalar-enum match; bounded integer ranges with overlap and domain coverage checks | Payload patterns/bindings, guards, open-ended ranges and match expressions |
 | Constants/statics | Bounded typed scalar folding, forward dependencies and static scalar arrays | Aggregate/string/pointer initializers, wider numeric forms and complete constant evaluation |
 | Errors/Option/Result | Canonical error forms and tested scalar library result records | Full native propagation, payloads, cleanup and unwind policy |
 | Classes/shared resources | Canonical/reference subsets and runtime helpers | Native class/resource layouts, constructors/destructors and integrated ARC |

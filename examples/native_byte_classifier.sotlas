@@ -1,0 +1,32 @@
+module native_byte_classifier;
+
+// Exhaustive byte classification. Inclusive endpoints never need MAX + 1.
+fn byte_class(value: u8) -> u32 {
+    match value {
+        0..=31 => return 0;
+        32 => return 1;
+        33..=47 => return 2;
+        48..=57 => return 3;
+        58..=64 => return 2;
+        65..=90 => return 4;
+        91..=96 => return 2;
+        97..=122 => return 5;
+        123..=126 => return 2;
+        127..=255 => return 0;
+    }
+}
+
+pub fn main_entry() -> u32 {
+    let input: [u8; 6] = [83, 111, 116, 108, 97, 115];
+    let mut uppercase: u32 = 0;
+    let mut lowercase: u32 = 0;
+    for index in 0..6 {
+        match byte_class(input[index]) {
+            4 => { uppercase += 1; }
+            5 => { lowercase += 1; }
+            _ => return 1;
+        }
+    }
+    if uppercase != 1 || lowercase != 5 { return 2; }
+    return 42;
+}

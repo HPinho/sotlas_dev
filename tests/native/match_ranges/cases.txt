@@ -1,0 +1,13 @@
+execute.sotlas|42|
+regressions.sotlas|42|
+overlap.sotlas|7|overlapping match patterns
+scalar_overlap.sotlas|7|overlapping match patterns
+reversed.sotlas|7|match range is empty or reversed
+empty.sotlas|7|match range is empty or reversed
+gap.sotlas|7|non-exhaustive match: cover the domain or add a final wildcard
+bool_range.sotlas|7|match range requires an integer selector
+enum_range.sotlas|7|match range requires an integer selector
+enum_bound.sotlas|7|match range bounds must be typed integer constants
+dynamic_bound.sotlas|7|match range bounds must be typed integer constants
+overflow.sotlas|7|match range bounds must be typed integer constants
+ownership.sotlas|6|use of moved or maybe-moved value

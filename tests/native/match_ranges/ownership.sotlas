@@ -1,0 +1,9 @@
+module ownership;
+struct Packet { pub value: u32; }
+fn consume(value: sole Packet) -> u32 { return value.value; }
+pub fn main_entry() -> u32 {
+    let value: u8 = 42;
+    let owner: sole Packet = Packet { value: 42 };
+    match value { 0..128 => { consume(owner); } 128..=255 => {} }
+    return owner.value;
+}
