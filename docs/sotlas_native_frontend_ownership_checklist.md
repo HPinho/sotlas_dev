@@ -2,6 +2,33 @@
 
 Repository: [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev).
 
+## SV8.66 — scoped native resource lifecycle: larger complete bounded block (2026-10-16)
+
+**Verified baseline:** `768b6d1d2bd17a46ad2be227d464cdc276717602` /
+[CI #1249](https://github.com/HPinho/sotlas_dev/actions/runs/38940935785).
+The work below is a candidate until its new full matrix passes.
+
+- [x] Initialize bounded (1–64), caller-backed native scope tables with pointer-extent and capacity guards; no Python/C allocator.
+- [x] Register independent strong-claim slots while rejecting duplicate, stale, null and over-capacity registration.
+- [x] Query registration/depth and explicitly detach a slot without releasing its strong claim.
+- [x] Release live claims in reverse registration order, poison closed handles, clear table rows, and preserve other claims during non-final release.
+- [x] Support nested scope-depth marks, checked rewinds, and full preflight so stale entries or out-of-range marks cannot partially release other live resources.
+- [x] Transfer an active ownership claim between disjoint scope tables without incrementing or decrementing reference counts.
+- [x] Integrate a `void` scope-close function with the existing Sotlas-native lexical `defer` backend, including early returns, loop break and continue.
+- [x] Exercise strong/weak generations, clone/close boundaries, table exhaustion, recovery from stale entries and negative native ownership diagnostics.
+
+**Gate:** `tests/test_sotlas_native_migration_sv866.py` contains 15
+cross-platform native compile/link/execute/rejection tests. The existing
+SV8.51–SV8.65 suites, Linux/Windows/Darwin matrix and Stage2/Stage3 selfhost
+gates remain intact. No prior tests have been removed or weakened.
+
+**Boundaries:** this is explicit source-registered cleanup of stable,
+caller-owned buffers, headers and handles. It does not yet provide
+compiler-synthesized ARC/drop glue, general lifetime proofs, multithreaded
+reference counting, resource heap allocation, non-POD destructors, typed
+separate-object module interfaces or full Python/C bootstrap removal.
+See [the scoped resource contract](native_scoped_resources.md).
+
 ## SV8.63 — native match guards (2026-10-16)
 
 Owner-reported baseline: `899fce1` is green. This cut closes the native guard
