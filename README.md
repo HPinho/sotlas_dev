@@ -51,6 +51,11 @@ seed, those paths compile their original Sotlas sources without Python, a C
 compiler or an external linker. This does not cover every feature accepted by
 the canonical frontend; the hosted bootstrap remains part of the distribution.
 
+The native capacity candidate supports 1,024 function declarations and 2,048
+literal symbols per compilation. Boundary programs execute in the focused
+Windows and Linux gates; overflow is rejected before replacing an executable.
+See the [capacity contract](docs/native_large_modules.md) for independent limits.
+
 The Linux and Windows native drivers accept an experimental Intel macOS cross-build:
 
 ```sh

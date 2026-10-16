@@ -40,9 +40,14 @@ an I/O failure during writing can leave a partial file. Newly created outputs
 use mode 0755; existing files retain their permissions.
 
 String literals share a pool of 65,536 decoded bytes, including NUL terminators,
-and at most 512 symbols per compilation. Exhausting either limit rejects
+and at most 2,048 symbols per compilation. Exhausting either limit rejects
 lowering before output is opened. Literals are never truncated to fit the pool,
 and every accepted string address has a data-symbol relocation.
+
+The unified object backend accepts at most 1,024 function declarations,
+including foreign declarations. Symbol, offset and size tables share this
+bound. See the [native capacity contract](../../../docs/native_large_modules.md)
+for execution and overflow gates.
 
 ## Experimental Windows executable output
 
@@ -509,7 +514,7 @@ rules as compilation and preserves outputs on failure.
 
 Input is bounded to 2 MiB. Input plus generated names uses a checked 4 MiB
 arena. Object emission supports 4,096 data relocations, with explicit failure
-on exhausted tables; the function limit remains 512. Candidate CI is required
+on exhausted tables; the unified function limit is 1,024. Candidate CI is required
 before these extensions are certified across all three platforms.
 
 ## Initialized storage and expression values

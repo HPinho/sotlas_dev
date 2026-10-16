@@ -94,7 +94,7 @@ fn driver_query_mode(option: *const u8) -> u32 {
 }
 fn driver_query_print(mode: u32) -> u32 {
     let mut text: *const u8 = "native-driver-contract=1\ntarget-ir=1\n";
-    if mode == 2 { text = "single_source_bytes<2097152\nproject_modules<=64\nproject_source_bytes<2097152\nfunctions<=512\nparameters_per_function<=24\nblocks_per_function<=2048\nlocal_bindings<=128\nlocal_scalar_array_elements<=4096\nrecord_array_storage_bytes<=65536\ndefer_slots<=128\nlink_elf_objects<=16\nlink_elf_input_bytes<=8388608\n"; }
+    if mode == 2 { text = "single_source_bytes<2097152\nproject_modules<=64\nproject_source_bytes<2097152\nfunctions<=1024\nstring_symbols<=2048\nstring_bytes<=65536\nparameters_per_function<=24\nblocks_per_function<=2048\nlocal_bindings<=128\nlocal_scalar_array_elements<=4096\nrecord_array_storage_bytes<=65536\ndefer_slots<=128\nlink_elf_objects<=16\nlink_elf_input_bytes<=8388608\n"; }
     if mode == 3 { text = "architecture=x86_64\npointer_bits=64\nendianness=little\nobject=ELF64-relocatable\nimage=Mach-O64\ninternal_float_abi=integer-bits\nforeign_float_abi=unsupported\n"; }
     if mode == 4 { text = "0=success\n1=usage\n2=open\n3=read-or-close\n4=lexical\n5=syntax\n6=semantic\n7=lowering\n8=object\n9=link\n10=output-open\n11=output-write\n12=project-resolution\n13=report-write\n14=artifacts-differ\n15=seed-envelope\n16=seed-stamp\n"; }
     return driver_print_text(text);

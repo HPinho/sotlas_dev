@@ -7,6 +7,21 @@
 
 
 
+## SV8.64 — larger native programs (2026-10-16)
+
+The unified Sotlas object backend now accepts 1,024 functions; native literal
+tables accept 2,048 symbols while retaining the 65,536-byte decoded pool.
+All function symbol/offset/size and string symbol tables use the new bounds.
+Native check/build gates execute the exact boundaries and reject one-over
+inputs without replacing an existing executable.
+
+Windows and Linux/WSL passed six capacity cases each and rebuilt the original
+compiler modules with Stage 2/3 byte identity. Two focused object regressions
+passed, including all 2,048 literal relocations. Existing platform Stage 3 gates
+reuse their compiler for these cases. Intel macOS execution and remote CI
+remain pending. This removes a compiler-growth barrier; full frontend and
+ownership parity remain open. See the [capacity contract](native_large_modules.md).
+
 ## SV8.63 — native match guards (2026-10-16)
 
 Starting from owner-reported green `899fce1`, this cut closes Boolean guards on

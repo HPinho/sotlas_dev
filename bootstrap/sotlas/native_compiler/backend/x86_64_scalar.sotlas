@@ -2227,7 +2227,7 @@ fn darwin_process_entry_name(name: *const u8, length: usize) -> bool {
     return true;
 }
 
-// Unified ELF64 relocatable writer. It accepts up to 512 scalar CFG functions
+// Unified ELF64 relocatable writer. It accepts up to 1024 scalar CFG functions
 // (U32/Bool/U64/I64/Usize/Pointer/Void results and up to 24 machine parameters),
 // external function declarations, direct calls in both directions, Phi on
 // unconditional and conditional edges (conditional edges are split inside the
@@ -2263,7 +2263,7 @@ pub fn emit_elf64_module_object(
     unsafe { *output_length = 0; }
     if source == null || target_module == null || functions == null || output == null { return false; }
     let ir: TargetModule = unsafe { *target_module };
-    if ir.version != 1 || ir.function_count == 0 || ir.function_count > 512
+    if ir.version != 1 || ir.function_count == 0 || ir.function_count > TARGET_OBJECT_FUNCTION_CAPACITY
         || ir.value_count > 536870000 {
         return false;
     }
@@ -2282,7 +2282,7 @@ pub fn emit_elf64_module_object(
         if target_opcode_is_semantic_only(unsafe { (*(instructions + semantic_index)).opcode }) { return false; }
         semantic_index = semantic_index + 1;
     }
-    let mut symbol_of_function: [u32; 512] = 0;
+    let mut symbol_of_function: [u32; 1024] = 0;
     let mut defined_count: u32 = 0;
     let mut external_count: u32 = 0;
     let mut strings_size: usize = 1;
@@ -2377,8 +2377,8 @@ pub fn emit_elf64_module_object(
         clear_index = clear_index + 1;
     }
     let mut code: usize = text_offset;
-    let mut function_offsets: [usize; 512] = 0;
-    let mut function_sizes: [usize; 512] = 0;
+    let mut function_offsets: [usize; 1024] = 0;
+    let mut function_sizes: [usize; 1024] = 0;
     let mut call_patch_count: u32 = 0;
     let mut data_patch_offsets: [usize; 4096] = 0;
     let mut data_patch_sym_offsets: [usize; 4096] = 0;
