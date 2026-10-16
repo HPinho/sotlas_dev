@@ -1,5 +1,9 @@
 # Sotlas Preview: Implemented Work and Remaining Gaps
 
+> Historical snapshot from 2026-09-28. For current native compiler evidence,
+> see the [sovereignty roadmap](sotlas_sovereignty_roadmap.md). For the next
+> public release gates, see the [preview launch roadmap](preview_launch_roadmap.md).
+
 **Repository:** [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev)  
 **Snapshot date:** 2026-09-28  
 **Status:** Working-tree snapshot; this document does not describe a tagged release.

@@ -7,6 +7,9 @@
 
 
 
+**Public preview delivery:** [six-block launch roadmap](preview_launch_roadmap.md),
+including a planned Sotlas declarative GUI and independently gated installation.
+
 ## SV8.64 — larger native programs (2026-10-16)
 
 The unified Sotlas object backend now accepts 1,024 functions; native literal
