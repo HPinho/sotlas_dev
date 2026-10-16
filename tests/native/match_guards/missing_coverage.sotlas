@@ -1,0 +1,4 @@
+module guarded_coverage_missing;
+pub fn main_entry() -> u32 {
+    match true { true if true => return 42; false => return 1; }
+}

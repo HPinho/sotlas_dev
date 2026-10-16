@@ -1,0 +1,9 @@
+module moved_guard;
+struct Token { pub value: u32; }
+fn consume(value: sole Token) -> u32 { return value.value; }
+fn read(value: direct Token) -> bool { return value.value == 42; }
+pub fn main_entry() -> u32 {
+    let owner: sole Token = Token { value: 42 };
+    consume(owner);
+    match 42 { 42 if read(owner) => return 42; _ => return 1; }
+}

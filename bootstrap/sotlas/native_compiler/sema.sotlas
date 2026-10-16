@@ -4372,6 +4372,20 @@ impl NativeOwnershipCheck {
                     if body == 0 || body >= self.node_count { self.error_node = index; return 0; }
                     self.count = scope; slot = 0;
                     while slot < scope { self.states[slot] = before[slot]; slot = slot + 1; }
+                    let guard: usize = unsafe { (*(self.nodes + body)).next_sibling };
+                    if guard != 0 {
+                        if guard >= self.node_count || self.expression_domain(guard) != 0
+                            || !self.expression(guard, false, 0) { self.error_node = guard; return 0; }
+                        // A false guard continues to another arm. A condition
+                        // may borrow live owners, but must not consume them.
+                        slot = 0;
+                        while slot < scope {
+                            if self.domains[slot] != 0 && self.states[slot] != before[slot] {
+                                self.fail_reason(guard, 7); return 0;
+                            }
+                            slot = slot + 1;
+                        }
+                    }
                     let result: i64 = self.sequence(unsafe { (*(self.nodes + body)).first_child }, depth + 1);
                     if result == 0 { self.error_node = index; return 0; }
                     if result >= 3 {

@@ -1557,6 +1557,12 @@ impl Parser {
                 }
                 pattern = range;
             }
+            let mut guard: usize = 0;
+            if self.match_token(TokenKind::KwIf) {
+                self.advance();
+                guard = self.parse_expression();
+                if guard == 0 { self.reject_current(); return 0; }
+            }
             if arm == 0 || pattern == 0 || !self.append_child(arm, pattern)
                 || !self.match_token(TokenKind::FatArrow) { self.reject_current(); return 0; }
             self.advance();
@@ -1568,7 +1574,14 @@ impl Parser {
                 let statement_body: usize = self.parse_statement();
                 if body == 0 || statement_body == 0 || !self.append_child(body, statement_body) { return 0; }
             }
-            if body == 0 || !self.append_child(arm, body) || !self.append_child(statement, arm) { return 0; }
+            if body == 0 || !self.append_child(arm, body) { return 0; }
+            // Keep the body as the second child for the existing scope/return
+            // analysis; an optional third child is the source-level guard.
+            if guard != 0 {
+                if !self.append_child(arm, guard) { return 0; }
+                unsafe { (*(self.nodes + arm)).int_value = 1; }
+            }
+            if !self.append_child(statement, arm) { return 0; }
             count = count + 1;
             if self.match_token(TokenKind::Comma) { self.advance(); }
         }

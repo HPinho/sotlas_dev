@@ -2,9 +2,9 @@
 
 **Repository:** [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev)
 
-**Snapshot:** 2026-10-15, America/Sao_Paulo
+**Snapshot:** 2026-10-16, America/Sao_Paulo
 
-**Source revision:** `0e45c2b` plus the SV8.62 native integer-match candidate
+**Source revision:** `899fce1` plus the SV8.63 native match-guard candidate
 
 **Purpose:** one English reference for implemented contracts, remaining language work,
 optional foreign interoperability and removal of mandatory Python/C toolchain dependencies.
@@ -114,6 +114,14 @@ obligations. Baseline is green [CI #1234](https://github.com/HPinho/sotlas_dev/a
 (`fd6dd7d`). SV8.59 awaits its own matrix.
 
 ## 2. Current implementation
+
+SV8.63 adds Boolean guards to native match statements, including ranges and
+guarded wildcards. It implements pattern-hit-only evaluation, lazy conditions,
+false fallthrough, unguarded coverage proofs and ownership-preserving guard
+analysis in Sotlas. Twenty-four combined fixture cases and Stage 2/3 identity
+passed on Windows and Linux/WSL. The documentation inventory/reality gates also
+passed. Intel macOS execution and the new CI remain pending. See the
+[native guard contract](native_match_guards.md).
 
 SV8.62 closes bounded integer match ranges in the Sotlas-written compiler:
 `first..last` and `first..=last`, typed constant bounds, overlap rejection and
@@ -270,7 +278,7 @@ as complete; broader coverage and native migration remain separate obligations.
 | Generics | Canonical/experimental source constructs | Native generic resolution, monomorphization, generic aggregates/methods and libraries |
 | Recursive types/calls | Bounded call/recursion contracts and native ABI evidence | General recursive resource layouts, runtime limits and broad ABI parity |
 | Control flow | Branches, while/loop/integer-for statements, jumps, early returns and conditional values | General CFG, remaining expression bodies, all-path analyses and owned non-POD payloads |
-| Match/discern | Native scalar/Boolean/scalar-enum match; bounded integer ranges with overlap and domain coverage checks | Payload patterns/bindings, guards, open-ended ranges and match expressions |
+| Match/discern | Native scalar/Boolean/scalar-enum match; bounded integer ranges; Boolean guards with false fallthrough and unguarded coverage proofs | Payload patterns/bindings, open-ended ranges and match expressions |
 | Constants/statics | Bounded typed scalar folding, forward dependencies and static scalar arrays | Aggregate/string/pointer initializers, wider numeric forms and complete constant evaluation |
 | Errors/Option/Result | Canonical error forms and tested scalar library result records | Full native propagation, payloads, cleanup and unwind policy |
 | Classes/shared resources | Canonical/reference subsets and runtime helpers | Native class/resource layouts, constructors/destructors and integrated ARC |

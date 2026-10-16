@@ -1,0 +1,19 @@
+module native_guarded_dispatch;
+
+// An ordinary runtime flag selects a command policy; this is not an authority
+// token or a proof of permission supplied by the compiler.
+fn dispatch(opcode: u8, enabled: bool) -> u32 {
+    match opcode {
+        16 if enabled => return 7;
+        16 => return 3;
+        32..=47 if enabled => return 42;
+        32..=47 => return 1;
+        _ => return 0;
+    }
+}
+
+pub fn main_entry() -> u32 {
+    if dispatch(16, true) != 7 || dispatch(16, false) != 3 { return 1; }
+    if dispatch(37, false) != 1 || dispatch(255, true) != 0 { return 2; }
+    return dispatch(37, true);
+}

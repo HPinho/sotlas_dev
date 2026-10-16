@@ -1,0 +1,17 @@
+module guarded_coverage;
+enum Code { First, Last }
+fn boolean(value: bool, enabled: bool) -> u32 {
+    match value { true if enabled => return 7; false => return 1; true => return 42; }
+}
+fn enumeration(value: Code, enabled: bool) -> u32 {
+    match value { Code::Last if enabled => return 7; Code::First => return 1; Code::Last => return 42; }
+}
+fn integer(value: u8, enabled: bool) -> u32 {
+    match value { 0..=255 if enabled => return 7; 128..=255 => return 1; 0..128 => return 42; }
+}
+pub fn main_entry() -> u32 {
+    if boolean(true, false) != 42 || boolean(true, true) != 7 { return 1; }
+    if enumeration(Code::Last, false) != 42 || enumeration(Code::Last, true) != 7 { return 2; }
+    if integer(42, false) != 42 || integer(42, true) != 7 || integer(255, false) != 1 { return 3; }
+    return 42;
+}

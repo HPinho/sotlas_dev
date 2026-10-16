@@ -11,3 +11,14 @@ enum_bound.sotlas|7|match range bounds must be typed integer constants
 dynamic_bound.sotlas|7|match range bounds must be typed integer constants
 overflow.sotlas|7|match range bounds must be typed integer constants
 ownership.sotlas|6|use of moved or maybe-moved value
+../match_guards/execute.sotlas|42|
+../match_guards/exhaustive.sotlas|42|
+../match_guards/ownership_valid.sotlas|42|
+../match_guards/nonboolean.sotlas|7|match guard must be a supported Boolean expression
+../match_guards/final_guard.sotlas|7|final match arm must be unguarded
+../match_guards/missing_coverage.sotlas|7|non-exhaustive match: cover the domain or add a final wildcard
+../match_guards/overlap.sotlas|7|overlapping match patterns
+../match_guards/consumes.sotlas|6|match guard cannot consume ownership
+../match_guards/maybe_moved.sotlas|6|use of moved or maybe-moved value
+../match_guards/moved_read.sotlas|6|use of moved or maybe-moved value
+../match_guards/body_scope.sotlas|6|semantic error

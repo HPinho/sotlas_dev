@@ -22,12 +22,12 @@ fn byte_class(value: u8) -> u32 {
   literals, matching module constants and parenthesized constant expressions
   work. Runtime calls and enum-valued bounds are rejected.
 - Every interval is nonempty and ordered in the selector's signedness.
-- Intervals and scalar patterns must be disjoint. Overlap is rejected rather
-  than interpreted as first-arm priority, matching existing duplicate-pattern
-  rejection.
-- A final wildcard covers the remaining values. Without it, disjoint intervals
-  and scalar cases must cover the entire integer domain without gaps. Source
-  order does not affect this proof.
+- Earlier unguarded explicit patterns must not overlap later explicit cases.
+  Earlier guarded patterns may overlap later cases because a false guard tries
+  the next arm. See [native guards](native_match_guards.md).
+- A final unguarded wildcard covers the remaining values. Without it, unguarded
+  intervals and scalar cases must cover the integer domain without gaps. Guards
+  do not contribute to coverage. Source order does not affect this proof.
 - Inclusive maximum bounds are valid, including `u64::MAX` expressed as a
   literal. The proof never computes MAX + 1 or enumerates every integer.
 - A selector is evaluated once. Only the selected body executes. Existing
@@ -37,8 +37,8 @@ fn byte_class(value: u8) -> u32 {
 
 Ranges on Boolean and enum selectors are rejected. Their existing scalar
 patterns and finite coverage checks still work. Payload patterns, pattern
-bindings, guards, open-ended ranges and match expressions remain outside this
-feature.
+bindings, open-ended ranges and match expressions remain outside this feature.
+Guards are covered by their separate native contract linked above.
 
 ## Representation and execution
 

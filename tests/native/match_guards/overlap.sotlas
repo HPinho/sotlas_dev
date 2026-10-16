@@ -1,0 +1,4 @@
+module shadowed_guard;
+pub fn main_entry() -> u32 {
+    match 42 { 42 => return 42; 42 if true => return 1; _ => return 2; }
+}

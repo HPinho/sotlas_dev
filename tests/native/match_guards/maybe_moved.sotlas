@@ -1,0 +1,9 @@
+module guarded_move;
+struct Token { pub value: u32; }
+fn consume(value: sole Token) -> u32 { return value.value; }
+pub fn main_entry() -> u32 {
+    let owner: sole Token = Token { value: 42 };
+    let enabled: bool = true;
+    match 42 { 42 if enabled => { consume(owner); } _ => {} }
+    return owner.value;
+}

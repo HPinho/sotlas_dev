@@ -1,0 +1,50 @@
+module match_guards;
+static mut calls: u32 = 0;
+static mut trace: u32 = 0;
+fn record(value: u32) -> void { unsafe { trace = trace * 10 + value; } }
+fn test(value: u32, result: bool) -> bool { record(value); return result; }
+fn subject() -> u8 { unsafe { calls += 1; } return 42; }
+
+fn choose() -> u32 {
+    defer record(9);
+    match subject() {
+        0..10 if test(8, true) => return 1;
+        42 if test(1, false) => return 2;
+        40..=50 if test(2, true) => { defer record(4); defer record(3); return 42; }
+        _ => return 3;
+    }
+}
+fn wildcard(flag: bool) -> u32 {
+    match 42 { _ if flag => return 7; 42 => return 42; _ => return 1; }
+}
+fn lazy(flag: bool) -> u32 {
+    match 42 {
+        42 if flag && test(5, true) => return 1;
+        42 if !flag || test(6, false) => return 42;
+        _ => return 2;
+    }
+}
+fn relational(value: i32, limit: i32) -> u32 {
+    match value { -100..=100 if value < limit => return 42; _ => return 1; }
+}
+fn loop_cleanup() -> u32 {
+    let mut step: u32 = 0;
+    loop {
+        step += 1;
+        match step {
+            0..=10 if step == 1 => { defer record(1); continue; }
+            0..=10 if step == 2 => { defer record(2); break; }
+            _ => return 1;
+        }
+    }
+    return step;
+}
+pub fn main_entry() -> u32 {
+    if choose() != 42 || unsafe { calls } != 1 || unsafe { trace } != 12349 { return 1; }
+    if wildcard(false) != 42 || wildcard(true) != 7 { return 2; }
+    unsafe { trace = 0; }
+    if lazy(false) != 42 || unsafe { trace } != 0 { return 3; }
+    if relational(-42, 0) != 42 || relational(42, 0) != 1 { return 4; }
+    if loop_cleanup() != 2 || unsafe { trace } != 12 { return 5; }
+    return 42;
+}
