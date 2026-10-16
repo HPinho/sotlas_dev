@@ -40,6 +40,24 @@ ASCII. Native tests passed on Windows and Linux/WSL; Windows mixed-script
 drawing and cleanup passed. Encoding, layout/shaping and editing scopes remain
 distinct; remote CI is pending. See the [text contract](native_unicode_text.md).
 
+### SV8.67.1 — regression repair: lexical fixture collisions (2026-10-16)
+
+[CI #1252](https://github.com/HPinho/sotlas_dev/actions/runs/38969506696)
+failed exactly two of the 16 new SV8.67 tests on Linux, Windows and
+Intel macOS. In both cases the generated source redeclared an identifier
+already in the shared SV8.66 fixture: `table` in the adjacent-buffer
+test and `cp` in the combined weak/take/defer cleanup test. The native
+compiler correctly rejected both programs, before any runtime execution.
+There was no evidence in the CI output of a runtime ownership failure.
+
+Keep all 16 SV8.67 cases, all 15 SV8.66 cases, and the entire Sotlas
+runtime implementation unchanged; rename only the two new fixture
+locals to `adjacent_storage` and `cloned_handle`, updating their uses.
+No tests are skipped, removed or relaxed; the positive gates must still
+compile, link and execute native code. The last certified green baseline
+remains [CI #1251](https://github.com/HPinho/sotlas_dev/actions/runs/38957013245)
+(`94823c4`). The repair needs its own complete matrix before certification.
+
 ## SV8.67 — native scoped ownership transaction and alias-hardening block (2026-10-16)
 
 **Baseline verde:** `94823c443e741184f3c148e0435e06c72d4cb081` /

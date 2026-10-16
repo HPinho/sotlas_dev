@@ -181,6 +181,13 @@ automatic ARC/drop, general lifetime proofs or a standalone initial seed.
 [CI #1249](https://github.com/HPinho/sotlas_dev/actions/runs/38940935785)
 (`768b6d1`); this candidate awaits its own complete CI.
 
+**SV8.67.1 regression repair:** [CI #1252](https://github.com/HPinho/sotlas_dev/actions/runs/38969506696)
+identified two source-level duplicate local bindings in SV8.67's positive
+native tests (`table`, `cp`), both colliding with the inherited shared
+fixture. The candidate repairs only those bindings and keeps all runtime
+semantics, positive/negative tests, and full matrix intact. Green baseline
+remains #1251 (`94823c4`); certification pending a new run.
+
 **SV8.67 native ownership candidate (2026-10-16):** the bounded
 Sotlas-written resource scope now includes atomic preflight of cloned
 strong-claim enrollment, weak-token upgrade, and claim take/move, with
