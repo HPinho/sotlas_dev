@@ -1,0 +1,64 @@
+module calculator_app::tests;
+import calculator_app::model::*;
+import sotlas::runtime::ui::*;
+
+static mut test_items:[UiItem;32]=0;
+
+fn result_is(expected:*const u8,length:usize) -> bool {
+    let mut bytes:[u8;128]=0;
+    let output:*mut u8=unsafe { bytes as *mut u8 };
+    if calculator_ui_result(output,128) != length { return false; }
+    let mut index:usize=0;
+    while index < length {
+        if unsafe { *(output+index) } != unsafe { *(expected+index) } { return false; }
+        index=index+1;
+    }
+    return true;
+}
+pub fn main_entry() -> u32 {
+    if ui_rect(-1,0,10,10).valid || ui_rect(4090,0,20,20).valid { return 1; }
+    let mut row:UiLayout=ui_row(ui_rect(10,20,30,40),5);
+    let layout:*mut UiLayout=unsafe { (&mut row) as *mut UiLayout };
+    let first:UiRect=ui_cell(layout,10); let second:UiRect=ui_cell(layout,15);
+    if !first.valid || !second.valid || first.x != 10 || second.x != 25 || ui_cell(layout,1).valid { return 2; }
+    let storage:*mut UiItem=unsafe { test_items as *mut UiItem };
+    let mut view:UiView=ui_view(storage,32,2000);
+    let scene:*mut UiView=unsafe { (&mut view) as *mut UiView };
+    calculator_ui_reset();
+    if !calculator_ui_view(scene) || view.count != 23 || view.error != 0 { return 3; }
+    if ui_click(scene,-1,-1) != 0 || ui_click(scene,104,170) != 0 { return 4; }
+    let seven:u32=ui_click(scene,30,170);
+    if seven != 55 || view.focus != 55 || !calculator_ui_action(seven) { return 5; }
+    if !calculator_ui_action(ui_click(scene,300,350)) || !calculator_ui_action(ui_click(scene,120,170)) { return 6; }
+    if !calculator_ui_action(ui_click(scene,210,350)) || !result_is("15",2) { return 7; }
+    if ui_key(scene,13) != 61 || ui_key(scene,32) != 61 { return 8; }
+    view.focus=2000; ui_key(scene,9);
+    if view.focus != 55 { return 9; }
+    view.focus=8; ui_key(scene,9);
+    if view.focus != 2000 { return 10; }
+    calculator_ui_reset(); view.focus=55;
+    if !calculator_ui_dispatch(scene,5,13,0,0) || calculator_ui_length() != 1 { return 20; }
+    if calculator_ui_dispatch(scene,2,13,0,0) || calculator_ui_length() != 1 { return 21; }
+    if !calculator_ui_dispatch(scene,5,32,0,0) || calculator_ui_length() != 2 { return 22; }
+    calculator_ui_dispatch(scene,2,32,0,0);
+    if calculator_ui_length() != 2 { return 23; }
+    calculator_ui_reset();
+    if !calculator_ui_action(50) || !calculator_ui_action(43) || !calculator_ui_action(51)
+        || !calculator_ui_action(42) || !calculator_ui_action(52) || !calculator_ui_action(13) || !result_is("14",2) { return 11; }
+    calculator_ui_reset(); calculator_ui_action(49); calculator_ui_action(47); calculator_ui_action(48); calculator_ui_action(61);
+    if calculator_ui_error() != 4 { return 12; }
+    calculator_ui_action(67); let mut index:usize=0;
+    while index < 128 { if !calculator_ui_action(49) { return 13; } index=index+1; }
+    if calculator_ui_action(50) || calculator_ui_length() != 128 || calculator_ui_error() != 9 { return 14; }
+    if !calculator_ui_action(8) || calculator_ui_length() != 127 || calculator_ui_action(937) || calculator_ui_length() != 127 { return 15; }
+    view=ui_view(storage,2,0);
+    let bounds:UiRect=ui_rect(0,0,50,30);
+    if !ui_button(scene,1,bounds,"ok",2) || ui_text(scene,1,bounds,"duplicate",9) || view.count != 1 || view.error != 3 { return 16; }
+    view=ui_view(storage,1,0);
+    if !ui_button(scene,1,bounds,"ok",2) || ui_button(scene,2,bounds,"full",4) || view.count != 1 || view.error != 1 { return 17; }
+    view=ui_view(storage,32,0);
+    if ui_text(scene,1,bounds,"\0",1) || view.count != 0 || view.error != 4 { return 18; }
+    view=ui_view(null,32,0);
+    if ui_button(scene,1,bounds,"ok",2) || view.error != 1 { return 19; }
+    return 42;
+}

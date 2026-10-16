@@ -1,0 +1,110 @@
+module calculator_app::model;
+import sotlas::runtime::calculator::*;
+import sotlas::runtime::ui::*;
+
+// This example owns one session. The evaluator itself remains reentrant.
+static mut calculator_input:[u8;128]=0;
+static mut calculator_length:usize=0;
+static mut calculator_output:[u8;128]=0;
+static mut calculator_output_length:usize=0;
+static mut calculator_error:u32=0;
+
+fn calculator_ui_message(message:*const u8) -> void {
+    let mut length:usize=0;
+    while length < 128 && unsafe { *(message+length) } != 0 {
+        unsafe { calculator_output[length]=*(message+length); } length=length+1;
+    }
+    unsafe { calculator_output_length=length; }
+}
+pub fn calculator_ui_reset() -> void {
+    unsafe { calculator_length=0; calculator_error=0; }
+    calculator_ui_message("Ready");
+}
+pub fn calculator_ui_action(action:u32) -> bool {
+    if action == 67 || action == 99 { calculator_ui_reset(); return true; }
+    if action == 8 {
+        unsafe { if calculator_length != 0 { calculator_length=calculator_length-1; } calculator_error=0; }
+        calculator_ui_message("Ready"); return true;
+    }
+    if action == 13 || action == 61 {
+        let input:*const u8=unsafe { calculator_input as *const u8 };
+        let result:CalculatorResult=calculator_evaluate(input,unsafe { calculator_length });
+        unsafe { calculator_error=result.error; }
+        if result.error != 0 { calculator_ui_message(calculator_error_message(result.error)); return true; }
+        let output:*mut u8=unsafe { calculator_output as *mut u8 };
+        let length:usize=calculator_format(result.value,output,128);
+        if length == 0 { calculator_ui_message("Cannot display this result"); return false; }
+        unsafe { calculator_output_length=length; } return true;
+    }
+    let accepted:bool=(action >= 48 && action <= 57) || action == 43 || action == 45 || action == 42
+        || action == 47 || action == 40 || action == 41 || action == 46;
+    if !accepted { return false; }
+    unsafe {
+        if calculator_length >= 128 { calculator_error=9; calculator_ui_message("Expression is full (128 bytes)"); return false; }
+        calculator_input[calculator_length]=action as u8;
+        calculator_length=calculator_length+1; calculator_error=0;
+    }
+    calculator_ui_message("Ready"); return true;
+}
+pub fn calculator_ui_result(output:*mut u8,capacity:usize) -> usize {
+    let length:usize=unsafe { calculator_output_length };
+    if output == null || length > capacity { return 0; }
+    let mut index:usize=0;
+    while index < length { unsafe { *(output+index)=calculator_output[index]; } index=index+1; }
+    return length;
+}
+pub fn calculator_ui_length() -> usize { return unsafe { calculator_length }; }
+pub fn calculator_ui_error() -> u32 { return unsafe { calculator_error }; }
+
+// Share the actual event policy with native tests. A key activation consumes
+// Enter/Space; its later character event must not apply the button twice.
+pub fn calculator_ui_dispatch(mut view:*mut UiView,kind:u32,code:u32,x:i32,y:i32) -> bool {
+    if view == null { return false; }
+    if kind == 3 {
+        let action:u32=ui_click(view,x,y);
+        if action != 0 { calculator_ui_action(action); }
+        return true;
+    }
+    if kind == 5 {
+        let action:u32=ui_key(view,code);
+        if action != 0 { calculator_ui_action(action); return true; }
+        return code == 9;
+    }
+    if kind == 2 && (code == 8 || (code == 13 && unsafe { view.focus } == 2000) || code >= 32) {
+        calculator_ui_action(code); return true;
+    }
+    return false;
+}
+
+pub fn calculator_ui_view(mut view:*mut UiView) -> bool {
+    if view == null { return false; }
+    unsafe { view.count=0; view.error=0; }
+    let mut column:UiLayout=ui_column(ui_rect(24,20,344,472),8);
+    let layout:*mut UiLayout=unsafe { (&mut column) as *mut UiLayout };
+    if !ui_text(view,2001,ui_cell(layout,28),"Sotlas Calculator",17) { return false; }
+    let input:*const u8=unsafe { calculator_input as *const u8 };
+    if !ui_text_field(view,2000,ui_cell(layout,48),input,unsafe { calculator_length }) { return false; }
+    let output:*const u8=unsafe { calculator_output as *const u8 };
+    if !ui_text(view,2002,ui_cell(layout,40),output,unsafe { calculator_output_length }) { return false; }
+    let labels:*const u8="789/456*123-C0=+().";
+    let mut row_index:usize=0;
+    while row_index < 5 {
+        let mut row:UiLayout=ui_row(ui_cell(layout,52),8);
+        let row_layout:*mut UiLayout=unsafe { (&mut row) as *mut UiLayout };
+        let mut index:usize=0;
+        while index < 4 {
+            let position:usize=row_index*4+index;
+            let bounds:UiRect=ui_cell(row_layout,80);
+            if position == 19 {
+                if !ui_button(view,8,bounds,"<-",2) { return false; }
+            } else {
+                let label:*const u8=unsafe { labels+position };
+                let action:u32=(unsafe { *label }) as u32;
+                if !ui_button(view,action,bounds,label,1) { return false; }
+            }
+            index=index+1;
+        }
+        row_index=row_index+1;
+    }
+    return true;
+}

@@ -1,0 +1,37 @@
+module calculator_app::main;
+import calculator_app::model::*;
+import sotlas::runtime::ui::*;
+import sotlas::runtime::ui_windows::*;
+import sotlas::runtime::window_windows::*;
+
+static mut calculator_items:[UiItem;32]=0;
+
+pub fn main_entry() -> u32 {
+    if !native_window_start() { return 1; }
+    let mut title:[u16;18]=0;
+    let heading:*const u8="Sotlas Calculator";
+    let mut index:usize=0;
+    while index < 17 { let byte:u8=unsafe { *(heading+index) }; title[index]=byte as u16; index=index+1; }
+    if !native_window_create(unsafe { title as *const u16 },416,560,true) { native_window_stop(); return 2; }
+    let mut view:UiView=ui_view(unsafe { calculator_items as *mut UiItem },32,2000);
+    let scene:*mut UiView=unsafe { (&mut view) as *mut UiView };
+    calculator_ui_reset();
+    if !calculator_ui_view(scene) { native_window_stop(); return 3; }
+    let mut event:NativeWindowEvent=NativeWindowEvent{kind:0,code:0,x:0,y:0};
+    let events:*mut NativeWindowEvent=unsafe { (&mut event) as *mut NativeWindowEvent };
+    let mut status:u32=0;
+    while native_window_alive() {
+        if !native_window_next(events,true) { continue; }
+        if event.kind == 4 || (event.kind == 5 && event.code == 27) { break; }
+        if event.kind == 1 {
+            let frame:*const UiView=unsafe { (&view) as *const UiView };
+            if !ui_windows_paint(frame) { status=4; break; }
+        }
+        if calculator_ui_dispatch(scene,event.kind,event.code,event.x,event.y) {
+            if !calculator_ui_view(scene) { status=3; break; }
+            if !native_window_invalidate() { status=4; break; }
+        }
+    }
+    if !native_window_stop() { return 5; }
+    return status;
+}

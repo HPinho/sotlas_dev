@@ -8,7 +8,7 @@
 
 
 **Public preview delivery:** [six-block launch roadmap](preview_launch_roadmap.md),
-including a planned Sotlas declarative GUI and independently gated installation.
+including an initial Sotlas declarative UI and independently gated installation.
 
 **P1 application candidate (2026-10-16):** a terminal calculator now exercises
 native recursive expression parsing, `f64` arithmetic, bounded text formatting,
@@ -24,6 +24,14 @@ checks. A visible window rendered text and accepted updates. Both native
 compiler fixed points passed; Linux/Windows emitted identical GUI PE bytes.
 Four PE regression gates and the calculator gate passed. Full P2/P3 scope and
 remote CI remain pending. See the [window contract](../examples/native_window/README.md).
+
+**P3 first application (2026-10-16):** the graphical calculator now declares
+23 components through a Sotlas UI model and renders with the native Windows
+adapter. Model/layout gates passed on Windows and Linux/WSL; Windows drawing,
+clip cleanup and a visible `7+8 = 15` interaction passed. ASCII labels, fixed
+layout and caller-owned storage are explicit limits. Native language parity,
+complete P2/P3 coverage and remote CI remain open. See the
+[application contract](../examples/graphical_calculator/README.md).
 
 ## SV8.64 — larger native programs (2026-10-16)
 

@@ -62,9 +62,17 @@ system services remain runtime dependencies and must be listed.
 
 ### P3 — declarative UI in Sotlas
 
-- [ ] Implement `Text`, `Button`, `TextField`, `Row` and `Column`, with explicit component identity, sizing, spacing and focus order.
-- [ ] Implement state-to-view updates, action dispatch and event-driven repaint; verify that input causes one intended state change.
+- [x] Implement the first bounded `Text`, `Button`, `TextField`, `Row` and `Column` profile, with IDs, fixed sizing/spacing and Tab focus order.
+- [x] Implement state-to-view updates, action dispatch and event-driven repaint in the graphical calculator, with separate key/character activation paths.
 - [ ] Define component/state/resource ownership and cleanup; reject or diagnose exhausted UI storage and preserve valid state on failure.
+
+**P3 first application (2026-10-16):** the [graphical calculator](../examples/graphical_calculator/README.md)
+now executes through the native Windows backend. Model/layout tests passed on
+Windows and Linux/WSL; Windows painting/cleanup tests and a visible click-to-result
+check passed locally. Storage/label lifetimes remain explicit caller obligations;
+general ownership proof and complete UI ergonomics are still open. The initial
+profile has ASCII labels, append/Backspace editing and fixed layout. Remote CI
+is pending; the full preview is not certified by this example.
 
 Use ordinary Sotlas functions and typed records for the initial declarative
 API. No new syntax is promised by this plan. Actions may use explicit IDs and
