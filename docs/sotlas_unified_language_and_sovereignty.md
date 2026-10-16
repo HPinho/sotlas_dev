@@ -3,8 +3,8 @@
 **Repository:** [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev)
 
 **Public preview delivery:** [short launch roadmap](preview_launch_roadmap.md).
-The declarative toolkit is planned. The native Windows window probe now has
-local drawing, lifecycle and input evidence; complete GUI support remains open.
+The first bounded declarative UI and graphical calculator have local Windows
+evidence. General graphical application support remains open.
 
 **P1 application candidate (2026-10-16):** the native terminal calculator uses
 a Sotlas evaluator and formatter with native platform I/O. Its model gate and
@@ -15,7 +15,14 @@ See the [application contract](../examples/calculator/README.md).
 
 **Snapshot:** 2026-10-16, America/Sao_Paulo
 
-**Source revision:** `57869f3` plus the P2 Windows platform candidate
+**Source revision:** `c0a1a86` plus the first P3 graphical calculator candidate
+
+**P3 application candidate:** the graphical calculator declares text, a
+focusable input, result and twenty buttons through platform-independent Sotlas
+UI functions. Model/layout gates passed on Windows and Linux/WSL; Windows
+render/cleanup and visible click-to-result checks passed. Caller-backed labels,
+ASCII/fixed layout, broader ownership/UI semantics and remote CI limits are
+described in the [application contract](../examples/graphical_calculator/README.md).
 
 **P2 first delivery (2026-10-16):** the owned PE backend adds checked loader
 imports and an unsafe twelve-slot Win64 scalar bridge. A Sotlas window adapter

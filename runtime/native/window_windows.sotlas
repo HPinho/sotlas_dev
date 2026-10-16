@@ -13,6 +13,10 @@ static mut window_instance:u64=0;
 static mut window_handle:u64=0;
 static mut window_registered:bool=false;
 static mut window_ready:bool=false;
+static mut window_canvas:[u64;9]=0;
+static mut window_dc:u64=0;
+static mut window_previous_font:u64=0;
+static mut window_clip:u64=0;
 
 pub struct NativeWindowEvent { pub kind:u32; pub code:u32; pub x:i32; pub y:i32; }
 pub struct NativeWindowSize { pub width:u32; pub height:u32; }
@@ -41,6 +45,7 @@ fn window_resolve(index:usize, library:usize, name:*const u8) -> bool {
     return function != 0;
 }
 pub fn native_window_close() -> bool {
+    if unsafe { window_dc } != 0 { native_window_end(); }
     let handle:u64=unsafe { window_handle };
     if handle == 0 { return true; }
     let mut arguments:[u64;12]=0;
@@ -95,7 +100,8 @@ pub fn native_window_start() -> bool {
         && window_resolve(20,1,"GetSysColorBrush") && window_resolve(21,2,"GetStockObject")
         && window_resolve(22,2,"SelectObject") && window_resolve(23,2,"SetTextColor")
         && window_resolve(24,2,"SetBkMode") && window_resolve(25,2,"TextOutW")
-        && window_resolve(29,1,"GetDpiForWindow")
+        && window_resolve(26,2,"SaveDC") && window_resolve(27,2,"IntersectClipRect")
+        && window_resolve(28,2,"RestoreDC") && window_resolve(29,1,"GetDpiForWindow")
         && window_resolve(30,1,"GetGuiResources") && window_resolve(31,0,"GetCurrentProcess");
     if !ready { native_window_stop(); return false; }
     let mut arguments:[u64;12]=0;
@@ -201,7 +207,7 @@ pub fn native_window_next(mut event:*mut NativeWindowEvent, wait:bool) -> bool {
     return true;
 }
 pub fn native_window_paint(text:*const u16, length:u32) -> bool {
-    if !native_window_alive() || text == null || length > 1024 { return false; }
+    if !native_window_alive() || unsafe { window_dc } != 0 || text == null || length > 1024 { return false; }
     let mut paint:[u64;9]=0;
     let mut rectangle:[i32;4]=0;
     let mut arguments:[u64;12]=0;
@@ -234,6 +240,93 @@ pub fn native_window_paint(text:*const u16, length:u32) -> bool {
     arguments[0]=unsafe { window_handle }; arguments[1]=unsafe { paint_data as u64 };
     if window_call(14,values) as u32 == 0 { okay=false; }
     return okay;
+}
+pub fn native_window_begin() -> bool {
+    if !native_window_alive() || unsafe { window_dc } != 0 { return false; }
+    let mut arguments:[u64;12]=0;
+    let values:*const u64=unsafe { arguments as *const u64 };
+    let paint_data:*mut u64=unsafe { window_canvas as *mut u64 };
+    arguments[0]=unsafe { window_handle }; arguments[1]=unsafe { paint_data as u64 };
+    let dc:u64=window_call(13,values);
+    if dc == 0 { return false; }
+    unsafe { window_dc=dc; }
+    arguments[0]=17; let font:u64=window_call(21,values);
+    arguments[0]=dc; arguments[1]=font;
+    let previous:u64=window_call(22,values);
+    unsafe { window_previous_font=previous; }
+    if previous == 0 || previous == 18446744073709551615 { native_window_end(); return false; }
+    arguments[1]=1;
+    if window_call(24,values) as u32 == 0 { native_window_end(); return false; }
+    let mut size:NativeWindowSize=NativeWindowSize{width:0,height:0};
+    if !native_window_measure(unsafe { (&mut size) as *mut NativeWindowSize }) { native_window_end(); return false; }
+    if size.width != 0 && size.height != 0 {
+        if !native_window_box(0,0,size.width,size.height,5) { native_window_end(); return false; }
+    }
+    return true;
+}
+pub fn native_window_box(x:i32,y:i32,width:u32,height:u32,color:u32) -> bool {
+    let dc:u64=unsafe { window_dc };
+    if dc == 0 || x < 0 || y < 0 || width == 0 || height == 0 || width > 8192 || height > 8192
+        || x > 2147475455 || y > 2147475455 || color > 30 { return false; }
+    let mut rectangle:[i32;4]=0;
+    rectangle[0]=x; rectangle[1]=y; rectangle[2]=x+width as i32; rectangle[3]=y+height as i32;
+    let data:*const i32=unsafe { rectangle as *const i32 };
+    let mut arguments:[u64;12]=0;
+    let values:*const u64=unsafe { arguments as *const u64 };
+    arguments[0]=color as u64; let brush:u64=window_call(20,values);
+    if brush == 0 { return false; }
+    arguments[0]=dc; arguments[1]=unsafe { data as u64 }; arguments[2]=brush;
+    return window_call(16,values) as u32 != 0;
+}
+pub fn native_window_text(x:i32,y:i32,text:*const u16,length:u32,color:u32) -> bool {
+    let dc:u64=unsafe { window_dc };
+    if dc == 0 || text == null || length > 1024 || x < 0 || y < 0 || x > 8192 || y > 8192 || color > 16777215 { return false; }
+    if length == 0 { return true; }
+    let mut arguments:[u64;12]=0;
+    let values:*const u64=unsafe { arguments as *const u64 };
+    arguments[0]=dc; arguments[1]=color as u64;
+    if window_call(23,values) as u32 == 4294967295 { return false; }
+    arguments[1]=x as u64; arguments[2]=y as u64; arguments[3]=unsafe { text as u64 }; arguments[4]=length as u64;
+    return window_call(25,values) as u32 != 0;
+}
+pub fn native_window_end() -> bool {
+    if unsafe { window_dc } == 0 { return false; }
+    let mut okay:bool=true;
+    if unsafe { window_clip } != 0 { if !native_window_unclip() { okay=false; } }
+    let mut arguments:[u64;12]=0;
+    let values:*const u64=unsafe { arguments as *const u64 };
+    arguments[0]=unsafe { window_dc }; arguments[1]=unsafe { window_previous_font };
+    if arguments[1] != 0 && arguments[1] != 18446744073709551615 {
+        let restored:u64=window_call(22,values);
+        if restored == 0 || restored == 18446744073709551615 { okay=false; }
+    }
+    let paint_data:*mut u64=unsafe { window_canvas as *mut u64 };
+    arguments[0]=unsafe { window_handle }; arguments[1]=unsafe { paint_data as u64 };
+    if window_call(14,values) as u32 == 0 { okay=false; }
+    unsafe { window_dc=0; window_previous_font=0; }
+    return okay;
+}
+pub fn native_window_clip(x:i32,y:i32,width:u32,height:u32) -> bool {
+    if unsafe { window_dc } == 0 || unsafe { window_clip } != 0 || x < 0 || y < 0 || x > 4096 || y > 4096
+        || width == 0 || height == 0 || width > 4096 || height > 4096 { return false; }
+    let mut arguments:[u64;12]=0;
+    let values:*const u64=unsafe { arguments as *const u64 };
+    arguments[0]=unsafe { window_dc };
+    let saved:u32=window_call(26,values) as u32;
+    if saved == 0 { return false; }
+    unsafe { window_clip=saved as u64; }
+    arguments[1]=x as u64; arguments[2]=y as u64;
+    arguments[3]=(x+width as i32) as u64; arguments[4]=(y+height as i32) as u64;
+    if window_call(27,values) as u32 == 0 { native_window_unclip(); return false; }
+    return true;
+}
+pub fn native_window_unclip() -> bool {
+    if unsafe { window_dc } == 0 || unsafe { window_clip } == 0 { return false; }
+    let mut arguments:[u64;12]=0;
+    arguments[0]=unsafe { window_dc }; arguments[1]=unsafe { window_clip };
+    let result:u32=window_call(28,unsafe { arguments as *const u64 }) as u32;
+    unsafe { window_clip=0; }
+    return result != 0;
 }
 pub fn native_window_dpi() -> u32 {
     let mut arguments:[u64;12]=0; arguments[0]=unsafe { window_handle };

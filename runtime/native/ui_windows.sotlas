@@ -1,0 +1,46 @@
+module sotlas::runtime::ui_windows;
+import sotlas::runtime::ui::*;
+import sotlas::runtime::window_windows::*;
+
+pub fn ui_windows_paint(view:*const UiView) -> bool {
+    if view == null { return false; }
+    let current:UiView=unsafe { *view };
+    if current.error != 0 || current.items == null || current.count > current.capacity || current.capacity > 64 { return false; }
+    if !native_window_begin() { return false; }
+    let mut okay:bool=true; let mut index:usize=0;
+    while index < current.count && okay {
+        let item:UiItem=unsafe { *(current.items+index) };
+        let bounds:UiRect=item.bounds;
+        let checked:UiRect=ui_rect(bounds.x,bounds.y,bounds.width,bounds.height);
+        if !bounds.valid || !checked.valid || item.kind < 1 || item.kind > 3 { okay=false; break; }
+        let clipped:bool=native_window_clip(bounds.x,bounds.y,bounds.width,bounds.height);
+        if !clipped { okay=false; break; }
+        let mut color:u32=3158064;
+        if item.kind == 2 {
+            let mut background:u32=15;
+            if current.focus == item.id { background=13; color=16777215; }
+            okay=native_window_box(bounds.x,bounds.y,bounds.width,bounds.height,background);
+        }
+        if item.kind == 3 {
+            let mut border:u32=16; if current.focus == item.id { border=13; }
+            okay=native_window_box(bounds.x,bounds.y,bounds.width,bounds.height,border);
+            if okay && bounds.width > 4 && bounds.height > 4 {
+                okay=native_window_box(bounds.x+2,bounds.y+2,bounds.width-4,bounds.height-4,5);
+            }
+        }
+        let mut text:[u16;128]=0;
+        let mut offset:usize=0;
+        if item.label == null || item.length > 128 { okay=false; }
+        while offset < item.length && okay {
+            let byte:u8=unsafe { *(item.label+offset) };
+            if byte < 32 || byte > 126 { okay=false; }
+            else { text[offset]=byte as u16; }
+            offset=offset+1;
+        }
+        if okay { okay=native_window_text(bounds.x+12,bounds.y+12,unsafe { text as *const u16 },item.length as u32,color); }
+        if !native_window_unclip() { okay=false; }
+        index=index+1;
+    }
+    let ended:bool=native_window_end();
+    return okay && ended;
+}

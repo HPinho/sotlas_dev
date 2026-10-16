@@ -1,0 +1,107 @@
+module sotlas::runtime::ui;
+
+// Borrowed ASCII labels and caller-backed items remain live through rendering.
+// This first declarative profile is bounded to 64 items and 4096 layout units.
+pub struct UiRect { pub x:i32; pub y:i32; pub width:u32; pub height:u32; pub valid:bool; }
+pub struct UiLayout { pub bounds:UiRect; pub gap:u32; pub cursor:u32; pub horizontal:bool; }
+pub struct UiItem { pub id:u32; pub kind:u32; pub bounds:UiRect; pub label:*const u8; pub length:usize; }
+pub struct UiView { pub items:*mut UiItem; pub count:usize; pub capacity:usize; pub focus:u32; pub error:u32; }
+
+pub fn ui_rect(x:i32,y:i32,width:u32,height:u32) -> UiRect {
+    let mut valid:bool=x >= 0 && y >= 0 && width > 0 && height > 0 && width <= 4096 && height <= 4096;
+    if valid { valid=(x as u32) <= 4096-width && (y as u32) <= 4096-height; }
+    return UiRect{x:x,y:y,width:width,height:height,valid:valid};
+}
+pub fn ui_row(bounds:UiRect,gap:u32) -> UiLayout {
+    return UiLayout{bounds:bounds,gap:gap,cursor:0,horizontal:true};
+}
+pub fn ui_column(bounds:UiRect,gap:u32) -> UiLayout {
+    return UiLayout{bounds:bounds,gap:gap,cursor:0,horizontal:false};
+}
+pub fn ui_cell(mut layout:*mut UiLayout, extent:u32) -> UiRect {
+    if layout == null { return ui_rect(0,0,0,0); }
+    unsafe {
+        let bounds:UiRect=layout.bounds;
+        let mut available:u32=bounds.height;
+        if layout.horizontal { available=bounds.width; }
+        let checked:UiRect=ui_rect(bounds.x,bounds.y,bounds.width,bounds.height);
+        if !bounds.valid || !checked.valid || extent == 0 || layout.cursor > available || extent > available-layout.cursor { return ui_rect(0,0,0,0); }
+        let mut result:UiRect=ui_rect(bounds.x,bounds.y,bounds.width,extent);
+        if layout.horizontal { result=ui_rect(bounds.x+layout.cursor as i32,bounds.y,extent,bounds.height); }
+        else { result=ui_rect(bounds.x,bounds.y+layout.cursor as i32,bounds.width,extent); }
+        layout.cursor=layout.cursor+extent;
+        if layout.gap <= available-layout.cursor { layout.cursor=layout.cursor+layout.gap; }
+        else { layout.cursor=available; }
+        return result;
+    }
+}
+pub fn ui_view(items:*mut UiItem,capacity:usize,focus:u32) -> UiView {
+    let mut error:u32=0;
+    if items == null || capacity == 0 || capacity > 64 { error=1; }
+    return UiView{items:items,count:0,capacity:capacity,focus:focus,error:error};
+}
+fn ui_add(mut view:*mut UiView,id:u32,kind:u32,bounds:UiRect,label:*const u8,length:usize) -> bool {
+    if view == null { return false; }
+    unsafe {
+        if view.error != 0 { return false; }
+        if view.items == null || view.count >= view.capacity || view.capacity > 64 { view.error=1; return false; }
+        let checked:UiRect=ui_rect(bounds.x,bounds.y,bounds.width,bounds.height);
+        if id == 0 || !bounds.valid || !checked.valid || label == null || length > 128 { view.error=2; return false; }
+        let mut index:usize=0;
+        while index < view.count {
+            if (*(view.items+index)).id == id { view.error=3; return false; }
+            index=index+1;
+        }
+        index=0;
+        while index < length {
+            let byte:u8=*(label+index);
+            if byte < 32 || byte > 126 { view.error=4; return false; }
+            index=index+1;
+        }
+        *(view.items+view.count)=UiItem{id:id,kind:kind,bounds:bounds,label:label,length:length};
+        view.count=view.count+1;
+    }
+    return true;
+}
+pub fn ui_text(view:*mut UiView,id:u32,bounds:UiRect,label:*const u8,length:usize) -> bool { return ui_add(view,id,1,bounds,label,length); }
+pub fn ui_button(view:*mut UiView,id:u32,bounds:UiRect,label:*const u8,length:usize) -> bool { return ui_add(view,id,2,bounds,label,length); }
+pub fn ui_text_field(view:*mut UiView,id:u32,bounds:UiRect,label:*const u8,length:usize) -> bool { return ui_add(view,id,3,bounds,label,length); }
+pub fn ui_click(mut view:*mut UiView,x:i32,y:i32) -> u32 {
+    if view == null { return 0; }
+    unsafe {
+        if view.error != 0 || view.count > view.capacity { return 0; }
+        let mut index:usize=view.count;
+        while index != 0 {
+            index=index-1;
+            let item:UiItem=*(view.items+index);
+            let bounds:UiRect=item.bounds;
+            if item.kind != 1 && x >= bounds.x && y >= bounds.y && x-bounds.x < bounds.width as i32 && y-bounds.y < bounds.height as i32 {
+                view.focus=item.id;
+                if item.kind == 2 { return item.id; }
+                return 0;
+            }
+        }
+    }
+    return 0;
+}
+pub fn ui_key(mut view:*mut UiView,key:u32) -> u32 {
+    if view == null { return 0; }
+    unsafe {
+        if view.error != 0 || view.count > view.capacity { return 0; }
+        let mut index:usize=0; let mut first:u32=0; let mut next:bool=false;
+        while index < view.count {
+            let item:UiItem=*(view.items+index);
+            if item.kind != 1 {
+                if first == 0 { first=item.id; }
+                if key == 9 && next { view.focus=item.id; return 0; }
+                if item.id == view.focus {
+                    next=true;
+                    if item.kind == 2 && (key == 13 || key == 32) { return item.id; }
+                }
+            }
+            index=index+1;
+        }
+        if key == 9 { view.focus=first; }
+    }
+    return 0;
+}

@@ -1,0 +1,38 @@
+module calculator_app::render_tests;
+import calculator_app::model::*;
+import sotlas::runtime::ui::*;
+import sotlas::runtime::ui_windows::*;
+import sotlas::runtime::window_windows::*;
+static mut render_items:[UiItem;32]=0;
+
+pub fn main_entry() -> u32 {
+    if !native_window_start() { return 1; }
+    let mut title:[u16;2]=0; title[0]=83;
+    if !native_window_create(unsafe { title as *const u16 },416,560,false) { native_window_stop(); return 2; }
+    let mut view:UiView=ui_view(unsafe { render_items as *mut UiItem },32,2000);
+    let scene:*mut UiView=unsafe { (&mut view) as *mut UiView };
+    let frame:*const UiView=unsafe { (&view) as *const UiView };
+    calculator_ui_reset();
+    let mut iteration:u32=0; let mut gdi:u32=0; let mut windows:u32=0;
+    while iteration < 20 {
+        if !calculator_ui_view(scene) || !native_window_invalidate() || !ui_windows_paint(frame) { native_window_stop(); return 3; }
+        if native_window_text(0,0,unsafe { title as *const u16 },1,0) || native_window_end() { native_window_stop(); return 4; }
+        let current:u32=native_window_resource_count(0); let current_user:u32=native_window_resource_count(1);
+        if iteration == 1 { gdi=current; windows=current_user; }
+        if iteration > 1 && (current > gdi || current_user > windows) { native_window_stop(); return 5; }
+        calculator_ui_action(49); iteration=iteration+1;
+    }
+    // Failed frame input must not leave a paint session or selected font behind.
+    view.error=1;
+    if ui_windows_paint(frame) || native_window_end() { native_window_stop(); return 6; }
+    if !calculator_ui_view(scene) { native_window_stop(); return 9; }
+    let mut first:*mut UiItem=unsafe { render_items as *mut UiItem };
+    let invalid:*const u8="\0";
+    let bounds:UiRect=ui_rect(24,20,344,28);
+    unsafe { *first=UiItem{id:2001,kind:1,bounds:bounds,label:invalid,length:1}; }
+    if ui_windows_paint(frame) || native_window_end() || native_window_unclip() { native_window_stop(); return 10; }
+    if !calculator_ui_view(scene) || !ui_windows_paint(frame) { native_window_stop(); return 11; }
+    if !native_window_begin() || native_window_begin() { native_window_stop(); return 7; }
+    if !native_window_stop() || !native_window_stop() { return 8; }
+    return 42;
+}
