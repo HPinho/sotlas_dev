@@ -3,7 +3,8 @@
 **Repository:** [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev)
 
 **Public preview delivery:** [short launch roadmap](preview_launch_roadmap.md).
-The planned declarative GUI is not yet an implemented native feature.
+The declarative toolkit is planned. The native Windows window probe now has
+local drawing, lifecycle and input evidence; complete GUI support remains open.
 
 **P1 application candidate (2026-10-16):** the native terminal calculator uses
 a Sotlas evaluator and formatter with native platform I/O. Its model gate and
@@ -14,7 +15,15 @@ See the [application contract](../examples/calculator/README.md).
 
 **Snapshot:** 2026-10-16, America/Sao_Paulo
 
-**Source revision:** `556be4f` plus the P1 native calculator candidate
+**Source revision:** `57869f3` plus the P2 Windows platform candidate
+
+**P2 first delivery (2026-10-16):** the owned PE backend adds checked loader
+imports and an unsafe twelve-slot Win64 scalar bridge. A Sotlas window adapter
+registers a class, draws UTF-16 text, polls input and releases resources. Local
+Windows smoke/visual checks passed; Linux/Windows native compilers rebuilt
+with fixed points and emitted identical GUI PE images. Complete DPI/Unicode,
+OS failure injection, declarative components and remote CI remain pending.
+See the [platform contract](../examples/native_window/README.md).
 
 **Purpose:** one English reference for implemented contracts, remaining language work,
 optional foreign interoperability and removal of mandatory Python/C toolchain dependencies.
@@ -2505,6 +2514,15 @@ responsibility at this raw API boundary.
 | `sotlas_windows_close_handle` | CloseHandle | u64 | u32 |
 | `sotlas_windows_get_std_handle` | GetStdHandle | u32 | u64 |
 | `sotlas_windows_get_last_error` | GetLastError | none | u32 |
+| `sotlas_windows_load_library` | LoadLibraryW | pointer | u64 |
+| `sotlas_windows_get_proc_address` | GetProcAddress | u64, pointer | u64 |
+
+`sotlas_windows_call_scalar(u64, *const u64) -> u64` resolves to the owned
+twelve-slot Win64 scalar bridge. It requires a live target and twelve readable
+initialized slots. Dynamically resolved signatures, pointer lifetimes and raw
+packet validity are unsafe caller responsibilities. No floating ABI, varargs,
+aggregate-by-value calls, Sotlas callbacks or unwind support are certified.
+See the [window contract](../examples/native_window/README.md).
 
 The bridge follows the [Microsoft x64 calling convention](https://learn.microsoft.com/en-us/cpp/build/x64-calling-convention),
 including register mapping, shadow space and stack arguments. The I/O gates

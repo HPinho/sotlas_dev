@@ -17,6 +17,14 @@ passed on Windows and Linux/WSL with host tools absent from PATH. The existing
 Stage 3 gates now include these application checks. Intel macOS execution and
 remote CI are pending. See the [calculator contract](../examples/calculator/README.md).
 
+**P2 Windows platform candidate (2026-10-16):** the native backend now resolves
+loader imports and emits a Win64 scalar call bridge. The Sotlas window probe
+passed local lifecycle, drawing, resize, posted input and GDI/USER resource
+checks. A visible window rendered text and accepted updates. Both native
+compiler fixed points passed; Linux/Windows emitted identical GUI PE bytes.
+Four PE regression gates and the calculator gate passed. Full P2/P3 scope and
+remote CI remain pending. See the [window contract](../examples/native_window/README.md).
+
 ## SV8.64 — larger native programs (2026-10-16)
 
 The unified Sotlas object backend now accepts 1,024 functions; native literal

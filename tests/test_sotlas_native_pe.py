@@ -159,6 +159,9 @@ class NativePETests(unittest.TestCase):
             "@extern(C) fn sotlas_windows_close_handle(handle:u32)->u32;",
             "@extern(C) fn sotlas_windows_get_last_error()->u64;",
             "@extern(C) fn sotlas_windows_write_file(handle:u64,buffer:*const u8,count:u32,written:*mut u32)->u32;",
+            "@extern(C) fn sotlas_windows_load_library(name:u64)->u64;",
+            "@extern(C) fn sotlas_windows_get_proc_address(library:u32,name:*const u8)->u64;",
+            "@extern(C) fn sotlas_windows_call_scalar(function:u64,arguments:f64)->u64;",
         )
         for index, declaration in enumerate(declarations):
             with self.subTest(declaration=declaration):

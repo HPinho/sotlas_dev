@@ -47,8 +47,10 @@ The 1.0 release scope declares bounded `SUPPORTED` subsets for `sole/exclusive`,
 
 The [public preview launch roadmap](docs/preview_launch_roadmap.md) defines the
 next application, declarative GUI, kernel example and installation gates.
-The graphical toolkit is planned; current native compiler support does not
-yet certify graphical applications.
+The declarative graphical toolkit is planned. A
+[native Windows window probe](examples/native_window/README.md) now exercises
+window lifecycle, UTF-16 drawing and input through the owned backend;
+full graphical application support is still being validated.
 
 The [terminal calculator](examples/calculator/README.md) is the first application
 in that plan: shared Sotlas evaluator/formatter, precedence and decimal input,

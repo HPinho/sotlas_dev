@@ -340,6 +340,8 @@ class NativeWindowsDriverTests(unittest.TestCase):
                        str(self.directory / "large module cases")], timeout=120)
         from native_calculator_gate import verify_calculator
         verify_calculator(stage3, self.directory / "calculator cases")
+        from native_window_gate import verify_window
+        verify_window(stage3, self.directory / "window cases")
         source = self.directory / "stage3_application.sotlas"
         source.write_bytes((ROOT / "examples/native_float_profile.sotlas").read_bytes())
         output = self.directory / "stage3_application.exe"
