@@ -220,3 +220,36 @@ Binary widths are 1, 2, 4 or 8 bytes. Loads leave output unchanged on failure;
 stores validate extents/value width before writes. These APIs describe ordinary
 memory, not volatile MMIO, atomics or synchronization. They need no alignment.
 Gate: `test_sotlas_native_migration_sv860`.
+
+## SV8.61 borrowed text values
+
+The new [text.sotlas](native/text.sotlas) module provides length-delimited
+`NativeByteSlice` values and `NativeTextSplit`/`NativeTextCursor` records.
+
+| API | Contract |
+|---|---|
+| `native_text_open` | Construct an explicit borrowed byte slice |
+| `native_text_sub` | Checked offset/count substring |
+| `native_text_at` | Checked byte access; failure preserves output |
+| `native_text_compare` | Unsigned byte lexical comparison with length ordering |
+| `native_text_equal` | Complete byte equality, including embedded zeros |
+| `native_text_starts_with` | Length-delimited prefix match |
+| `native_text_ends_with` | Length-delimited suffix match |
+| `native_text_find` | First substring position; empty needle matches zero |
+| `native_text_split_once` | Borrowed before/after slices for a nonempty separator |
+| `native_text_trim_ascii` | Trim space and bytes 9 through 13 at both ends |
+| `native_text_parse_u64` | Strict complete decimal parse with overflow rejection |
+| `native_text_copy` | Overlap-safe copy into caller-backed storage |
+| `native_text_split_next` | Iterate fields, retaining empty/trailing fields |
+| `native_text_line_next` | Iterate LF/CRLF and final unterminated lines |
+
+`native_text_cursor` initializes a cursor; `native_text_valid` checks shape and
+`native_text_invalid` constructs an invalid result. Backing storage must remain
+valid for every view/cursor, and writable outputs/metadata must be disjoint
+from read ranges. Valid shape is not memory/lifetime proof. These functions
+allocate nothing and call no foreign runtime. Text is a byte sequence; only
+trim/decimal functions impose ASCII rules. Copy does not append NUL. Built-in
+str/slice syntax, UTF-8 scalar indexing and inferred ownership remain open.
+
+The native integration gate parses key=value lines with the new loop statement,
+line cursor, split and decimal parser. Gate: `test_sotlas_native_text_sv861`.

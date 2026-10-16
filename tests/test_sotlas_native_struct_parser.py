@@ -70,10 +70,10 @@ int main(int argc, char **argv) {
         "struct Item {\n"
         " value: i32,\n"
         "}\n";
-    static const uint8_t implicit_variant[] =
-        "module test::implicit_variant;\n"
+    static const uint8_t payload_variant[] =
+        "module test::payload_variant;\n"
         "enum Choice {\n"
-        " Ready,\n"
+        " Ready(u32),\n"
         "}\n";
     uint8_t output[65536];
     uint32_t line = 999;
@@ -123,11 +123,11 @@ int main(int argc, char **argv) {
     line = 999;
     col = 999;
     size = sotlas_native_compile_diagnostic(
-        implicit_variant, sizeof(implicit_variant) - 1,
+        payload_variant, sizeof(payload_variant) - 1,
         output, sizeof(output) - 1, &line, &col
     );
-    if (size != 0 || line != 3 || col != 2) {
-        fprintf(stderr, "implicit enum: size=%zu line=%u col=%u\n", size, line, col);
+    if (size != 0 || line != 3 || col != 7) {
+        fprintf(stderr, "payload enum: size=%zu line=%u col=%u\n", size, line, col);
         return 6;
     }
     return 0;

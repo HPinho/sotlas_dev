@@ -1232,3 +1232,18 @@ Stamp creation is exclusive; failed writes can leave partial new files.
 Existing outputs are preserved on rejection. No tool subprocess is started.
 
 Gate: `test_sotlas_native_tool_operations_sv860`.
+
+## SV8.61: additional native source syntax
+
+The compiler accepts unconditional `loop` statements, exclusive integer range
+`for i in start..end` statements, and scalar enums with implicit/mixed U32
+discriminants. These source features use the same native check/object/image
+pipeline; no new driver mode is required. Range endpoints are evaluated once,
+left to right, and must have matching integer types. `for mut i` changes a
+per-iteration copy; the hidden cursor remains independent. Loop/range jumps
+run the existing lexical defer cleanup. Returning loop bodies have a bounded
+all-path proof; a loop that can break does not prove a function return.
+
+Array/iterator for loops, inclusive/stepped ranges, payload enums and signed
+enum backing types remain outside this new profile. Gate:
+`test_sotlas_native_language_sv861`.

@@ -4,7 +4,7 @@
 
 **Snapshot:** 2026-10-15, America/Sao_Paulo
 
-**Source revision:** `88c80e2` plus the SV8.60 local candidate
+**Source revision:** `7a36a3e` plus the SV8.61 local candidate
 
 **Purpose:** one English reference for implemented contracts, remaining language work,
 optional foreign interoperability and removal of mandatory Python/C toolchain dependencies.
@@ -75,7 +75,7 @@ CI #1221 / run `38621972769`. The subsequent #1222 rejection-contract regression
 was repaired in `b40a8fa` with the SV8.49c ownership work and local regression
 validation. SV8.50 was committed as `3e4320e`. The owner reported the
 workflow green for SV8.51 (`24d5627`); its run number was not independently
-inspected. This document includes the SV8.60 candidate, whose CI remains pending.
+inspected. This document includes the SV8.61 candidate, whose CI remains pending.
 
 **SV8.57 regression note (2026-10-15):** CI #1232 exposed a missing
 `link_image` delegation in the SV8.57 Python *test harness*. The repair
@@ -113,6 +113,12 @@ obligations. Baseline is green [CI #1234](https://github.com/HPinho/sotlas_dev/a
 (`fd6dd7d`). SV8.59 awaits its own matrix.
 
 ## 2. Current implementation
+
+SV8.61 delivers new loop/range source syntax, implicit scalar enum values and
+a new borrowed byte-slice text module. Its 36 contracts are recorded in section
+12 across four capability families. These features extend the programs the
+native pipeline can execute; built-in strings/slices and full migration remain
+open.
 
 SV8.60 adds 36 bounded deliveries on top of online SV8.57–SV8.59: exponent
 separators, preserving match exits, managed strong slots, checked narrowing,
@@ -248,13 +254,13 @@ as complete; broader coverage and native migration remain separate obligations.
 | Floating values | Bounded f32/f64 arithmetic/comparisons/buffers and internal bit-pattern ABI | Wider literals, complete conversions/library math and foreign floating ABI |
 | Boolean values | Conditions, logic, arrays and short-circuit paths | Remaining type/coercion and general control-flow combinations |
 | Records/structs | POD layout, nested fields, value copies, native calls/returns | Resource-bearing fields, broader aggregate forms and complete foreign layout |
-| Enums/ADTs | Canonical payload forms; native scalar explicit discriminants | Native payload layout, constructors, patterns and destruction |
+| Enums/ADTs | Canonical payload forms; native scalar implicit/mixed U32 discriminants | Native payload layout, constructors, patterns and destruction |
 | Arrays/indexing | Native scalar and pointer-free local record arrays; scalar array fields | Slices/slicing, arrays in general parameter/return positions and owned element lifetimes |
-| Strings | Native compiler literal handling; tested stdlib byte/string contracts | First-class native strings/slices and ownership-integrated allocation/destruction |
+| Strings | Native literals and explicit borrowed byte-slice text APIs | First-class native strings/slices and ownership-integrated allocation/destruction |
 | Generics | Canonical/experimental source constructs | Native generic resolution, monomorphization, generic aggregates/methods and libraries |
 | Recursive types/calls | Bounded call/recursion contracts and native ABI evidence | General recursive resource layouts, runtime limits and broad ABI parity |
-| Control flow | Structured branches/loops, break/continue, early returns and conditional values | General CFG, remaining expression bodies, all-path analyses and owned non-POD payloads |
-| Match/discern | Native scalar/Boolean/explicit-enum match with coverage checks | Payload patterns/bindings, guards, ranges and match expressions |
+| Control flow | Branches, while/loop/integer-for statements, jumps, early returns and conditional values | General CFG, remaining expression bodies, all-path analyses and owned non-POD payloads |
+| Match/discern | Native scalar/Boolean/scalar-enum match with coverage checks | Payload patterns/bindings, guards, ranges and match expressions |
 | Constants/statics | Bounded typed scalar folding, forward dependencies and static scalar arrays | Aggregate/string/pointer initializers, wider numeric forms and complete constant evaluation |
 | Errors/Option/Result | Canonical error forms and tested scalar library result records | Full native propagation, payloads, cleanup and unwind policy |
 | Classes/shared resources | Canonical/reference subsets and runtime helpers | Native class/resource layouts, constructors/destructors and integrated ARC |
@@ -599,7 +605,7 @@ an operating system, scheduler or working hardware driver.
 
 ## 10. Runtime, standard library and tooling
 
-### Explicit native Sotlas runtime API (SV8.50–SV8.60)
+### Explicit native Sotlas runtime API (SV8.50–SV8.61)
 
 The sources [managed.sotlas](../runtime/native/managed.sotlas) and
 [word.sotlas](../runtime/native/word.sotlas) have no foreign calls. Use the current explicit-source native project profile with this library
@@ -695,6 +701,21 @@ state/effect inference remain open; these are explicit single-threaded APIs.
 | `native_binary_load_be` | Unaligned checked big-endian load |
 | `native_binary_store_le` | Checked little-endian store without silent truncation |
 | `native_binary_store_be` | Checked big-endian store without silent truncation |
+
+| `native_text_open` | Construct an explicit borrowed byte slice |
+| `native_text_sub` | Checked offset/count substring |
+| `native_text_at` | Checked byte access; failure preserves output |
+| `native_text_compare` | Unsigned byte lexical comparison with length ordering |
+| `native_text_equal` | Complete byte equality, including embedded zeros |
+| `native_text_starts_with` | Length-delimited prefix match |
+| `native_text_ends_with` | Length-delimited suffix match |
+| `native_text_find` | First substring position; empty needle matches zero |
+| `native_text_split_once` | Borrowed before/after slices for a nonempty separator |
+| `native_text_trim_ascii` | Trim space and bytes 9 through 13 at both ends |
+| `native_text_parse_u64` | Strict complete decimal parse with overflow rejection |
+| `native_text_copy` | Overlap-safe copy into caller-backed storage |
+| `native_text_split_next` | Iterate fields, retaining empty/trailing fields |
+| `native_text_line_next` | Iterate LF/CRLF and final unterminated lines |
 
 The detailed lifetime, mark, control-block and destruction obligations are in
 [the runtime contract](../runtime/README.md#explicit-native-sotlas-runtime-sv850).
@@ -814,6 +835,138 @@ Sotlas-written compiler. A working bootstrap profile does not establish full
 language parity. Parent items stay open until every contracted form has native
 positive, negative and execution coverage. Subitems record smaller validated
 contracts. Local validation must pass CI before being called certified.
+
+##### SV8.61 — new loop/range/enum syntax and text values (2026-10-15)
+
+Starting from `7a36a3e`, this package delivers 36 new source/runtime contracts
+across four capability families. The allocation follows new language surface
+and a new text module; it does not repeat the previous nine-topic allocation.
+
+###### SV8.61 Unconditional loop syntax
+
+- [x] Execute loop statements with explicit break.
+- [x] Execute continue against an unconditional loop header.
+- [x] Nest loop statements with innermost jump targets.
+- [x] Prove returning loop bodies without an artificial trailing return.
+- [x] Run lexical defers in LIFO order on loop continue and break.
+- [x] Preserve owner borrows through loop statements and reject reads after transfer.
+
+Gate: `test_sotlas_native_language_sv861`.
+
+###### SV8.61 Integer range for syntax
+
+- [x] Execute exclusive integer ranges with a lexical iteration binding.
+- [x] Use matching integer variables as range endpoints.
+- [x] Evaluate start and end calls once in source order.
+- [x] Execute ranges over matching signed integer endpoints.
+- [x] Nest ranges with independent hygienic internal cursors.
+- [x] Shadow an outer iteration name and restore its lexical scope.
+- [x] Keep the default index immutable and support an explicit mutable iteration copy.
+- [x] Advance the hidden cursor on continue.
+- [x] Run deferred cleanup before a range break.
+- [x] Skip empty and descending ranges while rejecting noninteger endpoints.
+
+Gate: `test_sotlas_native_language_sv861`.
+
+###### SV8.61 Implicit enum values
+
+- [x] Start an implicit scalar enum at zero.
+- [x] Assign distinct successive implicit discriminants.
+- [x] Reset the implicit successor after an explicit discriminant.
+- [x] Compute implicit successors after radix integer discriminants.
+- [x] Carry implicit enum values through record fields and native calls/returns.
+- [x] Reject implicit U32 overflow while permitting a following explicit reset.
+
+Gate: `test_sotlas_native_language_sv861`.
+
+###### SV8.61 Borrowed byte-slice text module
+
+- [x] Construct length-delimited byte slices that retain embedded zero bytes.
+- [x] Produce checked borrowed substrings.
+- [x] Read a byte through checked slice indexing.
+- [x] Compare slice values lexicographically by unsigned bytes and length.
+- [x] Compare complete slice values for equality beyond embedded zeros.
+- [x] Match a borrowed prefix, including an empty prefix.
+- [x] Match a borrowed suffix at the slice end.
+- [x] Search for a byte substring with an unchanged output on failure.
+- [x] Split a record once into borrowed key/value slices.
+- [x] Trim ASCII edge whitespace while retaining interior bytes.
+- [x] Parse complete unsigned decimal values with U64 overflow checks.
+- [x] Materialize a slice into caller storage with overlap-safe copying.
+- [x] Iterate separated fields while retaining empty and trailing fields.
+- [x] Iterate LF/CRLF lines and a final unterminated line.
+
+Gate: `test_sotlas_native_text_sv861`.
+
+Loop and range statements pass through the Sotlas lexer/parser, existing
+native semantic/ownership checks, Target IR, owned object writer and native
+linker. They use structured CFG and existing defer cleanup. A returning loop
+body is proven only when its body returns on all represented paths and contains
+no jump targeting that loop. Other value-returning functions still need a
+return after a potentially exiting loop. General divergence proofs remain open.
+
+For ranges use exclusive bounds and matching integer types. Unsuffixed literals
+retain the existing U32 default. Start is evaluated before end; both are
+captured once. The public index is a per-iteration value. An explicit mut/var
+index changes that copy; it does not steer the hidden cursor. The cursor advances
+before the body, so continue advances correctly. Empty/descending ranges have
+no iterations; increments cannot exceed the captured exclusive bound. Hidden
+bindings use reserved keyword spellings inaccessible as source identifiers,
+and nested scopes restore the outer bindings. Arrays/iterators, steps and
+inclusive ranges are not implemented by this syntax.
+
+- [ ] Align the reference C11 range emitter with this native contract before
+  claiming backend equivalence. Its current size_t counter and repeated end
+  expression can differ for signed bounds, effectful ends and a mutable index.
+
+Internal generated increment/loop-condition integers carry a zero-length source
+spelling and a bounded numeric AST payload. They retain the source span of the
+originating keyword. No host string pool or Python AST synthesis is required.
+
+Native scalar enums now allow implicit and mixed discriminants in the existing
+U32 layout. Values start at zero and advance from the preceding value. A value
+above U32 is rejected; an explicit reset after U32 maximum is allowed. Payload
+variants, signed/backing-type declarations and general discriminant expressions
+remain open. The old implicit-variant rejection fixtures now check unsupported
+payload variants at their actual locations; positive implicit variants execute in
+the new native gate.
+
+The new runtime/native/text.sotlas defines NativeByteSlice, NativeTextSplit and
+NativeTextCursor as ordinary records. Text operations are byte based; ASCII
+trimming and decimal parsing have explicit rules. They do not add built-in str
+or slice syntax, UTF-8 scalar indexing, allocation or inferred lifetimes.
+Embedded zeros are ordinary bytes. A slice's valid flag records checked shape,
+not a proof that memory exists. Backing storage and metadata/output disjointness
+remain caller obligations. Copy writes exactly the slice length, with no NUL
+terminator. Split cursors retain empty/trailing fields; line cursors normalize
+CRLF and omit a trailing empty record after a final newline. No foreign runtime
+calls are used. A native integration test parses and sums key=value lines.
+
+Automatic resource cleanup synthesis, typed separate modules, payload enums,
+native generic resolution and whole-language Python/C independence remain open.
+
+SV8.61 local validation:
+
+- Full Windows suite: **3242 tests run, no failures/errors, 79 existing
+  platform/toolchain skips, 1192.567 seconds**.
+- The 36 new gates passed with Windows Python 3.10 (30.375 seconds) and actual
+  Linux x86-64 execution through WSL (33.013 seconds), including the composed
+  key=value text program. Native images execute with external tools off PATH.
+- The signed-range gate was strengthened to assert all five iterations, then
+  rerun successfully on Windows and Linux after the full suite.
+- Linux original-source Stage 2/3 byte identity and full Darwin compiler
+  cross-generation passed: two gates in 131.258 seconds. The full Windows suite
+  also passed its native Windows Stage 2/3 fixed-point gate.
+- Additional Sotlas machine-code compiler seeds each compiled and executed three
+  integration programs on Windows and Linux: loop/range/enum composition, the
+  text record reader and a directly returning loop. All six runs returned 42;
+  compilation and execution used PATH without external tools after seed setup.
+- Two historical implicit-enum rejection fixtures now reject unsupported
+  payload variants at column 7; positive implicit enums have native coverage.
+- Local Darwin evidence is cross-generation; native macOS execution awaits CI.
+- Documentation validation passed 147 links, 196 heading anchors and normalized
+  source hashes. Candidate CI remains pending; no workflow was monitored.
+
 
 ##### SV8.60 — 36 native contracts (2026-10-15)
 
@@ -1848,7 +2001,7 @@ suite. These results do not substitute for native Intel macOS execution in CI.
 - [ ] Migrate generic features accepted by the canonical frontend.
 - [ ] Implement payload enums and their native layout.
 - [ ] Implement contracted `match` and selection forms with coverage checking.
-  - [x] Execute native scalar/Boolean/explicit-enum match statements with single evaluation, typed patterns and a mandatory final wildcard.
+  - [x] Execute native scalar/Boolean/scalar-enum match statements with single evaluation, typed patterns and a mandatory final wildcard.
   - [x] Reject duplicate patterns, incompatible enum variants, missing coverage, scope leaks and exhausted arm tables.
   - [x] Integrate nested selection, record returns, lexical defer and exclusive live-path state merges into the structured CFG.
   - [x] Prove wildcard-free Boolean and scalar-enum coverage, preserve nominal enum constant patterns and reject missing discriminants.
@@ -3425,6 +3578,21 @@ Existing outputs are preserved on rejection. No tool subprocess is started.
 
 Gate: `test_sotlas_native_tool_operations_sv860`.
 
+#### SV8.61: additional native source syntax
+
+The compiler accepts unconditional `loop` statements, exclusive integer range
+`for i in start..end` statements, and scalar enums with implicit/mixed U32
+discriminants. These source features use the same native check/object/image
+pipeline; no new driver mode is required. Range endpoints are evaluated once,
+left to right, and must have matching integer types. `for mut i` changes a
+per-iteration copy; the hidden cursor remains independent. Loop/range jumps
+run the existing lexical defer cleanup. Returning loop bodies have a bounded
+all-path proof; a loop that can break does not prove a function return.
+
+Array/iterator for loops, inclusive/stepped ranges, payload enums and signed
+enum backing types remain outside this new profile. Gate:
+`test_sotlas_native_language_sv861`.
+
 ## 14. Standard library API contracts
 
 The following incorporates `stdlib/core/README.md` at the snapshot revision.
@@ -3604,7 +3772,7 @@ their claims must be interpreted through the current implementation contracts.
 | [CHANGELOG.md](../CHANGELOG.md) | Historical snapshot / change history | `59e11c24075334268572d66d1c386127f13b7a0de9483d63433e437d2e4bc324` |
 | [README.md](../README.md) | Language, safety, usage or architecture reference | `51dac0dda2d7d5e8f6c26f0cf7b30a5582596d449fdfe03330d7e70456eedfab` |
 | [README.pt-BR.md](../README.pt-BR.md) | Language, safety, usage or architecture reference | `01f6118e45200152a9cf93c49507c58a3c9aa93138b7287ba09ed7125022b364` |
-| [bootstrap/sotlas/native_driver/README.md](../bootstrap/sotlas/native_driver/README.md) | Current native contracts; incorporated in full | `e641e4f80526afb09e94d6e4a0c1c4cafa4fd27fab6811f6c4d239e924627d25` |
+| [bootstrap/sotlas/native_driver/README.md](../bootstrap/sotlas/native_driver/README.md) | Current native contracts; incorporated in full | `3600a2df2f6be45888440e6c70784c104519c5cd350a802836abe75bfe131b69` |
 | [bootstrap/sotlas/native_examples/README.md](../bootstrap/sotlas/native_examples/README.md) | Example scope and reproduction instructions | `4c6c8e3e582db954a4c43584753c1e19d451f42fe0a349e19840b859344ef344` |
 | [docs/QUICKSTART.md](QUICKSTART.md) | Language, safety, usage or architecture reference | `6c9cfef7030008db2cc4f8ae7a43715d659847e4cd6b7f205564ebfa168f122f` |
 | [docs/README.md](README.md) | Language, safety, usage or architecture reference | `f6484916915718109cbb6779835a5db404d1b4fe1f4781ca96cbdfdaf09dc36d` |
@@ -3646,9 +3814,9 @@ their claims must be interpreted through the current implementation contracts.
 | [docs/sotlas_implementation_status.md](sotlas_implementation_status.md) | Dated implementation/evidence snapshot | `654445b9d20be3d95ceb846d6f56b7351a24a0627210b9e5c3d3aea4f4530a29` |
 | [docs/sotlas_m16_3_recursion_contract.md](sotlas_m16_3_recursion_contract.md) | Language, safety, usage or architecture reference | `c821ac00990678d0f775c67b9ba91f5cd16678f744be112e23405d9b3584cbf7` |
 | [docs/sotlas_master_roadmap.md](sotlas_master_roadmap.md) | Architectural design and language vocabulary | `068cd228ffeb958e609c03de54892266a58fbd7dc07738887c6d63b6d7935a6a` |
-| [docs/sotlas_native_frontend_ownership_checklist.md](sotlas_native_frontend_ownership_checklist.md) | Current native contracts; incorporated in full | `6298245f755851d0b6014399952bc394958a0f9f153da1691b367dde2c85a82c` |
+| [docs/sotlas_native_frontend_ownership_checklist.md](sotlas_native_frontend_ownership_checklist.md) | Current native contracts; incorporated in full | `39c031eeaf191e3903a872be91e4603127451bbebcec35b2578ffa3c8dab7796` |
 | [docs/sotlas_release_roadmap.md](sotlas_release_roadmap.md) | Development dependencies, backlog and release policy | `fa56feeee089333c67d97c98399ac1ed61c11c91a107d01af9bd404e409ad57c` |
-| [docs/sotlas_sovereignty_roadmap.md](sotlas_sovereignty_roadmap.md) | Native generation and dependency migration | `1a7354da20d2aa4320315e62476daebe8941c94f7df4ef7cbb28afcd58d0f24d` |
+| [docs/sotlas_sovereignty_roadmap.md](sotlas_sovereignty_roadmap.md) | Native generation and dependency migration | `d011a71c4975cba0c88fd2148979f7f5240bf431d7dbad096a72cd3132689f2d` |
 | [docs/sotlas_v1_audit_and_roadmap.md](sotlas_v1_audit_and_roadmap.md) | Development dependencies, backlog and release policy | `7fe9cacfc713e60540c910aec8c8f5767e2d0984b84b4b61324975a370bfc6eb` |
 | [docs/target_ir_preview.md](target_ir_preview.md) | Language, safety, usage or architecture reference | `de11d5b90ca1f6cd7e55f6226f93e85eb1998efa506654ac59121790724b6c28` |
 | [docs/the_sotlas_book.md](the_sotlas_book.md) | Language, safety, usage or architecture reference | `1c10647fee6cbadc7d0b58884f76e57f716b8054b2be0731191af14b72cca60a` |
@@ -3660,7 +3828,7 @@ their claims must be interpreted through the current implementation contracts.
 | [examples/12_sotlas_by_example/README.md](../examples/12_sotlas_by_example/README.md) | Example scope and reproduction instructions | `da9fa772030b1660c1095d08aede4ac00191a01406575e8e1f72c4c0cb5c8d20` |
 | [examples/13_opencl_vector_add/README.md](../examples/13_opencl_vector_add/README.md) | Example scope and reproduction instructions | `c54620aa7b2c67800515aeff5c80c438e9d3609013057dae7a8402bc2a8f2551` |
 | [examples/STATUS.md](../examples/STATUS.md) | Example scope and reproduction instructions | `d3efe2a667f4d11e5fd026673f7a299d972481d7f0df182a3b14a3a24a37b48c` |
-| [runtime/README.md](../runtime/README.md) | Language, safety, usage or architecture reference | `29876363ec2cfb1926f56696a74ea0f3d5aec58f5eb7df2f098a2076a5f65835` |
+| [runtime/README.md](../runtime/README.md) | Language, safety, usage or architecture reference | `2a62d01866795a2e916b0cf56d293fcbc6dcadfd276386a797d81130dd0f43eb` |
 | [spec/linguist/README.md](../spec/linguist/README.md) | Website, ecosystem and integration metadata | `5f1226c0de92f224ac61e88bbf054f7ec2fdcc0455dcb8d2eb318c8b596ec6ff` |
 | [spec/sotlas_semantics.md](../spec/sotlas_semantics.md) | Architectural design and language vocabulary | `ee4086af4abbdca5b799362e6c2d1b7666e4849022c14865b116fa6b6e9f7383` |
 | [stdlib/core/README.md](../stdlib/core/README.md) | Library API contracts; incorporated in full | `574954d60b526dc10973ec56569c6482b2dc2412f39290acb9eb9389925059ed` |

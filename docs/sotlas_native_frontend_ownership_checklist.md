@@ -8,6 +8,138 @@ language parity. Parent items stay open until every contracted form has native
 positive, negative and execution coverage. Subitems record smaller validated
 contracts. Local validation must pass CI before being called certified.
 
+### SV8.61 — new loop/range/enum syntax and text values (2026-10-15)
+
+Starting from `7a36a3e`, this package delivers 36 new source/runtime contracts
+across four capability families. The allocation follows new language surface
+and a new text module; it does not repeat the previous nine-topic allocation.
+
+#### SV8.61 Unconditional loop syntax
+
+- [x] Execute loop statements with explicit break.
+- [x] Execute continue against an unconditional loop header.
+- [x] Nest loop statements with innermost jump targets.
+- [x] Prove returning loop bodies without an artificial trailing return.
+- [x] Run lexical defers in LIFO order on loop continue and break.
+- [x] Preserve owner borrows through loop statements and reject reads after transfer.
+
+Gate: `test_sotlas_native_language_sv861`.
+
+#### SV8.61 Integer range for syntax
+
+- [x] Execute exclusive integer ranges with a lexical iteration binding.
+- [x] Use matching integer variables as range endpoints.
+- [x] Evaluate start and end calls once in source order.
+- [x] Execute ranges over matching signed integer endpoints.
+- [x] Nest ranges with independent hygienic internal cursors.
+- [x] Shadow an outer iteration name and restore its lexical scope.
+- [x] Keep the default index immutable and support an explicit mutable iteration copy.
+- [x] Advance the hidden cursor on continue.
+- [x] Run deferred cleanup before a range break.
+- [x] Skip empty and descending ranges while rejecting noninteger endpoints.
+
+Gate: `test_sotlas_native_language_sv861`.
+
+#### SV8.61 Implicit enum values
+
+- [x] Start an implicit scalar enum at zero.
+- [x] Assign distinct successive implicit discriminants.
+- [x] Reset the implicit successor after an explicit discriminant.
+- [x] Compute implicit successors after radix integer discriminants.
+- [x] Carry implicit enum values through record fields and native calls/returns.
+- [x] Reject implicit U32 overflow while permitting a following explicit reset.
+
+Gate: `test_sotlas_native_language_sv861`.
+
+#### SV8.61 Borrowed byte-slice text module
+
+- [x] Construct length-delimited byte slices that retain embedded zero bytes.
+- [x] Produce checked borrowed substrings.
+- [x] Read a byte through checked slice indexing.
+- [x] Compare slice values lexicographically by unsigned bytes and length.
+- [x] Compare complete slice values for equality beyond embedded zeros.
+- [x] Match a borrowed prefix, including an empty prefix.
+- [x] Match a borrowed suffix at the slice end.
+- [x] Search for a byte substring with an unchanged output on failure.
+- [x] Split a record once into borrowed key/value slices.
+- [x] Trim ASCII edge whitespace while retaining interior bytes.
+- [x] Parse complete unsigned decimal values with U64 overflow checks.
+- [x] Materialize a slice into caller storage with overlap-safe copying.
+- [x] Iterate separated fields while retaining empty and trailing fields.
+- [x] Iterate LF/CRLF lines and a final unterminated line.
+
+Gate: `test_sotlas_native_text_sv861`.
+
+Loop and range statements pass through the Sotlas lexer/parser, existing
+native semantic/ownership checks, Target IR, owned object writer and native
+linker. They use structured CFG and existing defer cleanup. A returning loop
+body is proven only when its body returns on all represented paths and contains
+no jump targeting that loop. Other value-returning functions still need a
+return after a potentially exiting loop. General divergence proofs remain open.
+
+For ranges use exclusive bounds and matching integer types. Unsuffixed literals
+retain the existing U32 default. Start is evaluated before end; both are
+captured once. The public index is a per-iteration value. An explicit mut/var
+index changes that copy; it does not steer the hidden cursor. The cursor advances
+before the body, so continue advances correctly. Empty/descending ranges have
+no iterations; increments cannot exceed the captured exclusive bound. Hidden
+bindings use reserved keyword spellings inaccessible as source identifiers,
+and nested scopes restore the outer bindings. Arrays/iterators, steps and
+inclusive ranges are not implemented by this syntax.
+
+- [ ] Align the reference C11 range emitter with this native contract before
+  claiming backend equivalence. Its current size_t counter and repeated end
+  expression can differ for signed bounds, effectful ends and a mutable index.
+
+Internal generated increment/loop-condition integers carry a zero-length source
+spelling and a bounded numeric AST payload. They retain the source span of the
+originating keyword. No host string pool or Python AST synthesis is required.
+
+Native scalar enums now allow implicit and mixed discriminants in the existing
+U32 layout. Values start at zero and advance from the preceding value. A value
+above U32 is rejected; an explicit reset after U32 maximum is allowed. Payload
+variants, signed/backing-type declarations and general discriminant expressions
+remain open. The old implicit-variant rejection fixtures now check unsupported
+payload variants at their actual locations; positive implicit variants execute in
+the new native gate.
+
+The new runtime/native/text.sotlas defines NativeByteSlice, NativeTextSplit and
+NativeTextCursor as ordinary records. Text operations are byte based; ASCII
+trimming and decimal parsing have explicit rules. They do not add built-in str
+or slice syntax, UTF-8 scalar indexing, allocation or inferred lifetimes.
+Embedded zeros are ordinary bytes. A slice's valid flag records checked shape,
+not a proof that memory exists. Backing storage and metadata/output disjointness
+remain caller obligations. Copy writes exactly the slice length, with no NUL
+terminator. Split cursors retain empty/trailing fields; line cursors normalize
+CRLF and omit a trailing empty record after a final newline. No foreign runtime
+calls are used. A native integration test parses and sums key=value lines.
+
+Automatic resource cleanup synthesis, typed separate modules, payload enums,
+native generic resolution and whole-language Python/C independence remain open.
+
+SV8.61 local validation:
+
+- Full Windows suite: **3242 tests run, no failures/errors, 79 existing
+  platform/toolchain skips, 1192.567 seconds**.
+- The 36 new gates passed with Windows Python 3.10 (30.375 seconds) and actual
+  Linux x86-64 execution through WSL (33.013 seconds), including the composed
+  key=value text program. Native images execute with external tools off PATH.
+- The signed-range gate was strengthened to assert all five iterations, then
+  rerun successfully on Windows and Linux after the full suite.
+- Linux original-source Stage 2/3 byte identity and full Darwin compiler
+  cross-generation passed: two gates in 131.258 seconds. The full Windows suite
+  also passed its native Windows Stage 2/3 fixed-point gate.
+- Additional Sotlas machine-code compiler seeds each compiled and executed three
+  integration programs on Windows and Linux: loop/range/enum composition, the
+  text record reader and a directly returning loop. All six runs returned 42;
+  compilation and execution used PATH without external tools after seed setup.
+- Two historical implicit-enum rejection fixtures now reject unsupported
+  payload variants at column 7; positive implicit enums have native coverage.
+- Local Darwin evidence is cross-generation; native macOS execution awaits CI.
+- Documentation validation passed 147 links, 196 heading anchors and normalized
+  source hashes. Candidate CI remains pending; no workflow was monitored.
+
+
 ### SV8.60 — 36 native contracts (2026-10-15)
 
 Starting from online revision `88c80e2`, this package builds on SV8.57–SV8.59.
@@ -1041,7 +1173,7 @@ suite. These results do not substitute for native Intel macOS execution in CI.
 - [ ] Migrate generic features accepted by the canonical frontend.
 - [ ] Implement payload enums and their native layout.
 - [ ] Implement contracted `match` and selection forms with coverage checking.
-  - [x] Execute native scalar/Boolean/explicit-enum match statements with single evaluation, typed patterns and a mandatory final wildcard.
+  - [x] Execute native scalar/Boolean/scalar-enum match statements with single evaluation, typed patterns and a mandatory final wildcard.
   - [x] Reject duplicate patterns, incompatible enum variants, missing coverage, scope leaks and exhausted arm tables.
   - [x] Integrate nested selection, record returns, lexical defer and exclusive live-path state merges into the structured CFG.
   - [x] Prove wildcard-free Boolean and scalar-enum coverage, preserve nominal enum constant patterns and reject missing discriminants.

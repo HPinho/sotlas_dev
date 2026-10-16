@@ -1036,6 +1036,7 @@ impl Sema {
             return false;
         }
         let expression: AstNode = unsafe { *(nodes + expression_index) };
+        if expression.kind == AstKind::ExprLiteral && expression.str_len == 0 && expression.int_value < 0 { return true; }
         if expression.kind != AstKind::ExprLiteral || expression.str_len == 0
             || expression.str_offset > source_len
             || expression.str_len > source_len - expression.str_offset {
@@ -1051,6 +1052,7 @@ impl Sema {
         literal_index: usize, source: *const u8, source_len: usize, output: *mut u64) -> bool {
         if output == null || !self.expression_is_integer_literal(nodes,node_count,literal_index,source,source_len) { return false; }
         let literal: AstNode = unsafe{*(nodes+literal_index)};
+        if literal.str_len == 0 && literal.int_value < 0 { unsafe{*output=(-(literal.int_value+1)) as u64;}return true; }
         let bytes: *const u8 = unsafe{source+literal.str_offset};
         if unsafe{*bytes} == 39 {
             if literal.str_len < 3 || unsafe{*(bytes+literal.str_len-1)} != 39 { return false; }
@@ -1234,7 +1236,7 @@ impl Sema {
         }
         let literal: AstNode = unsafe { *(nodes + literal_index) };
         let first: u8 = unsafe{*(source+literal.str_offset)};
-        let mut extended: bool = first == 39;
+        let mut extended: bool = first == 39 || literal.str_len == 0;
         if literal.str_len >= 2 && first == 48 {
             let prefix: u8 = unsafe{*(source+literal.str_offset+1)};
             extended = prefix == 98 || prefix == 66 || prefix == 111 || prefix == 79;
@@ -3379,7 +3381,7 @@ impl Sema {
                 return true;
             }
             if statement.kind == AstKind::IfStmt || statement.kind == AstKind::MatchStmt
-                || statement.kind == AstKind::UnsafeBlock {
+                || statement.kind == AstKind::UnsafeBlock || (statement.kind == AstKind::WhileStmt && statement.int_value == 2) {
                 if self.statement_returns_value(nodes, node_count, statement_index) {
                     return true;
                 }
@@ -3422,6 +3424,24 @@ impl Sema {
         return false;
     }
 
+    // A nested loop owns its jumps. Jumps targeting this loop prevent a
+    // body-return proof, even when a later statement is an unreachable return.
+    pub fn loop_body_has_jump(self: &Self, nodes:*const AstNode, count:usize, first:usize, depth:usize) -> bool {
+        if depth >= 128 { return true; }let mut index:usize=first;let mut visited:usize=0;
+        while index != 0 {
+            if index >= count || visited >= count { return true; }
+            let node:AstNode=unsafe{*(nodes+index)};
+            if node.kind == AstKind::BreakStmt || node.kind == AstKind::ContinueStmt { return true; }
+            if node.kind != AstKind::WhileStmt && self.loop_body_has_jump(nodes,count,node.first_child,depth+1) { return true; }
+            index=node.next_sibling;visited=visited+1;
+        }return false;
+    }
+    pub fn loop_body_returns(self: &Self, nodes:*const AstNode, count:usize, body:usize) -> bool {
+        if nodes == null || body == 0 || body >= count { return false; }
+        if self.loop_body_has_jump(nodes,count,unsafe{(*(nodes+body)).first_child},0) { return false; }
+        return self.block_returns_value(nodes,count,body);
+    }
+
     pub fn statement_returns_value(
         self: &Self,
         nodes: *const AstNode,
@@ -3435,6 +3455,11 @@ impl Sema {
         let statement: AstNode = unsafe { *(nodes + statement_index) };
         if statement.kind == AstKind::ReturnStmt {
             return true;
+        }
+        if statement.kind == AstKind::WhileStmt && statement.int_value == 2 {
+            let condition:usize=statement.first_child;
+            if condition == 0 || condition >= node_count { return false; }
+            return self.loop_body_returns(nodes,node_count,unsafe{(*(nodes+condition)).next_sibling});
         }
         if statement.kind == AstKind::UnsafeBlock {
             let body_index: usize = statement.first_child;

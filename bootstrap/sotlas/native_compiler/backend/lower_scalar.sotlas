@@ -1762,7 +1762,7 @@ impl ScalarLowering {
             return TARGET_VALUE_NONE;
         }
         let node: AstNode = unsafe { *(self.nodes + node_index) };
-        if node.kind != AstKind::ExprLiteral || node.str_len == 0
+        if node.kind != AstKind::ExprLiteral || (node.str_len == 0 && node.int_value >= 0)
             || node.str_offset > self.source_len
             || node.str_len > self.source_len - node.str_offset {
             return TARGET_VALUE_NONE;
@@ -6571,6 +6571,10 @@ impl ScalarLowering {
             } else if stmt.kind == AstKind::WhileStmt {
                 let condition_index: usize = stmt.first_child;
                 if condition_index == 0 || condition_index >= self.node_count { return self.reject(index); }
+                if stmt.int_value == 1 {
+                    let left:usize=unsafe{(*(self.nodes+condition_index)).first_child};
+                    if !target_type_is_integer(self.condition_expression_type(left,first_parameter,parameter_count)) { return self.reject(index); }
+                }
                 let body_index: usize = unsafe { (*(self.nodes + condition_index)).next_sibling };
                 if body_index == 0 || body_index >= self.node_count { return self.reject(index); }
                 let body: AstNode = unsafe { *(self.nodes + body_index) };
@@ -6593,6 +6597,11 @@ impl ScalarLowering {
                 if self.cfg_current != 0 && !self.cfg_jump(header, index) { return self.reject(index); }
                 self.local_count = scope;
                 self.cfg_begin(exit);
+                if stmt.int_value == 2 {
+                    let mut return_sem:Sema=Sema::new();
+                    if return_sem.loop_body_returns(self.nodes,self.node_count,body_index)
+                        && !self.cfg_jump(header,index) { return self.reject(index); }
+                }
             } else if stmt.kind == AstKind::UnsafeBlock || stmt.kind == AstKind::Block {
                 let mut block_index: usize = index;
                 if stmt.kind == AstKind::UnsafeBlock { block_index = stmt.first_child; }
@@ -7444,7 +7453,7 @@ pub fn lower_scalar_module(
             lowering.enum_name_offsets[e_id] = decl_node.str_offset;
             lowering.enum_name_lens[e_id] = decl_node.str_len;
             lowering.enum_variant_starts[e_id] = lowering.variant_total_count as u32;
-            let mut v_cnt: u32 = 0;
+            let mut v_cnt: u32 = 0;let mut next_discriminant:u64=0;
             let mut v_scan: usize = decl_node.first_child;
             while v_scan != 0 {
                 if v_scan >= lowering.node_count {
@@ -7455,11 +7464,13 @@ pub fn lower_scalar_module(
                     let v_idx: usize = lowering.variant_total_count;
                     lowering.variant_name_offsets[v_idx] = v_node.str_offset;
                     lowering.variant_name_lens[v_idx] = v_node.str_len;
-                    let mut v_val: u64 = 0;
+                    let mut v_val:u64=next_discriminant;
                     if v_node.first_child != 0 && v_node.first_child < lowering.node_count {
-                        let lit_node: AstNode = unsafe { *(lowering.nodes + v_node.first_child) };
-                        v_val = lowering.parse_integer_value(lit_node.str_offset, lit_node.str_len);
+                        let mut literal_sem:Sema=Sema::new();
+                        if !literal_sem.integer_literal_bits(lowering.nodes,lowering.node_count,v_node.first_child,
+                            lowering.source,lowering.source_len,unsafe{(&mut v_val) as *mut u64}) { return lowering.reject(v_scan); }
                     }
+                    if v_val > 4294967295 { return lowering.reject(v_scan); }next_discriminant=v_val+1;
                     lowering.variant_values[v_idx] = v_val;
                     lowering.variant_total_count = lowering.variant_total_count + 1;
                     v_cnt = v_cnt + 1;
