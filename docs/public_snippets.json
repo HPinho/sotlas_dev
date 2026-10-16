@@ -189,6 +189,13 @@
       "verification": "scope-document-is-not-implementation-evidence"
     },
     {
+      "id": "native-integer-match-ranges",
+      "document": "docs/native_match_ranges.md",
+      "status": "EXPERIMENTAL",
+      "source": "examples/native_byte_classifier.sotlas",
+      "verification": "native-stage3-match-range-fixtures; outside-the-canonical-stage0-c11-runnable-policy"
+    },
+    {
       "id": "unified-sovereignty-reference-snippets",
       "document": "docs/sotlas_unified_language_and_sovereignty.md",
       "status": "DESIGN_ONLY",
