@@ -1542,7 +1542,21 @@ impl Parser {
             if count >= 64 { self.reject_current(); return 0; }
             let pattern_token: Token = self.current();
             let arm: usize = self.alloc_node(AstKind::MatchArm, pattern_token.span);
-            let pattern: usize = self.parse_unary_expression();
+            let mut pattern: usize = self.parse_unary_expression();
+            if self.match_token(TokenKind::DotDot) {
+                let separator: Token = self.advance();
+                let range: usize = self.alloc_node(AstKind::PatternRange, separator.span);
+                if self.match_token(TokenKind::Equal) {
+                    self.advance();
+                    if range != 0 { unsafe { (*(self.nodes + range)).int_value = 1; } }
+                }
+                let end: usize = self.parse_unary_expression();
+                if pattern == 0 || range == 0 || end == 0
+                    || !self.append_child(range, pattern) || !self.append_child(range, end) {
+                    self.reject_current(); return 0;
+                }
+                pattern = range;
+            }
             if arm == 0 || pattern == 0 || !self.append_child(arm, pattern)
                 || !self.match_token(TokenKind::FatArrow) { self.reject_current(); return 0; }
             self.advance();

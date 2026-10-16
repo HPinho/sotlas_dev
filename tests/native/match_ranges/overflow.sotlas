@@ -1,0 +1,5 @@
+module overflow;
+pub fn main_entry() -> u32 {
+    let value: u8 = 42;
+    match value { 0..=256 => return 42; _ => return 1; }
+}

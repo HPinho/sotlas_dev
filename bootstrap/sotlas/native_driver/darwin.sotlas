@@ -513,6 +513,10 @@ return driver_position_error(6,sema.error_line,sema.error_col,"semantic error",1
     if !lower_scalar_module(&mut lowering, module_index, &mut ir) {
         if lowering.error_node!=0 && lowering.error_node<parser.node_count {
             let point:AstNode=unsafe{*(node_buffer+lowering.error_node)};
+            if lowering.error_reason != 0 {
+                return driver_position_error(7,point.span.line,point.span.col,
+                    native_match_error_text(lowering.error_reason),native_match_error_length(lowering.error_reason),TokenKind::Error);
+            }
             return driver_position_error(7,point.span.line,point.span.col,"unsupported native form",23,TokenKind::Error);
         }
         return fail(7);

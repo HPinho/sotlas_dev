@@ -1,0 +1,5 @@
+module reversed;
+pub fn main_entry() -> u32 {
+    let value: i8 = 0;
+    match value { 1..=-1 => return 1; _ => return 42; }
+}

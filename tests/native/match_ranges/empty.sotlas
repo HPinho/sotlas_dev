@@ -1,0 +1,5 @@
+module empty;
+pub fn main_entry() -> u32 {
+    let value: u8 = 42;
+    match value { 42..42 => return 1; _ => return 42; }
+}

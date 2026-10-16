@@ -1,0 +1,92 @@
+module match_ranges;
+
+const DIGIT_START: u8 = 48;
+const DIGIT_END: u8 = 58;
+static mut trace: u32 = 0;
+static mut calls: u32 = 0;
+struct Packet { pub value: u32; }
+
+fn classify(value: u8) -> u32 {
+    match value {
+        DIGIT_START..DIGIT_END => return 1;
+        65..=90 => return 2;
+        97..123 => return 3;
+        _ => return 0;
+    }
+}
+
+fn signed8(value: i8) -> u32 {
+    match value {
+        0..=127 => return 2;
+        -128..0 => return 1;
+    }
+}
+fn signed16(value: i16) -> u32 {
+    match value { -32768..0 => return 1; 0..=32767 => return 2; }
+}
+fn signed32(value: i32) -> u32 {
+    match value { -2147483648..=-1 => return 1; 0..=2147483647 => return 2; }
+}
+fn signed64(value: i64) -> u32 {
+    match value { -9223372036854775808..=-1 => return 1; 0..=9223372036854775807 => return 2; }
+}
+fn unsigned16(value: u16) -> u32 {
+    match value { 0..65535 => return 1; 65535 => return 2; }
+}
+fn unsigned32(value: u32) -> u32 {
+    match value { 4294967295 => return 2; 0..4294967295 => return 1; }
+}
+fn unsigned64(value: u64) -> u32 {
+    match value { 0..18446744073709551615 => return 1; 18446744073709551615 => return 2; }
+}
+fn all_bytes(value: u8) -> u32 {
+    match value { 0..=255 => return 42; }
+}
+fn computed(value: u32) -> u32 {
+    match value { (6*7)..=(40+2) => return 42; _ => return 0; }
+}
+fn next() -> u8 { unsafe { calls = calls + 1; } return 65; }
+fn mark(value: u32) -> void { unsafe { trace = trace * 10 + value; } }
+fn select_once() -> u32 {
+    defer mark(9);
+    match next() {
+        65..=90 => { defer mark(2); defer mark(1); return 42; }
+        _ => return 0;
+    }
+}
+fn consume(value: sole Packet) -> u32 { return value.value; }
+fn transfer(value: u8) -> u32 {
+    let owner: sole Packet = Packet { value: 42 };
+    match value { 0..128 => return consume(owner); 128..=255 => return consume(owner); }
+}
+fn loop_cleanup() -> u32 {
+    let mut step: u32 = 0;
+    loop {
+        step += 1;
+        match step {
+            0..2 => { defer mark(3); continue; }
+            2..=3 => { defer mark(4); break; }
+            _ => return 1;
+        }
+    }
+    return step;
+}
+
+pub fn main_entry() -> u32 {
+    if classify(47) != 0 || classify(48) != 1 || classify(57) != 1 || classify(58) != 0 { return 1; }
+    if classify(64) != 0 || classify(65) != 2 || classify(90) != 2 || classify(91) != 0 { return 2; }
+    if classify(96) != 0 || classify(97) != 3 || classify(122) != 3 || classify(123) != 0 { return 3; }
+    if signed8(-128) != 1 || signed8(-1) != 1 || signed8(0) != 2 || signed8(127) != 2 { return 4; }
+    if signed16(-32768) != 1 || signed16(32767) != 2 { return 5; }
+    if signed32(-2147483648) != 1 || signed32(2147483647) != 2 { return 6; }
+    if signed64(-9223372036854775808) != 1 || signed64(9223372036854775807) != 2 { return 7; }
+    if unsigned16(65534) != 1 || unsigned16(65535) != 2 { return 8; }
+    if unsigned32(4294967294) != 1 || unsigned32(4294967295) != 2 { return 9; }
+    if unsigned64(18446744073709551614) != 1 || unsigned64(18446744073709551615) != 2 { return 10; }
+    if all_bytes(0) != 42 || all_bytes(255) != 42 || computed(42) != 42 || computed(43) != 0 { return 11; }
+    if select_once() != 42 || unsafe { calls } != 1 || unsafe { trace } != 129 { return 12; }
+    if transfer(0) != 42 || transfer(255) != 42 { return 13; }
+    unsafe { trace = 0; }
+    if loop_cleanup() != 2 || unsafe { trace } != 34 { return 14; }
+    return 42;
+}

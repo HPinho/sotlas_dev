@@ -1,0 +1,6 @@
+module enum_bound;
+enum Code { First, Last }
+pub fn main_entry() -> u32 {
+    let value: u32 = 0;
+    match value { Code::First..=Code::Last => return 42; _ => return 1; }
+}

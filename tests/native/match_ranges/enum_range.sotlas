@@ -1,0 +1,5 @@
+module enum_range;
+enum Code { First, Last }
+pub fn main_entry() -> u32 {
+    match Code::First { Code::First..=Code::Last => return 42; _ => return 1; }
+}

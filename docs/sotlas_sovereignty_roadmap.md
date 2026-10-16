@@ -7,6 +7,21 @@
 
 
 
+## SV8.62 — native integer match ranges (2026-10-15)
+
+This cut implements `first..last` and `first..=last` from native AST through
+typed constant checking, overlap/coverage validation, Target IR and machine
+execution. It supports exhaustive fixed-width integer domains without
+enumerating values or overflowing at MAX. Source-located errors distinguish
+invalid bounds, reversed/empty intervals, overlaps and incomplete coverage.
+
+Windows and Linux/WSL native seeds rebuilt the changed compiler with Stage 2/3
+byte identity. Thirteen focused fixture cases passed on both platforms, and the
+byte-classifier example returned 42. Existing platform Stage 3 gates now run
+these fixtures without creating another bootstrap. Intel macOS execution and
+remote CI are pending. This closes integer match ranges, not payload patterns,
+guards or match expressions. See the [contract](native_match_ranges.md).
+
 ## SV8.61 — native loop/range syntax, implicit enums and borrowed text (2026-10-15)
 
 Starting from `7a36a3e`, this package adds new source capabilities: unconditional

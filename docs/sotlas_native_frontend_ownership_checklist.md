@@ -2,6 +2,27 @@
 
 Repository: [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev).
 
+## SV8.62 — integer match ranges, complete native cut (2026-10-15)
+
+- [x] Parse inclusive/exclusive bounded integer range patterns into native AST.
+- [x] Fold typed bounds and reject dynamic, nominal-enum and out-of-range values.
+- [x] Reject empty/reversed and overlapping scalar/range patterns.
+- [x] Prove full integer-domain coverage without expanding values or overflowing
+  at signed minima and unsigned maxima; otherwise require a final wildcard.
+- [x] Lower directly to typed comparisons and structured CFG; evaluate the
+  subject once and preserve existing return/jump/defer/POD ownership semantics.
+- [x] Report located causes through Linux, Windows and Intel macOS native drivers.
+- [x] Execute 13 fixture cases on Windows and Linux through WSL, including
+  positive execution, negative check/compile parity and artifact preservation.
+- [x] Rebuild the changed compiler from native seeds on Windows/Linux and
+  require Stage 2/3 identity; run the byte classifier example with exit 42.
+
+The implementation is Sotlas code. The Python changes only invoke the shared
+fixture checks from the existing platform Stage 3 gates; they implement no
+language behavior and add no separate compiler bootstrap. Intel macOS execution
+and remote CI remain unverified locally. Full suites were not rerun for this
+cut. [Contract and commands](native_match_ranges.md).
+
 ## Native build entry points (2026-10-15)
 
 - [x] Remove mandatory C-compiler discovery and Python fallback from
@@ -1197,7 +1218,8 @@ suite. These results do not substitute for native Intel macOS execution in CI.
   - [x] Integrate nested selection, record returns, lexical defer and exclusive live-path state merges into the structured CFG.
   - [x] Prove wildcard-free Boolean and scalar-enum coverage, preserve nominal enum constant patterns and reject missing discriminants.
   - [x] Trap invalid raw selector representations before dispatch in wildcard-free matches.
-  - [ ] Complete payload patterns/bindings, guards, ranges and match expressions.
+  - [x] Execute bounded inclusive/exclusive integer ranges with overlap rejection and complete integer-domain coverage proofs; validate signed/unsigned extrema, cleanup and supported ownership paths.
+  - [ ] Complete payload patterns/bindings, guards, open-ended ranges and match expressions.
 - [ ] Complete general arrays, slices, indexing and slicing.
   - [x] Native local scalar arrays accept value lists and runtime repetition with exact length/type checking.
   - [x] Repetition evaluates its value once; large arrays use a bounded native fill loop.

@@ -1,0 +1,4 @@
+module bool_range;
+pub fn main_entry() -> u32 {
+    match true { false..=true => return 42; _ => return 1; }
+}
