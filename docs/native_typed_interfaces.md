@@ -73,3 +73,63 @@ fixed-point and packaging gates remain enabled.
    Python/C tools; only measured dependency removal counts as progress.
 
 **This stage is a pre-link contract, not completed true cross-object linking.**
+## SV8.69 — Stable binary wire format, v1 (candidate)
+
+The format serializes **one** validated `TargetInterface` and its
+parameter slice into caller-backed output bytes; it does **not** yet
+embed records into ELF/PE/Mach-O object metadata. It is fully encoded
+in Sotlas, without packed C structs, Python marshaling or host pointer
+layout. The version is fixed at 1; unknown versions fail closed.
+
+| Byte offset | Width | Little-endian field |
+|---|---:|---|
+| 0 | 4 | Magic `0x49544F53` (bytes `SOTI`) |
+| 4 | 4 | Version = 1 |
+| 8 | 4 | Import = 2; export = 1 |
+| 12 | 4 | Scalar/pointer/void return type tag |
+| 16 | 4 | Symbol offset in external immutable source-name buffer |
+| 20 | 4 | Symbol length (1..4096) |
+| 24 | 4 | Parameter count (0..24) |
+| 28 | 4 | Reserved, must be zero |
+| 32 | 8 | Allowed/used effects mask |
+| 40 | 8 | Required capability mask |
+| 48 + 8*i | 4 | ABI type tag of parameter i |
+| 52 + 8*i | 4 | Ownership role (0 plain, 1 sole, 2 direct, 3 whisper) |
+
+A record's exact length is `48 + 8 * parameter_count`, maximum
+**240 bytes**. All integer fields use explicit little-endian byte
+operations, independent of host architecture, endian, unaligned
+access or structure padding. Imported/exported names point to a
+separately supplied immutable byte buffer, not stored pointers.
+Parameter records are decoded into separately supplied native
+Target IR structures with a first-parameter index of zero.
+
+**API** in `backend/target_ir.sotlas`:
+`target_interface_wire_size`,
+`target_interface_wire_encode`,
+`target_interface_wire_valid`,
+`target_interface_wire_decode`,
+`target_interface_wire_compatible`. It enforces exact ABI and role
+matches and rejects exported effects or required capabilities that
+exceed what the importing declaration permits.
+
+**Write atomicity:** encoding checks the complete source record and
+output capacity before its first write; rejected writes do not alter
+the destination or length. Decoding validates all wire fields and
+the destination capacity before its first typed output/parameter
+write. Both require stable, disjoint input/output buffers for the
+duration of the call (single-threaded bounded compiler contract).
+
+**Tests:** `tests/test_sotlas_native_migration_sv869.py` adds 15 native
+compile/link/execute cases for exact bytes, endian/alignment, record
+roundtrip, corruption, capacity boundaries, ownership role matches,
+ABI mismatch, effect/capability escalation and 64-bit masks.
+Prior SV8.68 tests are unchanged. Baseline before SV8.69:
+[CI #1255](https://github.com/HPinho/sotlas_dev/actions/runs/39011203750)
+(`43bb572`); the new commit requires its own full matrix.
+
+**Still open:** injecting this format into actual native object
+writers, versioned ELF/PE/Mach-O metadata, checking imported symbols
+within the real multi-object link operation, canonical frontend
+signature synthesis and reproducible zero-Python/C first-seed builds.
+
