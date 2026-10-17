@@ -203,4 +203,29 @@ if !target_interface_wire_decode(ib,56,names,12,dp,sp,1)
  || decoded.required_capabilities!=18446744073709551615{return 2;}
 return 42;''')
 
+
+    def test_wire_u64_nonuniform_endian_shift_counts(self):
+        # Guard the native operand-width regression that broke CI #1256:
+        # shifts of u64 data require u64 shift counts in Target IR lowering.
+        self.wire('sv869_u64_shift_width','''imported.effects=72623859790382856;
+imported.required_capabilities=1234605616436508552;
+if !target_interface_wire_encode(names,12,imported,parameters,2,ib,256,ip)
+ || ni!=56{return 1;}
+if in_bytes[32]!=8 || in_bytes[33]!=7 || in_bytes[34]!=6
+ || in_bytes[35]!=5 || in_bytes[36]!=4 || in_bytes[37]!=3
+ || in_bytes[38]!=2 || in_bytes[39]!=1
+ || in_bytes[40]!=136 || in_bytes[41]!=119 || in_bytes[42]!=102
+ || in_bytes[43]!=85 || in_bytes[44]!=68 || in_bytes[45]!=51
+ || in_bytes[46]!=34 || in_bytes[47]!=17{return 2;}
+let mut result:TargetInterface=exported;
+let rp:*mut TargetInterface=unsafe{(&mut result) as *mut TargetInterface};
+let mut slot:TargetInterfaceParameter=TargetInterfaceParameter{
+type_tag:TargetTypeTag::U8,role:0};
+let sp:*mut TargetInterfaceParameter=unsafe{
+ (&mut slot) as *mut TargetInterfaceParameter};
+if !target_interface_wire_decode(ib,56,names,12,rp,sp,1)
+ || result.effects!=72623859790382856
+ || result.required_capabilities!=1234605616436508552{return 3;}
+return 42;''')
+
 if __name__=='__main__':unittest.main()

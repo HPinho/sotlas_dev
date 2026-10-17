@@ -2093,7 +2093,7 @@ fn target_interface_wire_store_u32(bytes: *mut u8, at: usize, number: u32) -> vo
 fn target_interface_wire_store_u64(bytes: *mut u8, at: usize, number: u64) -> void {
     let mut index: usize = 0;
     while index < 8 {
-        unsafe { *(bytes+at+index) = (number >> ((index*8) as u32)) as u8; }
+        unsafe { *(bytes+at+index) = (number >> ((index as u64)*8)) as u8; }
         index = index + 1;
     }
 }
@@ -2112,7 +2112,7 @@ fn target_interface_wire_load_u64(bytes: *const u8, at: usize) -> u64 {
     let mut number: u64 = 0;
     let mut index: usize = 0;
     while index < 8 {
-        number = number | ((unsafe { *(bytes+at+index) } as u64) << ((index*8) as u32));
+        number = number | ((unsafe { *(bytes+at+index) } as u64) << ((index as u64)*8));
         index = index + 1;
     }
     return number;
