@@ -6725,7 +6725,7 @@ pub fn elf_typed_function_symbol_exists(
         let binding: u8 = information >> 4;
         let kind: u8 = information & 15;
         let section_id: u32 = get_u16(object,length,record+6) as u32;
-        // The owned ELF writer emits undefined @extern(C) calls as
+        // The owned ELF writer emits undefined foreign-call declarations as
         // STT_NOTYPE (0), while defined functions use STT_FUNC (2).
         if (binding == 1 || binding == 2)
             && ((defined && kind == 2) || (!defined && (kind == 0 || kind == 2))) {

@@ -37,7 +37,10 @@ class NativeTypedObjectPairTests(unittest.TestCase):
         exp=self.directory/'typed exporter.soti'
         imp.write_bytes(self.wire(kind=2))
         exp.write_bytes(self.wire(kind=1,effect=1,cap=3))
-        image=self.directory/'typed linked executable'
+        # Distinct per-test output paths prevent a previous negative test's
+        # 0644 sentinel file from stripping executable permission from
+        # a later successfully linked ELF under O_TRUNC.
+        image=self.directory/('typed linked executable '+self._testMethodName)
         return [names,imported,imp,exported,exp,image]
 
     def link(self,items,expected=0):

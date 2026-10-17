@@ -55,6 +55,9 @@ static mut driver_resolved_length: [usize; 1] = 0;
 // Discovery queue: bounded NUL-terminated paths, with no host path resolver.
 static mut driver_discovery_paths: [u8; 262144] = 0;
 static mut driver_discovery_count: [usize; 1] = 0;
+// Bounded caller-backed records for opted-in native SOTI ABI verification.
+static mut driver_typed_names: [u8; 4096] = 0;
+static mut driver_typed_records: [u8; 480] = 0;
 
 
 fn fail(code: u32) -> u32 {
@@ -1287,6 +1290,79 @@ fn driver_object_operation(argc: u64, argv: *const *const u8, linking: bool, che
 }
 
 
+// SV8.70: opted-in typed linking for two independently compiled ELF objects.
+// Usage: --link-elf-typed-pair OUT ENTRY NAMES IMPORT.o IMPORT.soti EXPORT.o EXPORT.soti
+// The SOTI records are untrusted attestations provided by the caller.
+// Check both records against *actual ELF symbol names and definition state*,
+// then apply the checked ABI/role/effect/capability comparison before the
+// existing production linker is allowed to publish an executable.
+// Existing --link-elf-objects behavior is deliberately unchanged.
+fn driver_link_elf_typed_pair(argc: u64, argv: *const *const u8) -> u32 {
+    if argc != 9 { return fail(1); }
+    let output_path: *const u8 = unsafe { *(argv+2) };
+    let entry: *const u8 = unsafe { *(argv+3) };
+    if output_path == null || entry == null { return fail(1); }
+    let mut entry_len: usize = 0;
+    while entry_len < 4096 && unsafe { *(entry+entry_len) } != 0 {
+        entry_len = entry_len+1;
+    }
+    if entry_len == 0 || entry_len == 4096 { return fail(1); }
+    let names: *mut u8 = unsafe { driver_typed_names as *mut u8 };
+    let source_size: i64 = driver_read_artifact(unsafe { *(argv+4) },names,4096);
+    if source_size == -2 { return fail(2); }
+    if source_size <= 0 { return fail(3); }
+    let objects: *mut u8 = unsafe { driver_object_bytes as *mut u8 };
+    let records: *mut u8 = unsafe { driver_typed_records as *mut u8 };
+    let mut positions: [usize;2] = [0;2];
+    let mut lengths: [usize;2] = [0;2];
+    let mut record_lengths: [usize;2] = [0;2];
+    let mut total: usize = 0;
+    let mut index: usize = 0;
+    while index < 2 {
+        let object_path: *const u8 = unsafe { *(argv+5+index*2) };
+        let signature_path: *const u8 = unsafe { *(argv+6+index*2) };
+        if object_path == null || signature_path == null { return fail(1); }
+        if total == 8388608 { return fail(3); }
+        let count: i64 = driver_read_artifact(object_path,unsafe{objects+total},8388608-total);
+        if count == -2 { return fail(2); }
+        if count <= 0 { return fail(3); }
+        if !validate_elf64_object(unsafe{objects+total},count as usize) { return fail(8); }
+        positions[index] = total;
+        lengths[index] = count as usize;
+        total = total+count as usize;
+        let sig: i64 = driver_read_artifact(signature_path,
+            unsafe{records+index*240},240);
+        if sig == -2 { return fail(2); }
+        if sig <= 0 { return fail(3); }
+        record_lengths[index] = sig as usize;
+        if !target_interface_wire_valid(unsafe{records+index*240},sig as usize,
+            names as *const u8,source_size as usize) { return fail(9); }
+        index = index+1;
+    }
+    let first: *const u8 = records as *const u8;
+    let second: *const u8 = unsafe { records+240 };
+    if !target_interface_wire_compatible(first,record_lengths[0],second,
+        record_lengths[1],names as *const u8,source_size as usize) { return fail(9); }
+    let start1: usize = get_u32(first,record_lengths[0],16) as usize;
+    let size1: usize = get_u32(first,record_lengths[0],20) as usize;
+    let start2: usize = get_u32(second,record_lengths[1],16) as usize;
+    let size2: usize = get_u32(second,record_lengths[1],20) as usize;
+    if !elf_typed_function_symbol_exists(
+            unsafe{objects+positions[0]},lengths[0],
+            unsafe{names+start1},size1,false)
+        || !elf_typed_function_symbol_exists(
+            unsafe{objects+positions[1]},lengths[1],
+            unsafe{names+start2},size2,true) { return fail(9); }
+    let image: *mut u8 = unsafe { driver_image_bytes as *mut u8 };
+    let mut image_len: usize = 0;
+    let success: bool = link_elf64_executable(objects as *const u8,
+        unsafe{positions as *const usize},unsafe{lengths as *const usize},
+        2,entry,entry_len,null,0,4194304,false,
+        image,16777216,unsafe{(&mut image_len) as *mut usize});
+    if !success || image_len == 0 { return fail(9); }
+    return driver_write_artifact(output_path,image,image_len,false);
+}
+
 // Cross-host ELF linking: at most 16 independently emitted objects, 8 MiB total.
 // All inputs are loaded and validated before the output is opened.
 fn driver_link_elf_objects(argc: u64, argv: *const *const u8) -> u32 {
@@ -1819,6 +1895,7 @@ fn driver_extended_dispatch(argc: u64, argv: *const *const u8, option: *const u8
     if option_equals(option,"--check-project",15) { return driver_compile_project(argc,argv,true,false,false,true); }
     if option_equals(option,"--check-project-resolve",23) { return driver_compile_project(argc,argv,true,false,true,true); }
     if option_equals(option,"--verify-object",15) { return driver_object_operation(argc,argv,false,false); }
+    if option_equals(option,"--link-elf-typed-pair",21) { return driver_link_elf_typed_pair(argc,argv); }
     if option_equals(option,"--link-elf-objects",18) { return driver_link_elf_objects(argc,argv); }
     if option_equals(option,"--link-object",13) { return driver_object_operation(argc,argv,true,false); }
     if option_equals(option,"--compare-three",15) {
