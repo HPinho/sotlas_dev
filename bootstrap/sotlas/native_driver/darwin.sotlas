@@ -1350,9 +1350,16 @@ fn driver_link_elf_typed_pair(argc: u64, argv: *const *const u8) -> u32 {
     if !elf_typed_function_symbol_exists(
             unsafe{objects+positions[0]},lengths[0],
             unsafe{names+start1},size1,false)
+        || !elf_typed_all_undefined_globals_are_named(
+            unsafe{objects+positions[0]},lengths[0],
+            unsafe{names+start1},size1)
         || !elf_typed_function_symbol_exists(
             unsafe{objects+positions[1]},lengths[1],
-            unsafe{names+start2},size2,true) { return fail(9); }
+            unsafe{names+start2},size2,true)
+        || !elf_typed_export_note_abi_matches(
+            unsafe{objects+positions[1]},lengths[1],
+            unsafe{names+start2},size2,second,record_lengths[1],
+            names as *const u8,source_size as usize) { return fail(9); }
     let image: *mut u8 = unsafe { driver_image_bytes as *mut u8 };
     let mut image_len: usize = 0;
     let success: bool = link_elf64_executable(objects as *const u8,

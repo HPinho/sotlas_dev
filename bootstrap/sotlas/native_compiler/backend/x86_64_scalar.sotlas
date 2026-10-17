@@ -6742,3 +6742,145 @@ pub fn elf_typed_function_symbol_exists(
     }
     return found;
 }
+
+
+// SV8.71: an opt-in typed object with one SOTI import must not contain
+// another unverified global undefined symbol. This checks the WHOLE
+// validated ELF symbol table, including unused declarations, not just
+// the symbol named in a caller-supplied sidecar.
+pub fn elf_typed_all_undefined_globals_are_named(
+    object: *const u8, length: usize,
+    name: *const u8, name_length: usize
+) -> bool {
+    if object == null || name == null || name_length == 0 || name_length > 4096
+        || !validate_elf64_object(object,length) { return false; }
+    let headers: usize = get_u64(object,length,40) as usize;
+    let sections: u32 = get_u16(object,length,60) as u32;
+    let mut table: u32 = 0;
+    let mut section: u32 = 1;
+    while section < sections {
+        if get_u32(object,length,headers+(section as usize)*64+4) == 2 {
+            if table != 0 { return false; }
+            table = section;
+        }
+        section = section+1;
+    }
+    if table == 0 { return false; }
+    let sym: usize = headers+(table as usize)*64;
+    let first: usize = get_u64(object,length,sym+24) as usize;
+    let count: usize = (get_u64(object,length,sym+32) as usize)/24;
+    let string_section: u32 = get_u32(object,length,sym+40);
+    let str_header: usize = headers+(string_section as usize)*64;
+    let strings: usize = get_u64(object,length,str_header+24) as usize;
+    let mut matched: bool = false;
+    let mut index: usize = 1;
+    while index < count {
+        let record: usize = first+index*24;
+        let information: u8 = unsafe { *(object+record+4) };
+        let binding: u8 = information >> 4;
+        let kind: u8 = information & 15;
+        let shndx: u32 = get_u16(object,length,record+6) as u32;
+        if shndx == 0 && (binding == 1 || binding == 2) {
+            // Native undefined functions use STT_NOTYPE, optionally STT_FUNC.
+            // Fail closed on undefined global objects and unknown symbol kinds.
+            if kind != 0 && kind != 2 { return false; }
+            let spelling: usize = get_u32(object,length,record) as usize;
+            if !elf_name_matches_slice(object,length,strings+spelling,name,name_length)
+                || matched { return false; }
+            matched = true;
+        }
+        index = index+1;
+    }
+    return matched;
+}
+
+// SV8.71: verify the exporter-provided SOTI basic function ABI against
+// the COMPILER-EMITTED SOTLAS ELF note attached to that real symbol.
+// This note certifies arity, boolean parameter mask and float-return bit.
+// The older ELF note cannot certify ownership roles, all scalar widths,
+// capabilities or effects, so this bounded checker does not claim to.
+pub fn elf_typed_export_note_abi_matches(
+    object: *const u8, length: usize,
+    name: *const u8, name_length: usize,
+    wire: *const u8, wire_length: usize,
+    names: *const u8, names_length: usize
+) -> bool {
+    if !validate_elf64_object(object,length)
+        || !target_interface_wire_valid(wire,wire_length,names,names_length)
+        || get_u32(wire,wire_length,8) != TARGET_INTERFACE_EXPORT
+        || !elf_typed_function_symbol_exists(object,length,name,name_length,true) {
+        return false;
+    }
+    let parameters: u32 = get_u32(wire,wire_length,24);
+    let return_tag: u32 = get_u32(wire,wire_length,12);
+    let mut bool_mask: u32 = 0;
+    let mut index: u32 = 0;
+    while index < parameters {
+        if get_u32(wire,wire_length,48+(index as usize)*8) == 1 {
+            bool_mask = bool_mask | ((1 as u32)<<index);
+        }
+        // The current ELF note contains no trusted ownership roles.
+        // Only plain parameter contracts are certified by this path.
+        if get_u32(wire,wire_length,52+(index as usize)*8) != 0 { return false; }
+        index = index+1;
+    }
+    let headers: usize = get_u64(object,length,40) as usize;
+    let sections: u32 = get_u16(object,length,60) as u32;
+    let mut table: u32 = 0;
+    let mut section: u32 = 1;
+    while section < sections {
+        if get_u32(object,length,headers+(section as usize)*64+4) == 2 { table = section; }
+        section = section+1;
+    }
+    if table == 0 { return false; }
+    let sym: usize = headers+(table as usize)*64;
+    let first: usize = get_u64(object,length,sym+24) as usize;
+    let count: usize = (get_u64(object,length,sym+32) as usize)/24;
+    let str_header: usize = headers+(get_u32(object,length,sym+40) as usize)*64;
+    let strings: usize = get_u64(object,length,str_header+24) as usize;
+    let mut symbol_index: usize = 0;
+    index = 1;
+    while (index as usize) < count {
+        let record: usize = first+(index as usize)*24;
+        let information: u8 = unsafe { *(object+record+4) };
+        if (information >> 4) == 1 && (information & 15) == 2
+            && get_u16(object,length,record+6) != 0
+            && elf_name_matches_slice(object,length,
+                strings+(get_u32(object,length,record) as usize),name,name_length) {
+            if symbol_index != 0 { return false; }
+            symbol_index = index as usize;
+        }
+        index = index+1;
+    }
+    if symbol_index == 0 { return false; }
+    let mut have_note: bool = false;
+    section = 1;
+    while section < sections {
+        let sh: usize = headers+(section as usize)*64;
+        if get_u32(object,length,sh+4) == 7 {
+            let note: usize = get_u64(object,length,sh+24) as usize;
+            let note_len: usize = get_u64(object,length,sh+32) as usize;
+            if note_len >= 20
+                && get_u32(object,length,note) == 7
+                && get_u32(object,length,note+8) == 2
+                && unsafe{*(object+note+12)} == 83 && unsafe{*(object+note+13)} == 79
+                && unsafe{*(object+note+14)} == 84 && unsafe{*(object+note+15)} == 76
+                && unsafe{*(object+note+16)} == 65 && unsafe{*(object+note+17)} == 83 {
+                let descriptor_size: usize = get_u32(object,length,note+4) as usize;
+                if descriptor_size > note_len-20
+                    || symbol_index > descriptor_size/4 || have_note { return false; }
+                let descriptor: u32 = get_u32(object,length,note+20+(symbol_index-1)*4);
+                // Byte zero also contains a return-float flag (0x20)
+                // and process entry flags, masked away from the arity.
+                let note_arity: u32 = descriptor & 31;
+                let note_float: bool = (descriptor & 32) != 0;
+                let wire_float: bool = return_tag == 12 || return_tag == 13;
+                if note_arity != parameters || note_float != wire_float
+                    || (descriptor >> 8) != bool_mask { return false; }
+                have_note = true;
+            }
+        }
+        section = section+1;
+    }
+    return have_note;
+}

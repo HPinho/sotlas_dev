@@ -1354,3 +1354,21 @@ gates independent of Linux executable permission bits.
 
 The candidate needs a complete CI run to become certified; green
 baseline: [#1257](https://github.com/HPinho/sotlas_dev/actions/runs/39042389972).
+
+### SV8.71: bounded compiler ABI origin and full import coverage
+
+The opt-in cross-host ELF64 typed pair command now refuses any
+undefined global symbol beyond the one covered by the SOTI import
+sidecar, and verifies the exported function's parameter count,
+boolean mask and float return class using the real
+`.note.sotlas.abi` emitted by the native compiler. This is stricter
+than matching external names alone. Non-plain ownership roles are
+not certified by that note and are rejected. The existing untyped
+`--link-elf-objects` path remains unchanged.
+
+The new Sotlas Target IR serializer
+`target_interface_wire_encode_from_function_abi` can generate
+plain-parameter ABI records from typed compiler data; it does not
+yet automatically attach records to object sections or prove
+effects/capabilities. See
+[SV8.71 documented scope](../../../docs/native_typed_elf_pair.md).
