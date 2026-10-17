@@ -3,7 +3,7 @@
 **Status:** active implementation track  
 **Started:** 2026-10-03 (America/Fortaleza)  
 **Green baseline at track start:** `7162167dec6fd5fa0a216121b147335d222e43f1` / CI #1063  
-**Latest inspected green baseline:** `43bb572e23c724c06ea99a2b694ad38f27756d2d` / [CI #1255](https://github.com/HPinho/sotlas_dev/actions/runs/39011203750) (full Linux/Windows/Intel macOS, native compiler fixed point, seed, packaging and execution; same revision green #1254).
+**Latest inspected green baseline:** `6593c521966ab1fa8c1531312bb4214948502fdf` / [CI #1257](https://github.com/HPinho/sotlas_dev/actions/runs/39042389972) (19 successful Linux/Windows/Intel macOS, native seed, fixed-point, packaging and execution jobs).
 
 
 
@@ -39,6 +39,58 @@ their byte limit, including supplementary scalars; calculator input remains
 ASCII. Native tests passed on Windows and Linux/WSL; Windows mixed-script
 drawing and cleanup passed. Encoding, layout/shaping and editing scopes remain
 distinct; remote CI is pending. See the [text contract](native_unicode_text.md).
+
+## SV8.70 — opt-in typed ELF linking of independently compiled object pairs (2026-10-17)
+
+**Last certified green baseline:** `6593c521966ab1fa8c1531312bb4214948502fdf` /
+[CI #1257](https://github.com/HPinho/sotlas_dev/actions/runs/39042389972).
+All 19 platform, native seed, fixed-point, installer, PE/Mach-O execution
+and packaging jobs passed. This new cut is a candidate until its own CI.
+
+A new owned Linux-native driver command `--link-elf-typed-pair` accepts
+an existing output path, entry point, immutable name buffer, independently
+compiled importer/exporter ELF64 objects, and their SOTI v1 wire records.
+It reuses the existing native ELF64 object loader/linker but requires a
+typed *preflight* before publishing the executable:
+
+- Both inputs must pass the production ELF64 structural validator.
+- Both untrusted wire sidecars must pass full SOTI version/extent,
+  parameter, type, ownership role, name and flag verification.
+- Import/export names, return types, parameter count/types/roles, effect
+  and capability subset rules must match, with no privilege escalation.
+- The declared imported name must be present as a genuine undefined
+  global ELF function reference in the importing object; the exported
+  name must exist as a real defined global ELF function in the provider.
+  The native symbol scanner recognizes the owned writer's STT_NOTYPE
+  undefined extern declarations and STT_FUNC definitions, rejecting
+  duplicate matches.
+- The existing 2-object linker then resolves relocations and builds
+  the executable. Preflight failures leave a previously written output
+  byte-for-byte intact. The historical untyped linking command is unchanged.
+
+Fifteen new `tests/test_sotlas_native_typed_elf_pair.py` gates use the
+real Sotlas-native CLI to compile two separate ELF objects, execute the
+successful linked image on Linux and reject bad/missing/tampered metadata,
+ABI/role mismatch, effect/capability escalation, absent or reversed ELF
+symbol identities, invalid ELF, bad entry, argument errors and missing
+files without overwriting an existing image. They supplement all 16 SV8.69
+wire tests, 19 SV8.68 manifest tests and the existing multi-object CLI suite.
+
+**Security boundary:** this first integration is *opt-in*, ELF64-x86_64
+only and deliberately limited to one import and one export interface
+across two objects. Metadata is passed as separately created sidecars;
+the compiler does **not yet** synthesize those contracts from canonical
+frontend ownership/effects or embed them in the object file. Therefore
+the verifier proves consistency of supplied signed-looking declarations
+and presence/definition of ELF names, **not** authenticity of ABI/effect
+claims against machine instructions. No trust or signature cryptography
+is provided. General per-symbol metadata, true internal object sections,
+automatic ARC/drop and Python/C-free first bootstrap remain open.
+
+**Next large SV8.71 block:** generate SOTI records from compiler-owned
+typed symbols and embed them in ELF relocatables, require coverage for
+all imported functions at the native linker and extend independent
+object and metadata checks to PE/Mach-O without weakening green CI.
 
 ## SV8.69.1 — native u64 wire-shift regression repair (2026-10-17)
 

@@ -100,8 +100,9 @@ invocations and may require the stated seed, platform or toolchain. The historic
 sovereignty checkpoint score measures selected architectural milestones, not the
 percentage of Python/C dependencies eliminated or the amount of work remaining.
 
-**Evidence boundary:** the latest independently verified green baseline is `43bb572`,
-CI #1255 / run `39011203750` (full matrix, same commit also green #1254).
+**Evidence boundary:** the latest independently verified green baseline is `6593c52`,
+CI #1257 / run `39042389972` (19 green jobs across the full matrix).
+Previous: `43bb572`, CI #1255 / run `39011203750`.
 Earlier inspected green: `e3abf81`, CI #1253 / run `38980061670`. Earlier inspected green: `94823c4`,
 CI #1251 / run `38957013245`. Earlier inspected green: `768b6d1`,
 CI #1249 / run `38940935785`. Earlier inspected green: `fd6dd7d`,
@@ -239,6 +240,23 @@ runtime. One added native machine-code test covers all eight distinct
 bytes of 64-bit effects/capabilities, bringing SV8.69 to 16 tests.
 The last completely green baseline remains #1255 (`43bb572`).
 The repair is awaiting full matrix certification.
+
+**SV8.70 typed ELF native linker candidate (2026-10-17):** the
+owned ELF64 multi-object driver can now run an opt-in
+`--link-elf-typed-pair` with independently generated ELF importer and
+exporter objects. It checks real ELF symbol identity and imported/
+exported definition state, validates both SOTI wire records with exact
+ownership/ABI roles, effect and capability constraints, and only then
+invokes the existing executable linker. Fifteen additional native CLI
+positive/negative gates cover actual separate-object linking, ELF
+execution on Linux and fail-closed output preservation. No Python/C
+glue is involved in the native verifier. Sidecar metadata is still
+caller-provided and only covers one import/export pair: the compiler
+does not yet derive or embed authentic canonical signatures in
+objects and there is no comprehensive multi-module ownership proof.
+Baseline [CI #1257](https://github.com/HPinho/sotlas_dev/actions/runs/39042389972)
+(`6593c52`) is green, while this cut awaits its own matrix.
+[Typed pair contract](native_typed_elf_pair.md).
 
 ## 2. Current implementation
 
@@ -922,6 +940,35 @@ applications, UI, concurrency/services, realtime/game/media, heterogeneous
 compute and sovereignty. Freeze a coherent scope, harden it, produce a release
 candidate, publish only after its gates pass, and continue maintenance without
 relabeling unimplemented architectural goals as completed features.
+
+
+## SV8.70 — typed ABI gates on actual two-object ELF linking (2026-10-17)
+
+**Baseline:** green `6593c521966ab1fa8c1531312bb4214948502fdf`,
+[CI #1257](https://github.com/HPinho/sotlas_dev/actions/runs/39042389972).
+New CI is required before certification.
+
+- [x] Add opted-in `--link-elf-typed-pair` directly to the Sotlas-native
+  Linux driver, accepting two separate object inputs and SOTI v1 sidecars.
+- [x] Enforce full wire/ABI/role/effect/capability compatibility *before*
+  asking the production native multi-object linker to publish an image.
+- [x] Check both supplied names against actual ELF symbol table entries,
+  distinguishing undefined import from exported defined function,
+  rejecting duplicate matching symbols.
+- [x] Keep all error paths before artifact writing; preserve previous
+  executable bytes on invalid ABI, authority, ELF symbols, input
+  files, wire formats and entry points.
+- [x] Keep the original `--link-elf-objects` untouched, the fixed-point
+  compiler tests and Linux/Windows/Intel macOS matrix intact.
+- [x] Add 15 real two-object CLI tests in
+  `tests/test_sotlas_native_typed_elf_pair.py`, including machine-code
+  ELF execution and negative gates.
+
+**Open:** metadata is caller-supplied, not synthesized from frontend
+or embedded in objects; the command checks one import/export pair,
+not every unresolved symbol. No automatic ARC/drop, all-object/PE/Mach-O
+typed linking, authenticated authority or zero-hosted-tool first seed
+is claimed. See [typed ELF pair contract](native_typed_elf_pair.md).
 
 ## 12. Complete native migration checklist
 

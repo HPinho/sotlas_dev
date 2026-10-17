@@ -2,6 +2,34 @@
 
 Repository: [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev).
 
+## SV8.70 — typed ABI gates on actual two-object ELF linking (2026-10-17)
+
+**Baseline:** green `6593c521966ab1fa8c1531312bb4214948502fdf`,
+[CI #1257](https://github.com/HPinho/sotlas_dev/actions/runs/39042389972).
+New CI is required before certification.
+
+- [x] Add opted-in `--link-elf-typed-pair` directly to the Sotlas-native
+  Linux driver, accepting two separate object inputs and SOTI v1 sidecars.
+- [x] Enforce full wire/ABI/role/effect/capability compatibility *before*
+  asking the production native multi-object linker to publish an image.
+- [x] Check both supplied names against actual ELF symbol table entries,
+  distinguishing undefined import from exported defined function,
+  rejecting duplicate matching symbols.
+- [x] Keep all error paths before artifact writing; preserve previous
+  executable bytes on invalid ABI, authority, ELF symbols, input
+  files, wire formats and entry points.
+- [x] Keep the original `--link-elf-objects` untouched, the fixed-point
+  compiler tests and Linux/Windows/Intel macOS matrix intact.
+- [x] Add 15 real two-object CLI tests in
+  `tests/test_sotlas_native_typed_elf_pair.py`, including machine-code
+  ELF execution and negative gates.
+
+**Open:** metadata is caller-supplied, not synthesized from frontend
+or embedded in objects; the command checks one import/export pair,
+not every unresolved symbol. No automatic ARC/drop, all-object/PE/Mach-O
+typed linking, authenticated authority or zero-hosted-tool first seed
+is claimed. See [typed ELF pair contract](native_typed_elf_pair.md).
+
 ## SV8.69.1 — native u64 wire-shift regression repair (2026-10-17)
 
 [CI #1256](https://github.com/HPinho/sotlas_dev/actions/runs/39038976982)
