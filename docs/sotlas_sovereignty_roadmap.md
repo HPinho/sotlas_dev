@@ -3,7 +3,7 @@
 **Status:** active implementation track  
 **Started:** 2026-10-03 (America/Fortaleza)  
 **Green baseline at track start:** `7162167dec6fd5fa0a216121b147335d222e43f1` / CI #1063  
-**Latest inspected green baseline:** `6593c521966ab1fa8c1531312bb4214948502fdf` / [CI #1257](https://github.com/HPinho/sotlas_dev/actions/runs/39042389972) (19 successful Linux/Windows/Intel macOS, native seed, fixed-point, packaging and execution jobs).
+**Latest inspected green baseline:** `684e674ca15c31441f88293757dfe69eac855f67` / [CI #1259](https://github.com/HPinho/sotlas_dev/actions/runs/39065215635) (19 green jobs, full Linux/Windows/Intel macOS matrix, native seed, fixed-point and packaging).
 
 
 
@@ -39,6 +39,66 @@ their byte limit, including supplementary scalars; calculator input remains
 ASCII. Native tests passed on Windows and Linux/WSL; Windows mixed-script
 drawing and cleanup passed. Encoding, layout/shaping and editing scopes remain
 distinct; remote CI is pending. See the [text contract](native_unicode_text.md).
+
+## SV8.71 — complete plain-import coverage and compiler ABI provenance (2026-10-17)
+
+**Certified green baseline:** `684e674ca15c31441f88293757dfe69eac855f67` /
+[CI #1259](https://github.com/HPinho/sotlas_dev/actions/runs/39065215635).
+19/19 jobs green: Linux, Windows, Intel macOS, native seed and stage
+fixed point, PE/Mach-O, distribution, snapshots and preview. The
+SV8.71 candidate needs its **own** complete multi-platform CI.
+
+This larger block strengthens the Sotlas-owned ELF typed pair linking
+pipeline without removing untyped linking or any existing test.
+
+- **Exhaustive import coverage in the bounded pair:** a validated
+  importer ELF may have exactly one undefined global function symbol
+  matching the SOTI contract. Every other undefined global, including
+  an unused external declaration, fails before linker output.
+- **Compiler-emitted ABI-note cross-check:** for the actual defined
+  exporter ELF function, the new checker finds the Sotlas-owned
+  `.note.sotlas.abi` descriptor and demands the SOTI record match
+  function arity, boolean-parameter bitmask and float/nonfloat
+  return class. Missing/corrupted/contradictory ABI notes fail closed.
+  This does not pretend the legacy note proves every scalar width,
+  pointer lifetime, effects or capabilities.
+- **Plain-only boundary:** the legacy ELF ABI note does not encode
+  sole/direct/whisper. These non-plain parameter roles fail closed
+  on the new typed link path until the compiler embeds verified,
+  complete ownership metadata. Ordinary plain parameters remain
+  accepted with a matching compiler-owned note.
+- **Compiler-owned Target IR serialization:** a new
+  `target_interface_wire_encode_from_function_abi` API derives
+  name, import/export identity, scalar/pointer return and parameter
+  ABI from genuine `TargetFunction`/`TargetParameter` records,
+  emitting canonical SOTI v1 bytes with a normalized name offset.
+  Effects and capabilities are explicit caller assertions, **not**
+  claimed as compiler-inferred/validated. General aggregate or
+  non-plain signatures remain unsupported by this encoder.
+
+**Test evidence:** 11 new cross-host CLI cases in
+`tests/test_sotlas_native_typed_elf_sv871.py` cover real
+independently compiled objects, one valid imported symbol,
+additional used/unused imported symbols, forged but agreeing sidecars,
+real U32/Bool signatures, false arity/bool/float claims, missing or
+tampered notes, role rejection and unchanged executable output.
+Eight Sotlas-native machine-code compile/link/execute tests in
+`tests/test_sotlas_native_migration_sv871_abi.py` certify Target IR
+ABI-derived serialization, successful comparison, scalar and void
+shapes, malformed ranges, forbidden ABI, flags and artifact integrity.
+All previous SV8.70 positive/negative tests and the old linker remain.
+
+**Still open:** automatic sidecar emission by the production compile
+CLI and embedded ELF/PE/Mach-O SOTI sections; attested compiler-owned
+sole/direct/whisper roles and effect/capability derivation; complete
+multi-symbol and multi-object typed linking; ARC/drop generation;
+first-seed packaging with zero mandatory Python/C. These require
+separate complete CI proofs, not a percentage inferred from this cut.
+
+**Next substantial SV8.72:** integrate compiler-derived manifests
+into the object writer and actual ELF metadata sections, extend
+coverage beyond one pair and add fail-closed authenticity checks for
+typed ownership/effects when the frontend metadata is available.
 
 ## SV8.70.1 — cross-host opt-in typed ELF linker regression repair (2026-10-17)
 

@@ -2302,3 +2302,68 @@ pub fn target_interface_wire_compatible(
     }
     return true;
 }
+
+
+// SV8.71: derive ABI types, arity and import/export identity from the
+// compiler's own typed TargetFunction/TargetParameter IR, instead of trusting
+// handwritten ABI parameter metadata. This is a deliberately bounded PLAIN
+// parameter subset: TargetParameter does not yet carry ownership roles.
+// Effect/capability masks are explicit caller assertions, NOT proofs of
+// inferred machine effects or authority. Names are normalized to offset 0
+// in a separately provided buffer containing exactly the symbol spelling.
+pub fn target_interface_wire_encode_from_function_abi(
+    source: *const u8, source_len: usize,
+    function: TargetFunction,
+    parameters: *const TargetParameter, parameter_count: u32,
+    declared_effects: u64, declared_capabilities: u64,
+    output: *mut u8, capacity: usize, written: *mut usize
+) -> bool {
+    let needed: usize = target_interface_wire_size(function.parameter_count);
+    if source == null || output == null || written == null
+        || needed == 0 || needed > capacity || function.name.length == 0
+        || function.name.length > 4096 || function.name.length > 4294967295
+        || !target_source_slice_valid(function.name,source_len)
+        || !target_type_is_return(function.return_type)
+        || function.return_type == TargetTypeTag::Aggregate
+        || (function.flags & ~TARGET_FUNCTION_EXTERNAL) != 0
+        || !target_range_is_valid(function.first_parameter,
+            function.parameter_count,parameter_count)
+        || (function.parameter_count != 0 && parameters == null) { return false; }
+    // Complete preflight ensures an unsupported signature never damages
+    // a previously written SOTI record or its written-length marker.
+    let mut index: u32 = 0;
+    while index < function.parameter_count {
+        let parameter: TargetParameter = unsafe {
+            *(parameters+function.first_parameter+index)
+        };
+        if !target_type_is_value(parameter.type_tag)
+            || parameter.type_tag == TargetTypeTag::Aggregate { return false; }
+        index = index+1;
+    }
+    let mut kind: u32 = TARGET_INTERFACE_EXPORT;
+    if (function.flags & TARGET_FUNCTION_EXTERNAL) != 0 {
+        kind = TARGET_INTERFACE_IMPORT;
+    }
+    target_interface_wire_store_u32(output,0,TARGET_INTERFACE_WIRE_MAGIC);
+    target_interface_wire_store_u32(output,4,TARGET_INTERFACE_WIRE_VERSION);
+    target_interface_wire_store_u32(output,8,kind);
+    target_interface_wire_store_u32(output,12,function.return_type as u32);
+    target_interface_wire_store_u32(output,16,0);
+    target_interface_wire_store_u32(output,20,function.name.length as u32);
+    target_interface_wire_store_u32(output,24,function.parameter_count);
+    target_interface_wire_store_u32(output,28,0);
+    target_interface_wire_store_u64(output,32,declared_effects);
+    target_interface_wire_store_u64(output,40,declared_capabilities);
+    index = 0;
+    while index < function.parameter_count {
+        let parameter: TargetParameter = unsafe {
+            *(parameters+function.first_parameter+index)
+        };
+        let at: usize = TARGET_INTERFACE_WIRE_HEADER+(index as usize)*8;
+        target_interface_wire_store_u32(output,at,parameter.type_tag as u32);
+        target_interface_wire_store_u32(output,at+4,0);
+        index = index+1;
+    }
+    unsafe { *written = needed; }
+    return true;
+}

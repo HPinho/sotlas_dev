@@ -108,3 +108,34 @@ Generate signatures from owned frontend/Target IR declarations,
 serialize them into real object sections, require complete import
 coverage and tamper-resistant enforcement, then expand to Windows
 PE and Intel macOS Mach-O under the complete native matrix.
+
+## SV8.71 — require ELF-import completeness and compiler ABI-note provenance
+
+The opt-in command on all three native compiler hosts now requires
+that every undefined global symbol in the importing ELF object be
+covered by its **single** SOTI import contract. The verifier checks
+the real ELF symbol table, so an additional used *or unused* external
+declaration is not silently linked with unverified metadata.
+
+The declared exported function must be a genuine ELF definition
+with a compiler-generated `.note.sotlas.abi` descriptor. SOTI
+parameter count, `Bool`-position bitmask and float-return class
+must agree with that note. If a note is absent, malformed or
+inconsistent, the previous image is not overwritten. The old ELF
+note contains **no proof** of sole/direct/whisper roles, so non-plain
+parameter roles now reject in this bounded typed path. No claim is
+made that the ELF note proves every scalar integer width or any
+effect/capability promise.
+
+`target_interface_wire_encode_from_function_abi` produces a SOTI v1
+record directly from a compiler-owned typed `TargetFunction` and its
+flat `TargetParameter` table. It validates types and boundaries,
+uses role=0 only, normalizes the record's symbol-name offset to zero,
+and never overwrites previous bytes on malformed input. Effects and
+capabilities are **asserted input metadata**, not inferred from
+instructions; callers must not treat them as machine-code authority
+proofs. These records are not yet automatically emitted from the
+CLI or embedded in ELF object sections.
+
+The 11 real ELF gates and 8 native IR-encoder gates join the intact
+SV8.70 suite. Last certified baseline before this cut: [#1259](https://github.com/HPinho/sotlas_dev/actions/runs/39065215635).

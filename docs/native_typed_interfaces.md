@@ -166,3 +166,27 @@ Sidecars can be forged and do not prove that claimed roles or effects
 describe the actual instructions. A future linker must require typed
 metadata for every covered unresolved symbol and derive it from
 compiler-owned typed AST/Target IR declarations.
+
+## SV8.71 — compiler-owned plain ABI serialization
+
+The new `target_interface_wire_encode_from_function_abi` reads
+`TargetFunction` and `TargetParameter` source records from the
+native compiler's own typed Target IR. It checks name slices,
+parameter-table extents, 24-parameter capacity, scalar/pointer
+return/parameter tags and import/export flag shape *before*
+writing any SOTI bytes. Encoded source-name offset is normalized
+to zero for a separately supplied exact name spelling. Unsupported
+aggregates and unknown function flags fail closed.
+
+**Trust boundary:** the IR parameter table has no certified
+sole/direct/whisper role field yet, so only `plain` roles are
+generated. The effects and capability bits passed to this API are
+caller assertions, not semantic inference. This is a typed ABI
+derivation primitive, not full authenticated metadata issuance
+or automatic ELF section serialization.
+
+Eight dedicated native execute/rejection tests accompany the earlier
+SOTI wire cases. The ELF typed pair link path verifies an actual
+exporter's existing compiler-emitted `.note.sotlas.abi` arity,
+boolean mask and float-return classification before linking,
+rejecting claims the note cannot certify.

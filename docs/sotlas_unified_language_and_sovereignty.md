@@ -100,8 +100,9 @@ invocations and may require the stated seed, platform or toolchain. The historic
 sovereignty checkpoint score measures selected architectural milestones, not the
 percentage of Python/C dependencies eliminated or the amount of work remaining.
 
-**Evidence boundary:** the latest independently verified green baseline is `6593c52`,
-CI #1257 / run `39042389972` (19 green jobs across the full matrix).
+**Evidence boundary:** the latest independently verified green baseline is `684e674`,
+CI #1259 / run `39065215635` (19 green jobs across the full matrix).
+Earlier inspected green: `6593c52`, CI #1257 / run `39042389972`.
 Previous: `43bb572`, CI #1255 / run `39011203750`.
 Earlier inspected green: `e3abf81`, CI #1253 / run `38980061670`. Earlier inspected green: `94823c4`,
 CI #1251 / run `38957013245`. Earlier inspected green: `768b6d1`,
@@ -269,6 +270,23 @@ comment marker and isolates each test's artifact path. It retains
 every SV8.70 and previous CI gate, SOTI verification and native
 linking behavior, with green #1257 as the certified baseline.
 [Root cause and repair](native_typed_elf_pair.md).
+
+**SV8.71 native ABI provenance candidate (2026-10-17):**
+Sotlas-owned ELF typed linking now rejects *additional* global
+undefined symbols omitted from the one-SOTI contract, compares the
+real exported function to its compiler-emitted Sotlas ABI note for
+arity/boolean mask/float result, and rejects unprovable non-plain
+parameter roles. A new native Target IR encoder derives canonical
+plain scalar/pointer SOTI ABI bytes from typed function and parameter
+records while leaving effects/capability claims explicitly caller
+specified. Eleven new real two-object ELF tests plus eight
+machine-code IR encoder tests cover success and fail-closed behavior.
+**Not completed:** automatic CLI/object-embedded SOTI issuance, fully
+verified effect/ownership provenance, multiple imported symbols and
+mandatory hosted Python/C elimination. [CI #1259](https://github.com/HPinho/sotlas_dev/actions/runs/39065215635)
+(`684e674`) is the last complete green baseline; the SV8.71
+candidate awaits its own full CI.
+[Typed ELF scope](native_typed_elf_pair.md).
 
 ## 2. Current implementation
 
@@ -981,6 +999,39 @@ or embedded in objects; the command checks one import/export pair,
 not every unresolved symbol. No automatic ARC/drop, all-object/PE/Mach-O
 typed linking, authenticated authority or zero-hosted-tool first seed
 is claimed. See [typed ELF pair contract](native_typed_elf_pair.md).
+
+
+## SV8.71 — verify complete ELF imports and compiler-sourced ABI subset (2026-10-17)
+
+**Certified baseline:** `684e674ca15c31441f88293757dfe69eac855f67` /
+[CI #1259](https://github.com/HPinho/sotlas_dev/actions/runs/39065215635).
+Candidate until its own complete matrix passes.
+
+- [x] Reject every undefined global ELF symbol not named in the one
+  SOTI importer record; cannot silently link a second unverified import.
+- [x] Cross-check the real defined export against the compiler's
+  `.note.sotlas.abi` function descriptor for arity, boolean mask and
+  float-return classification before emitting an executable.
+- [x] Fail closed on missing/corrupted notes and on unproven non-plain
+  (sole/direct/whisper) parameter claims; retain plain ABI successes.
+- [x] Derive a portable SOTI v1 record from compiler-owned Target IR
+  function and parameter ABI types, including validated ranges and
+  source symbol bounds, with no hosted encoder.
+- [x] Preserve old output bytes and written-length markers on rejected
+  Target IR encoding; validate all parameters before the first write.
+- [x] Add 19 native successful and negative gates split between real ELF
+  two-object linking (11) and Sotlas-machine-code Target IR ABI encoding
+  (8). Keep all old CI/matrix/ownership tests enabled.
+
+**Explicit boundaries:** the current compiler IR lacks a validated
+parameter ownership-role field, and lacks inferred effect/capability
+claims in this record. The new serializer therefore emits only plain
+roles, with caller-supplied rights bits. The ELF note proves only
+arity/boolean parameter positions/float-return class, not complete
+ABI provenance. Production CLI/ELF section automatic SOTI generation,
+all-object coverage, Windows PE/Mach-O typed linking and zero-hosted
+Python/C bootstrap are still unverified.
+See [SV8.71 typed ELF gates](native_typed_elf_pair.md).
 
 ## 12. Complete native migration checklist
 

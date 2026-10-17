@@ -2,6 +2,38 @@
 
 Repository: [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev).
 
+## SV8.71 — verify complete ELF imports and compiler-sourced ABI subset (2026-10-17)
+
+**Certified baseline:** `684e674ca15c31441f88293757dfe69eac855f67` /
+[CI #1259](https://github.com/HPinho/sotlas_dev/actions/runs/39065215635).
+Candidate until its own complete matrix passes.
+
+- [x] Reject every undefined global ELF symbol not named in the one
+  SOTI importer record; cannot silently link a second unverified import.
+- [x] Cross-check the real defined export against the compiler's
+  `.note.sotlas.abi` function descriptor for arity, boolean mask and
+  float-return classification before emitting an executable.
+- [x] Fail closed on missing/corrupted notes and on unproven non-plain
+  (sole/direct/whisper) parameter claims; retain plain ABI successes.
+- [x] Derive a portable SOTI v1 record from compiler-owned Target IR
+  function and parameter ABI types, including validated ranges and
+  source symbol bounds, with no hosted encoder.
+- [x] Preserve old output bytes and written-length markers on rejected
+  Target IR encoding; validate all parameters before the first write.
+- [x] Add 19 native successful and negative gates split between real ELF
+  two-object linking (11) and Sotlas-machine-code Target IR ABI encoding
+  (8). Keep all old CI/matrix/ownership tests enabled.
+
+**Explicit boundaries:** the current compiler IR lacks a validated
+parameter ownership-role field, and lacks inferred effect/capability
+claims in this record. The new serializer therefore emits only plain
+roles, with caller-supplied rights bits. The ELF note proves only
+arity/boolean parameter positions/float-return class, not complete
+ABI provenance. Production CLI/ELF section automatic SOTI generation,
+all-object coverage, Windows PE/Mach-O typed linking and zero-hosted
+Python/C bootstrap are still unverified.
+See [SV8.71 typed ELF gates](native_typed_elf_pair.md).
+
 ## SV8.70.1 — cross-host opt-in typed ELF linker regression repair (2026-10-17)
 
 **Last fully green baseline:** `6593c521966ab1fa8c1531312bb4214948502fdf` /
