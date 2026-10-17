@@ -2,6 +2,34 @@
 
 Repository: [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev).
 
+## SV8.69.1 — native u64 wire-shift regression repair (2026-10-17)
+
+[CI #1256](https://github.com/HPinho/sotlas_dev/actions/runs/39038976982)
+failed the native compiler smoke gates on Linux, Windows and Intel macOS.
+Many previously green tests also failed because every assembled Target IR
+driver included the newly introduced wire helpers. The first consistent
+native compile rejection occurs at the `u64` serializer shift, around
+Target IR line 2096 (driver assembly reports approximately 9255).
+The SV8.69 implementation cast its right-side shift count to `u32`,
+although the 64-bit left operand requires a matching `u64` count in
+this native lowering profile.
+
+The correction makes **both** 64-bit store/load helpers use
+`(index as u64)*8`, following the already certified
+`runtime/native/binary.sotlas` pattern. The 32-bit helpers continue
+using 32-bit shift counts. This preserves all wire ABI, encoding,
+capability, role, malformed-input and transactional-write rules.
+No tests are removed, weakened or skipped. One additional native
+compile/link/execute case checks distinct high/low bytes of two
+nonuniform 64-bit effect/capability values and decodes them back,
+bringing the SV8.69 suite to **16 tests**.
+
+**Last certified green baseline:** `43bb572e23c724c06ea99a2b694ad38f27756d2d` /
+[CI #1255](https://github.com/HPinho/sotlas_dev/actions/runs/39011203750),
+also green #1254. The repair is a candidate until its own complete
+Linux/Windows/Intel-macOS, native fixed-point and packaging workflow
+passes. Do not advance to SV8.70 before this gate is green.
+
 ## SV8.69 — versioned native serialized interface contract (2026-10-17)
 
 **Baseline:** green [CI #1254](https://github.com/HPinho/sotlas_dev/actions/runs/38992580949)

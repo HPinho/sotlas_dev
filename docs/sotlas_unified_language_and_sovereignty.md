@@ -229,6 +229,17 @@ writers or the multi-object linker already enforce it. Baseline
 commit `43bb572` is green; SV8.69 certification is pending.
 [Wire specification](native_typed_interfaces.md).
 
+**SV8.69.1 regression repair (2026-10-17):** CI #1256 exposed
+a native lowering mismatch in the new `u64` wire serializers:
+the shift count was cast to `u32` instead of matching the left
+`u64` operand. This broke compilation of shared native drivers,
+not just the new wire tests. Both `u64` store/load shifts now use
+`(index as u64)*8`, consistent with the existing certified binary
+runtime. One added native machine-code test covers all eight distinct
+bytes of 64-bit effects/capabilities, bringing SV8.69 to 16 tests.
+The last completely green baseline remains #1255 (`43bb572`).
+The repair is awaiting full matrix certification.
+
 ## 2. Current implementation
 
 **SV8.64 native capacity:** the unified object backend accepts 1,024 function

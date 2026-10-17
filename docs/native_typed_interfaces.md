@@ -133,3 +133,20 @@ writers, versioned ELF/PE/Mach-O metadata, checking imported symbols
 within the real multi-object link operation, canonical frontend
 signature synthesis and reproducible zero-Python/C first-seed builds.
 
+
+### SV8.69.1 — u64 shift-count lowering compatibility
+
+[CI #1256](https://github.com/HPinho/sotlas_dev/actions/runs/39038976982)
+showed a cross-platform compiler regression: the 64-bit record
+writer/reader used `number >> ((index*8) as u32)` and
+`number << ((index*8) as u32)`, which the native backend rejects
+for 64-bit left operands. This was a source-level lowering mismatch,
+not a reason to remove interface serialization.
+
+Both 64-bit helpers now use `(index as u64)*8` for shift counts,
+matching the already accepted Sotlas binary runtime. A 16th
+native wire test verifies byte order across all eight bytes of
+two distinct `u64` values and checks decoding. The original 15
+positive and negative tests and all SV8.68 gates are untouched.
+The repair is uncertified until its own CI; last green #1255.
+
