@@ -150,3 +150,19 @@ two distinct `u64` values and checks decoding. The original 15
 positive and negative tests and all SV8.68 gates are untouched.
 The repair is uncertified until its own CI; last green #1255.
 
+
+## SV8.70 — integration with the production ELF64 linker
+
+The new `--link-elf-typed-pair` opt-in CLI consumes separately compiled
+ELF64 importer/exporter objects plus one serialized SOTI import and one
+export record. The native driver checks wire compatibility and proves that
+the imported and exported name correspond to actual, distinct ELF symbol
+table records of the required definition state **before** calling the
+existing native ELF linker. All errors leave prior executable output
+untouched. See [SV8.70 contract](native_typed_elf_pair.md).
+
+This is **not** automatic compiler emission or object-embedded metadata.
+Sidecars can be forged and do not prove that claimed roles or effects
+describe the actual instructions. A future linker must require typed
+metadata for every covered unresolved symbol and derive it from
+compiler-owned typed AST/Target IR declarations.

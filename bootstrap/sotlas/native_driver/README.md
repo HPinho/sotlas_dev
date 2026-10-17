@@ -1314,3 +1314,29 @@ transfers across overlapping storage ranges. This is explicitly
 registered caller-backed ownership, not automatic compiler ARC/drop
 and not a substitute for raw-pointer alias/lifetime proofs.
 Details: [the native scoped resource contract](../../../docs/native_scoped_resources.md).
+
+## SV8.70 — native ELF typed object-pair linking
+
+The Linux native driver exposes the opt-in command:
+
+```sh
+sotlas-native --link-elf-typed-pair output.elf main_entry names.bin \
+    importer.o importer.soti exporter.o exporter.soti
+```
+
+`names.bin` contains the exact immutable source-name bytes referenced
+by both SOTI v1 records. The two `.o` files must be independently
+compiled ELF64 objects containing a real undefined/imported global
+function in the first and a real global definition in the second.
+The native CLI validates their ELF structures and symbol identity,
+checks wire ABI, plain/sole/direct/whisper parameter roles and
+effect/capability narrowing, then links both objects with the existing
+owned ELF linker. Missing, corrupt and incompatible inputs fail with
+a nonzero exit without overwriting previous output. The original
+`--link-elf-objects` command is unchanged.
+
+This initial opt-in path is limited to a single import/export pair
+on ELF64 x86-64, with caller-supplied, unauthenticated sidecar records.
+The compiler does not yet generate the sidecars automatically; no
+typed enforcement is claimed for unlisted symbols. See
+[the typed ELF linker contract](../../../docs/native_typed_elf_pair.md).

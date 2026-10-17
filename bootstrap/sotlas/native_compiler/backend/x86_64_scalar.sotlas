@@ -6687,3 +6687,58 @@ pub fn emit_x86_64_scalar_cfg(
     unsafe { *output_length = length; }
     return true;
 }
+
+
+// SV8.70: prove that a wire-declared function is a *real* named global
+// definition or unresolved global function in an independently validated
+// ELF64 object, rather than trusting a detached interface sidecar alone.
+// Reuses the owned ELF parser. Duplicate matching symbols fail closed.
+pub fn elf_typed_function_symbol_exists(
+    object: *const u8, length: usize,
+    name: *const u8, name_length: usize, defined: bool
+) -> bool {
+    if object == null || name == null || name_length == 0 || name_length > 4096
+        || !validate_elf64_object(object,length) { return false; }
+    let headers: usize = get_u64(object,length,40) as usize;
+    let sections: u32 = get_u16(object,length,60) as u32;
+    let mut section: u32 = 1;
+    let mut table: u32 = 0;
+    while section < sections {
+        if get_u32(object,length,headers+(section as usize)*64+4) == 2 {
+            if table != 0 { return false; }
+            table = section;
+        }
+        section = section+1;
+    }
+    if table == 0 { return false; }
+    let sym: usize = headers+(table as usize)*64;
+    let first: usize = get_u64(object,length,sym+24) as usize;
+    let count: usize = (get_u64(object,length,sym+32) as usize)/24;
+    let str_section: u32 = get_u32(object,length,sym+40);
+    let str_header: usize = headers+(str_section as usize)*64;
+    let strings: usize = get_u64(object,length,str_header+24) as usize;
+    let mut found: bool = false;
+    let mut i: usize = 1;
+    while i < count {
+        let record: usize = first+i*24;
+        let information: u8 = unsafe { *(object+record+4) };
+        let binding: u8 = information >> 4;
+        let kind: u8 = information & 15;
+        let section_id: u32 = get_u16(object,length,record+6) as u32;
+        // The owned ELF writer emits undefined @extern(C) calls as
+        // STT_NOTYPE (0), while defined functions use STT_FUNC (2).
+        if (binding == 1 || binding == 2)
+            && ((defined && kind == 2) || (!defined && (kind == 0 || kind == 2))) {
+            let is_defined: bool = section_id != 0;
+            if is_defined == defined {
+                let name_offset: usize = get_u32(object,length,record) as usize;
+                if elf_name_matches_slice(object,length,strings+name_offset,name,name_length) {
+                    if found { return false; }
+                    found = true;
+                }
+            }
+        }
+        i = i+1;
+    }
+    return found;
+}
