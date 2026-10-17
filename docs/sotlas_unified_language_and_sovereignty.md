@@ -100,8 +100,9 @@ invocations and may require the stated seed, platform or toolchain. The historic
 sovereignty checkpoint score measures selected architectural milestones, not the
 percentage of Python/C dependencies eliminated or the amount of work remaining.
 
-**Evidence boundary:** the latest independently verified green baseline is `94823c4`,
-CI #1251 / run `38957013245` (full matrix). Earlier inspected green: `768b6d1`,
+**Evidence boundary:** the latest independently verified green baseline is `e3abf81`,
+CI #1253 / run `38980061670` (full matrix). Earlier inspected green: `94823c4`,
+CI #1251 / run `38957013245`. Earlier inspected green: `768b6d1`,
 CI #1249 / run `38940935785`. Earlier inspected green: `fd6dd7d`,
 CI #1234 / run `38790093635`. Earlier inspected green: `0df0bb9`,
 CI #1233 / run `38781346034`. Earlier inspected green: `08b0cc4`,
@@ -199,6 +200,19 @@ repair is fully certified by [CI #1251](https://github.com/HPinho/sotlas_dev/act
 (`94823c4`). SV8.67 still awaits its own CI; no claim of language-wide
 ARC, typed modules or Python/C-free initial bootstrap is made.
 [Scope contract](native_scoped_resources.md).
+
+**SV8.68 native pre-link interface candidate (2026-10-16):** five
+Sotlas-written Target IR functions now verify typed import/export
+metadata, exact ownership roles, return and parameter ABI, and
+non-escalating effect/capability masks. Unique symbols, malformed
+metadata, unresolved imports and partial output publication are
+fail-closed. Nineteen positive/negative native execution tests exercise
+this bounded metadata contract. The actual ELF/PE/Mach-O object writers,
+linkers, multi-module loader, automatic ARC and mandatory hosted
+first-seed packaging are not yet replaced by this step.
+The fully certified baseline is [CI #1253](https://github.com/HPinho/sotlas_dev/actions/runs/38980061670)
+(`e3abf81`); this candidate awaits CI.
+[Interface contract](native_typed_interfaces.md).
 
 ## 2. Current implementation
 
@@ -884,6 +898,31 @@ candidate, publish only after its gates pass, and continue maintenance without
 relabeling unimplemented architectural goals as completed features.
 
 ## 12. Complete native migration checklist
+
+## SV8.68 — native typed pre-link interface and manifest verification (2026-10-16)
+
+**Baseline:** `e3abf81191a1a928d6a981b9d29eb00c0d6155ff`,
+[CI #1253](https://github.com/HPinho/sotlas_dev/actions/runs/38980061670).
+Candidate until this commit's complete CI passes.
+
+- [x] Represent typed Sotlas module symbols with name slices, parameter
+  ABI tags, ownership roles, return ABI, effect bitmask and capability set.
+- [x] Validate source-name/parameter bounds, export/import record flags,
+  supported scalar/pointer shapes and exact role/type/return matches.
+- [x] Reject ambiguous duplicates, missing symbols and unsupported
+  aggregate ABIs without a hosted semantic fallback.
+- [x] Enforce effect/capability subset checking at the pre-link boundary.
+- [x] Resolve individual symbols with output preservation on failures.
+- [x] Bind whole manifests with a two-pass validate-then-publish policy;
+  reject the second failed import without partially writing earlier mappings.
+- [x] Add 19 native positive/negative gates:
+  `tests/test_sotlas_native_migration_sv868.py`.
+
+The `Target IR` pre-link API is native Sotlas code. General separate
+compilation, serialized object interfaces, actual cross-object linking
+enforcement, canonical effects/ownership and Python/C-independent initial
+seed remain open. See [typed interface contract](native_typed_interfaces.md).
+
 
 ## SV8.67 — bounded native scoped ownership transactions (2026-10-16)
 
