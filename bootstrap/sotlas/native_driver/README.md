@@ -1340,3 +1340,17 @@ on ELF64 x86-64, with caller-supplied, unauthenticated sidecar records.
 The compiler does not yet generate the sidecars automatically; no
 typed enforcement is claimed for unlisted symbols. See
 [the typed ELF linker contract](../../../docs/native_typed_elf_pair.md).
+
+### SV8.70.1 cross-host CLI parity
+
+The opt-in `--link-elf-typed-pair` command is now implemented and
+registered in all three independently built native driver sources:
+`linux.sotlas`, `darwin.sotlas` and `windows.sotlas`. Each uses
+the same bounded caller-backed SOTI buffers and owned ELF linker,
+and returns the same fail-closed exit codes. This is **ELF64**
+output on the three compiler hosts, not typed PE/Mach-O linking.
+Tests use per-case output paths to keep negative artifact-preservation
+gates independent of Linux executable permission bits.
+
+The candidate needs a complete CI run to become certified; green
+baseline: [#1257](https://github.com/HPinho/sotlas_dev/actions/runs/39042389972).

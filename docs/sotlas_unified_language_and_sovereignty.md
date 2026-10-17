@@ -258,6 +258,18 @@ Baseline [CI #1257](https://github.com/HPinho/sotlas_dev/actions/runs/3904238997
 (`6593c52`) is green, while this cut awaits its own matrix.
 [Typed pair contract](native_typed_elf_pair.md).
 
+**SV8.70.1 regression repair (2026-10-17):** CI #1258 found that
+typed ELF pair linking was dispatched only on Linux, triggering
+usage failures on Windows and macOS; a backend comment had an
+unwanted foreign-language marker that violated an existing source
+contract; and repeated test output paths lost execute permissions
+when prior negative tests created sentinels. The repair adds the
+same native typed-pair CLI to all three drivers, removes only the
+comment marker and isolates each test's artifact path. It retains
+every SV8.70 and previous CI gate, SOTI verification and native
+linking behavior, with green #1257 as the certified baseline.
+[Root cause and repair](native_typed_elf_pair.md).
+
 ## 2. Current implementation
 
 **SV8.64 native capacity:** the unified object backend accepts 1,024 function

@@ -4,6 +4,41 @@
 `6593c521966ab1fa8c1531312bb4214948502fdf`,
 [workflow #1257](https://github.com/HPinho/sotlas_dev/actions/runs/39042389972).
 
+## SV8.70.1 — cross-host opt-in typed ELF linker regression repair (2026-10-17)
+
+**Last fully green baseline:** `6593c521966ab1fa8c1531312bb4214948502fdf` /
+[CI #1257](https://github.com/HPinho/sotlas_dev/actions/runs/39042389972).
+[CI #1258](https://github.com/HPinho/sotlas_dev/actions/runs/39048032064)
+failed on the SV8.70 candidate. The complete next matrix must certify
+this repair before SV8.71 begins.
+
+The log evidence isolates **three independent causes**:
+
+1. The new `--link-elf-typed-pair` command had only been registered in
+   `linux.sotlas`. The separately compiled `darwin.sotlas` and
+   `windows.sotlas` drivers still returned usage exit 1 for every
+   new command. Both now get the identical native, bound-checked
+   ELF/SOTI typed-pair handler, static name/record storage and explicit
+   dispatcher registration; no Python/C execution fallback is added.
+2. A backend source comment literally contained the forbidden marker
+   `@extern(C)`, violating the preexisting sovereignty contract
+   `test_x86_scalar_emitter_is_fail_closed_and_target_ir_native`.
+   The comment now says "foreign-call declarations". The compiler's
+   actual ABI handling and the test itself are unchanged.
+3. All 15 new test cases shared the same image path. Negative tests
+   first wrote a mode-0644 sentinel; a subsequent positive link
+   truncated the existing file without restoring executable mode.
+   Linux therefore returned `PermissionError: [Errno 13]` on
+   an otherwise successfully linked ELF. Each case now owns a
+   unique output path derived from its test method while still
+   protecting the previous image byte-for-byte **within that case**.
+
+**Nothing weakened:** all fifteen native positive/rejection tests, all
+pre-existing per-platform tests, SOTI ABI/effect/ownership security
+checks, legacy multi-object ELF linking, and Stage2/Stage3 fixed-point
+gates are preserved. This candidate awaits its own full Linux,
+Windows and Intel macOS workflow with installer/package jobs.
+
 ## What this integration implements
 
 The Sotlas native compiler already emits relocatable ELF64 objects with
