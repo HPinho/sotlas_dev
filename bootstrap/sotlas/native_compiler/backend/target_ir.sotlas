@@ -1878,3 +1878,195 @@ pub fn sotlas_native_get_bss_sym_size(index: usize) -> usize {
     return unsafe { g_bss_sym_sizes[index] };
 }
 
+
+
+// SV8.68: machine-independent, Sotlas-owned pre-link interface contracts.
+// All names are slices into one caller-owned immutable source-name buffer.
+// Parameter records are a flat caller-owned table. This is a verified
+// pre-link contract, NOT an emitted ELF/PE/Mach-O import metadata format.
+pub const TARGET_INTERFACE_EXPORT: u32 = 1;
+pub const TARGET_INTERFACE_IMPORT: u32 = 2;
+
+pub struct TargetInterfaceParameter {
+    pub type_tag: TargetTypeTag;
+    // 0=plain, 1=sole, 2=direct, 3=whisper.
+    pub role: u32;
+}
+
+pub struct TargetInterface {
+    pub name: TargetSourceSlice;
+    pub return_type: TargetTypeTag;
+    pub first_parameter: u32;
+    pub parameter_count: u32;
+    // Opaque bitmasks whose subset checks enforce least privilege.
+    pub effects: u64;
+    pub required_capabilities: u64;
+    pub flags: u32;
+}
+
+// Individual signatures are restricted to the scalar/pointer ABI
+// certified by the native object writer. Generic aggregates, variadics,
+// arbitrary resource payload layout and FFI-specific roles fail closed.
+pub fn target_interface_valid(
+    source: *const u8, source_len: usize, entry: TargetInterface,
+    parameters: *const TargetInterfaceParameter, parameter_count: u32
+) -> bool {
+    if source == null || entry.name.length == 0 || entry.name.length > 4096
+        || !target_source_slice_valid(entry.name,source_len)
+        || (entry.flags != TARGET_INTERFACE_EXPORT
+            && entry.flags != TARGET_INTERFACE_IMPORT)
+        || !target_type_is_return(entry.return_type)
+        || entry.return_type == TargetTypeTag::Aggregate
+        || entry.parameter_count > 24
+        || !target_range_is_valid(entry.first_parameter,entry.parameter_count,parameter_count)
+        || (entry.parameter_count != 0 && parameters == null) { return false; }
+    let mut index: u32 = 0;
+    while index < entry.parameter_count {
+        let parameter: TargetInterfaceParameter = unsafe {
+            *(parameters+entry.first_parameter+index)
+        };
+        if !target_type_is_value(parameter.type_tag)
+            || parameter.type_tag == TargetTypeTag::Aggregate
+            || parameter.role > 3 { return false; }
+        index = index + 1;
+    }
+    return true;
+}
+
+// Repeated symbol spellings are ambiguous at the pre-link boundary,
+// even if the repeated records otherwise carry identical types.
+pub fn target_interfaces_unique(
+    source: *const u8, source_len: usize,
+    entries: *const TargetInterface, count: u32,
+    parameters: *const TargetInterfaceParameter, parameter_count: u32,
+    expected_flag: u32
+) -> bool {
+    if expected_flag != TARGET_INTERFACE_EXPORT
+        && expected_flag != TARGET_INTERFACE_IMPORT { return false; }
+    if count != 0 && entries == null { return false; }
+    let mut index: u32 = 0;
+    while index < count {
+        let candidate: TargetInterface = unsafe { *(entries+index) };
+        if candidate.flags != expected_flag
+            || !target_interface_valid(source,source_len,candidate,
+                parameters,parameter_count) { return false; }
+        let mut previous: u32 = 0;
+        while previous < index {
+            let older: TargetInterface = unsafe { *(entries+previous) };
+            if target_names_equal(source,source_len,candidate.name,older.name) {
+                return false;
+            }
+            previous = previous + 1;
+        }
+        index = index + 1;
+    }
+    return true;
+}
+
+// A callee may use a subset of effects and required authority promised
+// by the importing declaration, but never a superset. ABI types and
+// ownership roles must agree exactly; no role gets silently erased.
+pub fn target_interface_compatible(
+    source: *const u8, source_len: usize,
+    imported: TargetInterface, exported: TargetInterface,
+    parameters: *const TargetInterfaceParameter, parameter_count: u32
+) -> bool {
+    if imported.flags != TARGET_INTERFACE_IMPORT
+        || exported.flags != TARGET_INTERFACE_EXPORT
+        || !target_interface_valid(source,source_len,imported,
+            parameters,parameter_count)
+        || !target_interface_valid(source,source_len,exported,
+            parameters,parameter_count)
+        || !target_names_equal(source,source_len,imported.name,exported.name)
+        || imported.return_type != exported.return_type
+        || imported.parameter_count != exported.parameter_count
+        || (exported.effects & ~imported.effects) != 0
+        || (exported.required_capabilities
+            & ~imported.required_capabilities) != 0 { return false; }
+    let mut index: u32 = 0;
+    while index < imported.parameter_count {
+        let expected: TargetInterfaceParameter = unsafe {
+            *(parameters+imported.first_parameter+index)
+        };
+        let actual: TargetInterfaceParameter = unsafe {
+            *(parameters+exported.first_parameter+index)
+        };
+        if expected.type_tag != actual.type_tag
+            || expected.role != actual.role { return false; }
+        index = index + 1;
+    }
+    return true;
+}
+
+// Resolve a single imported symbol against one validated export manifest.
+// Do not alter the output index if no unique ABI-compatible symbol exists.
+pub fn target_interface_resolve(
+    source: *const u8, source_len: usize, imported: TargetInterface,
+    exports: *const TargetInterface, export_count: u32,
+    parameters: *const TargetInterfaceParameter, parameter_count: u32,
+    output: *mut u32
+) -> bool {
+    if output == null || (export_count != 0 && exports == null)
+        || !target_interface_valid(source,source_len,imported,
+            parameters,parameter_count)
+        || imported.flags != TARGET_INTERFACE_IMPORT { return false; }
+    let mut found: bool = false;
+    let mut selected: u32 = 0;
+    let mut index: u32 = 0;
+    while index < export_count {
+        let candidate: TargetInterface = unsafe { *(exports+index) };
+        if !target_interface_valid(source,source_len,candidate,
+            parameters,parameter_count)
+            || candidate.flags != TARGET_INTERFACE_EXPORT { return false; }
+        if target_names_equal(source,source_len,imported.name,candidate.name) {
+            if found || !target_interface_compatible(source,source_len,
+                imported,candidate,parameters,parameter_count) { return false; }
+            found = true;
+            selected = index;
+        }
+        index = index + 1;
+    }
+    if !found { return false; }
+    unsafe { *output = selected; }
+    return true;
+}
+
+// First validate *every* import/export and binding, then publish the
+// selected export indices. Failed imports never leave partial output.
+// This is single-threaded: input manifests and output cannot alias.
+pub fn target_interface_bind_manifest(
+    source: *const u8, source_len: usize,
+    imports: *const TargetInterface, import_count: u32,
+    exports: *const TargetInterface, export_count: u32,
+    parameters: *const TargetInterfaceParameter, parameter_count: u32,
+    output: *mut u32, output_capacity: u32
+) -> bool {
+    if output_capacity < import_count
+        || (import_count != 0 && output == null)
+        || !target_interfaces_unique(source,source_len,imports,import_count,
+            parameters,parameter_count,TARGET_INTERFACE_IMPORT)
+        || !target_interfaces_unique(source,source_len,exports,export_count,
+            parameters,parameter_count,TARGET_INTERFACE_EXPORT) { return false; }
+    let mut index: u32 = 0;
+    while index < import_count {
+        let item: TargetInterface = unsafe { *(imports+index) };
+        let mut matched: u32 = 0;
+        if !target_interface_resolve(source,source_len,item,exports,
+            export_count,parameters,parameter_count,
+            unsafe { (&mut matched) as *mut u32 }) { return false; }
+        index = index + 1;
+    }
+    // Nothing above writes the output. The verified immutable manifests
+    // guarantee that the second pass cannot fail or choose another binding.
+    index = 0;
+    while index < import_count {
+        let item: TargetInterface = unsafe { *(imports+index) };
+        let mut matched: u32 = 0;
+        if !target_interface_resolve(source,source_len,item,exports,
+            export_count,parameters,parameter_count,
+            unsafe { (&mut matched) as *mut u32 }) { return false; }
+        unsafe { *(output+index) = matched; }
+        index = index + 1;
+    }
+    return true;
+}

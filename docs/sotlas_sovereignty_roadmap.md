@@ -3,7 +3,7 @@
 **Status:** active implementation track  
 **Started:** 2026-10-03 (America/Fortaleza)  
 **Green baseline at track start:** `7162167dec6fd5fa0a216121b147335d222e43f1` / CI #1063  
-**Latest inspected green baseline:** `94823c443e741184f3c148e0435e06c72d4cb081` / [CI #1251](https://github.com/HPinho/sotlas_dev/actions/runs/38957013245) (full Linux/Windows/Intel macOS, native compiler fixed point and packaging).
+**Latest inspected green baseline:** `e3abf81191a1a928d6a981b9d29eb00c0d6155ff` / [CI #1253](https://github.com/HPinho/sotlas_dev/actions/runs/38980061670) (full Linux/Windows/Intel macOS, native compiler fixed point, seed, packaging and execution).
 
 
 
@@ -39,6 +39,42 @@ their byte limit, including supplementary scalars; calculator input remains
 ASCII. Native tests passed on Windows and Linux/WSL; Windows mixed-script
 drawing and cleanup passed. Encoding, layout/shaping and editing scopes remain
 distinct; remote CI is pending. See the [text contract](native_unicode_text.md).
+
+## SV8.68 — typed native pre-link interfaces, roles and capability bounds (2026-10-16)
+
+**Certified baseline:** `e3abf81191a1a928d6a981b9d29eb00c0d6155ff` /
+[CI #1253](https://github.com/HPinho/sotlas_dev/actions/runs/38980061670).
+All Linux/Windows/Intel macOS, native seed, installer, snapshot and
+native PE/Mach-O execution jobs were green. This cut awaits its own CI.
+
+The Sotlas-written `Target IR` now exposes caller-owned
+`TargetInterface` and `TargetInterfaceParameter` records and five
+bounded native verification functions. They validate symbol-name slices,
+parameter intervals (maximum 24), scalar/pointer return and parameter ABI,
+ownership roles (plain/sole/direct/whisper), duplicated and missing
+declarations, and import/export signatures. Export effects and required
+capability bits must be subsets of the importing declaration; no
+privilege or effect escalation is admitted.
+
+`target_interface_bind_manifest` checks the entire import/export
+manifest before publishing any output mapping, so a later missing or
+incompatible import cannot partially overwrite prior mappings.
+Nineteen native compile/link/execute/rejection tests demonstrate those
+properties using the production Sotlas backend and no C glue.
+Previous SV8.66/8.67 gates remain enabled and unchanged.
+
+**Critical boundary:** this is *pre-link typed metadata checking*,
+not yet emitted ELF/PE/Mach-O interface metadata or true native
+separate-object linking. Source-name, record, and output buffers must
+remain immutable/disjoint during verification; this profile is
+single-threaded, fail-closed on aggregate ABI and does not prove general
+automatic ARC, capabilities propagation or Python/C-free first seed.
+[Contract](native_typed_interfaces.md).
+
+**Next large SV8.69 block:** emit/serialize typed module interfaces
+through the native object format, check external references against
+them in the real linker, and preserve existing executable bytes upon
+failed linkage. Certify full fixed-point matrix before completion claims.
 
 ### SV8.67.1 — regression repair: lexical fixture collisions (2026-10-16)
 

@@ -2,6 +2,30 @@
 
 Repository: [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev).
 
+## SV8.68 — native typed pre-link interface and manifest verification (2026-10-16)
+
+**Baseline:** `e3abf81191a1a928d6a981b9d29eb00c0d6155ff`,
+[CI #1253](https://github.com/HPinho/sotlas_dev/actions/runs/38980061670).
+Candidate until this commit's complete CI passes.
+
+- [x] Represent typed Sotlas module symbols with name slices, parameter
+  ABI tags, ownership roles, return ABI, effect bitmask and capability set.
+- [x] Validate source-name/parameter bounds, export/import record flags,
+  supported scalar/pointer shapes and exact role/type/return matches.
+- [x] Reject ambiguous duplicates, missing symbols and unsupported
+  aggregate ABIs without a hosted semantic fallback.
+- [x] Enforce effect/capability subset checking at the pre-link boundary.
+- [x] Resolve individual symbols with output preservation on failures.
+- [x] Bind whole manifests with a two-pass validate-then-publish policy;
+  reject the second failed import without partially writing earlier mappings.
+- [x] Add 19 native positive/negative gates:
+  `tests/test_sotlas_native_migration_sv868.py`.
+
+The `Target IR` pre-link API is native Sotlas code. General separate
+compilation, serialized object interfaces, actual cross-object linking
+enforcement, canonical effects/ownership and Python/C-independent initial
+seed remain open. See [typed interface contract](native_typed_interfaces.md).
+
 ## SV8.67 — bounded native scoped ownership transactions (2026-10-16)
 
 **Baseline certified:** [CI #1251](https://github.com/HPinho/sotlas_dev/actions/runs/38957013245),
