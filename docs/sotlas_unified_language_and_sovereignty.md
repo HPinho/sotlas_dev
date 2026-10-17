@@ -100,8 +100,9 @@ invocations and may require the stated seed, platform or toolchain. The historic
 sovereignty checkpoint score measures selected architectural milestones, not the
 percentage of Python/C dependencies eliminated or the amount of work remaining.
 
-**Evidence boundary:** the latest independently verified green baseline is `e3abf81`,
-CI #1253 / run `38980061670` (full matrix). Earlier inspected green: `94823c4`,
+**Evidence boundary:** the latest independently verified green baseline is `43bb572`,
+CI #1255 / run `39011203750` (full matrix, same commit also green #1254).
+Earlier inspected green: `e3abf81`, CI #1253 / run `38980061670`. Earlier inspected green: `94823c4`,
 CI #1251 / run `38957013245`. Earlier inspected green: `768b6d1`,
 CI #1249 / run `38940935785`. Earlier inspected green: `fd6dd7d`,
 CI #1234 / run `38790093635`. Earlier inspected green: `0df0bb9`,
@@ -213,6 +214,20 @@ first-seed packaging are not yet replaced by this step.
 The fully certified baseline is [CI #1253](https://github.com/HPinho/sotlas_dev/actions/runs/38980061670)
 (`e3abf81`); this candidate awaits CI.
 [Interface contract](native_typed_interfaces.md).
+
+**SV8.69 candidate (2026-10-17):** the Sotlas-written Target IR now
+encodes and decodes portable, versioned binary import/export records
+(48-byte little-endian header and eight bytes per parameter, maximum
+240 bytes). It checks name slices, ABI and ownership roles,
+effects/capabilities, malformed/truncated metadata and exact serialized
+import/export compatibility without C struct packing or a Python codec.
+Invalid input preserves old serialized bytes or typed destination
+records. Fifteen native machine-code execute/rejection tests prove this
+bounded serialization contract; no claim is made that ELF/PE/Mach-O
+writers or the multi-object linker already enforce it. Baseline
+[CI #1255](https://github.com/HPinho/sotlas_dev/actions/runs/39011203750),
+commit `43bb572` is green; SV8.69 certification is pending.
+[Wire specification](native_typed_interfaces.md).
 
 ## 2. Current implementation
 
@@ -898,6 +913,36 @@ candidate, publish only after its gates pass, and continue maintenance without
 relabeling unimplemented architectural goals as completed features.
 
 ## 12. Complete native migration checklist
+
+## SV8.69 — versioned native serialized interface contract (2026-10-17)
+
+**Baseline:** green [CI #1254](https://github.com/HPinho/sotlas_dev/actions/runs/38992580949)
+and [#1255](https://github.com/HPinho/sotlas_dev/actions/runs/39011203750),
+both at `43bb572e23c724c06ea99a2b694ad38f27756d2d`.
+SV8.69 awaits full CI.
+
+- [x] Encode fixed-width import/export records (v1 little endian):
+  magic, version, kind, scalar/pointer return ABI, symbol name offsets,
+  parameter count, effects and required capabilities.
+- [x] Encode a bounded table of exact parameter ABI and plain/sole/direct/
+  whisper roles, maximum 24 per interface, without C or host endian.
+- [x] Validate magic/version/reserved bytes, full exact record lengths,
+  name bounds, parameter type/role and unsupported aggregate shapes.
+- [x] Decode valid records into typed Target IR records, preserving
+  the existing output and parameter slots on rejection.
+- [x] Reject too-small encoding buffers and malformed source signatures
+  without modifying previously emitted bytes or output length.
+- [x] Compare two fully serialized import/export signatures directly,
+  including exact ABI and ownership and non-escalating capabilities/effects.
+- [x] Add 15 native compile/link/execute and fail-closed tests, preserving
+  all previously certified SV8.66–SV8.68 gates.
+
+The underlying native interface contract is now serializable and
+executable without Python/C in the generated test images.
+**Unfinished parent:** integrating these records with the real native
+object writers and linkers, initial native distribution seed and
+compiler-generated ARC/drop. See [SV8.69 wire format](native_typed_interfaces.md).
+
 
 ## SV8.68 — native typed pre-link interface and manifest verification (2026-10-16)
 

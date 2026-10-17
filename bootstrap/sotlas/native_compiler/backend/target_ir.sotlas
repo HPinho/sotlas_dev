@@ -2070,3 +2070,235 @@ pub fn target_interface_bind_manifest(
     }
     return true;
 }
+
+
+// SV8.69: stable version-one little-endian wire representation of a single
+// typed symbol interface. Format: 48-byte header (magic/version/flags/type/
+// name-offset/name-length/param-count/reserved/effect bits/capability bits),
+// followed by param-count (type,ownership-role) u32 pairs. Source spellings
+// are external immutable byte slices. This is portable object-side metadata;
+// the ELF/PE/Mach-O emitters do not yet install it in their symbol tables.
+pub const TARGET_INTERFACE_WIRE_MAGIC: u32 = 0x49544f53;
+pub const TARGET_INTERFACE_WIRE_VERSION: u32 = 1;
+pub const TARGET_INTERFACE_WIRE_HEADER: usize = 48;
+
+fn target_interface_wire_store_u32(bytes: *mut u8, at: usize, number: u32) -> void {
+    let mut index: usize = 0;
+    while index < 4 {
+        unsafe { *(bytes+at+index) = (number >> ((index*8) as u32)) as u8; }
+        index = index + 1;
+    }
+}
+
+fn target_interface_wire_store_u64(bytes: *mut u8, at: usize, number: u64) -> void {
+    let mut index: usize = 0;
+    while index < 8 {
+        unsafe { *(bytes+at+index) = (number >> ((index*8) as u32)) as u8; }
+        index = index + 1;
+    }
+}
+
+fn target_interface_wire_load_u32(bytes: *const u8, at: usize) -> u32 {
+    let mut number: u32 = 0;
+    let mut index: usize = 0;
+    while index < 4 {
+        number = number | ((unsafe { *(bytes+at+index) } as u32) << ((index*8) as u32));
+        index = index + 1;
+    }
+    return number;
+}
+
+fn target_interface_wire_load_u64(bytes: *const u8, at: usize) -> u64 {
+    let mut number: u64 = 0;
+    let mut index: usize = 0;
+    while index < 8 {
+        number = number | ((unsafe { *(bytes+at+index) } as u64) << ((index*8) as u32));
+        index = index + 1;
+    }
+    return number;
+}
+
+// Decode an integer tag without an unchecked numeric-to-enum cast.
+fn target_interface_wire_type(code: u32) -> TargetTypeTag {
+    if code == 1 { return TargetTypeTag::Bool; }
+    if code == 2 { return TargetTypeTag::U8; }
+    if code == 3 { return TargetTypeTag::U16; }
+    if code == 4 { return TargetTypeTag::U32; }
+    if code == 5 { return TargetTypeTag::U64; }
+    if code == 6 { return TargetTypeTag::Usize; }
+    if code == 7 { return TargetTypeTag::I8; }
+    if code == 8 { return TargetTypeTag::I16; }
+    if code == 9 { return TargetTypeTag::I32; }
+    if code == 10 { return TargetTypeTag::I64; }
+    if code == 11 { return TargetTypeTag::Isize; }
+    if code == 12 { return TargetTypeTag::F32; }
+    if code == 13 { return TargetTypeTag::F64; }
+    if code == 14 { return TargetTypeTag::Pointer; }
+    if code == 15 { return TargetTypeTag::Aggregate; }
+    if code == 16 { return TargetTypeTag::Void; }
+    return TargetTypeTag::Invalid;
+}
+
+// The maximum supported record is 48 + 24*8 = 240 bytes.
+pub fn target_interface_wire_size(parameter_count: u32) -> usize {
+    if parameter_count > 24 { return 0; }
+    return TARGET_INTERFACE_WIRE_HEADER + (parameter_count as usize)*8;
+}
+
+// Encode only after checking *all* input. On failure do not mutate output,
+// length or any portion of a previous generated metadata record.
+pub fn target_interface_wire_encode(
+    source: *const u8, source_len: usize, entry: TargetInterface,
+    parameters: *const TargetInterfaceParameter, parameter_count: u32,
+    output: *mut u8, capacity: usize, written: *mut usize
+) -> bool {
+    let needed: usize = target_interface_wire_size(entry.parameter_count);
+    if output == null || written == null || needed == 0 || capacity < needed
+        || entry.name.offset > 4294967295 || entry.name.length > 4294967295
+        || !target_interface_valid(source,source_len,entry,
+            parameters,parameter_count) { return false; }
+    target_interface_wire_store_u32(output,0,TARGET_INTERFACE_WIRE_MAGIC);
+    target_interface_wire_store_u32(output,4,TARGET_INTERFACE_WIRE_VERSION);
+    target_interface_wire_store_u32(output,8,entry.flags);
+    target_interface_wire_store_u32(output,12,entry.return_type as u32);
+    target_interface_wire_store_u32(output,16,entry.name.offset as u32);
+    target_interface_wire_store_u32(output,20,entry.name.length as u32);
+    target_interface_wire_store_u32(output,24,entry.parameter_count);
+    target_interface_wire_store_u32(output,28,0);
+    target_interface_wire_store_u64(output,32,entry.effects);
+    target_interface_wire_store_u64(output,40,entry.required_capabilities);
+    let mut index: u32 = 0;
+    while index < entry.parameter_count {
+        let parameter: TargetInterfaceParameter = unsafe {
+            *(parameters+entry.first_parameter+index)
+        };
+        let at: usize = TARGET_INTERFACE_WIRE_HEADER+(index as usize)*8;
+        target_interface_wire_store_u32(output,at,parameter.type_tag as u32);
+        target_interface_wire_store_u32(output,at+4,parameter.role);
+        index = index + 1;
+    }
+    unsafe { *written = needed; }
+    return true;
+}
+
+// Validate the exact wire extent before parsing any table fields. Untrusted
+// wire bytes are not cast to packed native structs, avoiding alignment,
+// platform pointer size, endian and padding dependencies.
+pub fn target_interface_wire_valid(
+    bytes: *const u8, length: usize,
+    source: *const u8, source_len: usize
+) -> bool {
+    if bytes == null || source == null || length < TARGET_INTERFACE_WIRE_HEADER {
+        return false;
+    }
+    if target_interface_wire_load_u32(bytes,0) != TARGET_INTERFACE_WIRE_MAGIC
+        || target_interface_wire_load_u32(bytes,4) != TARGET_INTERFACE_WIRE_VERSION
+        || target_interface_wire_load_u32(bytes,28) != 0 { return false; }
+    let flags: u32 = target_interface_wire_load_u32(bytes,8);
+    let ret: TargetTypeTag = target_interface_wire_type(
+        target_interface_wire_load_u32(bytes,12));
+    let off: usize = target_interface_wire_load_u32(bytes,16) as usize;
+    let len: usize = target_interface_wire_load_u32(bytes,20) as usize;
+    let count: u32 = target_interface_wire_load_u32(bytes,24);
+    let required: usize = target_interface_wire_size(count);
+    if required == 0 || length != required
+        || (flags != TARGET_INTERFACE_IMPORT && flags != TARGET_INTERFACE_EXPORT)
+        || !target_type_is_return(ret) || ret == TargetTypeTag::Aggregate
+        || len == 0 || len > 4096
+        || !target_source_slice_valid(TargetSourceSlice{offset:off,length:len},
+            source_len) { return false; }
+    let mut index: u32 = 0;
+    while index < count {
+        let at: usize = TARGET_INTERFACE_WIRE_HEADER+(index as usize)*8;
+        let typ: TargetTypeTag = target_interface_wire_type(
+            target_interface_wire_load_u32(bytes,at));
+        let role: u32 = target_interface_wire_load_u32(bytes,at+4);
+        if !target_type_is_value(typ) || typ == TargetTypeTag::Aggregate
+            || role > 3 { return false; }
+        index = index + 1;
+    }
+    return true;
+}
+
+// Transactional decode: neither output record, parameter slots nor count
+// change unless the entire exact wire record and destination shape pass.
+// Decoded parameter data begins at index zero in caller-supplied output.
+pub fn target_interface_wire_decode(
+    bytes: *const u8, length: usize,
+    source: *const u8, source_len: usize,
+    output: *mut TargetInterface,
+    parameters: *mut TargetInterfaceParameter, parameter_capacity: u32
+) -> bool {
+    if output == null || !target_interface_wire_valid(bytes,length,source,source_len) {
+        return false;
+    }
+    let count: u32 = target_interface_wire_load_u32(bytes,24);
+    if count > parameter_capacity || (count != 0 && parameters == null) {
+        return false;
+    }
+    let header: TargetInterface = TargetInterface {
+        name: TargetSourceSlice {
+            offset:target_interface_wire_load_u32(bytes,16) as usize,
+            length:target_interface_wire_load_u32(bytes,20) as usize
+        },
+        return_type:target_interface_wire_type(target_interface_wire_load_u32(bytes,12)),
+        first_parameter:0, parameter_count:count,
+        effects:target_interface_wire_load_u64(bytes,32),
+        required_capabilities:target_interface_wire_load_u64(bytes,40),
+        flags:target_interface_wire_load_u32(bytes,8)
+    };
+    let mut index: u32 = 0;
+    while index < count {
+        let at: usize = TARGET_INTERFACE_WIRE_HEADER+(index as usize)*8;
+        unsafe {
+            *(parameters+index) = TargetInterfaceParameter {
+                type_tag:target_interface_wire_type(target_interface_wire_load_u32(bytes,at)),
+                role:target_interface_wire_load_u32(bytes,at+4)
+            };
+        }
+        index = index + 1;
+    }
+    unsafe { *output = header; }
+    return true;
+}
+
+// Validate encoded records themselves, so consumers can reject ABI and
+// authority mismatches without decoding into host-language objects.
+pub fn target_interface_wire_compatible(
+    imported: *const u8, import_len: usize,
+    exported: *const u8, export_len: usize,
+    source: *const u8, source_len: usize
+) -> bool {
+    if !target_interface_wire_valid(imported,import_len,source,source_len)
+        || !target_interface_wire_valid(exported,export_len,source,source_len)
+        || target_interface_wire_load_u32(imported,8) != TARGET_INTERFACE_IMPORT
+        || target_interface_wire_load_u32(exported,8) != TARGET_INTERFACE_EXPORT
+        || target_interface_wire_load_u32(imported,12)
+            != target_interface_wire_load_u32(exported,12)
+        || target_interface_wire_load_u32(imported,24)
+            != target_interface_wire_load_u32(exported,24) { return false; }
+    let first_name: TargetSourceSlice = TargetSourceSlice {
+        offset:target_interface_wire_load_u32(imported,16) as usize,
+        length:target_interface_wire_load_u32(imported,20) as usize
+    };
+    let second_name: TargetSourceSlice = TargetSourceSlice {
+        offset:target_interface_wire_load_u32(exported,16) as usize,
+        length:target_interface_wire_load_u32(exported,20) as usize
+    };
+    if !target_names_equal(source,source_len,first_name,second_name)
+        || (target_interface_wire_load_u64(exported,32)
+            & ~target_interface_wire_load_u64(imported,32)) != 0
+        || (target_interface_wire_load_u64(exported,40)
+            & ~target_interface_wire_load_u64(imported,40)) != 0 { return false; }
+    let count: u32 = target_interface_wire_load_u32(imported,24);
+    let mut index: u32 = 0;
+    while index < count {
+        let at: usize = TARGET_INTERFACE_WIRE_HEADER+(index as usize)*8;
+        if target_interface_wire_load_u32(imported,at)
+                != target_interface_wire_load_u32(exported,at)
+            || target_interface_wire_load_u32(imported,at+4)
+                != target_interface_wire_load_u32(exported,at+4) { return false; }
+        index = index + 1;
+    }
+    return true;
+}

@@ -2,6 +2,35 @@
 
 Repository: [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev).
 
+## SV8.69 — versioned native serialized interface contract (2026-10-17)
+
+**Baseline:** green [CI #1254](https://github.com/HPinho/sotlas_dev/actions/runs/38992580949)
+and [#1255](https://github.com/HPinho/sotlas_dev/actions/runs/39011203750),
+both at `43bb572e23c724c06ea99a2b694ad38f27756d2d`.
+SV8.69 awaits full CI.
+
+- [x] Encode fixed-width import/export records (v1 little endian):
+  magic, version, kind, scalar/pointer return ABI, symbol name offsets,
+  parameter count, effects and required capabilities.
+- [x] Encode a bounded table of exact parameter ABI and plain/sole/direct/
+  whisper roles, maximum 24 per interface, without C or host endian.
+- [x] Validate magic/version/reserved bytes, full exact record lengths,
+  name bounds, parameter type/role and unsupported aggregate shapes.
+- [x] Decode valid records into typed Target IR records, preserving
+  the existing output and parameter slots on rejection.
+- [x] Reject too-small encoding buffers and malformed source signatures
+  without modifying previously emitted bytes or output length.
+- [x] Compare two fully serialized import/export signatures directly,
+  including exact ABI and ownership and non-escalating capabilities/effects.
+- [x] Add 15 native compile/link/execute and fail-closed tests, preserving
+  all previously certified SV8.66–SV8.68 gates.
+
+The underlying native interface contract is now serializable and
+executable without Python/C in the generated test images.
+**Unfinished parent:** integrating these records with the real native
+object writers and linkers, initial native distribution seed and
+compiler-generated ARC/drop. See [SV8.69 wire format](native_typed_interfaces.md).
+
 ## SV8.68 — native typed pre-link interface and manifest verification (2026-10-16)
 
 **Baseline:** `e3abf81191a1a928d6a981b9d29eb00c0d6155ff`,

@@ -3,7 +3,7 @@
 **Status:** active implementation track  
 **Started:** 2026-10-03 (America/Fortaleza)  
 **Green baseline at track start:** `7162167dec6fd5fa0a216121b147335d222e43f1` / CI #1063  
-**Latest inspected green baseline:** `e3abf81191a1a928d6a981b9d29eb00c0d6155ff` / [CI #1253](https://github.com/HPinho/sotlas_dev/actions/runs/38980061670) (full Linux/Windows/Intel macOS, native compiler fixed point, seed, packaging and execution).
+**Latest inspected green baseline:** `43bb572e23c724c06ea99a2b694ad38f27756d2d` / [CI #1255](https://github.com/HPinho/sotlas_dev/actions/runs/39011203750) (full Linux/Windows/Intel macOS, native compiler fixed point, seed, packaging and execution; same revision green #1254).
 
 
 
@@ -39,6 +39,54 @@ their byte limit, including supplementary scalars; calculator input remains
 ASCII. Native tests passed on Windows and Linux/WSL; Windows mixed-script
 drawing and cleanup passed. Encoding, layout/shaping and editing scopes remain
 distinct; remote CI is pending. See the [text contract](native_unicode_text.md).
+
+## SV8.69 — portable versioned typed interface wire records (2026-10-17)
+
+**Full green baseline:** `43bb572e23c724c06ea99a2b694ad38f27756d2d`.
+[CI #1254](https://github.com/HPinho/sotlas_dev/actions/runs/38992580949)
+and independently [CI #1255](https://github.com/HPinho/sotlas_dev/actions/runs/39011203750)
+passed the same head on Linux, Windows and Intel macOS, plus native seed,
+nightly snapshot, PE/Mach-O execution and Python distribution gates.
+SV8.69 is an unverified candidate until its own complete CI passes.
+
+This substantial Sotlas-native object-format preparation block
+extends `backend/target_ir.sotlas` with a deterministic, little-endian
+version-one interface record. A record has a 48-byte fixed header,
+eight bytes for each parameter and a maximum size of 240 bytes.
+It stores exact import/export kind, scalar/pointer return ABI,
+name offset/length, parameter ABI tags and ownership domains,
+effect mask and required capability mask. Names remain slices into
+a supplied immutable source buffer, not host pointers.
+
+The wire implementation uses per-byte shifts, avoiding C structs,
+host endian/alignment, compiler ABI padding and foreign serializers.
+Its API includes checked size calculation, fail-closed encoding,
+full-record validation, transactional decode and direct *serialized*
+import/export compatibility checking. Unsupported aggregates, invalid
+roles/type tags, malformed lengths, magic/version/reserved flags and
+effect/capability escalation are rejected before any output publication.
+Encoding capacity errors preserve old bytes; decoded interface and
+parameter destinations remain unmodified after invalid input.
+
+**Gate:** 15 additional native compiled-and-executed tests in
+`tests/test_sotlas_native_migration_sv869.py` cover wire size limits,
+roundtrip, exact little endian bytes, unaligned input, version/magic
+and extent corruption, no partial encoding/decoding, all 4 ownership
+roles, ABI changes, privilege escalation, zero-param void return
+and full 64-bit capability/effect bit preservation. Prior 19 SV8.68
+and all previous SV/CI tests remain unchanged.
+
+**Boundary:** the typed *wire contract* is executable Sotlas code,
+but actual ELF/PE/Mach-O writers and the multi-object linker do not yet
+embed/read those records or check them before final image creation.
+These are still required before certifying full cross-object ownership,
+effects or authority. Python/C-free initial seed and automatic ARC/drop
+remain pending.
+
+**Next large SV8.70:** attach these stable records to emitted native
+objects and require verification in real multi-object ELF linking,
+then extend PE/Mach-O; check tampering and preserve executable bytes
+on failed binding, including Stage2/Stage3 and cross-platform matrix.
 
 ## SV8.68 — typed native pre-link interfaces, roles and capability bounds (2026-10-16)
 
