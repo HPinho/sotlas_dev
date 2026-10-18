@@ -1372,7 +1372,9 @@ fn driver_link_elf_typed_pair(argc: u64, argv: *const *const u8) -> u32 {
 
 // Cross-host ELF linking: at most 16 independently emitted objects, 8 MiB total.
 // All inputs are loaded and validated before the output is opened.
-fn driver_link_elf_objects(argc: u64, argv: *const *const u8) -> u32 {
+// Manifest callers synthesize only payload arguments; never inspect argv[1]
+// here. The dispatcher supplies the ABI mode explicitly.
+fn driver_link_elf_objects(argc: u64, argv: *const *const u8, typed: bool) -> u32 {
     if argc < 5 || argc > 20 { return fail(1); }
     let output: *const u8 = unsafe{*(argv+2)};
     let entry: *const u8 = unsafe{*(argv+3)};
@@ -1402,8 +1404,7 @@ fn driver_link_elf_objects(argc: u64, argv: *const *const u8) -> u32 {
     }
     let image: *mut u8 = unsafe{driver_image_bytes as *mut u8};
     let mut image_length: usize = 0;
-    if option_equals(unsafe{*(argv+1)},"--link-elf-abi-objects",22)
-        && !elf_integer_abi_objects_compatible(bytes,
+    if typed && !elf_integer_abi_objects_compatible(bytes,
             unsafe{offsets as *const usize},unsafe{lengths as *const usize},index as u32) {
         return fail(9);
     }
@@ -1692,7 +1693,7 @@ fn driver_manifest_link(path: *const u8, output: *const u8, entry: *const u8) ->
     let count: u64=unsafe{driver_manifest_count[0]};
     let arguments: u64=count+4;
     return driver_link_elf_objects(arguments,
-        driver_manifest_argv());
+        driver_manifest_argv(),false);
 }
 
 // FNV over fixed-size (content fingerprint, file size) records in list order.
@@ -1988,7 +1989,8 @@ fn driver_extended_dispatch(argc: u64, argv: *const *const u8, option: *const u8
     if option_equals(option,"--link-elf-libraries",20) { return driver_static_library(argc,argv,true); }
     if option_equals(option,"--link-elf-objects",18)
         || option_equals(option,"--link-elf-abi-objects",22) {
-        return driver_link_elf_objects(argc,argv);
+        return driver_link_elf_objects(argc,argv,
+            option_equals(option,"--link-elf-abi-objects",22));
     }
     if option_equals(option,"--link-object",13) { return driver_object_operation(argc,argv,true,false); }
     if option_equals(option,"--compare-three",15) {
