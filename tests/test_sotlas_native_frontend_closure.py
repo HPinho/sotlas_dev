@@ -430,9 +430,10 @@ fn read(value:direct Packet)->u32{return value.values[0];}'''
 
     def test_native_owned_array_record_field_limits_fail_closed(self):
         for index,typ in enumerate(('[u32;0]','[u32;257]','[*mut u32;3]',
-                                   '[[u32;2];3]','[sole u32;3]','[Inner;3]')):
+                                   '[[u32;2];3]','[sole u32;3]','[Raw;3]')):
             self.compile('owned_array_field_limit_'+str(index),
-                'struct Inner{pub value:u32;}struct Packet{pub values:'+typ+';}'
+                'struct Inner{pub value:u32;}struct Raw{pub pointer:*mut u32;}'
+                'struct Packet{pub values:'+typ+';}'
                 'fn read(value:direct Packet)->u32{return 42;}',success=False)
 
     def test_native_owned_array_record_boundary_and_scalar_layouts_execute(self):

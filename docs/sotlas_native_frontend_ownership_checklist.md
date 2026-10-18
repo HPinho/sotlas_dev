@@ -2,6 +2,21 @@
 
 Repository: [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev).
 
+## SV8.76 — native inline record-array fields (2026-10-18)
+
+- [x] Lay out pointer-free record arrays inline with correct element size/alignment.
+- [x] Initialize them from lists, one-evaluation repetition and compatible storage.
+- [x] Read/write nested fields and replace whole elements or array fields.
+- [x] Snapshot list/repeat RHS values before replacing an existing field.
+- [x] Copy/return containers with independent element storage and supported borrows.
+- [x] Preserve exclusive POD container transfers, mutation rules and checked indexing.
+- [x] Reject pointer/resource payloads, nominal/count mismatches and capacity exhaustion.
+- [x] Add an inventory example and native positive/negative execution gates.
+
+General slices, standalone aggregate array parameters/returns, non-POD payloads
+and automatic destruction remain open. See [the contract](native_record_array_fields.md)
+and [current roadmap checkpoint](native_roadmap_checkpoint.md).
+
 ## SV8.75 — complete builds from independent source lists (2026-10-18)
 
 - [x] Compile each listed source through the native frontend independently.
@@ -1568,7 +1583,8 @@ suite. These results do not substitute for native Intel macOS execution in CI.
   - [x] Execute local pointer-free record array lists/repetition with independent copies, nested fields, element assignment, calls and record returns.
   - [x] Evaluate repeated record initializers once and copy large arrays in a native loop.
   - [x] Reject incompatible record layouts, owned-value erasure, pointer payloads, literal out-of-range indices and per-declaration storage exhaustion.
-  - [ ] Complete slices, aggregate array parameters/returns, record array fields and remaining array forms.
+  - [x] Execute pointer-free record array fields with nominal element typing, independent copies, nested indexing and supported internal container transfers.
+  - [ ] Complete slices, aggregate array parameters/returns, non-POD record array fields and remaining array forms.
 - [ ] Implement string and slice values beyond the current literal forms.
 - [ ] Complete conditional expressions and remaining control-flow forms.
   - [x] Parse standalone lexical blocks and preserve their local binding scopes in the structured CFG.

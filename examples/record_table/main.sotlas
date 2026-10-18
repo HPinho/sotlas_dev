@@ -1,0 +1,37 @@
+module record_table;
+
+struct StockItem {
+    pub sku: u16;
+    pub quantity: u32;
+    pub unit_price: u32;
+}
+
+struct Inventory {
+    pub items: [StockItem;2];
+}
+
+fn initial_inventory() -> Inventory {
+    return Inventory{items:[
+        StockItem{sku:100,quantity:2,unit_price:10},
+        StockItem{sku:200,quantity:1,unit_price:22}
+    ]};
+}
+
+fn total(stock: whisper Inventory) -> u32 {
+    let mut index: u32 = 0;
+    let mut value: u32 = 0;
+    while index < 2 {
+        value = value + stock.items[index].quantity * stock.items[index].unit_price;
+        index = index + 1;
+    }
+    return value;
+}
+
+pub fn main_entry() -> u32 {
+    let original: Inventory = initial_inventory();
+    let mut edited: Inventory = original;
+    edited.items[0].quantity = 0;
+    if total(edited) != 22 { return 1; }
+    if original.items[0].sku != 100 { return 2; }
+    return total(original);
+}

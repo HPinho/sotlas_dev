@@ -2,6 +2,14 @@
 
 **Repository:** [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev)
 
+**SV8.76 (2026-10-18):** native structs now accept inline arrays of pointer-free
+records, including nested field access, mutation, independent copies and
+supported container returns/borrows. List assignment stages its complete value
+before overwriting the destination. Nominal types, bounds and existing ownership
+checks remain enforced. Resource-bearing elements and general array/slice ABI
+are still open. See the [record array contract](native_record_array_fields.md)
+and [current roadmap checkpoint](native_roadmap_checkpoint.md).
+
 **SV8.75 (2026-10-18):** source-list builds compile independent units natively
 and create a library or ELF/PE/Mach-O application with optional library inputs.
 Objects remain in memory; no concatenated unit, intermediate object file or
