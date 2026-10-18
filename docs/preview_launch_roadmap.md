@@ -10,10 +10,12 @@ unchecked items are not implemented or certified by this document.
 
 The bounded Sotlas-written compiler emits and links native programs and
 rebuilds its original sources with Stage 2/3 byte identity after receiving a
-native seed. SV8.64 passed focused Windows and Linux/WSL capacity tests locally;
-its remote CI is pending. General frontend/ownership parity and independent
-distribution remain open. See the [sovereignty roadmap](sotlas_sovereignty_roadmap.md).
-The declarative GUI described here is planned, not an existing toolkit.
+native seed. Subsequent deliveries added native libraries, independent source
+builds and inline record arrays. General frontend/ownership parity and independent
+distribution remain open. See the [current checkpoint](native_roadmap_checkpoint.md)
+and [sovereignty roadmap](sotlas_sovereignty_roadmap.md) for validation limits.
+An initial declarative UI and Windows GUI calculator exist; the complete P2/P3
+contracts below remain open.
 
 ## Six delivery blocks
 

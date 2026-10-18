@@ -7,6 +7,37 @@
 
 
 
+## SV8.76 - inline record array fields (2026-10-18)
+
+**Starting baseline:** `be555e0`, reported green by the repository owner.
+The Sotlas-written semantic checker and native lowering now accept fixed inline
+arrays of pointer-free records inside structs. Lists, evaluate-once repetition,
+compatible local/field copies, nested indexing/mutation, whole-element/field
+replacement and supported enclosing-record returns/borrows produce native code.
+Array list assignment stages its complete RHS before overwriting the field,
+including element swaps. Record padding/alignment determines element stride.
+
+Nominal type/count checks, runtime dynamic bounds and existing move/borrow
+checks remain active. Pointer/resource-bearing elements, invalid literal indices,
+oversized fields and overflowing record layouts are rejected. Fields are bounded
+to 1-256 elements and 65,536 bytes; existing nesting/frame/IR limits also apply.
+This does not add general slices, standalone array ABI, resource drop glue or
+cross-module aggregate signatures. See the [contract](native_record_array_fields.md)
+and executable [inventory example](../examples/record_table/README.md).
+
+**Local evidence:** 18 focused new tests passed. The existing frontend-closure
+and Target IR suites passed 153 tests before the final layout-overflow guard.
+After that guard, both Windows and Linux/WSL rebuilt the compiler using native
+seeds with host tools absent from PATH and proved Stage 2/3 byte identity. Each
+final rebuilt compiler passed 25 positive, negative, native execution and bounds
+trap tests, including the new oversized/overflowing layout regression. The
+example manifest also passed. Test sets overlap. Intel macOS execution and new
+remote CI certification remain pending; no workflow polling was done.
+
+**Roadmap checkpoint:** [native delivery and preview status](native_roadmap_checkpoint.md).
+The general arrays/slices parent item remains open. Python/C are not removed
+from the reference/bootstrap/test environment by this delivery.
+
 **Public preview delivery:** [six-block launch roadmap](preview_launch_roadmap.md),
 including an initial Sotlas declarative UI and independently gated installation.
 

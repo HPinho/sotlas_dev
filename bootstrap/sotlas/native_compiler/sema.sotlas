@@ -259,10 +259,46 @@ impl Sema {
         return count != 0 && count <= 256;
     }
 
+    // Record-array storage is POD only when its complete element graph is POD.
+    // Keep declaration bounds and rejection of pointer/resource payloads explicit.
+    pub fn ownership_record_array(self: &Self, nodes: *const AstNode,
+        node_count: usize, typ: usize, source: *const u8, source_len: usize, depth: usize) -> bool {
+        if typ == 0 || typ >= node_count || depth >= 32 || source == null { return false; }
+        let node: AstNode = unsafe{*(nodes+typ)};
+        if self.ownership_pod_array(node,source,source_len) { return false; }
+        if node.int_value != 0 || node.str_len < 5 || node.str_offset > source_len
+            || node.str_len > source_len-node.str_offset || unsafe{*(source+node.str_offset)} != 91 {
+            return false;
+        }
+        let count: usize = native_fixed_array_count(unsafe{source+node.str_offset},node.str_len);
+        if count == 0 || count > 256 { return false; }
+        let end: usize = node.str_offset+node.str_len;
+        let mut start: usize = node.str_offset+1;
+        while start < end && (unsafe{*(source+start)} == 32 || unsafe{*(source+start)} == 9
+            || unsafe{*(source+start)} == 10 || unsafe{*(source+start)} == 13) { start=start+1; }
+        let mut finish: usize = start;
+        while finish < end && unsafe{*(source+finish)} != 59 { finish=finish+1; }
+        if finish == end { return false; }
+        while finish > start && (unsafe{*(source+finish-1)} == 32 || unsafe{*(source+finish-1)} == 9
+            || unsafe{*(source+finish-1)} == 10 || unsafe{*(source+finish-1)} == 13) { finish=finish-1; }
+        let mut index: usize = 1;
+        while index < node_count {
+            let declaration: AstNode = unsafe{*(nodes+index)};
+            if declaration.kind == AstKind::StructDecl
+                && self.source_slices_equal(source,source_len,start,finish-start,
+                    declaration.str_offset,declaration.str_len) {
+                return self.ownership_pod_type(nodes,node_count,index,source,source_len,depth+1);
+            }
+            index=index+1;
+        }
+        return false;
+    }
+
     pub fn ownership_pod_type(self: &Self, nodes: *const AstNode,
         node_count: usize, typ: usize, source: *const u8, source_len: usize, depth: usize) -> bool {
         if typ == 0 || typ >= node_count || depth >= 32 { return false; }
         let node: AstNode = unsafe { *(nodes + typ) };
+        if self.ownership_record_array(nodes,node_count,typ,source,source_len,depth+1) { return true; }
         if self.fixed_integer_type_tag(nodes, node_count, typ, source, source_len) != 0
             || self.source_slice_equals(source, source_len, node.str_offset, node.str_len, "bool", 4)
             || self.source_slice_equals(source, source_len, node.str_offset, node.str_len, "f32", 3)
@@ -2337,6 +2373,15 @@ impl Sema {
         }
         let init_index: usize = repeat.parent;
         let init: AstNode = unsafe { *(nodes + init_index) };
+        if init.kind == AstKind::AssignStmt && init.first_child != 0
+            && init.first_child < node_count {
+            let target_type: usize = self.find_struct_field_for_access(nodes,node_count,
+                init.first_child,source,source_len);
+            if target_type == 0 || !self.ownership_record_array(nodes,node_count,target_type,source,source_len,0)
+                || !self.fixed_array_type_matches_repeat(nodes,node_count,target_type,repeat_index,
+                    source,source_len,false) { return self.reject_node(repeat); }
+            return true;
+        }
         if init.kind == AstKind::LetStmt && init.parent != 0 && init.parent < node_count
             && (unsafe { (*(nodes + init.parent)).kind } == AstKind::Module
                 || unsafe { (*(nodes + init.parent)).kind } == AstKind::Block) {
@@ -2474,7 +2519,8 @@ impl Sema {
                     return false;
                 }
             } else if value.kind == AstKind::ExprArrayLiteral {
-                if !self.ownership_pod_array(unsafe { *(nodes + type_index) }, source, source_len) {
+                if !self.ownership_pod_array(unsafe { *(nodes + type_index) }, source, source_len)
+                    && !self.ownership_record_array(nodes,node_count,type_index,source,source_len,0) {
                     return self.reject_node(value);
                 }
                 // Lowering checks the list length and every element against

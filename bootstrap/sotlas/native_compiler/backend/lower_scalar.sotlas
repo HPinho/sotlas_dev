@@ -66,6 +66,7 @@ pub struct ScalarLowering {
     pub field_struct_ids: [u32; 256];
     pub field_byte_counts: [u32; 256];
     pub field_array_types: [u32; 256];
+    pub field_array_structs: [u32; 256];
     pub field_type_refs: [usize; 256];
     pub field_total_count: usize;
     pub enum_name_offsets: [usize; 32];
@@ -1074,6 +1075,7 @@ impl ScalarLowering {
             field_struct_ids: [0; 256],
             field_byte_counts: [0; 256],
             field_array_types: [0; 256],
+            field_array_structs: [0; 256],
             field_type_refs: [0; 256],
             field_total_count: 0,
             enum_name_offsets: [0; 32],
@@ -2311,6 +2313,9 @@ impl ScalarLowering {
         let field_slot: usize = (field_id - 1) as usize;
         let field_type: TargetTypeTag = self.field_type_tags[field_slot] as TargetTypeTag;
         if self.structured_cfg && self.field_byte_counts[field_slot] != 0 {
+            if self.field_array_structs[field_slot] != 0 {
+                return self.initialize_record_array_field(base_ptr,field_slot,value_index,first_parameter,parameter_count);
+            }
             return self.copy_array_into_field(base_ptr,field_slot,value_index,first_parameter,parameter_count);
         }
         if self.structured_cfg && self.field_struct_ids[field_slot] != 0 {
@@ -2950,6 +2955,10 @@ impl ScalarLowering {
                 }
             }
             let field: u32 = self.indexed_array_field(expression_index);
+            if field != 0 && self.field_array_structs[field as usize - 1] != 0 {
+                if type_tag != TargetTypeTag::Pointer { return 0; }
+                return self.cfg_field_array_index_address(expression_index,field,first_parameter,parameter_count);
+            }
             if self.structured_cfg && field != 0 {
                 let element: TargetTypeTag = self.field_array_types[field as usize - 1] as TargetTypeTag;
                 if type_tag != TargetTypeTag::Invalid && type_tag != element { return 0; }
@@ -3359,6 +3368,12 @@ impl ScalarLowering {
                     let val_expr_index: usize = init_node.first_child;
                     if val_expr_index == 0 || val_expr_index >= self.node_count {
                         return TARGET_VALUE_NONE;
+                    }
+                    if self.field_array_structs[f_idx] != 0 {
+                        if !self.initialize_record_array_field(ptr_value,f_idx,val_expr_index,
+                            first_parameter,parameter_count) { return 0; }
+                        init_index = init_node.next_sibling;
+                        continue;
                     }
                     if self.field_byte_counts[f_idx] != 0 {
                         let repeat: AstNode = unsafe { *(self.nodes + val_expr_index) };
@@ -5219,6 +5234,19 @@ impl ScalarLowering {
             let field: usize = (start + i) as usize;
             let offset: u32 = self.field_offsets[field];
             if self.field_byte_counts[field] != 0 {
+                let record: u32 = self.field_array_structs[field];
+                if record != 0 {
+                    let stride: u32 = self.struct_sizes[record as usize - 1];
+                    let mut element: u32 = 0;
+                    while element < self.field_byte_counts[field] {
+                        if !self.cfg_copy_fields(destination,source_address,record,
+                            destination_offset+offset+element*stride,
+                            source_offset+offset+element*stride,node,depth+1) { return false; }
+                        element = element+1;
+                    }
+                    i = i+1;
+                    continue;
+                }
                 let array_type: TargetTypeTag = self.field_array_types[field] as TargetTypeTag;
                 let stride: u32 = self.scalar_memory_size(array_type);
                 let mut byte_index: u32 = 0;
@@ -5250,28 +5278,99 @@ impl ScalarLowering {
         return true;
     }
 
+    // Pointer-free record arrays have real inline storage. Each initializer is
+    // evaluated in source order; repetition evaluates its record exactly once.
+    pub fn initialize_record_array_field(mut self: &mut Self, destination: u32, field: usize,
+        expression_index: usize, first_parameter: usize, parameter_count: usize) -> bool {
+        if field >= self.field_total_count || expression_index == 0
+            || expression_index >= self.node_count { return false; }
+        let record: u32 = self.field_array_structs[field];
+        let count: u32 = self.field_byte_counts[field];
+        if record == 0 || count == 0 || !self.array_record_copyable(record,0) { return false; }
+        let expression: AstNode = unsafe{*(self.nodes+expression_index)};
+        if expression.kind == AstKind::ExprIdent || expression.kind == AstKind::ExprFieldAccess {
+            return self.copy_array_into_field(destination,field,expression_index,first_parameter,parameter_count);
+        }
+        if expression.kind != AstKind::ExprArrayLiteral && expression.kind != AstKind::ExprArrayRepeat {
+            return false;
+        }
+        let mut element: usize = expression.first_child;
+        let mut repeated: u32 = 0;
+        if expression.kind == AstKind::ExprArrayRepeat {
+            if element == 0 || element >= self.node_count || self.cfg_struct_id(element,0) != record { return false; }
+            let length_index: usize = unsafe{(*(self.nodes+element)).next_sibling};
+            if length_index == 0 || length_index >= self.node_count { return false; }
+            let length: AstNode = unsafe{*(self.nodes+length_index)};
+            if length.kind != AstKind::ExprLiteral || length.next_sibling != 0
+                || self.parse_integer_value(length.str_offset,length.str_len) != count as u64 { return false; }
+            repeated = self.cfg_struct_address(element,first_parameter,parameter_count,0);
+            if repeated == 0 { return false; }
+        }
+        let stride: u32 = self.struct_sizes[record as usize - 1];
+        // Stage the complete RHS before replacing an existing array field.
+        // This also preserves swaps such as [table.items[1], table.items[0]].
+        let staged: u32 = self.append_value(TargetTypeTag::Pointer,0,0);
+        if staged == 0 || !self.append_instruction(TargetOpcode::AllocStack,staged,
+            TargetTypeTag::Pointer,0,0,expression_index) { return false; }
+        unsafe{(*(self.instructions+self.instruction_count-1)).immediate_bits = (count as u64)*(stride as u64);}
+        let mut index: u32 = 0;
+        while index < count {
+            let mut source_address: u32 = repeated;
+            if expression.kind == AstKind::ExprArrayLiteral {
+                if element == 0 || element >= self.node_count || self.cfg_struct_id(element,0) != record { return false; }
+                source_address = self.cfg_struct_address(element,first_parameter,parameter_count,0);
+                element = unsafe{(*(self.nodes+element)).next_sibling};
+            }
+            if source_address == 0 || !self.cfg_copy_fields(staged,source_address,record,
+                index*stride,0,expression_index,0) { return false; }
+            index = index+1;
+        }
+        if expression.kind != AstKind::ExprArrayRepeat && element != 0 { return false; }
+        index = 0;
+        while index < count {
+            if !self.cfg_copy_fields(destination,staged,record,self.field_offsets[field]+index*stride,
+                index*stride,expression_index,0) { return false; }
+            index = index+1;
+        }
+        return true;
+    }
+
     pub fn copy_array_into_field(mut self: &mut Self, destination: u32, field: usize,
         expression_index: usize, first_parameter: usize, parameter_count: usize) -> bool {
         if field >= self.field_total_count || expression_index == 0 || expression_index >= self.node_count { return false; }
         let expression: AstNode = unsafe { *(self.nodes + expression_index) };
         let typ: TargetTypeTag = self.field_array_types[field] as TargetTypeTag;
+        let record: u32 = self.field_array_structs[field];
         let count: u32 = self.field_byte_counts[field];
         let mut source_address: u32 = 0; let mut source_offset: u32 = 0;
         if expression.kind == AstKind::ExprIdent {
             let slot: usize = self.cfg_find_local(expression.str_offset,expression.str_len);
-            if slot >= self.local_count || self.local_struct_ids[slot] != 0
+            if slot >= self.local_count || self.local_struct_ids[slot] != record
                 || self.local_array_counts[slot] != count || self.local_array_types[slot] != typ as u32 { return false; }
             source_address = self.local_value_ids[slot];
         } else if expression.kind == AstKind::ExprFieldAccess {
-            let record: u32 = self.cfg_struct_id(expression.first_child,0);
-            let source_field: u32 = self.find_field(record,expression.str_offset,expression.str_len);
+            let owner_record: u32 = self.cfg_struct_id(expression.first_child,0);
+            let source_field: u32 = self.find_field(owner_record,expression.str_offset,expression.str_len);
             if source_field == 0 { return false; }
             let slot: usize = source_field as usize - 1;
-            if self.field_byte_counts[slot] != count || self.field_array_types[slot] != typ as u32 { return false; }
+            if self.field_byte_counts[slot] != count || self.field_array_types[slot] != typ as u32
+                || self.field_array_structs[slot] != record { return false; }
             source_address = self.cfg_struct_address(expression.first_child,first_parameter,parameter_count,0);
             source_offset = self.field_offsets[slot];
         } else { return false; }
-        if source_address == 0 || count == 0 || typ == TargetTypeTag::Pointer { return false; }
+        if source_address == 0 || count == 0 { return false; }
+        if record != 0 {
+            let stride: u32 = self.struct_sizes[record as usize - 1];
+            let mut position: u32 = 0;
+            while position < count {
+                if !self.cfg_copy_fields(destination,source_address,record,
+                    self.field_offsets[field]+position*stride,
+                    source_offset+position*stride,expression_index,0) { return false; }
+                position = position+1;
+            }
+            return true;
+        }
+        if typ == TargetTypeTag::Pointer { return false; }
         let stride: u32 = self.scalar_memory_size(typ); let mut position: u32 = 0;
         while position < count {
             let value: u32 = self.append_value(typ,0,0); let first: u32 = self.operand_count as u32;
@@ -5315,6 +5414,9 @@ impl ScalarLowering {
             address = self.cfg_struct_address(expression.first_child, first_parameter, parameter_count, 0);
             count = self.field_byte_counts[slot];
             stride = self.scalar_memory_size(self.field_array_types[slot] as TargetTypeTag);
+            if self.field_array_structs[slot] != 0 {
+                stride = self.struct_sizes[self.field_array_structs[slot] as usize - 1];
+            }
         } else {
             if base.kind != AstKind::ExprIdent { return 0; }
             let global: isize = self.find_global_bss(base.str_offset, base.str_len);
@@ -5328,6 +5430,10 @@ impl ScalarLowering {
             address = self.lower_expression(expression.first_child, TargetTypeTag::Pointer, first_parameter, parameter_count);
         }
         if stride == 0 || count == 0 { return 0; }
+        let subscript: AstNode = unsafe{*(self.nodes+index_node)};
+        if field != 0 && self.field_array_structs[field as usize - 1] != 0
+            && subscript.kind == AstKind::ExprLiteral
+            && self.parse_integer_value(subscript.str_offset,subscript.str_len) >= count as u64 { return 0; }
         let index: u32 = self.lower_expression(index_node, index_type, first_parameter, parameter_count);
         let result: u32 = self.append_value(TargetTypeTag::Pointer, 0, 0);
         let operand: u32 = self.operand_count as u32;
@@ -5452,6 +5558,11 @@ impl ScalarLowering {
                 let slot: usize = self.cfg_find_local(base.str_offset, base.str_len);
                 if slot < self.local_count && self.local_array_counts[slot] != 0 { return self.local_struct_ids[slot]; }
             }
+            if base.kind == AstKind::ExprFieldAccess {
+                let owner: u32 = self.cfg_struct_id(base.first_child,depth+1);
+                let field: u32 = self.find_field(owner,base.str_offset,base.str_len);
+                if field != 0 { return self.field_array_structs[field as usize - 1]; }
+            }
             return 0;
         }
         if expression.kind == AstKind::ExprConditional {
@@ -5494,6 +5605,10 @@ impl ScalarLowering {
         if expression_index == 0 || expression_index >= self.node_count || depth >= 64 { return 0; }
         let expression: AstNode = unsafe { *(self.nodes + expression_index) };
         if expression.kind == AstKind::ExprIndex && self.cfg_struct_id(expression_index, depth + 1) != 0 {
+            let field: u32 = self.indexed_array_field(expression_index);
+            if field != 0 {
+                return self.cfg_field_array_index_address(expression_index,field,first_parameter,parameter_count);
+            }
             return self.cfg_local_array_index_address(expression_index, first_parameter, parameter_count);
         }
         if expression.kind == AstKind::UnsafeExpr {
@@ -5857,7 +5972,9 @@ impl ScalarLowering {
             let field: usize = start + i;
             let declared: usize = self.field_type_refs[field];
             if declared != 0 && declared < self.node_count && unsafe { (*(self.nodes + declared)).int_value } != 0 { return false; }
-            if self.field_struct_ids[field] != 0 {
+            if self.field_array_structs[field] != 0 {
+                if !self.array_record_copyable(self.field_array_structs[field],depth+1) { return false; }
+            } else if self.field_struct_ids[field] != 0 {
                 if !self.array_record_copyable(self.field_struct_ids[field], depth + 1) { return false; }
             } else if (self.field_byte_counts[field] == 0 && self.field_type_tags[field] == TargetTypeTag::Pointer as u32)
                 || (self.field_byte_counts[field] != 0 && self.field_array_types[field] == TargetTypeTag::Pointer as u32) { return false; }
@@ -6145,6 +6262,14 @@ impl ScalarLowering {
                     }
                     typ = self.local_array_types[local_slot] as TargetTypeTag;
                 } else if field != 0 {
+                    let record: u32 = self.field_array_structs[field as usize - 1];
+                    if record != 0 {
+                        if self.cfg_struct_id(left.next_sibling,0) != record { return self.reject(index); }
+                        let destination: u32 = self.cfg_field_array_index_address(left_index,field,first_parameter,parameter_count);
+                        let source_address: u32 = self.cfg_struct_address(left.next_sibling,first_parameter,parameter_count,0);
+                        return destination != 0 && source_address != 0
+                            && self.cfg_copy_fields(destination,source_address,record,0,0,index,0);
+                    }
                     typ = self.field_array_types[field as usize - 1] as TargetTypeTag;
                 } else {
                     if base.kind != AstKind::ExprIdent { return self.reject(index); }
@@ -7605,17 +7730,29 @@ pub fn lower_scalar_module(
                     let mut f_alignment: u32 = f_sz;
                     let field_type_node: AstNode = unsafe { *(lowering.nodes + f_node.first_child) };
                     if field_type_node.str_len != 0 && unsafe { *(lowering.source + field_type_node.str_offset) } == 91 {
-                        let element: TargetTypeTag = lowering.parse_array_element_type(
+                        let mut element: TargetTypeTag = lowering.parse_array_element_type(
                             field_type_node.str_offset, field_type_node.str_len);
                         let count: usize = lowering.parse_array_element_count(
                             field_type_node.str_offset, field_type_node.str_len);
-                        let stride: u32 = lowering.scalar_memory_size(element);
+                        let record: u32 = lowering.parse_array_element_struct(field_type_node.str_offset,field_type_node.str_len);
+                        let mut stride: u32 = lowering.scalar_memory_size(element);
+                        if record != 0 {
+                            stride = lowering.struct_sizes[record as usize - 1];
+                            let limit: usize = 65536;
+                            if stride == 0 || count == 0 || count > 256 || count > limit/(stride as usize)
+                                || !lowering.array_record_copyable(record,0) { return lowering.reject(f_scan); }
+                            element = TargetTypeTag::Pointer;
+                            lowering.field_array_structs[f_idx] = record;
+                        }
                         if stride == 0 || element == TargetTypeTag::Aggregate || count == 0 || count > 256 { return lowering.reject(f_scan); }
+                        let maximum: usize = 65536;
+                        if count > maximum/(stride as usize) { return lowering.reject(f_scan); }
                         lowering.field_byte_counts[f_idx] = count as u32;
                         lowering.field_array_types[f_idx] = element as u32;
                         lowering.field_type_tags[f_idx] = TargetTypeTag::Aggregate as u32;
                         f_sz = count as u32 * stride;
                         f_alignment = stride;
+                        if record != 0 { f_alignment = lowering.struct_alignments[record as usize - 1]; }
                     }
                     if field_struct != 0 {
                         f_sz = lowering.struct_sizes[field_struct as usize - 1];
@@ -7624,8 +7761,11 @@ pub fn lower_scalar_module(
                     }
                     if f_alignment == 0 { return lowering.reject(f_scan); }
                     if f_alignment > struct_alignment { struct_alignment = f_alignment; }
+                    let layout_limit: u32 = 4294967295;
+                    if cur_offset > layout_limit-(f_alignment-1) { return lowering.reject(f_scan); }
                     cur_offset = ((cur_offset + f_alignment - 1) / f_alignment) * f_alignment;
                     lowering.field_offsets[f_idx] = cur_offset;
+                    if f_sz > layout_limit-cur_offset { return lowering.reject(f_scan); }
                     cur_offset = cur_offset + f_sz;
                     lowering.field_total_count = lowering.field_total_count + 1;
                     f_cnt = f_cnt + 1;
@@ -7637,6 +7777,8 @@ pub fn lower_scalar_module(
             if cur_offset > 0 {
                 cur_size = cur_offset;
             }
+            let layout_limit: u32 = 4294967295;
+            if cur_size > layout_limit-(struct_alignment-1) { return lowering.reject(struct_scan_index); }
             lowering.struct_sizes[s_id] = ((cur_size + struct_alignment - 1) / struct_alignment) * struct_alignment;
             lowering.struct_alignments[s_id] = struct_alignment;
             lowering.struct_count = lowering.struct_count + 1;
