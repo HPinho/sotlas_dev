@@ -40,6 +40,46 @@ ASCII. Native tests passed on Windows and Linux/WSL; Windows mixed-script
 drawing and cleanup passed. Encoding, layout/shaping and editing scopes remain
 distinct; remote CI is pending. See the [text contract](native_unicode_text.md).
 
+## SV8.72 — embedded ABI and independent multi-module linking (2026-10-17)
+
+This delivery connects the production native object writer to multi-module
+ABI validation and executable linking. The Sotlas implementation now writes
+versioned records for all function definitions and external declarations into
+the ELF note section. Each record names the actual symbol-table index and
+preserves the native return and parameter type tags.
+
+The native Linux, Windows and Intel macOS drivers expose
+`--link-elf-abi-objects OUTPUT ENTRY INPUT.o...`. It checks all function imports
+across 1–16 independent objects against exactly one provider, with exact
+integer width/signedness, Bool identity, arity and return type agreement.
+Transitive imports, multiple exports and stack arguments work without
+handwritten SOTI sidecars. Unsupported cross-module signatures, incomplete or
+malformed records and duplicate providers fail before executable publication.
+Existing untyped and SOTI-pair commands retain their contracts.
+
+The [three-module example](../examples/separate_modules/README.md) is compiled
+from separate source files and returns 42 on Linux. Its files are exercised
+by the regression suite. The [format and command contract](native_embedded_abi.md)
+documents the exact boundary and distinguishes ABI metadata from ownership,
+effect or cryptographic provenance guarantees.
+
+**Local evidence:** 73 focused Windows regression cases passed, covering the
+new delivery, existing typed/untyped ELF linking, IR serialization and reality
+gates. Both Windows and Linux/WSL then rebuilt from native seeds with host
+tools absent from PATH and proved Stage 2/3 byte identity. The final native
+compilers each passed 50 ABI/linking gates, including the additional incomplete
+manifest test and actual ELF execution on Linux. A further 17 Target IR and
+Mach-O cross-compilation checks passed on Windows. These sets overlap and are
+not a claim of complete CI coverage. Intel macOS execution and remote matrix
+certification remain pending; no new workflow was monitored.
+
+**Remaining work:** complete semantic signatures for ownership/effects and
+visibility; pointer/aggregate/float inter-module boundaries; typed PE/Mach-O
+linking; archives/dynamic libraries; general package compilation; and initial
+distribution without hosted bootstrap dependencies. The next block should
+connect frontend domain/effect metadata to separate-module contracts rather
+than infer those guarantees from integer ABI compatibility.
+
 ## SV8.71.1 — restore bootstrap and ABI regression gates (2026-10-17)
 
 CI #1260 failed while building Stage 1: literal-first wire offset arithmetic

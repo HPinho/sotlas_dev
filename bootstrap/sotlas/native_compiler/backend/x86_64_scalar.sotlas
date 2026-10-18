@@ -3472,7 +3472,8 @@ pub fn emit_elf64_module_object(
         let shstrtab_offset: usize = strtab_offset + strings_size;
         let shstrtab_size: usize = 80;
         let note_offset: usize = align_to(shstrtab_offset + shstrtab_size, 4);
-        let note_size: usize = 20 + defined_count as usize * 4;
+        let legacy_note_size: usize = 20 + defined_count as usize * 4;
+        let note_size: usize = legacy_note_size + 28 + ir.function_count as usize * 108;
         let section_header_offset: usize = align_to(note_offset + note_size, 8);
         let file_size: usize = section_header_offset + 10 * 64;
         if file_size > capacity { return false; }
@@ -3650,6 +3651,11 @@ pub fn emit_elf64_module_object(
             }
             relocation_index = relocation_index + 1;
         }
+        if !elf_emit_integer_abi_note(output,capacity,note_offset+legacy_note_size,
+            functions,ir.function_count,parameters,
+            unsafe{symbol_of_function as *const u32},defined_count,data_sym_total as u32) {
+            return false;
+        }
         unsafe { *output_length = file_size; }
         return true;
     }
@@ -3663,7 +3669,8 @@ pub fn emit_elf64_module_object(
     let shstrtab_offset: usize = strtab_offset + strings_size;
     let shstrtab_size: usize = 61;
     let note_offset: usize = align_to(shstrtab_offset + shstrtab_size, 4);
-    let note_size: usize = 20 + defined_count as usize * 4;
+    let legacy_note_size: usize = 20 + defined_count as usize * 4;
+    let note_size: usize = legacy_note_size + 28 + ir.function_count as usize * 108;
     let section_header_offset: usize = align_to(note_offset + note_size, 8);
     let file_size: usize = section_header_offset + 7 * 64;
     if file_size > capacity { return false; }
@@ -3774,6 +3781,9 @@ pub fn emit_elf64_module_object(
         }
         relocation_index = relocation_index + 1;
     }
+    if !elf_emit_integer_abi_note(output,capacity,note_offset+legacy_note_size,
+        functions,ir.function_count,parameters,
+        unsafe{symbol_of_function as *const u32},defined_count,0) { return false; }
     unsafe { *output_length = file_size; }
     return true;
 }
@@ -6885,4 +6895,264 @@ pub fn elf_typed_export_note_abi_matches(
         section = section+1;
     }
     return have_note;
+}
+
+// SV8.72: the production module writer emits a second SOTLAS note.
+// Its descriptor is version/count followed by 108-byte records containing
+// symbol index, return tag, arity and 24 parameter tags. It describes machine
+// ABI only: it is not an ownership/effect proof or a signature of object bytes.
+fn elf_emit_integer_abi_note(
+    output: *mut u8, capacity: usize, at: usize,
+    functions: *const TargetFunction, count: u32,
+    parameters: *const TargetParameter, symbols: *const u32,
+    defined: u32, data_symbols: u32
+) -> bool {
+    if !put_u32(output,capacity,at,7)
+        || !put_u32(output,capacity,at+4,count*108+8)
+        || !put_u32(output,capacity,at+8,3)
+        || !put_u32(output,capacity,at+20,1)
+        || !put_u32(output,capacity,at+24,count) { return false; }
+    let name: *const u8 = "SOTLAS";
+    let mut byte: usize = 0;
+    while byte < 7 {
+        if !put_u8(output,capacity,at+12+byte,unsafe{*(name+byte)}) { return false; }
+        byte = byte+1;
+    }
+    let mut index: u32 = 0;
+    while index < count {
+        let function: TargetFunction = unsafe{*(functions+index)};
+        let mut symbol: u32 = unsafe{*(symbols+index)};
+        if (function.flags & TARGET_FUNCTION_EXTERNAL) != 0 { symbol = symbol+data_symbols; }
+        if symbol == 0 || symbol > count+data_symbols || function.parameter_count > 24 {
+            return false;
+        }
+        let record: usize = at+28+(index as usize)*108;
+        if !put_u32(output,capacity,record,symbol)
+            || !put_u32(output,capacity,record+4,function.return_type as u32)
+            || !put_u32(output,capacity,record+8,function.parameter_count) { return false; }
+        let mut parameter: u32 = 0;
+        while parameter < function.parameter_count {
+            let value: TargetParameter = unsafe{*(parameters+function.first_parameter+parameter)};
+            if !put_u32(output,capacity,record+12+(parameter as usize)*4,value.type_tag as u32) {
+                return false;
+            }
+            parameter = parameter+1;
+        }
+        index = index+1;
+    }
+    return defined <= count;
+}
+
+// Return a validated symbol-table header, or zero. ELF validation bounds all
+// referenced string/symbol storage before any manifest parser dereferences it.
+fn elf_abi_symtab(object: *const u8, length: usize) -> usize {
+    if !validate_elf64_object(object,length) { return 0; }
+    let headers: usize = get_u64(object,length,40) as usize;
+    let count: u32 = get_u16(object,length,60) as u32;
+    let mut table: usize = 0;
+    let mut index: u32 = 1;
+    while index < count {
+        let at: usize = headers+(index as usize)*64;
+        if get_u32(object,length,at+4) == 2 {
+            if table != 0 { return 0; }
+            table = at;
+        }
+        index = index+1;
+    }
+    return table;
+}
+
+// The new note must follow the complete legacy descriptor in the same note
+// section. Exactly one manifest is accepted; truncation, duplicate symbol IDs,
+// missing function records and noncanonical padding fail closed.
+pub fn elf_integer_abi_manifest(object: *const u8, length: usize) -> usize {
+    let table: usize = elf_abi_symtab(object,length);
+    if table == 0 { return 0; }
+    let headers: usize = get_u64(object,length,40) as usize;
+    let sections: u32 = get_u16(object,length,60) as u32;
+    let symbols: usize = get_u64(object,length,table+24) as usize;
+    let symbol_count: usize = (get_u64(object,length,table+32) as usize)/24;
+    let mut manifest: usize = 0;
+    let mut section: u32 = 1;
+    while section < sections {
+        let sh: usize = headers+(section as usize)*64;
+        if get_u32(object,length,sh+4) == 7 {
+            let start: usize = get_u64(object,length,sh+24) as usize;
+            let size: usize = get_u64(object,length,sh+32) as usize;
+            if size >= 20 && get_u32(object,length,start) == 7
+                && get_u32(object,length,start+8) == 2 {
+                let legacy: usize = get_u32(object,length,start+4) as usize;
+                if legacy > size-20 || legacy % 4 != 0 { return 0; }
+                let skip: usize = legacy+20;
+                if skip == size { return 0; }
+                if size-skip < 28 || manifest != 0 { return 0; }
+                let note: usize = start+skip;
+                let count: u32 = get_u32(object,length,note+24);
+                if get_u32(object,length,note) != 7 || get_u32(object,length,note+8) != 3
+                    || get_u32(object,length,note+20) != 1
+                    || count == 0 || count > TARGET_OBJECT_FUNCTION_CAPACITY
+                    || size-skip != (count as usize)*108+28
+                    || get_u32(object,length,note+4) != count*108+8 { return 0; }
+                let name: *const u8 = "SOTLAS";
+                let mut byte: usize = 0;
+                while byte < 8 {
+                    let mut expected: u8 = 0;
+                    if byte < 6 { expected = unsafe{*(name+byte)}; }
+                    if unsafe{*(object+note+12+byte)} != expected
+                        || unsafe{*(object+start+12+byte)} != expected { return 0; }
+                    byte = byte+1;
+                }
+                manifest = note;
+            }
+        }
+        section = section+1;
+    }
+    if manifest == 0 { return 0; }
+    let records: u32 = get_u32(object,length,manifest+24);
+    let mut index: u32 = 0;
+    while index < records {
+        let at: usize = manifest+28+(index as usize)*108;
+        let symbol: usize = get_u32(object,length,at) as usize;
+        let arity: u32 = get_u32(object,length,at+8);
+        let result: u32 = get_u32(object,length,at+4);
+        if symbol == 0 || symbol >= symbol_count || arity > 24
+            || result == 0 || result > 16 { return 0; }
+        let sym: usize = symbols+symbol*24;
+        let info: u8 = unsafe{*(object+sym+4)};
+        let defined: bool = get_u16(object,length,sym+6) != 0;
+        if (info >> 4) != 1 || (defined && (info & 15) != 2)
+            || (!defined && (info & 15) != 0 && (info & 15) != 2) { return 0; }
+        let mut prior: u32 = 0;
+        while prior < index {
+            if get_u32(object,length,manifest+28+(prior as usize)*108) == symbol as u32 {
+                return 0;
+            }
+            prior = prior+1;
+        }
+        let mut parameter: u32 = 0;
+        while parameter < 24 {
+            let tag: u32 = get_u32(object,length,at+12+(parameter as usize)*4);
+            if (parameter < arity && (tag == 0 || tag > 15))
+                || (parameter >= arity && tag != 0) { return 0; }
+            parameter = parameter+1;
+        }
+        index = index+1;
+    }
+    let mut function_count: u32 = 0;
+    let mut symbol: usize = 1;
+    while symbol < symbol_count {
+        let at: usize = symbols+symbol*24;
+        let info: u8 = unsafe{*(object+at+4)};
+        if (info >> 4) != 0 {
+            // Defined data may be used inside its own module. Imported data
+            // and weak bindings require a separate cross-module contract.
+            if (info >> 4) != 1 { return 0; }
+            let kind: u8 = info & 15;
+            let defined: bool = get_u16(object,length,at+6) != 0;
+            if kind == 2 || (!defined && kind == 0) {
+                function_count = function_count+1;
+            } else if !defined || kind != 1 { return 0; }
+        }
+        symbol = symbol+1;
+    }
+    if function_count != records { return 0; }
+    return manifest;
+}
+
+fn elf_integer_abi_signature(object: *const u8, length: usize, at: usize) -> bool {
+    let result: u32 = get_u32(object,length,at+4);
+    if result != 16 && (result == 0 || result > 11) { return false; }
+    let count: u32 = get_u32(object,length,at+8);
+    let mut index: u32 = 0;
+    while index < count {
+        let tag: u32 = get_u32(object,length,at+12+(index as usize)*4);
+        if tag == 0 || tag > 11 { return false; }
+        index = index+1;
+    }
+    return true;
+}
+
+// Every imported function resolves to exactly one independently emitted
+// definition with identical integer signedness/width, Bool identity and arity.
+// All objects require compiler manifests. The production linker separately
+// enforces relocations, duplicate definitions and entry-point ABI.
+pub fn elf_integer_abi_objects_compatible(
+    bytes: *const u8, offsets: *const usize, lengths: *const usize, count: u32
+) -> bool {
+    if bytes == null || offsets == null || lengths == null || count == 0 || count > 16 {
+        return false;
+    }
+    let mut manifests: [usize;16] = 0;
+    let mut tables: [usize;16] = 0;
+    let mut index: u32 = 0;
+    while index < count {
+        let object: *const u8 = unsafe{bytes+*(offsets+index)};
+        let length: usize = unsafe{*(lengths+index)};
+        manifests[index as usize] = elf_integer_abi_manifest(object,length);
+        tables[index as usize] = elf_abi_symtab(object,length);
+        if manifests[index as usize] == 0 { return false; }
+        index = index+1;
+    }
+    index = 0;
+    while index < count {
+        let object: *const u8 = unsafe{bytes+*(offsets+index)};
+        let length: usize = unsafe{*(lengths+index)};
+        let note: usize = manifests[index as usize];
+        let records: u32 = get_u32(object,length,note+24);
+        let table: usize = tables[index as usize];
+        let symbols: usize = get_u64(object,length,table+24) as usize;
+        let headers: usize = get_u64(object,length,40) as usize;
+        let strings_sh: usize = headers+(get_u32(object,length,table+40) as usize)*64;
+        let strings: usize = get_u64(object,length,strings_sh+24) as usize;
+        let mut record: u32 = 0;
+        while record < records {
+            let at: usize = note+28+(record as usize)*108;
+            let symbol: usize = symbols+(get_u32(object,length,at) as usize)*24;
+            if get_u16(object,length,symbol+6) == 0 {
+                if !elf_integer_abi_signature(object,length,at) { return false; }
+                let name: usize = strings+(get_u32(object,length,symbol) as usize);
+                let mut matches: u32 = 0;
+                let mut provider: u32 = 0;
+                while provider < count {
+                    let other: *const u8 = unsafe{bytes+*(offsets+provider)};
+                    let other_len: usize = unsafe{*(lengths+provider)};
+                    let other_table: usize = tables[provider as usize];
+                    let other_syms: usize = get_u64(other,other_len,other_table+24) as usize;
+                    let other_headers: usize = get_u64(other,other_len,40) as usize;
+                    let other_str_sh: usize = other_headers+(get_u32(other,other_len,other_table+40) as usize)*64;
+                    let other_strings: usize = get_u64(other,other_len,other_str_sh+24) as usize;
+                    let other_note: usize = manifests[provider as usize];
+                    let other_count: u32 = get_u32(other,other_len,other_note+24);
+                    let mut candidate: u32 = 0;
+                    while candidate < other_count {
+                        let item: usize = other_note+28+(candidate as usize)*108;
+                        let sym: usize = other_syms+(get_u32(other,other_len,item) as usize)*24;
+                        if get_u16(other,other_len,sym+6) != 0
+                            && elf_names_equal(object,length,name,other,other_len,
+                                other_strings+(get_u32(other,other_len,sym) as usize)) {
+                            matches = matches+1;
+                            if !elf_integer_abi_signature(other,other_len,item)
+                                || get_u32(object,length,at+4) != get_u32(other,other_len,item+4)
+                                || get_u32(object,length,at+8) != get_u32(other,other_len,item+8) {
+                                return false;
+                            }
+                            let mut parameter: u32 = 0;
+                            while parameter < get_u32(object,length,at+8) {
+                                let displacement: usize = (parameter as usize)*4+12;
+                                if get_u32(object,length,at+displacement)
+                                    != get_u32(other,other_len,item+displacement) { return false; }
+                                parameter = parameter+1;
+                            }
+                        }
+                        candidate = candidate+1;
+                    }
+                    provider = provider+1;
+                }
+                if matches != 1 { return false; }
+            }
+            record = record+1;
+        }
+        index = index+1;
+    }
+    return true;
 }

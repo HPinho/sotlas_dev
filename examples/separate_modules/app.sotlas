@@ -1,0 +1,8 @@
+module separate_app;
+
+@extern(C) fn left(value: u32) -> u32;
+@extern(C) fn right(value: u32) -> u32;
+
+pub fn main_entry() -> u32 {
+    return unsafe { left(10) } + unsafe { right(12) };
+}

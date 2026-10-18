@@ -2,6 +2,24 @@
 
 Repository: [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev).
 
+## SV8.72 — embedded integer ABI for independent modules (2026-10-17)
+
+- [x] Emit versioned signatures automatically in production ELF objects,
+  covering every function definition and external declaration.
+- [x] Add `--link-elf-abi-objects` to all three native host drivers.
+- [x] Validate multiple symbols and providers across 1–16 independent objects,
+  including transitive and unused imports, without hand-authored sidecars.
+- [x] Compare integer width/signedness, Boolean identity, arity and return tags.
+- [x] Reject malformed/incomplete manifests and mismatches before output writes.
+- [x] Include an executable three-module example and native regression gates.
+
+These checks close the integer machine ABI delivery. They do not close the
+parent items for general separate compilation or semantic signatures: pointer
+lifetimes, ownership, effects, visibility, aggregates and typed PE/Mach-O
+linking remain pending. See the [contract](native_embedded_abi.md).
+Local validation and remote certification are reported separately in the
+[sovereignty roadmap](sotlas_sovereignty_roadmap.md).
+
 ## SV8.71 — verify complete ELF imports and compiler-sourced ABI subset (2026-10-17)
 
 **Certified baseline:** `684e674ca15c31441f88293757dfe69eac855f67` /

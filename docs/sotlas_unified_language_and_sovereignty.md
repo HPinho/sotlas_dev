@@ -2,6 +2,15 @@
 
 **Repository:** [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev)
 
+**SV8.72 (2026-10-17):** production ELF objects now embed native function ABI
+records. `--link-elf-abi-objects` checks integer signatures across up to sixteen
+independently compiled objects, including all imports and multiple providers,
+without handwritten sidecars. The complete delivery includes a three-module
+example and corruption/mismatch gates. This covers machine ABI; general
+ownership/effect signatures and typed PE/Mach-O linking remain open. See the
+[embedded ABI contract](native_embedded_abi.md) and
+[validation record](sotlas_sovereignty_roadmap.md).
+
 **Public preview delivery:** [short launch roadmap](preview_launch_roadmap.md).
 The first bounded declarative UI and graphical calculator have local Windows
 evidence. General graphical application support remains open.

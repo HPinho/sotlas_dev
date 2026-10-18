@@ -1,5 +1,10 @@
 # SV8.70 — Opt-in typed ELF64 object-pair linking
 
+SV8.72 adds [embedded integer ABI linking](native_embedded_abi.md), which
+supports multiple imports and providers through production compiler metadata.
+It does not require SOTI sidecars. The older pair command below retains its
+existing contract; it is not promoted to complete ownership/effect validation.
+
 **Status:** candidate, awaiting new full CI. Baseline:
 `6593c521966ab1fa8c1531312bb4214948502fdf`,
 [workflow #1257](https://github.com/HPinho/sotlas_dev/actions/runs/39042389972).
