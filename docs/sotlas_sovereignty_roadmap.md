@@ -3,7 +3,7 @@
 **Status:** active implementation track  
 **Started:** 2026-10-03 (America/Fortaleza)  
 **Green baseline at track start:** `7162167dec6fd5fa0a216121b147335d222e43f1` / CI #1063  
-**Latest inspected green baseline:** `684e674ca15c31441f88293757dfe69eac855f67` / [CI #1259](https://github.com/HPinho/sotlas_dev/actions/runs/39065215635) (19 green jobs, full Linux/Windows/Intel macOS matrix, native seed, fixed-point and packaging).
+**Latest inspected green baseline:** `013f8e5faf1d0986ff23f77c4bab4f9c0644bd55` / [CI #1261](https://github.com/HPinho/sotlas_dev/actions/runs/39085692941).
 
 
 
@@ -40,10 +40,35 @@ ASCII. Native tests passed on Windows and Linux/WSL; Windows mixed-script
 drawing and cleanup passed. Encoding, layout/shaping and editing scopes remain
 distinct; remote CI is pending. See the [text contract](native_unicode_text.md).
 
+## SV8.73.1 — repair manifest-based ELF linking (2026-10-18)
+
+[CI #1264](https://github.com/HPinho/sotlas_dev/actions/runs/39132698403)
+failed in all nine matrix jobs on the same existing regression gate:
+`test_cli_link_elf_list_uses_the_owned_linker_and_preserves_rejected_output`.
+Windows reported an access violation; Linux and Intel macOS reported SIGSEGV.
+The preceding SV8.72 workflow attempts also failed. The latest inspected
+successful workflow is #1261, not the later user-reported green candidate.
+
+The SV8.72 ABI-mode selection read `argv[1]` inside the shared linker handler.
+The manifest command synthesizes payload arguments only and leaves that slot
+null, so comparing it to the ABI command name dereferenced a null pointer.
+The handler now takes an explicit Boolean mode. CLI dispatch passes its selected
+mode; the existing manifest path passes plain mode. This repairs all three
+native host drivers without changing archive selection, ABI checks or tests.
+
+The old compiler reproduced the crash locally on Linux/WSL. The unchanged
+manifest, embedded ABI and static-library suites then passed 47 focused Windows
+tests after the repair. Both Windows and Linux/WSL then rebuilt the compiler
+from native seeds and proved Stage 2/3 byte identity. Each final compiler passed
+80 manifest, archive and typed/untyped ELF linker gates, including real Linux
+execution and the original crashing test. The new remote workflow must
+independently certify this correction; actual Intel macOS execution is pending.
+
 ## SV8.73 — native static libraries and lazy dependency closure (2026-10-18)
 
 **Starting baseline:** `e8fa57a`, reported green by the repository owner on
-2026-10-18. No workflow polling was performed for this delivery.
+2026-10-18. No workflow polling was performed for this delivery. Subsequent
+inspection found its CI attempts #1262/#1263 failed; see the SV8.73.1 repair.
 
 The complete static-library path is now implemented in Sotlas:
 
