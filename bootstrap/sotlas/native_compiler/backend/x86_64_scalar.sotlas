@@ -4721,22 +4721,46 @@ fn macho_segment(output: *mut u8, capacity: usize, offset: usize,
 pub fn link_macho64_executable(object: *const u8, object_length: usize,
     entry_name: *const u8, entry_name_length: usize,
     output: *mut u8, capacity: usize, output_length: *mut usize) -> bool {
+    let mut offset: usize = 0;
+    let mut length: usize = object_length;
+    return link_macho64_objects(object,unsafe{(&mut offset) as *const usize},
+        unsafe{(&mut length) as *const usize},1,entry_name,entry_name_length,
+        output,capacity,output_length,false);
+}
+
+// Shared native object format, Mach-O executable output. The typed path uses
+// the same manifest contract and relocation resolver as ELF library linking.
+pub fn link_macho64_objects(bytes: *const u8, offsets: *const usize,
+    lengths: *const usize, count: u32, entry_name: *const u8, entry_name_length: usize,
+    output: *mut u8, capacity: usize, output_length: *mut usize, typed: bool) -> bool {
     if output_length == null { return false; }
     unsafe { *output_length = 0; }
-    if object == null || output == null || entry_name == null
-        || object_length < 64 || capacity < 12288 || capacity > 268435456
-        || get_u32(object, object_length, 48) != (get_u32(object, object_length, 48) & 2) { return false; }
-    let mut offsets: [usize; 1] = 0;
-    let mut lengths: [usize; 1] = 0;
-    lengths[0] = object_length;
+    if bytes == null || offsets == null || lengths == null || output == null || entry_name == null
+        || count == 0 || count > 16 || (!typed && count != 1)
+        || capacity < 12288 || capacity > 268435456 { return false; }
+    if typed && !elf_integer_abi_objects_compatible(bytes,offsets,lengths,count) { return false; }
+    let process_entry: bool = darwin_process_entry_name(entry_name, entry_name_length);
+    let mut entry_found: bool = false;
+    let mut object_index: u32 = 0;
+    while object_index < count {
+        let object: *const u8 = unsafe{bytes+*(offsets+object_index)};
+        let length: usize = unsafe{*(lengths+object_index)};
+        if !validate_elf64_object(object,length)
+            || (get_u32(object,length,48) & ~(2 as u32)) != 0 { return false; }
+        if macho_entry_abi(object,length,entry_name,entry_name_length,process_entry)
+            && (!typed || elf_library_entry_abi(object,length,entry_name,entry_name_length)) {
+            if entry_found { return false; }
+            entry_found = true;
+        }
+        object_index = object_index+1;
+    }
+    if !entry_found { return false; }
     let mut linked_length: usize = 0;
     let payload: *mut u8 = unsafe { output + 4096 };
-    if !link_elf64_executable(object, unsafe { offsets as *const usize },
-        unsafe { lengths as *const usize }, 1, entry_name, entry_name_length,
+    if !link_elf64_executable(bytes, offsets,
+        lengths, count, entry_name, entry_name_length,
         null, 0, 4198400, true, payload, capacity - 8192,
         unsafe { (&linked_length) as *mut usize }) { return false; }
-    let process_entry: bool = darwin_process_entry_name(entry_name, entry_name_length);
-    if !macho_entry_abi(object, object_length, entry_name, entry_name_length, process_entry) { return false; }
     let memory_size: usize = get_u64(payload, linked_length, 104) as usize;
     if memory_size < linked_length || memory_size > 1879048192 { return false; }
     let start_file: usize = align_to(linked_length + 4096, 4096);
@@ -4980,28 +5004,71 @@ pub fn link_pe64_executable(
     entry_name: *const u8, entry_name_length: usize,
     output: *mut u8, capacity: usize, output_length: *mut usize
 ) -> bool {
+    let mut offset: usize = 0;
+    let mut length: usize = object_length;
+    return link_pe64_objects(object,unsafe{(&mut offset) as *const usize},
+        unsafe{(&mut length) as *const usize},1,entry_name,entry_name_length,
+        output,capacity,output_length,false);
+}
+
+// PE uses one extra resolver object for its startup/import bridge. Typed
+// libraries therefore allow up to fifteen selected Sotlas objects.
+pub fn link_pe64_objects(
+    bytes: *const u8, input_offsets: *const usize, input_lengths: *const usize, count: u32,
+    entry_name: *const u8, entry_name_length: usize,
+    output: *mut u8, capacity: usize, output_length: *mut usize, typed: bool
+) -> bool {
     if output_length == null { return false; }
     unsafe { *output_length = 0; }
-    if object == null || output == null || entry_name == null
-        || object_length < 64 || capacity < 5120 || capacity > 268435456 {
+    if bytes == null || input_offsets == null || input_lengths == null
+        || output == null || entry_name == null || count == 0 || count > 15
+        || (!typed && count != 1) || capacity < 5120 || capacity > 268435456 {
         return false;
     }
-    let import_mask: u32 = pe_import_mask(object, object_length);
-    if import_mask == 4294967295 || object_length > 8386544 { return false; }
+    if typed && !elf_integer_abi_objects_compatible(bytes,input_offsets,input_lengths,count) { return false; }
+    let mut object: *const u8 = bytes;
+    let mut object_length: usize = 0;
+    let mut import_mask: u32 = 0;
+    let mut total: usize = 0;
+    let mut offsets: [usize;16] = 0;
+    let mut lengths: [usize;16] = 0;
     let joined: *mut u8 = unsafe { g_pe_link_objects as *mut u8 };
-    if !pe_copy_bytes(joined, 8388608, 0, object, object_length) { return false; }
-    let provider_offset: usize = align_to(object_length, 16);
+    let mut slot: u32 = 0;
+    let mut entry_found: bool = false;
+    let input_limit: usize = 8386544;
+    while slot < count {
+        let part: *const u8 = unsafe{bytes+*(input_offsets+slot)};
+        let size: usize = unsafe{*(input_lengths+slot)};
+        if !validate_elf64_object(part,size) || get_u32(part,size,48) != 0
+            || total > input_limit || size > input_limit-total { return false; }
+        if !typed {
+            import_mask = pe_import_mask(part,size);
+            if import_mask == 4294967295 { return false; }
+        }
+        if !pe_copy_bytes(joined,8388608,total,part,size) { return false; }
+        offsets[slot as usize] = total;
+        lengths[slot as usize] = size;
+        if elf_typed_function_symbol_exists(part,size,entry_name,entry_name_length,true) {
+            if entry_found || (typed && !elf_library_entry_abi(part,size,entry_name,entry_name_length)) {
+                return false;
+            }
+            entry_found = true;
+            object = part;
+            object_length = size;
+        }
+        total = total+size;
+        slot = slot+1;
+    }
+    if !entry_found { return false; }
+    let provider_offset: usize = align_to(total, 16);
     let provider: *mut u8 = unsafe { joined + provider_offset };
     if !pe_import_provider(provider, 2048, import_mask, 1073741824) { return false; }
-    let mut offsets: [usize; 2] = 0;
-    let mut lengths: [usize; 2] = 0;
-    offsets[1] = provider_offset;
-    lengths[0] = object_length;
-    lengths[1] = 2048;
+    offsets[count as usize] = provider_offset;
+    lengths[count as usize] = 2048;
     let mut linked_length: usize = 0;
     let payload: *mut u8 = unsafe { output + 512 };
     if !link_elf64_executable(joined as *const u8, unsafe { offsets as *const usize },
-        unsafe { lengths as *const usize }, 2, entry_name, entry_name_length,
+        unsafe { lengths as *const usize }, count+1, entry_name, entry_name_length,
         null, 0, 4198400, true, payload, capacity - 4608,
         unsafe { (&linked_length) as *mut usize }) { return false; }
 
@@ -5070,7 +5137,7 @@ pub fn link_pe64_executable(
     let start_rva: usize = align_to(memory_size + 4096, 4096);
     if !pe_import_provider(provider, 2048, import_mask, start_rva) { return false; }
     if !link_elf64_executable(joined as *const u8, unsafe { offsets as *const usize },
-        unsafe { lengths as *const usize }, 2, entry_name, entry_name_length,
+        unsafe { lengths as *const usize }, count+1, entry_name, entry_name_length,
         null, 0, 4198400, true, payload, capacity - 4608,
         unsafe { (&linked_length) as *mut usize }) { return false; }
     if get_u64(payload, linked_length, 104) != (memory_size as u64) { return false; }
@@ -7435,4 +7502,30 @@ pub fn elf_archive_select(
     if !elf_integer_abi_objects_compatible(bytes,selected_offsets,selected_lengths,used) { return false; }
     unsafe{*written = used;}
     return true;
+}
+
+// Library executable startup has a deliberately small public contract:
+// an attested zero-argument U32 function, even when it is not in the first input.
+fn elf_library_entry_abi(object: *const u8, length: usize,
+    name: *const u8, name_length: usize) -> bool {
+    let note: usize = elf_integer_abi_manifest(object,length);
+    let table: usize = elf_abi_symtab(object,length);
+    if note == 0 || table == 0 { return false; }
+    let headers: usize = get_u64(object,length,40) as usize;
+    let strings_header: usize = headers+(get_u32(object,length,table+40) as usize)*64;
+    let strings: usize = get_u64(object,length,strings_header+24) as usize;
+    let symbols: usize = get_u64(object,length,table+24) as usize;
+    let count: u32 = get_u32(object,length,note+24);
+    let mut index: u32 = 0;
+    while index < count {
+        let at: usize = note+28+(index as usize)*108;
+        let symbol: usize = symbols+(get_u32(object,length,at) as usize)*24;
+        if get_u16(object,length,symbol+6) != 0
+            && elf_name_matches_slice(object,length,
+                strings+(get_u32(object,length,symbol) as usize),name,name_length) {
+            return get_u32(object,length,at+4) == 4 && get_u32(object,length,at+8) == 0;
+        }
+        index = index+1;
+    }
+    return false;
 }

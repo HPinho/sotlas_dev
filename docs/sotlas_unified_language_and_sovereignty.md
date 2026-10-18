@@ -2,6 +2,15 @@
 
 **Repository:** [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev)
 
+**SV8.74 (2026-10-18):** the same native integer objects and libraries can now
+produce ELF, Windows PE and static Intel Mach-O executables. Native commands
+preserve lazy member selection and ABI checks, with an explicit zero-argument
+U32 entry contract. Both rebuilt host compilers passed 93 focused gates and
+fixed points; the three executable formats and library bytes matched across
+Linux/Windows, and PE ran on Windows. Intel macOS execution and remote CI are
+pending. This is not COFF/Mach-O object archive or general foreign library
+support. See [scope and commands](native_library_targets.md).
+
 **SV8.73 (2026-10-18):** the native compiler can now create regular ELF static
 libraries and link their required members directly in Sotlas. Selection closes
 transitive/cyclic imports and retains embedded integer ABI checks, without a

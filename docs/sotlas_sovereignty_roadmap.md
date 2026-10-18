@@ -40,6 +40,46 @@ ASCII. Native tests passed on Windows and Linux/WSL; Windows mixed-script
 drawing and cleanup passed. Encoding, layout/shaping and editing scopes remain
 distinct; remote CI is pending. See the [text contract](native_unicode_text.md).
 
+## SV8.74 — libraries producing Windows and Intel macOS executables (2026-10-18)
+
+**Starting baseline:** `1ea4e12`, reported green by the repository owner.
+This delivery adds `--link-pe-libraries` and `--link-macho-libraries` to all
+three native host drivers. The commands reuse archive member selection and
+embedded integer ABI checks, then generate PE32+ or static Intel Mach-O
+executables directly in Sotlas. The existing ELF output remains available.
+
+The PE and Mach-O backends now accept multiple selected native objects. Their
+previous single-object APIs delegate to these implementations and preserve
+existing OS-import/process-entry paths. Typed library startup explicitly
+requires an embedded zero-argument U32 signature. Entry lookup works beyond
+the first object and inside a selected library member. Target-operation flags,
+ABI mismatches, duplicate definitions and unsupported signatures fail before
+opening the output file.
+
+This is one shared internal object/library representation with three native
+executable formats. It does not claim COFF/Mach-O object archives or general
+foreign library support. PE reserves a resolver slot for its startup bridge:
+15 selected Sotlas objects versus 16 for ELF/Mach-O. The complete
+[target contract](native_library_targets.md) documents these boundaries, and
+the [example](../examples/separate_modules/README.md) includes all three commands.
+
+**Local evidence:** 13 new target tests passed on Windows, including actual PE
+execution, entry placement, Boolean/signed and stack arguments, initialized
+data, deterministic images, capacity and negative cases. A further 33 existing
+Target IR, Mach-O cross-compilation and reality checks passed. Both Windows
+and Linux/WSL rebuilt from native seeds and proved Stage 2/3 byte identity;
+each final compiler passed 93 target, manifest, archive and ABI/linker gates.
+Linux and Windows produced byte-identical example objects, archive, ELF, PE
+and Mach-O images. The Linux-produced PE executed on Windows with result 42.
+Test sets overlap. Actual Intel macOS execution and new remote CI certification
+remain pending; no workflow polling was performed.
+
+**Still open:** semantic ownership/effect library signatures, pointer and
+aggregate boundaries, general system imports in library mode, dynamic libraries,
+foreign object formats, package visibility, ARM64/signing and the independent
+initial distribution. This closes the documented executable-target block for
+the integer library profile, not general native language parity.
+
 ## SV8.73.1 — repair manifest-based ELF linking (2026-10-18)
 
 [CI #1264](https://github.com/HPinho/sotlas_dev/actions/runs/39132698403)

@@ -17,8 +17,10 @@ echo $? # 42 on Linux x86-64
 ```
 
 The same commands are registered in the Linux, Windows and Intel macOS native
-drivers. They create ELF libraries and Linux x86-64 executables regardless of
-the host. Typed PE/COFF and Mach-O static libraries remain separate work.
+drivers. SV8.74 additionally links these libraries into Windows PE and Intel
+Mach-O executables through [explicit output-target commands](native_library_targets.md).
+Libraries still use internal ELF objects; COFF/Mach-O object archives and
+arbitrary foreign static libraries remain separate work.
 
 ## Selection and ABI rules
 

@@ -1417,7 +1417,7 @@ fn driver_link_elf_objects(argc: u64, argv: *const *const u8, typed: bool) -> u3
 
 // Static libraries use regular deterministic ar storage and lazy member selection.
 // Both modes load and validate all inputs before opening the destination.
-fn driver_static_library(argc: u64, argv: *const *const u8, linking: bool) -> u32 {
+fn driver_static_library(argc: u64, argv: *const *const u8, linking: bool, image_kind: u32) -> u32 {
     let mut first: usize = 3;
     if linking { first = 4; }
     if argc <= first as u64 || argc > (first+16) as u64 { return fail(1); }
@@ -1484,7 +1484,16 @@ fn driver_static_library(argc: u64, argv: *const *const u8, linking: bool) -> u3
         unsafe{lengths as *const usize},unsafe{archived as *const u32},count,
         unsafe{selected_offsets as *mut usize},unsafe{selected_lengths as *mut usize},
         unsafe{(&mut selected_count) as *mut u32}) { return fail(9); }
-    if !link_elf64_executable(bytes,unsafe{selected_offsets as *const usize},
+    if image_kind == 1 {
+        if !link_pe64_objects(bytes,unsafe{selected_offsets as *const usize},
+            unsafe{selected_lengths as *const usize},selected_count,entry,entry_length,
+            output,16777216,unsafe{(&mut written) as *mut usize},true) { return fail(9); }
+    } else if image_kind == 2 {
+        if !link_macho64_objects(bytes,unsafe{selected_offsets as *const usize},
+            unsafe{selected_lengths as *const usize},selected_count,entry,entry_length,
+            output,16777216,unsafe{(&mut written) as *mut usize},true) { return fail(9); }
+    } else if image_kind != 0 { return fail(1); }
+    else if !link_elf64_executable(bytes,unsafe{selected_offsets as *const usize},
         unsafe{selected_lengths as *const usize},selected_count,entry,entry_length,
         null,0,4194304,false,output,16777216,unsafe{(&mut written) as *mut usize})
         || written == 0 { return fail(9); }
@@ -1984,8 +1993,10 @@ fn driver_extended_dispatch(argc: u64, argv: *const *const u8, option: *const u8
     if option_equals(option,"--check-project-resolve",23) { return driver_compile_project(argc,argv,true,false,true,true); }
     if option_equals(option,"--verify-object",15) { return driver_object_operation(argc,argv,false,false); }
     if option_equals(option,"--link-elf-typed-pair",21) { return driver_link_elf_typed_pair(argc,argv); }
-    if option_equals(option,"--archive-elf",13) { return driver_static_library(argc,argv,false); }
-    if option_equals(option,"--link-elf-libraries",20) { return driver_static_library(argc,argv,true); }
+    if option_equals(option,"--archive-elf",13) { return driver_static_library(argc,argv,false,0); }
+    if option_equals(option,"--link-elf-libraries",20) { return driver_static_library(argc,argv,true,0); }
+    if option_equals(option,"--link-pe-libraries",19) { return driver_static_library(argc,argv,true,1); }
+    if option_equals(option,"--link-macho-libraries",22) { return driver_static_library(argc,argv,true,2); }
     if option_equals(option,"--link-elf-objects",18)
         || option_equals(option,"--link-elf-abi-objects",22) {
         return driver_link_elf_objects(argc,argv,

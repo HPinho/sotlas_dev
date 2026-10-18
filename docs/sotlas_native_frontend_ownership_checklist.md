@@ -2,6 +2,21 @@
 
 Repository: [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev).
 
+## SV8.74 — shared native libraries, three executable formats (2026-10-18)
+
+- [x] Link the existing integer libraries into Windows PE32+ executables.
+- [x] Link them into static Intel macOS Mach-O executables.
+- [x] Register explicit target commands in all native host drivers.
+- [x] Preserve archive selection and embedded ABI checks for every target.
+- [x] Resolve the typed U32 entry beyond the first object and in selected members.
+- [x] Enforce platform requirements and selected-object bounds before output I/O.
+- [x] Retain the single-object backend APIs and their established startup paths.
+- [x] Validate native self-builds, PE execution and cross-host artifact identity.
+
+Actual Intel macOS execution requires CI. General ownership/effects, pointer
+interfaces, COFF/Mach-O object archives and foreign linking remain open.
+See the [executable-target contract](native_library_targets.md).
+
 ## SV8.73 — native ELF static-library block (2026-10-18)
 
 - [x] Create deterministic regular ar libraries directly in Sotlas.
