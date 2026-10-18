@@ -11,9 +11,11 @@ from dataclasses import dataclass, replace
 from enum import Enum
 
 from .typed_ast import (
+    OwnershipBinding,
     OwnershipDomain,
     OwnershipDomainGraph,
     OwnershipDomainTransition,
+    OwnershipEnv,
     Phase1SemanticError,
     SemanticType,
     VarState,
@@ -30,6 +32,7 @@ class DeviceTransferState(str, Enum):
 class DeviceCompletionToken:
     function: str
     binding: str
+    device_binding: str
     type: SemanticType
     submission_point_id: str
     state: DeviceTransferState = DeviceTransferState.SUBMITTED
@@ -41,6 +44,7 @@ class DeviceCompletionToken:
 class DeviceReacquisitionPlan:
     function: str
     binding: str
+    device_binding: str
     type: SemanticType
     source: OwnershipDomain
     target: OwnershipDomain
@@ -56,6 +60,37 @@ def _require_point_id(point_id: str | None, *, operation: str) -> str:
             f"{operation} requires a non-empty source-stable point id"
         )
     return point_id
+
+
+def _canonical_device_destination(
+    graph: OwnershipDomainGraph,
+    transition: OwnershipDomainTransition,
+) -> str:
+    """Resolve the DEVICE owner created by the canonical handover edge."""
+    matches = tuple(
+        transfer
+        for transfer in graph.transfers
+        if transfer.function == transition.function
+        and transfer.binding == transition.binding
+        and transfer.via == "handover"
+        and transfer.point_id == transition.point_id
+        and transfer.source_domain is OwnershipDomain.EXCLUSIVE
+        and transfer.target_domain is OwnershipDomain.DEVICE
+        and transfer.destination_domain is OwnershipDomain.DEVICE
+        and isinstance(transfer.destination, str)
+        and bool(transfer.destination)
+    )
+    if not matches:
+        raise Phase1SemanticError(
+            f"device completion has no canonical handover edge for "
+            f"{transition.function}::{transition.binding}"
+        )
+    if len(matches) != 1:
+        raise Phase1SemanticError(
+            f"device completion has ambiguous handover edges for "
+            f"{transition.function}::{transition.binding}: {len(matches)}"
+        )
+    return matches[0].destination
 
 
 def open_device_completion(
@@ -93,9 +128,11 @@ def open_device_completion(
         submission.point_id,
         operation="device submission",
     )
+    device_binding = _canonical_device_destination(graph, submission)
     return DeviceCompletionToken(
         function=function,
         binding=binding,
+        device_binding=device_binding,
         type=submission.type,
         submission_point_id=point_id,
     )
@@ -157,6 +194,7 @@ def plan_device_reacquisition(
     return DeviceReacquisitionPlan(
         function=token.function,
         binding=token.binding,
+        device_binding=token.device_binding,
         type=token.type,
         source=OwnershipDomain.DEVICE,
         target=OwnershipDomain.EXCLUSIVE,
@@ -166,19 +204,14 @@ def plan_device_reacquisition(
     )
 
 
-def mark_device_reacquired(
+def _require_matching_reacquisition(
     token: DeviceCompletionToken,
     plan: DeviceReacquisitionPlan,
-) -> DeviceCompletionToken:
-    """Consume a matching reacquisition plan and close the transfer lifecycle."""
-    if token.state is not DeviceTransferState.COMPLETED:
-        raise Phase1SemanticError(
-            f"device reacquisition commit requires COMPLETED state, got "
-            f"{token.state.value}"
-        )
+) -> None:
     expected = (
         token.function,
         token.binding,
+        token.device_binding,
         token.type,
         token.submission_point_id,
         token.completion_point_id,
@@ -186,6 +219,7 @@ def mark_device_reacquired(
     actual = (
         plan.function,
         plan.binding,
+        plan.device_binding,
         plan.type,
         plan.submission_point_id,
         plan.completion_point_id,
@@ -200,8 +234,113 @@ def mark_device_reacquired(
         or plan.operation != "device_reacquire"
     ):
         raise Phase1SemanticError("invalid device reacquisition domain plan")
+
+
+def mark_device_reacquired(
+    token: DeviceCompletionToken,
+    plan: DeviceReacquisitionPlan,
+) -> DeviceCompletionToken:
+    """Consume a matching reacquisition plan and close the transfer lifecycle."""
+    if token.state is not DeviceTransferState.COMPLETED:
+        raise Phase1SemanticError(
+            f"device reacquisition commit requires COMPLETED state, got "
+            f"{token.state.value}"
+        )
+    _require_matching_reacquisition(token, plan)
     return replace(
         token,
         state=DeviceTransferState.REACQUIRED,
         reacquisition_point_id=plan.reacquisition_point_id,
     )
+
+
+def apply_device_reacquisition(
+    env: OwnershipEnv,
+    token: DeviceCompletionToken,
+    plan: DeviceReacquisitionPlan,
+    *,
+    destination: str,
+) -> OwnershipEnv:
+    """Rearm one EXCLUSIVE binding after a completed DEVICE lifecycle.
+
+    The DEVICE owner is consumed and becomes MOVED. The destination must be an
+    already-consumed EXCLUSIVE slot of the same type, mirroring explicit
+    handover semantics rather than creating a hidden owner or alias.
+    """
+    if token.state is not DeviceTransferState.REACQUIRED:
+        raise Phase1SemanticError(
+            f"device ownership application requires REACQUIRED state, got "
+            f"{token.state.value}"
+        )
+    _require_matching_reacquisition(token, plan)
+    if token.reacquisition_point_id != plan.reacquisition_point_id:
+        raise Phase1SemanticError(
+            "device reacquisition token and plan have different final identities"
+        )
+    if not destination or destination == token.device_binding:
+        raise Phase1SemanticError(
+            "device reacquisition requires a distinct exclusive destination"
+        )
+
+    source_index = next(
+        (
+            index
+            for index, item in enumerate(env.bindings)
+            if item.name == token.device_binding
+        ),
+        None,
+    )
+    destination_index = next(
+        (
+            index
+            for index, item in enumerate(env.bindings)
+            if item.name == destination
+        ),
+        None,
+    )
+    if source_index is None:
+        raise Phase1SemanticError(
+            f"device owner {token.device_binding!r} is not tracked"
+        )
+    if destination_index is None:
+        raise Phase1SemanticError(
+            f"device reacquisition destination {destination!r} is not tracked"
+        )
+
+    source = env.bindings[source_index]
+    target = env.bindings[destination_index]
+    if (
+        source.type != token.type
+        or source.domain is not OwnershipDomain.DEVICE
+        or source.state is not VarState.LIVE
+    ):
+        raise Phase1SemanticError(
+            f"device owner {token.device_binding!r} is not a live DEVICE owner"
+        )
+    if (
+        target.type != token.type
+        or target.domain is not OwnershipDomain.EXCLUSIVE
+        or target.state is not VarState.MOVED
+        or target.shared_account is not None
+    ):
+        raise Phase1SemanticError(
+            f"device reacquisition destination {destination!r} must be a "
+            "moved EXCLUSIVE owner of the same type"
+        )
+
+    updated = list(env.bindings)
+    updated[source_index] = OwnershipBinding(
+        source.name,
+        source.type,
+        VarState.MOVED,
+        OwnershipDomain.DEVICE,
+        source.shared_account,
+    )
+    updated[destination_index] = OwnershipBinding(
+        target.name,
+        target.type,
+        VarState.LIVE,
+        OwnershipDomain.EXCLUSIVE,
+        target.shared_account,
+    )
+    return OwnershipEnv(tuple(updated))
