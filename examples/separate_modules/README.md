@@ -1,5 +1,18 @@
 # Three independently compiled Sotlas modules
 
+The native compiler can build the project directly from the checked-in lists:
+
+```sh
+sotlas-native --build-pe-modules result.exe main_entry examples/separate_modules/modules.list
+sotlas-native --build-elf-modules result-linux main_entry examples/separate_modules/modules.list
+sotlas-native --build-macho-modules result-macos main_entry examples/separate_modules/modules.list
+```
+
+Run these commands from the repository root using a compiler built from SV8.75
+sources. Each command compiles the units separately in memory and writes only
+its final executable. See the [source-list build guide](../../docs/native_module_builds.md)
+for reusable library builds and platform limits.
+
 This example returns 42 through calls across three separately emitted ELF
 objects. The native linker checks every imported integer function signature
 against the compiler metadata embedded in its provider object.

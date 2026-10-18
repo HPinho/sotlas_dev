@@ -2,6 +2,15 @@
 
 **Repository:** [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev)
 
+**SV8.75 (2026-10-18):** source-list builds compile independent units natively
+and create a library or ELF/PE/Mach-O application with optional library inputs.
+Objects remain in memory; no concatenated unit, intermediate object file or
+host build driver is required. The example includes reproducible source lists.
+Both rebuilt native compilers passed 106 focused gates and Stage 2/3 fixed
+points locally. General package/import resolution and semantic signatures
+remain open; remote CI and Intel macOS execution are pending. See the
+[source-list build contract](native_module_builds.md).
+
 **SV8.74 (2026-10-18):** the same native integer objects and libraries can now
 produce ELF, Windows PE and static Intel Mach-O executables. Native commands
 preserve lazy member selection and ABI checks, with an explicit zero-argument

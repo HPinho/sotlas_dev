@@ -2,6 +2,20 @@
 
 Repository: [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev).
 
+## SV8.75 — complete builds from independent source lists (2026-10-18)
+
+- [x] Compile each listed source through the native frontend independently.
+- [x] Retain compiled objects in bounded native storage without intermediate files.
+- [x] Build reusable static libraries directly from source lists.
+- [x] Build ELF/PE/Mach-O applications from source roots and optional library lists.
+- [x] Reuse lazy selection, embedded ABI validation and target/startup checks.
+- [x] Preserve original diagnostics and destination bytes on late build rejection.
+- [x] Verify unit symbol/type/data isolation and individually compiled archive parity.
+- [x] Publish checked-in example lists and validate both rebuilt native compilers.
+
+General import/package resolution, private symbol linking and ownership/effect
+signatures remain separate work. See [commands and bounds](native_module_builds.md).
+
 ## SV8.74 — shared native libraries, three executable formats (2026-10-18)
 
 - [x] Link the existing integer libraries into Windows PE32+ executables.

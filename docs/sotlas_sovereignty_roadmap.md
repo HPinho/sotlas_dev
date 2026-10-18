@@ -40,6 +40,45 @@ ASCII. Native tests passed on Windows and Linux/WSL; Windows mixed-script
 drawing and cleanup passed. Encoding, layout/shaping and editing scopes remain
 distinct; remote CI is pending. See the [text contract](native_unicode_text.md).
 
+## SV8.75 — native source-list application and library builds (2026-10-18)
+
+**Starting baseline:** `95183be`, reported green by the repository owner.
+The native drivers now build complete applications and static libraries from
+explicit source lists. `--build-library` compiles independent sources into an
+archive; `--build-elf-modules`, `--build-pe-modules` and
+`--build-macho-modules` compile roots, optionally load listed libraries,
+resolve selected modules, check integer ABI and emit the chosen executable.
+
+Every unit passes the native lexer, parser, semantic checker, lowering and
+object writer independently. Sources are not concatenated and sibling symbols
+are not imported implicitly. Compiled objects are retained in a bounded
+8 MiB arena while the compiler's per-unit state is reset. Source errors retain
+their original path/line/column, and late failures preserve the old destination.
+No temporary object files, generated C, host linker or subprocess compiler are
+introduced. The additional storage and existing target bounds are explicit in
+the [build contract](native_module_builds.md).
+
+The [three-module example](../examples/separate_modules/README.md) now includes
+checked-in application, provider and library lists. It demonstrates both one
+command application builds and reusable source-built libraries. All three
+native host drivers register the same explicit commands.
+
+**Local evidence:** 54 focused Windows source-build, target, manifest and
+reality tests passed. Windows and Linux/WSL then rebuilt the compiler from
+native seeds and proved Stage 2/3 byte identity. Each final compiler passed
+106 source-build, target, manifest, archive and typed/untyped linker gates.
+Tests include no intermediate artifacts, byte equality with individually
+compiled archives, symbol/type/data isolation, late source failures, missing
+and invalid lists/libraries, transitive dependencies and target limits. PE ran
+on Windows and ELF on Linux. Test sets overlap. Actual Intel macOS execution
+and new remote CI certification remain pending; no workflow polling was done.
+
+**Still open:** automatic module/package resolution for this separate-unit
+path, visibility/mangling and semantic ownership/effect signatures, generic
+library boundaries, dynamic/foreign linking and independent first-seed
+distribution. This closes the documented source-list build workflow for the
+bounded native profile; it does not certify a complete native package manager.
+
 ## SV8.74 — libraries producing Windows and Intel macOS executables (2026-10-18)
 
 **Starting baseline:** `1ea4e12`, reported green by the repository owner.
