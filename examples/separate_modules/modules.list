@@ -1,0 +1,4 @@
+# Run the native command from the repository root.
+examples/separate_modules/app.sotlas
+examples/separate_modules/left.sotlas
+examples/separate_modules/right.sotlas
