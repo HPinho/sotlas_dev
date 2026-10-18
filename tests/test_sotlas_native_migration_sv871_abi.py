@@ -31,7 +31,7 @@ parameter_count:1,first_block:0,block_count:0,flags:TARGET_FUNCTION_EXTERNAL};
         self.ir('sv871_ir_import','''if !target_interface_wire_encode_from_function_abi(
  names,12,function_ir,abi_ptr,1,3,7,ib,256,ip)
  || ni!=56 || !target_interface_wire_valid(ib,ni,names,12)
- || in_bytes[8]!=TARGET_INTERFACE_IMPORT
+ || (in_bytes[8] as u32)!=TARGET_INTERFACE_IMPORT
  || in_bytes[12]!=4 || in_bytes[16]!=0
  || in_bytes[20]!=3 || in_bytes[24]!=1
  || in_bytes[48]!=4 || in_bytes[52]!=0
@@ -44,7 +44,7 @@ return 42;''')
 function_ir.flags=0;function_ir.name.offset=9;
 if !target_interface_wire_encode_from_function_abi(
  names,12,function_ir,abi_ptr,1,1,3,eb,256,ep)
- || ne!=56 || ex_bytes[8]!=TARGET_INTERFACE_EXPORT
+ || ne!=56 || (ex_bytes[8] as u32)!=TARGET_INTERFACE_EXPORT
  || !target_interface_wire_compatible(ib,ni,eb,ne,names,12){return 2;}
 return 42;''')
 

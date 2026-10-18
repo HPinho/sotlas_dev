@@ -13,7 +13,7 @@ class NativeTypedElfSV871Tests(unittest.TestCase):
     native=previous.NativeTypedObjectPairTests.native
     object=previous.NativeTypedObjectPairTests.object
     execute_elf=previous.NativeTypedObjectPairTests.execute_elf
-    wire=previous.NativeTypedObjectPairTests.wire
+    wire=staticmethod(previous.NativeTypedObjectPairTests.wire)
     setup_pair=previous.NativeTypedObjectPairTests.setup_pair
     link=previous.NativeTypedObjectPairTests.link
 

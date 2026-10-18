@@ -6816,12 +6816,14 @@ pub fn elf_typed_export_note_abi_matches(
     let mut bool_mask: u32 = 0;
     let mut index: u32 = 0;
     while index < parameters {
-        if get_u32(wire,wire_length,48+(index as usize)*8) == 1 {
+        let parameter_index: usize = index as usize;
+        let parameter_offset: usize = parameter_index*8+48;
+        if get_u32(wire,wire_length,parameter_offset) == 1 {
             bool_mask = bool_mask | ((1 as u32)<<index);
         }
         // The current ELF note contains no trusted ownership roles.
         // Only plain parameter contracts are certified by this path.
-        if get_u32(wire,wire_length,52+(index as usize)*8) != 0 { return false; }
+        if get_u32(wire,wire_length,parameter_offset+4) != 0 { return false; }
         index = index+1;
     }
     let headers: usize = get_u64(object,length,40) as usize;
