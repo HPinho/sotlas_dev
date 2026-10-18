@@ -7156,3 +7156,283 @@ pub fn elf_integer_abi_objects_compatible(
     }
     return true;
 }
+
+// SV8.73: deterministic regular ar containers. Short member names only;
+// symbol indexes, thin archives and vendor long-name tables are not accepted.
+pub fn elf_archive_magic(bytes: *const u8, length: usize) -> bool {
+    if bytes == null || length < 8 { return false; }
+    let magic: *const u8 = "!<arch>\n";
+    let mut index: usize = 0;
+    while index < 8 {
+        if unsafe{*(bytes+index)} != unsafe{*(magic+index)} { return false; }
+        index = index+1;
+    }
+    return true;
+}
+
+fn archive_decimal(bytes: *const u8, at: usize, width: usize, radix: usize) -> usize {
+    let maximum: usize = 18446744073709551615;
+    let mut index: usize = 0;
+    let mut value: usize = 0;
+    let mut digits: bool = false;
+    let mut ended: bool = false;
+    while index < width {
+        let byte: u8 = unsafe{*(bytes+at+index)};
+        if byte == 32 { ended = true; }
+        else {
+            if ended || byte < 48 || (byte as usize)-48 >= radix { return 18446744073709551615; }
+            let digit: usize = (byte as usize)-48;
+            if value > (maximum-digit)/radix { return maximum; }
+            value = value*radix+digit;
+            digits = true;
+        }
+        index = index+1;
+    }
+    if !digits { return 18446744073709551615; }
+    return value;
+}
+
+fn archive_store_decimal(output: *mut u8, at: usize, width: usize, value: usize) -> bool {
+    let mut digits: [u8;20] = 0;
+    let mut count: usize = 0;
+    let mut rest: usize = value;
+    while count == 0 || rest != 0 {
+        if count == 20 { return false; }
+        digits[count] = ((rest % 10)+48) as u8;
+        count = count+1;
+        rest = rest/10;
+    }
+    if count > width { return false; }
+    let mut index: usize = 0;
+    while index < width {
+        let mut byte: u8 = 32;
+        if index < count { byte = digits[count-index-1]; }
+        unsafe{*(output+at+index) = byte;}
+        index = index+1;
+    }
+    return true;
+}
+
+pub fn elf_archive_write(
+    bytes: *const u8, offsets: *const usize, lengths: *const usize, count: u32,
+    output: *mut u8, capacity: usize, written: *mut usize
+) -> bool {
+    if written == null { return false; }
+    unsafe{*written = 0;}
+    if bytes == null || offsets == null || lengths == null || output == null
+        || count == 0 || count > 16 || capacity < 8 { return false; }
+    let mut needed: usize = 8;
+    let mut index: u32 = 0;
+    while index < count {
+        let length: usize = unsafe{*(lengths+index)};
+        if elf_integer_abi_manifest(unsafe{bytes+*(offsets+index)},length) == 0
+            || needed > capacity || capacity-needed < 60
+            || length > capacity-needed-60 { return false; }
+        needed = needed+60+length;
+        if length % 2 != 0 {
+            if needed == capacity { return false; }
+            needed = needed+1;
+        }
+        index = index+1;
+    }
+    let magic: *const u8 = "!<arch>\n";
+    let mut byte: usize = 0;
+    while byte < 8 { unsafe{*(output+byte) = *(magic+byte);} byte = byte+1; }
+    let mut cursor: usize = 8;
+    index = 0;
+    while index < count {
+        byte = 0;
+        while byte < 60 { unsafe{*(output+cursor+byte) = 32;} byte = byte+1; }
+        // Names depend only on member order, never on absolute build paths.
+        unsafe{*(output+cursor) = 109;}
+        let mut digit: usize = 0;
+        let mut ordinal: u32 = index;
+        while digit < 8 {
+            unsafe{*(output+cursor+8-digit) = ((ordinal % 10)+48) as u8;}
+            ordinal = ordinal/10;
+            digit = digit+1;
+        }
+        unsafe{*(output+cursor+9) = 46; *(output+cursor+10) = 111; *(output+cursor+11) = 47;}
+        let length: usize = unsafe{*(lengths+index)};
+        if !archive_store_decimal(output,cursor+16,12,0)
+            || !archive_store_decimal(output,cursor+28,6,0)
+            || !archive_store_decimal(output,cursor+34,6,0)
+            || !archive_store_decimal(output,cursor+40,8,100644)
+            || !archive_store_decimal(output,cursor+48,10,length) { return false; }
+        unsafe{*(output+cursor+58) = 96; *(output+cursor+59) = 10;}
+        let start: usize = unsafe{*(offsets+index)};
+        byte = 0;
+        while byte < length {
+            unsafe{*(output+cursor+60+byte) = *(bytes+start+byte);}
+            byte = byte+1;
+        }
+        cursor = cursor+60+length;
+        if length % 2 != 0 { unsafe{*(output+cursor) = 10;} cursor = cursor+1; }
+        index = index+1;
+    }
+    unsafe{*written = cursor;}
+    return cursor == needed;
+}
+
+// Validate the complete archive before exposing its member table. Individual
+// member objects retain their embedded ABI records and source symbol names.
+pub fn elf_archive_members(
+    bytes: *const u8, length: usize, offsets: *mut usize, lengths: *mut usize,
+    capacity: u32, written: *mut u32
+) -> bool {
+    if written == null { return false; }
+    unsafe{*written = 0;}
+    if !elf_archive_magic(bytes,length) || offsets == null || lengths == null
+        || capacity == 0 || capacity > 256 { return false; }
+    let mut cursor: usize = 8;
+    let mut count: u32 = 0;
+    while cursor < length {
+        if length-cursor < 60 || count == capacity
+            || unsafe{*(bytes+cursor+58)} != 96 || unsafe{*(bytes+cursor+59)} != 10 { return false; }
+        let mut index: usize = 0;
+        let mut slash: bool = false;
+        while index < 16 {
+            let byte: u8 = unsafe{*(bytes+cursor+index)};
+            if slash { if byte != 32 { return false; } }
+            else if byte == 47 { if index == 0 { return false; } slash = true; }
+            else if !((byte >= 48 && byte <= 57) || (byte >= 65 && byte <= 90)
+                || (byte >= 97 && byte <= 122) || byte == 46 || byte == 95 || byte == 45) {
+                return false;
+            }
+            index = index+1;
+        }
+        if !slash || archive_decimal(bytes,cursor+16,12,10) == 18446744073709551615
+            || archive_decimal(bytes,cursor+28,6,10) == 18446744073709551615
+            || archive_decimal(bytes,cursor+34,6,10) == 18446744073709551615
+            || archive_decimal(bytes,cursor+40,8,8) == 18446744073709551615 { return false; }
+        let size: usize = archive_decimal(bytes,cursor+48,10,10);
+        let start: usize = cursor+60;
+        if size == 0 || size > length-start
+            || elf_integer_abi_manifest(unsafe{bytes+start},size) == 0 { return false; }
+        unsafe{*(offsets+count) = start; *(lengths+count) = size;}
+        count = count+1;
+        cursor = start+size;
+        if size % 2 != 0 {
+            if cursor == length || unsafe{*(bytes+cursor)} != 10 { return false; }
+            cursor = cursor+1;
+        }
+    }
+    if count == 0 { return false; }
+    unsafe{*written = count;}
+    return true;
+}
+
+fn elf_archive_has_definition(
+    object: *const u8, length: usize, table: usize,
+    requester: *const u8, requester_length: usize, name: usize
+) -> bool {
+    let headers: usize = get_u64(object,length,40) as usize;
+    let strings_header: usize = headers+(get_u32(object,length,table+40) as usize)*64;
+    let strings: usize = get_u64(object,length,strings_header+24) as usize;
+    let symbols: usize = get_u64(object,length,table+24) as usize;
+    let count: usize = (get_u64(object,length,table+32) as usize)/24;
+    let mut symbol: usize = 1;
+    while symbol < count {
+        let at: usize = symbols+symbol*24;
+        if unsafe{*(object+at+4)} == 18 && get_u16(object,length,at+6) != 0
+            && elf_names_equal(requester,requester_length,name,object,length,
+                strings+(get_u32(object,length,at) as usize)) { return true; }
+        symbol = symbol+1;
+    }
+    return false;
+}
+
+// Direct object inputs are roots. Archive members are selected lazily in input
+// order, then rescanned to a fixed point so transitive/cyclic imports work.
+// ELF and integer ABI checks run before the selected table can be linked.
+pub fn elf_archive_select(
+    bytes: *const u8, offsets: *const usize, lengths: *const usize,
+    archived: *const u32, count: u32, selected_offsets: *mut usize,
+    selected_lengths: *mut usize, written: *mut u32
+) -> bool {
+    if written == null { return false; }
+    unsafe{*written = 0;}
+    if bytes == null || offsets == null || lengths == null || archived == null
+        || selected_offsets == null || selected_lengths == null || count == 0 || count > 256 {
+        return false;
+    }
+    let mut active: [u32;256] = 0;
+    let mut tables: [usize;256] = 0;
+    let mut selected: [u32;16] = 0;
+    let mut used: u32 = 0;
+    let mut candidate: u32 = 0;
+    while candidate < count {
+        let object: *const u8 = unsafe{bytes+*(offsets+candidate)};
+        let length: usize = unsafe{*(lengths+candidate)};
+        if elf_integer_abi_manifest(object,length) == 0 { return false; }
+        tables[candidate as usize] = elf_abi_symtab(object,length);
+        if unsafe{*(archived+candidate)} == 0 {
+            if used == 16 { return false; }
+            active[candidate as usize] = 1;
+            selected[used as usize] = candidate;
+            used = used+1;
+        } else if unsafe{*(archived+candidate)} != 1 { return false; }
+        candidate = candidate+1;
+    }
+    if used == 0 { return false; }
+    let mut index: u32 = 0;
+    while index < used {
+        let current: u32 = selected[index as usize];
+        let object: *const u8 = unsafe{bytes+*(offsets+current)};
+        let length: usize = unsafe{*(lengths+current)};
+        let table: usize = tables[current as usize];
+        let headers: usize = get_u64(object,length,40) as usize;
+        let strings_header: usize = headers+(get_u32(object,length,table+40) as usize)*64;
+        let strings: usize = get_u64(object,length,strings_header+24) as usize;
+        let symbols: usize = get_u64(object,length,table+24) as usize;
+        let symbol_count: usize = (get_u64(object,length,table+32) as usize)/24;
+        let mut symbol: usize = 1;
+        while symbol < symbol_count {
+            let at: usize = symbols+symbol*24;
+            let info: u8 = unsafe{*(object+at+4)};
+            if (info >> 4) == 1 && get_u16(object,length,at+6) == 0 {
+                let name: usize = strings+(get_u32(object,length,at) as usize);
+                let mut found: bool = false;
+                candidate = 0;
+                while candidate < count {
+                    if active[candidate as usize] != 0
+                        && elf_archive_has_definition(unsafe{bytes+*(offsets+candidate)},
+                            unsafe{*(lengths+candidate)},tables[candidate as usize],object,length,name) {
+                        found = true;
+                        break;
+                    }
+                    candidate = candidate+1;
+                }
+                if !found {
+                    candidate = 0;
+                    while candidate < count {
+                        if active[candidate as usize] == 0 && unsafe{*(archived+candidate)} == 1
+                            && elf_archive_has_definition(unsafe{bytes+*(offsets+candidate)},
+                                unsafe{*(lengths+candidate)},tables[candidate as usize],object,length,name) {
+                            if used == 16 { return false; }
+                            active[candidate as usize] = 1;
+                            selected[used as usize] = candidate;
+                            used = used+1;
+                            found = true;
+                            break;
+                        }
+                        candidate = candidate+1;
+                    }
+                }
+                if !found { return false; }
+            }
+            symbol = symbol+1;
+        }
+        index = index+1;
+    }
+    index = 0;
+    while index < used {
+        let slot: u32 = selected[index as usize];
+        unsafe{*(selected_offsets+index) = *(offsets+slot);
+            *(selected_lengths+index) = *(lengths+slot);}
+        index = index+1;
+    }
+    if !elf_integer_abi_objects_compatible(bytes,selected_offsets,selected_lengths,used) { return false; }
+    unsafe{*written = used;}
+    return true;
+}
