@@ -1414,6 +1414,82 @@ fn driver_link_elf_objects(argc: u64, argv: *const *const u8) -> u32 {
     return driver_write_artifact(output,image,image_length,false);
 }
 
+// Static libraries use regular deterministic ar storage and lazy member selection.
+// Both modes load and validate all inputs before opening the destination.
+fn driver_static_library(argc: u64, argv: *const *const u8, linking: bool) -> u32 {
+    let mut first: usize = 3;
+    if linking { first = 4; }
+    if argc <= first as u64 || argc > (first+16) as u64 { return fail(1); }
+    let destination: *const u8 = unsafe{*(argv+2)};
+    if destination == null { return fail(1); }
+    let mut entry: *const u8 = destination;
+    let mut entry_length: usize = 0;
+    if linking {
+        entry = unsafe{*(argv+3)};
+        if entry == null { return fail(1); }
+        while entry_length < 4096 && unsafe{*(entry+entry_length)} != 0 {
+            entry_length = entry_length+1;
+        }
+        if entry_length == 0 || entry_length == 4096 { return fail(1); }
+    }
+    let bytes: *mut u8 = unsafe{driver_object_bytes as *mut u8};
+    let mut positions: [usize;256] = 0;
+    let mut lengths: [usize;256] = 0;
+    let mut archived: [u32;256] = 0;
+    let mut count: u32 = 0;
+    let mut total: usize = 0;
+    let mut argument: usize = first;
+    while argument < argc as usize {
+        if total == 8388608 || count == 256 { return fail(3); }
+        let size: i64 = driver_read_artifact(unsafe{*(argv+argument)},
+            unsafe{bytes+total},8388608-total);
+        if size == -2 { return fail(2); }
+        if size <= 0 { return fail(3); }
+        if linking && elf_archive_magic(unsafe{bytes+total},size as usize) {
+            let mut members: u32 = 0;
+            if !elf_archive_members(unsafe{bytes+total},size as usize,
+                unsafe{(positions as *mut usize)+count},
+                unsafe{(lengths as *mut usize)+count},256-count,
+                unsafe{(&mut members) as *mut u32}) { return fail(8); }
+            let mut member: u32 = 0;
+            while member < members {
+                let slot: usize = (count+member) as usize;
+                positions[slot] = positions[slot]+total;
+                archived[slot] = 1;
+                member = member+1;
+            }
+            count = count+members;
+        } else {
+            if elf_integer_abi_manifest(unsafe{bytes+total},size as usize) == 0 { return fail(8); }
+            positions[count as usize] = total;
+            lengths[count as usize] = size as usize;
+            count = count+1;
+        }
+        total = total+size as usize;
+        argument = argument+1;
+    }
+    let output: *mut u8 = unsafe{driver_image_bytes as *mut u8};
+    let mut written: usize = 0;
+    if !linking {
+        if !elf_archive_write(bytes,unsafe{positions as *const usize},
+            unsafe{lengths as *const usize},count,output,16777216,
+            unsafe{(&mut written) as *mut usize}) { return fail(9); }
+        return driver_write_artifact(destination,output,written,false);
+    }
+    let mut selected_offsets: [usize;16] = 0;
+    let mut selected_lengths: [usize;16] = 0;
+    let mut selected_count: u32 = 0;
+    if !elf_archive_select(bytes,unsafe{positions as *const usize},
+        unsafe{lengths as *const usize},unsafe{archived as *const u32},count,
+        unsafe{selected_offsets as *mut usize},unsafe{selected_lengths as *mut usize},
+        unsafe{(&mut selected_count) as *mut u32}) { return fail(9); }
+    if !link_elf64_executable(bytes,unsafe{selected_offsets as *const usize},
+        unsafe{selected_lengths as *const usize},selected_count,entry,entry_length,
+        null,0,4194304,false,output,16777216,unsafe{(&mut written) as *mut usize})
+        || written == 0 { return fail(9); }
+    return driver_write_artifact(destination,output,written,false);
+}
+
 fn driver_stamp_seed(seed: *const u8, output: *const u8) -> u32 {
     if seed == null || output == null { return fail(1); }
     let envelope: u32=driver_seed_envelope(seed);if envelope != 0 { return envelope; }
@@ -1907,6 +1983,8 @@ fn driver_extended_dispatch(argc: u64, argv: *const *const u8, option: *const u8
     if option_equals(option,"--check-project-resolve",23) { return driver_compile_project(argc,argv,true,false,true,true); }
     if option_equals(option,"--verify-object",15) { return driver_object_operation(argc,argv,false,false); }
     if option_equals(option,"--link-elf-typed-pair",21) { return driver_link_elf_typed_pair(argc,argv); }
+    if option_equals(option,"--archive-elf",13) { return driver_static_library(argc,argv,false); }
+    if option_equals(option,"--link-elf-libraries",20) { return driver_static_library(argc,argv,true); }
     if option_equals(option,"--link-elf-objects",18)
         || option_equals(option,"--link-elf-abi-objects",22) {
         return driver_link_elf_objects(argc,argv);

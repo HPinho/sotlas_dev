@@ -2,6 +2,22 @@
 
 Repository: [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev).
 
+## SV8.73 — native ELF static-library block (2026-10-18)
+
+- [x] Create deterministic regular ar libraries directly in Sotlas.
+- [x] Validate every stored ELF member and its compiler ABI manifest.
+- [x] Link mixed direct objects and libraries without a host archiver/linker.
+- [x] Select members lazily and resolve transitive/cyclic function imports.
+- [x] Preserve exact integer ABI checks across every selected boundary.
+- [x] Reject malformed storage, capacity failures and incompatible selected
+  providers before opening the output artifact.
+- [x] Expose the commands in all three native host drivers and document the
+  reusable three-module example with positive/negative execution gates.
+
+This completes the regular short-name ELF library subset. The parent items for
+general archives/libraries, ownership/effect signatures, PE/Mach-O and dynamic
+linking remain open. See [format, bounds and tests](native_static_libraries.md).
+
 ## SV8.72 — embedded integer ABI for independent modules (2026-10-17)
 
 - [x] Emit versioned signatures automatically in production ELF objects,

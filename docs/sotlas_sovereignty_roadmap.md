@@ -40,6 +40,50 @@ ASCII. Native tests passed on Windows and Linux/WSL; Windows mixed-script
 drawing and cleanup passed. Encoding, layout/shaping and editing scopes remain
 distinct; remote CI is pending. See the [text contract](native_unicode_text.md).
 
+## SV8.73 — native static libraries and lazy dependency closure (2026-10-18)
+
+**Starting baseline:** `e8fa57a`, reported green by the repository owner on
+2026-10-18. No workflow polling was performed for this delivery.
+
+The complete static-library path is now implemented in Sotlas:
+
+- `--archive-elf OUTPUT INPUT.o...` creates deterministic regular ar libraries
+  from independently emitted native ELF objects and their embedded ABI records.
+- `--link-elf-libraries OUTPUT ENTRY INPUT...` accepts direct objects and
+  libraries, selects only needed archive members, resolves transitive and
+  cyclic imports to closure, checks integer ABI compatibility and invokes the
+  existing native linker before publishing the executable.
+- Direct objects are roots. Selected definitions take precedence; remaining
+  imports select the first matching archive member in input order. Unused
+  members do not introduce duplicate definitions or unresolved dependencies.
+- All stored members are validated. Malformed containers/ELF, unsupported
+  archive extensions, missing providers, incompatible ABI and bounded-table
+  failures preserve previous output bytes before artifact writing.
+- The commands are registered in Linux, Windows and Intel macOS drivers.
+  Production archive parsing, writing, member selection and linking do not
+  invoke Python, C, a host archiver or a host linker.
+
+The [static library contract](native_static_libraries.md) records the container
+subset, selection rules, I/O limitations and explicit capacities: 16 input
+files, 8 MiB total, 256 candidates and 16 selected objects. The existing
+[three-module example](../examples/separate_modules/README.md) now documents
+both direct object linking and distribution of providers through a library.
+
+**Local validation:** 57 focused Windows tests passed for archives, existing
+embedded ABI, untyped multi-object linking and reality checks. Both native
+compilers were then rebuilt from seeds with host tools absent from PATH and
+proved Stage 2/3 byte identity. Each final rebuilt compiler passed 68 archive,
+embedded ABI and older typed/untyped linker gates, including the additional
+256/257 candidate boundary. Linux executed the resulting ELF programs,
+including transitive/cyclic cases. Test sets overlap. Remote CI and actual
+Intel macOS execution remain pending.
+
+**Still open:** ownership/effect/visibility signatures, pointer and aggregate
+library interfaces, typed PE/Mach-O libraries, dynamic linking, general foreign
+archive compatibility, package-level separate compilation and a fully
+independent initial distribution. This closes the documented native ELF
+static-library block; it does not certify all archive or language functionality.
+
 ## SV8.72 — embedded ABI and independent multi-module linking (2026-10-17)
 
 This delivery connects the production native object writer to multi-module

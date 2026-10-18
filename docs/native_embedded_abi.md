@@ -85,5 +85,6 @@ rejections that preserve an existing executable. Corruption cases exercise the
 wire parser rather than substituting a test implementation for the linker.
 
 Full ownership/effect signatures, pointer lifetimes, public package APIs,
-archives, dynamic libraries and the corresponding PE/Mach-O metadata remain
-outside this integer ABI delivery.
+dynamic libraries and the corresponding PE/Mach-O metadata remain outside
+this integer ABI delivery. SV8.73 adds [native static libraries](native_static_libraries.md)
+with lazy member selection while preserving these ABI checks.

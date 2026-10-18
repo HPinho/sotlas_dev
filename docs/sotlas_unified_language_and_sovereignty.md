@@ -2,6 +2,14 @@
 
 **Repository:** [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev)
 
+**SV8.73 (2026-10-18):** the native compiler can now create regular ELF static
+libraries and link their required members directly in Sotlas. Selection closes
+transitive/cyclic imports and retains embedded integer ABI checks, without a
+host archiver or linker. Both rebuilt Windows and Linux compilers passed 68
+archive/linker gates and Stage 2/3 fixed points locally. Remote certification,
+general semantic library signatures, PE/Mach-O and dynamic linking remain open.
+See the [static library contract](native_static_libraries.md).
+
 **SV8.72 (2026-10-17):** production ELF objects now embed native function ABI
 records. `--link-elf-abi-objects` checks integer signatures across up to sixteen
 independently compiled objects, including all imports and multiple providers,
