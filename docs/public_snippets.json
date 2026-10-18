@@ -203,6 +203,13 @@
       "verification": "native-stage3-match-range-fixtures; outside-the-canonical-stage0-c11-runnable-policy"
     },
     {
+      "id": "native-inline-record-array-fields",
+      "document": "docs/native_record_array_fields.md",
+      "status": "EXPERIMENTAL",
+      "source": "examples/record_table/main.sotlas",
+      "verification": "tests/test_sotlas_native_record_array_fields.py; native-stage3-execution-on-windows-and-linux; outside-the-canonical-stage0-c11-runnable-policy"
+    },
+    {
       "id": "unified-sovereignty-reference-snippets",
       "document": "docs/sotlas_unified_language_and_sovereignty.md",
       "status": "DESIGN_ONLY",

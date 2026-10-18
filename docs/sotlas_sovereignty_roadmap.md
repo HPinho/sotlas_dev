@@ -7,6 +7,21 @@
 
 
 
+## SV8.76.1 - public snippet inventory repair (2026-10-18)
+
+[CI #1268](https://github.com/HPinho/sotlas_dev/actions/runs/39177099085/job/117821904507)
+passed the C11 example compilation step, then failed the documentation reality
+gate: `native_record_array_fields.md` contained a Sotlas fence without an entry
+in `public_snippets.json`. The new entry links the checked-in inventory source
+and native execution tests. It follows the existing EXPERIMENTAL classification
+for native-only examples; RUNNABLE specifically promises canonical Stage-0/C11
+coverage. No test or acceptance rule is relaxed.
+
+The 18 Windows reality/phase-audit tests and generated phase matrix check passed
+locally. The full WSL reality suite could not complete because its hosted
+bootstrap requires Clang, absent from that environment. New remote CI remains
+pending. Compiler sources and the native array implementation are unchanged.
+
 ## SV8.76 - inline record array fields (2026-10-18)
 
 **Starting baseline:** `be555e0`, reported green by the repository owner.
