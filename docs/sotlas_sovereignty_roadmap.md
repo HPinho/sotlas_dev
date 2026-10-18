@@ -40,6 +40,27 @@ ASCII. Native tests passed on Windows and Linux/WSL; Windows mixed-script
 drawing and cleanup passed. Encoding, layout/shaping and editing scopes remain
 distinct; remote CI is pending. See the [text contract](native_unicode_text.md).
 
+## SV8.71.1 — restore bootstrap and ABI regression gates (2026-10-17)
+
+CI #1260 failed while building Stage 1: literal-first wire offset arithmetic
+inferred `i64` for an argument requiring `usize`. The ELF ABI checker now
+computes the parameter offset from an explicitly typed `usize` index and
+reuses that offset for both the type and ownership-role fields. Wire layout
+and ABI rejection rules are unchanged.
+
+The focused rerun also exposed two test fixture errors: an adopted static
+wire serializer was being bound as an instance method, and byte fields were
+compared directly with `u32` interface constants. The helper retains its
+static binding, and those comparisons explicitly widen the byte to `u32`.
+All existing acceptance, rejection and output-preservation assertions remain.
+
+Local Windows validation passed all 50 ABI, typed ELF pair and reality gates.
+Linux/WSL independently rebuilt the compiler from a native seed with host
+tools absent from PATH, proved Stage 2/3 byte identity, and passed 34 ABI
+and typed ELF pair gates using that rebuilt driver, including ELF execution.
+The latest inspected certified baseline remains CI #1259; this correction
+requires its own remote CI result.
+
 ## SV8.71 — complete plain-import coverage and compiler ABI provenance (2026-10-17)
 
 **Certified green baseline:** `684e674ca15c31441f88293757dfe69eac855f67` /
