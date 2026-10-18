@@ -1402,6 +1402,11 @@ fn driver_link_elf_objects(argc: u64, argv: *const *const u8) -> u32 {
     }
     let image: *mut u8 = unsafe{driver_image_bytes as *mut u8};
     let mut image_length: usize = 0;
+    if option_equals(unsafe{*(argv+1)},"--link-elf-abi-objects",22)
+        && !elf_integer_abi_objects_compatible(bytes,
+            unsafe{offsets as *const usize},unsafe{lengths as *const usize},index as u32) {
+        return fail(9);
+    }
     let linked: bool = link_elf64_executable(bytes,
         unsafe{offsets as *const usize},unsafe{lengths as *const usize},
         index as u32,entry,entry_length,null,0,4194304,false,
@@ -1903,7 +1908,10 @@ fn driver_extended_dispatch(argc: u64, argv: *const *const u8, option: *const u8
     if option_equals(option,"--check-project-resolve",23) { return driver_compile_project(argc,argv,true,false,true,true); }
     if option_equals(option,"--verify-object",15) { return driver_object_operation(argc,argv,false,false); }
     if option_equals(option,"--link-elf-typed-pair",21) { return driver_link_elf_typed_pair(argc,argv); }
-    if option_equals(option,"--link-elf-objects",18) { return driver_link_elf_objects(argc,argv); }
+    if option_equals(option,"--link-elf-objects",18)
+        || option_equals(option,"--link-elf-abi-objects",22) {
+        return driver_link_elf_objects(argc,argv);
+    }
     if option_equals(option,"--link-object",13) { return driver_object_operation(argc,argv,true,false); }
     if option_equals(option,"--compare-three",15) {
         if argc != 5 { return fail(1); }

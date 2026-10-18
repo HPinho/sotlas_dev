@@ -1,0 +1,9 @@
+module separate_right;
+
+pub fn bias() -> u32 {
+    return 20;
+}
+
+pub fn right(value: u32) -> u32 {
+    return value;
+}

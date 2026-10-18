@@ -1,0 +1,7 @@
+module separate_left;
+
+@extern(C) fn bias() -> u32;
+
+pub fn left(value: u32) -> u32 {
+    return value + unsafe { bias() };
+}
