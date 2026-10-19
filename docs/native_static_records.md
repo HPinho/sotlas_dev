@@ -32,8 +32,9 @@ initialized channel records, a returned snapshot and dynamic array indexing.
 
 This is a fixed-layout POD profile. Pointers, resource-bearing/ownership-qualified
 records, runtime calls and reads of another mutable static are rejected as
-initializers. Aggregate module constants, nonzero standalone global record arrays,
-string relocations and general foreign/aggregate library ABI are not added here.
+initializers. Aggregate module constants, string relocations and general
+foreign/aggregate library ABI are not added here. Initialized standalone global
+record arrays now have a separate [native table contract](native_static_tables.md).
 
 The existing shared initializer pool contains 4,096 entries. A record consumes
 one entry per layout byte, including padding; scalar array lists consume one

@@ -789,7 +789,7 @@ pub fn main_entry()->u32{if unsafe{ZERO[1]}!=0{return 1;}return unsafe{DATA[3]} 
                'static mut DATA:[u32;2]=[1,UNKNOWN];','static mut DATA:[u32;2]=[1,1/0];',
                'fn value()->u32{return 2;}static mut DATA:[u32;2]=[1,value()];',
                'static mut DATA:[*mut u8;2]=[null,null];',
-               'struct Token{pub value:u32;}static mut DATA:[Token;1]=[Token{value:42}];')
+               'struct Token{pub value:*mut u32;}static mut DATA:[Token;1]=[Token{value:null}];')
         for index,source in enumerate(cases):
             with self.subTest(index=index):
                 self.compile('bad_static_list_'+str(index),source+'pub fn main_entry()->u32{return 42;}',success=False)

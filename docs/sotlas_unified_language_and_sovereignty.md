@@ -2,6 +2,13 @@
 
 **Repository:** [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev)
 
+**SV8.78 (2026-10-19):** global record tables accept constant lists/repetition,
+including nested POD records and array fields. Native code uses checked element
+addresses with actual padded stride, supports independent element copies and
+updates mutable tables. Pointer/resource initializers and general slice/array ABI
+remain outside the profile. See the [contract](native_static_tables.md) and
+[dispatch example](../examples/static_dispatch/README.md).
+
 **SV8.77 (2026-10-18):** pointer-free static record configurations now become
 native initialized data/BSS, including nested records and scalar/record arrays.
 The native path preserves padded layout, constant typing, copies and mutable
