@@ -2,6 +2,19 @@
 
 Repository: [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev).
 
+## SV8.78 - initialized global record tables (2026-10-19)
+
+- [x] Serialize typed global record array lists and repetitions into native data/BSS.
+- [x] Preserve padded element stride, zero padding and nested record/array values.
+- [x] Read/write indexed entries and independently copy/return supported elements.
+- [x] Enforce literal bounds, dynamic traps, immutable writes and lexical shadowing.
+- [x] Reject runtime/resource/pointer initializers, mismatches and pool exhaustion.
+- [x] Preserve the compiler's existing large zero-storage table shorthand.
+- [x] Add an immutable command-table example with native execution gates.
+
+See the [table contract](native_static_tables.md). General slices, whole-array
+assignment and resource/aggregate array ABI remain open.
+
 ## SV8.77 - native static record configurations (2026-10-18)
 
 - [x] Fold pointer-free static record literals with typed constant scalar fields.
@@ -1631,6 +1644,7 @@ suite. These results do not substitute for native Intel macOS execution in CI.
   - [x] Preserve scalar widths and floating bits in writable native data; keep all-zero lists in zero storage.
   - [x] Execute global Boolean array elements in guards and preserve indexed mutation.
   - [x] Serialize static pointer-free records, nested records and scalar/record array fields with deterministic padding and bounded typed constant evaluation.
+  - [x] Initialize global pointer-free record arrays from exact typed lists/repetition and execute checked element operations.
   - [ ] Complete remaining aggregate forms, strings, pointer relocations and resource initializers.
 - [ ] Expand numeric literals, including scientific notation and decimals outside current bounds.
   - [x] Parse native `e`/`E` notation and explicit exponent signs; convert the bounded rational without a host float parser.

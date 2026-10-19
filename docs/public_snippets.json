@@ -203,6 +203,13 @@
       "verification": "native-stage3-match-range-fixtures; outside-the-canonical-stage0-c11-runnable-policy"
     },
     {
+      "id": "native-global-record-tables",
+      "document": "docs/native_static_tables.md",
+      "status": "EXPERIMENTAL",
+      "source": "examples/static_dispatch/main.sotlas",
+      "verification": "tests/test_sotlas_native_static_tables.py; native-execution-and-object-data-gates; outside-the-canonical-stage0-c11-runnable-policy"
+    },
+    {
       "id": "native-static-record-initialization",
       "document": "docs/native_static_records.md",
       "status": "EXPERIMENTAL",

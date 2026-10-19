@@ -1,0 +1,28 @@
+module static_dispatch;
+
+struct Command {
+    pub code: u16;
+    pub result: u32;
+}
+
+static commands: [Command; 3] = [
+    Command { code: 10, result: 20 },
+    Command { code: 11, result: 22 },
+    Command { code: 12, result: 0 }
+];
+
+fn dispatch(code: u16) -> u32 {
+    let mut index: usize = 0;
+    while index < 3 {
+        unsafe {
+            if commands[index].code == code { return commands[index].result; }
+        }
+        index = index + 1;
+    }
+    return 0;
+}
+
+pub fn main_entry() -> u32 {
+    if dispatch(99) != 0 { return 1; }
+    return dispatch(10) + dispatch(11);
+}

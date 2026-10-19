@@ -7,6 +7,40 @@
 
 
 
+## SV8.78 - initialized global record tables (2026-10-19)
+
+**Starting baseline:** `8d8f0b5`, reported green by the repository owner.
+The Sotlas-written compiler now accepts global pointer-free record arrays with
+constant element lists/repetition. Serialization reuses native padded layout and
+the existing bounded initializer pool. Nested records, scalar/record array fields
+and typed scalar constants produce data/BSS directly, without C initializers or
+runtime constructors. Explicit initialized tables accept 1-256 entries and share
+the 4,096-entry pool, one entry per serialized byte including padding.
+
+The native CFG now resolves these table elements through checked addresses with
+actual element stride. It supports field reads/mutation, whole-element writes,
+independent element copies/returns and supported internal borrows. Literal bounds,
+dynamic traps, immutability, lexical shadowing and nominal types remain checked.
+Pointer/resource-bearing tables and runtime initializers remain excluded from
+this new direct-access/initialized profile. The compiler's existing larger `=0`
+storage arrays are preserved. See the [table contract](native_static_tables.md)
+and [command dispatch example](../examples/static_dispatch/README.md).
+
+**Local evidence:** Windows and Linux/WSL rebuilt the original compiler sources
+from native seeds, with host tools absent from PATH, and proved Stage 2/3 byte
+identity. The focused frontend/Target IR/static suites passed 192 tests; the
+18 reality/phase-audit tests and example manifest also passed locally. Test sets
+overlap. Each rebuilt compiler passed 39 static-table/static-record tests,
+including original-source execution, raw object padding/BSS checks, exact byte
+and element limits, independent copies and a dynamic bounds trap. Both compilers
+emitted identical object/ELF/PE/Mach-O bytes for the dispatch example; ELF ran on
+Linux and PE on Windows with status 42. Intel macOS execution and new remote CI
+certification remain pending.
+
+The old negative single-record initializer is now positively executed; its
+negative slot tests a pointer-bearing record. Remaining slices, resource storage,
+whole-array assignment and aggregate array ABI are still open parent work.
+
 ## SV8.77 - native static record configurations (2026-10-18)
 
 **Starting baseline:** `da05329`, reported green by the repository owner.
