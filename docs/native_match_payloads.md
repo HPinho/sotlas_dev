@@ -52,6 +52,12 @@ The layout is internal and does not define a C enum ABI or a stable public forma
 Native support does not certify canonical Stage-0/C11 parity or every master
 language ownership domain.
 
+Scalar enums keep the existing U32 discriminant conversion contract, including
+paths used in U32 initializers, comparisons and returns. Aggregate inference for
+unit-variant paths applies only when their enum has payload variants. The optional
+native C11 emitter still rejects payload declarations, with a diagnostic at the
+opening payload delimiter; parsing a payload does not imply C11 layout support.
+
 ## Evidence
 
 - `tests/test_sotlas_native_match_payloads.py`: construction, calls/returns,

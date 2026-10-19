@@ -103,6 +103,15 @@ V::Data(n,ready)=>{if ready{return (n as u32)+2;}0}};}''')
 fn read(value:V)->u32{return match value{V::Empty=>2,V::Some(n)=>n};}
 pub fn main_entry()->u32{let value=V::Some(40);let empty=V::Empty;return read(value)+read(empty);}''')
 
+    def test_scalar_discriminants_and_payload_inference_coexist(self):
+        self.program('payload_scalar_enum_compatibility', '''enum Operation{Answer=42}
+enum Value{None,Some(u32)}
+fn answer()->u32{return Operation::Answer;}
+fn read(value:Value)->u32{return match value{Value::None=>0,Value::Some(n)=>n};}
+pub fn main_entry()->u32{let op:u32=Operation::Answer;
+if op!=Operation::Answer{return 1;}let empty=Value::None;let value=Value::Some(answer());
+return read(empty)+read(value);}''')
+
     def test_nested_enum_binding(self):
         self.program('payload_nested', '''enum Inner{None,Some(u32)}enum Outer{Value(Inner)}
 pub fn main_entry()->u32{let v:Outer=Outer::Value(Inner::Some(42));return match v{

@@ -3126,7 +3126,19 @@ impl Sema {
         let expression: AstNode = unsafe { *(nodes + expression_index) };
         if expression.kind == AstKind::ExprPath {
             let variant: usize = self.enum_variant_path(nodes,node_count,expression_index,source,source_len);
-            if variant != 0 { return unsafe{(*(nodes+variant)).parent}; }
+            if variant != 0 {
+                let declaration: usize = unsafe{(*(nodes+variant)).parent};
+                let mut member: usize = unsafe{(*(nodes+declaration)).first_child};
+                while member != 0 && member < node_count {
+                    let payload: usize = unsafe{(*(nodes+member)).first_child};
+                    if payload != 0 && payload < node_count && unsafe{(*(nodes+payload)).kind} == AstKind::TypeRef {
+                        return declaration;
+                    }
+                    member=unsafe{(*(nodes+member)).next_sibling};
+                }
+                // Preserve the existing U32 discriminant path for scalar
+                // enums; aggregate inference is needed only by payload enums.
+            }
         }
         if expression.kind == AstKind::MatchValueBlock {
             return self.infer_expression_type_ref(nodes,node_count,

@@ -87,7 +87,12 @@ class NativeLanguageSV861Tests(unittest.TestCase):
 
     def test_implicit_enum_overflow_is_rejected_but_explicit_reset_is_valid(self):
         self.compile('enum_overflow','enum Code{Last=4294967295,Overflow}fn bad()->u32{return 42;}',success=False)
-        self.compile('enum_payload_closed','enum Code{Some(u32),None}fn bad()->u32{return 42;}',success=False)
+        self.compile('enum_pointer_payload_closed','enum Code{Some(*mut u32),None}fn bad()->u32{return 42;}',success=False)
         self.program('enum_max_reset','let c:Code=Code::Next;match c{Code::Max=>return 1;Code::Reset=>return 2;Code::Next=>return 42;}','enum Code{Max=4294967295,Reset=0,Next}')
+
+    def test_scalar_payload_enums_now_execute_in_the_native_backend(self):
+        self.program('enum_payload_supported',
+                     'let value:Code=Code::Some(42);return match value{Code::Some(n)=>n,Code::None=>0};',
+                     'enum Code{Some(u32),None}')
 
 if __name__=='__main__':unittest.main()

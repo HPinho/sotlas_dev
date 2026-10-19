@@ -9,6 +9,21 @@
 
 ## SV8.81 - native payload matching and exclusive expression joins (2026-10-19)
 
+### Compatibility repair after CI #1275
+
+The matrix exposed four failures, reproduced locally before repair. The native
+C11 emitter now locates its unsupported-payload error at the payload delimiter,
+and the diagnostic API copies that position into its caller-provided outputs.
+Scalar enum paths retain the pre-existing U32 discriminant contract; only payload
+enum paths request aggregate inference. The obsolete native scalar-payload
+rejection test now requires execution and retains a pointer-payload rejection.
+A combined scalar/payload inference case protects the compatibility boundary.
+
+The formerly failing cases pass. The broader frontend/Target IR/SV2 run passed
+199 tests. Final native Windows and Linux rebuilds proved Stage 2/3 byte identity;
+each rebuilt compiler passed 80 match tests and all 33 shared Stage 3 cases.
+This is local validation; certification by the replacement CI run remains pending.
+
 **Starting baseline:** `9926e37`, reported green by the repository owner.
 The native parser accepts positional payload declarations and variant patterns.
 Sotlas lowering constructs a tagged aggregate, zeroes inactive storage and copies

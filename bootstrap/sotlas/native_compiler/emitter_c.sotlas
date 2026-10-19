@@ -2582,6 +2582,13 @@ impl CEmitter {
             }
             let value_index: usize = variant.first_child;
             let value: AstNode = unsafe { *(self.nodes + value_index) };
+            if value.kind == AstKind::TypeRef {
+                // The native backend owns payload layout. The optional C11
+                // emitter must reject it at the opening payload delimiter.
+                self.error_line = variant.span.line;
+                self.error_col = variant.span.col + variant.str_len as u32;
+                return false;
+            }
             if value.kind != AstKind::ExprLiteral || value.next_sibling != 0 {
                 return false;
             }
