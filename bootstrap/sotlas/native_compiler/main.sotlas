@@ -627,6 +627,8 @@ pub fn sotlas_native_compile_diagnostic(
         return 0;
     }
     if !emitter.emit_module(module_node) {
+        if error_line != null { unsafe { *error_line = emitter.error_line; } }
+        if error_col != null { unsafe { *error_col = emitter.error_col; } }
         unsafe {
             *(g_err_line as *mut u32) = emitter.error_line;
             *(g_err_col as *mut u32) = emitter.error_col;
