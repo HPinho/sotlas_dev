@@ -7,6 +7,39 @@
 
 
 
+## SV8.77 - native static record configurations (2026-10-18)
+
+**Starting baseline:** `da05329`, reported green by the repository owner.
+The Sotlas-written lowerer now folds static record literals into initialized
+object data. Pointer-free nested records and scalar/record array fields retain
+their actual padded layout. Scalar constants reuse the existing typed evaluator;
+named fields can appear in any order. Padding is zero and all-zero records use
+BSS. No runtime constructor or C initializer is introduced.
+
+Native expressions resolve global record layouts through lexical bindings,
+preserving scalar/record name shadowing. Supported code reads, copies, returns,
+borrows and mutates explicitly mutable static configurations, including nested
+arrays and whole-record replacement. Immutable mutation, runtime calls in
+initializers, pointer/resource payloads, invalid field/type/count combinations
+and initializer-pool exhaustion are rejected. Serialization uses the existing
+4,096-entry pool, one entry per record byte, with depth 32. See the
+[contract](native_static_records.md) and
+[configuration example](../examples/static_config/README.md).
+
+**Local evidence:** the frontend/Target IR/array/static suites passed 184 tests
+before six additional static-data/example gates were added. Both Windows and
+Linux/WSL then rebuilt the original compiler sources using native seeds with
+host tools absent from PATH and proved Stage 2/3 byte identity. Each rebuilt
+compiler passed the final 38 static-record/record-array gates. These include
+exact pool capacity, raw object padding/data/BSS checks and source execution.
+The configuration example emitted all three executable formats on both hosts;
+PE ran on Windows and ELF on Linux with status 42. Actual Intel macOS execution
+and new remote CI certification remain pending. Test sets overlap.
+
+The initializer parent item remains open for other aggregates, string/pointer
+relocations and resource-bearing storage. This delivery changes native Sotlas
+implementation and tests; it does not remove the hosted Stage-0 reference.
+
 ## SV8.76.1 - public snippet inventory repair (2026-10-18)
 
 [CI #1268](https://github.com/HPinho/sotlas_dev/actions/runs/39177099085/job/117821904507)

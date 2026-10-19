@@ -2,6 +2,21 @@
 
 Repository: [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev).
 
+## SV8.77 - native static record configurations (2026-10-18)
+
+- [x] Fold pointer-free static record literals with typed constant scalar fields.
+- [x] Serialize nested records and scalar/record arrays using native padded layout.
+- [x] Zero padding deterministically and keep all-zero records in BSS.
+- [x] Read/mutate mutable static fields and replace complete record values.
+- [x] Copy static containers into independent locals and supported return/borrow paths.
+- [x] Preserve lexical shadowing, nominal types and immutable-global rejection.
+- [x] Reject runtime/pointer/resource initializers and bounded pool exhaustion.
+- [x] Ship a source-to-native configuration example with execution gates.
+
+The parent initializer item remains open for strings, pointer relocations,
+resource-bearing values and other aggregate forms. See the
+[static record contract](native_static_records.md).
+
 ## SV8.76 — native inline record-array fields (2026-10-18)
 
 - [x] Lay out pointer-free record arrays inline with correct element size/alignment.
@@ -1615,7 +1630,8 @@ suite. These results do not substitute for native Intel macOS execution in CI.
   - [x] Fold exact-length scalar array lists, including forward constants, conditional values and mixed zero/nonzero elements.
   - [x] Preserve scalar widths and floating bits in writable native data; keep all-zero lists in zero storage.
   - [x] Execute global Boolean array elements in guards and preserve indexed mutation.
-  - [ ] Complete general aggregate, string and pointer initializers.
+  - [x] Serialize static pointer-free records, nested records and scalar/record array fields with deterministic padding and bounded typed constant evaluation.
+  - [ ] Complete remaining aggregate forms, strings, pointer relocations and resource initializers.
 - [ ] Expand numeric literals, including scientific notation and decimals outside current bounds.
   - [x] Parse native `e`/`E` notation and explicit exponent signs; convert the bounded rational without a host float parser.
   - [ ] Complete wider coefficients/exponents, numeric suffixes and remaining numeric forms.

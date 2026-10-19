@@ -1558,6 +1558,127 @@ impl ScalarLowering {
         return true;
     }
 
+    // Static record data shares the bounded scalar-initializer pool, using one
+    // byte per entry. Padding is zeroed before named fields are serialized.
+    pub fn fold_static_scalar(mut self: &mut Self, expression: usize,
+        typ: TargetTypeTag, start: usize, offset: usize) -> bool {
+        let size: usize = self.scalar_memory_size(typ) as usize;
+        if size == 0 || size > 8 || typ == TargetTypeTag::Pointer
+            || typ == TargetTypeTag::Aggregate || start > TARGET_STATIC_LIST_CAPACITY
+            || offset > TARGET_STATIC_LIST_CAPACITY-start
+            || size > TARGET_STATIC_LIST_CAPACITY-start-offset { return false; }
+        let mut bits: u64 = 0;
+        if !self.constant_literal_bits(expression,typ,&mut bits) { return false; }
+        let mut byte: usize = 0;
+        while byte < size {
+            unsafe{g_static_list_values[start+offset+byte]=(bits >> (byte*8)) & 255;}
+            byte=byte+1;
+        }
+        return true;
+    }
+
+    pub fn fold_static_record(mut self: &mut Self, expression: usize,
+        record: u32, start: usize, offset: usize, depth: usize) -> bool {
+        if expression == 0 || expression >= self.node_count || record == 0
+            || record as usize > self.struct_count || depth >= 32 { return false; }
+        let literal: AstNode = unsafe{*(self.nodes+expression)};
+        if literal.kind != AstKind::ExprStructLiteral
+            || self.find_struct(literal.str_offset,literal.str_len) != record { return false; }
+        let first: usize = self.struct_field_starts[record as usize-1] as usize;
+        let count: usize = self.struct_field_counts[record as usize-1] as usize;
+        let mut seen: [u8;256] = 0;
+        let mut child: usize = literal.first_child;
+        let mut initialized: usize = 0;
+        while child != 0 {
+            if child >= self.node_count || initialized >= count { return false; }
+            let init: AstNode = unsafe{*(self.nodes+child)};
+            let id: u32 = self.find_field(record,init.str_offset,init.str_len);
+            if init.kind != AstKind::StructFieldInit || id == 0 { return false; }
+            let field: usize = id as usize-1;
+            if field < first || field-first >= count || seen[field-first] != 0 { return false; }
+            seen[field-first]=1;
+            let value: usize = init.first_child;
+            if value == 0 || value >= self.node_count || unsafe{(*(self.nodes+value)).next_sibling} != 0 { return false; }
+            let place: usize = offset+self.field_offsets[field] as usize;
+            let nested: u32 = self.field_struct_ids[field];
+            if self.field_byte_counts[field] != 0 {
+                if !self.fold_static_field_array(value,field,start,place,depth+1) { return false; }
+            } else if nested != 0 {
+                if !self.fold_static_record(value,nested,start,place,depth+1) { return false; }
+            } else if !self.fold_static_scalar(value,self.field_type_tags[field] as TargetTypeTag,start,place) { return false; }
+            initialized=initialized+1;
+            child=init.next_sibling;
+        }
+        return initialized == count;
+    }
+
+    pub fn fold_static_field_array(mut self: &mut Self, expression: usize,
+        field: usize, start: usize, offset: usize, depth: usize) -> bool {
+        if expression == 0 || expression >= self.node_count || depth >= 32 { return false; }
+        let array: AstNode = unsafe{*(self.nodes+expression)};
+        if array.kind != AstKind::ExprArrayLiteral && array.kind != AstKind::ExprArrayRepeat { return false; }
+        let record: u32 = self.field_array_structs[field];
+        let typ: TargetTypeTag = self.field_array_types[field] as TargetTypeTag;
+        let count: usize = self.field_byte_counts[field] as usize;
+        let mut stride: usize = self.scalar_memory_size(typ) as usize;
+        if record != 0 { stride=self.struct_sizes[record as usize-1] as usize; }
+        let mut element: usize = array.first_child;
+        if array.kind == AstKind::ExprArrayRepeat {
+            if element == 0 || element >= self.node_count { return false; }
+            let length: usize = unsafe{(*(self.nodes+element)).next_sibling};
+            if length == 0 || length >= self.node_count { return false; }
+            let length_node: AstNode = unsafe{*(self.nodes+length)};
+            if length_node.kind != AstKind::ExprLiteral || length_node.next_sibling != 0
+                || self.parse_integer_value(length_node.str_offset,length_node.str_len) != count as u64 { return false; }
+        }
+        let mut index: usize = 0;
+        while index < count {
+            if element == 0 || element >= self.node_count { return false; }
+            if record != 0 {
+                if !self.fold_static_record(element,record,start,offset+index*stride,depth+1) { return false; }
+            } else if !self.fold_static_scalar(element,typ,start,offset+index*stride) { return false; }
+            if array.kind == AstKind::ExprArrayLiteral { element=unsafe{(*(self.nodes+element)).next_sibling}; }
+            index=index+1;
+        }
+        return array.kind == AstKind::ExprArrayRepeat || element == 0;
+    }
+
+    pub fn register_static_record(mut self: &mut Self, expression: usize,
+        record: u32, initial_start: &mut usize, nonzero: &mut u64) -> bool {
+        let size: usize = self.struct_sizes[record as usize-1] as usize;
+        let start: usize = unsafe{g_static_list_count};
+        if size == 0 || start > TARGET_STATIC_LIST_CAPACITY
+            || size > TARGET_STATIC_LIST_CAPACITY-start || !self.array_record_copyable(record,0) { return false; }
+        let mut index: usize = 0;
+        while index < size { unsafe{g_static_list_values[start+index]=0;}index=index+1; }
+        if !self.fold_static_record(expression,record,start,0,0) { return false; }
+        let mut bits: u64 = 0;index=0;
+        while index < size { bits=bits | unsafe{g_static_list_values[start+index]};index=index+1; }
+        unsafe{g_static_list_count=start+size;}
+        *initial_start=start;*nonzero=bits;
+        return true;
+    }
+
+    // Resolve the binding lexically so a scalar local cannot acquire a global
+    // record's layout merely by shadowing its name.
+    pub fn global_record_id(self: &Self, expression_index: usize) -> u32 {
+        if expression_index == 0 || expression_index >= self.node_count { return 0; }
+        let expression: AstNode = unsafe{*(self.nodes+expression_index)};
+        if expression.kind != AstKind::ExprIdent { return 0; }
+        let global: isize = self.find_global_bss(expression.str_offset,expression.str_len);
+        if global < 0 || unsafe{g_bss_sym_types[global as usize]} != TargetTypeTag::Aggregate as u32 { return 0; }
+        let mut sem: Sema = Sema::new();
+        let binding: usize = sem.find_visible_binding(self.nodes,self.node_count,expression_index,self.source,self.source_len);
+        if binding == 0 || binding >= self.node_count { return 0; }
+        let declaration: AstNode = unsafe{*(self.nodes+binding)};
+        if declaration.kind != AstKind::LetStmt || declaration.parent == 0 || declaration.parent >= self.node_count
+            || unsafe{(*(self.nodes+declaration.parent)).kind} != AstKind::Module { return 0; }
+        let typ: usize = sem.binding_type_ref(self.nodes,self.node_count,binding);
+        if typ == 0 || typ >= self.node_count { return 0; }
+        let node: AstNode = unsafe{*(self.nodes+typ)};
+        return self.find_struct(node.str_offset,node.str_len);
+    }
+
     pub fn find_struct(
         self: &Self,
         name_offset: usize,
@@ -2298,9 +2419,8 @@ impl ScalarLowering {
         let mut struct_id: u32 = 0;
         let mut base_ptr: u32 = 0;
         if base_node.kind == AstKind::ExprIdent {
-            struct_id = self.find_local_struct_id(base_node.str_offset, base_node.str_len);
-            base_ptr = self.find_parameter_value(
-                first_parameter, parameter_count, base_node.str_offset, base_node.str_len);
+            struct_id = self.cfg_struct_id(base_index,0);
+            base_ptr = self.cfg_struct_address(base_index,first_parameter,parameter_count,0);
         } else if self.structured_cfg && (base_node.kind == AstKind::ExprFieldAccess
             || base_node.kind == AstKind::ExprIndex || base_node.kind == AstKind::UnsafeExpr
             || (base_node.kind == AstKind::ExprUnary && base_node.int_value == 82)) {
@@ -2619,7 +2739,7 @@ impl ScalarLowering {
                 instr.symbol = sym_slice;
                 unsafe { *(self.instructions + alloc_idx) = instr; }
 
-                if unsafe { g_bss_sym_is_array[gi] } != 0 {
+                if unsafe { g_bss_sym_is_array[gi] } != 0 || self.global_record_id(expression_index) != 0 {
                     return ptr_val;
                 }
                 let mut actual_type: TargetTypeTag = type_tag;
@@ -3466,10 +3586,8 @@ impl ScalarLowering {
             let mut struct_id: u32 = 0;
             let mut base_ptr_val: u32 = TARGET_VALUE_NONE;
             if base_node.kind == AstKind::ExprIdent {
-                struct_id = self.find_local_struct_id(base_node.str_offset, base_node.str_len);
-                base_ptr_val = self.find_parameter_value(
-                    first_parameter, parameter_count, base_node.str_offset, base_node.str_len
-                );
+                struct_id = self.cfg_struct_id(base_expr_index,0);
+                base_ptr_val = self.cfg_struct_address(base_expr_index,first_parameter,parameter_count,0);
             } else if base_node.kind == AstKind::ExprStructLiteral || base_node.kind == AstKind::ExprCall {
                 base_ptr_val = self.lower_expression(
                     base_expr_index, TargetTypeTag::Pointer, first_parameter, parameter_count
@@ -5587,7 +5705,9 @@ impl ScalarLowering {
             return self.cfg_struct_id(expression.first_child, depth + 1);
         }
         if expression.kind == AstKind::ExprIdent {
-            return self.find_local_struct_id(expression.str_offset, expression.str_len);
+            let local: u32 = self.find_local_struct_id(expression.str_offset, expression.str_len);
+            if local != 0 { return local; }
+            return self.global_record_id(expression_index);
         }
         if expression.kind == AstKind::ExprUnary && expression.int_value == 82 {
             return self.pointer_pointee_struct_id(self.pointer_expression_type_ref(expression.first_child));
@@ -5619,7 +5739,12 @@ impl ScalarLowering {
             return self.lower_expression(expression_index, TargetTypeTag::Pointer, first_parameter, parameter_count);
         }
         if expression.kind == AstKind::ExprIdent {
-            return self.find_parameter_value(first_parameter, parameter_count, expression.str_offset, expression.str_len);
+            let local: u32 = self.find_parameter_value(first_parameter, parameter_count, expression.str_offset, expression.str_len);
+            if local != 0 { return local; }
+            if self.global_record_id(expression_index) != 0 {
+                return self.lower_expression(expression_index,TargetTypeTag::Pointer,first_parameter,parameter_count);
+            }
+            return 0;
         }
         if expression.kind == AstKind::ExprUnary && expression.int_value == 82 {
             return self.lower_expression(expression.first_child, TargetTypeTag::Pointer, first_parameter, parameter_count);
@@ -5692,6 +5817,7 @@ impl ScalarLowering {
         while i < self.node_count {
             let node: AstNode = unsafe { *(self.nodes + i) };
             if node.kind == AstKind::FnDecl { break; }
+            if node.kind == AstKind::ExprIdent && self.global_record_id(i) != 0 { needs_cfg=true; }
             let mut signed_narrow: bool = false;
             if node.kind == AstKind::TypeRef {
                 let declared: TargetTypeTag = self.type_tag_for(i);
@@ -6331,6 +6457,14 @@ impl ScalarLowering {
                     decl = decl + 1;
                 }
                 if !mutable_global { return self.reject(index); }
+                let record: u32 = self.global_record_id(left_index);
+                if record != 0 {
+                    if self.cfg_struct_id(left.next_sibling,0) != record { return self.reject(index); }
+                    let destination: u32 = self.cfg_struct_address(left_index,first_parameter,parameter_count,0);
+                    let source_address: u32 = self.cfg_struct_address(left.next_sibling,first_parameter,parameter_count,0);
+                    return destination != 0 && source_address != 0
+                        && self.cfg_copy_fields(destination,source_address,record,0,0,index,0);
+                }
                 let typ: TargetTypeTag = unsafe { g_bss_sym_types[gi] } as TargetTypeTag;
                 if typ != TargetTypeTag::U8 && typ != TargetTypeTag::U16
                     && typ != TargetTypeTag::U32 && typ != TargetTypeTag::U64
@@ -7907,6 +8041,14 @@ pub fn lower_scalar_module(
                     } else {
                         let tt: TargetTypeTag = lowering.type_tag_for(decl_node.first_child);
                         let initializer_index: usize = type_node.next_sibling;
+                        let record: u32 = lowering.find_struct(type_node.str_offset,type_node.str_len);
+                        if record != 0 {
+                            if type_node.int_value != 0 || !lowering.register_static_record(initializer_index,
+                                record,&mut initial_start,&mut initial_bits) { return lowering.reject(struct_scan_index); }
+                            var_size=lowering.struct_sizes[record as usize-1] as usize;
+                            initial_stride=1;initial_count=var_size;
+                            type_tag_val=TargetTypeTag::Aggregate as u32;
+                        } else {
                         if tt == TargetTypeTag::Invalid || tt == TargetTypeTag::Aggregate
                             || initializer_index == 0 || initializer_index >= lowering.node_count
                             || !lowering.constant_literal_bits(initializer_index, tt, &mut initial_bits) { return lowering.reject(struct_scan_index); }
@@ -7920,6 +8062,7 @@ pub fn lower_scalar_module(
                             } else if tt == TargetTypeTag::U8 || tt == TargetTypeTag::I8 || tt == TargetTypeTag::Bool {
                                 var_size = 1;
                             }
+                        }
                         }
                     }
                 }

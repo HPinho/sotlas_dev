@@ -1,0 +1,35 @@
+module static_config;
+
+struct Channel {
+    pub id: u8;
+    pub budget: u32;
+}
+struct Configuration {
+    pub revision: u16;
+    pub channels: [Channel; 2];
+}
+
+const BASE: u32 = 20;
+static mut settings: Configuration = Configuration {
+    revision: 1,
+    channels: [Channel { id: 1, budget: BASE }, Channel { id: 2, budget: BASE + 2 }]
+};
+
+fn snapshot() -> Configuration {
+    unsafe { return settings; }
+}
+
+pub fn main_entry() -> u32 {
+    let mut local: Configuration = snapshot();
+    local.channels[0].budget = 1;
+    unsafe {
+        if settings.revision != 1 || settings.channels[0].budget != BASE { return 1; }
+        let mut total: u32 = 0;
+        let mut index: usize = 0;
+        while index < 2 {
+            total = total + settings.channels[index].budget;
+            index = index + 1;
+        }
+        return total;
+    }
+}
