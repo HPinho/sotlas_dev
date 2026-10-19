@@ -28,3 +28,6 @@ ownership.sotlas|6|use of moved or maybe-moved value
 ../match_profile/wrong_enum.sotlas|7|unsupported native form
 ../match_profile/owned_capture.sotlas|6|ownership constraint violated
 ../match_profile/local_capacity.sotlas|7|unsupported native form
+../match_profile/payload_arity.sotlas|7|unsupported native form
+../match_profile/expression_maybe_moved.sotlas|6|use of moved or maybe-moved value
+../match_profile/expression_guard_move.sotlas|6|match guard cannot consume ownership

@@ -77,6 +77,10 @@ pub struct ScalarLowering {
     pub enum_variant_starts: [u32; 32];
     pub enum_variant_counts: [u32; 32];
     pub enum_count: usize;
+    pub enum_record_ids: [u32;32];
+    pub variant_nodes: [usize;256];
+    pub variant_field_starts: [u32;256];
+    pub variant_field_counts: [u32;256];
     pub variant_name_offsets: [usize; 256];
     pub variant_name_lens: [usize; 256];
     pub variant_values: [u64; 256];
@@ -1089,6 +1093,10 @@ impl ScalarLowering {
             enum_variant_starts: [0; 32],
             enum_variant_counts: [0; 32],
             enum_count: 0,
+            enum_record_ids: [0;32],
+            variant_nodes: [0;256],
+            variant_field_starts: [0;256],
+            variant_field_counts: [0;256],
             variant_name_offsets: [0; 256],
             variant_name_lens: [0; 256],
             variant_values: [0; 256],
@@ -2234,7 +2242,7 @@ impl ScalarLowering {
         if self.return_struct_id == 0 || self.return_destination == 0
             || self.cfg_struct_id(expression, 0) != self.return_struct_id { return false; }
         let expression_node: AstNode = unsafe { *(self.nodes + expression) };
-        if expression_node.kind == AstKind::ExprCall {
+        if expression_node.kind == AstKind::ExprCall && self.payload_record(expression) == 0 {
             self.forwarded_return_call = expression;
             let destination: u32 = self.lower_expression(
                 expression, TargetTypeTag::Pointer, first_parameter, parameter_count);
@@ -3238,6 +3246,9 @@ impl ScalarLowering {
             }
             return result;
         }
+        if expression.kind == AstKind::ExprCall && self.payload_record(expression_index) != 0 {
+            return self.lower_payload_constructor(expression_index,first_parameter,parameter_count);
+        }
         if expression.kind == AstKind::ExprCall {
             if expression.first_child == 0 || expression.first_child >= self.node_count {
                 return TARGET_VALUE_NONE;
@@ -3717,6 +3728,9 @@ impl ScalarLowering {
             }
             return result_val;
         }
+        if expression.kind == AstKind::ExprPath && self.payload_record(expression_index) != 0 {
+            return self.lower_payload_constructor(expression_index,first_parameter,parameter_count);
+        }
         if expression.kind == AstKind::ExprPath {
             let mut sep_index: usize = 0;
             let mut found_sep: bool = false;
@@ -4124,6 +4138,7 @@ impl ScalarLowering {
             return TargetTypeTag::Invalid;
         }
         let expression: AstNode = unsafe { *(self.nodes + expression_index) };
+        if self.payload_record(expression_index) != 0 { return TargetTypeTag::Pointer; }
         if expression.kind == AstKind::MatchValueBlock {
             let sem: Sema = Sema::new();
             return self.condition_expression_type(sem.match_block_tail(self.nodes,self.node_count,expression_index),first_parameter,parameter_count);
@@ -5755,9 +5770,173 @@ impl ScalarLowering {
         return result;
     }
 
+    pub fn payload_variant(self: &Self, index: usize) -> u32 {
+        if index == 0 || index >= self.node_count { return 0; }
+        let node: AstNode = unsafe{*(self.nodes+index)};
+        let mut path: usize = index;
+        if node.kind == AstKind::ExprCall || node.kind == AstKind::PatternVariant { path=node.first_child; }
+        if path == 0 || path >= self.node_count { return 0; }
+        let name: AstNode = unsafe{*(self.nodes+path)};
+        if name.kind != AstKind::ExprPath { return 0; }
+        let split: usize = self.find_match_path_separator(name);
+        if split+2 >= name.str_len { return 0; }
+        let enumeration: u32 = self.find_enum(name.str_offset,split);
+        if enumeration == 0 { return 0; }
+        let mut slot: usize = self.enum_variant_starts[enumeration as usize-1] as usize;
+        let end: usize = slot+self.enum_variant_counts[enumeration as usize-1] as usize;
+        while slot < end {
+            if self.source_name_equals(self.variant_name_offsets[slot],self.variant_name_lens[slot],
+                name.str_offset+split+2,name.str_len-split-2) { return slot as u32+1; }
+            slot=slot+1;
+        }
+        return 0;
+    }
+
+    pub fn payload_record(self: &Self, index: usize) -> u32 {
+        let variant: u32 = self.payload_variant(index);
+        if variant == 0 { return 0; }
+        let parent: usize = unsafe{(*(self.nodes+self.variant_nodes[variant as usize-1])).parent};
+        if parent == 0 || parent >= self.node_count { return 0; }
+        let declaration: AstNode = unsafe{*(self.nodes+parent)};
+        let enumeration: u32 = self.find_enum(declaration.str_offset,declaration.str_len);
+        if enumeration == 0 { return 0; }
+        return self.enum_record_ids[enumeration as usize-1];
+    }
+
+    // Payload enums use a private tagged product layout. Inactive fields are
+    // zeroed; no inactive variant is exposed as a source-level struct field.
+    pub fn register_payload_layouts(mut self: &mut Self) -> bool {
+        let mut enumeration: usize = 0;
+        while enumeration < self.enum_count {
+            let start: usize = self.enum_variant_starts[enumeration] as usize;
+            let end: usize = start+self.enum_variant_counts[enumeration] as usize;
+            let mut variant: usize = start;let mut has_payload: bool = false;
+            while variant < end {
+                let child: usize = unsafe{(*(self.nodes+self.variant_nodes[variant])).first_child};
+                if child != 0 && unsafe{(*(self.nodes+child)).kind} == AstKind::TypeRef { has_payload=true; }
+                variant=variant+1;
+            }
+            if has_payload {
+                if self.struct_count >= 32 || self.field_total_count >= 256 { return self.reject(self.variant_nodes[start]); }
+                let record: usize = self.struct_count;
+                self.enum_record_ids[enumeration]=record as u32+1;
+                self.struct_name_offsets[record]=self.enum_name_offsets[enumeration];
+                self.struct_name_lens[record]=self.enum_name_lens[enumeration];
+                self.struct_field_starts[record]=self.field_total_count as u32;
+                self.field_type_tags[self.field_total_count]=TargetTypeTag::U32 as u32;
+                self.field_total_count=self.field_total_count+1;
+                let mut size: u32 = 4;let mut alignment: u32 = 4;
+                variant=start;
+                while variant < end {
+                    let mut prior: usize = start;
+                    while prior < variant {
+                        if self.variant_values[prior] == self.variant_values[variant] { return self.reject(self.variant_nodes[variant]); }
+                        prior=prior+1;
+                    }
+                    self.variant_field_starts[variant]=self.field_total_count as u32;
+                    let mut child: usize = unsafe{(*(self.nodes+self.variant_nodes[variant])).first_child};
+                    while child != 0 && child < self.node_count && unsafe{(*(self.nodes+child)).kind} == AstKind::TypeRef {
+                        let typ: AstNode = unsafe{*(self.nodes+child)};
+                        let tag: TargetTypeTag = self.type_tag_for(child);
+                        let nested: u32 = self.find_struct(typ.str_offset,typ.str_len);
+                        if typ.int_value != 0 || tag == TargetTypeTag::Invalid || tag == TargetTypeTag::Void
+                            || (tag == TargetTypeTag::Pointer && (nested == 0 || !self.array_record_copyable(nested,0)))
+                            || self.field_total_count >= 256 { return self.reject(child); }
+                        let mut width: u32 = self.scalar_memory_size(tag);let mut align: u32 = width;
+                        if nested != 0 { width=self.struct_sizes[nested as usize-1];align=self.struct_alignments[nested as usize-1]; }
+                        if width == 0 || align == 0 || size > 4096 || width > 4096 { return self.reject(child); }
+                        size=((size+align-1)/align)*align;
+                        let field: usize = self.field_total_count;
+                        self.field_offsets[field]=size;self.field_type_refs[field]=child;
+                        self.field_type_tags[field]=tag as u32;self.field_struct_ids[field]=nested;
+                        if nested != 0 { self.field_type_tags[field]=TargetTypeTag::Aggregate as u32; }
+                        size=size+width;if size > 4096 { return self.reject(child); }
+                        if align > alignment { alignment=align; }
+                        self.field_total_count=field+1;
+                        self.variant_field_counts[variant]=self.variant_field_counts[variant]+1;
+                        child=unsafe{(*(self.nodes+child)).next_sibling};
+                    }
+                    variant=variant+1;
+                }
+                self.struct_sizes[record]=((size+alignment-1)/alignment)*alignment;
+                self.struct_alignments[record]=alignment;
+                self.struct_field_counts[record]=self.field_total_count as u32-self.struct_field_starts[record];
+                self.struct_count=self.struct_count+1;
+            }
+            enumeration=enumeration+1;
+        }
+        // Earlier record layouts cannot silently retain a scalar discriminant
+        // after a named enum acquires aggregate storage.
+        let mut field: usize = 0;
+        while field < self.field_total_count {
+            let reference: usize = self.field_type_refs[field];
+            if reference != 0 && reference < self.node_count {
+                let typ: AstNode = unsafe{*(self.nodes+reference)};
+                let record: u32 = self.find_struct(typ.str_offset,typ.str_len);
+                if record != 0 && self.field_struct_ids[field] != record { return self.reject(reference); }
+                let element: u32 = self.parse_array_element_struct(typ.str_offset,typ.str_len);
+                if element != 0 && self.field_array_structs[field] != element { return self.reject(reference); }
+            }
+            field=field+1;
+        }
+        return true;
+    }
+
+    pub fn payload_address(mut self: &mut Self, base: u32, offset: u32, node: usize) -> u32 {
+        let displacement: u32 = self.append_value(TargetTypeTag::U64,0,0);
+        if base == 0 || displacement == 0 || !self.append_instruction(TargetOpcode::ConstInt,displacement,
+            TargetTypeTag::U64,0,0,node) { return 0; }
+        unsafe{(*(self.instructions+self.instruction_count-1)).immediate_bits=offset as u64;}
+        let first: u32 = self.operand_count as u32;
+        let address: u32 = self.append_value(TargetTypeTag::Pointer,0,0);
+        if address == 0 || !self.append_operand(base) || !self.append_operand(displacement)
+            || !self.append_instruction(TargetOpcode::PtrOffset,address,TargetTypeTag::Pointer,first,2,node) { return 0; }
+        unsafe{(*(self.instructions+self.instruction_count-1)).immediate_bits=1;}
+        return address;
+    }
+
+    pub fn lower_payload_constructor(mut self: &mut Self, index: usize, first_parameter: usize, parameter_count: usize) -> u32 {
+        let variant_id: u32 = self.payload_variant(index);let record: u32 = self.payload_record(index);
+        if variant_id == 0 || record == 0 || self.cfg_current == 0 { return 0; }
+        let variant: usize = variant_id as usize-1;
+        let node: AstNode = unsafe{*(self.nodes+index)};
+        let mut argument: usize = 0;
+        if node.kind == AstKind::ExprCall { argument=unsafe{(*(self.nodes+node.first_child)).next_sibling}; }
+        else if self.variant_field_counts[variant] != 0 { return 0; }
+        let address: u32 = self.allocate_struct(record,index);
+        if address == 0 || !self.cfg_fill_array(address,self.struct_sizes[record as usize-1] as usize,
+            1,TargetTypeTag::U8,index,0,0) { return 0; }
+        let tag: u32 = self.append_value(TargetTypeTag::U32,0,0);
+        if tag == 0 || !self.append_instruction(TargetOpcode::ConstInt,tag,TargetTypeTag::U32,0,0,index) { return 0; }
+        unsafe{(*(self.instructions+self.instruction_count-1)).immediate_bits=self.variant_values[variant];}
+        if !self.cfg_store(address,tag,TargetTypeTag::U32,index) { return 0; }
+        let mut ordinal: usize = 0;
+        while ordinal < self.variant_field_counts[variant] as usize {
+            if argument == 0 || argument >= self.node_count { return 0; }
+            let field: usize = self.variant_field_starts[variant] as usize+ordinal;
+            let destination: u32 = self.payload_address(address,self.field_offsets[field],index);
+            let nested: u32 = self.field_struct_ids[field];
+            if nested != 0 {
+                if self.cfg_record_value_id(argument,0) != nested { return 0; }
+                let source: u32 = self.cfg_struct_address(argument,first_parameter,parameter_count,0);
+                if source == 0 || !self.cfg_copy_fields(destination,source,nested,0,0,argument,0) { return 0; }
+            } else {
+                let typ: TargetTypeTag = self.field_type_tags[field] as TargetTypeTag;
+                let value: u32 = self.lower_expression(argument,typ,first_parameter,parameter_count);
+                if value == 0 || unsafe{(*(self.values+value as usize-1)).type_tag} != typ
+                    || !self.cfg_store(destination,value,typ,argument) { return 0; }
+            }
+            argument=unsafe{(*(self.nodes+argument)).next_sibling};ordinal=ordinal+1;
+        }
+        if argument != 0 { return 0; }
+        return address;
+    }
+
     pub fn cfg_record_value_id(self: &Self, index: usize, depth: usize) -> u32 {
         if index == 0 || index >= self.node_count || depth >= 64 { return 0; }
         let node: AstNode = unsafe { *(self.nodes + index) };
+        let payload: u32 = self.payload_record(index);
+        if payload != 0 { return payload; }
         if node.kind == AstKind::MatchValueBlock {
             let sem: Sema = Sema::new();
             return self.cfg_record_value_id(sem.match_block_tail(self.nodes,self.node_count,index),depth+1);
@@ -5768,6 +5947,11 @@ impl ScalarLowering {
             let mut sem: Sema = Sema::new();
             let binding: usize = sem.find_visible_binding(self.nodes, self.node_count, index, self.source, self.source_len);
             let typ: usize = sem.binding_type_ref(self.nodes, self.node_count, binding);
+            let payload_type: usize = sem.payload_binding_type(self.nodes,self.node_count,binding,self.source,self.source_len);
+            if payload_type != 0 && payload_type < self.node_count {
+                let reference: AstNode = unsafe{*(self.nodes+payload_type)};
+                return self.find_struct(reference.str_offset,reference.str_len);
+            }
             if typ != 0 && typ < self.node_count {
                 let type_node: AstNode = unsafe { *(self.nodes + typ) };
                 return self.find_struct(type_node.str_offset, type_node.str_len);
@@ -5796,6 +5980,8 @@ impl ScalarLowering {
     pub fn cfg_struct_id(self: &Self, expression_index: usize, depth: usize) -> u32 {
         if expression_index == 0 || expression_index >= self.node_count || depth >= 64 { return 0; }
         let expression: AstNode = unsafe { *(self.nodes + expression_index) };
+        let payload: u32 = self.payload_record(expression_index);
+        if payload != 0 { return payload; }
         if expression.kind == AstKind::ExprMatch { return self.match_record_id(expression_index,depth+1); }
         if expression.kind == AstKind::ExprIndex && expression.first_child != 0 && expression.first_child < self.node_count {
             let base: AstNode = unsafe { *(self.nodes + expression.first_child) };
@@ -5864,6 +6050,9 @@ impl ScalarLowering {
         }
         if expression.kind == AstKind::UnsafeExpr {
             return self.cfg_struct_address(expression.first_child, first_parameter, parameter_count, depth + 1);
+        }
+        if expression.kind == AstKind::ExprPath && self.payload_record(expression_index) != 0 {
+            return self.lower_payload_constructor(expression_index,first_parameter,parameter_count);
         }
         if expression.kind == AstKind::ExprStructLiteral || expression.kind == AstKind::ExprCall
             || expression.kind == AstKind::ExprConditional || expression.kind == AstKind::ExprMatch {
@@ -6445,7 +6634,7 @@ impl ScalarLowering {
                 if type_index != 0 { typ = self.type_tag_for(type_index); }
                 let value_struct: u32 = self.cfg_struct_id(value_index, 0);
                 if value_struct != 0 && (value_node.kind == AstKind::ExprStructLiteral
-                    || value_node.kind == AstKind::ExprCall || value_node.kind == AstKind::ExprConditional
+                    || value_node.kind == AstKind::ExprCall || value_node.kind == AstKind::ExprPath || value_node.kind == AstKind::ExprConditional
                     || value_node.kind == AstKind::ExprMatch || value_node.kind == AstKind::ExprIndex) {
                     if type_index != 0 && struct_id != value_struct { return self.reject(index); }
                     struct_id = value_struct;
@@ -7039,6 +7228,61 @@ impl ScalarLowering {
         return result;
     }
 
+    pub fn payload_pattern_valid(self: &Self, pattern: usize, variant: u32) -> bool {
+        let path: usize = unsafe{(*(self.nodes+pattern)).first_child};
+        if path == 0 || path >= self.node_count { return false; }
+        let mut binding: usize = unsafe{(*(self.nodes+path)).next_sibling};let mut count: usize = 0;
+        let sem: Sema = Sema::new();
+        while binding != 0 && binding < self.node_count {
+            let node: AstNode = unsafe{*(self.nodes+binding)};
+            if node.kind != AstKind::ExprIdent { return false; }
+            let ignored: bool = sem.source_slice_equals(self.source,self.source_len,node.str_offset,node.str_len,"_",1);
+            let mut prior: usize = unsafe{(*(self.nodes+path)).next_sibling};
+            while prior != binding {
+                if prior == 0 || prior >= self.node_count { return false; }
+                let other: AstNode = unsafe{*(self.nodes+prior)};
+                if !ignored && self.source_name_equals(node.str_offset,node.str_len,other.str_offset,other.str_len) { return false; }
+                prior=other.next_sibling;
+            }
+            binding=node.next_sibling;count=count+1;
+        }
+        return binding == 0 && count == self.variant_field_counts[variant as usize-1] as usize;
+    }
+
+    pub fn cfg_payload_bindings(mut self: &mut Self, pattern: usize, address: u32) -> bool {
+        if unsafe{(*(self.nodes+pattern)).kind} != AstKind::PatternVariant { return true; }
+        let variant: u32 = self.payload_variant(pattern);
+        if variant == 0 || address == 0 { return false; }
+        let path: usize = unsafe{(*(self.nodes+pattern)).first_child};
+        let mut binding: usize = unsafe{(*(self.nodes+path)).next_sibling};let mut ordinal: usize = 0;
+        let sem: Sema = Sema::new();
+        while binding != 0 && binding < self.node_count {
+            let node: AstNode = unsafe{*(self.nodes+binding)};
+            if !sem.source_slice_equals(self.source,self.source_len,node.str_offset,node.str_len,"_",1) {
+                if self.local_count >= 128 { return false; }
+                let field: usize = self.variant_field_starts[variant as usize-1] as usize+ordinal;
+                let pointer: u32 = self.payload_address(address,self.field_offsets[field],binding);
+                let record: u32 = self.field_struct_ids[field];let mut value: u32 = pointer;
+                if record != 0 {
+                    value=self.allocate_struct(record,binding);
+                    if !self.cfg_copy_fields(value,pointer,record,0,0,binding,0) { return false; }
+                } else {
+                    let typ: TargetTypeTag = self.field_type_tags[field] as TargetTypeTag;
+                    value=self.append_value(typ,0,0);let operand: u32 = self.operand_count as u32;
+                    if pointer == 0 || value == 0 || !self.append_operand(pointer)
+                        || !self.append_instruction(TargetOpcode::Load,value,typ,operand,1,binding) { return false; }
+                }
+                let slot: usize = self.local_count;
+                self.local_name_offsets[slot]=node.str_offset;self.local_name_lens[slot]=node.str_len;
+                self.local_value_ids[slot]=value;self.local_struct_ids[slot]=record;
+                self.local_storage_types[slot]=0;self.local_array_counts[slot]=0;self.local_array_types[slot]=0;
+                self.local_count=slot+1;
+            }
+            binding=node.next_sibling;ordinal=ordinal+1;
+        }
+        return binding == 0;
+    }
+
     pub fn cfg_match_statement(mut self: &mut Self, index: usize, return_type: TargetTypeTag,
         first_parameter: usize, parameter_count: usize, break_id: u32, continue_id: u32, depth: usize,
         result_storage: u32) -> bool {
@@ -7055,12 +7299,16 @@ impl ScalarLowering {
         }
         if typ == TargetTypeTag::Invalid && subject_node.kind == AstKind::ExprUnary
             && subject_node.int_value == 81 { typ = TargetTypeTag::I64; }
+        let subject_enum: u32 = self.match_enum_id(subject,0);
+        let mut payload_record: u32 = 0;
+        if subject_enum != 0 { payload_record=self.enum_record_ids[subject_enum as usize-1]; }
+        if payload_record != 0 { typ=TargetTypeTag::U32; }
         if typ != TargetTypeTag::Bool && typ != TargetTypeTag::U8 && typ != TargetTypeTag::U16
             && typ != TargetTypeTag::U32 && typ != TargetTypeTag::U64 && typ != TargetTypeTag::Usize
             && typ != TargetTypeTag::I8 && typ != TargetTypeTag::I16 && typ != TargetTypeTag::I32
             && typ != TargetTypeTag::I64 { return self.reject(subject); }
         let subject_ref: usize = sem.infer_expression_type_ref(self.nodes, self.node_count, subject, self.source, self.source_len);
-        let mut enum_id: u32 = 0;
+        let mut enum_id: u32 = subject_enum;
         if subject_ref != 0 && subject_ref < self.node_count {
             let declared: AstNode = unsafe { *(self.nodes + subject_ref) };
             enum_id = self.find_enum(declared.str_offset, declared.str_len);
@@ -7104,7 +7352,12 @@ impl ScalarLowering {
                 if arm_node.next_sibling == 0 { return self.reject_match(guard, 7); }
                 guarded[count] = 1;
             } else if arm_node.int_value != 0 { return self.reject(arm); }
-            if node.kind == AstKind::PatternRange {
+            if node.kind == AstKind::PatternVariant {
+                let variant: u32 = self.payload_variant(pattern);
+                if payload_record == 0 || variant == 0 || self.payload_record(pattern) != payload_record
+                    || !self.payload_pattern_valid(pattern,variant) { return self.reject(pattern); }
+                patterns[count]=self.variant_values[variant as usize-1];ends[count]=patterns[count];
+            } else if node.kind == AstKind::PatternRange {
                 if typ == TargetTypeTag::Bool || enum_id != 0 { return self.reject_match(pattern, 1); }
                 let mut low: u64 = 0; let mut high: u64 = 0;
                 if !self.match_range_bounds(pattern, typ, &mut low, &mut high) { return false; }
@@ -7140,7 +7393,13 @@ impl ScalarLowering {
                     }
                 }
                 let mut bits: u64 = 0;
-                if !self.constant_literal_bits(pattern, typ, &mut bits) { return self.reject(pattern); }
+                if payload_record != 0 && node.kind == AstKind::ExprPath {
+                    let variant: u32 = self.payload_variant(pattern);
+                    if variant == 0 || self.variant_field_counts[variant as usize-1] != 0 { return self.reject(pattern); }
+                    bits=self.variant_values[variant as usize-1];
+                } else {
+                    if !self.constant_literal_bits(pattern, typ, &mut bits) { return self.reject(pattern); }
+                }
                 patterns[count] = bits;
                 ends[count] = bits;
             }
@@ -7176,7 +7435,15 @@ impl ScalarLowering {
             if !covered { return self.reject_match(index, 5); }
         }
         // Keep the subject SSA value live across the decision chain; evaluate it once.
-        let value: u32 = self.lower_expression(subject, typ, first_parameter, parameter_count);
+        let mut value: u32 = 0;let mut subject_address: u32 = 0;
+        if payload_record != 0 {
+            if self.cfg_record_value_id(subject,0) != payload_record { return self.reject(subject); }
+            subject_address=self.cfg_struct_address(subject,first_parameter,parameter_count,0);
+            value=self.append_value(TargetTypeTag::U32,0,0);
+            let operand: u32 = self.operand_count as u32;
+            if subject_address == 0 || value == 0 || !self.append_operand(subject_address)
+                || !self.append_instruction(TargetOpcode::Load,value,TargetTypeTag::U32,operand,1,subject) { return self.reject(subject); }
+        } else { value=self.lower_expression(subject,typ,first_parameter,parameter_count); }
         if value == 0 { return self.reject(subject); }
         if !wildcard && (typ == TargetTypeTag::Bool || enum_id != 0)
             && !self.cfg_match_validity_guard(value, typ, unsafe { proof_patterns as *const u64 }, proof_count, subject) { return self.reject(subject); }
@@ -7196,7 +7463,8 @@ impl ScalarLowering {
                 let slot: usize = self.local_count;
                 self.local_name_offsets[slot]=binding.str_offset;self.local_name_lens[slot]=binding.str_len;
                 self.local_value_ids[slot]=value;self.local_storage_types[slot]=0;
-                self.local_struct_ids[slot]=0;self.local_array_counts[slot]=0;self.local_array_types[slot]=0;
+                self.local_struct_ids[slot]=payload_record;self.local_array_counts[slot]=0;self.local_array_types[slot]=0;
+                if payload_record != 0 { self.local_value_ids[slot]=subject_address; }
                 self.local_count=self.local_count+1;
             }
             let selected: u32 = self.cfg_reserve_block();
@@ -7229,12 +7497,14 @@ impl ScalarLowering {
                 }
                 if guard != 0 {
                     self.cfg_begin(matched);
+                    if !self.cfg_payload_bindings(pattern,subject_address) { return self.reject(pattern); }
                     if !self.cfg_test(guard, selected, next, first_parameter, parameter_count, depth + 1) {
                         return self.reject_match(guard, 6);
                     }
                 }
             }
             self.cfg_begin(selected);
+            if guard == 0 && !self.cfg_payload_bindings(pattern,subject_address) { return self.reject(pattern); }
             if result_storage != 0 {
                 if unsafe{(*(self.nodes+body)).kind} == AstKind::MatchValueBlock {
                     if !self.cfg_match_value_block(body,result_storage,return_type,self.match_record_id(index,0),
@@ -8257,10 +8527,12 @@ pub fn lower_scalar_module(
                 let v_node: AstNode = unsafe { *(lowering.nodes + v_scan) };
                 if v_node.kind == AstKind::EnumVariant && lowering.variant_total_count < 256 {
                     let v_idx: usize = lowering.variant_total_count;
+                    lowering.variant_nodes[v_idx] = v_scan;
                     lowering.variant_name_offsets[v_idx] = v_node.str_offset;
                     lowering.variant_name_lens[v_idx] = v_node.str_len;
                     let mut v_val:u64=next_discriminant;
-                    if v_node.first_child != 0 && v_node.first_child < lowering.node_count {
+                    if v_node.first_child != 0 && v_node.first_child < lowering.node_count
+                        && unsafe{(*(lowering.nodes+v_node.first_child)).kind} != AstKind::TypeRef {
                         let mut literal_sem:Sema=Sema::new();
                         if !literal_sem.integer_literal_bits(lowering.nodes,lowering.node_count,v_node.first_child,
                             lowering.source,lowering.source_len,unsafe{(&mut v_val) as *mut u64}) { return lowering.reject(v_scan); }
@@ -8277,6 +8549,8 @@ pub fn lower_scalar_module(
         }
         struct_scan_index = decl_node.next_sibling;
     }
+
+    if !lowering.register_payload_layouts() { return false; }
 
     // Layouts precede declaration registration; expressions never observe
     // a partially registered constant table or provisional constant bits.

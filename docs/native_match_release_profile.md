@@ -1,7 +1,7 @@
 # Native match release profile
 
 This document fixes the executable native match scope for the current preview.
-It is not a claim that the full master language, payload enums or all ownership
+It is not a claim that the full master language or all ownership
 domains have native implementations. Changes to those foundations will require
 new integration gates even after this profile passes CI.
 
@@ -16,14 +16,19 @@ new integration gates even after this profile passes CI.
 | Record results | Pointer-free POD records, including nested fields/arrays; independent storage | Record-copy and nominal-layout gates |
 | Value blocks | Locals, supported statements, tail values and enclosing function returns | Block scope and early-return gates |
 | Defer | Tail captured before LIFO cleanup; enclosing cleanup on early return | Deferred mutation and trace gates |
+| Payload enums | Private tagged layout; scalar and POD record fields; constructors, internal parameters/returns and match results | Payload construction, ABI, copy and nested enum tests |
+| Destructuring | Positional immutable bindings and ignored fields; bindings available to eligible guards | Payload scope, arity, guard and rejection tests |
+| Exclusive results | Branch-sensitive exclusive POD moves, value-block yields and `MAYBE_MOVED` joins | Match ownership suite |
 | Limits | 64 arms plus existing source/CFG/IR/frame/nesting limits | Capacity and negative gates |
 
 ## Dependencies that remain open
 
-- Payload enums need native layout, constructors, value transfer and destruction
-  before destructuring patterns and payload bindings can be certified.
-- Ownership-bearing match values need the broader native ownership merge and
-  runtime cleanup contract; this delivery keeps their rejection explicit.
+- Resource-bearing enum fields require the broader runtime/drop contract.
+  Payload fields currently support scalars and pointer-free POD records.
+- Recursive/refutable destructuring patterns, forward aggregate layout dependencies
+  and enums embedded in earlier record layouts remain explicitly rejected.
+- Shared/resource match values require integrated ARC/drop generation. Exclusive
+  POD moves and arm joins are implemented; they do not establish general ARC.
 - Standalone arrays/slices, pointer provenance and resource-bearing aggregates
   need their corresponding native value/ABI contracts.
 - Canonical Stage-0/C11 parity is a separate gate from native execution.

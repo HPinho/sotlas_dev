@@ -2,6 +2,21 @@
 
 Repository: [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev).
 
+## SV8.81 - payload matching and exclusive expression joins (2026-10-19)
+
+- [x] Construct tagged payload enums in Sotlas without C emission.
+- [x] Preserve scalar/POD payloads across internal calls, returns and match results.
+- [x] Unpack positional immutable bindings and ignored fields after tag selection.
+- [x] Validate guards, nominal identity, arity, coverage, bounds and binding scope.
+- [x] Copy record payloads independently and zero inactive storage.
+- [x] Merge exclusive POD moves across expression arms, including value blocks.
+- [x] Reject moved/maybe-moved reads, consuming guards and deferred-owner transfers.
+- [x] Execute nested matches, early returns and LIFO arm cleanup.
+
+See the [payload contract](native_match_payloads.md). General resource fields,
+ARC/drop synthesis and recursive/refutable field patterns remain open; these
+checks do not mark complete canonical language parity.
+
 ## SV8.80 - native POD match release profile (2026-10-19)
 
 - [x] Add scoped immutable subject bindings in guards and arm bodies.

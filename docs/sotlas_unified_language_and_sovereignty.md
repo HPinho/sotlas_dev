@@ -2,6 +2,12 @@
 
 **Repository:** [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev)
 
+**SV8.81 (2026-10-19):** native enums gain tagged scalar/POD payload construction,
+internal call/return transfer, immutable destructuring bindings, guards and
+coverage. Match expressions merge exclusive POD moves across independent arms
+and value blocks, preserving defer reservations and rejecting maybe-moved reads.
+See [the payload contract](native_match_payloads.md) for runtime/layout exclusions.
+
 **SV8.80 (2026-10-19):** native match gains scoped subject bindings, open integer
 ranges, nominal enum and independent POD record results, and value blocks with
 locals, LIFO defer and enclosing early returns. Captured values precede deferred
@@ -2461,13 +2467,17 @@ suite. These results do not substitute for native Intel macOS execution in CI.
   - [x] Accept internal direct/whisper POD receivers, including Self, and reject receivers naming a different record.
 - [ ] Migrate generic features accepted by the canonical frontend.
 - [ ] Implement payload enums and their native layout.
+  - [x] Construct/copy tagged scalar and POD record payloads; pass/return them through the native internal aggregate ABI.
+  - [ ] Complete resource fields, recursive/forward layout resolution and the remaining canonical forms.
 - [ ] Implement contracted `match` and selection forms with coverage checking.
   - [x] Execute native scalar/Boolean/scalar-enum match statements with single evaluation, typed patterns and a mandatory final wildcard.
   - [x] Reject duplicate patterns, incompatible enum variants, missing coverage, scope leaks and exhausted arm tables.
   - [x] Integrate nested selection, record returns, lexical defer and exclusive live-path state merges into the structured CFG.
   - [x] Prove wildcard-free Boolean and scalar-enum coverage, preserve nominal enum constant patterns and reject missing discriminants.
   - [x] Trap invalid raw selector representations before dispatch in wildcard-free matches.
-  - [ ] Complete payload patterns/bindings, guards, ranges and match expressions.
+  - [x] Execute positional scalar/POD payload bindings, ordered guards, closed/open integer ranges and match expressions with value blocks.
+  - [x] Merge exclusive POD moves across expression arms and preserve deferred-borrow reservations.
+  - [ ] Complete recursive/refutable field patterns and general resource payload cleanup.
 - [ ] Complete general arrays, slices, indexing and slicing.
   - [x] Native local scalar arrays accept value lists and runtime repetition with exact length/type checking.
   - [x] Repetition evaluates its value once; large arrays use a bounded native fill loop.

@@ -1122,13 +1122,22 @@ impl Parser {
                         return 0;
                     }
 
-                    if self.match_token(TokenKind::Equal) {
+                    if self.match_token(TokenKind::OpenParen) {
+                        self.advance();
+                        while !self.is_at_end() && !self.match_token(TokenKind::CloseParen) {
+                            let payload: usize = self.parse_type_ref(2);
+                            if payload == 0 || !self.append_child(variant_node,payload) { return 0; }
+                            if self.match_token(TokenKind::Comma) { self.advance(); }
+                            else if !self.match_token(TokenKind::CloseParen) { self.reject_current();return 0; }
+                        }
+                        if !self.match_token(TokenKind::CloseParen) { self.reject_current();return 0; }
+                        self.advance();
+                    } else if self.match_token(TokenKind::Equal) {
                         self.advance();let value_tok:Token=self.current();
                         if value_tok.kind != TokenKind::IntLit { self.reject_current();return 0; }
                         self.advance();let value_node:usize=self.alloc_text_node(AstKind::ExprLiteral,value_tok);
                         if value_node == 0 || !self.append_child(variant_node,value_node) { return 0; }
                     } else if !self.match_token(TokenKind::Comma) && !self.match_token(TokenKind::CloseBrace) {
-                        // Payload variants require their own layout and remain closed.
                         self.reject_current();return 0;
                     }
                     if !self.append_child(enum_node, variant_node) {
@@ -1603,6 +1612,12 @@ impl Parser {
                     self.reject_current(); return 0;
                 }
                 pattern = range;
+            }
+            if pattern != 0 && unsafe{(*(self.nodes+pattern)).kind} == AstKind::ExprCall {
+                let callee: usize = unsafe{(*(self.nodes+pattern)).first_child};
+                if callee != 0 && callee < self.node_count && unsafe{(*(self.nodes+callee)).kind} == AstKind::ExprPath {
+                    unsafe{(*(self.nodes+pattern)).kind=AstKind::PatternVariant;}
+                }
             }
             let mut guard: usize = 0;
             if self.match_token(TokenKind::KwIf) {

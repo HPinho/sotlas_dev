@@ -20,7 +20,7 @@ This checkpoint reports executable deliveries and remaining gates separately.
 | Inline record arrays | Store pointer-free record arrays inside structs and initialize, read, mutate, copy and return supported containers |
 | Static record data | Serialize constant record configurations, including nested arrays, directly into native data/BSS and use them from native code |
 | Global record tables | Declare initialized record lists/repetition, read indexed entries, copy elements and update mutable tables through checked native accesses |
-| Match values | Select scalar, nominal enum and POD record results; use scoped bindings, closed/open ranges and value blocks with ordered guards and cleanup |
+| Match values | Select scalar, nominal enum and POD record results; destructure tagged scalar/POD payloads; use scoped bindings, ranges and value blocks; merge exclusive moves and cleanup |
 
 See the [ABI](native_embedded_abi.md), [libraries](native_static_libraries.md),
 [targets](native_library_targets.md), [module builds](native_module_builds.md)
@@ -29,13 +29,14 @@ Static record storage has its own [constant-data contract](native_static_records
 Global record arrays are covered by the [table contract](native_static_tables.md).
 Scalar match values have a [CFG execution contract](native_match_values.md).
 The expanded [POD match release profile](native_match_release_profile.md) records
-implemented boundaries and remaining payload/ownership dependencies.
+implemented boundaries. The [payload contract](native_match_payloads.md) covers
+constructors, transfer and destructuring; resource runtime dependencies remain open.
 
 ## Sovereignty status
 
 | Area | Executable evidence | Remaining work |
 | --- | --- | --- |
-| Frontend/IR | Native compiler sources rebuild; scalar/record/structured CFG forms and the new array field profile execute | Full canonical acceptance/rejection parity, generics, payload enums, general strings/slices/errors and remaining forms |
+| Frontend/IR | Native compiler sources rebuild; scalar/record/structured CFG forms, inline arrays and tagged POD payload matches execute | Full canonical acceptance/rejection parity, generics, general resource enums, strings/slices/errors and remaining forms |
 | Ownership | Bounded exclusive POD transfers, internal borrows and scoped resource runtime contracts; new POD array containers keep move/borrow checks | General resource payloads, integrated ARC/drop generation, lifetimes/escapes and all domain combinations |
 | Backend/linker | Own x86-64 machine emission, objects, regular archives and three executable formats for documented profiles | General aggregate/pointer/foreign signatures, dynamic linking, optimizations/debug/unwind and other promised targets |
 | Native tools | Source lists, independent units, native archive/application builds and native seed self-build scripts | Complete module/package resolution, namespace/visibility/mangling, essential tooling and installed CLI parity |
