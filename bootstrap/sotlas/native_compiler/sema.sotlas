@@ -3938,6 +3938,18 @@ impl NativeOwnershipCheck {
         return true;
     }
 
+    pub fn match_calls_plain(self: &Self, index: usize, depth: usize) -> bool {
+        if index == 0 || index >= self.node_count || depth >= 64 { return false; }
+        let node: AstNode = unsafe{*(self.nodes+index)};
+        if node.kind == AstKind::ExprCall && self.expression_domain(index) != 0 { return false; }
+        let mut child: usize = node.first_child;
+        while child != 0 {
+            if !self.match_calls_plain(child,depth+1) { return false; }
+            child=unsafe{(*(self.nodes+child)).next_sibling};
+        }
+        return true;
+    }
+
     pub fn collect_borrow_roots(self: &Self, index: usize, mask: *mut u8, depth: usize) -> bool {
         if index == 0 || index >= self.node_count || mask == null || depth >= 64 { return false; }
         let node: AstNode = unsafe { *(self.nodes + index) };
@@ -4213,6 +4225,12 @@ impl NativeOwnershipCheck {
         if node_index == 0 { return true; }
         if node_index >= self.node_count || depth >= 64 { return self.fail(node_index); }
         let node: AstNode = unsafe { *(self.nodes + node_index) };
+        // Scalar match values do not yet merge owned captures. Reject them
+        // explicitly instead of analyzing mutually exclusive moves in sequence.
+        if node.kind == AstKind::ExprMatch
+            && (!self.defer_ownership_free(node_index,0) || !self.match_calls_plain(node_index,0)) {
+            return self.fail(node_index);
+        }
         if node.kind == AstKind::UnsafeExpr {
             return self.expression(node.first_child, take, depth + 1);
         }

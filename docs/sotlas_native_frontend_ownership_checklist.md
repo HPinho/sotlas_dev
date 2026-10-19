@@ -2,6 +2,20 @@
 
 Repository: [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev).
 
+## SV8.79 - scalar match expressions (2026-10-19)
+
+- [x] Parse match values in expression positions with comma-separated scalar arms.
+- [x] Reuse statement-match coverage, range, enum-subject and guard validation.
+- [x] Evaluate the subject once; evaluate only eligible guards and the chosen arm.
+- [x] Materialize typed results at a CFG join for lets, returns, arguments and calculations.
+- [x] Execute nested matches, Boolean conditions, loops and deferred call arguments.
+- [x] Check every result arm, including unselected arms, with explicit capacity limits.
+- [x] Reject aggregate/pointer/enum results and owned captures/call results explicitly.
+- [x] Add a native classification example and positive/negative execution gates.
+
+Payload matching, statement-valued arm blocks, general ownership merges and
+aggregate results remain open. See the [match-value contract](native_match_values.md).
+
 ## SV8.78 - initialized global record tables (2026-10-19)
 
 - [x] Serialize typed global record array lists and repetitions into native data/BSS.
@@ -1599,7 +1613,8 @@ suite. These results do not substitute for native Intel macOS execution in CI.
   - [x] Trap invalid raw selector representations before dispatch in wildcard-free matches.
   - [x] Execute bounded inclusive/exclusive integer ranges with overlap rejection and complete integer-domain coverage proofs; validate signed/unsigned extrema, cleanup and supported ownership paths.
   - [x] Execute native Boolean match guards with pattern-hit-only evaluation, lazy conditions, false fallthrough, unguarded coverage proofs and supported POD ownership preservation.
-  - [ ] Complete payload patterns/bindings, open-ended ranges and match expressions.
+  - [x] Execute exhaustive scalar match expressions with ordered guards/ranges, single subject evaluation and lazy selected arm values.
+  - [ ] Complete payload patterns/bindings, open-ended ranges, block/aggregate results and ownership-bearing match expressions.
 - [ ] Complete general arrays, slices, indexing and slicing.
   - [x] Native local scalar arrays accept value lists and runtime repetition with exact length/type checking.
   - [x] Repetition evaluates its value once; large arrays use a bounded native fill loop.

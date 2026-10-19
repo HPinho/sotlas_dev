@@ -2,6 +2,13 @@
 
 **Repository:** [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev)
 
+**SV8.79 (2026-10-19):** native `match` expressions select integer, Boolean or
+float results in value positions. They reuse exhaustive statement-match checks,
+ordered guards and ranges; evaluate the subject once; and join only selected arm
+results. Aggregate/pointer/enum results, owned captures and owned call results
+are explicitly rejected. See the [contract](native_match_values.md) and
+[classification example](../examples/native_match_values/README.md).
+
 **SV8.78 (2026-10-19):** global record tables accept constant lists/repetition,
 including nested POD records and array fields. Native code uses checked element
 addresses with actual padded stride, supports independent element copies and

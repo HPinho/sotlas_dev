@@ -7,6 +7,35 @@
 
 
 
+## SV8.79 - scalar match expressions (2026-10-19)
+
+**Starting baseline:** `cccadd7`, reported green by the repository owner.
+The Sotlas-written AST/parser now represents match values explicitly. Native
+lowering reuses the existing statement-match decision chain, ordered guards,
+ranges, enum/Boolean validity guards and exhaustive coverage checks. The subject
+is evaluated once; only eligible guards and the selected value execute. Every
+arm is typed/lowered before emission. Selected scalar results store into shared
+storage before the join load, using existing Target IR and backend operations.
+
+Integer, Boolean and float results work in lets, returns, call arguments,
+assignments, calculations, Boolean conditions, loops and deferred call arguments.
+Match values can nest. The first known arm type/Boolean literal provides bounded
+inference; explicit context types select signed/narrow/float literal results.
+Arms are comma-separated expressions with the existing 64-arm limit. Aggregate,
+pointer and enum results, statement blocks, owned captures and owned call results
+are rejected. General ownership-bearing/payload matching remains separate work.
+See the [contract](native_match_values.md) and
+[classification example](../examples/native_match_values/README.md).
+
+**Local evidence:** 19 focused feature tests and 171 existing frontend/Target IR/
+reality/phase-audit tests passed; the example manifest also passed. Windows and
+Linux/WSL rebuilt the original compiler sources from native seeds with host tools
+absent from PATH and proved Stage 2/3 byte identity. Each final rebuilt compiler
+passed 39 match-value/static-record tests, including the owned-call rejection.
+The example produced identical object/ELF/PE/Mach-O bytes across the two hosts;
+ELF executed on Linux and PE on Windows with status 42. Test sets overlap. Intel
+macOS execution and new remote CI certification remain pending.
+
 ## SV8.78 - initialized global record tables (2026-10-19)
 
 **Starting baseline:** `8d8f0b5`, reported green by the repository owner.

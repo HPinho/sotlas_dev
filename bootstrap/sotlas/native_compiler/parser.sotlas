@@ -1266,6 +1266,7 @@ impl Parser {
 
     pub fn parse_primary_expression(mut self: &mut Self) -> usize {
         let tok: Token = self.current();
+        if tok.kind == TokenKind::KwMatch { return self.parse_match(true); }
         if tok.kind != TokenKind::IntLit && tok.kind != TokenKind::FloatLit
             && tok.kind != TokenKind::StrLit && tok.kind != TokenKind::CharLit
             && tok.kind != TokenKind::BoolLit
@@ -1531,8 +1532,14 @@ impl Parser {
     }
 
     pub fn parse_match_statement(mut self: &mut Self) -> usize {
+        return self.parse_match(false);
+    }
+
+    pub fn parse_match(mut self: &mut Self, expression_mode: bool) -> usize {
         let keyword: Token = self.advance();
-        let statement: usize = self.alloc_node(AstKind::MatchStmt, keyword.span);
+        let mut kind: AstKind = AstKind::MatchStmt;
+        if expression_mode { kind=AstKind::ExprMatch; }
+        let statement: usize = self.alloc_node(kind, keyword.span);
         let subject: usize = self.parse_expression();
         if statement == 0 || subject == 0 || !self.append_child(statement, subject)
             || !self.match_token(TokenKind::OpenBrace) { self.reject_current(); return 0; }
@@ -1567,7 +1574,8 @@ impl Parser {
                 || !self.match_token(TokenKind::FatArrow) { self.reject_current(); return 0; }
             self.advance();
             let mut body: usize = 0;
-            if self.match_token(TokenKind::OpenBrace) { body = self.parse_block(); }
+            if expression_mode { body=self.parse_expression(); }
+            else if self.match_token(TokenKind::OpenBrace) { body = self.parse_block(); }
             else {
                 let body_token: Token = self.current();
                 body = self.alloc_node(AstKind::Block, body_token.span);
@@ -1583,6 +1591,8 @@ impl Parser {
             }
             if !self.append_child(statement, arm) { return 0; }
             count = count + 1;
+            if expression_mode && !self.match_token(TokenKind::Comma)
+                && !self.match_token(TokenKind::CloseBrace) { self.reject_current(); return 0; }
             if self.match_token(TokenKind::Comma) { self.advance(); }
         }
         if count == 0 || !self.match_token(TokenKind::CloseBrace) { self.reject_current(); return 0; }
