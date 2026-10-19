@@ -7,6 +7,38 @@
 
 
 
+## SV8.81 - native payload matching and exclusive expression joins (2026-10-19)
+
+**Starting baseline:** `9926e37`, reported green by the repository owner.
+The native parser accepts positional payload declarations and variant patterns.
+Sotlas lowering constructs a tagged aggregate, zeroes inactive storage and copies
+POD payload values independently. Internal calls/returns and match results retain
+the aggregate ABI. Bindings are immutable and scoped to the selected arm/guard;
+coverage checks ignore guarded variants and reject nominal or arity mismatches.
+
+Expression match ownership now analyzes arms independently, merges live exclusive
+POD move states and retains deferred-borrow reservations. Value blocks support
+owned yields, early returns and cleanup; consuming guards and maybe-moved reads
+remain errors. POD checks include nominal enums, and native inference preserves
+the enum identity of constructor locals. The expanded public example combines
+these paths without C emission.
+
+**Local evidence:** the 247-test focused match/frontend/IR/documentation run
+passed; the final inference case and two ownership edge cases also passed.
+The latest frontend/Target IR run passed 153 tests. Windows and Linux/WSL native
+seeds rebuilt the final compiler sources with host build tools absent from PATH
+and proved Stage 2/3 byte identity. Each rebuilt compiler passed 79 match tests
+and all 33 shared Stage 3 cases, including located diagnostics and preservation
+of an existing executable on rejection. A parser regression involving dynamic
+range endpoints was caught and corrected by this shared gate before the commit.
+The example executed with exit 42 on Windows and Linux. Its object, ELF, PE and
+Mach-O bytes matched across both hosts; Intel macOS execution still requires CI.
+
+The [payload contract](native_match_payloads.md) records executable boundaries.
+Resource fields, integrated ARC/drop generation, recursive/refutable field
+patterns and complete canonical frontend parity remain open. This package does
+not label the entire master language or sovereignty track complete.
+
 ## SV8.80 - native POD match release profile (2026-10-19)
 
 **Starting baseline:** `8bdfdc4`, reported green by the repository owner.

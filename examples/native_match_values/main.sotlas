@@ -4,6 +4,24 @@ enum ResultKind { Small = 1, Large = 2 }
 
 struct Classification { pub kind:ResultKind; pub score:u32; }
 
+enum Measurement { Missing, Reading(Classification,u32) }
+
+fn measure(value:u32)->Measurement {
+    return Measurement::Reading(Classification{kind:ResultKind::Large,score:value},2);
+}
+
+fn measured_score(value:Measurement)->u32 {
+    return match value {
+        Measurement::Reading(item,bias) if item.score>0 => item.score+bias,
+        Measurement::Reading(_,_) => 0,
+        Measurement::Missing => 0
+    };
+}
+
+fn select_owned(flag:bool,left:sole Classification,right:sole Classification)->sole Classification {
+    return match flag { true=>{left},false=>{right} };
+}
+
 fn score(value: u8) -> u32 {
     return match value {
         0..=9 if value == 0 => 0,
@@ -40,5 +58,10 @@ pub fn main_entry() -> u32 {
     let left:Classification=classify(5);
     let right:Classification=classify(10);
     if left.score+right.score!=42 || adjustment(category(false))!=0 { return 1; }
+    if measured_score(measure(40))!=42 { return 2; }
+    let first:sole Classification=Classification{kind:ResultKind::Large,score:42};
+    let second:sole Classification=Classification{kind:ResultKind::Small,score:0};
+    let owned:sole Classification=select_owned(true,first,second);
+    if owned.score!=42 { return 3; }
     return total + adjustment(ResultKind::Small);
 }

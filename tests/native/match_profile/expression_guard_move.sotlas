@@ -1,0 +1,7 @@
+module match_expression_guard_move;
+struct Box { pub value:u32; }
+fn consume(value:sole Box)->bool { return true; }
+pub fn main_entry()->u32 {
+    let value:sole Box=Box{value:42};
+    return match true { true if consume(value)=>42,_=>0 };
+}

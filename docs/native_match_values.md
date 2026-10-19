@@ -60,11 +60,14 @@ to a sibling arm or the surrounding scope. An unguarded binding is a catch-all
 and must be last; a guarded binding contributes no coverage. Existing module
 constants continue to mean value patterns.
 
-Raw pointer results, pointer/resource-bearing record results and captures of
-owned/domain-qualified bindings are rejected before lowering, including scalar
-projections and calls returning ownership-qualified values. Owned branch merges,
-payload enums/patterns and resource cleanup remain dependencies outside this POD
-match profile. Existing ordinary statement-match ownership contracts remain active.
+Raw pointer results and pointer/resource-bearing record results remain rejected.
+Exclusive POD captures and results use independent arm analysis, live-path joins
+and the existing move checks. Guards may borrow owners but cannot consume them.
+Value blocks preserve defer reservations and capture results before cleanup.
+Payload enums now have native constructors, internal aggregate transfer and
+positional pattern bindings; see [the payload contract](native_match_payloads.md).
+General resource cleanup, ARC and recursive/refutable payload patterns remain
+separate dependencies.
 
 Arm count is bounded to 64, with the existing CFG, IR, stack and nesting limits.
 Match expressions are runtime values; module constant/static evaluation is not

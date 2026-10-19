@@ -1,0 +1,8 @@
+module match_expression_maybe_moved;
+struct Box { pub value:u32; }
+fn consume(value:sole Box)->u32 { return value.value; }
+pub fn main_entry()->u32 {
+    let value:sole Box=Box{value:42};
+    let result:u32=match true { true=>consume(value),false=>0 };
+    return value.value;
+}

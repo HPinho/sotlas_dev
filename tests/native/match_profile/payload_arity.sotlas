@@ -1,0 +1,6 @@
+module match_payload_arity;
+enum Value { Some(u32) }
+pub fn main_entry()->u32 {
+    let value:Value=Value::Some(42);
+    return match value { Value::Some(a,b)=>42 };
+}
