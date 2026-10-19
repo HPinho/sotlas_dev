@@ -18,10 +18,12 @@ This checkpoint reports executable deliveries and remaining gates separately.
 | Executable targets | Link the same integer modules into ELF, Windows PE and static Intel Mach-O executables |
 | Source-list builds | Compile units independently and build a library/application in one native command |
 | Inline record arrays | Store pointer-free record arrays inside structs and initialize, read, mutate, copy and return supported containers |
+| Static record data | Serialize constant record configurations, including nested arrays, directly into native data/BSS and use them from native code |
 
 See the [ABI](native_embedded_abi.md), [libraries](native_static_libraries.md),
 [targets](native_library_targets.md), [module builds](native_module_builds.md)
 and [record arrays](native_record_array_fields.md) contracts for precise limits.
+Static record storage has its own [constant-data contract](native_static_records.md).
 
 ## Sovereignty status
 

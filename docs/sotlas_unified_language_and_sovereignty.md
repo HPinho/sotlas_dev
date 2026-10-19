@@ -2,6 +2,13 @@
 
 **Repository:** [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev)
 
+**SV8.77 (2026-10-18):** pointer-free static record configurations now become
+native initialized data/BSS, including nested records and scalar/record arrays.
+The native path preserves padded layout, constant typing, copies and mutable
+field updates without startup constructors. General pointer/resource/string
+initializers remain open. See the [contract](native_static_records.md) and
+[configuration example](../examples/static_config/README.md).
+
 **SV8.76 (2026-10-18):** native structs now accept inline arrays of pointer-free
 records, including nested field access, mutation, independent copies and
 supported container returns/borrows. List assignment stages its complete value
