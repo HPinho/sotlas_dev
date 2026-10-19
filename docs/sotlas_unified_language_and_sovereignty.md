@@ -2,6 +2,13 @@
 
 **Repository:** [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev)
 
+**SV8.80 (2026-10-19):** native match gains scoped subject bindings, open integer
+ranges, nominal enum and independent POD record results, and value blocks with
+locals, LIFO defer and enclosing early returns. Captured values precede deferred
+mutation. Shared Stage 3 fixtures exercise the expanded profile. Payload-enum
+destructuring and ownership-bearing match values remain explicitly outside this
+delivery. See the [release profile](native_match_release_profile.md).
+
 **SV8.79 (2026-10-19):** native `match` expressions select integer, Boolean or
 float results in value positions. They reuse exhaustive statement-match checks,
 ordered guards and ranges; evaluate the subject once; and join only selected arm

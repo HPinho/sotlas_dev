@@ -2,6 +2,23 @@
 
 Repository: [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev).
 
+## SV8.80 - native POD match release profile (2026-10-19)
+
+- [x] Add scoped immutable subject bindings in guards and arm bodies.
+- [x] Preserve module constants as value patterns and lexical shadowing.
+- [x] Cover open integer intervals, including signed extrema and complete domains.
+- [x] Return independent POD records, including nested records/array fields.
+- [x] Return nominal payload-free enums and reject destination/arm mismatches.
+- [x] Execute arm blocks with locals, tail values and enclosing function returns.
+- [x] Capture scalar/record results before LIFO defer cleanup and deferred mutation.
+- [x] Preserve nested match result contexts and existing ownership exclusions.
+- [x] Check arm/local/table capacities and keep malformed/value-less blocks closed.
+- [x] Extend shared Stage 3 fixtures, documentation and the original-source example.
+
+The [release profile](native_match_release_profile.md) fixes this executable
+surface. Payload enums/patterns and ownership-bearing match values remain open
+foundation/integration work; the master match item is not marked complete.
+
 ## SV8.79 - scalar match expressions (2026-10-19)
 
 - [x] Parse match values in expression positions with comma-separated scalar arms.
@@ -1614,7 +1631,8 @@ suite. These results do not substitute for native Intel macOS execution in CI.
   - [x] Execute bounded inclusive/exclusive integer ranges with overlap rejection and complete integer-domain coverage proofs; validate signed/unsigned extrema, cleanup and supported ownership paths.
   - [x] Execute native Boolean match guards with pattern-hit-only evaluation, lazy conditions, false fallthrough, unguarded coverage proofs and supported POD ownership preservation.
   - [x] Execute exhaustive scalar match expressions with ordered guards/ranges, single subject evaluation and lazy selected arm values.
-  - [ ] Complete payload patterns/bindings, open-ended ranges, block/aggregate results and ownership-bearing match expressions.
+  - [x] Execute open integer ranges, scoped subject bindings, nominal enum results, POD record copies and arm value blocks with LIFO/early-return cleanup.
+  - [ ] Complete payload-enum patterns/bindings, resource-bearing results and ownership-bearing match expressions.
 - [ ] Complete general arrays, slices, indexing and slicing.
   - [x] Native local scalar arrays accept value lists and runtime repetition with exact length/type checking.
   - [x] Repetition evaluates its value once; large arrays use a bounded native fill loop.

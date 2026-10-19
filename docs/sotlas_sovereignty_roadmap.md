@@ -7,6 +7,40 @@
 
 
 
+## SV8.80 - native POD match release profile (2026-10-19)
+
+**Starting baseline:** `8bdfdc4`, reported green by the repository owner.
+This package closes the documented [POD match release profile](native_match_release_profile.md):
+scoped immutable subject bindings, closed/open integer ranges, nominal
+payload-free enum and independent POD record results, and arm value blocks.
+Blocks support locals, ordinary structured statements, tail values and enclosing
+function returns. A tail is captured/copied before LIFO defer cleanup; early
+return executes enclosing cleanup. Pattern constants retain their existing
+meaning and bindings cannot escape an arm. Scalar/POD results remain lazy.
+
+Enum arm/destination identity is checked across typed lets, returns, assignments
+and internal calls. Record results retain nominal layout and independent nested
+field/array storage. Missing values, mismatched types, invalid intervals, overlap,
+immutable writes and capacity exhaustion fail closed. Lexical ownership lookup
+distinguishes an arm binding from a shadowed outer owner. Owned captures/call
+results, pointer/resource record values and payload enums remain explicit
+exclusions rather than being erased during lowering.
+
+**Local evidence:** 196 focused match/frontend/Target IR tests passed before the
+final local-capacity guard; the final 25 closure tests also passed. Windows and
+Linux/WSL rebuilt original compiler sources from native seeds with host build
+tools absent from PATH and proved Stage 2/3 byte identity. Each final compiler
+passed 44 match-value/closure tests and all 30 shared native Stage 3 cases.
+The shared cases verify diagnostics/status and preserve an existing executable
+on rejection, including local-capacity exhaustion returning lowering error 7.
+They are wired into the existing Stage 3 CI scripts. Test sets overlap.
+
+Both hosts emitted identical object/ELF/PE/Mach-O bytes for the expanded example;
+ELF executed on Linux and PE on Windows with status 42. The 18 reality/phase-audit
+tests passed locally. Actual Intel macOS execution and new remote CI certification
+remain pending. The master match item is still open for payload enums/patterns
+and ownership-bearing values; this release profile does not mark those complete.
+
 ## SV8.79 - scalar match expressions (2026-10-19)
 
 **Starting baseline:** `cccadd7`, reported green by the repository owner.

@@ -1,8 +1,9 @@
 # Native match values
 
 This example uses `match` as a value in a variable initializer and function
-returns. Integer ranges, a guard and an exhaustive enum subject select numeric
-results. The executable exits with status 42 and prints no text.
+returns. Closed/open integer ranges, scoped bindings, guards and exhaustive enum
+subjects select numeric, nominal enum and POD record results. One arm uses local
+bindings and a tail value. The executable exits with status 42 and prints no text.
 
 With a rebuilt Linux x86-64 native compiler:
 

@@ -1,0 +1,4 @@
+module match_profile_missing_value;
+pub fn main_entry()->u32 {
+    return match true { true=>{let value:u32=42;},false=>0 };
+}

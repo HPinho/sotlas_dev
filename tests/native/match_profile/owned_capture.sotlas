@@ -1,0 +1,5 @@
+module match_profile_owned_capture;
+pub fn main_entry()->u32 {
+    let value:sole u32=42;
+    return match true { true=>value,false=>0 };
+}
