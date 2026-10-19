@@ -203,6 +203,13 @@
       "verification": "native-stage3-match-range-fixtures; outside-the-canonical-stage0-c11-runnable-policy"
     },
     {
+      "id": "native-scalar-match-values",
+      "document": "docs/native_match_values.md",
+      "status": "EXPERIMENTAL",
+      "source": "examples/native_match_values/main.sotlas",
+      "verification": "tests/test_sotlas_native_match_values.py; native-cfg-execution-and-negative-gates; outside-the-canonical-stage0-c11-runnable-policy"
+    },
+    {
       "id": "native-global-record-tables",
       "document": "docs/native_static_tables.md",
       "status": "EXPERIMENTAL",

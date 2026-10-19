@@ -2558,6 +2558,9 @@ impl ScalarLowering {
         if self.structured_cfg && expression.kind == AstKind::ExprConditional {
             return self.cfg_conditional_value(expression_index, type_tag, first_parameter, parameter_count);
         }
+        if self.structured_cfg && expression.kind == AstKind::ExprMatch {
+            return self.cfg_match_value(expression_index,type_tag,first_parameter,parameter_count);
+        }
         if self.structured_cfg && type_tag == TargetTypeTag::Bool
             && expression.kind == AstKind::ExprBinary
             && (expression.int_value == 110 || expression.int_value == 111) {
@@ -4116,6 +4119,25 @@ impl ScalarLowering {
         }
         let expression: AstNode = unsafe { *(self.nodes + expression_index) };
 
+        if expression.kind == AstKind::ExprMatch {
+            let subject: usize = expression.first_child;
+            if subject == 0 || subject >= self.node_count { return TargetTypeTag::Invalid; }
+            let arm: usize = unsafe{(*(self.nodes+subject)).next_sibling};
+            if arm == 0 || arm >= self.node_count { return TargetTypeTag::Invalid; }
+            let pattern: usize = unsafe{(*(self.nodes+arm)).first_child};
+            if pattern == 0 || pattern >= self.node_count { return TargetTypeTag::Invalid; }
+            let body: usize = unsafe{(*(self.nodes+pattern)).next_sibling};
+            if body == 0 || body >= self.node_count { return TargetTypeTag::Invalid; }
+            let node: AstNode = unsafe{*(self.nodes+body)};
+            let mut sem: Sema = Sema::new();
+            if node.kind == AstKind::ExprLiteral
+                && (sem.source_slice_equals(self.source,self.source_len,node.str_offset,node.str_len,"true",4)
+                    || sem.source_slice_equals(self.source,self.source_len,node.str_offset,node.str_len,"false",5)) {
+                return TargetTypeTag::Bool;
+            }
+            return self.condition_expression_type(body,first_parameter,parameter_count);
+        }
+
         if self.structured_cfg && expression.kind == AstKind::ExprFieldAccess {
             let owner: u32 = self.cfg_struct_id(expression.first_child, 0);
             let field: u32 = self.find_field(owner, expression.str_offset, expression.str_len);
@@ -4299,7 +4321,7 @@ impl ScalarLowering {
             || expression.kind == AstKind::UnsafeExpr
             || expression.kind == AstKind::ExprCall || expression.kind == AstKind::ExprLiteral
             || expression.kind == AstKind::ExprFieldAccess || expression.kind == AstKind::ExprIndex
-            || expression.kind == AstKind::ExprConditional) {
+            || expression.kind == AstKind::ExprConditional || expression.kind == AstKind::ExprMatch) {
             let result: u32 = self.lower_expression(
                 expression_index, TargetTypeTag::Bool, first_parameter, parameter_count
             );
@@ -5904,7 +5926,7 @@ impl ScalarLowering {
             }
             let is_loop: bool = node.kind == AstKind::WhileStmt;
             let is_branch: bool = node.kind == AstKind::IfStmt;
-            let is_defer: bool = node.kind == AstKind::DeferStmt || node.kind == AstKind::MatchStmt;
+            let is_defer: bool = node.kind == AstKind::DeferStmt || node.kind == AstKind::MatchStmt || node.kind == AstKind::ExprMatch;
             // Only a standalone block introduces the extra lexical scope here.
             // If/while bodies belong to their control-flow node and must keep
             // the established lowering choice for simple scalar functions.
@@ -6826,8 +6848,27 @@ impl ScalarLowering {
         return true;
     }
 
+    pub fn cfg_match_value(mut self: &mut Self, index: usize, typ: TargetTypeTag,
+        first_parameter: usize, parameter_count: usize) -> u32 {
+        if typ == TargetTypeTag::Invalid || typ == TargetTypeTag::Void || typ == TargetTypeTag::Pointer
+            || typ == TargetTypeTag::Aggregate || self.cfg_current == 0 { return 0; }
+        let size: u32 = self.scalar_memory_size(typ);
+        if size == 0 { return 0; }
+        let storage: u32 = self.append_value(TargetTypeTag::Pointer,0,0);
+        if storage == 0 || !self.append_instruction(TargetOpcode::AllocStack,storage,
+            TargetTypeTag::Pointer,0,0,index) { return 0; }
+        unsafe{(*(self.instructions+self.instruction_count-1)).immediate_bits=size as u64;}
+        if !self.cfg_match_statement(index,typ,first_parameter,parameter_count,0,0,0,storage) { return 0; }
+        let result: u32 = self.append_value(typ,0,0);
+        let operand: u32 = self.operand_count as u32;
+        if result == 0 || !self.append_operand(storage) || !self.append_instruction(TargetOpcode::Load,
+            result,typ,operand,1,index) { return 0; }
+        return result;
+    }
+
     pub fn cfg_match_statement(mut self: &mut Self, index: usize, return_type: TargetTypeTag,
-        first_parameter: usize, parameter_count: usize, break_id: u32, continue_id: u32, depth: usize) -> bool {
+        first_parameter: usize, parameter_count: usize, break_id: u32, continue_id: u32, depth: usize,
+        result_storage: u32) -> bool {
         if index == 0 || index >= self.node_count || depth >= 64 { return self.reject(index); }
         let subject: usize = unsafe { (*(self.nodes + index)).first_child };
         let mut sem: Sema = Sema::new();
@@ -6871,8 +6912,18 @@ impl ScalarLowering {
             if arm_node.kind != AstKind::MatchArm || pattern == 0 || pattern >= self.node_count { return self.reject(arm); }
             let node: AstNode = unsafe { *(self.nodes + pattern) };
             let body: usize = node.next_sibling;
-            if body == 0 || body >= self.node_count || unsafe { (*(self.nodes + body)).kind } != AstKind::Block {
+            if body == 0 || body >= self.node_count || (result_storage == 0
+                && unsafe { (*(self.nodes + body)).kind } != AstKind::Block) {
                 return self.reject(arm);
+            }
+            if result_storage != 0 {
+                let body_type: usize = sem.infer_expression_type_ref(self.nodes,self.node_count,body,self.source,self.source_len);
+                if body_type != 0 && body_type < self.node_count {
+                    let declared: AstNode = unsafe{*(self.nodes+body_type)};
+                    if self.find_enum(declared.str_offset,declared.str_len) != 0 { return self.reject(body); }
+                }
+                let body_node: AstNode = unsafe{*(self.nodes+body)};
+                if body_node.kind == AstKind::ExprPath { return self.reject(body); }
             }
             let guard: usize = unsafe { (*(self.nodes + body)).next_sibling };
             if guard != 0 {
@@ -7001,7 +7052,11 @@ impl ScalarLowering {
                 }
             }
             self.cfg_begin(selected);
-            if !self.cfg_sequence(unsafe { (*(self.nodes + body)).first_child }, return_type,
+            if result_storage != 0 {
+                let result: u32 = self.lower_expression(body,return_type,first_parameter,parameter_count);
+                if result == 0 || unsafe{(*(self.values+result as usize-1)).type_tag} != return_type
+                    || !self.cfg_store(result_storage,result,return_type,body) { return self.reject(body); }
+            } else if !self.cfg_sequence(unsafe { (*(self.nodes + body)).first_child }, return_type,
                 first_parameter, parameter_count, break_id, continue_id, depth + 1) { return false; }
             if self.cfg_current != 0 { any_open = true; if !self.cfg_jump(join, arm) { return self.reject(arm); } }
             self.local_count = scope;
@@ -7058,7 +7113,7 @@ impl ScalarLowering {
                 if !self.cfg_jump(destination, index) { return self.reject(index); }
             } else if stmt.kind == AstKind::MatchStmt {
                 if !self.cfg_match_statement(index, return_type, first_parameter, parameter_count,
-                    break_id, continue_id, depth + 1) { return false; }
+                    break_id, continue_id, depth + 1,0) { return false; }
             } else if stmt.kind == AstKind::IfStmt {
                 let condition_index: usize = stmt.first_child;
                 if condition_index == 0 || condition_index >= self.node_count { return self.reject(index); }

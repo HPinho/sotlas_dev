@@ -47,7 +47,8 @@ pub enum AstKind {
     ExprConditional = 42,
     MatchStmt = 43,
     MatchArm = 44,
-    PatternRange = 45
+    PatternRange = 45,
+    ExprMatch = 46
 }
 
 pub struct AstNode {

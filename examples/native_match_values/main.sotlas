@@ -1,0 +1,24 @@
+module native_match_values;
+
+enum ResultKind { Small = 1, Large = 2 }
+
+fn score(value: u8) -> u32 {
+    return match value {
+        0..=9 if value == 0 => 0,
+        0..=9 => 20,
+        10..=255 => 22
+    };
+}
+
+fn adjustment(kind: ResultKind) -> u32 {
+    return match kind {
+        ResultKind::Small => 0,
+        ResultKind::Large => 1
+    };
+}
+
+pub fn main_entry() -> u32 {
+    let selected = match true { true => 5, false => 0 };
+    let total: u32 = score(selected as u8) + score(10);
+    return total + adjustment(ResultKind::Small);
+}
