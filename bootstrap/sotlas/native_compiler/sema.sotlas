@@ -742,7 +742,8 @@ impl Sema {
         if parent_index != 0 && parent_index < node_count {
             let parent: AstNode = unsafe { *(nodes + parent_index) };
             if parent.kind == AstKind::MatchArm && parent.first_child == expression_index
-                && self.source_slice_equals(source, source_len, expression.str_offset, expression.str_len, "_", 1) { return true; }
+                && (self.source_slice_equals(source, source_len, expression.str_offset, expression.str_len, "_", 1)
+                    || self.match_pattern_binding(nodes,node_count,expression_index,source,source_len)) { return true; }
             if parent.kind == AstKind::ExprCall && parent.first_child == expression_index {
                 if self.find_module_function(
                     nodes, node_count, expression_index, source, source_len
@@ -2698,6 +2699,23 @@ impl Sema {
             && self.source_slice_equals(source, source_len, offset, 3, "mut", 3);
     }
 
+    pub fn match_block_tail(self: &Self, nodes: *const AstNode, node_count: usize, index: usize) -> usize {
+        if index == 0 || index >= node_count { return 0; }
+        let block: AstNode = unsafe{*(nodes+index)};
+        if block.kind != AstKind::MatchValueBlock { return 0; }
+        let mut child: usize = block.first_child;let mut steps: usize = 0;
+        while child != 0 && steps < node_count {
+            if child >= node_count { return 0; }
+            let node: AstNode = unsafe{*(nodes+child)};
+            if node.next_sibling == 0 {
+                if node.kind == AstKind::MatchYield { return node.first_child; }
+                return 0;
+            }
+            child=node.next_sibling;steps=steps+1;
+        }
+        return 0;
+    }
+
     pub fn binding_type_ref(
         self: &Self,
         nodes: *const AstNode,
@@ -3026,11 +3044,41 @@ impl Sema {
             return 0;
         }
         let expression: AstNode = unsafe { *(nodes + expression_index) };
+        if expression.kind == AstKind::MatchValueBlock {
+            return self.infer_expression_type_ref(nodes,node_count,
+                self.match_block_tail(nodes,node_count,expression_index),source,source_len);
+        }
+        if expression.kind == AstKind::ExprMatch && expression.first_child != 0 && expression.first_child < node_count {
+            let arm: usize = unsafe{(*(nodes+expression.first_child)).next_sibling};
+            if arm == 0 || arm >= node_count { return 0; }
+            let pattern: usize = unsafe{(*(nodes+arm)).first_child};
+            if pattern == 0 || pattern >= node_count { return 0; }
+            return self.infer_expression_type_ref(nodes,node_count,unsafe{(*(nodes+pattern)).next_sibling},source,source_len);
+        }
         if expression.kind == AstKind::ExprIdent {
             let binding: usize = self.find_visible_binding(
                 nodes, node_count, expression_index, source, source_len
             );
-            return self.binding_type_ref(nodes, node_count, binding);
+            if binding != 0 && binding < node_count {
+                let pattern: AstNode = unsafe{*(nodes+binding)};
+                if pattern.kind == AstKind::ExprIdent && pattern.parent != 0 && pattern.parent < node_count {
+                    let arm: AstNode = unsafe{*(nodes+pattern.parent)};
+                    if arm.kind == AstKind::MatchArm && arm.parent != 0 && arm.parent < node_count {
+                        return self.infer_expression_type_ref(nodes,node_count,
+                            unsafe{(*(nodes+arm.parent)).first_child},source,source_len);
+                    }
+                }
+            }
+            let declared: usize = self.binding_type_ref(nodes,node_count,binding);
+            if declared != 0 { return declared; }
+            if binding != 0 && binding < node_count {
+                let declaration: AstNode = unsafe{*(nodes+binding)};
+                if declaration.kind == AstKind::LetStmt && declaration.first_child != 0
+                    && declaration.first_child < node_count && unsafe{(*(nodes+declaration.first_child)).kind} == AstKind::ExprMatch {
+                    return self.infer_expression_type_ref(nodes,node_count,declaration.first_child,source,source_len);
+                }
+            }
+            return 0;
         }
         if expression.kind == AstKind::ExprFieldAccess {
             return self.find_struct_field_for_access(
@@ -3413,7 +3461,7 @@ impl Sema {
             return false;
         }
         let block: AstNode = unsafe { *(nodes + block_index) };
-        if block.kind != AstKind::Block {
+        if block.kind != AstKind::Block && block.kind != AstKind::MatchValueBlock {
             return false;
         }
         let mut statement_index: usize = block.first_child;
@@ -3606,6 +3654,24 @@ impl Sema {
         return true;
     }
 
+    pub fn match_pattern_binding(self: &Self, nodes: *const AstNode, node_count: usize,
+        index: usize, source: *const u8, source_len: usize) -> bool {
+        if index == 0 || index >= node_count { return false; }
+        let pattern: AstNode = unsafe{*(nodes+index)};
+        if pattern.kind != AstKind::ExprIdent || pattern.str_len == 0
+            || self.source_slice_equals(source,source_len,pattern.str_offset,pattern.str_len,"_",1) { return false; }
+        let mut scan: usize = 1;
+        while scan < node_count {
+            let node: AstNode = unsafe{*(nodes+scan)};
+            if node.kind == AstKind::LetStmt && node.parent != 0 && node.parent < node_count
+                && unsafe{(*(nodes+node.parent)).kind} == AstKind::Module
+                && self.source_slice_equals(source,source_len,node.span.offset,node.span.length,"const",5)
+                && self.same_declaration_name(source,source_len,node,pattern) { return false; }
+            scan=scan+1;
+        }
+        return true;
+    }
+
     pub fn find_visible_binding(
         self: &Self,
         nodes: *const AstNode,
@@ -3626,7 +3692,12 @@ impl Sema {
                 return 0;
             }
             let parent: AstNode = unsafe { *(nodes + parent_index) };
-            if parent.kind == AstKind::Block {
+            if parent.kind == AstKind::MatchArm && parent.first_child != child_on_path
+                && self.match_pattern_binding(nodes,node_count,parent.first_child,source,source_len)
+                && self.same_declaration_name(source,source_len,unsafe{*(nodes+parent.first_child)},expression) {
+                return parent.first_child;
+            }
+            if parent.kind == AstKind::Block || parent.kind == AstKind::MatchValueBlock {
                 let mut sibling_index: usize = parent.first_child;
                 let mut found_path: bool = false;
                 while sibling_index != 0 {
@@ -3836,6 +3907,23 @@ impl NativeOwnershipCheck {
         let node: AstNode = unsafe { *(self.nodes + expression) };
         let mut index: usize = self.count;
         let mut sem: Sema = Sema::new();
+        if node.kind == AstKind::ExprIdent {
+            let mut parent: usize = node.parent;let mut steps: usize = 0;
+            while parent != 0 && parent < self.node_count && steps < self.node_count {
+                let ancestor: AstNode = unsafe{*(self.nodes+parent)};
+                if ancestor.kind == AstKind::MatchArm || ancestor.kind == AstKind::MatchValueBlock {
+                    let visible: usize = sem.find_visible_binding(self.nodes,self.node_count,expression,self.source,self.source_len);
+                    if visible != 0 {
+                        let mut slot: usize = self.count;
+                        while slot > 0 { slot=slot-1;if self.bindings[slot] == visible { return slot; } }
+                        return 256;
+                    }
+                    break;
+                }
+                if ancestor.kind == AstKind::FnDecl { break; }
+                parent=ancestor.parent;steps=steps+1;
+            }
+        }
         while index > 0 {
             index = index - 1;
             let binding: AstNode = unsafe { *(self.nodes + self.bindings[index]) };
@@ -3931,6 +4019,9 @@ impl NativeOwnershipCheck {
             if binding < self.count && self.domains[binding] != 0 { return false; }
         }
         let mut child: usize = node.first_child;
+        if node.kind == AstKind::MatchArm && child != 0 && child < self.node_count {
+            child=unsafe{(*(self.nodes+child)).next_sibling};
+        }
         while child != 0 {
             if child >= self.node_count || !self.defer_ownership_free(child, depth + 1) { return false; }
             child = unsafe { (*(self.nodes + child)).next_sibling };
@@ -4225,6 +4316,9 @@ impl NativeOwnershipCheck {
         if node_index == 0 { return true; }
         if node_index >= self.node_count || depth >= 64 { return self.fail(node_index); }
         let node: AstNode = unsafe { *(self.nodes + node_index) };
+        if node.kind == AstKind::ExprIdent && node.parent != 0 && node.parent < self.node_count
+            && unsafe{(*(self.nodes+node.parent)).kind} == AstKind::MatchArm
+            && unsafe{(*(self.nodes+node.parent)).first_child} == node_index { return true; }
         // Scalar match values do not yet merge owned captures. Reject them
         // explicitly instead of analyzing mutually exclusive moves in sequence.
         if node.kind == AstKind::ExprMatch

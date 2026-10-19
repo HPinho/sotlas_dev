@@ -49,7 +49,7 @@ pub fn main_entry()->u32{return select(Kind::First)+select(Kind::Second);}''')
     def test_invalid_coverage_types_patterns_and_blocks_fail_closed(self):
         for value in ('match 0 as u32{0=>42}', 'match true{true=>42}',
                       'match 0 as u32{0=>42,0=>1,_=>2}', 'match 0 as u32{_=>42,0=>1}',
-                      'match 0 as u32{0=>42,_=>false}', 'match 0 as u32{0=>42,_=>{return 1;}}',
+                      'match 0 as u32{0=>42,_=>false}', 'match 0 as u32{0=>42,_=>{1;}}',
                       'match 0 as u32{0 if true=>42}', 'match 0 as u32{}'):
             with self.subTest(value=value):
                 self.compile('match_value_bad','pub fn main_entry()->u32{return '+value+';}',False)
@@ -80,7 +80,7 @@ let value:u8=match true{true=>42,false=>'''+bad+'};return value as u32;}',False)
     def test_owned_capture_pointer_record_and_enum_results_are_rejected(self):
         for source in (
             'pub fn main_entry()->u32{let owner:sole u32=42;return match true{true=>owner,false=>0};}',
-            'struct A{pub value:u32;}pub fn main_entry()->u32{let a:A=match true{true=>A{value:42},false=>A{value:1}};return a.value;}',
+            'struct A{pub value:*mut u32;}pub fn main_entry()->u32{let a:A=match true{true=>A{value:null},false=>A{value:null}};return 42;}',
             'pub fn main_entry()->u32{let p:*const u8=match true{true=>null,false=>null};return 42;}',
             'enum E{A=1,B=2}pub fn main_entry()->u32{return match true{true=>E::A,false=>E::B};}',
             'fn make()->sole u32{return 42;}pub fn main_entry()->u32{return match true{true=>make(),false=>0};}',
@@ -101,7 +101,7 @@ return match total{42=>total,_=>1};}
 pub fn main_entry()->u32{return compute();}''')
 
     def test_syntax_missing_commas_and_incomplete_ranges_are_rejected(self):
-        for value in ('match true{true=>42 false=>0}', 'match 0 as u32{0..=>42,_=>0}',
+        for value in ('match true{true=>42 false=>0}', 'match 0 as u32{0..= =>42,_=>0}',
                       'match true{true=>,false=>42}'):
             with self.subTest(value=value):
                 self.compile('match_value_syntax','pub fn main_entry()->u32{return '+value+';}',False)

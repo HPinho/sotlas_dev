@@ -22,3 +22,9 @@ ownership.sotlas|6|use of moved or maybe-moved value
 ../match_guards/maybe_moved.sotlas|6|use of moved or maybe-moved value
 ../match_guards/moved_read.sotlas|6|use of moved or maybe-moved value
 ../match_guards/body_scope.sotlas|6|semantic error
+../../../examples/native_match_values/main.sotlas|42|
+../match_profile/cleanup.sotlas|42|
+../match_profile/missing_value.sotlas|7|unsupported native form
+../match_profile/wrong_enum.sotlas|7|unsupported native form
+../match_profile/owned_capture.sotlas|6|ownership constraint violated
+../match_profile/local_capacity.sotlas|7|unsupported native form

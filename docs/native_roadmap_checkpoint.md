@@ -20,7 +20,7 @@ This checkpoint reports executable deliveries and remaining gates separately.
 | Inline record arrays | Store pointer-free record arrays inside structs and initialize, read, mutate, copy and return supported containers |
 | Static record data | Serialize constant record configurations, including nested arrays, directly into native data/BSS and use them from native code |
 | Global record tables | Declare initialized record lists/repetition, read indexed entries, copy elements and update mutable tables through checked native accesses |
-| Match values | Select scalar results in lets/returns/arguments/conditions using exhaustive patterns, ranges and ordered guards |
+| Match values | Select scalar, nominal enum and POD record results; use scoped bindings, closed/open ranges and value blocks with ordered guards and cleanup |
 
 See the [ABI](native_embedded_abi.md), [libraries](native_static_libraries.md),
 [targets](native_library_targets.md), [module builds](native_module_builds.md)
@@ -28,6 +28,8 @@ and [record arrays](native_record_array_fields.md) contracts for precise limits.
 Static record storage has its own [constant-data contract](native_static_records.md).
 Global record arrays are covered by the [table contract](native_static_tables.md).
 Scalar match values have a [CFG execution contract](native_match_values.md).
+The expanded [POD match release profile](native_match_release_profile.md) records
+implemented boundaries and remaining payload/ownership dependencies.
 
 ## Sovereignty status
 

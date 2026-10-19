@@ -36,9 +36,10 @@ fn byte_class(value: u8) -> u32 {
 - The existing limit of 64 match arms remains in place.
 
 Ranges on Boolean and enum selectors are rejected. Their existing scalar
-patterns and finite coverage checks still work. Payload patterns, pattern
-bindings, open-ended ranges and match expressions remain outside this feature.
-Guards are covered by their separate native contract linked above.
+patterns and finite coverage checks still work. Subsequent native deliveries add
+open-ended ranges, scoped value bindings and match expressions; see the
+[current match profile](native_match_release_profile.md). Payload patterns still
+depend on native payload enums. Guards retain their separate contract above.
 
 ## Representation and execution
 

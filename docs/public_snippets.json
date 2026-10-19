@@ -207,7 +207,7 @@
       "document": "docs/native_match_values.md",
       "status": "EXPERIMENTAL",
       "source": "examples/native_match_values/main.sotlas",
-      "verification": "tests/test_sotlas_native_match_values.py; native-cfg-execution-and-negative-gates; outside-the-canonical-stage0-c11-runnable-policy"
+      "verification": "tests/test_sotlas_native_match_values.py; tests/test_sotlas_native_match_closure.py; shared-native-stage3-fixtures; outside-the-canonical-stage0-c11-runnable-policy"
     },
     {
       "id": "native-global-record-tables",

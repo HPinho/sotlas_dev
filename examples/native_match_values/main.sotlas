@@ -2,6 +2,8 @@ module native_match_values;
 
 enum ResultKind { Small = 1, Large = 2 }
 
+struct Classification { pub kind:ResultKind; pub score:u32; }
+
 fn score(value: u8) -> u32 {
     return match value {
         0..=9 if value == 0 => 0,
@@ -17,8 +19,26 @@ fn adjustment(kind: ResultKind) -> u32 {
     };
 }
 
+fn classify(value:i16)->Classification {
+    return match value {
+        ..0 => Classification{kind:ResultKind::Small,score:0},
+        n if n<10 => {
+            let score:u32=20;
+            Classification{kind:ResultKind::Small,score:score}
+        },
+        n => Classification{kind:ResultKind::Large,score:22}
+    };
+}
+
+fn category(large:bool)->ResultKind {
+    return match large { true=>ResultKind::Large, false=>ResultKind::Small };
+}
+
 pub fn main_entry() -> u32 {
     let selected = match true { true => 5, false => 0 };
     let total: u32 = score(selected as u8) + score(10);
+    let left:Classification=classify(5);
+    let right:Classification=classify(10);
+    if left.score+right.score!=42 || adjustment(category(false))!=0 { return 1; }
     return total + adjustment(ResultKind::Small);
 }

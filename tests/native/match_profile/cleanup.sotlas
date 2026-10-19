@@ -1,0 +1,13 @@
+module match_profile_cleanup;
+struct Pair { pub left:u32; pub right:u32; }
+static mut trace:u32=0;
+fn mark(x:u32) { unsafe { trace=trace*10+x; } }
+pub fn main_entry()->u32 {
+    let mut original:Pair=Pair{left:20,right:22};
+    let result:Pair=match true {
+        true=>{defer mark(1);defer original.left=1;defer mark(2);original},
+        false=>Pair{left:0,right:0}
+    };
+    if original.left!=1 || unsafe{trace}!=21 { return 1; }
+    return result.left+result.right;
+}
