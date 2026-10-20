@@ -7606,7 +7606,9 @@ impl ScalarLowering {
             let mut mask: u64 = 18446744073709551615;
             if count < 64 { mask=((1 as u64) << count as u64)-1; }
             let mut depth: usize = 0;
-            loop {
+            // Stage 1 C11 emission supports while, but not the bare loop form.
+            // Keep the native proof compatible with both bootstrap paths.
+            while true {
                 let mut covered: bool = false;let mut possible: u64 = 0;let mut row: usize = 0;
                 let mut key: u32 = 0;let mut typ: TargetTypeTag = TargetTypeTag::Invalid;let mut enumeration: u32 = 0;
                 while row < count {
