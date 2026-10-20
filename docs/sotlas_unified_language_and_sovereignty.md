@@ -27,6 +27,15 @@ This closes the combination block for existing patterns and declared domains.
 Pattern syntax extensions and resource-bearing payloads remain separate blocks.
 See [the precise coverage contract](native_match_payloads.md#combination-coverage).
 
+**SV8.83 bootstrap compatibility fix (2026-10-20):** CI run #1280 exposed
+an incompatibility between the native compiler's bare `loop` and the hosted
+Stage 1 C11 emitter. The exact failure was at `ScalarLowering.payload_coverage`
+(merged-source line 20862). The exhaustive native proof now uses the equivalent
+`while true` syntax supported by both paths, without weakening pattern coverage,
+negative gates or ownership checks. The existing `test_sotlas_sovereignty_sv8`
+Stage 1/2/3 fixed-point gate remains the CI acceptance criterion; a green run
+for the repair must be confirmed separately.
+
 **SV8.82 (2026-10-20):** native match supports nested positional variants and
 literal, constant, range and scalar-enum field filters. Typed bindings are scoped
 to the arm and guard. Dispatch checks nested tags and fields before running a
