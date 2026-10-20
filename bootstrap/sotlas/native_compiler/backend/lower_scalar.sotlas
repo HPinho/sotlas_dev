@@ -4,6 +4,34 @@ import sotlas::compiler::ast::*;
 import sotlas::compiler::sema::*;
 import sotlas::compiler::backend::target_ir::*;
 
+// Explicit proof frames avoid host allocation and recursion over product axes.
+// Payload storage is bounded to 4096 bytes, so each constrained axis has a
+// unique byte offset in this private, non-overlapping aggregate layout.
+// Buffer pointers borrow payload_coverage locals and never escape that call.
+pub struct NativeMatchCoverage {
+    pub assigned: *mut u8;
+    pub low: *mut u64;
+    pub high: *mut u64;
+    pub keys: *mut u32;
+    pub types: *mut u32;
+    pub enums: *mut u32;
+    pub ordinals: *mut u32;
+    pub masks: *mut u64;
+    pub found_key: u32;
+    pub found_type: TargetTypeTag;
+    pub found_enum: u32;
+    pub found_low: u64;
+    pub found_high: u64;
+}
+
+impl NativeMatchCoverage {
+    pub fn new()->NativeMatchCoverage {
+        return NativeMatchCoverage{assigned:null,low:null,high:null,
+            keys:null,types:null,enums:null,ordinals:null,masks:null,
+            found_key:0,found_type:TargetTypeTag::Invalid,found_enum:0,found_low:0,found_high:0};
+    }
+}
+
 // Caller-owned flat buffers let this lowering run without a host allocator.
 // Offsets in TargetFunction/TargetBlock/TargetInstruction index these buffers.
 pub struct ScalarLowering {
@@ -7417,6 +7445,203 @@ impl ScalarLowering {
         return child == 0;
     }
 
+    pub fn cfg_match_trap(mut self: &mut Self, node: usize) -> bool {
+        let block: u32 = self.cfg_current;
+        let storage: u32 = self.append_value(TargetTypeTag::Pointer,0,0);
+        if block == 0 || storage == 0 || !self.append_instruction(TargetOpcode::AllocStack,
+            storage,TargetTypeTag::Pointer,0,0,node) { return false; }
+        unsafe{(*(self.instructions+self.instruction_count-1)).immediate_bits=1;}
+        let position: u32 = self.append_value(TargetTypeTag::U64,0,0);
+        if position == 0 || !self.append_instruction(TargetOpcode::ConstInt,position,TargetTypeTag::U64,0,0,node) { return false; }
+        unsafe{(*(self.instructions+self.instruction_count-1)).immediate_bits=1;}
+        let operand: u32 = self.operand_count as u32;
+        let address: u32 = self.append_value(TargetTypeTag::Pointer,0,0);
+        if address == 0 || !self.append_operand(storage) || !self.append_operand(position)
+            || !self.append_instruction(TargetOpcode::IndexAddr,address,TargetTypeTag::Pointer,operand,2,node) { return false; }
+        unsafe{(*(self.instructions+self.instruction_count-1)).immediate_bits=4294967297;}
+        return self.cfg_jump(block,node);
+    }
+
+    pub fn coverage_enum(self: &Self, variant: u32) -> u32 {
+        if variant == 0 || variant as usize > self.variant_total_count { return 0; }
+        let parent: usize = unsafe{(*(self.nodes+self.variant_nodes[variant as usize-1])).parent};
+        if parent == 0 || parent >= self.node_count { return 0; }
+        let declaration: AstNode = unsafe{*(self.nodes+parent)};
+        return self.find_enum(declaration.str_offset,declaration.str_len);
+    }
+
+    // Probe result: 0 contradicts the current cell, 1 covers it, 2 exposes
+    // an unassigned axis (or the requested interval in boundary lookup mode).
+    pub fn coverage_constraint(self: &Self, state: &mut NativeMatchCoverage,
+        key: u32, typ: TargetTypeTag, enumeration: u32, low: u64, high: u64,
+        wanted: u32, lookup: bool) -> u32 {
+        unsafe {
+            if key >= 4096 { return 0; }
+            let slot: usize = key as usize;
+            if lookup && key == wanted {
+                state.found_low=low;state.found_high=high;return 2;
+            }
+            if (*(state.assigned+slot)) != 0 {
+                if low <= (*(state.low+slot)) && (*(state.high+slot)) <= high { return 1; }
+                return 0;
+            }
+            if lookup { return 1; }
+            state.found_key=key;state.found_type=typ;state.found_enum=enumeration;
+            return 2;
+        }
+    }
+
+    pub fn coverage_pattern(mut self: &mut Self, pattern: usize, offset: u32,
+        state: &mut NativeMatchCoverage, wanted: u32, lookup: bool, depth: usize) -> u32 {
+        if pattern == 0 || pattern >= self.node_count || depth >= 32 { return 0; }
+        if self.pattern_capture(pattern) { return 1; }
+        let variant: u32 = self.payload_variant(pattern);
+        if variant == 0 { return 0; }
+        let tag: u64 = self.variant_values[variant as usize-1];
+        let tagged: u32 = self.coverage_constraint(state,offset,TargetTypeTag::U32,
+            self.coverage_enum(variant),tag,tag,wanted,lookup);
+        if tagged != 1 { return tagged; }
+        let node: AstNode = unsafe{*(self.nodes+pattern)};
+        if node.kind == AstKind::ExprPath { return 1; }
+        if node.kind != AstKind::PatternVariant || node.first_child == 0 { return 0; }
+        let mut child: usize = unsafe{(*(self.nodes+node.first_child)).next_sibling};let mut ordinal: usize = 0;
+        while child != 0 && child < self.node_count {
+            let field: usize = self.variant_field_starts[variant as usize-1] as usize+ordinal;
+            if !self.pattern_capture(child) {
+                let key: u32 = offset+self.field_offsets[field];
+                let mut result: u32 = 0;
+                if self.field_struct_ids[field] != 0 {
+                    result=self.coverage_pattern(child,key,state,wanted,lookup,depth+1);
+                } else {
+                    let typ: TargetTypeTag = self.field_type_tags[field] as TargetTypeTag;
+                    let reference: usize = self.field_type_refs[field];let mut enumeration: u32 = 0;
+                    if reference != 0 && reference < self.node_count {
+                        let declared: AstNode = unsafe{*(self.nodes+reference)};
+                        enumeration=self.find_enum(declared.str_offset,declared.str_len);
+                    }
+                    let mut low: u64 = 0;let mut high: u64 = 0;
+                    if !self.payload_scalar_bounds(child,field,&mut low,&mut high) { return 0; }
+                    result=self.coverage_constraint(state,key,typ,enumeration,
+                        native_match_order_key(low,typ),native_match_order_key(high,typ),wanted,lookup);
+                }
+                if result != 1 { return result; }
+            }
+            child=unsafe{(*(self.nodes+child)).next_sibling};ordinal=ordinal+1;
+        }
+        return 1;
+    }
+
+    pub fn coverage_cell(mut self: &mut Self, rows: *const usize, count: usize,
+        state: &mut NativeMatchCoverage, frame: usize, first: bool) -> bool {
+        unsafe {
+            let key: u32 = (*(state.keys+frame));let slot: usize = key as usize;
+            let enumeration: u32 = (*(state.enums+frame));
+            let typ: TargetTypeTag = (*(state.types+frame)) as TargetTypeTag;
+            (*(state.assigned+slot))=0;
+            if enumeration != 0 {
+                let mut ordinal: u32 = 0;
+                if !first { ordinal=(*(state.ordinals+frame))+1; }
+                if ordinal >= self.enum_variant_counts[enumeration as usize-1] { return false; }
+                let variant: usize = self.enum_variant_starts[enumeration as usize-1] as usize+ordinal as usize;
+                let value: u64 = native_match_order_key(self.variant_values[variant],typ);
+                (*(state.low+slot))=value;(*(state.high+slot))=value;(*(state.ordinals+frame))=ordinal;
+            } else {
+                let mut maximum: u64 = 18446744073709551615;
+                let width: u32 = target_integer_width(typ);
+                if typ == TargetTypeTag::Bool { maximum=1; }
+                else if width == 0 { return false; }
+                else if width < 64 { maximum=((1 as u64) << width as u64)-1; }
+                let mut start: u64 = 0;
+                if !first {
+                    if (*(state.high+slot)) == maximum { return false; }
+                    start=(*(state.high+slot))+1;
+                }
+                let mut end: u64 = maximum;let mut row: usize = 0;
+                while row < count {
+                    if ((*(state.masks+frame)) & ((1 as u64) << row as u64)) != 0 {
+                        let result: u32 = self.coverage_pattern(unsafe{*(rows+row)},0,state,key,true,0);
+                        if result == 2 {
+                            let low: u64 = state.found_low;let high: u64 = state.found_high;
+                            if low > start && low-1 < end { end=low-1; }
+                            if high >= start && high < end { end=high; }
+                        }
+                    }
+                    row=row+1;
+                }
+                (*(state.low+slot))=start;(*(state.high+slot))=end;
+            }
+            (*(state.assigned+slot))=1;
+            return true;
+        }
+    }
+
+    pub fn payload_coverage(mut self: &mut Self, first_arm: usize) -> bool {
+        unsafe {
+            let mut rows: [usize;64] = 0;let mut count: usize = 0;let mut arm: usize = first_arm;
+            while arm != 0 && arm < self.node_count && count < 64 {
+                let pattern: usize = unsafe{(*(self.nodes+arm)).first_child};
+                let body: usize = unsafe{(*(self.nodes+pattern)).next_sibling};
+                if unsafe{(*(self.nodes+body)).next_sibling} == 0 { rows[count]=pattern;count=count+1; }
+                arm=unsafe{(*(self.nodes+arm)).next_sibling};
+            }
+            if count == 0 || arm != 0 { return false; }
+            let mut state: NativeMatchCoverage = NativeMatchCoverage::new();
+            let mut proof_assigned: [u8;4096] = 0;
+            state.assigned=unsafe{proof_assigned as *mut u8};
+            let mut proof_low: [u64;4096] = 0;
+            state.low=unsafe{proof_low as *mut u64};
+            let mut proof_high: [u64;4096] = 0;
+            state.high=unsafe{proof_high as *mut u64};
+            let mut proof_keys: [u32;4096] = 0;
+            state.keys=unsafe{proof_keys as *mut u32};
+            let mut proof_types: [u32;4096] = 0;
+            state.types=unsafe{proof_types as *mut u32};
+            let mut proof_enums: [u32;4096] = 0;
+            state.enums=unsafe{proof_enums as *mut u32};
+            let mut proof_ordinals: [u32;4096] = 0;
+            state.ordinals=unsafe{proof_ordinals as *mut u32};
+            let mut proof_masks: [u64;4096] = 0;
+            state.masks=unsafe{proof_masks as *mut u64};
+
+            let mut mask: u64 = 18446744073709551615;
+            if count < 64 { mask=((1 as u64) << count as u64)-1; }
+            let mut depth: usize = 0;
+            loop {
+                let mut covered: bool = false;let mut possible: u64 = 0;let mut row: usize = 0;
+                let mut key: u32 = 0;let mut typ: TargetTypeTag = TargetTypeTag::Invalid;let mut enumeration: u32 = 0;
+                while row < count {
+                    let bit: u64 = (1 as u64) << row as u64;
+                    if (mask & bit) != 0 {
+                        let result: u32 = self.coverage_pattern(rows[row],0,&mut state,0,false,0);
+                        if result == 1 { covered=true;break; }
+                        if result == 2 {
+                            if possible == 0 { key=state.found_key;typ=state.found_type;enumeration=state.found_enum; }
+                            possible=possible | bit;
+                        }
+                    }
+                    row=row+1;
+                }
+                if !covered {
+                    if possible == 0 || depth >= 4096 { return false; }
+                    (*(state.keys+depth))=key;(*(state.types+depth))=typ as u32;(*(state.enums+depth))=enumeration;(*(state.masks+depth))=possible;
+                    if self.coverage_cell(unsafe{rows as *const usize},count,&mut state,depth,true) {
+                        mask=possible;depth=depth+1;continue;
+                    }
+                }
+                let mut advanced: bool = false;
+                while depth > 0 {
+                    let frame: usize = depth-1;
+                    if self.coverage_cell(unsafe{rows as *const usize},count,&mut state,frame,false) {
+                        mask=(*(state.masks+frame));advanced=true;break;
+                    }
+                    depth=frame;
+                }
+                if !advanced { return true; }
+            }
+            return false;
+        }
+    }
+
     pub fn cfg_match_statement(mut self: &mut Self, index: usize, return_type: TargetTypeTag,
         first_parameter: usize, parameter_count: usize, break_id: u32, continue_id: u32, depth: usize,
         result_storage: u32) -> bool {
@@ -7562,7 +7787,16 @@ impl ScalarLowering {
         if count == 0 { return self.reject(index); }
         if !wildcard {
             let mut covered: bool = false;
-            if typ == TargetTypeTag::Bool || enum_id != 0 {
+            if payload_record != 0 {
+                covered=self.payload_coverage(first_arm);
+                if covered {
+                    proof_count=self.enum_variant_counts[enum_id as usize-1] as usize;
+                    if proof_count > 64 { return self.reject(index); }
+                    let start: usize = self.enum_variant_starts[enum_id as usize-1] as usize;
+                    let mut variant: usize = 0;
+                    while variant < proof_count { proof_patterns[variant]=self.variant_values[start+variant];variant=variant+1; }
+                }
+            } else if typ == TargetTypeTag::Bool || enum_id != 0 {
                 covered = self.match_coverage_complete(typ, enum_id, unsafe { proof_patterns as *const u64 }, proof_count);
             } else {
                 covered = self.match_integer_coverage(typ, unsafe { proof_patterns as *const u64 },
@@ -7610,7 +7844,7 @@ impl ScalarLowering {
             if selected == 0 { return self.reject(arm); }
             if first_body == 0 { first_body = selected; }
             let mut next: u32 = 0;
-            if arm_node.next_sibling == 0 {
+            if arm_node.next_sibling == 0 && refutable[ordinal] == 0 {
                 if !self.cfg_jump(selected, arm) { return self.reject(arm); }
             } else {
                 next = self.cfg_reserve_block();
@@ -7668,7 +7902,15 @@ impl ScalarLowering {
                 first_parameter, parameter_count, break_id, continue_id, depth + 1) { return false; }
             if self.cfg_current != 0 { any_open = true; if !self.cfg_jump(join, arm) { return self.reject(arm); } }
             self.local_count = scope;
-            if next != 0 { self.cfg_begin(next); }
+            if next != 0 {
+                self.cfg_begin(next);
+                if arm_node.next_sibling == 0 {
+                    // Exhaustiveness proves this edge unreachable for valid
+                    // values. Invalid raw representations still trap, rather
+                    // than silently selecting the last refutable arm.
+                    if !self.cfg_match_trap(index) { return self.reject(index); }
+                }
+            }
             ordinal = ordinal + 1;
             arm = arm_node.next_sibling;
         }

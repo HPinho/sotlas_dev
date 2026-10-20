@@ -21,10 +21,11 @@ parser, semantic checker and Target IR lowering; it does not generate C.
   are rejected.
 - Tag selection precedes field loads and guard evaluation. A false guard continues
   to the next arm; guarded patterns do not establish exhaustiveness.
-- An unguarded variant whose fields are all captures covers the entire variant.
-  Refutable field patterns contribute no whole-variant coverage: include a
-  capture-only variant fallback or a final wildcard. An earlier unguarded total
-  variant makes later patterns for that variant unreachable and is rejected.
+- Unguarded field patterns contribute their full Cartesian coverage. The union
+  must cover every declared variant and every combination of its field domains;
+  a capture-only fallback is unnecessary when the filtered rows are exhaustive.
+  An earlier unguarded total variant makes later patterns for that variant
+  unreachable and is rejected.
 - The subject is evaluated once and aggregate subjects are copied into a private
   snapshot before dispatch. Only the selected arm executes. Arm bindings
   cannot escape into sibling arms or the surrounding scope.
@@ -54,10 +55,9 @@ layout was registered before the enum aggregate are also rejected rather than
 retaining a stale scalar layout. Direct array/slice payloads need their own ABI;
 POD record payloads can contain supported inline arrays.
 
-Nested patterns have a maximum depth of 32. Named-field patterns, or-patterns,
-float equality patterns and product-space exhaustiveness proofs are not part of
-this contract. Use captures and guards for float conditions. Refutable field
-patterns require an explicit total variant fallback or a final wildcard.
+Nested patterns have a maximum depth of 32. Named-field patterns, or-patterns
+and float equality patterns are not part of this contract. Use captures and
+guards for float conditions.
 The layout is internal and does not define a C enum ABI or a stable public format.
 Native support does not certify canonical Stage-0/C11 parity or every master
 language ownership domain.
@@ -77,6 +77,31 @@ opening payload delimiter; parsing a payload does not imply C11 layout support.
   maybe-moved rejection, borrowing/consuming guards and value-block defer.
 - `tests/test_sotlas_native_match_patterns.py`: nested tags, bindings, field
   literals/ranges/constants, nominal types, guard ordering and cleanup.
+- `tests/test_sotlas_native_match_combinations.py`: all 512 unions of Boolean
+  rectangles, 64 deterministic signed/unsigned interval unions checked against
+  an independent set oracle, nested sums/products, every integer width, extrema,
+  64-arm masks, guard exclusion, statement returns, accepted complete products,
+  rejected holes and runtime traps for invalid field discriminants.
 - `tests/native/match_ranges/cases.txt`: the shared rebuilt Stage 3 driver gate
   executes the public example and checks located diagnostics/output preservation.
 - [Executable example](../examples/native_match_values/main.sotlas).
+
+## Combination coverage
+
+Coverage partitions integer domains at pattern boundaries, then explores the
+resulting cells with an explicit work stack. It does not enumerate integer values
+or impose a small-value shortcut: U64/I64 extrema use the same proof as narrow
+integers. Boolean axes use their two values; enum axes use declared discriminants.
+Nested variant tags select their own field constraints. Captured POD/float fields
+are opaque axes covered by the capture. Guards never contribute to the proof.
+
+The proof considers combinations, rather than independent marginal coverage of
+each field. Covering `(true,true)` and `(false,false)` still leaves two Boolean
+pairs uncovered. Coverage uses the declared variant space; it does not infer
+unreachable variants from whole-program value propagation or empty field types.
+
+Proof storage is local to the compiler call and bounded by the existing 4096-byte
+payload layout and 64-arm contract. Symbolic products can take exponential work;
+there is no hidden value-count cutoff that accepts an incomplete match. The last
+refutable arm is tested like every other arm, and an invalid raw representation
+that misses all rows traps instead of executing an unrelated arm.
