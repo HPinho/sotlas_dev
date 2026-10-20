@@ -65,16 +65,20 @@ static int expect_success(const char *name, const char *source) {
     return 0;
 }
 
-static int expect_emitter_boundary(const char *name, const char *source) {
+static int expect_emitter_boundary_at(
+    const char *name, const char *source,
+    uint32_t expected_line, uint32_t expected_col
+) {
     uint8_t output[65536];
     uint32_t line = 999;
     uint32_t col = 999;
     size_t size = sotlas_native_compile_diagnostic(
         (const uint8_t *)source, strlen(source), output, sizeof(output), &line, &col
     );
-    if (size != 0 || line != 0 || col != 0) {
-        fprintf(stderr, "%s: expected bounded emitter refusal, size=%zu line=%u col=%u\n",
-                name, size, line, col);
+    if (size != 0 || line != expected_line || col != expected_col) {
+        fprintf(stderr,
+                "%s: expected emitter refusal at %u:%u, size=%zu line=%u col=%u\n",
+                name, expected_line, expected_col, size, line, col);
         return 1;
     }
     return 0;
@@ -171,8 +175,9 @@ int main(void) {
     if (expect_semantic_failure_at("nested_type_mismatch", nested_type_mismatch, 5) != 0) return 8;
     if (expect_semantic_failure_at("array_count_mismatch", array_count_mismatch, 3) != 0) return 9;
     // Native object lowering now executes typed nonzero field repetition.
-    // The optional legacy C emitter still refuses this source shape.
-    if (expect_emitter_boundary("array_nonzero_repeat", array_nonzero_repeat) != 0) return 10;
+    // The optional legacy C emitter still refuses this source shape and now
+    // reports the function declaration through the diagnostic API outputs.
+    if (expect_emitter_boundary_at("array_nonzero_repeat", array_nonzero_repeat, 3, 5) != 0) return 10;
     if (expect_semantic_failure_at("return_type_mismatch", return_type_mismatch, 4) != 0) return 11;
     return 0;
 }

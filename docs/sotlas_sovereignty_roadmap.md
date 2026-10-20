@@ -24,6 +24,13 @@ The formerly failing cases pass. The broader frontend/Target IR/SV2 run passed
 each rebuilt compiler passed 80 match tests and all 33 shared Stage 3 cases.
 This is local validation; certification by the replacement CI run remains pending.
 
+CI #1276 reduced the matrix failure set to one stale diagnostic expectation:
+the nonzero-array C11 refusal test still required an unlocated error after the
+API began returning emitter positions. The gate now requires zero output and
+the exact declaration position, line 3 column 5. The failure was reproduced
+locally; all 58 tests in the struct semantic, aggregate parser and compiler
+self-host diagnostic modules then passed. The replacement CI remains pending.
+
 **Starting baseline:** `9926e37`, reported green by the repository owner.
 The native parser accepts positional payload declarations and variant patterns.
 Sotlas lowering constructs a tagged aggregate, zeroes inactive storage and copies
