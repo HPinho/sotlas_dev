@@ -3774,6 +3774,22 @@ impl Sema {
         return true;
     }
 
+    pub fn find_pattern_binding(self: &Self, nodes: *const AstNode, count: usize,
+        pattern: usize, name: AstNode, source: *const u8, length: usize, depth: usize) -> usize {
+        if pattern == 0 || pattern >= count || depth >= 32 { return 0; }
+        let node: AstNode = unsafe{*(nodes+pattern)};
+        if self.match_pattern_binding(nodes,count,pattern,source,length)
+            && self.same_declaration_name(source,length,node,name) { return pattern; }
+        if node.kind != AstKind::PatternVariant || node.first_child == 0 || node.first_child >= count { return 0; }
+        let mut child: usize = unsafe{(*(nodes+node.first_child)).next_sibling};
+        while child != 0 && child < count {
+            let found: usize = self.find_pattern_binding(nodes,count,child,name,source,length,depth+1);
+            if found != 0 { return found; }
+            child=unsafe{(*(nodes+child)).next_sibling};
+        }
+        return 0;
+    }
+
     pub fn find_visible_binding(
         self: &Self,
         nodes: *const AstNode,
@@ -3797,14 +3813,8 @@ impl Sema {
             if parent.kind == AstKind::MatchArm && parent.first_child != child_on_path
                 && parent.first_child != 0 && parent.first_child < node_count
                 && unsafe{(*(nodes+parent.first_child)).kind} == AstKind::PatternVariant {
-                let path: usize = unsafe{(*(nodes+parent.first_child)).first_child};
-                if path == 0 || path >= node_count { return 0; }
-                let mut binding: usize = unsafe{(*(nodes+path)).next_sibling};
-                while binding != 0 && binding < node_count {
-                    let capture: AstNode = unsafe{*(nodes+binding)};
-                    if self.same_declaration_name(source,source_len,capture,expression) { return binding; }
-                    binding=capture.next_sibling;
-                }
+                let binding: usize = self.find_pattern_binding(nodes,node_count,parent.first_child,expression,source,source_len,0);
+                if binding != 0 { return binding; }
             }
             if parent.kind == AstKind::MatchArm && parent.first_child != child_on_path
                 && self.match_pattern_binding(nodes,node_count,parent.first_child,source,source_len)

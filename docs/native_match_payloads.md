@@ -14,15 +14,23 @@ parser, semantic checker and Target IR lowering; it does not generate C.
   Slots do not overlap. Construction zeroes inactive fields and padding before
   storing the selected payload, so full value copies never read uninitialized data.
 - Payload constructors and record bindings copy their POD storage independently.
-- A pattern names its enum variant and supplies one immutable identifier or `_`
-  per field. Duplicate names and incorrect arity are rejected.
+- A pattern names its enum variant and supplies one field pattern per payload.
+  Fields accept immutable identifiers, `_`, integer/Boolean literals, module
+  constants, integer ranges, nominal scalar enum variants and nested variants.
+  Duplicate binding names across the entire nested pattern and incorrect arity
+  are rejected.
 - Tag selection precedes field loads and guard evaluation. A false guard continues
   to the next arm; guarded patterns do not establish exhaustiveness.
-- Unguarded variant patterns cover the entire variant. All variants or a final
-  wildcard are required; unreachable repeated variants are rejected.
-- The subject is evaluated once. Only the selected arm executes. Arm bindings
+- An unguarded variant whose fields are all captures covers the entire variant.
+  Refutable field patterns contribute no whole-variant coverage: include a
+  capture-only variant fallback or a final wildcard. An earlier unguarded total
+  variant makes later patterns for that variant unreachable and is rejected.
+- The subject is evaluated once and aggregate subjects are copied into a private
+  snapshot before dispatch. Only the selected arm executes. Arm bindings
   cannot escape into sibling arms or the surrounding scope.
-- Nested enum values can be unpacked by another match in the selected arm.
+- Nested enum values can be unpacked directly in a pattern or by another match.
+  Each nested tag is tested before accessing that variant's fields; guards run
+  only after all field patterns match. Bindings retain their declared field types.
 
 ## Ownership and cleanup
 
@@ -46,8 +54,10 @@ layout was registered before the enum aggregate are also rejected rather than
 retaining a stale scalar layout. Direct array/slice payloads need their own ABI;
 POD record payloads can contain supported inline arrays.
 
-Nested/refutable field patterns, named-field patterns and or-patterns are not
-part of this contract. Use a binding followed by a guard or a nested match.
+Nested patterns have a maximum depth of 32. Named-field patterns, or-patterns,
+float equality patterns and product-space exhaustiveness proofs are not part of
+this contract. Use captures and guards for float conditions. Refutable field
+patterns require an explicit total variant fallback or a final wildcard.
 The layout is internal and does not define a C enum ABI or a stable public format.
 Native support does not certify canonical Stage-0/C11 parity or every master
 language ownership domain.
@@ -65,6 +75,8 @@ opening payload delimiter; parsing a payload does not imply C11 layout support.
   coverage, independent copies and rejection cases.
 - `tests/test_sotlas_native_match_ownership.py`: disjoint moves, owned results,
   maybe-moved rejection, borrowing/consuming guards and value-block defer.
+- `tests/test_sotlas_native_match_patterns.py`: nested tags, bindings, field
+  literals/ranges/constants, nominal types, guard ordering and cleanup.
 - `tests/native/match_ranges/cases.txt`: the shared rebuilt Stage 3 driver gate
   executes the public example and checks located diagnostics/output preservation.
 - [Executable example](../examples/native_match_values/main.sotlas).

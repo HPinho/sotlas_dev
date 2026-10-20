@@ -1,0 +1,11 @@
+module nested_pattern_wrong_type;
+enum Inner { Number(u32) }
+enum Other { Number(u32) }
+enum Outer { Wrap(Inner) }
+pub fn main_entry()->u32 {
+    let value:Outer=Outer::Wrap(Inner::Number(42));
+    return match value {
+        Outer::Wrap(Other::Number(n))=>n,
+        Outer::Wrap(_)=>0
+    };
+}

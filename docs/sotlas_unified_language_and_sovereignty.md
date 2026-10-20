@@ -2,6 +2,13 @@
 
 **Repository:** [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev)
 
+**SV8.82 (2026-10-20):** native match supports nested positional variants and
+literal, constant, range and scalar-enum field filters. Typed bindings are scoped
+to the arm and guard. Dispatch checks nested tags and fields before running a
+guard, then follows ordered fallback. Aggregate subjects are copied once.
+Coverage remains conservative for filtered fields; include a total fallback.
+See [the payload contract](native_match_payloads.md).
+
 **SV8.81 (2026-10-19):** native enums gain tagged scalar/POD payload construction,
 internal call/return transfer, immutable destructuring bindings, guards and
 coverage. Match expressions merge exclusive POD moves across independent arms
@@ -2477,7 +2484,8 @@ suite. These results do not substitute for native Intel macOS execution in CI.
   - [x] Trap invalid raw selector representations before dispatch in wildcard-free matches.
   - [x] Execute positional scalar/POD payload bindings, ordered guards, closed/open integer ranges and match expressions with value blocks.
   - [x] Merge exclusive POD moves across expression arms and preserve deferred-borrow reservations.
-  - [ ] Complete recursive/refutable field patterns and general resource payload cleanup.
+  - [x] Execute nested positional variants and literal/constant/range/scalar-enum field filters with scoped typed bindings and ordered guard fallthrough.
+  - [ ] Complete product coverage, named-field/or-patterns and general resource payload cleanup.
 - [ ] Complete general arrays, slices, indexing and slicing.
   - [x] Native local scalar arrays accept value lists and runtime repetition with exact length/type checking.
   - [x] Repetition evaluates its value once; large arrays use a bounded native fill loop.

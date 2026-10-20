@@ -1,0 +1,6 @@
+module partial_payload_pattern;
+enum Value { Number(u32) }
+pub fn main_entry()->u32 {
+    let value:Value=Value::Number(42);
+    return match value { Value::Number(42)=>42 };
+}
