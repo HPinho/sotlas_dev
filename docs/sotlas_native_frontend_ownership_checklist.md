@@ -2,6 +2,21 @@
 
 Repository: [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev).
 
+## SV8.82 - nested variant and field patterns (2026-10-20)
+
+- [x] Parse nested positional variant patterns with a depth bound of 32.
+- [x] Test integer/Boolean literals, module constants, ranges and nominal scalar enum fields.
+- [x] Resolve nested immutable bindings with declared field types and arm-local scope.
+- [x] Reject duplicate bindings across nested siblings, bad arity, wrong types and invalid ranges.
+- [x] Test each nested tag before its payload, and every field before the guard.
+- [x] Preserve ordered fallback, record results, early return and LIFO defer cleanup.
+- [x] Snapshot aggregate subjects once before the decision chain.
+- [x] Require total variant fallbacks for refutable payload-field coverage.
+
+The [payload contract](native_match_payloads.md) records supported forms. Complete
+product coverage, named-field/or-patterns and resource/ARC payload cleanup remain
+separate open items; these checks do not mark general match parity complete.
+
 ## SV8.81 - payload matching and exclusive expression joins (2026-10-19)
 
 - [x] Construct tagged payload enums in Sotlas without C emission.

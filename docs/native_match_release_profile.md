@@ -17,7 +17,7 @@ new integration gates even after this profile passes CI.
 | Value blocks | Locals, supported statements, tail values and enclosing function returns | Block scope and early-return gates |
 | Defer | Tail captured before LIFO cleanup; enclosing cleanup on early return | Deferred mutation and trace gates |
 | Payload enums | Private tagged layout; scalar and POD record fields; constructors, internal parameters/returns and match results | Payload construction, ABI, copy and nested enum tests |
-| Destructuring | Positional immutable bindings and ignored fields; bindings available to eligible guards | Payload scope, arity, guard and rejection tests |
+| Destructuring | Nested positional variants, immutable bindings, ignored fields and scalar field filters; bindings available to eligible guards | Nested pattern, scope, arity, guard and rejection tests |
 | Exclusive results | Branch-sensitive exclusive POD moves, value-block yields and `MAYBE_MOVED` joins | Match ownership suite |
 | Limits | 64 arms plus existing source/CFG/IR/frame/nesting limits | Capacity and negative gates |
 
@@ -25,8 +25,11 @@ new integration gates even after this profile passes CI.
 
 - Resource-bearing enum fields require the broader runtime/drop contract.
   Payload fields currently support scalars and pointer-free POD records.
-- Recursive/refutable destructuring patterns, forward aggregate layout dependencies
-  and enums embedded in earlier record layouts remain explicitly rejected.
+- Forward aggregate layout dependencies and enums embedded in earlier record
+  layouts remain explicitly rejected. Nested/refutable patterns execute, with
+  conservative coverage requiring a total fallback for filtered payload fields.
+- Named-field/or-patterns, float equality patterns and complete product-space
+  coverage proofs are outside the implemented pattern contract.
 - Shared/resource match values require integrated ARC/drop generation. Exclusive
   POD moves and arm joins are implemented; they do not establish general ARC.
 - Standalone arrays/slices, pointer provenance and resource-bearing aggregates

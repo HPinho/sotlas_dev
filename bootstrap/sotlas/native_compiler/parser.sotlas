@@ -1576,6 +1576,55 @@ impl Parser {
         return self.parse_match(false);
     }
 
+    pub fn parse_match_pattern(mut self: &mut Self, depth: usize) -> usize {
+        if depth >= 32 { self.reject_current();return 0; }
+        let first: Token = self.current();
+        let mut pattern: usize = 0;
+        let open_start: bool = self.match_token(TokenKind::DotDot);
+        if first.kind == TokenKind::Ident && self.cursor+1 < self.token_count
+            && unsafe{(*(self.tokens+self.cursor+1)).kind} == TokenKind::DColon {
+            self.advance();let mut last: Token = first;
+            while self.match_token(TokenKind::DColon) {
+                self.advance();last=self.expect(TokenKind::Ident);
+                if self.error_count != 0 { return 0; }
+            }
+            let path: usize = self.alloc_node(AstKind::ExprPath,first.span);
+            if path == 0 || !self.set_node_text_range(path,first,last) { return 0; }
+            pattern=path;
+            if self.match_token(TokenKind::OpenParen) {
+                self.advance();pattern=self.alloc_node(AstKind::PatternVariant,first.span);
+                if pattern == 0 || !self.append_child(pattern,path) { return 0; }
+                while !self.is_at_end() && !self.match_token(TokenKind::CloseParen) {
+                    let field: usize = self.parse_match_pattern(depth+1);
+                    if field == 0 || !self.append_child(pattern,field) { return 0; }
+                    if self.match_token(TokenKind::Comma) { self.advance(); }
+                    else if !self.match_token(TokenKind::CloseParen) { self.reject_current();return 0; }
+                }
+                if !self.match_token(TokenKind::CloseParen) { self.reject_current();return 0; }
+                self.advance();
+            }
+        } else if !open_start { pattern=self.parse_unary_expression(); }
+        if self.match_token(TokenKind::DotDot) {
+            let separator: Token = self.advance();
+            let range: usize = self.alloc_node(AstKind::PatternRange,separator.span);
+            if range == 0 { return 0; }
+            if open_start { unsafe{(*(self.nodes+range)).int_value=2;} }
+            if self.match_token(TokenKind::Equal) {
+                self.advance();unsafe{(*(self.nodes+range)).int_value=(*(self.nodes+range)).int_value | 1;}
+            }
+            let missing: bool = self.match_token(TokenKind::FatArrow) || self.match_token(TokenKind::KwIf)
+                || self.match_token(TokenKind::Comma) || self.match_token(TokenKind::CloseParen);
+            let mut end: usize = 0;
+            if missing { unsafe{(*(self.nodes+range)).int_value=(*(self.nodes+range)).int_value | 4;} }
+            else { end=self.parse_unary_expression(); }
+            if (!open_start && (pattern == 0 || !self.append_child(range,pattern)))
+                || (!missing && (end == 0 || !self.append_child(range,end)))
+                || (missing && ((unsafe{(*(self.nodes+range)).int_value} & 1) != 0)) { self.reject_current();return 0; }
+            pattern=range;
+        }
+        return pattern;
+    }
+
     pub fn parse_match(mut self: &mut Self, expression_mode: bool) -> usize {
         let keyword: Token = self.advance();
         let mut kind: AstKind = AstKind::MatchStmt;
@@ -1590,35 +1639,7 @@ impl Parser {
             if count >= 64 { self.reject_current(); return 0; }
             let pattern_token: Token = self.current();
             let arm: usize = self.alloc_node(AstKind::MatchArm, pattern_token.span);
-            let mut pattern: usize = 0;
-            let mut open_start: bool = self.match_token(TokenKind::DotDot);
-            if !open_start { pattern=self.parse_unary_expression(); }
-            if self.match_token(TokenKind::DotDot) {
-                let separator: Token = self.advance();
-                let range: usize = self.alloc_node(AstKind::PatternRange, separator.span);
-                if open_start && range != 0 { unsafe{(*(self.nodes+range)).int_value=2;} }
-                if self.match_token(TokenKind::Equal) {
-                    self.advance();
-                    if range != 0 { unsafe { (*(self.nodes + range)).int_value = (*(self.nodes+range)).int_value | 1; } }
-                }
-                let missing_end: bool = self.match_token(TokenKind::FatArrow) || self.match_token(TokenKind::KwIf);
-                let mut end: usize = 0;
-                if missing_end {
-                    if range != 0 { unsafe{(*(self.nodes+range)).int_value=(*(self.nodes+range)).int_value | 4;} }
-                } else { end=self.parse_unary_expression(); }
-                if range == 0 || (!open_start && (pattern == 0 || !self.append_child(range,pattern)))
-                    || (!missing_end && (end == 0 || !self.append_child(range,end)))
-                    || (missing_end && ((unsafe{(*(self.nodes+range)).int_value} & 1) != 0)) {
-                    self.reject_current(); return 0;
-                }
-                pattern = range;
-            }
-            if pattern != 0 && unsafe{(*(self.nodes+pattern)).kind} == AstKind::ExprCall {
-                let callee: usize = unsafe{(*(self.nodes+pattern)).first_child};
-                if callee != 0 && callee < self.node_count && unsafe{(*(self.nodes+callee)).kind} == AstKind::ExprPath {
-                    unsafe{(*(self.nodes+pattern)).kind=AstKind::PatternVariant;}
-                }
-            }
+            let pattern: usize = self.parse_match_pattern(0);
             let mut guard: usize = 0;
             if self.match_token(TokenKind::KwIf) {
                 self.advance();

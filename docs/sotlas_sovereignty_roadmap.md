@@ -7,6 +7,33 @@
 
 
 
+## SV8.82 - nested variants and refutable payload fields (2026-10-20)
+
+**Starting baseline:** `44e5958` on main.
+The native parser now parses positional patterns recursively with a depth bound
+of 32. Field patterns accept bindings, wildcards, integer/Boolean literals,
+module constants, integer ranges, scalar enum variants and nested variants.
+Semantic lookup preserves each binding's declared field type and rejects scope
+leaks, duplicate names across nested siblings, wrong variants/arity and invalid
+field patterns. Lowering tests each nested tag before its fields, then runs the
+guard only if every field matched. Failed fields/guards continue in source order.
+Aggregate subjects are snapshotted once before dispatch; returned POD records,
+exclusive captures, early returns and LIFO cleanup retain their existing rules.
+
+Coverage is conservative: refutable fields do not prove coverage of an entire
+variant. A total variant fallback or final wildcard is required. General product
+coverage, named-field/or-patterns and resource ARC/drop integration remain open;
+this is not a claim of complete master match parity.
+
+**Local evidence:** 298 focused compatibility/frontend/IR/documentation tests
+passed, including all earlier C11 diagnostic regression gates. Native Windows
+and Linux/WSL rebuilt the compiler from original sources without host build tools
+on PATH and proved Stage 2/3 byte identity. Each rebuilt compiler passed 96 match
+tests and all 35 shared Stage 3 cases, including located diagnostics and output
+preservation on rejection. The expanded example ran with exit 42 on both hosts;
+its object, ELF, PE and Mach-O bytes matched across hosts. Intel macOS execution
+and the new CI run remain unverified locally. See [the payload contract](native_match_payloads.md).
+
 ## SV8.81 - native payload matching and exclusive expression joins (2026-10-19)
 
 ### Compatibility repair after CI #1275

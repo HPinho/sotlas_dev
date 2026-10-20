@@ -66,8 +66,9 @@ and the existing move checks. Guards may borrow owners but cannot consume them.
 Value blocks preserve defer reservations and capture results before cleanup.
 Payload enums now have native constructors, internal aggregate transfer and
 positional pattern bindings; see [the payload contract](native_match_payloads.md).
-General resource cleanup, ARC and recursive/refutable payload patterns remain
-separate dependencies.
+General resource cleanup, ARC, named-field/or-patterns and complete product-space
+coverage remain separate dependencies. Nested/refutable positional patterns
+execute with the conservative fallback rule in the payload contract.
 
 Arm count is bounded to 64, with the existing CFG, IR, stack and nesting limits.
 Match expressions are runtime values; module constant/static evaluation is not

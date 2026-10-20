@@ -5,6 +5,7 @@ returns. Closed/open integer ranges, scoped bindings, guards and exhaustive enum
 subjects select numeric, nominal enum and POD record results. One arm uses local
 bindings and a tail value. A measurement enum carries a record and scalar payload;
 guards read positional bindings. Another function selects an exclusive POD value.
+An envelope adds nested variant patterns and a literal field filter before a guard.
 The executable exits with status 42 and prints no text.
 
 With a rebuilt Linux x86-64 native compiler:

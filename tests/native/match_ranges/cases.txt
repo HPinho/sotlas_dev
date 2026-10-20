@@ -31,3 +31,5 @@ ownership.sotlas|6|use of moved or maybe-moved value
 ../match_profile/payload_arity.sotlas|7|unsupported native form
 ../match_profile/expression_maybe_moved.sotlas|6|use of moved or maybe-moved value
 ../match_profile/expression_guard_move.sotlas|6|match guard cannot consume ownership
+../match_profile/nested_wrong_type.sotlas|7|unsupported native form
+../match_profile/partial_payload.sotlas|7|non-exhaustive match: cover the domain or add a final wildcard
