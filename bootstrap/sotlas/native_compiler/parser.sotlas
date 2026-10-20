@@ -1577,7 +1577,45 @@ impl Parser {
     }
 
     pub fn parse_match_pattern(mut self: &mut Self, depth: usize) -> usize {
+        let first: usize = self.parse_match_pattern_atom(depth);
+        if first == 0 || !self.match_token(TokenKind::Pipe) { return first; }
+        let choice: usize = self.alloc_node(AstKind::PatternOr,unsafe{(*(self.nodes+first)).span});
+        if choice == 0 || !self.append_child(choice,first) { return 0; }
+        let mut count: usize = 1;
+        while self.match_token(TokenKind::Pipe) {
+            self.advance();
+            if count >= 64 { self.reject_current();return 0; }
+            let next: usize = self.parse_match_pattern_atom(depth);
+            if next == 0 || !self.append_child(choice,next) { return 0; }
+            count=count+1;
+        }
+        return choice;
+    }
+
+    pub fn match_pattern_group(self: &Self) -> bool {
+        let mut cursor: usize = self.cursor+1;let mut nesting: usize = 1;let mut patterned: bool = false;
+        while cursor < self.token_count && nesting != 0 {
+            let kind: TokenKind = unsafe{(*(self.tokens+cursor)).kind};
+            if kind == TokenKind::OpenParen {
+                if cursor >= 2 && unsafe{(*(self.tokens+cursor-1)).kind} == TokenKind::Ident
+                    && unsafe{(*(self.tokens+cursor-2)).kind} == TokenKind::DColon { patterned=true; }
+                nesting=nesting+1;
+            } else if kind == TokenKind::CloseParen { nesting=nesting-1; }
+            if nesting != 0 && (kind == TokenKind::Pipe || kind == TokenKind::DotDot) { patterned=true; }
+            cursor=cursor+1;
+        }
+        if cursor < self.token_count && unsafe{(*(self.tokens+cursor)).kind} == TokenKind::DotDot { return false; }
+        return patterned;
+    }
+
+    pub fn parse_match_pattern_atom(mut self: &mut Self, depth: usize) -> usize {
         if depth >= 32 { self.reject_current();return 0; }
+        // Keep parenthesized arithmetic range bounds on the expression parser.
+        if self.match_token(TokenKind::OpenParen) && self.match_pattern_group() {
+            self.advance();let grouped: usize = self.parse_match_pattern(depth+1);
+            if grouped == 0 || !self.match_token(TokenKind::CloseParen) { self.reject_current();return 0; }
+            self.advance();return grouped;
+        }
         let first: Token = self.current();
         let mut pattern: usize = 0;
         let open_start: bool = self.match_token(TokenKind::DotDot);
@@ -1613,7 +1651,8 @@ impl Parser {
                 self.advance();unsafe{(*(self.nodes+range)).int_value=(*(self.nodes+range)).int_value | 1;}
             }
             let missing: bool = self.match_token(TokenKind::FatArrow) || self.match_token(TokenKind::KwIf)
-                || self.match_token(TokenKind::Comma) || self.match_token(TokenKind::CloseParen);
+                || self.match_token(TokenKind::Comma) || self.match_token(TokenKind::CloseParen)
+                || self.match_token(TokenKind::Pipe);
             let mut end: usize = 0;
             if missing { unsafe{(*(self.nodes+range)).int_value=(*(self.nodes+range)).int_value | 4;} }
             else { end=self.parse_unary_expression(); }
@@ -1623,6 +1662,134 @@ impl Parser {
             pattern=range;
         }
         return pattern;
+    }
+
+    // Distribute choices into bounded decision rows. Bodies/guards retain their
+    // source spans; rows from one source arm share a group identifier so a false
+    // guard skips the entire group, including overlapping alternatives.
+    pub fn match_pattern_choices(self: &Self, pattern: usize, depth: usize) -> usize {
+        if pattern == 0 || pattern >= self.node_count || depth >= 32 { return 0; }
+        let node: AstNode = unsafe{*(self.nodes+pattern)};
+        if node.kind != AstKind::PatternOr && node.kind != AstKind::PatternVariant { return 1; }
+        let mut child: usize = node.first_child;let mut count: usize = 1;
+        if node.kind == AstKind::PatternOr { count=0; }
+        else if child != 0 { child=unsafe{(*(self.nodes+child)).next_sibling}; }
+        while child != 0 && child < self.node_count {
+            let ways: usize = self.match_pattern_choices(child,depth+1);
+            if ways == 0 { return 0; }
+            if node.kind == AstKind::PatternOr { count=count+ways; }
+            else { count=count*ways; }
+            if count > 64 { return 0; }
+            child=unsafe{(*(self.nodes+child)).next_sibling};
+        }
+        if child != 0 { return 0; }
+        return count;
+    }
+
+    pub fn clone_match_tree(mut self: &mut Self, index: usize, depth: usize) -> usize {
+        if index == 0 || index >= self.node_count || depth >= 128 { return 0; }
+        let node: AstNode = unsafe{*(self.nodes+index)};
+        let copy: usize = self.alloc_node(node.kind,node.span);
+        if copy == 0 { return 0; }
+        unsafe{(*(self.nodes+copy)).int_value=node.int_value;
+            (*(self.nodes+copy)).str_offset=node.str_offset;(*(self.nodes+copy)).str_len=node.str_len;}
+        let mut child: usize = node.first_child;
+        while child != 0 && child < self.node_count {
+            let cloned: usize = self.clone_match_tree(child,depth+1);
+            if cloned == 0 || !self.append_child(copy,cloned) { return 0; }
+            child=unsafe{(*(self.nodes+child)).next_sibling};
+        }
+        if child != 0 { return 0; }
+        return copy;
+    }
+
+    pub fn clone_match_choice(mut self: &mut Self, pattern: usize, choice: usize, depth: usize) -> usize {
+        if pattern == 0 || pattern >= self.node_count || depth >= 32 { return 0; }
+        let node: AstNode = unsafe{*(self.nodes+pattern)};
+        if node.kind == AstKind::PatternOr {
+            let mut ordinal: usize = choice;let mut child: usize = node.first_child;
+            while child != 0 && child < self.node_count {
+                let ways: usize = self.match_pattern_choices(child,depth+1);
+                if ways == 0 { return 0; }
+                if ordinal < ways { return self.clone_match_choice(child,ordinal,depth+1); }
+                ordinal=ordinal-ways;child=unsafe{(*(self.nodes+child)).next_sibling};
+            }
+            return 0;
+        }
+        if node.kind != AstKind::PatternVariant { return self.clone_match_tree(pattern,0); }
+        let copy: usize = self.alloc_node(node.kind,node.span);
+        let path: usize = self.clone_match_tree(node.first_child,0);
+        if copy == 0 || path == 0 || !self.append_child(copy,path) { return 0; }
+        let mut ordinal: usize = choice;
+        let mut child: usize = unsafe{(*(self.nodes+node.first_child)).next_sibling};
+        while child != 0 && child < self.node_count {
+            let ways: usize = self.match_pattern_choices(child,depth+1);
+            if ways == 0 { return 0; }
+            let cloned: usize = self.clone_match_choice(child,ordinal%ways,depth+1);
+            if cloned == 0 || !self.append_child(copy,cloned) { return 0; }
+            ordinal=ordinal/ways;child=unsafe{(*(self.nodes+child)).next_sibling};
+        }
+        if child != 0 || ordinal != 0 { return 0; }
+        return copy;
+    }
+
+    pub fn expand_match_patterns(mut self: &mut Self, statement: usize) -> bool {
+        let subject: usize = unsafe{(*(self.nodes+statement)).first_child};
+        let first: usize = unsafe{(*(self.nodes+subject)).next_sibling};
+        let mut arm: usize = first;let mut total: usize = 0;
+        while arm != 0 && arm < self.node_count {
+            let ways: usize = self.match_pattern_choices(unsafe{(*(self.nodes+arm)).first_child},0);
+            if ways == 0 || total+ways > 64 { self.reject_current();return false; }
+            total=total+ways;arm=unsafe{(*(self.nodes+arm)).next_sibling};
+        }
+        if arm != 0 { return false; }
+        arm=first;
+        while arm != 0 && arm < self.node_count {
+            // A mutable POD local requests a snapshot of this unsafe view.
+            // Keep next_sibling stable while rewiring the original row.
+            let mut original: AstNode = unsafe{*(self.nodes+arm)};
+            let pattern: usize = original.first_child;
+            let ways: usize = self.match_pattern_choices(pattern,0);
+            if ways > 1 {
+                let body: usize = unsafe{(*(self.nodes+pattern)).next_sibling};
+                let guard: usize = unsafe{(*(self.nodes+body)).next_sibling};
+                let mut rows: [usize;64] = 0;let mut patterns: [usize;64] = 0;
+                let mut bodies: [usize;64] = 0;let mut guards: [usize;64] = 0;
+                let mut choice: usize = 0;
+                while choice < ways {
+                    rows[choice]=arm;bodies[choice]=body;guards[choice]=guard;
+                    patterns[choice]=self.clone_match_choice(pattern,choice,0);
+                    if choice != 0 {
+                        rows[choice]=self.alloc_node(AstKind::MatchArm,original.span);
+                        bodies[choice]=self.clone_match_tree(body,0);
+                        if guard != 0 { guards[choice]=self.clone_match_tree(guard,0); }
+                    }
+                    if rows[choice] == 0 || patterns[choice] == 0 || bodies[choice] == 0
+                        || (guard != 0 && guards[choice] == 0) { self.reject_current();return false; }
+                    choice=choice+1;
+                }
+                choice=0;
+                while choice < ways {
+                    let row: usize = rows[choice];
+                    unsafe{(*(self.nodes+row)).first_child=0;(*(self.nodes+row)).parent=statement;
+                        (*(self.nodes+row)).int_value=original.int_value;
+                        (*(self.nodes+row)).str_offset=original.span.offset;
+                        (*(self.nodes+row)).str_len=ways-choice;
+                        (*(self.nodes+patterns[choice])).next_sibling=0;
+                        (*(self.nodes+bodies[choice])).parent=0;
+                        (*(self.nodes+bodies[choice])).next_sibling=0;
+                        if guard != 0 { (*(self.nodes+guards[choice])).parent=0; }}
+                    if !self.append_child(row,patterns[choice]) || !self.append_child(row,bodies[choice]) { return false; }
+                    if guard != 0 && !self.append_child(row,guards[choice]) { return false; }
+                    let mut next: usize = original.next_sibling;
+                    if choice+1 < ways { next=rows[choice+1]; }
+                    unsafe{(*(self.nodes+row)).next_sibling=next;}
+                    choice=choice+1;
+                }
+            }
+            arm=original.next_sibling;
+        }
+        return true;
     }
 
     pub fn parse_match(mut self: &mut Self, expression_mode: bool) -> usize {
@@ -1676,6 +1843,7 @@ impl Parser {
         }
         if count == 0 || !self.match_token(TokenKind::CloseBrace) { self.reject_current(); return 0; }
         self.advance();
+        if !self.expand_match_patterns(statement) { return 0; }
         return statement;
     }
 

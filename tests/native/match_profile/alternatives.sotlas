@@ -1,0 +1,21 @@
+module match_alternatives;
+
+static mut calls:u32=0;
+enum Value { Left(u32,bool), Right(bool,u32) }
+
+fn reject(value:u32)->bool {
+    calls=calls+1;
+    return false;
+}
+
+fn read(value:Value)->u32 {
+    return match value {
+        Value::Left(n,true|true|false) | Value::Right(true|false,n) if reject(n)=>0,
+        Value::Left(n,_) | Value::Right(_,n)=>n
+    };
+}
+
+pub fn main_entry()->u32 {
+    let result:u32=read(Value::Left(20,true))+read(Value::Right(false,20));
+    return result+calls;
+}

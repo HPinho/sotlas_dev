@@ -2,6 +2,34 @@
 
 **Repository:** [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev)
 
+## SV8.84 - native alternative patterns (2026-10-20)
+
+- [x] Parse root/nested | alternatives and grouped positional patterns.
+- [x] Require identical binding names and declared types across alternatives,
+  including unused captures and nominal enum/record identity.
+- [x] Select bindings from the first matching alternative and evaluate the
+  source guard once; false skips the entire source-arm group.
+- [x] Preserve unguarded union coverage, overlapping alternatives, subject
+  snapshots, exclusive moves, record results, defer and loop exits.
+- [x] Bound distribution to 64 rows per match and reject capacity/syntax errors.
+- [x] Preserve parenthesized arithmetic and bitwise integer range bounds.
+- [x] Snapshot AST sibling links before native parser rewiring and exercise the
+  feature through rebuilt Stage 3 drivers.
+- [ ] Named-field/record destructuring patterns.
+- [ ] Float equality patterns; captures and guards remain available.
+- [ ] Resource-bearing payloads and general ARC/drop cleanup.
+
+Implementation: native Sotlas parser, semantic checker and Target IR lowering.
+The 25-test alternative suite includes a Boolean-union set oracle, binding
+permutations, nested body cloning, exact row boundaries and compatibility cases.
+See [the executable contract](native_match_alternatives.md).
+Local validation: 139 match tests and 40 shared Stage 3 driver cases pass on
+each Windows/Linux host. Another 329 focused frontend, compatibility, docs and
+bootstrap checks pass, including the hosted C11 Stage 1/2/3 fixed point. Native
+Stage 2/3 images match within each host; the example object and ELF/PE/Mach-O
+outputs match across hosts. Windows/Linux examples execute with exit 42.
+GitHub CI and actual Intel macOS execution remain separate certification gates.
+
 ## SV8.83 - complete combinations for current match patterns (2026-10-20)
 
 - [x] Prove the union of positional field patterns across full Boolean,

@@ -66,12 +66,15 @@ and the existing move checks. Guards may borrow owners but cannot consume them.
 Value blocks preserve defer reservations and capture results before cleanup.
 Payload enums now have native constructors, internal aggregate transfer and
 positional pattern bindings; see [the payload contract](native_match_payloads.md).
-General resource cleanup, ARC and named-field/or-patterns remain separate
+General resource cleanup, ARC and named-field patterns remain separate
 dependencies. Nested/refutable positional patterns have symbolic sum/product
 coverage: complete combinations need no total fallback. See the payload contract
 for the declared domains, proof algorithm and independent coverage oracles.
 
-Arm count is bounded to 64, with the existing CFG, IR, stack and nesting limits.
+Root and nested `|` alternatives share a body and source-level guard under
+[the alternative-pattern contract](native_match_alternatives.md).
+The distributed decision-row count is bounded to 64, with the existing CFG, IR,
+stack and nesting limits.
 Match expressions are runtime values; module constant/static evaluation is not
 expanded here. The Stage-0/C11 path is not asserted to accept this native syntax.
 

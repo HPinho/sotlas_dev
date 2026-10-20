@@ -6975,22 +6975,22 @@ impl ScalarLowering {
         if width < 64 { maximum = ((1 as u64) << width as u64) - 1; }
         let mut next: u64 = 0;
         let mut visited: usize = 0;
-        // Patterns are disjoint by this point. Walk adjacent intervals without
-        // sorting them or enumerating potentially 2^64 individual values.
+        // Alternatives within one source arm may overlap. Grow the covered
+        // prefix by the furthest interval containing its next point.
         while visited < count {
             let mut found: bool = false;
+            let mut furthest: u64 = 0;
             let mut index: usize = 0;
             while index < count {
-                if native_match_order_key(unsafe { *(starts + index) }, typ) == next {
+                if native_match_order_key(unsafe { *(starts + index) }, typ) <= next {
                     let last: u64 = native_match_order_key(unsafe { *(ends + index) }, typ);
-                    if last == maximum { return true; }
-                    next = last + 1;
-                    found = true;
-                    break;
+                    if last >= next && (!found || last > furthest) { furthest=last;found=true; }
                 }
                 index = index + 1;
             }
             if !found { return false; }
+            if furthest == maximum { return true; }
+            next=furthest+1;
             visited = visited + 1;
         }
         return false;
@@ -7306,6 +7306,27 @@ impl ScalarLowering {
         if !self.constant_literal_bits(pattern,typ,&mut bits) { return false; }
         unsafe{*low=bits;*high=bits;}
         return true;
+    }
+
+    pub fn match_binding_subset(self: &Self, pattern: usize, other: usize, depth: usize) -> bool {
+        if pattern == 0 || pattern >= self.node_count || depth >= 32 { return false; }
+        let sem: Sema = Sema::new();let node: AstNode = unsafe{*(self.nodes+pattern)};
+        if sem.match_pattern_binding(self.nodes,self.node_count,pattern,self.source,self.source_len) {
+            let found: usize = sem.find_pattern_binding(self.nodes,self.node_count,other,node,self.source,self.source_len,0);
+            if found == 0 { return false; }
+            let left: usize = sem.payload_binding_type(self.nodes,self.node_count,pattern,self.source,self.source_len);
+            let right: usize = sem.payload_binding_type(self.nodes,self.node_count,found,self.source,self.source_len);
+            if left == 0 || right == 0 { return left == right; }
+            let first: AstNode = unsafe{*(self.nodes+left)};let second: AstNode = unsafe{*(self.nodes+right)};
+            return sem.source_slices_equal(self.source,self.source_len,first.str_offset,first.str_len,second.str_offset,second.str_len);
+        }
+        if node.kind != AstKind::PatternVariant { return true; }
+        let mut child: usize = unsafe{(*(self.nodes+node.first_child)).next_sibling};
+        while child != 0 && child < self.node_count {
+            if !self.match_binding_subset(child,other,depth+1) { return false; }
+            child=unsafe{(*(self.nodes+child)).next_sibling};
+        }
+        return child == 0;
     }
 
     pub fn payload_pattern_valid(mut self: &mut Self, pattern: usize, variant: u32) -> bool {
@@ -7683,6 +7704,9 @@ impl ScalarLowering {
         let mut wildcards: [u8;64] = 0;
         let mut bindings: [u8;64] = 0;
         let mut refutable: [u8;64] = 0;
+        let mut groups: [usize;64] = 0;
+        let mut group_pattern: usize = 0;
+        let mut current_group: usize = 0;
         let mut proof_patterns: [u64;64] = 0;
         let mut proof_ends: [u64;64] = 0;
         let mut proof_count: usize = 0;
@@ -7695,6 +7719,18 @@ impl ScalarLowering {
             let pattern: usize = arm_node.first_child;
             if arm_node.kind != AstKind::MatchArm || pattern == 0 || pattern >= self.node_count { return self.reject(arm); }
             let node: AstNode = unsafe { *(self.nodes + pattern) };
+            let mut source_after: usize = arm_node.next_sibling;
+            let mut remaining: usize = arm_node.str_len;
+            while remaining > 1 {
+                if source_after == 0 || source_after >= self.node_count { return self.reject(arm); }
+                source_after=unsafe{(*(self.nodes+source_after)).next_sibling};remaining=remaining-1;
+            }
+            groups[count]=arm_node.str_offset;
+            if arm_node.str_offset != 0 {
+                if current_group != arm_node.str_offset { current_group=arm_node.str_offset;group_pattern=pattern; }
+                else if !self.match_binding_subset(pattern,group_pattern,0)
+                    || !self.match_binding_subset(group_pattern,pattern,0) { return self.reject(pattern); }
+            }
             let body: usize = node.next_sibling;
             if body == 0 || body >= self.node_count || (result_storage == 0
                 && unsafe { (*(self.nodes + body)).kind } != AstKind::Block) {
@@ -7711,7 +7747,7 @@ impl ScalarLowering {
             if guard != 0 {
                 if guard >= self.node_count || unsafe { (*(self.nodes + guard)).next_sibling } != 0
                     || arm_node.int_value != 1 { return self.reject(arm); }
-                if arm_node.next_sibling == 0 { return self.reject_match(guard, 7); }
+                if source_after == 0 { return self.reject_match(guard, 7); }
                 guarded[count] = 1;
             } else if arm_node.int_value != 0 { return self.reject(arm); }
             if node.kind == AstKind::PatternVariant {
@@ -7728,7 +7764,7 @@ impl ScalarLowering {
             } else if (node.kind == AstKind::ExprIdent && node.str_len == 1
                 && unsafe { *(self.source + node.str_offset) } == 95)
                 || sem.match_pattern_binding(self.nodes,self.node_count,pattern,self.source,self.source_len) {
-                if guard == 0 && arm_node.next_sibling != 0 { return self.reject(pattern); }
+                if guard == 0 && source_after != 0 { return self.reject(pattern); }
                 wildcards[count] = 1;
                 if sem.match_pattern_binding(self.nodes,self.node_count,pattern,self.source,self.source_len) { bindings[count]=1; }
                 if guard == 0 { wildcard = true; }
@@ -7772,6 +7808,7 @@ impl ScalarLowering {
                 let mut prior: usize = 0;
                 while prior < count {
                     if guarded[prior] == 0 && refutable[prior] == 0 && wildcards[prior] == 0
+                        && (groups[count] == 0 || groups[prior] != groups[count])
                         && low <= native_match_order_key(ends[prior], typ)
                         && native_match_order_key(patterns[prior], typ) <= high {
                         return self.reject_match(pattern, 4);
@@ -7825,6 +7862,20 @@ impl ScalarLowering {
         let join: u32 = self.cfg_reserve_block();
         if join == 0 { return self.reject(subject); }
         let scope: usize = self.local_count;
+        let mut guard_skips: [u32;64] = 0;
+        let mut group_skip: u32 = 0;current_group=0;
+        arm=first_arm;let mut skip_ordinal: usize = 0;
+        while arm != 0 {
+            let item: AstNode = unsafe{*(self.nodes+arm)};
+            if item.str_offset != 0 && guarded[skip_ordinal] != 0 {
+                if current_group != item.str_offset {
+                    current_group=item.str_offset;group_skip=self.cfg_reserve_block();
+                    if group_skip == 0 { return self.reject(arm); }
+                }
+                guard_skips[skip_ordinal]=group_skip;
+            }
+            skip_ordinal=skip_ordinal+1;arm=item.next_sibling;
+        }
         let mut any_open: bool = false; let mut first_body: u32 = 0;
         arm = first_arm; let mut ordinal: usize = 0;
         while arm != 0 {
@@ -7849,7 +7900,8 @@ impl ScalarLowering {
             if arm_node.next_sibling == 0 && refutable[ordinal] == 0 {
                 if !self.cfg_jump(selected, arm) { return self.reject(arm); }
             } else {
-                next = self.cfg_reserve_block();
+                if arm_node.str_len == 1 && guard_skips[ordinal] != 0 { next=guard_skips[ordinal]; }
+                else { next = self.cfg_reserve_block(); }
                 let mut matched: u32 = selected;
                 if guard != 0 || refutable[ordinal] != 0 { matched = self.cfg_reserve_block(); }
                 if next == 0 || matched == 0 { return self.reject(arm); }
@@ -7880,8 +7932,12 @@ impl ScalarLowering {
                     if !self.cfg_payload_bindings(pattern,subject_address) { return self.reject(pattern); }
                     if guard == 0 {
                         if !self.cfg_jump(selected,arm) { return self.reject(arm); }
-                    } else if !self.cfg_test(guard, selected, next, first_parameter, parameter_count, depth + 1) {
-                        return self.reject_match(guard, 6);
+                    } else {
+                        let mut guard_miss: u32 = next;
+                        if guard_skips[ordinal] != 0 { guard_miss=guard_skips[ordinal]; }
+                        if !self.cfg_test(guard,selected,guard_miss,first_parameter,parameter_count,depth+1) {
+                            return self.reject_match(guard,6);
+                        }
                     }
                 }
             }

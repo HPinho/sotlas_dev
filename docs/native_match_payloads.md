@@ -55,9 +55,10 @@ layout was registered before the enum aggregate are also rejected rather than
 retaining a stale scalar layout. Direct array/slice payloads need their own ABI;
 POD record payloads can contain supported inline arrays.
 
-Nested patterns have a maximum depth of 32. Named-field patterns, or-patterns
-and float equality patterns are not part of this contract. Use captures and
-guards for float conditions.
+Nested patterns have a maximum depth of 32. Root and nested `|` alternatives
+and grouping are covered by [the alternative-pattern contract](native_match_alternatives.md).
+Named-field patterns and float equality patterns remain outside this contract.
+Use captures and guards for float conditions.
 The layout is internal and does not define a C enum ABI or a stable public format.
 Native support does not certify canonical Stage-0/C11 parity or every master
 language ownership domain.

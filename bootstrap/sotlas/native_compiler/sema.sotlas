@@ -760,6 +760,9 @@ impl Sema {
                 && (self.source_slice_equals(source, source_len, expression.str_offset, expression.str_len, "_", 1)
                     || self.match_pattern_binding(nodes,node_count,expression_index,source,source_len)) { return true; }
             if parent.kind == AstKind::PatternVariant && parent.first_child != expression_index { return true; }
+            // Source choice trees remain for spans after decision-row expansion.
+            // Their identifiers are patterns, not evaluated local references.
+            if parent.kind == AstKind::PatternOr { return true; }
             if parent.kind == AstKind::ExprCall && parent.first_child == expression_index {
                 if self.find_module_function(
                     nodes, node_count, expression_index, source, source_len
