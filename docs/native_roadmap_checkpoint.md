@@ -20,7 +20,7 @@ This checkpoint reports executable deliveries and remaining gates separately.
 | Inline record arrays | Store pointer-free record arrays inside structs and initialize, read, mutate, copy and return supported containers |
 | Static record data | Serialize constant record configurations, including nested arrays, directly into native data/BSS and use them from native code |
 | Global record tables | Declare initialized record lists/repetition, read indexed entries, copy elements and update mutable tables through checked native accesses |
-| Match values | Select scalar, nominal enum and POD record results; destructure nested tagged payloads with exhaustive combinations of field filters; use scoped bindings, ranges and value blocks; merge exclusive moves and cleanup |
+| Match values | Select scalar, nominal enum and POD record results; destructure nested tagged payloads with exhaustive combinations of field filters; use scoped bindings, ranges, grouped/nested alternatives and value blocks; merge exclusive moves and cleanup |
 
 See the [ABI](native_embedded_abi.md), [libraries](native_static_libraries.md),
 [targets](native_library_targets.md), [module builds](native_module_builds.md)

@@ -10,6 +10,7 @@ new integration gates even after this profile passes CI.
 | Statement/expression forms | Shared ordered decision chain; subject evaluated once | Match-value and frontend closure suites |
 | Scalar subjects | Signed/unsigned integers, Boolean and nominal payload-free enums | Width, coverage and enum gates |
 | Patterns | Literal/module constants, `_`, scoped identifier bindings, closed/open integer ranges | Match closure suite |
+| Alternatives | Root/nested `|`, grouping, equal binding sets/types, first-match binding selection and one guard evaluation per source arm | Alternative-pattern suite and rebuilt Stage 3 fixtures |
 | Guards | Eligible patterns only, ordered fallthrough, no coverage from guards | Guard-order and guarded-binding gates |
 | Scalar results | Integers, Boolean and floats with typed arms | Match-value width and rejected-arm gates |
 | Enum results | Same nominal enum in every returning arm and typed destination | Return/argument/inference and mismatch gates |
@@ -20,7 +21,7 @@ new integration gates even after this profile passes CI.
 | Destructuring | Nested positional variants, immutable bindings, ignored fields and scalar field filters; bindings available to eligible guards | Nested pattern, scope, arity, guard and rejection tests |
 | Combination coverage | Exact union of current Boolean/integer/enum field patterns and nested sum/product patterns; guards excluded | Independent Boolean/interval oracles, integer extrema and Cartesian-hole gates |
 | Exclusive results | Branch-sensitive exclusive POD moves, value-block yields and `MAYBE_MOVED` joins | Match ownership suite |
-| Limits | 64 arms plus existing source/CFG/IR/frame/nesting limits | Capacity and negative gates |
+| Limits | 64 distributed decision rows plus existing source/CFG/IR/frame/nesting limits | Exact-boundary and negative gates |
 
 ## Dependencies that remain open
 
@@ -28,9 +29,9 @@ new integration gates even after this profile passes CI.
   Payload fields currently support scalars and pointer-free POD records.
 - Forward aggregate layout dependencies and enums embedded in earlier record
   layouts remain explicitly rejected.
-- Named-field/or-patterns and float equality patterns remain outside the
-  implemented pattern syntax. Combination coverage for existing patterns is
-  implemented separately from these syntax extensions.
+- Named-field/record destructuring and float equality patterns remain outside
+  the implemented pattern syntax. Root/nested alternatives and grouping are
+  implemented under [their binding and guard contract](native_match_alternatives.md).
 - Shared/resource match values require integrated ARC/drop generation. Exclusive
   POD moves and arm joins are implemented; they do not establish general ARC.
 - Standalone arrays/slices, pointer provenance and resource-bearing aggregates

@@ -23,3 +23,9 @@ This requires a seed rebuilt with payload matching and exclusive match support.
 See [the native match-value contract](../../docs/native_match_values.md) for
 coverage, evaluation order and result types, and the
 [payload contract](../../docs/native_match_payloads.md) for layout and ownership limits.
+
+Root and nested alternative patterns use |; parentheses group choices. The
+example combines fallback variants into one source arm. Alternatives share
+binding names/types and evaluate the source guard once, even if they overlap.
+See [the alternative-pattern contract](../../docs/native_match_alternatives.md)
+for coverage, cleanup and the 64-row distribution bound.
