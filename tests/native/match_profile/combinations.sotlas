@@ -1,0 +1,16 @@
+module match_combinations;
+enum Bit { Empty, Flag(bool) }
+enum Value { Pair(Bit, bool), Number(i64) }
+fn read(v: Value)->u32 {
+    return match v {
+        Value::Pair(Bit::Empty, _) => 0,
+        Value::Pair(Bit::Flag(true), true) => 20,
+        Value::Pair(Bit::Flag(true), false) => 22,
+        Value::Pair(Bit::Flag(false), _) => 0,
+        Value::Number(..0) => 0,
+        Value::Number(0..) => 0
+    };
+}
+pub fn main_entry()->u32 {
+    return read(Value::Pair(Bit::Flag(true), true)) + read(Value::Pair(Bit::Flag(true), false));
+}

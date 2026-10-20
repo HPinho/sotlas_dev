@@ -7,6 +7,31 @@
 
 
 
+## SV8.83 - complete combinations for current match patterns (2026-10-20)
+
+- [x] Prove the union of positional field patterns across full Boolean,
+  signed/unsigned integer and declared enum domains.
+- [x] Combine nested variant sums and independent field products without a
+  mandatory capture-only fallback.
+- [x] Partition integer axes at pattern boundaries, including U64/I64 extrema.
+- [x] Reject Cartesian holes, even when individual fields have full marginal
+  coverage, and exclude guarded rows from the proof.
+- [x] Preserve ordered runtime tests for the last refutable arm; unmatched raw
+  representations trap instead of selecting that arm implicitly.
+- [x] Keep proof storage and traversal native, with caller-local scratch buffers
+  and explicit frames under existing layout/arm bounds.
+
+Evidence: 	ests/test_sotlas_native_match_combinations.py, including all 512
+Boolean rectangle unions and 64 deterministic interval-union oracle cases.
+Windows and Linux native Stage 2/3 rebuilds have identical successive images;
+114 match tests and 37 shared Stage 3 driver fixtures pass on each host.
+ELF/PE/Mach-O generation is checked; Windows/Linux images execute locally.
+The GitHub matrix and Intel macOS execution remain CI gates.
+
+This closes the combination block for existing patterns and declared domains.
+Pattern syntax extensions and resource-bearing payloads remain separate blocks.
+See [the precise coverage contract](native_match_payloads.md#combination-coverage).
+
 ## SV8.82 - nested variants and refutable payload fields (2026-10-20)
 
 **Starting baseline:** `44e5958` on main.
@@ -20,7 +45,7 @@ guard only if every field matched. Failed fields/guards continue in source order
 Aggregate subjects are snapshotted once before dispatch; returned POD records,
 exclusive captures, early returns and LIFO cleanup retain their existing rules.
 
-Coverage is conservative: refutable fields do not prove coverage of an entire
+At SV8.82, coverage was conservative (superseded by SV8.83): refutable fields did not prove coverage of an entire
 variant. A total variant fallback or final wildcard is required. General product
 coverage, named-field/or-patterns and resource ARC/drop integration remain open;
 this is not a claim of complete master match parity.

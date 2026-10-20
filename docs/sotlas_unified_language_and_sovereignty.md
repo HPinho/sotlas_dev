@@ -2,11 +2,36 @@
 
 **Repository:** [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev)
 
+## SV8.83 - complete combinations for current match patterns (2026-10-20)
+
+- [x] Prove the union of positional field patterns across full Boolean,
+  signed/unsigned integer and declared enum domains.
+- [x] Combine nested variant sums and independent field products without a
+  mandatory capture-only fallback.
+- [x] Partition integer axes at pattern boundaries, including U64/I64 extrema.
+- [x] Reject Cartesian holes, even when individual fields have full marginal
+  coverage, and exclude guarded rows from the proof.
+- [x] Preserve ordered runtime tests for the last refutable arm; unmatched raw
+  representations trap instead of selecting that arm implicitly.
+- [x] Keep proof storage and traversal native, with caller-local scratch buffers
+  and explicit frames under existing layout/arm bounds.
+
+Evidence: 	ests/test_sotlas_native_match_combinations.py, including all 512
+Boolean rectangle unions and 64 deterministic interval-union oracle cases.
+Windows and Linux native Stage 2/3 rebuilds have identical successive images;
+114 match tests and 37 shared Stage 3 driver fixtures pass on each host.
+ELF/PE/Mach-O generation is checked; Windows/Linux images execute locally.
+The GitHub matrix and Intel macOS execution remain CI gates.
+
+This closes the combination block for existing patterns and declared domains.
+Pattern syntax extensions and resource-bearing payloads remain separate blocks.
+See [the precise coverage contract](native_match_payloads.md#combination-coverage).
+
 **SV8.82 (2026-10-20):** native match supports nested positional variants and
 literal, constant, range and scalar-enum field filters. Typed bindings are scoped
 to the arm and guard. Dispatch checks nested tags and fields before running a
 guard, then follows ordered fallback. Aggregate subjects are copied once.
-Coverage remains conservative for filtered fields; include a total fallback.
+The initial conservative fallback requirement was superseded by SV8.83.
 See [the payload contract](native_match_payloads.md).
 
 **SV8.81 (2026-10-19):** native enums gain tagged scalar/POD payload construction,

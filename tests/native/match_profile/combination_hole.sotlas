@@ -1,0 +1,8 @@
+module match_combination_hole;
+enum Value { Pair(bool, bool) }
+pub fn main_entry()->u32 {
+    return match Value::Pair(true, false) {
+        Value::Pair(true, true) => 42,
+        Value::Pair(false, false) => 42
+    };
+}
