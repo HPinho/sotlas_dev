@@ -6,6 +6,13 @@ struct Classification { pub kind:ResultKind; pub score:u32; }
 
 enum Measurement { Missing, Reading(Classification,u32) }
 enum Envelope { Missing, Data(Measurement) }
+enum Samples { Missing, Values([u32;2]) }
+
+fn sample_score(value:whisper Samples)->u32 {
+    return match value { Samples::Values(items)=>items[0]+items[1],Samples::Missing=>0 };
+}
+
+fn consume_samples(value:sole Samples)->u32 { return sample_score(value); }
 
 fn envelope_score(value:Envelope)->u32 {
     return match value {
@@ -85,5 +92,7 @@ pub fn main_entry() -> u32 {
     let owned:sole Classification=select_owned(true,first,second);
     if owned.score!=42 { return 3; }
     if named_score(Classification{kind:ResultKind::Large,score:40})+fraction_score(1.5)!=42 { return 5; }
+    let samples:sole Samples=Samples::Values([21;2]);
+    if sample_score(samples)!=42 || consume_samples(samples)!=42 { return 6; }
     return total + adjustment(ResultKind::Small);
 }

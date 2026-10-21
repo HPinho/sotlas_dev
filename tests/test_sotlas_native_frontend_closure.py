@@ -667,7 +667,8 @@ return unsafe{trace};}'''
         self.execute(self.compile('native_match_mutated_subject',source))
         self.compile('native_match_scope_escape',source.replace('return unsafe{trace};','return scoped;'),success=False)
         self.compile('native_match_pattern_call','fn pattern()->u32{return 0;}pub fn main_entry()->u32{match 0{pattern()=>{},_=>{}}return 42;}',success=False)
-        self.compile('native_match_owned_subject','pub fn main_entry()->u32{let value:sole u32=42;match value{42=>{return 42;},_=>{return 1;}}}',success=False)
+        self.execute(self.compile('native_match_owned_subject','pub fn main_entry()->u32{let value:sole u32=42;match value{42=>{return 42;},_=>{return 1;}}}'))
+        self.compile('native_match_moved_subject','fn consume(value:sole u32)->void{return;}pub fn main_entry()->u32{let value:sole u32=42;consume(value);match value{42=>{return 42;},_=>{return 1;}}}',success=False)
         self.compile('native_match_payload_binding','enum Color{Red=1}pub fn main_entry()->u32{let value:Color=Color::Red;match value{Color::Red(payload)=>{},_=>{}}return 42;}',success=False)
 
     def test_native_match_legacy_statement_arm_syntax(self):

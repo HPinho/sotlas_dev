@@ -6,7 +6,8 @@ parser, semantic checker and Target IR lowering; it does not generate C.
 
 ## Executable contract
 
-- Variants may declare positional scalar or pointer-free POD record fields.
+- Variants may declare positional scalar, pointer-free POD record or bounded
+  inline scalar/record array fields.
 - Qualified constructors check arity, nominal types and integer bounds.
 - Unit variants remain valid alongside variants with fields.
 - Internal parameters, returns and match results use the existing aggregate ABI.
@@ -42,6 +43,8 @@ before fallthrough. Value blocks use the same sequence analysis as statements,
 including locals, early return and defer reservations. Yielding an owned value
 requires an owned destination. Result storage is populated before LIFO cleanup.
 
+Named exclusive/whisper/direct POD subjects can also be read without consuming
+their owner. See [inline arrays and owned subjects](native_match_array_payloads.md).
 These are exclusive POD transfers. Resource fields, shared ARC and weak-reference
 cleanup still require their general runtime implementation; they remain rejected.
 
@@ -53,8 +56,8 @@ record layout. Its complete padded storage must fit within 4096 bytes. Layouts
 with unresolved forward enum dependencies, recursive resource graphs, raw pointers
 or ownership-qualified fields are rejected. Enums embedded in record fields whose
 layout was registered before the enum aggregate are also rejected rather than
-retaining a stale scalar layout. Direct array/slice payloads need their own ABI;
-POD record payloads can contain supported inline arrays.
+retaining a stale scalar layout. Direct fixed array payloads use inline storage;
+slice payloads and standalone array parameter/return ABI remain separate work.
 
 Nested patterns have a maximum depth of 32. Root and nested `|` alternatives
 and grouping are covered by [the alternative-pattern contract](native_match_alternatives.md).

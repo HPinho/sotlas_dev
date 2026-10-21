@@ -2,6 +2,34 @@
 
 **Repository:** [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev)
 
+## SV8.87 - inline array payloads and owned subject reads (2026-10-21)
+
+The previous pattern block (commit 1c6763c) passed CI, as confirmed by the user.
+
+- [x] Store bounded scalar and pointer-free POD record arrays directly in enum
+  payloads, with checked element counts/types and the existing 4096-byte layout.
+- [x] Construct arrays from lists, one-evaluation repetition, local arrays and
+  record fields; preserve source order and independent storage.
+- [x] Carry array payloads through native aggregate calls, returns and match
+  results; retain independent captures, guards and compatible alternatives.
+- [x] Read named exclusive/whisper/direct POD subjects in statement/expression
+  matches without consuming them; preserve moves, guard fallthrough and cleanup.
+- [ ] Integrate resource-bearing payload fields with generated destruction,
+  shared ARC, weak invalidation and general resource lifetime/escape analysis.
+
+[Inline arrays and owned subjects](native_match_array_payloads.md) specify the
+executable scope. This closes the inline POD array payload block; it does not
+certify automatic resource management.
+
+Local evidence: 179 match tests pass on each Windows/Linux host, along with
+48 shared rebuilt Stage 3 driver cases per host. The exact Windows original-module
+Stage 2/3 CI gate and all 19 new array-payload tests pass through the hosted seed
+route; calculator and GUI gates pass too. Another 155 frontend/documentation
+tests pass. Native Stage 2/3 fixed points hold within each host. The public example
+executes with exit 42 on Windows/Linux, and its object plus ELF/PE/Mach-O outputs
+are byte-identical across hosts. The new GitHub CI and Intel macOS execution gates
+remain pending.
+
 ## SV8.86 - named fields and IEEE float patterns (2026-10-21)
 
 - [x] Match bounded POD records directly and inside positional enum payloads.

@@ -1,0 +1,10 @@
+module array_payload_guard_move;
+enum Data{Numbers([u32;2]),}
+fn consume(value:sole Data)->bool{return true;}
+pub fn main_entry()->u32{
+    let value:sole Data=Data::Numbers([21;2]);
+    return match value{
+        Data::Numbers(items) if consume(value)=>items[0]+items[1],
+        _=>0
+    };
+}

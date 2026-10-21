@@ -236,6 +236,13 @@
       "status": "DESIGN_ONLY",
       "source": null,
       "verification": "consolidated-reference-examples-require-individual-native-or-canonical-validation"
+    },
+    {
+      "id": "native-inline-array-payloads",
+      "document": "docs/native_match_array_payloads.md",
+      "status": "EXPERIMENTAL",
+      "source": "tests/native/match_profile/array_payload.sotlas",
+      "verification": "tests/test_sotlas_native_match_array_payloads.py; shared-native-stage3-fixtures; outside-the-canonical-stage0-c11-runnable-policy"
     }
   ]
 }

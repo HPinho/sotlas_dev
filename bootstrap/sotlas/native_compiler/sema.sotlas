@@ -298,6 +298,7 @@ impl Sema {
         node_count: usize, typ: usize, source: *const u8, source_len: usize, depth: usize) -> bool {
         if typ == 0 || typ >= node_count || depth >= 32 { return false; }
         let node: AstNode = unsafe { *(nodes + typ) };
+        if node.int_value == 0 && self.ownership_pod_array(node,source,source_len) { return true; }
         if self.ownership_record_array(nodes,node_count,typ,source,source_len,depth+1) { return true; }
         if self.fixed_integer_type_tag(nodes, node_count, typ, source, source_len) != 0
             || self.source_slice_equals(source, source_len, node.str_offset, node.str_len, "bool", 4)
@@ -2465,6 +2466,22 @@ impl Sema {
         }
         let init_index: usize = repeat.parent;
         let init: AstNode = unsafe { *(nodes + init_index) };
+        if init.kind == AstKind::ExprCall && init.first_child != 0 && init.first_child < node_count {
+            let variant: usize = self.enum_variant_path(nodes,node_count,init.first_child,source,source_len);
+            if variant == 0 { return self.reject_node(repeat); }
+            let mut field: usize = unsafe{(*(nodes+variant)).first_child};
+            let mut argument: usize = unsafe{(*(nodes+init.first_child)).next_sibling};
+            while field != 0 && field < node_count && argument != 0 && argument < node_count {
+                if argument == repeat_index {
+                    if !self.fixed_array_type_matches_repeat(nodes,node_count,field,repeat_index,
+                        source,source_len,false) { return self.reject_node(repeat); }
+                    return true;
+                }
+                field=unsafe{(*(nodes+field)).next_sibling};
+                argument=unsafe{(*(nodes+argument)).next_sibling};
+            }
+            return self.reject_node(repeat);
+        }
         if init.kind == AstKind::AssignStmt && init.first_child != 0
             && init.first_child < node_count {
             let target_type: usize = self.find_struct_field_for_access(nodes,node_count,
@@ -4482,6 +4499,19 @@ impl NativeOwnershipCheck {
         return true;
     }
 
+    // Match reads an independent POD snapshot. Reading an exclusive/borrowed
+    // binding does not transfer it; resource graphs still fail the POD proof.
+    pub fn match_subject_readable(self: &Self, index: usize) -> bool {
+        let domain: i64 = self.expression_domain(index);
+        if domain == 0 { return true; }
+        if domain != 1 && domain != 4 && domain != 6 { return false; }
+        let node: AstNode = unsafe{*(self.nodes+index)};
+        if node.kind != AstKind::ExprIdent { return false; }
+        let sem: Sema = Sema::new();
+        let typ: usize = sem.infer_expression_type_ref(self.nodes,self.node_count,index,self.source,self.source_len);
+        return typ != 0 && sem.ownership_pod_type(self.nodes,self.node_count,typ,self.source,self.source_len,0);
+    }
+
     pub fn expression(mut self: &mut Self, node_index: usize, take: bool, depth: usize) -> bool {
         if node_index == 0 { return true; }
         if node_index >= self.node_count || depth >= 64 { return self.fail(node_index); }
@@ -4491,7 +4521,7 @@ impl NativeOwnershipCheck {
             && unsafe{(*(self.nodes+node.parent)).first_child} == node_index { return true; }
         if node.kind == AstKind::ExprMatch {
             let subject: usize = node.first_child;
-            if subject == 0 || subject >= self.node_count || self.expression_domain(subject) != 0
+            if subject == 0 || subject >= self.node_count || !self.match_subject_readable(subject)
                 || !self.expression(subject,false,depth+1) { return self.fail(node_index); }
             let scope: usize = self.count;
             let mut before: [u8;256] = 0;let mut merged: [u8;256] = 0;let mut reservations: [u8;256] = 0;
@@ -4731,7 +4761,7 @@ impl NativeOwnershipCheck {
                 if result != 1 { return result; }
             } else if node.kind == AstKind::MatchStmt {
                 let subject: usize = node.first_child;
-                if subject == 0 || subject >= self.node_count || self.expression_domain(subject) != 0
+                if subject == 0 || subject >= self.node_count || !self.match_subject_readable(subject)
                     || !self.expression(subject, false, 0) { return 0; }
                 let scope: usize = self.count;
                 let mut before: [u8;256] = 0; let mut merged: [u8;256] = 0;
