@@ -1,0 +1,17 @@
+module array_payload;
+struct Row{pub value:u32;}
+enum Data{Empty,Numbers([u32;2]),Rows([Row;2]),}
+fn read(value:whisper Data)->u32{
+    return match value{
+        Data::Empty=>0,
+        Data::Numbers(items)=>items[0]+items[1],
+        Data::Rows(items)=>items[0].value+items[1].value
+    };
+}
+fn consume(value:sole Data)->u32{return read(value);}
+pub fn main_entry()->u32{
+    let numbers:sole Data=Data::Numbers([21;2]);
+    let rows:sole Data=Data::Rows([Row{value:21};2]);
+    if read(numbers)!=42 || read(rows)!=42{return 1;}
+    return consume(rows);
+}

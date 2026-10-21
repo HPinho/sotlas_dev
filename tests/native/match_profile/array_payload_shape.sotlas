@@ -1,0 +1,6 @@
+module array_payload_shape;
+enum Data{Numbers([u32;2]),}
+pub fn main_entry()->u32{
+    let value:Data=Data::Numbers([42]);
+    return 42;
+}

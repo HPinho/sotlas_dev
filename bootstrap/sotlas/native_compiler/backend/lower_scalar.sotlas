@@ -5885,13 +5885,36 @@ impl ScalarLowering {
                     let mut child: usize = unsafe{(*(self.nodes+self.variant_nodes[variant])).first_child};
                     while child != 0 && child < self.node_count && unsafe{(*(self.nodes+child)).kind} == AstKind::TypeRef {
                         let typ: AstNode = unsafe{*(self.nodes+child)};
-                        let tag: TargetTypeTag = self.type_tag_for(child);
+                        let mut tag: TargetTypeTag = self.type_tag_for(child);
                         let nested: u32 = self.find_struct(typ.str_offset,typ.str_len);
-                        if typ.int_value != 0 || tag == TargetTypeTag::Invalid || tag == TargetTypeTag::Void
+                        let array: bool = typ.str_len != 0 && unsafe{*(self.source+typ.str_offset)} == 91;
+                        if typ.int_value != 0 || (!array && tag == TargetTypeTag::Invalid) || tag == TargetTypeTag::Void
                             || (tag == TargetTypeTag::Pointer && (nested == 0 || !self.array_record_copyable(nested,0)))
                             || self.field_total_count >= 256 { return self.reject(child); }
                         let mut width: u32 = self.scalar_memory_size(tag);let mut align: u32 = width;
                         if nested != 0 { width=self.struct_sizes[nested as usize-1];align=self.struct_alignments[nested as usize-1]; }
+                        if array {
+                            let count: usize = self.parse_array_element_count(typ.str_offset,typ.str_len);
+                            let mut element: TargetTypeTag = self.parse_array_element_type(typ.str_offset,typ.str_len);
+                            let record: u32 = self.parse_array_element_struct(typ.str_offset,typ.str_len);
+                            let mut stride: u32 = self.scalar_memory_size(element);
+                            align=stride;
+                            if record != 0 {
+                                if !self.array_record_copyable(record,0) { return self.reject(child); }
+                                stride=self.struct_sizes[record as usize-1];
+                                align=self.struct_alignments[record as usize-1];
+                                element=TargetTypeTag::Pointer;
+                            } else if element == TargetTypeTag::Pointer { return self.reject(child); }
+                            let maximum: usize = 4096;
+                            if count == 0 || count > 256 || stride == 0 || count > maximum/(stride as usize)
+                                || element == TargetTypeTag::Invalid || element == TargetTypeTag::Aggregate
+                                || element == TargetTypeTag::Void { return self.reject(child); }
+                            let field: usize = self.field_total_count;
+                            self.field_byte_counts[field]=count as u32;
+                            self.field_array_types[field]=element as u32;
+                            self.field_array_structs[field]=record;
+                            width=(count as u32)*stride;tag=TargetTypeTag::Aggregate;
+                        }
                         if width == 0 || align == 0 || size > 4096 || width > 4096 { return self.reject(child); }
                         size=((size+align-1)/align)*align;
                         let field: usize = self.field_total_count;
@@ -5943,6 +5966,49 @@ impl ScalarLowering {
         return address;
     }
 
+    // Inline payload arrays share record storage/copy rules. Repetition evaluates
+    // its value once; list elements are evaluated from left to right.
+    pub fn initialize_payload_array(mut self: &mut Self, address: u32, field: usize,
+        expression_index: usize, first_parameter: usize, parameter_count: usize) -> bool {
+        if self.field_array_structs[field] != 0 {
+            return self.initialize_record_array_field(address,field,expression_index,first_parameter,parameter_count);
+        }
+        let expression: AstNode = unsafe{*(self.nodes+expression_index)};
+        if expression.kind == AstKind::ExprIdent || expression.kind == AstKind::ExprFieldAccess {
+            return self.copy_array_into_field(address,field,expression_index,first_parameter,parameter_count);
+        }
+        if expression.kind != AstKind::ExprArrayLiteral && expression.kind != AstKind::ExprArrayRepeat { return false; }
+        let count: u32 = self.field_byte_counts[field];
+        let typ: TargetTypeTag = self.field_array_types[field] as TargetTypeTag;
+        let stride: u32 = self.scalar_memory_size(typ);
+        let mut element: usize = expression.first_child;let mut repeated: u32 = 0;
+        if expression.kind == AstKind::ExprArrayRepeat {
+            if element == 0 || element >= self.node_count { return false; }
+            let length: usize = unsafe{(*(self.nodes+element)).next_sibling};
+            if length == 0 || length >= self.node_count { return false; }
+            let literal: AstNode = unsafe{*(self.nodes+length)};
+            if literal.kind != AstKind::ExprLiteral || literal.next_sibling != 0
+                || self.parse_integer_value(literal.str_offset,literal.str_len) != count as u64 { return false; }
+            repeated=self.lower_expression(element,typ,first_parameter,parameter_count);
+            if repeated == 0 { return false; }
+        }
+        let mut position: u32 = 0;
+        while position < count {
+            let mut value: u32 = repeated;
+            if expression.kind == AstKind::ExprArrayLiteral {
+                if element == 0 || element >= self.node_count { return false; }
+                value=self.lower_expression(element,typ,first_parameter,parameter_count);
+                element=unsafe{(*(self.nodes+element)).next_sibling};
+            }
+            if value == 0 || unsafe{(*(self.values+value as usize-1)).type_tag} != typ
+                || !self.cfg_store(address,value,typ,expression_index) { return false; }
+            unsafe{(*(self.instructions+self.instruction_count-1)).immediate_bits=
+                (self.field_offsets[field]+position*stride) as u64;}
+            position=position+1;
+        }
+        return expression.kind == AstKind::ExprArrayRepeat || element == 0;
+    }
+
     pub fn lower_payload_constructor(mut self: &mut Self, index: usize, first_parameter: usize, parameter_count: usize) -> u32 {
         let variant_id: u32 = self.payload_variant(index);let record: u32 = self.payload_record(index);
         if variant_id == 0 || record == 0 || self.cfg_current == 0 { return 0; }
@@ -5964,7 +6030,9 @@ impl ScalarLowering {
             let field: usize = self.variant_field_starts[variant] as usize+ordinal;
             let destination: u32 = self.payload_address(address,self.field_offsets[field],index);
             let nested: u32 = self.field_struct_ids[field];
-            if nested != 0 {
+            if self.field_byte_counts[field] != 0 {
+                if !self.initialize_payload_array(address,field,argument,first_parameter,parameter_count) { return 0; }
+            } else if nested != 0 {
                 if self.cfg_record_value_id(argument,0) != nested { return 0; }
                 let source: u32 = self.cfg_struct_address(argument,first_parameter,parameter_count,0);
                 if source == 0 || !self.cfg_copy_fields(destination,source,nested,0,0,argument,0) { return 0; }

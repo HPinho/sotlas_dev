@@ -33,3 +33,9 @@ for coverage, cleanup and the 64-row distribution bound.
 The example also destructures Classification by field name and selects an F32
 interval. See [named fields and float patterns](../../docs/native_match_named_float.md)
 for shorthand, rest markers, signed zero, NaNs and the current POD layout bound.
+
+## Inline payload arrays
+
+The example also constructs `Samples::Values([21;2])`, reads its exclusive POD
+owner through a `whisper` parameter, then transfers the owner to a consuming
+function. Arrays live directly inside the enum, with no wrapper record.
