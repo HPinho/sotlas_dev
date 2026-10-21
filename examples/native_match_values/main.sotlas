@@ -61,6 +61,17 @@ fn category(large:bool)->ResultKind {
     return match large { true=>ResultKind::Large, false=>ResultKind::Small };
 }
 
+fn named_score(value:Classification)->u32 {
+    return match value {
+        Classification{score:n,kind:ResultKind::Large}=>n,
+        Classification{kind:ResultKind::Small,..}=>0
+    };
+}
+
+fn fraction_score(value:f32)->u32 {
+    return match value { 0.0=>0,1.0..=2.0=>2,_=>0 };
+}
+
 pub fn main_entry() -> u32 {
     let selected = match true { true => 5, false => 0 };
     let total: u32 = score(selected as u8) + score(10);
@@ -73,5 +84,6 @@ pub fn main_entry() -> u32 {
     let second:sole Classification=Classification{kind:ResultKind::Small,score:0};
     let owned:sole Classification=select_owned(true,first,second);
     if owned.score!=42 { return 3; }
+    if named_score(Classification{kind:ResultKind::Large,score:40})+fraction_score(1.5)!=42 { return 5; }
     return total + adjustment(ResultKind::Small);
 }

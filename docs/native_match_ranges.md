@@ -1,5 +1,7 @@
 # Native integer match ranges
 
+F32/F64 intervals are specified in [the float pattern contract](native_match_named_float.md).
+
 The Sotlas-written frontend and owned x86-64 backend accept closed integer
 intervals (`first..=last`) and intervals excluding their upper bound
 (`first..last`) in match statements. This is a native-profile feature; it does

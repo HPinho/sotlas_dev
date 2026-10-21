@@ -7,8 +7,11 @@ supported user programs.
 
 ## Syntax and binding contract
 
-- Alternatives work at the root and inside positional variant fields.
+- Alternatives work at the root, inside positional variant fields and inside
+  named record fields.
 - Parentheses group alternatives; `|` has lower precedence than an integer range.
+  Parenthesized expressions directly before a range delimiter keep their
+  existing constant-bound interpretation, including arithmetic and bitwise bounds.
 - Literals, module constants, enum paths, ranges, wildcards, bindings and nested
   positional variants retain their existing types and bounds.
 - Every alternative binds exactly the same names with the same declared types.
@@ -51,9 +54,9 @@ Existing AST node, 32-level pattern, CFG, local/frame and layout bounds still
 apply. Cloning an arm body is bounded to 128 AST levels and the shared node buffer.
 No limit failure silently drops an alternative or emits a partial artifact.
 
-Named-field/record destructuring and float equality patterns remain outside the
-native pattern contract. Float conditions can use captures and guards. General
-resource payloads and ARC/drop integration remain a separate runtime block.
+[Named-field/record destructuring and float patterns](native_match_named_float.md)
+are implemented, including alternatives inside named fields. General resource
+payloads and ARC/drop integration remain the next runtime block.
 
 ## Evidence
 

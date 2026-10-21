@@ -29,3 +29,7 @@ example combines fallback variants into one source arm. Alternatives share
 binding names/types and evaluate the source guard once, even if they overlap.
 See [the alternative-pattern contract](../../docs/native_match_alternatives.md)
 for coverage, cleanup and the 64-row distribution bound.
+
+The example also destructures Classification by field name and selects an F32
+interval. See [named fields and float patterns](../../docs/native_match_named_float.md)
+for shorthand, rest markers, signed zero, NaNs and the current POD layout bound.

@@ -1372,3 +1372,14 @@ plain-parameter ABI records from typed compiler data; it does not
 yet automatically attach records to object sections or prove
 effects/capabilities. See
 [SV8.71 documented scope](../../../docs/native_typed_elf_pair.md).
+
+## Lexer capacity for SV8.86
+
+Linux, Windows and Intel macOS drivers now reserve 524288 token entries, and
+require the collected token count to stay below that limit. The hosted native
+compiler entry point uses the same token budget. Source-byte, AST-node and IR
+limits are unchanged. The larger Windows compiler sources cross the previous
+262144-token budget. Refresh an older seed before rebuilding the current tree;
+a native refresh can rebuild the preceding sources with only the driver token
+buffer/lexer bound increased, then use that executable for the current Stage 2/3
+chain. This changes buffer capacity, without adding a C/Python native build step.
