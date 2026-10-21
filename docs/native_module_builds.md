@@ -50,6 +50,19 @@ native artifact writer.
   existing native manifest commands. They are not relative to the list file.
 - Each source list and optional library list contains 1–16 paths and is bounded
   to 65,535 bytes. Omit the optional library argument when no library is needed.
+- Source and library lists reject the same byte-exact path appearing more than
+  once. Duplicate source roots and duplicate library roots both fail with the
+  existing invalid-argument status (1), before a destination file is opened.
+- The output path cannot be byte-identical to a listed source, a linked
+  library, the source list itself or the optional library list. On rejection,
+  the original input bytes and any pre-existing output remain unchanged.
+  Checks occur before source compilation or before reading the archives.
+  These guards are implemented in the native Linux, Windows and macOS
+  drivers without a Python helper or host linker.
+- Path comparison is deliberately byte-exact, not an assertion of canonical
+  filesystem identity. Relative aliases, symbolic links, different casing on
+  case-insensitive filesystems and other equivalent spellings remain open
+  for a later platform-aware canonicalization gate.
 - Source units do not share symbol tables, types or static compiler state.
   A sibling implementation cannot satisfy an undeclared source-level name.
 - The current cross-object boundary uses explicit foreign-call declarations
@@ -91,5 +104,7 @@ ownership/effect, generic library or independent first-seed parity.
 `tests/test_sotlas_native_module_builds.py` drives the production native compiler
 and checks application/library builds, absence of intermediate files, equality
 with individually compiled archives, source isolation, type/data state resets,
-late failures and diagnostics, library dependencies and target bounds. PE runs
+late failures and diagnostics, library dependencies and target bounds.
+The SV8.88 preflight cases also cover duplicate sources/libraries and output
+collisions with sources, libraries and both manifest files, on all three formats. PE runs
 on Windows, ELF on Linux and Mach-O on Intel macOS when that runner is present.

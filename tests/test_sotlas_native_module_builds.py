@@ -196,6 +196,60 @@ class NativeModuleBuildTests(unittest.TestCase):
         self.build('pe', fifteen)
         self.verify('pe')
 
+    def test_duplicate_source_paths_fail_before_writing_any_artifact(self):
+        source = self.source('repeat module source', 'pub fn main_entry()->u32{return 42;}')
+        manifest = self.manifest('repeated source roots', [source, source])
+        library = self.directory / 'preserved repeated input.a'
+        library.write_bytes(b'preserve original library')
+        self.native('--build-library', library, manifest, expected=1)
+        self.assertEqual(library.read_bytes(), b'preserve original library')
+        for target in ('elf', 'pe', 'macho'):
+            self.build(target, manifest, expected=1)
+            self.assertFalse(self.output(target).exists())
+
+    def test_duplicate_library_paths_fail_without_changing_executable(self):
+        source = self.source('duplicate library entry', 'pub fn main_entry()->u32{return 42;}')
+        sources = self.manifest('library duplicates source list', [source])
+        library = self.directory / 'same library twice.a'
+        library.write_bytes(b'not a valid archive')
+        libraries = self.manifest('library duplicates', [library, library])
+        for target in ('elf', 'pe', 'macho'):
+            self.output(target).write_bytes(b'previous executable')
+            self.build(target, sources, libraries, expected=1)
+            self.assertEqual(self.output(target).read_bytes(), b'previous executable')
+
+    def test_native_module_destination_cannot_overwrite_source_or_manifest(self):
+        source = self.source('protected input source', 'pub fn main_entry()->u32{return 42;}')
+        original_source = source.read_bytes()
+        sources = self.manifest('protected source manifest', [source])
+        original_manifest = sources.read_bytes()
+        self.native('--build-library', source, sources, expected=1)
+        self.assertEqual(source.read_bytes(), original_source)
+        self.native('--build-library', sources, sources, expected=1)
+        self.assertEqual(sources.read_bytes(), original_manifest)
+        for target in ('elf', 'pe', 'macho'):
+            self.native('--build-' + target + '-modules',
+                        source, 'main_entry', sources, expected=1)
+            self.assertEqual(source.read_bytes(), original_source)
+            self.native('--build-' + target + '-modules',
+                        sources, 'main_entry', sources, expected=1)
+            self.assertEqual(sources.read_bytes(), original_manifest)
+
+    def test_native_module_destination_cannot_overwrite_library_inputs(self):
+        source = self.source('protected library source', 'pub fn main_entry()->u32{return 42;}')
+        sources = self.manifest('protected library app sources', [source])
+        library = self.directory / 'protected input library.a'
+        library.write_bytes(b'original bytes')
+        libraries = self.manifest('protected library manifest', [library])
+        original_list = libraries.read_bytes()
+        for target in ('elf', 'pe', 'macho'):
+            self.native('--build-' + target + '-modules',
+                        library, 'main_entry', sources, libraries, expected=1)
+            self.assertEqual(library.read_bytes(), b'original bytes')
+            self.native('--build-' + target + '-modules',
+                        libraries, 'main_entry', sources, libraries, expected=1)
+            self.assertEqual(libraries.read_bytes(), original_list)
+
     def test_import_syntax_is_not_replaced_by_hidden_concatenation(self):
         source = self.source('unresolved native import', 'import missing::*;'
                              'pub fn main_entry()->u32{return 42;}')
