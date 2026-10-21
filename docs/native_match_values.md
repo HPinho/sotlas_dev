@@ -47,7 +47,9 @@ remains a separate operation. Pointer-free POD records can be returned by value;
 their fields and array fields are copied into independent result storage.
 
 Arms accept expressions or blocks with local declarations, ordinary statements
-and a final value without a semicolon. A block that provably returns from the
+and a final value without a semicolon. Native value blocks accept both `let` and
+mutable `var` declarations, and bare `loop` with ordinary `break`/`continue`
+control flow, alongside conditional `while` and `for` loops. A block that provably returns from the
 enclosing function needs no tail value. Defers execute in LIFO order after the
 tail is captured, or on early return with the enclosing cleanup. Internal loops
 use their normal control flow. Cross-expression break/continue targets are not

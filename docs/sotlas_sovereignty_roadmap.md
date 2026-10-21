@@ -7,6 +7,30 @@
 
 
 
+## SV8.85 - value-block loop and mutable-local parity (2026-10-20)
+
+- [x] Accept native mutable `var` and bare `loop` statements inside value-producing
+  `match` arms, while retaining the established tail-value requirement.
+- [x] Keep break/continue scoped to their actual loop and reject a missing arm
+  result or an unscoped break without emitting an executable artifact.
+- [x] Teach the transitional hosted Stage 1 C11 emitter to lower the existing
+  `WhileStmt` bare-loop marker as `while (true)`, without attempting to read
+  synthetic integer literals with no source span.
+- [x] Add native executable tests, a shared Stage 3 driver fixture, and a
+  Stage 1/2/3 C-emission parity gate for bare loops.
+
+This fixes a frontend dialect gap and hardens the hosted bootstrap compatibility
+path. Native objects and executables still use Sotlas machine emission; the
+separate hosted C11 emitter is not being claimed as C-free. Evidence:
+`tests/test_sotlas_native_match_values.py`,
+`tests/native/match_profile/block_loop.sotlas`, and
+`tests/test_sotlas_sovereignty_sv8.py`. The OS matrix remains a post-commit
+acceptance gate; this entry does not assert an unobserved green result.
+
+**Next SV8.86:** named-field/record destructuring in native `match`, with
+nominal identity, field completeness, ownership and coverage tests.
+Resource-bearing payloads and ARC/drop remain separate certification blocks.
+
 ## SV8.84 - native alternative patterns (2026-10-20)
 
 - [x] Parse root/nested | alternatives and grouped positional patterns.

@@ -2814,6 +2814,12 @@ impl CEmitter {
             return false;
         }
 
+        // A bare `loop` becomes WhileStmt with a synthetic condition.
+        // Emit its exact semantics without asking for a nonexistent source slice.
+        if node.int_value == 2 {
+            if !self.write_str("while (true) ", 13) { return false; }
+            return self.emit_braced_block(body_index);
+        }
         if !self.write_str("while (", 7) {
             return false;
         }
