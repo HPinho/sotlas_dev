@@ -1550,7 +1550,8 @@ impl Parser {
         while !self.is_at_end() && !self.match_token(TokenKind::CloseBrace) {
             let token: Token = self.current();
             let mut statement: usize = 0;
-            if token.kind == TokenKind::KwLet || token.kind == TokenKind::KwIf
+            if token.kind == TokenKind::KwLet || token.kind == TokenKind::KwVar
+                || token.kind == TokenKind::KwIf || token.kind == TokenKind::KwLoop
                 || token.kind == TokenKind::KwWhile || token.kind == TokenKind::KwFor
                 || token.kind == TokenKind::KwDefer || token.kind == TokenKind::KwReturn
                 || token.kind == TokenKind::KwBreak || token.kind == TokenKind::KwContinue

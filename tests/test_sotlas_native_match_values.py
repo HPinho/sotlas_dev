@@ -13,6 +13,23 @@ class NativeMatchValueTests(unittest.TestCase):
 
     def program(self,name,source):self.execute(self.compile(name,source))
 
+    def test_mutable_var_and_bare_loop_inside_value_block(self):
+        self.program('match_value_block_loop', '''pub fn main_entry()->u32{
+let result:u32=match true{
+true=>{var steps:u32=0;loop{
+steps=steps+1;
+if steps==2{continue;}
+if steps==3{break;}
+}steps+39},
+false=>0};
+return result;}''')
+
+    def test_match_value_block_invalid_loop_paths_reject(self):
+        self.compile('match_value_block_unscoped_break', '''pub fn main_entry()->u32{
+return match true{true=>{break;42},false=>0};}''', False)
+        self.compile('match_value_block_missing_yield', '''pub fn main_entry()->u32{
+return match true{true=>{var n:u32=0;loop{n=n+1;if n==3{break;}}},false=>0};}''', False)
+
     def test_let_return_and_call_argument_values(self):
         self.program('match_value_basic','''fn add(x:u32,y:u32)->u32{return x+y;}
 fn select(x:u32)->u32{return match x{0=>20,_=>22};}

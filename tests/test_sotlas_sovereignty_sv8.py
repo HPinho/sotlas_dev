@@ -230,6 +230,34 @@ pub fn _start() -> u32 {
         self.assertEqual(hkb1, hkb2, "Freestanding kernel image must be bit-for-bit identical")
         self.assertEqual(hkb2, hkb3, "Freestanding kernel image must be bit-for-bit identical")
 
+    def test_sv8_hosted_bare_loop_c11_emission(self):
+        """Stage 1/2/3 emit a loop, not unspanned synthetic integer literals."""
+        source = self.root / "hosted_bare_loop.sotlas"
+        source.write_text("""module hosted_bare_loop;
+pub fn main_entry()->u32{
+    let mut n:u32=0;
+    loop{
+        n=n+1;
+        if n==3{break;}
+    }
+    return n+39;
+}
+""", encoding="utf-8")
+        generated = []
+        for stage in (self.s1_exe, self.s2_exe, self.s3_exe):
+            output = self.root / ("loop-" + stage.stem + ".c")
+            run = subprocess.run(
+                [str(stage), str(source), "--emit-c", "-o", str(output)],
+                capture_output=True, text=True
+            )
+            self.assertEqual(run.returncode, 0, run.stderr + run.stdout)
+            emitted = output.read_text(encoding="utf-8")
+            self.assertIn("while (true)", emitted)
+            self.assertIn("break;", emitted)
+            generated.append(emitted)
+        self.assertEqual(generated[0], generated[1])
+        self.assertEqual(generated[1], generated[2])
+
     def test_sv8_verify_stage_fixed_point_contract(self):
         """SV8 reports native compiler-source fixed point separately from C-free linking."""
         report = verify_stage_fixed_point(self.s1_exe, self.s2_exe, self.s3_exe)

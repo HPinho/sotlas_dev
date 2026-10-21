@@ -1,0 +1,20 @@
+module match_block_loop;
+
+fn calculate()->u32 {
+    return match true {
+        true => {
+            var steps:u32=0;
+            loop {
+                steps=steps+1;
+                if steps==2 { continue; }
+                if steps==3 { break; }
+            }
+            steps+39
+        },
+        false => 0
+    };
+}
+
+pub fn main_entry()->u32 {
+    return calculate();
+}

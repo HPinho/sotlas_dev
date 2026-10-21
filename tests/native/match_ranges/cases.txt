@@ -38,3 +38,4 @@ ownership.sotlas|6|use of moved or maybe-moved value
 ../match_profile/alternatives.sotlas|42|
 ../match_profile/alternative_bindings.sotlas|7|unsupported native form
 ../match_profile/alternative_gap.sotlas|7|non-exhaustive match: cover the domain or add a final wildcard
+../match_profile/block_loop.sotlas|42|
