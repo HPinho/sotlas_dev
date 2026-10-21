@@ -24,11 +24,13 @@ Each selected arm stores its scalar result, or copies its complete POD record,
 before the shared join. A value block captures its tail before executing defers.
 There is no new backend opcode or Python evaluator for match values.
 
-Expressions reuse native statement-match validation: integer widths, Boolean
-and payload-free enum subjects, literal/constant patterns, bounded integer
-ranges, duplicate/overlap rejection and exhaustive coverage. Ranges include
+Expressions reuse native statement-match validation: integer widths, Boolean,
+F32/F64, nominal enums and bounded POD record subjects; literal/constant patterns,
+named fields, numeric ranges, duplicate/overlap rejection and exhaustive coverage.
+Integer ranges include
 `..end`, `..=end`, `start..` and `..`, bounded by the subject's actual integer
 type. Empty, overflowing, reversed and overlapping intervals are rejected.
+Float ranges follow [their IEEE boundary and NaN contract](native_match_named_float.md).
 An unguarded `_`
 must be last. Guarded arms do not prove coverage, and the final arm cannot be
 guarded. Complete Boolean/enum matches retain the existing invalid-value guard.
@@ -68,8 +70,9 @@ and the existing move checks. Guards may borrow owners but cannot consume them.
 Value blocks preserve defer reservations and capture results before cleanup.
 Payload enums now have native constructors, internal aggregate transfer and
 positional pattern bindings; see [the payload contract](native_match_payloads.md).
-General resource cleanup, ARC and named-field patterns remain separate
-dependencies. Nested/refutable positional patterns have symbolic sum/product
+General resource cleanup and ARC remain separate dependencies.
+[Named-field and float patterns](native_match_named_float.md) are implemented.
+Nested/refutable patterns have symbolic sum/product
 coverage: complete combinations need no total fallback. See the payload contract
 for the declared domains, proof algorithm and independent coverage oracles.
 

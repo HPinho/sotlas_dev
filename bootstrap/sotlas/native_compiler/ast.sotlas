@@ -52,7 +52,9 @@ pub enum AstKind {
     MatchValueBlock = 47,
     MatchYield = 48,
     PatternVariant = 49,
-    PatternOr = 50
+    PatternOr = 50,
+    PatternRecord = 51,
+    PatternField = 52
 }
 
 pub struct AstNode {

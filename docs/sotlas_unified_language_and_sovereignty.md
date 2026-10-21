@@ -2,6 +2,33 @@
 
 **Repository:** [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev)
 
+## SV8.86 - named fields and IEEE float patterns (2026-10-21)
+
+- [x] Match bounded POD records directly and inside positional enum payloads.
+- [x] Resolve fields by name, accept reordering, renaming, shorthand and final
+  rest markers, and reject unknown/duplicate/missing fields.
+- [x] Preserve nested typed bindings, alternative groups, guard ordering, array
+  capture copies, record results, exclusive POD rules and lexical cleanup.
+- [x] Execute F32/F64 equality and open/closed/half-open numeric intervals.
+- [x] Normalize signed-zero boundaries, compare rounded values and preserve a
+  path for NaNs; numeric ranges alone never prove exhaustive float coverage.
+- [x] Check named-field product coverage against 512 independent rectangle unions.
+- [x] Raise the hosted/native lexer buffer to 524288 tokens for the larger
+  compiler sources; preserve separate AST/IR and source-byte bounds.
+- [ ] Resource-bearing payloads, ARC/drop and their general cleanup integration.
+
+The pattern forms in the current native release profile are implemented.
+[Named fields and float patterns](native_match_named_float.md) define the syntax,
+semantics, 4096-byte record bound and evidence. Resource payloads are next.
+Local validation: 160 match tests and 45 shared Stage 3 cases pass on each
+Windows/Linux host, alongside 335 focused frontend, numeric, docs and hosted
+bootstrap checks. The exact Windows original-module Stage 2/3 CI test also passes,
+including calculator, GUI and UI-model gates. Native Stage 2/3 images are identical
+within each host. The example object and ELF/PE/Mach-O outputs match across hosts;
+Windows/Linux images execute with exit 42. GitHub CI and Intel macOS execution
+remain pending certification gates.
+
+
 ## SV8.85 - value-block loop and mutable-local parity (2026-10-20)
 
 - [x] Accept native mutable `var` and bare `loop` statements inside value-producing
@@ -22,7 +49,7 @@ separate hosted C11 emitter is not being claimed as C-free. Evidence:
 `tests/test_sotlas_sovereignty_sv8.py`. The OS matrix remains a post-commit
 acceptance gate; this entry does not assert an unobserved green result.
 
-**Next SV8.86:** named-field/record destructuring in native `match`, with
+**Delivered in SV8.86:** named-field/record destructuring in native `match`, with
 nominal identity, field completeness, ownership and coverage tests.
 Resource-bearing payloads and ARC/drop remain separate certification blocks.
 
@@ -39,8 +66,8 @@ Resource-bearing payloads and ARC/drop remain separate certification blocks.
 - [x] Preserve parenthesized arithmetic and bitwise integer range bounds.
 - [x] Snapshot AST sibling links before native parser rewiring and exercise the
   feature through rebuilt Stage 3 drivers.
-- [ ] Named-field/record destructuring patterns.
-- [ ] Float equality patterns; captures and guards remain available.
+- [x] Named-field/record destructuring patterns (SV8.86).
+- [x] Float equality and interval patterns; NaN guards retain a fallback (SV8.86).
 - [ ] Resource-bearing payloads and general ARC/drop cleanup.
 
 Implementation: native Sotlas parser, semantic checker and Target IR lowering.
@@ -2571,7 +2598,8 @@ suite. These results do not substitute for native Intel macOS execution in CI.
   - [x] Execute positional scalar/POD payload bindings, ordered guards, closed/open integer ranges and match expressions with value blocks.
   - [x] Merge exclusive POD moves across expression arms and preserve deferred-borrow reservations.
   - [x] Execute nested positional variants and literal/constant/range/scalar-enum field filters with scoped typed bindings and ordered guard fallthrough.
-  - [ ] Complete product coverage, named-field/or-patterns and general resource payload cleanup.
+  - [x] Complete current native POD pattern forms and symbolic product coverage (SV8.86).
+  - [ ] Complete general resource payload cleanup.
 - [ ] Complete general arrays, slices, indexing and slicing.
   - [x] Native local scalar arrays accept value lists and runtime repetition with exact length/type checking.
   - [x] Repetition evaluates its value once; large arrays use a bounded native fill loop.

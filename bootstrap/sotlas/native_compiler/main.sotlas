@@ -10,7 +10,7 @@ import sotlas::compiler::backend::target_ir::*;
 import sotlas::compiler::backend::lower_scalar::*;
 import sotlas::compiler::backend::x86_64_scalar::*;
 
-pub const TOKEN_BUFFER_CAPACITY: usize = 262144;
+pub const TOKEN_BUFFER_CAPACITY: usize = 524288;
 pub const AST_NODE_BUFFER_CAPACITY: usize = 262144;
 pub const TARGET_VALUE_CAPACITY: usize = 131072;
 pub const TARGET_PARAM_CAPACITY: usize = 16384;
@@ -21,7 +21,7 @@ pub const TARGET_TARGET_CAPACITY: usize = 65536;
 pub const TARGET_BLOCK_CAPACITY: usize = 65536;
 pub const TARGET_FUNCTION_CAPACITY: usize = 8192;
 
-static mut g_token_buffer: [Token; 262144] = 0;
+static mut g_token_buffer: [Token; 524288] = 0;
 static mut g_ast_node_buffer: [AstNode; 262144] = 0;
 static mut g_target_values: [TargetValue; 131072] = 0;
 static mut g_target_parameters: [TargetParameter; 16384] = 0;

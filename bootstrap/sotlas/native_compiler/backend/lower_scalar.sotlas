@@ -368,6 +368,12 @@ fn native_constant_compare(predicate: u64, typ: TargetTypeTag,
 // Ordered keys map every fixed-width integer domain onto 0..MAX, including
 // signed minima. The same transformation converts an ordered key back to bits.
 fn native_match_order_key(bits: u64, typ: TargetTypeTag) -> u64 {
+    if target_type_is_float(typ) {
+        let mut sign: u64 = 9223372036854775808;let mut mask: u64 = 18446744073709551615;
+        if typ == TargetTypeTag::F32 { sign=2147483648;mask=4294967295; }
+        if (bits & sign) != 0 { return (~bits) & mask; }
+        return bits ^ sign;
+    }
     let width: u32 = target_integer_width(typ);
     if width == 0 { return bits; }
     let mut mask: u64 = 18446744073709551615;
@@ -380,26 +386,40 @@ fn native_match_order_key(bits: u64, typ: TargetTypeTag) -> u64 {
     return key;
 }
 
+fn native_match_float_bits(key: u64, typ: TargetTypeTag) -> u64 {
+    let mut sign: u64 = 9223372036854775808;let mut mask: u64 = 18446744073709551615;
+    if typ == TargetTypeTag::F32 { sign=2147483648;mask=4294967295; }
+    if (key & sign) != 0 { return key ^ sign; }
+    return (~key) & mask;
+}
+
+fn native_match_float_nan(bits: u64, typ: TargetTypeTag) -> bool {
+    if typ == TargetTypeTag::F32 { return (bits & 2139095040) == 2139095040 && (bits & 8388607) != 0; }
+    return (bits & 9218868437227405312) == 9218868437227405312 && (bits & 4503599627370495) != 0;
+}
+
+fn native_match_float_zero(bits: u64, typ: TargetTypeTag) -> bool {
+    if typ == TargetTypeTag::F32 { return (bits & 2147483647) == 0; }
+    return (bits & 9223372036854775807) == 0;
+}
+
 pub fn native_match_error_text(reason: u32) -> *const u8 {
-    if reason == 1 { return "match range requires an integer selector"; }
+    if reason == 1 { return "match range requires an integer or float selector"; }
     if reason == 2 { return "match range bounds must be typed integer constants"; }
     if reason == 3 { return "match range is empty or reversed"; }
     if reason == 4 { return "overlapping match patterns"; }
     if reason == 5 { return "non-exhaustive match: cover the domain or add a final wildcard"; }
     if reason == 6 { return "match guard must be a supported Boolean expression"; }
     if reason == 7 { return "final match arm must be unguarded"; }
+    if reason == 8 { return "float match pattern requires constant numbers other than NaN"; }
     return "unsupported native form";
 }
 
 pub fn native_match_error_length(reason: u32) -> usize {
-    if reason == 1 { return 40; }
-    if reason == 2 { return 50; }
-    if reason == 3 { return 32; }
-    if reason == 4 { return 26; }
-    if reason == 5 { return 62; }
-    if reason == 6 { return 50; }
-    if reason == 7 { return 33; }
-    return 23;
+    let message: *const u8 = native_match_error_text(reason);
+    let mut length: usize = 0;
+    while length < 256 && unsafe{*(message+length)} != 0 { length=length+1; }
+    return length;
 }
 
 impl ScalarLowering {
@@ -7018,6 +7038,7 @@ impl ScalarLowering {
 
     pub fn match_range_bounds(mut self: &mut Self, pattern: usize, typ: TargetTypeTag,
         first: &mut u64, last: &mut u64) -> bool {
+        if target_type_is_float(typ) { return self.match_float_bounds(pattern,typ,first,last); }
         let node: AstNode = unsafe { *(self.nodes + pattern) };
         if node.int_value < 0 || node.int_value > 6 { return self.reject_match(pattern,2); }
         let missing_start: bool = (node.int_value & 2) != 0;
@@ -7047,10 +7068,58 @@ impl ScalarLowering {
         return true;
     }
 
+    pub fn match_float_bounds(mut self: &mut Self, pattern: usize, typ: TargetTypeTag,
+        first: &mut u64, last: &mut u64) -> bool {
+        let node: AstNode = unsafe{*(self.nodes+pattern)};
+        let mut sign: u64 = 9223372036854775808;let mut infinity: u64 = 9218868437227405312;
+        if typ == TargetTypeTag::F32 { sign=2147483648;infinity=2139095040; }
+        if node.kind != AstKind::PatternRange {
+            let mut value: u64 = 0;
+            if !self.constant_literal_bits(pattern,typ,&mut value) || native_match_float_nan(value,typ) { return self.reject_match(pattern,8); }
+            unsafe{*first=value;*last=value;}
+            if native_match_float_zero(value,typ) { unsafe{*first=sign;*last=0;} }
+            return true;
+        }
+        if node.int_value < 0 || node.int_value > 6 { return self.reject_match(pattern,2); }
+        let missing_start: bool = (node.int_value & 2) != 0;
+        let missing_end: bool = (node.int_value & 4) != 0;
+        let inclusive: bool = (node.int_value & 1) != 0;
+        if missing_end && inclusive { return self.reject_match(pattern,2); }
+        let mut low: u64 = sign | infinity;let mut high: u64 = infinity;
+        let mut child: usize = node.first_child;
+        if !missing_start {
+            if child == 0 || child >= self.node_count || self.match_bound_has_enum(child,0)
+                || !self.constant_literal_bits(child,typ,&mut low) { return self.reject_match(pattern,8); }
+            child=unsafe{(*(self.nodes+child)).next_sibling};
+        }
+        if !missing_end {
+            if child == 0 || child >= self.node_count || self.match_bound_has_enum(child,0)
+                || !self.constant_literal_bits(child,typ,&mut high) { return self.reject_match(pattern,8); }
+            child=unsafe{(*(self.nodes+child)).next_sibling};
+        }
+        if child != 0 || native_match_float_nan(low,typ) || native_match_float_nan(high,typ) { return self.reject_match(pattern,8); }
+        if native_match_float_zero(low,typ) { low=sign; }
+        if native_match_float_zero(high,typ) {
+            high=0;
+            if !inclusive && !missing_end { high=sign; }
+        }
+        let low_key: u64 = native_match_order_key(low,typ);
+        let mut high_key: u64 = native_match_order_key(high,typ);
+        if !inclusive && !missing_end {
+            if high_key == 0 { return self.reject_match(pattern,3); }
+            high_key=high_key-1;
+        }
+        if low_key > high_key { return self.reject_match(pattern,3); }
+        unsafe{*first=low;*last=native_match_float_bits(high_key,typ);}
+        return true;
+    }
+
     pub fn append_match_compare(mut self: &mut Self, value: u32, typ: TargetTypeTag,
         bits: u64, predicate: u64, node: usize) -> u32 {
         let literal: u32 = self.append_value(typ, 0, 0);
-        if literal == 0 || !self.append_instruction(TargetOpcode::ConstInt, literal, typ, 0, 0, node) { return 0; }
+        let mut opcode: TargetOpcode = TargetOpcode::ConstInt;
+        if target_type_is_float(typ) { opcode=TargetOpcode::ConstFloat; }
+        if literal == 0 || !self.append_instruction(opcode, literal, typ, 0, 0, node) { return 0; }
         unsafe { (*(self.instructions + self.instruction_count - 1)).immediate_bits = bits; }
         let first: u32 = self.operand_count as u32;
         let result: u32 = self.append_value(TargetTypeTag::Bool, 0, 0);
@@ -7267,13 +7336,52 @@ impl ScalarLowering {
         if pattern == 0 || pattern >= self.node_count || depth >= 32 { return false; }
         if self.pattern_capture(pattern) { return true; }
         let node: AstNode = unsafe{*(self.nodes+pattern)};
-        if node.kind != AstKind::PatternVariant || node.first_child == 0 { return false; }
-        let mut child: usize = unsafe{(*(self.nodes+node.first_child)).next_sibling};
+        if node.kind != AstKind::PatternVariant && node.kind != AstKind::PatternRecord { return false; }
+        let mut child: usize = self.pattern_children(pattern);
         while child != 0 && child < self.node_count {
-            if !self.pattern_capture(child) { return false; }
+            let argument: usize = self.pattern_argument(child);
+            if unsafe{(*(self.nodes+argument)).kind} == AstKind::PatternRecord {
+                if !self.payload_pattern_total(argument,depth+1) { return false; }
+            } else if !self.pattern_capture(argument) { return false; }
             child=unsafe{(*(self.nodes+child)).next_sibling};
         }
         return child == 0;
+    }
+
+    pub fn pattern_record(self: &Self, pattern: usize) -> u32 {
+        let node: AstNode = unsafe{*(self.nodes+pattern)};
+        if node.kind != AstKind::PatternRecord { return self.payload_record(pattern); }
+        let record: u32 = self.find_struct(node.str_offset,node.str_len);
+        let mut enumeration: usize = 0;
+        while enumeration < self.enum_count {
+            if self.enum_record_ids[enumeration] == record { return 0; }
+            enumeration=enumeration+1;
+        }
+        return record;
+    }
+
+    pub fn pattern_children(self: &Self, pattern: usize) -> usize {
+        let node: AstNode = unsafe{*(self.nodes+pattern)};
+        if node.kind == AstKind::PatternRecord { return node.first_child; }
+        if node.kind == AstKind::PatternVariant && node.first_child != 0 {
+            return unsafe{(*(self.nodes+node.first_child)).next_sibling};
+        }
+        return 0;
+    }
+
+    pub fn pattern_argument(self: &Self, child: usize) -> usize {
+        if unsafe{(*(self.nodes+child)).kind} == AstKind::PatternField { return unsafe{(*(self.nodes+child)).first_child}; }
+        return child;
+    }
+
+    pub fn pattern_field(self: &Self, pattern: usize, child: usize, ordinal: usize) -> u32 {
+        if unsafe{(*(self.nodes+pattern)).kind} == AstKind::PatternRecord {
+            let field: AstNode = unsafe{*(self.nodes+child)};
+            return self.find_field(self.pattern_record(pattern),field.str_offset,field.str_len);
+        }
+        let variant: u32 = self.payload_variant(pattern);
+        if variant == 0 || ordinal >= self.variant_field_counts[variant as usize-1] as usize { return 0; }
+        return self.variant_field_starts[variant as usize-1]+ordinal as u32+1;
     }
 
     pub fn payload_scalar_bounds(mut self: &mut Self, pattern: usize, field: usize, low: &mut u64, high: &mut u64) -> bool {
@@ -7284,7 +7392,8 @@ impl ScalarLowering {
             let declared: AstNode = unsafe{*(self.nodes+reference)};
             enumeration=self.find_enum(declared.str_offset,declared.str_len);
         }
-        if typ == TargetTypeTag::Pointer || typ == TargetTypeTag::Aggregate || target_type_is_float(typ) { return false; }
+        if self.field_byte_counts[field] != 0 || typ == TargetTypeTag::Pointer || typ == TargetTypeTag::Aggregate { return false; }
+        if target_type_is_float(typ) { return self.match_float_bounds(pattern,typ,low,high); }
         if node.kind == AstKind::PatternRange {
             if enumeration != 0 || typ == TargetTypeTag::Bool { return false; }
             return self.match_range_bounds(pattern,typ,low,high);
@@ -7318,12 +7427,21 @@ impl ScalarLowering {
             let right: usize = sem.payload_binding_type(self.nodes,self.node_count,found,self.source,self.source_len);
             if left == 0 || right == 0 { return left == right; }
             let first: AstNode = unsafe{*(self.nodes+left)};let second: AstNode = unsafe{*(self.nodes+right)};
+            if first.str_len != 0 && second.str_len != 0
+                && unsafe{*(self.source+first.str_offset)} == 91
+                && unsafe{*(self.source+second.str_offset)} == 91 {
+                let first_element: TargetTypeTag = self.parse_array_element_type(first.str_offset,first.str_len);
+                return first_element != TargetTypeTag::Invalid
+                    && first_element == self.parse_array_element_type(second.str_offset,second.str_len)
+                    && self.parse_array_element_count(first.str_offset,first.str_len) == self.parse_array_element_count(second.str_offset,second.str_len)
+                    && self.parse_array_element_struct(first.str_offset,first.str_len) == self.parse_array_element_struct(second.str_offset,second.str_len);
+            }
             return sem.source_slices_equal(self.source,self.source_len,first.str_offset,first.str_len,second.str_offset,second.str_len);
         }
-        if node.kind != AstKind::PatternVariant { return true; }
-        let mut child: usize = unsafe{(*(self.nodes+node.first_child)).next_sibling};
+        if node.kind != AstKind::PatternVariant && node.kind != AstKind::PatternRecord { return true; }
+        let mut child: usize = self.pattern_children(pattern);
         while child != 0 && child < self.node_count {
-            if !self.match_binding_subset(child,other,depth+1) { return false; }
+            if !self.match_binding_subset(self.pattern_argument(child),other,depth+1) { return false; }
             child=unsafe{(*(self.nodes+child)).next_sibling};
         }
         return child == 0;
@@ -7335,30 +7453,42 @@ impl ScalarLowering {
 
     pub fn payload_pattern_valid_at(mut self: &mut Self, pattern: usize, variant: u32, root: usize, depth: usize) -> bool {
         if depth >= 32 { return false; }
-        let path: usize = unsafe{(*(self.nodes+pattern)).first_child};
-        if path == 0 || path >= self.node_count { return false; }
-        let mut binding: usize = unsafe{(*(self.nodes+path)).next_sibling};let mut count: usize = 0;
+        let container: u32 = self.pattern_record(pattern);
+        if container == 0 { return false; }
+        let named: bool = unsafe{(*(self.nodes+pattern)).kind} == AstKind::PatternRecord;
+        let mut expected: usize = self.struct_field_counts[container as usize-1] as usize;
+        if !named {
+            if variant == 0 { return false; }
+            expected=self.variant_field_counts[variant as usize-1] as usize;
+        }
+        let mut seen: [u8;256] = 0;
+        let mut child: usize = self.pattern_children(pattern);let mut count: usize = 0;
         let sem: Sema = Sema::new();
-        while binding != 0 && binding < self.node_count {
+        while child != 0 && child < self.node_count {
+            let binding: usize = self.pattern_argument(child);
+            if binding == 0 || binding >= self.node_count { return false; }
             let node: AstNode = unsafe{*(self.nodes+binding)};
-            if count >= self.variant_field_counts[variant as usize-1] as usize { return false; }
-            let field: usize = self.variant_field_starts[variant as usize-1] as usize+count;
+            let found: u32 = self.pattern_field(pattern,child,count);
+            if count >= expected || found == 0 || found > 256 { return false; }
+            let field: usize = found as usize-1;
+            if seen[field] != 0 { return false; }seen[field]=1;
             if self.pattern_capture(binding) {
                 if sem.match_pattern_binding(self.nodes,self.node_count,binding,self.source,self.source_len)
                     && sem.find_pattern_binding(self.nodes,self.node_count,root,node,self.source,self.source_len,0) != binding { return false; }
             } else if self.field_struct_ids[field] != 0 {
                 let nested: u32 = self.payload_variant(binding);
-                if nested == 0 || self.payload_record(binding) != self.field_struct_ids[field] { return false; }
-                if node.kind == AstKind::PatternVariant {
+                if self.field_byte_counts[field] != 0 || self.pattern_record(binding) != self.field_struct_ids[field] { return false; }
+                if node.kind == AstKind::PatternVariant || node.kind == AstKind::PatternRecord {
                     if !self.payload_pattern_valid_at(binding,nested,root,depth+1) { return false; }
-                } else if node.kind != AstKind::ExprPath || self.variant_field_counts[nested as usize-1] != 0 { return false; }
+                } else if nested == 0 || node.kind != AstKind::ExprPath || self.variant_field_counts[nested as usize-1] != 0 { return false; }
             } else {
                 let mut low: u64 = 0;let mut high: u64 = 0;
                 if !self.payload_scalar_bounds(binding,field,&mut low,&mut high) { return false; }
             }
-            binding=node.next_sibling;count=count+1;
+            child=unsafe{(*(self.nodes+child)).next_sibling};count=count+1;
         }
-        return binding == 0 && count == self.variant_field_counts[variant as usize-1] as usize;
+        if child != 0 { return false; }
+        return count == expected || (named && unsafe{(*(self.nodes+pattern)).int_value} == 1);
     }
 
     pub fn cfg_payload_bindings(mut self: &mut Self, pattern: usize, address: u32) -> bool {
@@ -7367,24 +7497,28 @@ impl ScalarLowering {
 
     pub fn cfg_payload_bindings_at(mut self: &mut Self, pattern: usize, address: u32, depth: usize) -> bool {
         if depth >= 32 { return false; }
-        if unsafe{(*(self.nodes+pattern)).kind} != AstKind::PatternVariant { return true; }
-        let variant: u32 = self.payload_variant(pattern);
-        if variant == 0 || address == 0 { return false; }
-        let path: usize = unsafe{(*(self.nodes+pattern)).first_child};
-        let mut binding: usize = unsafe{(*(self.nodes+path)).next_sibling};let mut ordinal: usize = 0;
+        let kind: AstKind = unsafe{(*(self.nodes+pattern)).kind};
+        if kind != AstKind::PatternVariant && kind != AstKind::PatternRecord { return true; }
+        let container: u32 = self.pattern_record(pattern);
+        if container == 0 || address == 0 { return false; }
+        let mut child: usize = self.pattern_children(pattern);let mut ordinal: usize = 0;
         let sem: Sema = Sema::new();
-        while binding != 0 && binding < self.node_count {
+        while child != 0 && child < self.node_count {
+            let binding: usize = self.pattern_argument(child);
             let node: AstNode = unsafe{*(self.nodes+binding)};
-            if node.kind == AstKind::PatternVariant {
-                let field: usize = self.variant_field_starts[variant as usize-1] as usize+ordinal;
+            let field: usize = self.pattern_field(pattern,child,ordinal) as usize-1;
+            if node.kind == AstKind::PatternVariant || node.kind == AstKind::PatternRecord {
                 let pointer: u32 = self.payload_address(address,self.field_offsets[field],binding);
                 if !self.cfg_payload_bindings_at(binding,pointer,depth+1) { return false; }
             } else if sem.match_pattern_binding(self.nodes,self.node_count,binding,self.source,self.source_len) {
                 if self.local_count >= 128 { return false; }
-                let field: usize = self.variant_field_starts[variant as usize-1] as usize+ordinal;
                 let pointer: u32 = self.payload_address(address,self.field_offsets[field],binding);
                 let record: u32 = self.field_struct_ids[field];let mut value: u32 = pointer;
-                if record != 0 {
+                if self.field_byte_counts[field] != 0 {
+                    let copy: u32 = self.allocate_struct(container,binding);
+                    if copy == 0 || !self.cfg_copy_fields(copy,address,container,0,0,binding,0) { return false; }
+                    value=self.payload_address(copy,self.field_offsets[field],binding);
+                } else if record != 0 {
                     value=self.allocate_struct(record,binding);
                     if !self.cfg_copy_fields(value,pointer,record,0,0,binding,0) { return false; }
                 } else {
@@ -7397,11 +7531,16 @@ impl ScalarLowering {
                 self.local_name_offsets[slot]=node.str_offset;self.local_name_lens[slot]=node.str_len;
                 self.local_value_ids[slot]=value;self.local_struct_ids[slot]=record;
                 self.local_storage_types[slot]=0;self.local_array_counts[slot]=0;self.local_array_types[slot]=0;
+                if self.field_byte_counts[field] != 0 {
+                    self.local_array_counts[slot]=self.field_byte_counts[field];
+                    self.local_array_types[slot]=self.field_array_types[field];
+                    self.local_struct_ids[slot]=self.field_array_structs[field];
+                }
                 self.local_count=slot+1;
             }
-            binding=node.next_sibling;ordinal=ordinal+1;
+            child=unsafe{(*(self.nodes+child)).next_sibling};ordinal=ordinal+1;
         }
-        return binding == 0;
+        return child == 0;
     }
 
     pub fn cfg_pattern_branch(mut self: &mut Self, condition: u32, yes: u32, no: u32, node: usize) -> bool {
@@ -7424,39 +7563,41 @@ impl ScalarLowering {
     pub fn cfg_payload_fields_test(mut self: &mut Self, pattern: usize, address: u32,
         yes: u32, no: u32, depth: usize) -> bool {
         if depth >= 32 { return false; }
-        let variant: u32 = self.payload_variant(pattern);
-        if variant == 0 { return false; }
-        let path: usize = unsafe{(*(self.nodes+pattern)).first_child};
-        let mut child: usize = unsafe{(*(self.nodes+path)).next_sibling};let mut ordinal: usize = 0;
+        if self.pattern_record(pattern) == 0 { return false; }
+        let mut child: usize = self.pattern_children(pattern);let mut ordinal: usize = 0;
         if child == 0 { return self.cfg_jump(yes,pattern); }
         while child != 0 && child < self.node_count {
+            let argument: usize = self.pattern_argument(child);
             let node: AstNode = unsafe{*(self.nodes+child)};
-            let field: usize = self.variant_field_starts[variant as usize-1] as usize+ordinal;
+            let kind: AstKind = unsafe{(*(self.nodes+argument)).kind};
+            let field: usize = self.pattern_field(pattern,child,ordinal) as usize-1;
             let mut next: u32 = yes;
             if node.next_sibling != 0 { next=self.cfg_reserve_block(); }
             if next == 0 { return false; }
-            if self.pattern_capture(child) {
+            if self.pattern_capture(argument) {
                 if !self.cfg_jump(next,child) { return false; }
             } else {
                 let pointer: u32 = self.payload_address(address,self.field_offsets[field],child);
                 let record: u32 = self.field_struct_ids[field];
-                if record != 0 {
-                    let nested: u32 = self.payload_variant(child);
+                if kind == AstKind::PatternRecord {
+                    if !self.cfg_payload_fields_test(argument,pointer,next,no,depth+1) { return false; }
+                } else if record != 0 {
+                    let nested: u32 = self.payload_variant(argument);
                     let tag: u32 = self.cfg_payload_load(pointer,TargetTypeTag::U32,child);
                     let condition: u32 = self.append_match_interval(tag,TargetTypeTag::U32,
                         self.variant_values[nested as usize-1],self.variant_values[nested as usize-1],child);
-                    if node.kind == AstKind::PatternVariant {
+                    if kind == AstKind::PatternVariant {
                         let matched: u32 = self.cfg_reserve_block();
                         if !self.cfg_pattern_branch(condition,matched,no,child) { return false; }
                         self.cfg_begin(matched);
-                        if !self.cfg_payload_fields_test(child,pointer,next,no,depth+1) { return false; }
+                        if !self.cfg_payload_fields_test(argument,pointer,next,no,depth+1) { return false; }
                     } else if !self.cfg_pattern_branch(condition,next,no,child) { return false; }
                 } else {
                     let typ: TargetTypeTag = self.field_type_tags[field] as TargetTypeTag;
                     let value: u32 = self.cfg_payload_load(pointer,typ,child);
                     let mut low: u64 = 0;let mut high: u64 = 0;
-                    if !self.payload_scalar_bounds(child,field,&mut low,&mut high) { return false; }
-                    let condition: u32 = self.append_match_interval(value,typ,low,high,child);
+                    if !self.payload_scalar_bounds(argument,field,&mut low,&mut high) { return false; }
+                    let condition: u32 = self.append_match_interval(value,typ,low,high,argument);
                     if !self.cfg_pattern_branch(condition,next,no,child) { return false; }
                 }
             }
@@ -7516,23 +7657,26 @@ impl ScalarLowering {
         state: &mut NativeMatchCoverage, wanted: u32, lookup: bool, depth: usize) -> u32 {
         if pattern == 0 || pattern >= self.node_count || depth >= 32 { return 0; }
         if self.pattern_capture(pattern) { return 1; }
-        let variant: u32 = self.payload_variant(pattern);
-        if variant == 0 { return 0; }
-        let tag: u64 = self.variant_values[variant as usize-1];
-        let tagged: u32 = self.coverage_constraint(state,offset,TargetTypeTag::U32,
-            self.coverage_enum(variant),tag,tag,wanted,lookup);
-        if tagged != 1 { return tagged; }
         let node: AstNode = unsafe{*(self.nodes+pattern)};
+        if node.kind != AstKind::PatternRecord {
+            let variant: u32 = self.payload_variant(pattern);
+            if variant == 0 { return 0; }
+            let tag: u64 = self.variant_values[variant as usize-1];
+            let tagged: u32 = self.coverage_constraint(state,offset,TargetTypeTag::U32,
+                self.coverage_enum(variant),tag,tag,wanted,lookup);
+            if tagged != 1 { return tagged; }
+        }
         if node.kind == AstKind::ExprPath { return 1; }
-        if node.kind != AstKind::PatternVariant || node.first_child == 0 { return 0; }
-        let mut child: usize = unsafe{(*(self.nodes+node.first_child)).next_sibling};let mut ordinal: usize = 0;
+        if node.kind != AstKind::PatternVariant && node.kind != AstKind::PatternRecord { return 0; }
+        let mut child: usize = self.pattern_children(pattern);let mut ordinal: usize = 0;
         while child != 0 && child < self.node_count {
-            let field: usize = self.variant_field_starts[variant as usize-1] as usize+ordinal;
-            if !self.pattern_capture(child) {
+            let argument: usize = self.pattern_argument(child);
+            let field: usize = self.pattern_field(pattern,child,ordinal) as usize-1;
+            if !self.pattern_capture(argument) {
                 let key: u32 = offset+self.field_offsets[field];
                 let mut result: u32 = 0;
                 if self.field_struct_ids[field] != 0 {
-                    result=self.coverage_pattern(child,key,state,wanted,lookup,depth+1);
+                    result=self.coverage_pattern(argument,key,state,wanted,lookup,depth+1);
                 } else {
                     let typ: TargetTypeTag = self.field_type_tags[field] as TargetTypeTag;
                     let reference: usize = self.field_type_refs[field];let mut enumeration: u32 = 0;
@@ -7541,7 +7685,7 @@ impl ScalarLowering {
                         enumeration=self.find_enum(declared.str_offset,declared.str_len);
                     }
                     let mut low: u64 = 0;let mut high: u64 = 0;
-                    if !self.payload_scalar_bounds(child,field,&mut low,&mut high) { return 0; }
+                    if !self.payload_scalar_bounds(argument,field,&mut low,&mut high) { return 0; }
                     result=self.coverage_constraint(state,key,typ,enumeration,
                         native_match_order_key(low,typ),native_match_order_key(high,typ),wanted,lookup);
                 }
@@ -7568,7 +7712,9 @@ impl ScalarLowering {
                 (*(state.low+slot))=value;(*(state.high+slot))=value;(*(state.ordinals+frame))=ordinal;
             } else {
                 let mut maximum: u64 = 18446744073709551615;
-                let width: u32 = target_integer_width(typ);
+                let mut width: u32 = target_integer_width(typ);
+                if typ == TargetTypeTag::F32 { width=32; }
+                else if typ == TargetTypeTag::F64 { width=64; }
                 if typ == TargetTypeTag::Bool { maximum=1; }
                 else if width == 0 { return false; }
                 else if width < 64 { maximum=((1 as u64) << width as u64)-1; }
@@ -7665,6 +7811,30 @@ impl ScalarLowering {
         }
     }
 
+    pub fn match_float_literal(self: &Self, index: usize, depth: usize) -> bool {
+        if index == 0 || index >= self.node_count || depth >= 32 { return false; }
+        let node: AstNode = unsafe{*(self.nodes+index)};
+        if node.kind == AstKind::ExprUnary && (node.int_value == 80 || node.int_value == 81) {
+            return self.match_float_literal(node.first_child,depth+1);
+        }
+        if node.kind != AstKind::ExprLiteral { return false; }
+        if node.str_len == 0 || node.str_offset > self.source_len
+            || node.str_len > self.source_len-node.str_offset { return false; }
+        let initial: u8 = unsafe{*(self.source+node.str_offset)};
+        if initial < 48 || initial > 57 { return false; }
+        if node.str_len >= 2 && unsafe{*(self.source+node.str_offset)} == 48 {
+            let prefix: u8 = unsafe{*(self.source+node.str_offset+1)};
+            if prefix == 120 || prefix == 88 || prefix == 98 || prefix == 66 || prefix == 111 || prefix == 79 { return false; }
+        }
+        let mut i: usize = 0;
+        while i < node.str_len {
+            let byte: u8 = unsafe{*(self.source+node.str_offset+i)};
+            if byte == 46 || byte == 101 || byte == 69 { return true; }
+            i=i+1;
+        }
+        return false;
+    }
+
     pub fn cfg_match_statement(mut self: &mut Self, index: usize, return_type: TargetTypeTag,
         first_parameter: usize, parameter_count: usize, break_id: u32, continue_id: u32, depth: usize,
         result_storage: u32) -> bool {
@@ -7674,6 +7844,7 @@ impl ScalarLowering {
         let mut typ: TargetTypeTag = self.condition_expression_type(subject, first_parameter, parameter_count);
         if subject == 0 || subject >= self.node_count { return self.reject(index); }
         let subject_node: AstNode = unsafe { *(self.nodes + subject) };
+        if typ == TargetTypeTag::Invalid && self.match_float_literal(subject,0) { typ=TargetTypeTag::F64; }
         if typ == TargetTypeTag::Invalid && subject_node.kind == AstKind::ExprLiteral {
             if sem.source_slice_equals(self.source, self.source_len, subject_node.str_offset, subject_node.str_len, "true", 4)
                 || sem.source_slice_equals(self.source, self.source_len, subject_node.str_offset, subject_node.str_len, "false", 5) { typ = TargetTypeTag::Bool; }
@@ -7684,11 +7855,19 @@ impl ScalarLowering {
         let subject_enum: u32 = self.match_enum_id(subject,0);
         let mut payload_record: u32 = 0;
         if subject_enum != 0 { payload_record=self.enum_record_ids[subject_enum as usize-1]; }
+        let mut record_subject: bool = false;
+        if payload_record == 0 && subject_enum == 0 {
+            let record: u32 = self.cfg_record_value_id(subject,0);
+            if record != 0 {
+                if self.struct_sizes[record as usize-1] > 4096 || !self.array_record_copyable(record,0) { return self.reject(subject); }
+                payload_record=record;record_subject=true;
+            }
+        }
         if payload_record != 0 { typ=TargetTypeTag::U32; }
         if typ != TargetTypeTag::Bool && typ != TargetTypeTag::U8 && typ != TargetTypeTag::U16
             && typ != TargetTypeTag::U32 && typ != TargetTypeTag::U64 && typ != TargetTypeTag::Usize
             && typ != TargetTypeTag::I8 && typ != TargetTypeTag::I16 && typ != TargetTypeTag::I32
-            && typ != TargetTypeTag::I64 { return self.reject(subject); }
+            && typ != TargetTypeTag::I64 && !target_type_is_float(typ) { return self.reject(subject); }
         let subject_ref: usize = sem.infer_expression_type_ref(self.nodes, self.node_count, subject, self.source, self.source_len);
         let mut enum_id: u32 = subject_enum;
         if subject_ref != 0 && subject_ref < self.node_count {
@@ -7750,7 +7929,13 @@ impl ScalarLowering {
                 if source_after == 0 { return self.reject_match(guard, 7); }
                 guarded[count] = 1;
             } else if arm_node.int_value != 0 { return self.reject(arm); }
-            if node.kind == AstKind::PatternVariant {
+            if node.kind == AstKind::PatternRecord {
+                if payload_record == 0 || self.pattern_record(pattern) != payload_record
+                    || !self.payload_pattern_valid(pattern,0) { return self.reject(pattern); }
+                patterns[count]=0;ends[count]=0;
+                if !self.payload_pattern_total(pattern,0) { refutable[count]=1; }
+            } else if node.kind == AstKind::PatternVariant {
+                if record_subject { return self.reject(pattern); }
                 let variant: u32 = self.payload_variant(pattern);
                 if payload_record == 0 || variant == 0 || self.payload_record(pattern) != payload_record
                     || !self.payload_pattern_valid(pattern,variant) { return self.reject(pattern); }
@@ -7793,14 +7978,21 @@ impl ScalarLowering {
                 }
                 let mut bits: u64 = 0;
                 if payload_record != 0 && node.kind == AstKind::ExprPath {
+                    if record_subject { return self.reject(pattern); }
                     let variant: u32 = self.payload_variant(pattern);
                     if variant == 0 || self.variant_field_counts[variant as usize-1] != 0 { return self.reject(pattern); }
                     bits=self.variant_values[variant as usize-1];
                 } else {
-                    if !self.constant_literal_bits(pattern, typ, &mut bits) { return self.reject(pattern); }
+                    if record_subject { return self.reject(pattern); }
+                    if !target_type_is_float(typ) && !self.constant_literal_bits(pattern, typ, &mut bits) { return self.reject(pattern); }
                 }
                 patterns[count] = bits;
                 ends[count] = bits;
+                if target_type_is_float(typ) {
+                    let mut last: u64 = bits;
+                    if !self.match_float_bounds(pattern,typ,&mut bits,&mut last) { return self.reject(pattern); }
+                    patterns[count]=bits;ends[count]=last;
+                }
             }
             if wildcards[count] == 0 {
                 let low: u64 = native_match_order_key(patterns[count], typ);
@@ -7828,7 +8020,7 @@ impl ScalarLowering {
             let mut covered: bool = false;
             if payload_record != 0 {
                 covered=self.payload_coverage(first_arm);
-                if covered {
+                if covered && enum_id != 0 {
                     proof_count=self.enum_variant_counts[enum_id as usize-1] as usize;
                     if proof_count > 64 { return self.reject(index); }
                     let start: usize = self.enum_variant_starts[enum_id as usize-1] as usize;
@@ -7837,7 +8029,7 @@ impl ScalarLowering {
                 }
             } else if typ == TargetTypeTag::Bool || enum_id != 0 {
                 covered = self.match_coverage_complete(typ, enum_id, unsafe { proof_patterns as *const u64 }, proof_count);
-            } else {
+            } else if !target_type_is_float(typ) {
                 covered = self.match_integer_coverage(typ, unsafe { proof_patterns as *const u64 },
                     unsafe { proof_ends as *const u64 }, proof_count);
             }
@@ -7852,9 +8044,13 @@ impl ScalarLowering {
             if original == 0 || subject_address == 0
                 || !self.cfg_copy_fields(subject_address,original,payload_record,0,0,subject,0) { return self.reject(subject); }
             value=self.append_value(TargetTypeTag::U32,0,0);
-            let operand: u32 = self.operand_count as u32;
-            if subject_address == 0 || value == 0 || !self.append_operand(subject_address)
-                || !self.append_instruction(TargetOpcode::Load,value,TargetTypeTag::U32,operand,1,subject) { return self.reject(subject); }
+            if record_subject {
+                if value == 0 || !self.append_instruction(TargetOpcode::ConstInt,value,TargetTypeTag::U32,0,0,subject) { return self.reject(subject); }
+            } else {
+                let operand: u32 = self.operand_count as u32;
+                if subject_address == 0 || value == 0 || !self.append_operand(subject_address)
+                    || !self.append_instruction(TargetOpcode::Load,value,TargetTypeTag::U32,operand,1,subject) { return self.reject(subject); }
+            }
         } else { value=self.lower_expression(subject,typ,first_parameter,parameter_count); }
         if value == 0 { return self.reject(subject); }
         if !wildcard && (typ == TargetTypeTag::Bool || enum_id != 0)

@@ -53,7 +53,7 @@ fn windows_close(handle:u64) -> i64 {
 }
 
 static mut driver_source_bytes: [u8; 4194304] = 0;
-static mut driver_tokens: [Token; 262144] = 0;
+static mut driver_tokens: [Token; 524288] = 0;
 static mut driver_nodes: [AstNode; 262144] = 0;
 static mut driver_values: [TargetValue; 131072] = 0;
 static mut driver_parameters: [TargetParameter; 16384] = 0;
@@ -515,7 +515,7 @@ fn driver_compile_loaded(
     let node_buffer: *mut AstNode = unsafe { driver_nodes as *mut AstNode };
     let mut lexer: Lexer = Lexer::new(source, source_length);
     let mut token_count: usize = 0;
-    while token_count < 262144 {
+    while token_count < 524288 {
         let token: Token = lexer.next_token();
         if token.kind == TokenKind::KwImport { return fail(12); }
         unsafe { *(token_buffer + token_count) = token; }
@@ -523,7 +523,7 @@ fn driver_compile_loaded(
         if token.kind == TokenKind::Eof { break; }
         if token.kind == TokenKind::Error { return driver_position_error(4,lexer.error_line,lexer.error_col,"lexical error",13,TokenKind::Error); }
     }
-    if lexer.error_count != 0 || token_count == 262144 { return fail(4); }
+    if lexer.error_count != 0 || token_count == 524288 { return fail(4); }
     let mut parser: Parser = Parser::new(token_buffer, token_count, node_buffer, 262144);
     let module_index: usize = parser.parse_module();
     if module_index == 0 || parser.error_count != 0 { return driver_position_error(5,parser.error_line,parser.error_col,"syntax error",12,parser.error_expected); }

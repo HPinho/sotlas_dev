@@ -1,0 +1,6 @@
+module named_missing;
+struct Point{pub x:u32;pub y:u32;}
+pub fn main_entry()->u32 {
+    let p:Point=Point{x:20,y:22};
+    return match p{Point{x}=>x};
+}

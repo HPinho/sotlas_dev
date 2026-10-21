@@ -637,7 +637,7 @@ let value:sole Token=Token{value:42};match 0 as u32{0=>{consume(value);},_=>{}}r
                'match 0 as u32{1 as u32=>{},_=>{}}',
                'match true{1=>{},_=>{}}',
                'match 0 as u8{256=>{},_=>{}}',
-               'match 1.5{_=>{}}','match 0 as u32{unknown=>{},_=>{}}',
+               'match 1.5{1.5=>{}}','match 0 as u32{unknown=>{},_=>{}}',
                'match 0 as u32{}','match 0 as u32{0=>42,_=>{}}',
                'match 0 as u32{0=>{},_=>{},_=>{}}')
         for index,body in enumerate(cases):

@@ -763,6 +763,7 @@ impl Sema {
             // Source choice trees remain for spans after decision-row expansion.
             // Their identifiers are patterns, not evaluated local references.
             if parent.kind == AstKind::PatternOr { return true; }
+            if parent.kind == AstKind::PatternField { return true; }
             if parent.kind == AstKind::ExprCall && parent.first_child == expression_index {
                 if self.find_module_function(
                     nodes, node_count, expression_index, source, source_len
@@ -2108,6 +2109,13 @@ impl Sema {
         binding: usize, source: *const u8, length: usize) -> usize {
         if binding == 0 || binding >= count { return 0; }
         let parent: usize = unsafe{(*(nodes+binding)).parent};
+        if parent != 0 && parent < count && unsafe{(*(nodes+parent)).kind} == AstKind::PatternField {
+            let record: usize = unsafe{(*(nodes+parent)).parent};
+            let declaration: usize = self.find_module_struct(nodes,count,record,source,length);
+            let field: usize = self.find_struct_field_for_init(nodes,count,declaration,parent,source,length);
+            if field != 0 { return self.binding_type_ref(nodes,count,field); }
+            return 0;
+        }
         if parent == 0 || parent >= count || unsafe{(*(nodes+parent)).kind} != AstKind::PatternVariant { return 0; }
         let path: usize = unsafe{(*(nodes+parent)).first_child};
         let variant: usize = self.enum_variant_path(nodes,count,path,source,length);
@@ -2233,7 +2241,7 @@ impl Sema {
             return 0;
         }
         let expression: AstNode = unsafe { *(nodes + expression_index) };
-        if expression.kind != AstKind::ExprStructLiteral || expression.str_len == 0 {
+        if (expression.kind != AstKind::ExprStructLiteral && expression.kind != AstKind::PatternRecord) || expression.str_len == 0 {
             return 0;
         }
         let module_index: usize = self.find_enclosing_module(
@@ -2279,7 +2287,7 @@ impl Sema {
         let declaration: AstNode = unsafe { *(nodes + struct_index) };
         let init: AstNode = unsafe { *(nodes + init_index) };
         if declaration.kind != AstKind::StructDecl
-            || init.kind != AstKind::StructFieldInit
+            || (init.kind != AstKind::StructFieldInit && init.kind != AstKind::PatternField)
             || init.str_len == 0 {
             return 0;
         }
@@ -3765,6 +3773,7 @@ impl Sema {
         let pattern: AstNode = unsafe{*(nodes+index)};
         if pattern.kind != AstKind::ExprIdent || pattern.str_len == 0
             || self.source_slice_equals(source,source_len,pattern.str_offset,pattern.str_len,"_",1) { return false; }
+        if pattern.int_value == -1 { return true; }
         let mut scan: usize = 1;
         while scan < node_count {
             let node: AstNode = unsafe{*(nodes+scan)};
@@ -3783,8 +3792,13 @@ impl Sema {
         let node: AstNode = unsafe{*(nodes+pattern)};
         if self.match_pattern_binding(nodes,count,pattern,source,length)
             && self.same_declaration_name(source,length,node,name) { return pattern; }
-        if node.kind != AstKind::PatternVariant || node.first_child == 0 || node.first_child >= count { return 0; }
-        let mut child: usize = unsafe{(*(nodes+node.first_child)).next_sibling};
+        if node.kind == AstKind::PatternField {
+            return self.find_pattern_binding(nodes,count,node.first_child,name,source,length,depth);
+        }
+        if (node.kind != AstKind::PatternVariant && node.kind != AstKind::PatternRecord
+            && node.kind != AstKind::PatternField) || node.first_child == 0 || node.first_child >= count { return 0; }
+        let mut child: usize = node.first_child;
+        if node.kind == AstKind::PatternVariant { child=unsafe{(*(nodes+child)).next_sibling}; }
         while child != 0 && child < count {
             let found: usize = self.find_pattern_binding(nodes,count,child,name,source,length,depth+1);
             if found != 0 { return found; }
@@ -3815,7 +3829,8 @@ impl Sema {
             let parent: AstNode = unsafe { *(nodes + parent_index) };
             if parent.kind == AstKind::MatchArm && parent.first_child != child_on_path
                 && parent.first_child != 0 && parent.first_child < node_count
-                && unsafe{(*(nodes+parent.first_child)).kind} == AstKind::PatternVariant {
+                && (unsafe{(*(nodes+parent.first_child)).kind} == AstKind::PatternVariant
+                    || unsafe{(*(nodes+parent.first_child)).kind} == AstKind::PatternRecord) {
                 let binding: usize = self.find_pattern_binding(nodes,node_count,parent.first_child,expression,source,source_len,0);
                 if binding != 0 { return binding; }
             }

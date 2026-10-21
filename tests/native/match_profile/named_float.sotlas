@@ -1,0 +1,15 @@
+module named_float;
+struct Sample{pub value:f64;pub enabled:bool;pub points:[u32;2];}
+
+fn read(sample:Sample)->u32 {
+    return match sample {
+        Sample{enabled:true,value:1.0..=2.0,points}=>points[0]+points[1],
+        Sample{enabled:true,value:0.0,..}=>0,
+        Sample{enabled:true,..}=>0,
+        Sample{enabled:false,..}=>0
+    };
+}
+
+pub fn main_entry()->u32 {
+    return read(Sample{value:1.5,enabled:true,points:[20,22]});
+}

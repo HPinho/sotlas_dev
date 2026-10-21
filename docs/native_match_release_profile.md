@@ -8,9 +8,11 @@ new integration gates even after this profile passes CI.
 | Capability | Current implementation | Evidence |
 | --- | --- | --- |
 | Statement/expression forms | Shared ordered decision chain; subject evaluated once | Match-value and frontend closure suites |
-| Scalar subjects | Signed/unsigned integers, Boolean and nominal payload-free enums | Width, coverage and enum gates |
+| Subjects | Signed/unsigned integers, Boolean, F32/F64, nominal enums and bounded POD records | Width, float, record, coverage and enum gates |
 | Patterns | Literal/module constants, `_`, scoped identifier bindings, closed/open integer ranges | Match closure suite |
 | Alternatives | Root/nested `|`, grouping, equal binding sets/types, first-match binding selection and one guard evaluation per source arm | Alternative-pattern suite and rebuilt Stage 3 fixtures |
+| Named fields | Reordered fields, renaming, shorthand, `..`, nested records and independent inline array captures | Named/float suite, 512 record coverage unions and Stage 3 fixtures |
+| Float patterns | IEEE equality, numeric intervals, signed-zero equivalence, explicit NaN fallback and width-specific rounding | F32/F64 boundary, NaN/infinity and overlap tests |
 | Guards | Eligible patterns only, ordered fallthrough, no coverage from guards | Guard-order and guarded-binding gates |
 | Scalar results | Integers, Boolean and floats with typed arms | Match-value width and rejected-arm gates |
 | Enum results | Same nominal enum in every returning arm and typed destination | Return/argument/inference and mismatch gates |
@@ -29,9 +31,9 @@ new integration gates even after this profile passes CI.
   Payload fields currently support scalars and pointer-free POD records.
 - Forward aggregate layout dependencies and enums embedded in earlier record
   layouts remain explicitly rejected.
-- Named-field/record destructuring and float equality patterns remain outside
-  the implemented pattern syntax. Root/nested alternatives and grouping are
-  implemented under [their binding and guard contract](native_match_alternatives.md).
+- Named fields and floats are implemented under
+  [their native contract](native_match_named_float.md). Pattern forms in this
+  release profile are complete; resource payload/runtime integration is next.
 - Shared/resource match values require integrated ARC/drop generation. Exclusive
   POD moves and arm joins are implemented; they do not establish general ARC.
 - Standalone arrays/slices, pointer provenance and resource-bearing aggregates

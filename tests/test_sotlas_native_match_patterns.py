@@ -98,9 +98,9 @@ pub fn main_entry()->u32{let answer:u32=choose(Outer::Wrap(Inner::N(40)));return
 pub fn main_entry()->u32{let v:V=V::N(18446744073709551615);return match v{
 V::N(18446744073709551615)=>42,V::N(_)=>0};}''')
 
-    def test_float_patterns_and_boolean_ranges_remain_closed(self):
-        self.compile('pattern_float','''enum V{N(f64)}pub fn main_entry()->u32{
-let v:V=V::N(1.0);return match v{V::N(1.0)=>42,V::N(_)=>0};}''',False)
+    def test_float_equality_executes_and_boolean_ranges_remain_closed(self):
+        self.program('pattern_float','''enum V{N(f64)}pub fn main_entry()->u32{
+let v:V=V::N(1.0);return match v{V::N(1.0)=>42,V::N(_)=>0};}''')
         self.compile('pattern_bool_range','''enum V{N(bool)}pub fn main_entry()->u32{
 let v:V=V::N(true);return match v{V::N(0..=1)=>42,V::N(_)=>0};}''',False)
 

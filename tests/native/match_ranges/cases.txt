@@ -5,8 +5,8 @@ scalar_overlap.sotlas|7|overlapping match patterns
 reversed.sotlas|7|match range is empty or reversed
 empty.sotlas|7|match range is empty or reversed
 gap.sotlas|7|non-exhaustive match: cover the domain or add a final wildcard
-bool_range.sotlas|7|match range requires an integer selector
-enum_range.sotlas|7|match range requires an integer selector
+bool_range.sotlas|7|match range requires an integer or float selector
+enum_range.sotlas|7|match range requires an integer or float selector
 enum_bound.sotlas|7|match range bounds must be typed integer constants
 dynamic_bound.sotlas|7|match range bounds must be typed integer constants
 overflow.sotlas|7|match range bounds must be typed integer constants
@@ -39,3 +39,7 @@ ownership.sotlas|6|use of moved or maybe-moved value
 ../match_profile/alternative_bindings.sotlas|7|unsupported native form
 ../match_profile/alternative_gap.sotlas|7|non-exhaustive match: cover the domain or add a final wildcard
 ../match_profile/block_loop.sotlas|42|
+../match_profile/named_float.sotlas|42|
+../match_profile/named_missing.sotlas|7|unsupported native form
+../match_profile/float_nan_gap.sotlas|7|non-exhaustive match: cover the domain or add a final wildcard
+../match_profile/float_dynamic_bound.sotlas|7|float match pattern requires constant numbers other than NaN
