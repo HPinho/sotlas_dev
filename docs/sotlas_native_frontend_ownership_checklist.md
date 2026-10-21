@@ -2,6 +2,34 @@
 
 Repository: [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev).
 
+## SV8.88 - native source-list input and artifact safety (2026-10-21)
+
+**Starting green baseline:** `88bfa5c` / [CI #1286](https://github.com/HPinho/sotlas_dev/actions/runs/39632022114).
+
+- [x] Reject repeated byte-exact source paths in the native library/ELF/PE/Mach-O
+  source-list drivers before invoking the native compiler for any input unit.
+- [x] Reject repeated archive paths in an optional native library list before
+  loading them, rather than allowing duplicate linker candidates.
+- [x] Reject destinations identical to source inputs, library inputs, source
+  manifests or library manifests, preserving the original bytes on failure.
+- [x] Apply the same bounded, allocation-free preflight across Linux, Windows
+  and Intel macOS native drivers. Do not introduce Python, C compilation,
+  subprocess linkers or extra host build tools in the native build path.
+- [x] Add cross-target failure/preservation tests for all four collision types,
+  including existing output files and invalid library bytes.
+- [ ] Prove canonical path identity across aliases, symbolic links and
+  case-insensitive filesystems; lexical equivalence is the current bound.
+
+**Executable contract:** [Native independent module builds](native_module_builds.md).
+**Regression coverage:** `tests/test_sotlas_native_module_builds.py`.
+This block protects an existing sovereign build path; it does not certify
+general package resolution or remove the remaining hosted Python/C producers.
+The new CI matrix is the post-commit acceptance gate, not yet a green claim.
+
+**Next SV8.89:** platform-aware canonical path and file-identity checks in native
+artifact preflight, with symlink/alias preservation tests and no dependency on
+Python or C within the execution path.
+
 ## SV8.87 - inline array payloads and owned subject reads (2026-10-21)
 
 The previous pattern block (commit 1c6763c) passed CI, as confirmed by the user.

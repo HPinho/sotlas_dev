@@ -17,6 +17,7 @@ This checkpoint reports executable deliveries and remaining gates separately.
 | Static libraries | Create deterministic libraries and resolve needed members, including transitive/cyclic imports |
 | Executable targets | Link the same integer modules into ELF, Windows PE and static Intel Mach-O executables |
 | Source-list builds | Compile units independently and build a library/application in one native command |
+| Source-list integrity (SV8.88) | Reject duplicate input paths and byte-exact destination collisions with source/library files or manifests before publishing artifacts |
 | Inline record arrays | Store pointer-free record arrays inside structs and initialize, read, mutate, copy and return supported containers |
 | Static record data | Serialize constant record configurations, including nested arrays, directly into native data/BSS and use them from native code |
 | Global record tables | Declare initialized record lists/repetition, read indexed entries, copy elements and update mutable tables through checked native accesses |
@@ -76,7 +77,9 @@ tracked in the [preview roadmap](preview_launch_roadmap.md).
    cleanup across returns, branches, loops and deferred work.
 3. Carry semantic module contracts into the independent-module path; complete
    visibility and package resolution before claiming general separate compilation.
-4. Close the installed preview and release-platform gates against the actual
+4. Extend native source-list safety to filesystem-canonical identities and
+   symlink/path-alias collisions without host-language tooling (SV8.89).
+5. Close the installed preview and release-platform gates against the actual
    shipped compiler, runtime, examples and extension.
 
 Latest local validation for each delivery and its remote-certification limits

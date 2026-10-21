@@ -1522,8 +1522,10 @@ fn driver_build_modules(argc: u64, argv: *const *const u8, image_kind: u32) -> u
         }
         if entry_length == 0 || entry_length == 4096 { return fail(1); }
     }
+    if argc == 6 && driver_module_same_path(destination,unsafe{*(argv+5)}) { return fail(1); }
     let loaded: u32 = driver_manifest_load(source_list,4);
     if loaded != 0 { return loaded; }
+    if !driver_module_manifest_safe(destination,source_list) { return fail(1); }
     let sources: u32 = unsafe{driver_manifest_count[0]} as u32;
     let storage: *mut u8 = unsafe{driver_module_objects as *mut u8};
     let mut positions: [usize;256] = 0;
@@ -1559,8 +1561,10 @@ fn driver_build_modules(argc: u64, argv: *const *const u8, image_kind: u32) -> u
     }
     let mut candidates: u32 = sources;
     if argc == 6 {
-        let status: u32 = driver_manifest_load(unsafe{*(argv+5)},4);
+        let libraries_list: *const u8=unsafe{*(argv+5)};
+        let status: u32 = driver_manifest_load(libraries_list,4);
         if status != 0 { return status; }
+        if !driver_module_manifest_safe(destination,libraries_list) { return fail(1); }
         let files: u32 = unsafe{driver_manifest_count[0]} as u32;
         index = 0;
         while index < files {
@@ -1753,6 +1757,45 @@ static mut driver_manifest_size: [usize;1] = 0;
 static mut driver_manifest_count: [u64;1] = 0;
 static mut driver_set_hash: [u64;1] = 0;
 static mut driver_set_size: [u64;1] = 0;
+
+
+// Preflight only the byte-exact names provided to the native source-list API.
+// This prevents accidental clobbering of a listed input or a list file, and
+// rejects duplicate roots before the compiler allocates/links any objects.
+// It is not a filesystem canonicalizer: aliases/symlinks remain a separate gate.
+fn driver_module_same_path(left: *const u8, right: *const u8) -> bool {
+    if left == null || right == null { return false; }
+    let mut index: usize = 0;
+    while index < 4096 {
+        let a: u8=unsafe{*(left+index)};
+        let b: u8=unsafe{*(right+index)};
+        if a != b { return false; }
+        if a == 0 { return true; }
+        index=index+1;
+    }
+    return false;
+}
+
+fn driver_module_manifest_safe(destination: *const u8, list: *const u8) -> bool {
+    if destination == null || list == null || driver_filename_length(destination) >= 4096
+        || driver_filename_length(list) >= 4096 || driver_module_same_path(destination,list) {
+        return false;
+    }
+    let count: u64=unsafe{driver_manifest_count[0]};
+    let mut index: u64=0;
+    while index < count {
+        let current: *const u8=unsafe{driver_manifest_arguments[(index+4) as usize] as *const u8};
+        if current == null || driver_module_same_path(destination,current) { return false; }
+        let mut earlier: u64=0;
+        while earlier < index {
+            let prior: *const u8=unsafe{driver_manifest_arguments[(earlier+4) as usize] as *const u8};
+            if driver_module_same_path(current,prior) { return false; }
+            earlier=earlier+1;
+        }
+        index=index+1;
+    }
+    return true;
+}
 
 fn driver_manifest_load(path: *const u8, base: u64) -> u32 {
     if base != 2 && base != 3 && base != 4 { return fail(1); }
