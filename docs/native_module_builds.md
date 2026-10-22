@@ -12,6 +12,12 @@ sotlas-native --build-library OUTPUT SOURCES.list
 sotlas-native --build-elf-modules OUTPUT ENTRY SOURCES.list [LIBRARIES.list]
 sotlas-native --build-pe-modules OUTPUT ENTRY SOURCES.list [LIBRARIES.list]
 sotlas-native --build-macho-modules OUTPUT ENTRY SOURCES.list [LIBRARIES.list]
+
+// SV8.89b: the same four commands with OS-backed create-new protection.
+sotlas-native --build-library-new OUTPUT SOURCES.list
+sotlas-native --build-elf-modules-new OUTPUT ENTRY SOURCES.list [LIBRARIES.list]
+sotlas-native --build-pe-modules-new OUTPUT ENTRY SOURCES.list [LIBRARIES.list]
+sotlas-native --build-macho-modules-new OUTPUT ENTRY SOURCES.list [LIBRARIES.list]
 ```
 
 All native host drivers register the same commands. The output format is
@@ -40,7 +46,25 @@ sotlas-native --build-pe-modules program.exe main_entry examples/separate_module
 The appropriate executable returns 42. The supplied library list refers to
 `numbers.a` in the process working directory. Output directories must already
 exist. Successful builds replace the named output using the established
-native artifact writer.
+native artifact writer **for the existing commands**. The `-new` commands
+instead use the already-certified native exclusive-create path: Linux
+`O_CREAT|O_EXCL`, Darwin `O_CREAT|O_EXCL`, and Win32 `CREATE_NEW`.
+The check and creation happen in one native kernel/API operation when the
+finished artifact is published, after validation and linking, rather than
+through a non-atomic file-existence probe. Status `10` means the output could
+not be created, including when its name already exists. Unlike the default
+commands, `-new` never truncates an existing destination. A target name that
+is itself a symbolic link (including a dangling one on POSIX) or a different
+hard-link name already exists and is rejected, preserving its bytes and link.
+
+`-new` applies to source-list builds only, not every Sotlas CLI write mode.
+It is a **no-clobber creation policy**, not a general file-identity oracle:
+different source and library paths resolving to one inode are not otherwise
+deduplicated. Existing-output replacement through the original commands, paths
+that contain symlinked parent directories, access errors after a successful
+new-file creation, filesystem races on ancestor directories, and metadata-based
+link equivalence remain outside this block. These need a separate checked
+file-identity and atomic-output implementation.
 
 ## List and compilation semantics
 
@@ -115,5 +139,8 @@ and checks application/library builds, absence of intermediate files, equality
 with individually compiled archives, source isolation, type/data state resets,
 late failures and diagnostics, library dependencies and target bounds.
 The SV8.88 and SV8.89a preflight cases cover duplicates, output collisions,
-lexical dot/parent aliases and Windows ASCII case/separators across targets. PE runs
+lexical dot/parent aliases and Windows ASCII case/separators across targets.
+SV8.89b additionally executes exclusive-create library/ELF/PE/Mach-O
+commands and verifies that existing destinations, hardlinks and symlinks are
+never overwritten (subject to host filesystem support for those link types). PE runs
 on Windows, ELF on Linux and Mach-O on Intel macOS when that runner is present.

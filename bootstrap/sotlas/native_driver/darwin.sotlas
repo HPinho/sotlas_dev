@@ -1504,7 +1504,7 @@ fn driver_static_library(argc: u64, argv: *const *const u8, linking: bool, image
 // Compile each listed source independently, retaining objects in separate storage.
 // No intermediate files are published; the destination is opened after all gates.
 static mut driver_module_objects: [u8;8388608] = 0;
-fn driver_build_modules(argc: u64, argv: *const *const u8, image_kind: u32) -> u32 {
+fn driver_build_modules(argc: u64, argv: *const *const u8, image_kind: u32, no_clobber: bool) -> u32 {
     let library: bool = image_kind == 0;
     if (library && argc != 4) || (!library && argc != 5 && argc != 6)
         || image_kind > 3 { return fail(1); }
@@ -1557,7 +1557,7 @@ fn driver_build_modules(argc: u64, argv: *const *const u8, image_kind: u32) -> u
         if !elf_archive_write(storage,unsafe{positions as *const usize},
             unsafe{lengths as *const usize},sources,output,16777216,
             unsafe{(&mut written) as *mut usize}) { return fail(9); }
-        return driver_write_artifact(destination,output,written,false);
+        return driver_write_artifact(destination,output,written,no_clobber);
     }
     let mut candidates: u32 = sources;
     if argc == 6 {
@@ -1612,7 +1612,7 @@ fn driver_build_modules(argc: u64, argv: *const *const u8, image_kind: u32) -> u
             output,16777216,unsafe{(&mut written) as *mut usize},true);
     }
     if !linked || written == 0 { return fail(9); }
-    return driver_write_artifact(destination,output,written,false);
+    return driver_write_artifact(destination,output,written,no_clobber);
 }
 
 fn driver_stamp_seed(seed: *const u8, output: *const u8) -> u32 {
@@ -2214,10 +2214,16 @@ fn driver_extended_dispatch(argc: u64, argv: *const *const u8, option: *const u8
     if option_equals(option,"--check-project-resolve",23) { return driver_compile_project(argc,argv,true,false,true,true); }
     if option_equals(option,"--verify-object",15) { return driver_object_operation(argc,argv,false,false); }
     if option_equals(option,"--link-elf-typed-pair",21) { return driver_link_elf_typed_pair(argc,argv); }
-    if option_equals(option,"--build-library",15) { return driver_build_modules(argc,argv,0); }
-    if option_equals(option,"--build-elf-modules",19) { return driver_build_modules(argc,argv,1); }
-    if option_equals(option,"--build-pe-modules",18) { return driver_build_modules(argc,argv,2); }
-    if option_equals(option,"--build-macho-modules",21) { return driver_build_modules(argc,argv,3); }
+    if option_equals(option,"--build-library",15) { return driver_build_modules(argc,argv,0,false); }
+    if option_equals(option,"--build-elf-modules",19) { return driver_build_modules(argc,argv,1,false); }
+    if option_equals(option,"--build-pe-modules",18) { return driver_build_modules(argc,argv,2,false); }
+    if option_equals(option,"--build-macho-modules",21) { return driver_build_modules(argc,argv,3,false); }
+    // Opt-in OS-level create-new: an existing output, symlink or hard-link path
+    // can never be truncated, even if the preflight path spellings differ.
+    if option_equals(option,"--build-library-new",19) { return driver_build_modules(argc,argv,0,true); }
+    if option_equals(option,"--build-elf-modules-new",23) { return driver_build_modules(argc,argv,1,true); }
+    if option_equals(option,"--build-pe-modules-new",22) { return driver_build_modules(argc,argv,2,true); }
+    if option_equals(option,"--build-macho-modules-new",25) { return driver_build_modules(argc,argv,3,true); }
     if option_equals(option,"--archive-elf",13) { return driver_static_library(argc,argv,false,0); }
     if option_equals(option,"--link-elf-libraries",20) { return driver_static_library(argc,argv,true,0); }
     if option_equals(option,"--link-pe-libraries",19) { return driver_static_library(argc,argv,true,1); }
