@@ -2,6 +2,38 @@
 
 **Repository:** [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev)
 
+## SV8.89b - OS-enforced no-clobber source-list builds (2026-10-22)
+
+**Green baseline:** `ec00297a`, [GitHub CI #1289](https://github.com/HPinho/sotlas_dev/actions/runs/39740061235).
+
+- [x] Add explicit native `--build-library-new`, `--build-elf-modules-new`,
+  `--build-pe-modules-new` and `--build-macho-modules-new` commands.
+- [x] Keep the existing source-list compilation and linker profile, with
+  backwards-compatible default commands that may replace an output.
+- [x] Route `-new` output creation to OS-native exclusive create: O_EXCL
+  (Linux/Darwin) or CREATE_NEW (Windows), after all parsing, object and link
+  gates, with no prior time-of-check / time-of-use existence probe.
+- [x] Preserve existing destination bytes (including hard links and symbolic
+  links) and reject an existing name with status 10; do not truncate or replace.
+- [x] Add tests for first creation, second-creation rejection, hard-link
+  preservation, symbolic-link protection and POSIX dangling links.
+- [ ] Complete OS metadata-based file-identity comparisons (source and library
+  duplicates via inode/file ID), path aliases through linked parent directories,
+  atomic replacement for ordinary builds and artifact rollback on late I/O
+  errors. These require separate certification.
+
+This is **real kernel-backed protection against overwriting an existing final
+path in opt-in `-new` mode**, not complete path/file identity, and it adds no
+host Python or C compiler to the native runtime. The ordinary replace commands
+remain unchanged. Details: [native module builds](native_module_builds.md).
+Evidence: `tests/test_sotlas_native_module_builds.py`; post-commit CI must
+pass before declaring the new gate green.
+
+**Next SV8.89c:** use native OS file handles and metadata to compare resolved
+identity of existing source, library and destination files; verify alias,
+hard-link, symlink-parent, privilege and race boundaries before enabling
+general replacement safety.
+
 ## SV8.89a - lexical path identity for native module builds (2026-10-21)
 
 **Green starting point:** commit `617ba47d` / [CI #1287](https://github.com/HPinho/sotlas_dev/actions/runs/39685586187).

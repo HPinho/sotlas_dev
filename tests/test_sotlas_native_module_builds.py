@@ -309,6 +309,68 @@ class NativeModuleBuildTests(unittest.TestCase):
         self.native('--build-library', self.directory / 'no windows alias.a',
                     manifest, expected=1)
 
+    def test_strict_native_module_build_creates_once_and_preserves_output(self):
+        source = self.source('strict entry', 'pub fn main_entry()->u32{return 42;}')
+        sources = self.manifest('strict source list', [source])
+        archive = self.directory / 'strict source library.a'
+        self.native('--build-library-new', archive, sources)
+        first_archive = archive.read_bytes()
+        self.assertGreater(len(first_archive), 0)
+        self.native('--build-library-new', archive, sources, expected=10)
+        self.assertEqual(archive.read_bytes(), first_archive)
+        for target in ('elf', 'pe', 'macho'):
+            destination = self.output(target)
+            self.native('--build-' + target + '-modules-new',
+                        destination, 'main_entry', sources)
+            self.verify(target)
+            first_image = destination.read_bytes()
+            self.native('--build-' + target + '-modules-new',
+                        destination, 'main_entry', sources, expected=10)
+            self.assertEqual(destination.read_bytes(), first_image)
+
+    def test_strict_native_module_build_does_not_truncate_hardlinks(self):
+        source = self.source('strict hardlink source', 'pub fn main_entry()->u32{return 42;}')
+        manifest = self.manifest('strict hardlink manifest', [source])
+        alias = self.directory / 'different-name-hardlink.bin'
+        try:
+            os.link(source, alias)
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest('OS/filesystem cannot create hard links: ' + str(exc))
+        initial = source.read_bytes()
+        self.assertNotEqual(str(source), str(alias))
+        self.native('--build-library-new', alias, manifest, expected=10)
+        for target in ('elf', 'pe', 'macho'):
+            self.native('--build-' + target + '-modules-new', alias,
+                        'main_entry', manifest, expected=10)
+            self.assertEqual(source.read_bytes(), initial)
+            self.assertEqual(alias.read_bytes(), initial)
+
+    def test_strict_native_module_build_does_not_follow_symlink_output(self):
+        source = self.source('strict symlink source', 'pub fn main_entry()->u32{return 42;}')
+        manifest = self.manifest('strict symlink manifest', [source])
+        alias = self.directory / 'different-name-symlink.bin'
+        try:
+            alias.symlink_to(source)
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest('OS/filesystem cannot create symbolic links: ' + str(exc))
+        original = source.read_bytes()
+        self.native('--build-library-new', alias, manifest, expected=10)
+        for target in ('elf', 'pe', 'macho'):
+            self.native('--build-' + target + '-modules-new', alias,
+                        'main_entry', manifest, expected=10)
+            self.assertEqual(source.read_bytes(), original)
+            self.assertTrue(alias.is_symlink())
+
+    @unittest.skipIf(os.name == 'nt', 'POSIX dangling symlink filesystem contract')
+    def test_strict_native_module_build_rejects_dangling_symlink(self):
+        source = self.source('strict dangling entry', 'pub fn main_entry()->u32{return 42;}')
+        manifest = self.manifest('strict dangling manifest', [source])
+        alias = self.directory / 'dangling output link'
+        alias.symlink_to(self.directory / 'nonexistent original')
+        self.native('--build-library-new', alias, manifest, expected=10)
+        self.assertTrue(alias.is_symlink())
+        self.assertFalse(alias.exists())
+
     def test_import_syntax_is_not_replaced_by_hidden_concatenation(self):
         source = self.source('unresolved native import', 'import missing::*;'
                              'pub fn main_entry()->u32{return 42;}')

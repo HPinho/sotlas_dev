@@ -21,6 +21,26 @@ The initial producer still uses the hosted bootstrap. The resulting seed's
 compilation and self-build paths do not invoke Python, Clang, a C emitter or
 an external linker.
 
+## Strict source-list outputs (SV8.89b)
+
+All Linux, Intel macOS and Windows native drivers provide opt-in `-new`
+source-list commands alongside the existing replace-capable forms:
+
+```text
+sotlas-native --build-library-new archive.a modules.list
+sotlas-native --build-elf-modules-new app main_entry modules.list
+sotlas-native --build-pe-modules-new app.exe main_entry modules.list
+sotlas-native --build-macho-modules-new app-macos main_entry modules.list
+```
+
+These compile and link normally, but publication uses the platform's
+exclusive-create operation (Linux/Darwin `O_EXCL`, Win32 `CREATE_NEW`).
+Any existing output name, including a symlink or hard link, fails closed
+(status 10) without truncating the original. This does not certify general
+source/library file-ID comparison, symlink-parent resolution, or atomic cleanup
+after failed writes. The original commands deliberately retain their documented
+replace behavior. See [the source-list contract](../../../docs/native_module_builds.md).
+
 ## Compile files
 
 ```sh
