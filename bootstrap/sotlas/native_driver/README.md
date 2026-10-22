@@ -41,6 +41,21 @@ source/library file-ID comparison, symlink-parent resolution, or atomic cleanup
 after failed writes. The original commands deliberately retain their documented
 replace behavior. See [the source-list contract](../../../docs/native_module_builds.md).
 
+## Linux native file identity (SV8.89c1)
+
+Linux x86-64 native source-list compilation now supplements lexical path
+normalization with file identity from kernel `open(O_PATH)`, `fstat` (syscall
+5) and `close`. It compares the `st_dev` and `st_ino` bytes of the Linux
+kernel stat ABI, rejecting duplicate hard links and aliases through symbolic
+links, including a replace-mode output that is another name for an input.
+No libc layout or hosted C runtime is used. Missing paths retain their regular
+compile/open error paths; unexpected metadata failures reject conservatively.
+
+This does not add the corresponding Win32 or Darwin file-identity adapters, and
+it cannot prevent a race that swaps a file after the metadata check. Strict
+`-new` mode is still the stronger cross-platform no-clobber publication
+option; atomic replacement and handle-backed identities remain future work.
+
 ## Compile files
 
 ```sh

@@ -3521,6 +3521,8 @@ impl ScalarLowering {
             else if syscall_sema.source_slice_equals(self.source, self.source_len,
                 callee_symbol.offset, callee_symbol.length, "sotlas_linux_close", 18) { syscall_number = 3; }
             else if syscall_sema.source_slice_equals(self.source, self.source_len,
+                callee_symbol.offset, callee_symbol.length, "sotlas_linux_fstat", 18) { syscall_number = 5; }
+            else if syscall_sema.source_slice_equals(self.source, self.source_len,
                 callee_symbol.offset, callee_symbol.length, "sotlas_darwin_read", 18) { syscall_number = 16; }
             else if syscall_sema.source_slice_equals(self.source, self.source_len,
                 callee_symbol.offset, callee_symbol.length, "sotlas_darwin_write", 19) { syscall_number = 17; }
@@ -3541,11 +3543,13 @@ impl ScalarLowering {
                     if operation >= 16 { operation = operation - 16; }
                     let mut expected: u32 = 3;
                     if operation == 3 { expected = 1; }
+                    if operation == 5 { expected = 2; }
                     if actual_type != TargetTypeTag::I64 || argument_count != expected || result == 0 { return 0; }
                     let mut check: u32 = 0;
                     while check < expected {
                         let mut wanted: TargetTypeTag = TargetTypeTag::U64;
-                        if (operation <= 1 && check == 1) || (operation == 2 && check == 0) { wanted = TargetTypeTag::Pointer; }
+                        if (operation <= 1 && check == 1) || (operation == 2 && check == 0)
+                            || (operation == 5 && check == 1) { wanted = TargetTypeTag::Pointer; }
                         let declared_type: TargetTypeTag = self.function_parameter_type_from_ast(callee_decl, check);
                         if declared_type != wanted { return 0; }
                         check = check + 1;

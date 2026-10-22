@@ -2,6 +2,38 @@
 
 **Repository:** [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev)
 
+## SV8.89c1 - Linux native inode/device identity for source-list builds (2026-10-22)
+
+**Green baseline:** commit `42c4d7f`, [workflow #1290](https://github.com/HPinho/sotlas_dev/actions/runs/39781689384).
+
+- [x] Extend the Linux x86-64 kernel adapter with the typed `fstat(fd, *mut u8)`
+  syscall (number 5), including Target IR validation, native lowering and
+  machine emission. Use no libc layout, C object code or Python driver.
+- [x] Read `st_dev` and `st_ino` from the first 16 bytes of the Linux x86-64
+  kernel `struct stat` into bounded Sotlas scratch storage using `O_PATH`
+  file descriptors. Close descriptors on every opened path.
+- [x] Before output creation, compare actual identities for source/library
+  duplicates and collisions with manifests or the intended output; reject
+  hard links, symbolic-file aliases and linked-parent directory aliases.
+- [x] Preserve existing missing-input diagnostics and reject unexpected
+  metadata failures conservatively without truncating previously existing
+  inputs or destinations.
+- [x] Add Linux execution tests for source hard links and symlinks, manifest
+  aliasing, destination hard links, linked-parent paths and equal-content
+  independent files.
+- [ ] Extend file identity through certified Darwin and Win32 native file APIs.
+- [ ] Add handles/atomic output replacement to close filesystem race windows,
+  including dangling links and symlinked parent swaps; existing `-new`
+  remains the OS-level no-clobber option on all three systems.
+- [ ] Confirm Stage 2/3 and GitHub OS matrix for this commit.
+
+**Scope:** The Linux native post-seed source-list build path, not the
+reference compiler, general package resolver, or complete Python/C removal.
+The Windows/macOS lexical SV8.89a and strict output SV8.89b paths stay
+unchanged and documented. See [native module builds](native_module_builds.md).
+**Next SV8.89c2:** certify native file-ID adapters on Intel macOS and Windows
+before integrating their preflight with replace-capable output commands.
+
 ## SV8.89b - OS-enforced no-clobber source-list builds (2026-10-22)
 
 **Green baseline:** `ec00297a`, [GitHub CI #1289](https://github.com/HPinho/sotlas_dev/actions/runs/39740061235).

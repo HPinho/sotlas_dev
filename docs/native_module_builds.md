@@ -92,10 +92,28 @@ file-identity and atomic-output implementation.
   leading relative `..` is retained and traversal beyond a root is not folded
   into a relative path. The comparison is bounded to the existing 4095-byte
   path limit and does not call the host shell, Python, C compiler or linker.
-- This is **not filesystem identity**: an absolute path and a relative path
-  resolved against a process directory, hard links, symbolic links, junctions,
-  short names, Unicode case folding, device paths, and filesystem races require
-  separate host metadata and atomic-output safeguards (SV8.89b).
+- **SV8.89c1 (Linux x86-64):** path collision checks additionally compare
+  real file identity using the native `open(O_PATH)` + `fstat` + `close`
+  syscall route, with device/inode read from the kernel's Linux x86-64
+  `struct stat` layout. This recognizes existing hard links, symlinks to
+  files, paths through symlinked directories and absolute/relative spellings
+  of the same file, including differences not covered by lexical normalization.
+  Source and library duplicates are rejected; an existing output that
+  resolves to any source, library or manifest is rejected **even for the
+  original replace-capable commands**, before output truncation.
+- The Linux implementation uses a bounded 256-byte native stat buffer, two
+  numeric file identity slots and no allocation, Python/C runtime or external
+  compiler. Missing paths fall through to the established diagnostics;
+  unexpected open/fstat/close errors reject the operation conservatively.
+  It does **not** deduplicate equal-content files with different device/inode.
+- **Other platforms remain narrower:** Windows and Intel macOS still use the
+  lexical/path checks from SV8.89a plus opt-in exclusive output creation
+  from SV8.89b. Their OS-specific file-identity adapters are not yet added.
+  No platform is protected against a concurrent filesystem swap between
+  identity checking and later output opening, nor all dangling-link and
+  symlink-parent races. Full identity and atomic-replace protection remain
+  a separate certification gate.
+
 - Source units do not share symbol tables, types or static compiler state.
   A sibling implementation cannot satisfy an undeclared source-level name.
 - The current cross-object boundary uses explicit foreign-call declarations
@@ -142,5 +160,8 @@ The SV8.88 and SV8.89a preflight cases cover duplicates, output collisions,
 lexical dot/parent aliases and Windows ASCII case/separators across targets.
 SV8.89b additionally executes exclusive-create library/ELF/PE/Mach-O
 commands and verifies that existing destinations, hardlinks and symlinks are
-never overwritten (subject to host filesystem support for those link types). PE runs
+never overwritten (subject to host filesystem support for those link types).
+SV8.89c1 adds Linux-only inode/device identity regression cases for duplicate
+hard-/symbolic-linked sources, library inputs, destination aliases through
+hard links or linked parent directories, and same-content independent inodes. PE runs
 on Windows, ELF on Linux and Mach-O on Intel macOS when that runner is present.

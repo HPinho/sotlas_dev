@@ -371,6 +371,87 @@ class NativeModuleBuildTests(unittest.TestCase):
         self.assertTrue(alias.is_symlink())
         self.assertFalse(alias.exists())
 
+    @unittest.skipUnless(sys.platform.startswith('linux'), 'Linux inode identity contract')
+    def test_linux_native_file_ids_reject_duplicate_hardlink_and_symlink_sources(self):
+        source = self.source('inode source', 'pub fn main_entry()->u32{return 42;}')
+        hardlink = self.directory / 'inode source hardlink.sotlas'
+        link = self.directory / 'inode source symlink.sotlas'
+        try:
+            os.link(source, hardlink)
+            link.symlink_to(source)
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest('link creation not supported: ' + str(exc))
+        archive = self.directory / 'inode duplicate.a'
+        archive.write_bytes(b'previous library')
+        for alias in (hardlink, link):
+            with self.subTest(alias=alias.name):
+                sources = self.manifest('inode alias sources', [source, alias])
+                self.native('--build-library', archive, sources, expected=1)
+                self.assertEqual(archive.read_bytes(), b'previous library')
+
+    @unittest.skipUnless(sys.platform.startswith('linux'), 'Linux inode identity contract')
+    def test_linux_file_id_rejects_output_hardlink_before_truncate(self):
+        source = self.source('inode protected source', 'pub fn main_entry()->u32{return 42;}')
+        output = self.directory / 'inode output archive.a'
+        try:
+            os.link(source, output)
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest('hard links unavailable: ' + str(exc))
+        before = source.read_bytes()
+        sources = self.manifest('inode protected list', [source])
+        self.native('--build-library', output, sources, expected=1)
+        self.assertEqual(source.read_bytes(), before)
+        self.assertEqual(output.read_bytes(), before)
+        for target in ('elf', 'pe', 'macho'):
+            self.native('--build-' + target + '-modules',
+                        output, 'main_entry', sources, expected=1)
+            self.assertEqual(source.read_bytes(), before)
+
+    @unittest.skipUnless(sys.platform.startswith('linux'), 'Linux inode identity contract')
+    def test_linux_symlink_parent_alias_rejects_output_before_truncate(self):
+        directory = self.directory / 'inode-real-directory'
+        directory.mkdir()
+        source = directory / 'protected.sotlas'
+        source.write_text('module app;pub fn main_entry()->u32{return 42;}', encoding='utf-8')
+        alias_root = self.directory / 'inode-linked-directory'
+        try:
+            alias_root.symlink_to(directory, target_is_directory=True)
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest('directory symlink unavailable: ' + str(exc))
+        output = alias_root / source.name
+        before = source.read_bytes()
+        sources = self.manifest('inode parent manifest', [source])
+        self.native('--build-library', output, sources, expected=1)
+        self.assertEqual(source.read_bytes(), before)
+        self.assertTrue(alias_root.is_symlink())
+
+    @unittest.skipUnless(sys.platform.startswith('linux'), 'Linux inode identity contract')
+    def test_linux_file_ids_reject_aliases_in_library_manifest(self):
+        source = self.source('inode library application', 'pub fn main_entry()->u32{return 42;}')
+        sources = self.manifest('inode library app list', [source])
+        archive = self.directory / 'inode original library.a'
+        archive.write_bytes(b'not a valid archive')
+        hardlink = self.directory / 'inode duplicate library.a'
+        try:
+            os.link(archive, hardlink)
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest('hard links unavailable: ' + str(exc))
+        libraries = self.manifest('inode duplicate libraries', [archive, hardlink])
+        for target in ('elf', 'pe', 'macho'):
+            self.build(target, sources, libraries, expected=1)
+            self.assertFalse(self.output(target).exists())
+
+    @unittest.skipUnless(sys.platform.startswith('linux'), 'Linux inode identity contract')
+    def test_linux_equal_content_different_inodes_are_independent(self):
+        left = self.source('inode equal content left', 'pub fn one()->u32{return 42;}')
+        right = self.source('inode equal content right', 'pub fn one()->u32{return 42;}')
+        self.assertEqual(left.read_bytes(), right.read_bytes())
+        self.assertNotEqual(left.stat().st_ino, right.stat().st_ino)
+        source_list = self.manifest('inode different file identities', [left, right])
+        archive = self.directory / 'inode independent sources.a'
+        self.native('--build-library', archive, source_list)
+        self.assertGreater(archive.stat().st_size, 0)
+
     def test_import_syntax_is_not_replaced_by_hidden_concatenation(self):
         source = self.source('unresolved native import', 'import missing::*;'
                              'pub fn main_entry()->u32{return 42;}')
