@@ -16,6 +16,8 @@ fn sotlas_linux_read(fd: u64, data: *mut u8, count: u64) -> i64;
 fn sotlas_linux_write(fd: u64, data: *const u8, count: u64) -> i64;
 @extern(C)
 fn sotlas_linux_close(fd: u64) -> i64;
+@extern(C)
+fn sotlas_linux_fstat(fd: u64, data: *mut u8) -> i64;
 
 static mut driver_source_bytes: [u8; 4194304] = 0;
 static mut driver_tokens: [Token; 524288] = 0;
@@ -1827,19 +1829,57 @@ fn driver_module_normalize(path: *const u8, output: *mut u8) -> usize {
     return written;
 }
 
+// Linux x86-64 native file identity: device and inode from kernel stat.
+// O_PATH opens an existing pathname without requiring read permission and
+// follows ordinary symlinks. Missing paths are allowed for a future output.
+// Everything else that cannot be inspected is rejected by the caller.
+static mut driver_module_stat_buffer: [u8;256] = 0;
+static mut driver_module_stat_devices: [u64;2] = 0;
+static mut driver_module_stat_inodes: [u64;2] = 0;
+fn driver_module_file_identity(path: *const u8, slot: usize) -> u32 {
+    if path == null || slot > 1 { return 2; }
+    let fd: i64=sotlas_linux_open(path,2097152,0);
+    if fd == -2 { return 0; }
+    if fd < 0 { return 2; }
+    let bytes: *mut u8=unsafe{driver_module_stat_buffer as *mut u8};
+    let status: i64=sotlas_linux_fstat(fd as u64,bytes);
+    let closed: i64=sotlas_linux_close(fd as u64);
+    if status < 0 || closed < 0 { return 2; }
+    // Kernel Linux x86-64 struct stat: st_dev and st_ino are the first
+    // two 64-bit little-endian words. No libc struct or native C ABI.
+    let mut dev: u64=0;let mut ino: u64=0;let mut i: usize=0;
+    while i < 8 {
+        dev=dev | ((unsafe{*(bytes+i)} as u64) << (i*8));
+        ino=ino | ((unsafe{*(bytes+8+i)} as u64) << (i*8));
+        i=i+1;
+    }
+    unsafe{driver_module_stat_devices[slot]=dev;driver_module_stat_inodes[slot]=ino;}
+    return 1;
+}
+
 fn driver_module_same_path(left: *const u8, right: *const u8) -> bool {
     if left == null || right == null { return false; }
     let a: *mut u8=unsafe{driver_module_norm_left as *mut u8};
     let b: *mut u8=unsafe{driver_module_norm_right as *mut u8};
     let n: usize=driver_module_normalize(left,a);
     let m: usize=driver_module_normalize(right,b);
-    if n==4096 || n!=m { return false; }
-    let mut i:usize=0;
-    while i<n {
-        if unsafe{*(a+i)}!=unsafe{*(b+i)} { return false; }
-        i=i+1;
+    if n==4096 || m==4096 { return true; }
+    if n==m {
+        let mut i:usize=0;let mut identical: bool=true;
+        while i<n {
+            if unsafe{*(a+i)}!=unsafe{*(b+i)} { identical=false;break; }
+            i=i+1;
+        }
+        if identical { return true; }
     }
-    return true;
+    let first: u32=driver_module_file_identity(left,0);
+    let second: u32=driver_module_file_identity(right,1);
+    // Fail closed for unreadable/unsupported metadata, but keep the
+    // established missing-file diagnostics in the compilation pipeline.
+    if first==2 || second==2 { return true; }
+    return first==1 && second==1
+        && unsafe{driver_module_stat_devices[0]}==unsafe{driver_module_stat_devices[1]}
+        && unsafe{driver_module_stat_inodes[0]}==unsafe{driver_module_stat_inodes[1]};
 }
 
 fn driver_module_manifest_safe(destination: *const u8, list: *const u8) -> bool {
