@@ -4529,6 +4529,7 @@ fn windows_import_id(name: *const u8, length: usize) -> u32 {
     if windows_name_equals(name, length, "sotlas_windows_load_library", 27) { return 9; }
     if windows_name_equals(name, length, "sotlas_windows_get_proc_address", 31) { return 10; }
     if windows_name_equals(name, length, "sotlas_windows_call_scalar", 26) { return 11; }
+    if windows_name_equals(name, length, "sotlas_windows_get_file_information", 35) { return 12; }
     return 0;
 }
 
@@ -4544,6 +4545,7 @@ fn windows_symbol_name(id: u32) -> *const u8 {
     if id == 9 { return "sotlas_windows_load_library"; }
     if id == 10 { return "sotlas_windows_get_proc_address"; }
     if id == 11 { return "sotlas_windows_call_scalar"; }
+    if id == 12 { return "sotlas_windows_get_file_information"; }
     return null;
 }
 
@@ -4559,6 +4561,7 @@ fn windows_symbol_length(id: u32) -> usize {
     if id == 9 { return 27; }
     if id == 10 { return 31; }
     if id == 11 { return 26; }
+    if id == 12 { return 35; }
     return 0;
 }
 
@@ -4573,6 +4576,7 @@ fn windows_dll_name(id: u32) -> *const u8 {
     if id == 8 { return "GetLastError"; }
     if id == 9 { return "LoadLibraryW"; }
     if id == 10 { return "GetProcAddress"; }
+    if id == 12 { return "GetFileInformationByHandle"; }
     return null;
 }
 
@@ -4587,6 +4591,7 @@ fn windows_dll_name_length(id: u32) -> usize {
     if id == 8 { return 12; }
     if id == 9 { return 12; }
     if id == 10 { return 14; }
+    if id == 12 { return 26; }
     return 0;
 }
 
@@ -4600,7 +4605,7 @@ fn windows_parameter_count(id: u32) -> u32 {
     if id == 7 { return 1; }
     if id == 8 { return 0; }
     if id == 9 { return 1; }
-    if id == 10 || id == 11 { return 2; }
+    if id == 10 || id == 11 || id == 12 { return 2; }
     return 0;
 }
 
@@ -4630,6 +4635,10 @@ fn windows_signature_valid(id: u32, function: TargetFunction, parameters: *const
         if id == 5 && index == 4 { wanted = TargetTypeTag::Pointer; }
         if id == 6 && index == 0 { wanted = TargetTypeTag::U64; }
         if id == 9 { wanted = TargetTypeTag::Pointer; }
+        if id == 12 {
+            wanted = TargetTypeTag::U64;
+            if index == 1 { wanted = TargetTypeTag::Pointer; }
+        }
         if id == 10 || id == 11 {
             wanted = TargetTypeTag::U64;
             if index == 1 { wanted = TargetTypeTag::Pointer; }
@@ -4900,7 +4909,7 @@ fn pe_import_provider(output: *mut u8, capacity: usize, mask: u32, start_rva: us
     while clear < 2048 { unsafe { *(output + clear) = 0; } clear = clear + 1; }
     let mut count: usize = 0;
     let mut id: u32 = 1;
-    while id <= 11 {
+    while id <= 12 {
         if (mask & ((1 as u32) << (id - 1))) != 0 { count = count + 1; }
         id = id + 1;
     }
@@ -4908,7 +4917,7 @@ fn pe_import_provider(output: *mut u8, capacity: usize, mask: u32, start_rva: us
     let mut string_size: usize = 1;
     let mut symbol: usize = 1;
     id = 1;
-    while id <= 11 {
+    while id <= 12 {
         if (mask & ((1 as u32) << (id - 1))) != 0 {
             let record: usize = symbol * 24 + 320;
             let address: u64 = (start_rva + 1536 + (id as usize - 1) * 112) as u64 + 4194304;
@@ -5204,11 +5213,16 @@ pub fn link_pe64_objects(
     index = 0;
     while index < 13 { unsafe { *(output + start_raw + 288 + index) = *(dll + index); } index = index + 1; }
     let mut id: u32 = 1;
-    while id <= 11 {
-        let hint_offset: usize = (id as usize - 1) * 64 + 320;
-        let lookup_offset: usize = (id as usize - 1) * 8 + 80;
-        let iat_offset: usize = (id as usize - 1) * 8 + 192;
-        if id <= 10 {
+    while id <= 12 {
+        // ID 11 is the internal scalar bridge and has no KERNEL32 import.
+        // Keep the OS import name and IAT arrays contiguous when ID 12
+        // (GetFileInformationByHandle) is present; slot 10 follows ID 10.
+        let mut import_slot: usize=id as usize - 1;
+        if id==12 { import_slot=10; }
+        let hint_offset: usize = import_slot * 64 + 320;
+        let lookup_offset: usize = import_slot * 8 + 80;
+        let iat_offset: usize = import_slot * 8 + 192;
+        if id != 11 {
             if !put_u64(output, capacity, start_raw + lookup_offset, (start_rva + hint_offset) as u64)
                 || !put_u64(output, capacity, start_raw + iat_offset, (start_rva + hint_offset) as u64)
                 || !pe_copy_bytes(output, capacity, start_raw + hint_offset + 2,

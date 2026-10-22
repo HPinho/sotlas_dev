@@ -7,6 +7,40 @@
 
 
 
+## SV8.89c2a - Windows native file identity with Win32 file handles (2026-10-22)
+
+**Verified green baseline:** `68dce798` / [CI #1292](https://github.com/HPinho/sotlas_dev/actions/runs/39835602797).
+
+- [x] Reserve a signature-checked Win32 `GetFileInformationByHandle` import
+  in the owned x86-64 PE backend, preserving the existing ID 11 internal
+  scalar bridge and a contiguous Kernel32 import address/name table.
+- [x] Extend the Windows native driver with metadata-only `CreateFileA`,
+  Win32 handle information and guaranteed close to read bounded
+  `BY_HANDLE_FILE_INFORMATION` volume serial and 64-bit file index.
+- [x] Compare OS-reported identity for source/library duplicates and
+  destination/manifest collisions through hard links, symlinks or linked
+  directories, preserving distinct status 1 for invalid/duplicate input
+  and status 10 for blocked `-new` output collisions.
+- [x] Retain the Linux SV8.89c1 inode identity implementation unchanged.
+  Keep the Windows create-new kernel/API operation authoritative against
+  output replacement races; the identity query is still a preflight.
+- [x] Add Windows-host integration tests and an executable PE import probe,
+  including fail-closed invalid Win32 declarations; no native Python/C
+  compilation or external linker is added.
+- [ ] Certify Windows integration on the new CI matrix, and cover ReFS's
+  potential 128-bit file identity, network filesystems, Unicode and
+  concurrent path swaps separately.
+- [ ] Implement and certify the Intel macOS native file identity adapter.
+
+**Scope:** preflight path identity for the Windows x64 native source-list
+profile, not a claim of arbitrary filesystem security or full hosted
+Python/C removal. API layout and import contract are tracked in
+[native module builds](native_module_builds.md).
+
+**Next SV8.89c2b:** Intel macOS file identity via verified native XNU API,
+with hard-link/symlink regression tests and stable Linux/Windows baselines;
+then SV8.89c3 for handle-backed atomic output publication.
+
 ### SV8.89c1 — repair of CI #1291 preflight exit contract (2026-10-22)
 
 - [x] The Linux inode/device preflight remains active. It did not overwrite

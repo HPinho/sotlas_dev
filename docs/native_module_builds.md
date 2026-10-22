@@ -113,13 +113,28 @@ file-identity and atomic-output implementation.
   compiler. Missing paths fall through to the established diagnostics;
   unexpected open/fstat/close errors reject the operation conservatively.
   It does **not** deduplicate equal-content files with different device/inode.
-- **Other platforms remain narrower:** Windows and Intel macOS still use the
-  lexical/path checks from SV8.89a plus opt-in exclusive output creation
-  from SV8.89b. Their OS-specific file-identity adapters are not yet added.
-  No platform is protected against a concurrent filesystem swap between
+- **SV8.89c2a (Windows x64):** the native Windows source-list driver now
+  compares volume serial numbers and 64-bit file indexes obtained directly
+  through `CreateFileA` (metadata-only access, OPEN_EXISTING), the typed
+  `GetFileInformationByHandle` import, and `CloseHandle`. It follows ordinary
+  file symlinks and recognizes hard links and paths through linked parent
+  directories. The compiler's owned PE import bridge resolves the new Win32
+  function with a signature-checked two-argument Win64 thunk; ID 11 remains
+  the internal scalar bridge, and the OS import table stays contiguous.
+  Linux retains its device/inode path from SV8.89c1.
+- For Win32, missing files (ERROR_FILE_NOT_FOUND / ERROR_PATH_NOT_FOUND)
+  preserve existing diagnostics; other open/metadata/close errors reject the
+  operation conservatively. Win32's 64-bit FileIndex + volume-serial tuple
+  is a bounded identity profile, not a general identity certificate for ReFS
+  (which can require a 128-bit file ID), remote/virtual filesystems or Unicode
+  aliases. Do not claim complete ReFS/SMB/Unicode support.
+- **Intel macOS remains narrower:** its driver still uses the lexical/path
+  checks from SV8.89a plus opt-in exclusive output creation from SV8.89b.
+  Its OS-backed file identity is not yet implemented.
+- No platform is protected against a concurrent filesystem swap between
   identity checking and later output opening, nor all dangling-link and
-  symlink-parent races. Full identity and atomic-replace protection remain
-  a separate certification gate.
+  symlink-parent races. Full handle-backed publication and atomic-replace
+  protection remain separate certification work.
 
 - Source units do not share symbol tables, types or static compiler state.
   A sibling implementation cannot satisfy an undeclared source-level name.
@@ -173,5 +188,9 @@ hard-/symbolic-linked sources, library inputs, destination aliases through
 hard links or linked parent directories, and same-content independent inodes.
 The SV8.89c1 regression repair keeps strict-output status 10 and duplicate-input
 status 1 distinct and tests preservation for sources, manifests and libraries
-on the target matrix (CI #1291 diagnosed the mismatch on Ubuntu). PE runs
+on the target matrix (CI #1291 diagnosed the mismatch on Ubuntu).
+SV8.89c2a adds Windows-hosted positive/negative file-ID gates covering
+hard-linked or symlinked sources, linked output destinations, repeated library
+identities and symlink-parent aliases; a direct PE import/return/ABI probe
+and invalid signatures validate the kernel32 bridge on the test matrix. PE runs
 on Windows, ELF on Linux and Mach-O on Intel macOS when that runner is present.

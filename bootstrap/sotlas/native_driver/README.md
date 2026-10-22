@@ -56,6 +56,23 @@ it cannot prevent a race that swaps a file after the metadata check. Strict
 `-new` mode is still the stronger cross-platform no-clobber publication
 option; atomic replacement and handle-backed identities remain future work.
 
+## Windows native file identity (SV8.89c2a)
+
+The Windows x64 source-list driver now compares actual file identities using
+`CreateFileA` metadata-only handles, `GetFileInformationByHandle` (through a
+typed native PE import thunk) and `CloseHandle`. The file ID is the volume
+serial plus the 64-bit high/low file index from BY_HANDLE_FILE_INFORMATION,
+read from fixed-size Sotlas storage. This detects NTFS hard-link duplicates,
+ordinary symlink aliases and paths through linked parent directories.
+
+The existing status contract is preserved: duplicate input paths return 1,
+a protected output collision returns 10 under `-new`, and existing
+replace-capable commands return 1 for such preflight collisions.
+The `-new` commands continue to rely on CREATE_NEW for atomic name
+exclusivity. Filesystem race windows, ReFS 128-bit IDs, network/Unicode
+identity, and atomic output replacement are not certified; macOS still uses
+only lexical identity and no-clobber output mode.
+
 ## Compile files
 
 ```sh

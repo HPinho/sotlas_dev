@@ -498,6 +498,84 @@ class NativeModuleBuildTests(unittest.TestCase):
                         'main_entry', sources, unique, expected=10)
             self.assertEqual(unique.read_bytes(), original_list)
 
+    @unittest.skipUnless(os.name == 'nt', 'Win32 file-ID implementation')
+    def test_windows_file_id_detects_hardlink_and_symlink_sources(self):
+        source = self.source('win id original', 'pub fn main_entry()->u32{return 42;}')
+        alias = self.directory / 'win-id-hardlink.sotlas'
+        try:
+            os.link(source, alias)
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest('NTFS hard links unavailable: ' + str(exc))
+        archive = self.directory / 'win-id-preexisting.a'
+        archive.write_bytes(b'preserve')
+        duplicates = self.manifest('windows hardlink duplicated source', [source, alias])
+        self.native('--build-library', archive, duplicates, expected=1)
+        self.assertEqual(archive.read_bytes(), b'preserve')
+        symlink = self.directory / 'win-id-symlink.sotlas'
+        try:
+            symlink.symlink_to(source)
+        except (OSError, NotImplementedError):
+            return
+        duplicates = self.manifest('windows symlink duplicated source', [source, symlink])
+        self.native('--build-library', archive, duplicates, expected=1)
+        self.assertEqual(archive.read_bytes(), b'preserve')
+
+    @unittest.skipUnless(os.name == 'nt', 'Win32 file-ID implementation')
+    def test_windows_file_id_preserves_hardlinked_outputs(self):
+        source = self.source('win id protected', 'pub fn main_entry()->u32{return 42;}')
+        output = self.directory / 'win-id-output.a'
+        try:
+            os.link(source, output)
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest('NTFS hard links unavailable: ' + str(exc))
+        original = source.read_bytes()
+        files = self.manifest('win id protected manifest', [source])
+        self.native('--build-library', output, files, expected=1)
+        self.native('--build-library-new', output, files, expected=10)
+        for target in ('elf', 'pe', 'macho'):
+            self.native('--build-' + target + '-modules', output,
+                        'main_entry', files, expected=1)
+            self.native('--build-' + target + '-modules-new', output,
+                        'main_entry', files, expected=10)
+            self.assertEqual(source.read_bytes(), original)
+            self.assertEqual(output.read_bytes(), original)
+
+    @unittest.skipUnless(os.name == 'nt', 'Win32 file-ID implementation')
+    def test_windows_file_id_aliases_in_library_lists(self):
+        source = self.source('win id library main', 'pub fn main_entry()->u32{return 42;}')
+        sources = self.manifest('win id library source', [source])
+        archive = self.directory / 'win-id-input-library.a'
+        archive.write_bytes(b'invalid but protected')
+        alternate = self.directory / 'win-id-linked-library.a'
+        try:
+            os.link(archive, alternate)
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest('NTFS hard links unavailable: ' + str(exc))
+        duplicated = self.manifest('win-id-duplicate-library-list', [archive, alternate])
+        for target in ('elf', 'pe', 'macho'):
+            dest = self.directory / ('win-id-linked-' + target)
+            self.native('--build-' + target + '-modules', dest,
+                        'main_entry', sources, duplicated, expected=1)
+            self.assertFalse(dest.exists())
+
+    @unittest.skipUnless(os.name == 'nt', 'Win32 file-ID implementation')
+    def test_windows_file_id_parent_directory_alias_preserves_source(self):
+        folder = self.directory / 'win-id-real-dir'
+        folder.mkdir()
+        source = folder / 'win-id-protected.sotlas'
+        source.write_text('module app;pub fn main_entry()->u32{return 42;}', encoding='utf-8')
+        linked_folder = self.directory / 'win-id-link-dir'
+        try:
+            linked_folder.symlink_to(folder, target_is_directory=True)
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest('Windows directory symlinks unavailable: ' + str(exc))
+        manifest = self.manifest('win id parent list', [source])
+        alias = linked_folder / source.name
+        original = source.read_bytes()
+        self.native('--build-library', alias, manifest, expected=1)
+        self.assertEqual(source.read_bytes(), original)
+        self.assertTrue(linked_folder.is_symlink())
+
     def test_import_syntax_is_not_replaced_by_hidden_concatenation(self):
         source = self.source('unresolved native import', 'import missing::*;'
                              'pub fn main_entry()->u32{return 42;}')
