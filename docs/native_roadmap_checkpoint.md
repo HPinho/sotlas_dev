@@ -21,6 +21,7 @@ This checkpoint reports executable deliveries and remaining gates separately.
 | Lexical path integrity (SV8.89a) | Normalize dot/parent components, repeated separators and Windows ASCII path case before native source-list duplicate and artifact checks; OS file identity remains open |
 | No-clobber output mode (SV8.89b) | Create native library/executable artifacts with OS-exclusive creation so pre-existing files, hard links and symlink names are not truncated by opt-in source-list builds |
 | Linux file identity (SV8.89c1) | Compare actual Linux x86-64 device/inode metadata for source/library duplicates and output collisions through hard links and symlink aliases, without Python or C |
+| SV8.89c1 CI #1291 repair | Keep the native preflight file-identity gate and return 10 for protected `-new` output collisions vs 1 for invalid/duplicate inputs; CI matrix must validate the new repair commit |
 | Inline record arrays | Store pointer-free record arrays inside structs and initialize, read, mutate, copy and return supported containers |
 | Static record data | Serialize constant record configurations, including nested arrays, directly into native data/BSS and use them from native code |
 | Global record tables | Declare initialized record lists/repetition, read indexed entries, copy elements and update mutable tables through checked native accesses |

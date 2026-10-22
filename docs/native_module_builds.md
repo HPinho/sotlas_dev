@@ -52,7 +52,14 @@ instead use the already-certified native exclusive-create path: Linux
 The check and creation happen in one native kernel/API operation when the
 finished artifact is published, after validation and linking, rather than
 through a non-atomic file-existence probe. Status `10` means the output could
-not be created, including when its name already exists. Unlike the default
+not be created, including when its name already exists.
+The SV8.89c1 identity preflight also detects linked output names before
+publication. To preserve the established error contract, these destination
+collisions return status `10` under `-new`, even when rejected earlier by the
+native inode/device check. Duplicated source or library entries and invalid
+lists still return status `1`. Replace-capable commands keep status `1` for
+their preflight collisions. The kernel's exclusive-create remains authoritative
+for avoiding overwrites, rather than relying on this preflight alone. Unlike the default
 commands, `-new` never truncates an existing destination. A target name that
 is itself a symbolic link (including a dangling one on POSIX) or a different
 hard-link name already exists and is rejected, preserving its bytes and link.
@@ -163,5 +170,8 @@ commands and verifies that existing destinations, hardlinks and symlinks are
 never overwritten (subject to host filesystem support for those link types).
 SV8.89c1 adds Linux-only inode/device identity regression cases for duplicate
 hard-/symbolic-linked sources, library inputs, destination aliases through
-hard links or linked parent directories, and same-content independent inodes. PE runs
+hard links or linked parent directories, and same-content independent inodes.
+The SV8.89c1 regression repair keeps strict-output status 10 and duplicate-input
+status 1 distinct and tests preservation for sources, manifests and libraries
+on the target matrix (CI #1291 diagnosed the mismatch on Ubuntu). PE runs
 on Windows, ELF on Linux and Mach-O on Intel macOS when that runner is present.
