@@ -1523,10 +1523,14 @@ fn driver_build_modules(argc: u64, argv: *const *const u8, image_kind: u32, no_c
         }
         if entry_length == 0 || entry_length == 4096 { return fail(1); }
     }
-    if argc == 6 && driver_module_same_path(destination,unsafe{*(argv+5)}) { return fail(1); }
+    if argc == 6 && driver_module_same_path(destination,unsafe{*(argv+5)}) {
+        if no_clobber { return fail(10); }
+        return fail(1);
+    }
     let loaded: u32 = driver_manifest_load(source_list,4);
     if loaded != 0 { return loaded; }
-    if !driver_module_manifest_safe(destination,source_list) { return fail(1); }
+    let source_status: u32=driver_module_manifest_status(destination,source_list,no_clobber);
+    if source_status != 0 { return fail(source_status); }
     let sources: u32 = unsafe{driver_manifest_count[0]} as u32;
     let storage: *mut u8 = unsafe{driver_module_objects as *mut u8};
     let mut positions: [usize;256] = 0;
@@ -1565,7 +1569,8 @@ fn driver_build_modules(argc: u64, argv: *const *const u8, image_kind: u32, no_c
         let libraries_list: *const u8=unsafe{*(argv+5)};
         let status: u32 = driver_manifest_load(libraries_list,4);
         if status != 0 { return status; }
-        if !driver_module_manifest_safe(destination,libraries_list) { return fail(1); }
+        let library_status: u32=driver_module_manifest_status(destination,libraries_list,no_clobber);
+        if library_status != 0 { return fail(library_status); }
         let files: u32 = unsafe{driver_manifest_count[0]} as u32;
         index = 0;
         while index < files {
@@ -1882,25 +1887,36 @@ fn driver_module_same_path(left: *const u8, right: *const u8) -> bool {
         && unsafe{driver_module_stat_inodes[0]}==unsafe{driver_module_stat_inodes[1]};
 }
 
-fn driver_module_manifest_safe(destination: *const u8, list: *const u8) -> bool {
+// Keep invalid/duplicate manifest entries at usage status 1. A conflicting
+// *destination* in create-new mode is a protected existing-output error (10).
+// Preflight must preserve this distinction even when native file identity
+// detects a hard link before O_EXCL/CREATE_NEW is reached.
+fn driver_module_manifest_status(destination: *const u8, list: *const u8,
+    no_clobber: bool) -> u32 {
     if destination == null || list == null || driver_filename_length(destination) >= 4096
-        || driver_filename_length(list) >= 4096 || driver_module_same_path(destination,list) {
-        return false;
+        || driver_filename_length(list) >= 4096 { return 1; }
+    if driver_module_same_path(destination,list) {
+        if no_clobber { return 10; }
+        return 1;
     }
     let count: u64=unsafe{driver_manifest_count[0]};
     let mut index: u64=0;
     while index < count {
         let current: *const u8=unsafe{driver_manifest_arguments[(index+4) as usize] as *const u8};
-        if current == null || driver_module_same_path(destination,current) { return false; }
+        if current == null { return 1; }
+        if driver_module_same_path(destination,current) {
+            if no_clobber { return 10; }
+            return 1;
+        }
         let mut earlier: u64=0;
         while earlier < index {
             let prior: *const u8=unsafe{driver_manifest_arguments[(earlier+4) as usize] as *const u8};
-            if driver_module_same_path(current,prior) { return false; }
+            if driver_module_same_path(current,prior) { return 1; }
             earlier=earlier+1;
         }
         index=index+1;
     }
-    return true;
+    return 0;
 }
 
 fn driver_manifest_load(path: *const u8, base: u64) -> u32 {

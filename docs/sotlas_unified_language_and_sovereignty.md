@@ -2,6 +2,21 @@
 
 **Repository:** [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev)
 
+### SV8.89c1 — repair of CI #1291 preflight exit contract (2026-10-22)
+
+- [x] The Linux inode/device preflight remains active. It did not overwrite
+  hardlinked or symlinked files, but rejected two protected `-new` destinations
+  with usage status `1` instead of the documented create status `10`.
+- [x] Return distinct typed statuses from the native manifest preflight:
+  `10` for a detected output collision under `-new`; `1` for repeated
+  sources/libraries or invalid manifest input, and for replace-mode conflicts.
+  Keep OS-level exclusive create as the final no-clobber enforcement.
+- [x] Preserve the same separation in Linux, Windows and Intel macOS drivers,
+  and add negative tests for source, manifest and library collisions across
+  all output formats, without weakening the existing regression tests.
+- [ ] Confirm the repair's new Ubuntu/Windows/macOS CI matrix before declaring
+  the post-fix baseline green. Next feature item remains SV8.89c2.
+
 ## SV8.89c1 - Linux native inode/device identity for source-list builds (2026-10-22)
 
 **Green baseline:** commit `42c4d7f`, [workflow #1290](https://github.com/HPinho/sotlas_dev/actions/runs/39781689384).

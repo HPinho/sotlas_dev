@@ -452,6 +452,52 @@ class NativeModuleBuildTests(unittest.TestCase):
         self.native('--build-library', archive, source_list)
         self.assertGreater(archive.stat().st_size, 0)
 
+    def test_preflight_exit_status_distinguishes_input_duplicates_and_strict_output(self):
+        source = self.source('preflight status source',
+                             'pub fn main_entry()->u32{return 42;}')
+        original = source.read_bytes()
+        duplicates = self.manifest('preflight status duplicated', [source, source])
+        unique = self.manifest('preflight status unique', [source])
+        output = self.directory / 'preflight status output.a'
+        # Invalid input duplication remains a usage error even in -new mode.
+        self.native('--build-library-new', output, duplicates, expected=1)
+        self.assertFalse(output.exists())
+        # A protected output collision is a creation error in -new mode.
+        self.native('--build-library-new', source, unique, expected=10)
+        self.assertEqual(source.read_bytes(), original)
+        self.native('--build-library-new', unique, unique, expected=10)
+        for target in ('elf', 'pe', 'macho'):
+            self.native('--build-' + target + '-modules-new',
+                        source, 'main_entry', unique, expected=10)
+            self.assertEqual(source.read_bytes(), original)
+            self.native('--build-' + target + '-modules-new',
+                        unique, 'main_entry', unique, expected=10)
+        # Existing overwrite-capable commands keep their status 1 contract.
+        self.native('--build-library', source, unique, expected=1)
+        self.assertEqual(source.read_bytes(), original)
+
+    def test_library_preflight_status_in_strict_mode(self):
+        source = self.source('library preflight status source',
+                             'pub fn main_entry()->u32{return 42;}')
+        sources = self.manifest('library preflight sources', [source])
+        archive = self.directory / 'library preflight original.a'
+        archive.write_bytes(b'not a valid archive')
+        before = archive.read_bytes()
+        repeated = self.manifest('library preflight duplicates', [archive, archive])
+        unique = self.manifest('library preflight unique', [archive])
+        original_list = unique.read_bytes()
+        for target in ('elf', 'pe', 'macho'):
+            result = self.directory / ('preflight-' + target)
+            self.native('--build-' + target + '-modules-new', result,
+                        'main_entry', sources, repeated, expected=1)
+            self.assertFalse(result.exists())
+            self.native('--build-' + target + '-modules-new', archive,
+                        'main_entry', sources, unique, expected=10)
+            self.assertEqual(archive.read_bytes(), before)
+            self.native('--build-' + target + '-modules-new', unique,
+                        'main_entry', sources, unique, expected=10)
+            self.assertEqual(unique.read_bytes(), original_list)
+
     def test_import_syntax_is_not_replaced_by_hidden_concatenation(self):
         source = self.source('unresolved native import', 'import missing::*;'
                              'pub fn main_entry()->u32{return 42;}')
