@@ -73,6 +73,23 @@ exclusivity. Filesystem race windows, ReFS 128-bit IDs, network/Unicode
 identity, and atomic output replacement are not certified; macOS still uses
 only lexical identity and no-clobber output mode.
 
+## Intel macOS native file identity (SV8.89c2b)
+
+The Intel Darwin driver uses a reserved typed `sotlas_darwin_fstat`
+adapter (XNU BSD syscall 189) alongside its existing native open/close
+adapters. Device and inode identity comes from the bounded kernel
+`user64_stat` ABI (st_dev at byte 0, st_ino at byte 8). This rejects
+duplicate linked source/library paths and protects outputs that are other
+names for an input, without a C runtime or Python helper. Darwin error
+returns retain native negative errno normalization. Unexpected read/metadata
+errors reject the operation conservatively.
+
+The same status contract holds: status 1 for duplicated inputs and
+replace-mode output collisions, status 10 for protected `-new` outputs.
+This is a preflight identity check; no-clobber builds still rely on XNU
+exclusive creation. Parent symlink swaps, filesystem races and partial
+artifact rollback require the separate SV8.89c3 gate.
+
 ## Compile files
 
 ```sh

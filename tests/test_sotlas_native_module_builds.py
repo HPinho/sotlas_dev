@@ -452,6 +452,90 @@ class NativeModuleBuildTests(unittest.TestCase):
         self.native('--build-library', archive, source_list)
         self.assertGreater(archive.stat().st_size, 0)
 
+    @unittest.skipUnless(sys.platform == 'darwin', 'Darwin inode identity contract')
+    def test_darwin_file_id_rejects_hardlink_and_symlink_sources(self):
+        source = self.source('darwin identity source', 'pub fn main_entry()->u32{return 42;}')
+        hardlink = self.directory / 'darwin-identity-hardlink.sotlas'
+        symlink = self.directory / 'darwin-identity-symlink.sotlas'
+        try:
+            os.link(source, hardlink)
+            symlink.symlink_to(source)
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest('Darwin filesystem links unavailable: ' + str(exc))
+        output = self.directory / 'darwin-identity-archive.a'
+        output.write_bytes(b'preserve previous library')
+        for alias in (hardlink, symlink):
+            with self.subTest(alias=alias.name):
+                manifest = self.manifest('darwin identity duplicate sources', [source, alias])
+                self.native('--build-library', output, manifest, expected=1)
+                self.assertEqual(output.read_bytes(), b'preserve previous library')
+
+    @unittest.skipUnless(sys.platform == 'darwin', 'Darwin inode identity contract')
+    def test_darwin_file_id_preserves_hardlinked_outputs(self):
+        source = self.source('darwin protected source', 'pub fn main_entry()->u32{return 42;}')
+        output = self.directory / 'darwin-output-hardlink.a'
+        try:
+            os.link(source, output)
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest('Darwin hard links unavailable: ' + str(exc))
+        original = source.read_bytes()
+        manifest = self.manifest('darwin protected source list', [source])
+        self.native('--build-library', output, manifest, expected=1)
+        self.native('--build-library-new', output, manifest, expected=10)
+        for target in ('elf', 'pe', 'macho'):
+            self.native('--build-' + target + '-modules', output,
+                        'main_entry', manifest, expected=1)
+            self.native('--build-' + target + '-modules-new', output,
+                        'main_entry', manifest, expected=10)
+            self.assertEqual(output.read_bytes(), original)
+            self.assertEqual(source.read_bytes(), original)
+
+    @unittest.skipUnless(sys.platform == 'darwin', 'Darwin inode identity contract')
+    def test_darwin_file_id_rejects_duplicate_library_aliases(self):
+        source = self.source('darwin library app', 'pub fn main_entry()->u32{return 42;}')
+        manifest = self.manifest('darwin library sources', [source])
+        archive = self.directory / 'darwin-first-library.a'
+        archive.write_bytes(b'intentionally invalid archive')
+        duplicate = self.directory / 'darwin-library-hardlink.a'
+        try:
+            os.link(archive, duplicate)
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest('Darwin hard links unavailable: ' + str(exc))
+        libraries = self.manifest('darwin library aliases', [archive, duplicate])
+        for target in ('elf', 'pe', 'macho'):
+            self.build(target, manifest, libraries, expected=1)
+            self.assertFalse(self.output(target).exists())
+
+    @unittest.skipUnless(sys.platform == 'darwin', 'Darwin inode identity contract')
+    def test_darwin_file_id_rejects_linked_parent_directory_output(self):
+        folder = self.directory / 'darwin-file-id-real-dir'
+        folder.mkdir()
+        source = folder / 'protected.sotlas'
+        source.write_text('module app;pub fn main_entry()->u32{return 42;}', encoding='utf-8')
+        alias_root = self.directory / 'darwin-file-id-symlink-dir'
+        try:
+            alias_root.symlink_to(folder, target_is_directory=True)
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest('Darwin directory links unavailable: ' + str(exc))
+        manifest = self.manifest('darwin parent source', [source])
+        original = source.read_bytes()
+        output = alias_root / source.name
+        self.native('--build-library', output, manifest, expected=1)
+        self.assertEqual(source.read_bytes(), original)
+        self.assertTrue(alias_root.is_symlink())
+
+    @unittest.skipUnless(sys.platform == 'darwin', 'Darwin inode identity contract')
+    def test_darwin_equal_content_different_inodes_are_independent(self):
+        left = self.source('darwin distinct file left', 'pub fn one()->u32{return 42;}')
+        right = self.source('darwin distinct file right', 'pub fn one()->u32{return 42;}')
+        self.assertEqual(left.read_bytes(), right.read_bytes())
+        self.assertNotEqual((left.stat().st_dev, left.stat().st_ino),
+                            (right.stat().st_dev, right.stat().st_ino))
+        manifest = self.manifest('darwin distinct files', [left, right])
+        archive = self.directory / 'darwin distinct archive.a'
+        self.native('--build-library', archive, manifest)
+        self.assertGreater(archive.stat().st_size, 0)
+
     def test_preflight_exit_status_distinguishes_input_duplicates_and_strict_output(self):
         source = self.source('preflight status source',
                              'pub fn main_entry()->u32{return 42;}')

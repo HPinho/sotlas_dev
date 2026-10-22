@@ -128,9 +128,26 @@ file-identity and atomic-output implementation.
   is a bounded identity profile, not a general identity certificate for ReFS
   (which can require a 128-bit file ID), remote/virtual filesystems or Unicode
   aliases. Do not claim complete ReFS/SMB/Unicode support.
-- **Intel macOS remains narrower:** its driver still uses the lexical/path
-  checks from SV8.89a plus opt-in exclusive output creation from SV8.89b.
-  Its OS-backed file identity is not yet implemented.
+- **SV8.89c2b (Intel macOS x86-64):** native Darwin path preflight now
+  adds `open(O_RDONLY)` + `fstat` (XNU syscall 189) + `close` through the
+  reserved typed `sotlas_darwin_fstat` adapter. The owned x86-64 machine
+  emitter encodes BSD syscall 0x20000BD without using a C runtime or
+  linking to libc. A bounded 256-byte kernel stat buffer supplies
+  the device ID (32-bit at byte 0) and inode (64-bit at byte 8)
+  from the Intel Darwin user64_stat ABI.
+  The same source/library duplicate and output/manifest collision
+  checks as on Linux and Windows now reject hard links, ordinary
+  symlink aliases and paths through symlinked parent directories.
+  Source and library duplicates return status 1; protected `-new`
+  destinations return status 10; existing replace-mode collisions
+  return status 1.
+- Darwin's O_RDONLY metadata probe may lack permission even when the
+  source can be inspected another way. Unexpected open, fstat or close
+  errors fail closed; ENOENT preserves ordinary missing-input handling.
+  The identity check is **not atomic** with final output creation.
+  Tests cover a native Mach-O fstat ABI probe, negative errno,
+  invalid signatures, duplicate inodes and preservation of inputs.
+  The post-commit Intel macOS matrix remains the acceptance gate.
 - No platform is protected against a concurrent filesystem swap between
   identity checking and later output opening, nor all dangling-link and
   symlink-parent races. Full handle-backed publication and atomic-replace
@@ -192,5 +209,10 @@ on the target matrix (CI #1291 diagnosed the mismatch on Ubuntu).
 SV8.89c2a adds Windows-hosted positive/negative file-ID gates covering
 hard-linked or symlinked sources, linked output destinations, repeated library
 identities and symlink-parent aliases; a direct PE import/return/ABI probe
-and invalid signatures validate the kernel32 bridge on the test matrix. PE runs
+and invalid signatures validate the kernel32 bridge on the test matrix.
+SV8.89c2b adds Intel-macOS-hosted source-list identity gates for hardlinked
+or symbolic-linked sources, output path aliases, linked parent directories,
+duplicate libraries and different-inode files with identical contents.
+A Mach-O execution test verifies the typed XNU fstat adapter's errno
+normalization and dev/inode metadata bytes without a host C runtime. PE runs
 on Windows, ELF on Linux and Mach-O on Intel macOS when that runner is present.

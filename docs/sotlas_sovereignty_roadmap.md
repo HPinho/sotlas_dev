@@ -7,6 +7,39 @@
 
 
 
+## SV8.89c2b - Intel macOS native file identity via XNU fstat (2026-10-22)
+
+**Verified green baseline:** `c3f697ce`, [workflow #1293](https://github.com/HPinho/sotlas_dev/actions/runs/39857829346).
+
+- [x] Extend the reserved Darwin kernel-adapter family with the typed
+  `sotlas_darwin_fstat(fd:u64, data:*mut u8)->i64` syscall (BSD 189),
+  while retaining Linux fstat 5 and the existing Windows PE ABI.
+- [x] Enforce the new Darwin opcode and argument types in Target IR, native
+  scalar lowering and x86-64 machine emission. Restore the x86-64 errno
+  normalization already used by the Darwin driver. No libc or C linking.
+- [x] Compare kernel device (32-bit at byte 0) and inode (64-bit at byte 8)
+  in a fixed 256-byte Intel Darwin user64_stat buffer, using native
+  `open(O_RDONLY)`, `fstat`, and `close`.
+- [x] Reject duplicate source/library inputs and protected output collisions
+  through hard links, symlinks and symlinked parent paths, preserving
+  source-list exit status 1 and strict-output status 10.
+- [x] Add five Intel macOS-hosted regression tests and a direct Mach-O fstat
+  execution/errno/negative-signature gate; equal bytes but different
+  dev/inode pairs remain independent files.
+- [ ] Certify this new commit on Ubuntu, Windows and Intel macOS CI before
+  calling SV8.89c2b green. Other platforms' adapters remain unchanged.
+- [ ] Protect all platforms against filesystem races between the identity
+  preflight and output publication, plus partial artifacts on write failure.
+  These require handle-backed output/atomic publication certification.
+
+**Scope:** the Intel macOS x86-64 native source-list profile, not full
+filesystem identity across every mount type or general Python/C removal.
+Darwin O_RDONLY permission failures reject conservatively. See
+[native source-list build contract](native_module_builds.md).
+
+**Next SV8.89c3:** safe native output publication and rollback of partial
+artifacts, with no-clobber and replace-mode race tests on all three OSes.
+
 ## SV8.89c2a - Windows native file identity with Win32 file handles (2026-10-22)
 
 **Verified green baseline:** `68dce798` / [CI #1292](https://github.com/HPinho/sotlas_dev/actions/runs/39835602797).

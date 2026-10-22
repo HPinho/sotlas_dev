@@ -3139,14 +3139,14 @@ pub fn emit_elf64_module_object(
                         return false;
                     }
                 } else if instruction.opcode == TargetOpcode::SystemOp {
-                    let darwin: bool = instruction.immediate_bits >= 16 && instruction.immediate_bits <= 19;
+                    let darwin: bool = instruction.immediate_bits >= 16 && instruction.immediate_bits <= 21;
                     let mut operation: u64 = instruction.immediate_bits;
                     if darwin { operation = operation - 16; platform_flags = platform_flags | 2; }
                     else { platform_flags = platform_flags | 1; }
                     let mut expected: u32 = 3;
                     if operation == 3 { expected = 1; }
                     if operation == 5 { expected = 2; }
-                    if operation > 5 || operation == 4 || (darwin && operation > 3)
+                    if operation > 5 || operation == 4
                         || instruction.operand_count != expected
                         || result_type != TargetTypeTag::I64 || instruction.type_tag != result_type { return false; }
                     let mut argument_index: u32 = 0;
@@ -3167,6 +3167,7 @@ pub fn emit_elf64_module_object(
                         if operation == 1 { syscall_number = 33554436; }
                         if operation == 2 { syscall_number = 33554437; }
                         if operation == 3 { syscall_number = 33554438; }
+                        if operation == 5 { syscall_number = 33554621; }
                     }
                     if !append_object_byte(output, capacity, &mut code, 184)
                         || !append_object_u32(output, capacity, &mut code, syscall_number)
