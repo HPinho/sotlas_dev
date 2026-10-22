@@ -1758,21 +1758,88 @@ static mut driver_set_hash: [u64;1] = 0;
 static mut driver_set_size: [u64;1] = 0;
 
 
-// Preflight only the byte-exact names provided to the native source-list API.
-// This prevents accidental clobbering of a listed input or a list file, and
-// rejects duplicate roots before the compiler allocates/links any objects.
-// It is not a filesystem canonicalizer: aliases/symlinks remain a separate gate.
+// SV8.89a: bounded, lexical preflight without host file APIs.
+// Dot segments, duplicate separators and (on Windows) separator style and
+// ASCII case are equivalent. No filesystem aliases or links are resolved.
+static mut driver_module_norm_left: [u8;4096] = 0;
+static mut driver_module_norm_right: [u8;4096] = 0;
+fn driver_module_is_separator(ch: u8) -> bool { return ch == 47; }
+
+fn driver_module_normalize(path: *const u8, output: *mut u8) -> usize {
+    if path == null || output == null { return 4096; }
+    let length: usize=driver_filename_length(path);
+    if length == 0 || length >= 4096 { return 4096; }
+    let mut cursor: usize=0;
+    let mut written: usize=0;
+    let mut root: usize=0;
+    let mut drive_relative: bool=false;
+    if unsafe{*path} == 47 {
+        unsafe{*output=47;}written=1;root=1;cursor=1;
+        // Keep POSIX's implementation-defined double-slash root distinct.
+        if length >= 2 && unsafe{*(path+1)} == 47 {
+            unsafe{*(output+1)=47;}written=2;root=2;cursor=2;
+        }
+    }
+
+    while cursor < length {
+        while cursor < length && driver_module_is_separator(unsafe{*(path+cursor)}) {
+            cursor=cursor+1;
+        }
+        if cursor >= length { break; }
+        let first: usize=cursor;
+        while cursor < length && !driver_module_is_separator(unsafe{*(path+cursor)}) {
+            cursor=cursor+1;
+        }
+        let count: usize=cursor-first;
+        if count == 1 && unsafe{*(path+first)} == 46 { continue; }
+        if count == 2 && unsafe{*(path+first)} == 46
+            && unsafe{*(path+first+1)} == 46 {
+            let mut last: usize=written;
+            while last > root && unsafe{*(output+last-1)} != 47 { last=last-1; }
+            let parent: bool=written>root && written-last==2
+                && unsafe{*(output+last)}==46 && unsafe{*(output+last+1)}==46;
+            if written>root && !parent {
+                written=last;
+                if written>root { written=written-1; }
+            } else if root==0 || drive_relative {
+                if written>root && unsafe{*(output+written-1)}!=47 {
+                    unsafe{*(output+written)=47;}written=written+1;
+                }
+                unsafe{*(output+written)=46;*(output+written+1)=46;}
+                written=written+2;
+            }
+            continue;
+        }
+        if written>root && unsafe{*(output+written-1)}!=47 {
+            unsafe{*(output+written)=47;}written=written+1;
+        }
+        let mut n: usize=0;
+        while n<count {
+            let mut ch: u8=unsafe{*(path+first+n)};
+
+            unsafe{*(output+written+n)=ch;}
+            n=n+1;
+        }
+        written=written+count;
+    }
+    if written==0 { unsafe{*output=46;}written=1; }
+    unsafe{*(output+written)=0;}
+    return written;
+}
+
 fn driver_module_same_path(left: *const u8, right: *const u8) -> bool {
     if left == null || right == null { return false; }
-    let mut index: usize = 0;
-    while index < 4096 {
-        let a: u8=unsafe{*(left+index)};
-        let b: u8=unsafe{*(right+index)};
-        if a != b { return false; }
-        if a == 0 { return true; }
-        index=index+1;
+    let a: *mut u8=unsafe{driver_module_norm_left as *mut u8};
+    let b: *mut u8=unsafe{driver_module_norm_right as *mut u8};
+    let n: usize=driver_module_normalize(left,a);
+    let m: usize=driver_module_normalize(right,b);
+    if n==4096 || n!=m { return false; }
+    let mut i:usize=0;
+    while i<n {
+        if unsafe{*(a+i)}!=unsafe{*(b+i)} { return false; }
+        i=i+1;
     }
-    return false;
+    return true;
 }
 
 fn driver_module_manifest_safe(destination: *const u8, list: *const u8) -> bool {

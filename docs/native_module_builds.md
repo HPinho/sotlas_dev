@@ -59,10 +59,19 @@ native artifact writer.
   Checks occur before source compilation or before reading the archives.
   These guards are implemented in the native Linux, Windows and macOS
   drivers without a Python helper or host linker.
-- Path comparison is deliberately byte-exact, not an assertion of canonical
-  filesystem identity. Relative aliases, symbolic links, different casing on
-  case-insensitive filesystems and other equivalent spellings remain open
-  for a later platform-aware canonicalization gate.
+- SV8.89a replaces byte-exact-only matching with bounded **lexical**
+  normalization in the native drivers. Repeated separators, `.` and safely
+  reducible `..` components compare equal. POSIX paths remain case-sensitive,
+  with leading double slash distinct. Windows normalizes both slash styles,
+  ASCII letter case and drive letters while distinguishing rooted, drive-
+  relative and UNC prefixes. Relative versus absolute paths stay distinct;
+  leading relative `..` is retained and traversal beyond a root is not folded
+  into a relative path. The comparison is bounded to the existing 4095-byte
+  path limit and does not call the host shell, Python, C compiler or linker.
+- This is **not filesystem identity**: an absolute path and a relative path
+  resolved against a process directory, hard links, symbolic links, junctions,
+  short names, Unicode case folding, device paths, and filesystem races require
+  separate host metadata and atomic-output safeguards (SV8.89b).
 - Source units do not share symbol tables, types or static compiler state.
   A sibling implementation cannot satisfy an undeclared source-level name.
 - The current cross-object boundary uses explicit foreign-call declarations
@@ -105,6 +114,6 @@ ownership/effect, generic library or independent first-seed parity.
 and checks application/library builds, absence of intermediate files, equality
 with individually compiled archives, source isolation, type/data state resets,
 late failures and diagnostics, library dependencies and target bounds.
-The SV8.88 preflight cases also cover duplicate sources/libraries and output
-collisions with sources, libraries and both manifest files, on all three formats. PE runs
+The SV8.88 and SV8.89a preflight cases cover duplicates, output collisions,
+lexical dot/parent aliases and Windows ASCII case/separators across targets. PE runs
 on Windows, ELF on Linux and Mach-O on Intel macOS when that runner is present.

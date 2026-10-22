@@ -250,6 +250,65 @@ class NativeModuleBuildTests(unittest.TestCase):
                         libraries, 'main_entry', sources, libraries, expected=1)
             self.assertEqual(libraries.read_bytes(), original_list)
 
+    def test_dot_and_repeated_separator_source_aliases_are_rejected(self):
+        source = self.source('alias source', 'pub fn main_entry()->u32{return 42;}')
+        alias = str(source.parent) + os.sep + '.' + os.sep + source.name
+        self.assertEqual(Path(alias).read_bytes(), source.read_bytes())
+        manifest = self.manifest('alias source entries', [source, alias])
+        original = self.directory / 'protected alias archive.a'
+        original.write_bytes(b'preserve source output')
+        self.native('--build-library', original, manifest, expected=1)
+        self.assertEqual(original.read_bytes(), b'preserve source output')
+        for target in ('elf', 'pe', 'macho'):
+            self.build(target, manifest, expected=1)
+            self.assertFalse(self.output(target).exists())
+
+    def test_parent_component_aliases_and_output_collisions(self):
+        source = self.source('parent alias', 'pub fn main_entry()->u32{return 42;}')
+        sibling = source.parent / 'existing alias folder'
+        sibling.mkdir(exist_ok=True)
+        alias = str(sibling) + os.sep + '..' + os.sep + source.name
+        self.assertEqual(Path(alias).read_bytes(), source.read_bytes())
+        sources = self.manifest('parent alias sources', [source])
+        original_source = source.read_bytes()
+        self.native('--build-library', alias, sources, expected=1)
+        self.assertEqual(source.read_bytes(), original_source)
+        for target in ('elf', 'pe', 'macho'):
+            self.native('--build-' + target + '-modules',
+                        alias, 'main_entry', sources, expected=1)
+            self.assertEqual(source.read_bytes(), original_source)
+        duplicates = self.manifest('parent alias duplicates', [source, alias])
+        self.native('--build-library', self.directory / 'no alias archive.a',
+                    duplicates, expected=1)
+
+    def test_manifest_and_library_lexical_alias_collisions(self):
+        source = self.source('manifest alias application', 'pub fn main_entry()->u32{return 42;}')
+        sources = self.manifest('source manifest aliases', [source])
+        source_list_alias = str(sources.parent) + os.sep + '.' + os.sep + sources.name
+        before = sources.read_bytes()
+        self.native('--build-library', source_list_alias, sources, expected=1)
+        self.assertEqual(sources.read_bytes(), before)
+        library = self.directory / 'alias protected input.a'
+        library.write_bytes(b'not a valid archive')
+        library_alias = str(library.parent) + os.sep + '.' + os.sep + library.name
+        lists = self.manifest('aliases for archives', [library, library_alias])
+        for target in ('elf', 'pe', 'macho'):
+            self.build(target, sources, lists, expected=1)
+            self.assertFalse(self.output(target).exists())
+            self.native('--build-' + target + '-modules',
+                        library_alias, 'main_entry', sources,
+                        self.manifest('one archive for alias', [library]),
+                        expected=1)
+            self.assertEqual(library.read_bytes(), b'not a valid archive')
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows ASCII case and separator profile')
+    def test_windows_ascii_case_and_separator_alias(self):
+        source = self.source('Windows Alias', 'pub fn main_entry()->u32{return 42;}')
+        alias = str(source).upper().replace('\\', '/')
+        manifest = self.manifest('Windows source case aliases', [source, alias])
+        self.native('--build-library', self.directory / 'no windows alias.a',
+                    manifest, expected=1)
+
     def test_import_syntax_is_not_replaced_by_hidden_concatenation(self):
         source = self.source('unresolved native import', 'import missing::*;'
                              'pub fn main_entry()->u32{return 42;}')

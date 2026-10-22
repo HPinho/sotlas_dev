@@ -2,6 +2,35 @@
 
 Repository: [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev).
 
+## SV8.89a - lexical path identity for native module builds (2026-10-21)
+
+**Green starting point:** commit `617ba47d` / [CI #1287](https://github.com/HPinho/sotlas_dev/actions/runs/39685586187).
+
+- [x] Normalize bounded source, library, manifest and output paths inside
+  the Sotlas-written Linux, Windows and Darwin native drivers before comparing
+  them for duplicated roots or unsafe output collisions.
+- [x] Eliminate repeated separators, `.` and safely reducible `..` segments.
+  Retain leading `..` for relative inputs and distinguish absolute roots,
+  Windows drive-relative paths and UNC prefixes.
+- [x] Compare Windows ASCII case-insensitively with slash/backslash equivalence;
+  retain POSIX case-sensitive naming and double-leading-slash distinction.
+- [x] Keep all comparisons bounded to 4095 input bytes, using fixed native
+  scratch buffers and no Python interpreter, generated C or host linker.
+- [x] Add integration tests for aliased source roots, aliased output/source and
+  output/manifest collisions, duplicate libraries and Windows ASCII variants.
+- [ ] Prove filesystem-level identity for hard/symbolic links, Windows
+  junctions, absolute/relative aliases, Unicode case rules and existing
+  destination file handles; lexical checks are not sufficient for these cases.
+- [ ] Certify the new post-commit Ubuntu/Windows/Intel macOS CI matrix.
+
+**Scope:** the C-free post-seed source-list build path; no whole-program
+ownership, ARC/drop, package manager or Python/C bootstrap removal is claimed.
+See [independent module-build contract](native_module_builds.md).
+
+**Next SV8.89b:** native OS-backed input/output file-identity checks and
+output creation policy for symlinks/hard links, then a matrix of actual
+filesystem-alias preservation tests.
+
 ## SV8.88 - native source-list input and artifact safety (2026-10-21)
 
 **Starting green baseline:** `88bfa5c` / [CI #1286](https://github.com/HPinho/sotlas_dev/actions/runs/39632022114).
