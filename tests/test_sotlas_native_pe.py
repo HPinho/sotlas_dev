@@ -154,6 +154,59 @@ class NativePETests(unittest.TestCase):
             self.assertEqual(executed.stdout, b"Sotlas native Windows I/O\n")
             self.assertEqual(filename.read_bytes(), b"abc")
 
+    def test_windows_native_file_identity_win64_bridge(self):
+        first = self.directory / 'win32-identity-original.txt'
+        first.write_bytes(b'native identity')
+        alias = self.directory / 'win32-identity-alias.txt'
+        try:
+            os.link(first, alias)
+        except (OSError, NotImplementedError):
+            # Two independent handles to the same existing file are still valid.
+            alias = first
+        declarations = """
+@extern(C) fn sotlas_windows_create_file(path:*const u8,access:u32,share:u32,security:*const u8,creation:u32,flags:u32,template:u64)->u64;
+@extern(C) fn sotlas_windows_get_file_information(handle:u64,info:*mut u8)->u32;
+@extern(C) fn sotlas_windows_close_handle(handle:u64)->u32;
+"""
+        source = declarations + """
+@system pub fn main_entry()->u32 {
+    let left:u64=sotlas_windows_create_file(LEFT,0,7,null,3,128,0);
+    if left == 18446744073709551615 { return 1; }
+    let right:u64=sotlas_windows_create_file(RIGHT,0,7,null,3,128,0);
+    if right == 18446744073709551615 {
+        sotlas_windows_close_handle(left);
+        return 2;
+    }
+    let mut a:[u8;64]=0;
+    let mut b:[u8;64]=0;
+    let success_a:u32=sotlas_windows_get_file_information(left,unsafe{a as *mut u8});
+    let success_b:u32=sotlas_windows_get_file_information(right,unsafe{b as *mut u8});
+    let close_a:u32=sotlas_windows_close_handle(left);
+    let close_b:u32=sotlas_windows_close_handle(right);
+    if success_a==0 || success_b==0 || close_a==0 || close_b==0 { return 3; }
+    if a[28]!=b[28] || a[29]!=b[29] || a[30]!=b[30] || a[31]!=b[31] { return 4; }
+    let mut i:usize=44;
+    while i<52 {
+        if a[i]!=b[i] { return 5; }
+        i=i+1;
+    }
+    return 42;
+}
+""".replace('LEFT', json.dumps(str(first))).replace('RIGHT', json.dumps(str(alias)))
+        obj = self.compile_object('win32_identity_api', source)
+        output = self.directory / 'win32_identity_api.exe'
+        result = self.link(obj, output)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.validate_pe(output.read_bytes())
+        self.assertIn(b'GetFileInformationByHandle\x00', output.read_bytes())
+        if os.name == 'nt':
+            environment = {'PATH': str(self.directory / 'no-tools'),
+                           'SystemRoot': os.environ.get('SystemRoot', 'C:\\Windows')}
+            executed = subprocess.run([str(output)], env=environment,
+                                      capture_output=True, timeout=15,
+                                      creationflags=subprocess.CREATE_NO_WINDOW)
+            self.assertEqual(executed.returncode, 42, executed.stderr)
+
     def test_windows_import_signatures_fail_closed(self):
         declarations = (
             "@extern(C) fn sotlas_windows_close_handle(handle:u32)->u32;",
@@ -162,6 +215,8 @@ class NativePETests(unittest.TestCase):
             "@extern(C) fn sotlas_windows_load_library(name:u64)->u64;",
             "@extern(C) fn sotlas_windows_get_proc_address(library:u32,name:*const u8)->u64;",
             "@extern(C) fn sotlas_windows_call_scalar(function:u64,arguments:f64)->u64;",
+            "@extern(C) fn sotlas_windows_get_file_information(handle:u32,info:*mut u8)->u32;",
+            "@extern(C) fn sotlas_windows_get_file_information(handle:u64,info:*mut u8)->u64;",
         )
         for index, declaration in enumerate(declarations):
             with self.subTest(declaration=declaration):

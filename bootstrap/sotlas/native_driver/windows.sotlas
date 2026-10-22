@@ -14,6 +14,8 @@ import sotlas::compiler::backend::x86_64_scalar::*;
 @extern(C) fn sotlas_windows_read_file(handle:u64, buffer:*mut u8, count:u32, read:*mut u32, overlapped:*mut u8) -> u32;
 @extern(C) fn sotlas_windows_write_file(handle:u64, buffer:*const u8, count:u32, written:*mut u32, overlapped:*mut u8) -> u32;
 @extern(C) fn sotlas_windows_close_handle(handle:u64) -> u32;
+@extern(C) fn sotlas_windows_get_last_error() -> u32;
+@extern(C) fn sotlas_windows_get_file_information(handle:u64, info:*mut u8) -> u32;
 
 // Win32 file adapters preserve the bounded driver's byte-count/error contract.
 fn windows_open(path:*const u8, flags:u64, mode:u64) -> i64 {
@@ -1980,19 +1982,66 @@ fn driver_module_normalize(path: *const u8, output: *mut u8) -> usize {
     return written;
 }
 
+// SV8.89c2a: Win32 file identity, not a filename/content fingerprint.
+// BY_HANDLE_FILE_INFORMATION: serial at offset 28, file index high/low at
+// offsets 44/48 (all little-endian DWORD). The 64-bit ID is certified for
+// NTFS; ReFS can require 128-bit FileIdInfo and remains outside this gate.
+// Existing handles are closed before returning on every code path.
+static mut driver_module_info_bytes: [u8;64] = 0;
+static mut driver_module_info_volume: [u64;2] = 0;
+static mut driver_module_info_index: [u64;2] = 0;
+fn driver_module_file_identity(path:*const u8, slot:usize) -> u32 {
+    if path == null || slot>1 { return 2; }
+    // DesiredAccess=0 queries metadata, share read/write/delete, OPEN_EXISTING.
+    // Normal reparse-point resolution is intentional; do not open the link
+    // object itself. Never CREATE_ALWAYS / TRUNCATE_EXISTING for preflight.
+    let handle:u64=sotlas_windows_create_file(path,0,7,null,3,128,0);
+    if handle == 18446744073709551615 {
+        let error:u32=sotlas_windows_get_last_error();
+        if error==2 || error==3 { return 0; }
+        return 2;
+    }
+    let bytes:*mut u8=unsafe{driver_module_info_bytes as *mut u8};
+    let ok:u32=sotlas_windows_get_file_information(handle,bytes);
+    let closed:u32=sotlas_windows_close_handle(handle);
+    if ok==0 || closed==0 { return 2; }
+    let mut volume:u64=0;let mut index:u64=0;
+    let mut byte:usize=0;
+    while byte<4 {
+        volume=volume | ((unsafe{*(bytes+28+byte)} as u64) << (byte*8));
+        index=index | ((unsafe{*(bytes+48+byte)} as u64) << (byte*8));
+        index=index | ((unsafe{*(bytes+44+byte)} as u64) << ((byte+4)*8));
+        byte=byte+1;
+    }
+    // A zero file index is not usable evidence of unique file identity.
+    if index==0 { return 2; }
+    unsafe{driver_module_info_volume[slot]=volume;driver_module_info_index[slot]=index;}
+    return 1;
+}
+
 fn driver_module_same_path(left: *const u8, right: *const u8) -> bool {
     if left == null || right == null { return false; }
     let a: *mut u8=unsafe{driver_module_norm_left as *mut u8};
     let b: *mut u8=unsafe{driver_module_norm_right as *mut u8};
     let n: usize=driver_module_normalize(left,a);
     let m: usize=driver_module_normalize(right,b);
-    if n==4096 || n!=m { return false; }
-    let mut i:usize=0;
-    while i<n {
-        if unsafe{*(a+i)}!=unsafe{*(b+i)} { return false; }
-        i=i+1;
+    if n==4096 || m==4096 { return true; }
+    if n==m {
+        let mut i:usize=0;let mut same:bool=true;
+        while i<n {
+            if unsafe{*(a+i)}!=unsafe{*(b+i)} { same=false;break; }
+            i=i+1;
+        }
+        if same { return true; }
     }
-    return true;
+    let first:u32=driver_module_file_identity(left,0);
+    let second:u32=driver_module_file_identity(right,1);
+    // On unexpected OS/metadata errors do not risk a destructive output.
+    // Missing paths follow the existing source/archive error diagnostics.
+    if first==2 || second==2 { return true; }
+    return first==1 && second==1
+        && unsafe{driver_module_info_volume[0]}==unsafe{driver_module_info_volume[1]}
+        && unsafe{driver_module_info_index[0]}==unsafe{driver_module_info_index[1]};
 }
 
 // Keep invalid/duplicate manifest entries at usage status 1. A conflicting

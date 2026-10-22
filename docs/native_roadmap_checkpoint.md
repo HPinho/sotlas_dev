@@ -22,6 +22,7 @@ This checkpoint reports executable deliveries and remaining gates separately.
 | No-clobber output mode (SV8.89b) | Create native library/executable artifacts with OS-exclusive creation so pre-existing files, hard links and symlink names are not truncated by opt-in source-list builds |
 | Linux file identity (SV8.89c1) | Compare actual Linux x86-64 device/inode metadata for source/library duplicates and output collisions through hard links and symlink aliases, without Python or C |
 | SV8.89c1 CI #1291 repair | Keep the native preflight file-identity gate and return 10 for protected `-new` output collisions vs 1 for invalid/duplicate inputs; CI matrix must validate the new repair commit |
+| Windows file identity (SV8.89c2a) | Typed native Win32 handle metadata and 64-bit file IDs in the Windows source-list preflight; preserve Linux device/inode and reserve separate Darwin verification |
 | Inline record arrays | Store pointer-free record arrays inside structs and initialize, read, mutate, copy and return supported containers |
 | Static record data | Serialize constant record configurations, including nested arrays, directly into native data/BSS and use them from native code |
 | Global record tables | Declare initialized record lists/repetition, read indexed entries, copy elements and update mutable tables through checked native accesses |
@@ -81,9 +82,9 @@ tracked in the [preview roadmap](preview_launch_roadmap.md).
    cleanup across returns, branches, loops and deferred work.
 3. Carry semantic module contracts into the independent-module path; complete
    visibility and package resolution before claiming general separate compilation.
-4. Extend Linux-certified file-ID checks to Darwin and Win32 native APIs,
-   then harden all platforms against races and partial output replacement
-   without adding Python/C dependencies (SV8.89c2/c3).
+4. Certify Windows native Win32 file-ID support on CI, then add the
+   verified Intel Darwin identity adapter (SV8.89c2b). Later harden all
+   platforms against race conditions and partial artifact replacement.
 5. Close the installed preview and release-platform gates against the actual
    shipped compiler, runtime, examples and extension.
 
