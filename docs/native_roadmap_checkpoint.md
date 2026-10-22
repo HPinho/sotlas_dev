@@ -23,6 +23,7 @@ This checkpoint reports executable deliveries and remaining gates separately.
 | Linux file identity (SV8.89c1) | Compare actual Linux x86-64 device/inode metadata for source/library duplicates and output collisions through hard links and symlink aliases, without Python or C |
 | SV8.89c1 CI #1291 repair | Keep the native preflight file-identity gate and return 10 for protected `-new` output collisions vs 1 for invalid/duplicate inputs; CI matrix must validate the new repair commit |
 | Windows file identity (SV8.89c2a) | Typed native Win32 handle metadata and 64-bit file IDs in the Windows source-list preflight; preserve Linux device/inode and reserve separate Darwin verification |
+| Intel macOS identity (SV8.89c2b) | Use the native XNU fstat syscall and device/inode metadata to reject linked source/library/output identities without external C or Python runtime |
 | Inline record arrays | Store pointer-free record arrays inside structs and initialize, read, mutate, copy and return supported containers |
 | Static record data | Serialize constant record configurations, including nested arrays, directly into native data/BSS and use them from native code |
 | Global record tables | Declare initialized record lists/repetition, read indexed entries, copy elements and update mutable tables through checked native accesses |
@@ -82,9 +83,9 @@ tracked in the [preview roadmap](preview_launch_roadmap.md).
    cleanup across returns, branches, loops and deferred work.
 3. Carry semantic module contracts into the independent-module path; complete
    visibility and package resolution before claiming general separate compilation.
-4. Certify Windows native Win32 file-ID support on CI, then add the
-   verified Intel Darwin identity adapter (SV8.89c2b). Later harden all
-   platforms against race conditions and partial artifact replacement.
+4. Certify the Linux, Windows and Intel Darwin native file-ID adapters
+   together, then implement handle-aware output publication, rollback
+   and race-resistant no-clobber/replace semantics (SV8.89c3).
 5. Close the installed preview and release-platform gates against the actual
    shipped compiler, runtime, examples and extension.
 

@@ -1233,10 +1233,10 @@ pub fn target_module_validate_cfg(
                         return false;
                     }
                 } else if instruction.opcode == TargetOpcode::SystemOp {
-                    // IDs 0..3 and 5 are Linux; 16..19 are Darwin. Linux
-                    // fstat (5) reads kernel metadata into caller-owned bytes.
+                    // IDs 0..3 and 5 are Linux; 16..19 and 21 are Darwin. Both
+                    // fstat adapters read kernel metadata into caller-owned bytes.
                     let mut operation: u64 = instruction.immediate_bits;
-                    if operation >= 16 && operation <= 19 { operation = operation - 16; }
+                    if operation >= 16 && operation <= 21 { operation = operation - 16; }
                     let mut expected: u32 = 3;
                     if operation == 3 { expected = 1; }
                     if operation == 5 { expected = 2; }
