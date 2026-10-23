@@ -3538,6 +3538,10 @@ impl ScalarLowering {
                 callee_symbol.offset, callee_symbol.length, "sotlas_darwin_fstat", 19) { syscall_number = 21; }
             else if syscall_sema.source_slice_equals(self.source, self.source_len,
                 callee_symbol.offset, callee_symbol.length, "sotlas_darwin_fstat64", 21) { syscall_number = 22; }
+            else if syscall_sema.source_slice_equals(self.source, self.source_len,
+                callee_symbol.offset, callee_symbol.length, "sotlas_darwin_rename", 20) { syscall_number = 24; }
+            else if syscall_sema.source_slice_equals(self.source, self.source_len,
+                callee_symbol.offset, callee_symbol.length, "sotlas_darwin_unlink", 20) { syscall_number = 25; }
             if syscall_number != 18446744073709551615 {
                 let mut body_scan: usize = unsafe { (*(self.nodes + callee_decl)).first_child };
                 let mut has_body: bool = false;

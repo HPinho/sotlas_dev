@@ -2,6 +2,44 @@
 
 **Repository:** [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev)
 
+## SV8.89c3b1 - Intel macOS atomic source-list publication (2026-10-23)
+
+**Green starting baseline:** `5fafd77`, [CI #1297](https://github.com/HPinho/sotlas_dev/actions/runs/39978252120), including Linux SV8.89c3a.
+
+- [x] Extend the owned XNU x86-64 kernel adapter with typed
+  `sotlas_darwin_rename(old:*const u8,new:*const u8)->i64`
+  (BSD syscall 128) and `sotlas_darwin_unlink(path:*const u8)->i64`
+  (BSD syscall 10); check signatures in lowering and Target IR.
+- [x] Emit the exact BSD syscall numbers in native machine code,
+  retaining Darwin negative-errno normalization and without host C or Python.
+- [x] Add four opt-in `--build-*-atomic` source-list commands to
+  the Intel macOS driver. Existing replace and exclusive `-new`
+  commands remain unchanged across every host.
+- [x] Compile/link in memory, write complete content via an exclusively
+  created same-directory `.sotlas-stage` file, close, then publish via
+  XNU `rename`. Preserve the previously published output until rename.
+- [x] Refuse occupied staging names with status 10, preserving foreign
+  staging bytes. On partial write or failed rename, return status 11
+  and attempt native unlink of the stage created by this process.
+- [x] Add Darwin integration tests covering successful library/ELF/PE/Mach-O
+  replacements, occupied stages, failed publish cleanup and compile
+  failures. Add a direct Mach-O execution/ABI gate for both syscalls and
+  invalid declarations.
+- [ ] Certify the new full CI matrix, especially Intel macOS native
+  execution. Linux #1297 remains the known green baseline.
+- [ ] Implement the Win32 counterpart with typed move/delete imports.
+  Do not claim cross-platform atomic replace until that is certified.
+- [ ] Certify crash durability, independent concurrent writers,
+  file/directory sync, metadata preservation and handle-backed race defense.
+
+This is an opt-in **single-writer atomic namespace replacement** on macOS,
+not a durable transaction. Full details and limitations:
+[native module builds](native_module_builds.md).
+
+**Next SV8.89c3b2:** native Win32 staged atomic publication via
+signature-checked move/delete APIs, complete artifact rollback gates and
+Windows CI. Then assess stronger crash durability and race resistance.
+
 ## SV8.89c3a - Linux atomic source-list publication (2026-10-23)
 
 **Verified green baseline:** commit `29a60f34`, [workflow #1296](https://github.com/HPinho/sotlas_dev/actions/runs/39962262074).
@@ -23,7 +61,8 @@
 - [x] Add Linux integration gates for the four artifact types: full
   replacement and execution, occupied stage preservation, rename failure
   rollback, compile failure preservation, and direct typed syscall behavior.
-- [ ] Certify the new full OS matrix and Linux native execution tests.
+- [x] Certified Linux staged publication and all existing platform gates
+  on [workflow #1297](https://github.com/HPinho/sotlas_dev/actions/runs/39978252120) (commit `5fafd77`).
 - [ ] Linux atomic mode does **not** ensure fsync durability, cleanup after
   process crash, robust parallel writers, permission/ACL retention, or
   handle-backed defense against directory/path races.
@@ -55,9 +94,9 @@ with failure rollback, destination protection and matrix tests.
   equal, two independently created same-content files have distinct
   inodes, invalid signatures reject, and the native object contains
   the exact fstat64 machine syscall; keep all original tests active.
-- [ ] Confirm a new full Ubuntu/Windows/macOS matrix before accepting the
-  fix as green. Safe baseline remains `c3f697ce` (CI #1293);
-  failed commits/reruns #1294 and #1295 are not safe baselines.
+- [x] Certified the Darwin fstat64 regression repair on full
+  [workflow #1296](https://github.com/HPinho/sotlas_dev/actions/runs/39962262074)
+  (commit `29a60f34`). Failed runs #1294/#1295 remain unsafe baselines.
 
 **Next item after green:** SV8.89c3 — handle-backed atomic artifact
 publication and rollback on late I/O failures, across native platforms.

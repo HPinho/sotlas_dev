@@ -737,6 +737,85 @@ class NativeModuleBuildTests(unittest.TestCase):
                 self.assertEqual(target.read_bytes(), b'previous successful artifact')
                 self.assertFalse(Path(str(target) + '.sotlas-stage').exists())
 
+    @unittest.skipUnless(sys.platform == 'darwin', 'Intel macOS atomic rename profile')
+    def test_darwin_atomic_build_replaces_complete_artifacts(self):
+        first = self.source('darwin atomic first', 'pub fn main_entry()->u32{return 42;}')
+        second = self.source('darwin atomic second',
+                             'fn answer()->u32{return 42;} pub fn main_entry()->u32{return answer();}')
+        first_list = self.manifest('darwin atomic first list', [first])
+        second_list = self.manifest('darwin atomic second list', [second])
+        archive = self.directory / 'darwin atomic library.a'
+        self.native('--build-library-atomic', archive, first_list)
+        old_library = archive.read_bytes()
+        self.assertGreater(len(old_library), 0)
+        self.native('--build-library-atomic', archive, second_list)
+        self.assertNotEqual(archive.read_bytes(), old_library)
+        self.assertFalse(Path(str(archive) + '.sotlas-stage').exists())
+        for target in ('elf', 'pe', 'macho'):
+            image = self.output(target)
+            option = '--build-' + target + '-modules-atomic'
+            self.native(option, image, 'main_entry', first_list)
+            self.verify(target)
+            old_image = image.read_bytes()
+            self.native(option, image, 'main_entry', second_list)
+            self.verify(target)
+            self.assertNotEqual(image.read_bytes(), old_image)
+            self.assertFalse(Path(str(image) + '.sotlas-stage').exists())
+
+    @unittest.skipUnless(sys.platform == 'darwin', 'Intel macOS atomic rename profile')
+    def test_darwin_atomic_build_rejects_occupied_stage_without_touching_output(self):
+        source = self.source('darwin atomic stage collision',
+                             'pub fn main_entry()->u32{return 42;}')
+        manifest = self.manifest('darwin atomic collision manifest', [source])
+        commands = ('--build-library-atomic', '--build-elf-modules-atomic',
+                    '--build-pe-modules-atomic', '--build-macho-modules-atomic')
+        for option in commands:
+            with self.subTest(option=option):
+                output = self.directory / ('darwin collision ' + option[8:])
+                output.write_bytes(b'previous published output')
+                stage = Path(str(output) + '.sotlas-stage')
+                stage.write_bytes(b'foreign stage protected')
+                args = (output, manifest) if option == '--build-library-atomic' else (
+                    output, 'main_entry', manifest)
+                self.native(option, *args, expected=10)
+                self.assertEqual(output.read_bytes(), b'previous published output')
+                self.assertEqual(stage.read_bytes(), b'foreign stage protected')
+
+    @unittest.skipUnless(sys.platform == 'darwin', 'Intel macOS atomic rename profile')
+    def test_darwin_atomic_build_failed_rename_cleans_stage(self):
+        source = self.source('darwin atomic rename rejected',
+                             'pub fn main_entry()->u32{return 42;}')
+        manifest = self.manifest('darwin atomic rename sources', [source])
+        commands = ('--build-library-atomic', '--build-elf-modules-atomic',
+                    '--build-pe-modules-atomic', '--build-macho-modules-atomic')
+        for option in commands:
+            with self.subTest(option=option):
+                target = self.directory / ('darwin rename directory ' + option[8:])
+                target.mkdir()
+                (target / 'sentinel').write_bytes(b'untouched')
+                args = (target, manifest) if option == '--build-library-atomic' else (
+                    target, 'main_entry', manifest)
+                self.native(option, *args, expected=11)
+                self.assertEqual((target / 'sentinel').read_bytes(), b'untouched')
+                self.assertFalse(Path(str(target) + '.sotlas-stage').exists())
+
+    @unittest.skipUnless(sys.platform == 'darwin', 'Intel macOS atomic rename profile')
+    def test_darwin_atomic_build_compile_failure_preserves_published_output(self):
+        source = self.source('darwin atomic malformed',
+                             'pub fn main_entry()->u32{return')
+        manifest = self.manifest('darwin atomic invalid sources', [source])
+        commands = ('--build-library-atomic', '--build-elf-modules-atomic',
+                    '--build-pe-modules-atomic', '--build-macho-modules-atomic')
+        for option in commands:
+            with self.subTest(option=option):
+                target = self.directory / ('darwin stable artifact ' + option[8:])
+                target.write_bytes(b'previous valid publication')
+                args = (target, manifest) if option == '--build-library-atomic' else (
+                    target, 'main_entry', manifest)
+                self.native(option, *args, expected=5)
+                self.assertEqual(target.read_bytes(), b'previous valid publication')
+                self.assertFalse(Path(str(target) + '.sotlas-stage').exists())
+
     def test_import_syntax_is_not_replaced_by_hidden_concatenation(self):
         source = self.source('unresolved native import', 'import missing::*;'
                              'pub fn main_entry()->u32{return 42;}')

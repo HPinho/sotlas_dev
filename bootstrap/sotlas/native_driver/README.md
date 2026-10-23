@@ -118,6 +118,22 @@ crash. The existing source-list commands remain unchanged; macOS and Windows
 do not support these opt-in atomic commands yet. The exact limits are in
 [native module builds](../../../docs/native_module_builds.md).
 
+## Intel macOS atomic source-list publication (SV8.89c3b1)
+
+Intel macOS x86-64 now supports all four `--build-*-atomic` source-list
+commands (library, ELF, PE, Mach-O). After complete native compilation and
+linking, the driver creates `OUTPUT.sotlas-stage` with O_EXCL, writes and
+closes the artifact, and uses the typed XNU rename syscall 128 to publish it
+over the old destination. The typed unlink syscall 10 supports best-effort
+staging cleanup after a failed write or rename. Darwin errno is returned as
+negative by the native adapter. Existing stages are **not** deleted (status
+10); failed publication returns status 11 and preserves the previous output.
+
+This is deterministic, opt-in, single-writer atomic namespace replacement.
+Crash durability, interrupted-process cleanup, adversarial parent-directory
+races and metadata/permission retention are not promised. Linux SV8.89c3a
+remains unchanged; Windows atomic mode is the next planned block.
+
 ## Compile files
 
 ```sh
