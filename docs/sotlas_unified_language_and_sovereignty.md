@@ -2,25 +2,48 @@
 
 **Repository:** [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev)
 
+### SV8.89c2b — Darwin regression repair after CI #1294/#1295 (2026-10-23)
+
+- [x] Identify the false-positive file collisions on Intel macOS. The
+  previous adapter used XNU's legacy `fstat` syscall 189 while reading
+  bytes as the newer 64-bit inode layout. Independent files could
+  incorrectly compare equal and reject valid source-list builds.
+- [x] Preserve the legacy adapter, but introduce a distinct typed
+  `sotlas_darwin_fstat64` entry bound to XNU syscall 339
+  (`0x02000153`). Extend lowering, Target IR verification and x86-64
+  machine emission without changing Linux or Windows implementations.
+- [x] Use the `user64_stat64` layout for bounded Darwin file identity
+  checks and reject unusable zero inodes conservatively.
+- [x] Strengthen Mach-O integration to prove that hard links compare
+  equal, two independently created same-content files have distinct
+  inodes, invalid signatures reject, and the native object contains
+  the exact fstat64 machine syscall; keep all original tests active.
+- [ ] Confirm a new full Ubuntu/Windows/macOS matrix before accepting the
+  fix as green. Safe baseline remains `c3f697ce` (CI #1293);
+  failed commits/reruns #1294 and #1295 are not safe baselines.
+
+**Next item after green:** SV8.89c3 — handle-backed atomic artifact
+publication and rollback on late I/O failures, across native platforms.
+
 ## SV8.89c2b - Intel macOS native file identity via XNU fstat (2026-10-22)
 
 **Verified green baseline:** `c3f697ce`, [workflow #1293](https://github.com/HPinho/sotlas_dev/actions/runs/39857829346).
 
 - [x] Extend the reserved Darwin kernel-adapter family with the typed
-  `sotlas_darwin_fstat(fd:u64, data:*mut u8)->i64` syscall (BSD 189),
-  while retaining Linux fstat 5 and the existing Windows PE ABI.
+  `sotlas_darwin_fstat64(fd:u64, data:*mut u8)->i64` syscall (BSD 339),
+  retaining legacy fstat(189), Linux fstat(5) and Windows PE ABI.
 - [x] Enforce the new Darwin opcode and argument types in Target IR, native
   scalar lowering and x86-64 machine emission. Restore the x86-64 errno
   normalization already used by the Darwin driver. No libc or C linking.
 - [x] Compare kernel device (32-bit at byte 0) and inode (64-bit at byte 8)
-  in a fixed 256-byte Intel Darwin user64_stat buffer, using native
-  `open(O_RDONLY)`, `fstat`, and `close`.
+  in a fixed 256-byte Intel Darwin user64_stat64 buffer, using native
+  `open(O_RDONLY)`, `fstat64`, and `close`.
 - [x] Reject duplicate source/library inputs and protected output collisions
   through hard links, symlinks and symlinked parent paths, preserving
   source-list exit status 1 and strict-output status 10.
-- [x] Add five Intel macOS-hosted regression tests and a direct Mach-O fstat
-  execution/errno/negative-signature gate; equal bytes but different
-  dev/inode pairs remain independent files.
+- [x] Preserve five Intel macOS-hosted regression tests and upgrade the
+  Mach-O gate to fstat64 execution, negative errno and signature rejection.
+  Separately created equal-content files must have different inode IDs.
 - [ ] Certify this new commit on Ubuntu, Windows and Intel macOS CI before
   calling SV8.89c2b green. Other platforms' adapters remain unchanged.
 - [ ] Protect all platforms against filesystem races between the identity

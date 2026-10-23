@@ -1233,14 +1233,15 @@ pub fn target_module_validate_cfg(
                         return false;
                     }
                 } else if instruction.opcode == TargetOpcode::SystemOp {
-                    // IDs 0..3 and 5 are Linux; 16..19 and 21 are Darwin. Both
-                    // fstat adapters read kernel metadata into caller-owned bytes.
+                    // IDs 0..3 and 5 are Linux; 16..19 and 21..22 are Darwin.
+                    // Darwin fstat64 (22) uses the explicit 64-bit inode layout.
                     let mut operation: u64 = instruction.immediate_bits;
-                    if operation >= 16 && operation <= 21 { operation = operation - 16; }
+                    if operation >= 16 && operation <= 22 { operation = operation - 16; }
                     let mut expected: u32 = 3;
                     if operation == 3 { expected = 1; }
-                    if operation == 5 { expected = 2; }
-                    if (operation > 3 && operation != 5) || instruction.type_tag != TargetTypeTag::I64
+                    if operation == 5 || operation == 6 { expected = 2; }
+                    if (operation > 3 && operation != 5 && operation != 6)
+                        || (operation == 6 && instruction.immediate_bits != 22) || instruction.type_tag != TargetTypeTag::I64
                         || instruction.result_value == 0 || instruction.operand_count != expected
                         || instruction.symbol.length != 0 || instruction.target_count != 0
                         || instruction.phi_input_count != 0 { return false; }
@@ -1249,7 +1250,7 @@ pub fn target_module_validate_cfg(
                         let mut wanted: TargetTypeTag = TargetTypeTag::U64;
                         if (operation <= 1 && check == 1)
                             || (operation == 2 && check == 0)
-                            || (operation == 5 && check == 1) { wanted = TargetTypeTag::Pointer; }
+                            || ((operation == 5 || operation == 6) && check == 1) { wanted = TargetTypeTag::Pointer; }
                         let operand: TargetOperand = unsafe { *(operands + instruction.first_operand + check) };
                         if !target_value_matches(values, target_section.value_count, operand.value_id, wanted) { return false; }
                         check = check + 1;

@@ -162,64 +162,86 @@ static mut buffer:[u8;4]=0;
             self.assertNotEqual(self.link(obj, wrong, option).returncode, 0)
             self.assertEqual(wrong.read_bytes(), b"preserve")
 
-    def test_darwin_native_fstat_inode_device_and_errno(self):
-        original = self.directory / 'darwin-fstat-original.txt'
+    def test_darwin_native_fstat64_file_identity_and_errno(self):
+        original = self.directory / 'darwin-fstat64-original.txt'
         original.write_bytes(b'darwin native file identity')
-        hardlink = self.directory / 'darwin-fstat-hardlink.txt'
+        hardlink = self.directory / 'darwin-fstat64-hardlink.txt'
         try:
             os.link(original, hardlink)
         except (OSError, NotImplementedError):
             hardlink = original
-        path_a = json.dumps(str(original))
-        path_b = json.dumps(str(hardlink))
+        independent = self.directory / 'darwin-fstat64-independent.txt'
+        independent.write_bytes(original.read_bytes())
+        self.assertNotEqual((original.stat().st_dev, original.stat().st_ino),
+                            (independent.stat().st_dev, independent.stat().st_ino))
         body = """
 @extern(C) fn sotlas_darwin_open(path:*const u8,flags:u64,mode:u64)->i64;
-@extern(C) fn sotlas_darwin_fstat(fd:u64,data:*mut u8)->i64;
+@extern(C) fn sotlas_darwin_fstat64(fd:u64,data:*mut u8)->i64;
 @extern(C) fn sotlas_darwin_close(fd:u64)->i64;
 @system pub fn main_entry()->u32{
     let mut a:[u8;256]=0;
     let mut b:[u8;256]=0;
-    let bad:i64=sotlas_darwin_fstat(18446744073709551615,unsafe{a as *mut u8});
+    let mut c:[u8;256]=0;
+    let bad:i64=sotlas_darwin_fstat64(18446744073709551615,unsafe{a as *mut u8});
     if bad>=0{return 1;}
     let first:i64=sotlas_darwin_open(PATH_A,0,0);
     if first<0{return 2;}
     let second:i64=sotlas_darwin_open(PATH_B,0,0);
     if second<0{sotlas_darwin_close(first as u64);return 3;}
-    let status_a:i64=sotlas_darwin_fstat(first as u64,unsafe{a as *mut u8});
-    let status_b:i64=sotlas_darwin_fstat(second as u64,unsafe{b as *mut u8});
+    let third:i64=sotlas_darwin_open(PATH_C,0,0);
+    if third<0{sotlas_darwin_close(first as u64);
+        sotlas_darwin_close(second as u64);return 4;}
+    let status_a:i64=sotlas_darwin_fstat64(first as u64,unsafe{a as *mut u8});
+    let status_b:i64=sotlas_darwin_fstat64(second as u64,unsafe{b as *mut u8});
+    let status_c:i64=sotlas_darwin_fstat64(third as u64,unsafe{c as *mut u8});
     let close_a:i64=sotlas_darwin_close(first as u64);
     let close_b:i64=sotlas_darwin_close(second as u64);
-    if status_a!=0 || status_b!=0 || close_a!=0 || close_b!=0{return 4;}
+    let close_c:i64=sotlas_darwin_close(third as u64);
+    if status_a!=0 || status_b!=0 || status_c!=0
+        || close_a!=0 || close_b!=0 || close_c!=0{return 5;}
     let mut i:usize=0;
     while i<16 {
-        if a[i]!=b[i]{return 5;}
+        if a[i]!=b[i]{return 6;}
         i=i+1;
     }
-    // A valid native inode must not be zero.
-    let mut nonzero:bool=false;
+    let mut inode_nonzero:bool=false;
+    let mut distinct:bool=false;
     i=8;
     while i<16 {
-        if a[i]!=0 {nonzero=true;}
+        if a[i]!=0{inode_nonzero=true;}
+        if a[i]!=c[i]{distinct=true;}
         i=i+1;
     }
-    if !nonzero{return 6;}
+    if !inode_nonzero{return 7;}
+    if !distinct{return 8;}
+    // Both files live on the same volume, but not in the same inode.
+    i=0;
+    while i<4{
+        if a[i]!=c[i]{return 9;}
+        i=i+1;
+    }
     return 42;
 }
-""".replace('PATH_A', path_a).replace('PATH_B', path_b)
-        obj = self.compile('darwin_fstat', body)
-        output = self.directory / 'darwin_fstat.macho'
+"""
+        for name, path in (('PATH_A', original), ('PATH_B', hardlink),
+                           ('PATH_C', independent)):
+            body = body.replace(name, json.dumps(str(path)))
+        obj = self.compile('darwin_fstat64', body)
+        # mov eax,0x02000153; syscall — XNU fstat64, not legacy fstat.
+        self.assertIn(bytes.fromhex('b8530100020f05'), obj.read_bytes())
+        output = self.directory / 'darwin_fstat64.macho'
         linked = self.link(obj, output)
         self.assertEqual(linked.returncode, 0, linked.stderr)
         self.validate_image(output.read_bytes())
         self.execute_on_mac(output, 42)
-        self.compile('darwin_fstat_wrong_pointer',
-                     '@extern(C) fn sotlas_darwin_fstat(fd:u64,data:u64)->i64;'
-                     '@system pub fn main_entry()->u32{let n:i64=sotlas_darwin_fstat(1,2);'
+        self.compile('darwin_fstat64_wrong_pointer',
+                     '@extern(C) fn sotlas_darwin_fstat64(fd:u64,data:u64)->i64;'
+                     '@system pub fn main_entry()->u32{let n:i64=sotlas_darwin_fstat64(1,2);'
                      'return n as u32;}', success=False)
-        self.compile('darwin_fstat_wrong_return',
-                     '@extern(C) fn sotlas_darwin_fstat(fd:u64,data:*mut u8)->u32;'
+        self.compile('darwin_fstat64_wrong_return',
+                     '@extern(C) fn sotlas_darwin_fstat64(fd:u64,data:*mut u8)->u32;'
                      '@system pub fn main_entry()->u32{let mut b:[u8;256]=0;'
-                     'return sotlas_darwin_fstat(1,unsafe{b as *mut u8});}', success=False)
+                     'return sotlas_darwin_fstat64(1,unsafe{b as *mut u8});}', success=False)
 
     def test_wrong_platform_unresolved_and_entry_contract_rejected(self):
         fixtures = (

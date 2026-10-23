@@ -23,7 +23,7 @@ This checkpoint reports executable deliveries and remaining gates separately.
 | Linux file identity (SV8.89c1) | Compare actual Linux x86-64 device/inode metadata for source/library duplicates and output collisions through hard links and symlink aliases, without Python or C |
 | SV8.89c1 CI #1291 repair | Keep the native preflight file-identity gate and return 10 for protected `-new` output collisions vs 1 for invalid/duplicate inputs; CI matrix must validate the new repair commit |
 | Windows file identity (SV8.89c2a) | Typed native Win32 handle metadata and 64-bit file IDs in the Windows source-list preflight; preserve Linux device/inode and reserve separate Darwin verification |
-| Intel macOS identity (SV8.89c2b) | Use the native XNU fstat syscall and device/inode metadata to reject linked source/library/output identities without external C or Python runtime |
+| Intel macOS identity (SV8.89c2b repair) | Correct legacy fstat(189) / 64-bit inode layout mismatch by using native XNU fstat64(339) with verified same-inode and distinct-inode gates; CI #1294/#1295 failed and repair awaits verification |
 | Inline record arrays | Store pointer-free record arrays inside structs and initialize, read, mutate, copy and return supported containers |
 | Static record data | Serialize constant record configurations, including nested arrays, directly into native data/BSS and use them from native code |
 | Global record tables | Declare initialized record lists/repetition, read indexed entries, copy elements and update mutable tables through checked native accesses |
