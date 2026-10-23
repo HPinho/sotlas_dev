@@ -141,6 +141,48 @@ class NativeLinuxDriverTests(unittest.TestCase):
             self.run_tool(arguments, expected=7, env=environment)
             self.assertEqual(output.read_bytes(), original)
 
+    @unittest.skipUnless(LINUX_X64, "requires Linux x86-64 syscall execution")
+    def test_native_linux_rename_unlink_syscalls_are_typed_and_execute(self):
+        first = self.directory / 'syscall-original-rename.txt'
+        second = self.directory / 'syscall-published-rename.txt'
+        first.write_bytes(b'native rename content')
+        second.write_bytes(b'prior output')
+        source = self.directory / 'syscall_rename_unlink.sotlas'
+        output = self.directory / 'syscall_rename_unlink'
+        program = """
+module syscall_probe;
+@extern(C) fn sotlas_linux_rename(src:*const u8,dst:*const u8)->i64;
+@extern(C) fn sotlas_linux_unlink(path:*const u8)->i64;
+@system pub fn main_entry()->u32{
+    let renamed:i64=sotlas_linux_rename(SRC,DST);
+    if renamed!=0{return 1;}
+    let removed:i64=sotlas_linux_unlink(DST);
+    if removed!=0{return 2;}
+    let absent:i64=sotlas_linux_unlink(DST);
+    if absent>=0{return 3;}
+    return 42;
+}
+""".replace('SRC', repr(str(first)).replace("'", '"')).replace(
+            'DST', repr(str(second)).replace("'", '"'))
+        source.write_text(program, encoding='utf-8')
+        env = {'PATH': str(self.directory / 'no-host-tools')}
+        self.run_tool([str(self.seed), source, output], env=env)
+        self.run_tool([str(output)], expected=42, env=env)
+        self.assertFalse(first.exists())
+        self.assertFalse(second.exists())
+        invalid = (
+            "@extern(C) fn sotlas_linux_rename(src:u64,dst:*const u8)->i64;"
+            "@system pub fn main_entry()->u32{return sotlas_linux_rename(1,null) as u32;}",
+            "@extern(C) fn sotlas_linux_unlink(path:*const u8)->u32;"
+            '@system pub fn main_entry()->u32{return sotlas_linux_unlink("file");}',
+        )
+        for index, bad in enumerate(invalid):
+            with self.subTest(index=index):
+                source.write_text('module syscall_probe;' + bad, encoding='utf-8')
+                target = self.directory / ('invalid_atomic_adapter_' + str(index))
+                self.run_tool([str(self.seed), source, target], expected=7, env=env)
+                self.assertFalse(target.exists())
+
     @classmethod
     def setUpClass(cls):
         cls.temp = tempfile.TemporaryDirectory(prefix="sotlas-native-linux-")

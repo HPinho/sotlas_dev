@@ -18,6 +18,10 @@ fn sotlas_linux_write(fd: u64, data: *const u8, count: u64) -> i64;
 fn sotlas_linux_close(fd: u64) -> i64;
 @extern(C)
 fn sotlas_linux_fstat(fd: u64, data: *mut u8) -> i64;
+@extern(C)
+fn sotlas_linux_rename(source: *const u8, destination: *const u8) -> i64;
+@extern(C)
+fn sotlas_linux_unlink(path: *const u8) -> i64;
 
 static mut driver_source_bytes: [u8; 4194304] = 0;
 static mut driver_tokens: [Token; 524288] = 0;
@@ -1263,6 +1267,46 @@ fn driver_write_artifact(path: *const u8, bytes: *const u8, length: usize, exclu
     let closed: i64=sotlas_linux_close(fd as u64);if closed < 0 { return fail(11); }return 0;
 }
 
+// SV8.89c3a: bounded same-directory staging for opted-in atomic replace.
+// A fixed staging suffix deliberately serializes writers: O_EXCL refuses a
+// pre-existing stage (never deletes it), so there is no unsafe pre-open probe.
+// It is NOT a random name or a handle-backed concurrent publication protocol.
+static mut driver_atomic_stage_path: [u8;4096] = 0;
+fn driver_write_atomic_artifact(path: *const u8, bytes: *const u8, length: usize) -> u32 {
+    if path == null || bytes == null || length == 0 { return fail(1); }
+    let path_length:usize=driver_filename_length(path);
+    if path_length == 0 || path_length+13 >= 4096 { return fail(1); }
+    let stage:*mut u8=unsafe{driver_atomic_stage_path as *mut u8};
+    let mut i:usize=0;
+    while i<path_length {
+        unsafe{*(stage+i)=*(path+i);}
+        i=i+1;
+    }
+    let suffix:*const u8=".sotlas-stage";
+    i=0;
+    while i<13 {
+        unsafe{*(stage+path_length+i)=*(suffix+i);}
+        i=i+1;
+    }
+    unsafe{*(stage+path_length+13)=0;}
+    // Never truncate a pre-existing stage, even if it is a malicious link.
+    let result:u32=driver_write_artifact(stage,bytes,length,true);
+    if result != 0 {
+        // Status 10 includes a pre-existing stage: it must not be unlinked.
+        // Status 11 follows a successful exclusive open; cleanup is best effort.
+        if result == 11 { let cleaned:i64=sotlas_linux_unlink(stage); }
+        return result;
+    }
+    // POSIX rename in this directory atomically replaces the old name only
+    // after all output bytes have been written and its fd closed.
+    let renamed:i64=sotlas_linux_rename(stage,path);
+    if renamed < 0 {
+        let cleaned:i64=sotlas_linux_unlink(stage);
+        return fail(11);
+    }
+    return 0;
+}
+
 fn driver_object_operation(argc: u64, argv: *const *const u8, linking: bool, check_only: bool) -> u32 {
     if (!linking && argc != 3) || (linking && !check_only && argc != 5)
         || (check_only && argc != 4) { return fail(1); }
@@ -1505,7 +1549,7 @@ fn driver_static_library(argc: u64, argv: *const *const u8, linking: bool, image
 // Compile each listed source independently, retaining objects in separate storage.
 // No intermediate files are published; the destination is opened after all gates.
 static mut driver_module_objects: [u8;8388608] = 0;
-fn driver_build_modules(argc: u64, argv: *const *const u8, image_kind: u32, no_clobber: bool) -> u32 {
+fn driver_build_modules(argc: u64, argv: *const *const u8, image_kind: u32, no_clobber: bool, atomic: bool) -> u32 {
     let library: bool = image_kind == 0;
     if (library && argc != 4) || (!library && argc != 5 && argc != 6)
         || image_kind > 3 { return fail(1); }
@@ -1562,6 +1606,7 @@ fn driver_build_modules(argc: u64, argv: *const *const u8, image_kind: u32, no_c
         if !elf_archive_write(storage,unsafe{positions as *const usize},
             unsafe{lengths as *const usize},sources,output,16777216,
             unsafe{(&mut written) as *mut usize}) { return fail(9); }
+        if atomic { return driver_write_atomic_artifact(destination,output,written); }
         return driver_write_artifact(destination,output,written,no_clobber);
     }
     let mut candidates: u32 = sources;
@@ -1618,7 +1663,8 @@ fn driver_build_modules(argc: u64, argv: *const *const u8, image_kind: u32, no_c
             output,16777216,unsafe{(&mut written) as *mut usize},true);
     }
     if !linked || written == 0 { return fail(9); }
-    return driver_write_artifact(destination,output,written,no_clobber);
+    if atomic { return driver_write_atomic_artifact(destination,output,written); }
+        return driver_write_artifact(destination,output,written,no_clobber);
 }
 
 fn driver_stamp_seed(seed: *const u8, output: *const u8) -> u32 {
@@ -2269,16 +2315,21 @@ fn driver_extended_dispatch(argc: u64, argv: *const *const u8, option: *const u8
     if option_equals(option,"--check-project-resolve",23) { return driver_compile_project(argc,argv,true,false,true,true); }
     if option_equals(option,"--verify-object",15) { return driver_object_operation(argc,argv,false,false); }
     if option_equals(option,"--link-elf-typed-pair",21) { return driver_link_elf_typed_pair(argc,argv); }
-    if option_equals(option,"--build-library",15) { return driver_build_modules(argc,argv,0,false); }
-    if option_equals(option,"--build-elf-modules",19) { return driver_build_modules(argc,argv,1,false); }
-    if option_equals(option,"--build-pe-modules",18) { return driver_build_modules(argc,argv,2,false); }
-    if option_equals(option,"--build-macho-modules",21) { return driver_build_modules(argc,argv,3,false); }
+    if option_equals(option,"--build-library",15) { return driver_build_modules(argc,argv,0,false,false); }
+    if option_equals(option,"--build-elf-modules",19) { return driver_build_modules(argc,argv,1,false,false); }
+    if option_equals(option,"--build-pe-modules",18) { return driver_build_modules(argc,argv,2,false,false); }
+    if option_equals(option,"--build-macho-modules",21) { return driver_build_modules(argc,argv,3,false,false); }
     // Opt-in OS-level create-new: an existing output, symlink or hard-link path
     // can never be truncated, even if the preflight path spellings differ.
-    if option_equals(option,"--build-library-new",19) { return driver_build_modules(argc,argv,0,true); }
-    if option_equals(option,"--build-elf-modules-new",23) { return driver_build_modules(argc,argv,1,true); }
-    if option_equals(option,"--build-pe-modules-new",22) { return driver_build_modules(argc,argv,2,true); }
-    if option_equals(option,"--build-macho-modules-new",25) { return driver_build_modules(argc,argv,3,true); }
+    if option_equals(option,"--build-library-new",19) { return driver_build_modules(argc,argv,0,true,false); }
+    if option_equals(option,"--build-elf-modules-new",23) { return driver_build_modules(argc,argv,1,true,false); }
+    if option_equals(option,"--build-pe-modules-new",22) { return driver_build_modules(argc,argv,2,true,false); }
+    if option_equals(option,"--build-macho-modules-new",25) { return driver_build_modules(argc,argv,3,true,false); }
+    // Linux opt-in atomic replace: stage O_EXCL, write, close, rename.
+    if option_equals(option,"--build-library-atomic",22) { return driver_build_modules(argc,argv,0,false,true); }
+    if option_equals(option,"--build-elf-modules-atomic",26) { return driver_build_modules(argc,argv,1,false,true); }
+    if option_equals(option,"--build-pe-modules-atomic",25) { return driver_build_modules(argc,argv,2,false,true); }
+    if option_equals(option,"--build-macho-modules-atomic",28) { return driver_build_modules(argc,argv,3,false,true); }
     if option_equals(option,"--archive-elf",13) { return driver_static_library(argc,argv,false,0); }
     if option_equals(option,"--link-elf-libraries",20) { return driver_static_library(argc,argv,true,0); }
     if option_equals(option,"--link-pe-libraries",19) { return driver_static_library(argc,argv,true,1); }

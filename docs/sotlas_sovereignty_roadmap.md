@@ -7,6 +7,43 @@
 
 
 
+## SV8.89c3a - Linux atomic source-list publication (2026-10-23)
+
+**Verified green baseline:** commit `29a60f34`, [workflow #1296](https://github.com/HPinho/sotlas_dev/actions/runs/39962262074).
+
+- [x] Expose typed native Linux `rename(old:*const u8,new:*const u8)->i64`
+  and `unlink(path:*const u8)->i64` adapters (syscalls 82 and 87).
+  Extend scalar lowering, Target IR verification and x86-64 machine emission
+  without invoking libc, an external compiler or host Python.
+- [x] Implement opt-in Linux `--build-library-atomic` and
+  `--build-{elf,pe,macho}-modules-atomic` for native source-list builds.
+  Existing replace and strict `-new` modes remain unchanged.
+- [x] Compile and link fully in memory, write the complete result to a
+  bounded same-directory `.sotlas-stage` name using exclusive create,
+  close it, then publish with the kernel's atomic `rename`.
+- [x] Refuse to overwrite a pre-existing staging name (status 10).
+  Return status 11 for failed write/publish, with best-effort removal of
+  a stage created by this process; never truncate the previous published
+  output before the rename.
+- [x] Add Linux integration gates for the four artifact types: full
+  replacement and execution, occupied stage preservation, rename failure
+  rollback, compile failure preservation, and direct typed syscall behavior.
+- [ ] Certify the new full OS matrix and Linux native execution tests.
+- [ ] Linux atomic mode does **not** ensure fsync durability, cleanup after
+  process crash, robust parallel writers, permission/ACL retention, or
+  handle-backed defense against directory/path races.
+- [ ] Implement platform-specific atomic publication for Darwin and Win32
+  before claiming this mode on macOS/Windows.
+
+This block is a bounded **opt-in Linux native atomic name replacement**,
+not general cross-platform atomic transactions or complete removal of
+hosted Python/C bootstrap components. The executable contract and limits
+are recorded in [native module builds](native_module_builds.md).
+
+**Next SV8.89c3b:** certify staged atomic source-list publication using
+native Darwin rename/unlink syscalls and typed Win32 move/delete imports,
+with failure rollback, destination protection and matrix tests.
+
 ### SV8.89c2b — Darwin regression repair after CI #1294/#1295 (2026-10-23)
 
 - [x] Identify the false-positive file collisions on Intel macOS. The

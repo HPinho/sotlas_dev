@@ -660,6 +660,83 @@ class NativeModuleBuildTests(unittest.TestCase):
         self.assertEqual(source.read_bytes(), original)
         self.assertTrue(linked_folder.is_symlink())
 
+    @unittest.skipUnless(sys.platform.startswith('linux'), 'Linux atomic rename profile')
+    def test_linux_atomic_build_replaces_complete_artifacts_without_staging_leaks(self):
+        first = self.source('atomic first', 'pub fn main_entry()->u32{return 42;}')
+        second = self.source('atomic second', 'fn answer()->u32{return 42;} pub fn main_entry()->u32{return answer();}')
+        first_list = self.manifest('atomic first sources', [first])
+        second_list = self.manifest('atomic second sources', [second])
+        library = self.directory / 'native atomic archive.a'
+        self.native('--build-library-atomic', library, first_list)
+        first_bytes = library.read_bytes()
+        self.assertGreater(len(first_bytes), 0)
+        self.native('--build-library-atomic', library, second_list)
+        self.assertGreater(library.stat().st_size, 0)
+        self.assertNotEqual(library.read_bytes(), first_bytes)
+        self.assertFalse(Path(str(library) + '.sotlas-stage').exists())
+        for target in ('elf', 'pe', 'macho'):
+            image = self.output(target)
+            option = '--build-' + target + '-modules-atomic'
+            self.native(option, image, 'main_entry', first_list)
+            self.verify(target)
+            old_image = image.read_bytes()
+            self.native(option, image, 'main_entry', second_list)
+            self.verify(target)
+            self.assertNotEqual(image.read_bytes(), old_image)
+            self.assertFalse(Path(str(image) + '.sotlas-stage').exists())
+
+    @unittest.skipUnless(sys.platform.startswith('linux'), 'Linux atomic rename profile')
+    def test_linux_atomic_build_rejects_preexisting_staging_file_and_keeps_old_output(self):
+        source = self.source('atomic stage collision', 'pub fn main_entry()->u32{return 42;}')
+        manifest = self.manifest('atomic collision inputs', [source])
+        target = self.directory / 'atomic collision archive.a'
+        target.write_bytes(b'preserve published library')
+        stage = Path(str(target) + '.sotlas-stage')
+        stage.write_bytes(b'foreign staging bytes')
+        self.native('--build-library-atomic', target, manifest, expected=10)
+        self.assertEqual(target.read_bytes(), b'preserve published library')
+        self.assertEqual(stage.read_bytes(), b'foreign staging bytes')
+        for format in ('elf', 'pe', 'macho'):
+            image = self.output(format)
+            image.write_bytes(b'preserve previous image')
+            stage_img = Path(str(image) + '.sotlas-stage')
+            stage_img.write_bytes(b'occupied stage')
+            self.native('--build-' + format + '-modules-atomic', image,
+                        'main_entry', manifest, expected=10)
+            self.assertEqual(image.read_bytes(), b'preserve previous image')
+            self.assertEqual(stage_img.read_bytes(), b'occupied stage')
+
+    @unittest.skipUnless(sys.platform.startswith('linux'), 'Linux atomic rename profile')
+    def test_linux_atomic_build_cleans_stage_on_failed_rename(self):
+        source = self.source('atomic bad rename', 'pub fn main_entry()->u32{return 42;}')
+        manifest = self.manifest('atomic rename inputs', [source])
+        for option in ('--build-library-atomic', '--build-elf-modules-atomic',
+                       '--build-pe-modules-atomic', '--build-macho-modules-atomic'):
+            with self.subTest(option=option):
+                target = self.directory / ('atomic target dir ' + option[8:])
+                target.mkdir()
+                (target / 'sentinel').write_bytes(b'unchanged')
+                args = (target, manifest) if option == '--build-library-atomic' else (
+                    target, 'main_entry', manifest)
+                self.native(option, *args, expected=11)
+                self.assertEqual((target / 'sentinel').read_bytes(), b'unchanged')
+                self.assertFalse(Path(str(target) + '.sotlas-stage').exists())
+
+    @unittest.skipUnless(sys.platform.startswith('linux'), 'Linux atomic rename profile')
+    def test_linux_atomic_build_preserves_existing_output_on_compile_failure(self):
+        bad = self.source('atomic invalid module', 'pub fn main_entry()->u32{return')
+        manifest = self.manifest('atomic failed input', [bad])
+        for option in ('--build-library-atomic', '--build-elf-modules-atomic',
+                       '--build-pe-modules-atomic', '--build-macho-modules-atomic'):
+            with self.subTest(option=option):
+                target = self.directory / ('atomic previous ' + option[8:])
+                target.write_bytes(b'previous successful artifact')
+                args = (target, manifest) if option == '--build-library-atomic' else (
+                    target, 'main_entry', manifest)
+                self.native(option, *args, expected=5)
+                self.assertEqual(target.read_bytes(), b'previous successful artifact')
+                self.assertFalse(Path(str(target) + '.sotlas-stage').exists())
+
     def test_import_syntax_is_not_replaced_by_hidden_concatenation(self):
         source = self.source('unresolved native import', 'import missing::*;'
                              'pub fn main_entry()->u32{return 42;}')
