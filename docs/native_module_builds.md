@@ -19,7 +19,7 @@ sotlas-native --build-elf-modules-new OUTPUT ENTRY SOURCES.list [LIBRARIES.list]
 sotlas-native --build-pe-modules-new OUTPUT ENTRY SOURCES.list [LIBRARIES.list]
 sotlas-native --build-macho-modules-new OUTPUT ENTRY SOURCES.list [LIBRARIES.list]
 
-// Linux SV8.89c3a: opt-in same-directory staged atomic replacement.
+// Linux SV8.89c3a / Intel macOS SV8.89c3b1: staged atomic replacement.
 sotlas-native --build-library-atomic OUTPUT SOURCES.list
 sotlas-native --build-elf-modules-atomic OUTPUT ENTRY SOURCES.list [LIBRARIES.list]
 sotlas-native --build-pe-modules-atomic OUTPUT ENTRY SOURCES.list [LIBRARIES.list]
@@ -162,6 +162,38 @@ file-identity and atomic-output implementation.
   symlink-parent races. Full handle-backed publication and atomic-replace
   protection remain separate certification work.
 
+### Intel macOS atomic replacement — SV8.89c3b1
+
+The Intel macOS native driver now also accepts all four `-atomic`
+source-list commands described above. Like the Linux profile, it compiles
+the full result in memory and publishes through a bounded,
+same-directory `.sotlas-stage` name. It uses Darwin `open` with
+`O_CREAT|O_EXCL`, a complete write and close, and the typed native XNU
+`rename` syscall 128 (`0x02000080`) to replace the directory entry.
+The native `unlink` syscall 10 (`0x0200000A`) provides best-effort
+staging cleanup after a failed write or rename. The direct syscall
+adapters preserve the negative-errno convention used by the Darwin driver.
+
+An occupied staging name is never clobbered or deleted: the command fails
+with status `10` and preserves the previous published output. On failed
+rename or partial write it returns status `11`, attempts to remove its
+own stage, and preserves the previous output. Compilation and linking
+errors occur before staging. The ordinary replace commands and existing
+`-new` commands retain their current behavior.
+
+As on Linux, this is **atomic namespace replacement only**, with a
+deterministic single-writer staging name. There is no file/directory
+`fsync`, post-crash cleanup guarantee, preservation of prior
+permissions/ACLs, defense against path swaps, or proven safety with
+concurrent writers. Windows does not yet expose `-atomic` commands.
+
+Tests: `tests/test_sotlas_native_module_builds.py` checks artifact
+replacement across library/ELF/PE/Mach-O, staging collisions, failed
+rename and prior-output preservation. `tests/test_sotlas_native_macho.py`
+proves syscall encodings, direct XNU rename/unlink execution, negative
+errno handling and invalid-signature rejection. The post-commit matrix
+must pass before the macOS implementation is considered certified.
+
 ### Linux atomic replacement — SV8.89c3a
 
 Opt-in `-atomic` commands are available **only on the Linux x86-64 native
@@ -191,10 +223,10 @@ semantics is claimed. Successful replacement uses the new 0755 artifact
 permissions rather than preserving the old inode's attributes.
 
 The default source-list commands and existing `-new` modes remain unchanged
-on Linux, Windows and Intel macOS. The latter two drivers do **not** yet
-implement `-atomic` publication. The next SV8.89c3b step adds verified
-Darwin and Win32 publication adapters, while a later phase must certify
-handle-backed identity and durable crash recovery.
+on Linux, Windows and Intel macOS. Darwin is covered by SV8.89c3b1;
+**Windows does not yet implement `-atomic` publication**. The next
+SV8.89c3b2 step targets Win32 staged publication; handle-backed identity
+and durable crash recovery remain separate certification milestones.
 
 Evidence: `tests/test_sotlas_native_module_builds.py` includes Linux
 library/ELF/PE/Mach-O publication, forced staging collision, failed rename

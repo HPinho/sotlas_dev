@@ -243,6 +243,47 @@ static mut buffer:[u8;4]=0;
                      '@system pub fn main_entry()->u32{let mut b:[u8;256]=0;'
                      'return sotlas_darwin_fstat64(1,unsafe{b as *mut u8});}', success=False)
 
+    def test_darwin_native_rename_unlink_syscalls_and_signature(self):
+        source_path = self.directory / 'darwin-native-rename-old.txt'
+        target_path = self.directory / 'darwin-native-rename-published.txt'
+        source_path.write_bytes(b'new native artifact')
+        target_path.write_bytes(b'old native artifact')
+        body = """
+@extern(C) fn sotlas_darwin_rename(src:*const u8,dst:*const u8)->i64;
+@extern(C) fn sotlas_darwin_unlink(path:*const u8)->i64;
+@system pub fn main_entry()->u32{
+    let moved:i64=sotlas_darwin_rename(SOURCE,DEST);
+    if moved!=0{return 1;}
+    let removed:i64=sotlas_darwin_unlink(DEST);
+    if removed!=0{return 2;}
+    let missing:i64=sotlas_darwin_unlink(DEST);
+    if missing>=0{return 3;}
+    return 42;
+}
+""".replace('SOURCE', json.dumps(str(source_path))).replace(
+            'DEST', json.dumps(str(target_path)))
+        obj = self.compile('darwin_rename_unlink', body)
+        code = obj.read_bytes()
+        # XNU x86-64 syscall numbers: rename=0x02000080, unlink=0x0200000A.
+        self.assertIn(bytes.fromhex('b8800000020f05'), code)
+        self.assertIn(bytes.fromhex('b80a0000020f05'), code)
+        output = self.directory / 'darwin_rename_unlink.macho'
+        linked = self.link(obj, output)
+        self.assertEqual(linked.returncode, 0, linked.stderr)
+        self.validate_image(output.read_bytes())
+        self.execute_on_mac(output, 42)
+        if sys.platform == 'darwin' and platform.machine().lower() in ('x86_64', 'amd64'):
+            self.assertFalse(source_path.exists())
+            self.assertFalse(target_path.exists())
+        self.compile('darwin_rename_wrong_pointer',
+                     '@extern(C) fn sotlas_darwin_rename(old:u64,new:*const u8)->i64;'
+                     '@system pub fn main_entry()->u32{let n:i64=sotlas_darwin_rename(1,"x");'
+                     'return n as u32;}', success=False)
+        self.compile('darwin_unlink_wrong_return',
+                     '@extern(C) fn sotlas_darwin_unlink(path:*const u8)->u32;'
+                     '@system pub fn main_entry()->u32{return sotlas_darwin_unlink("x");}',
+                     success=False)
+
     def test_wrong_platform_unresolved_and_entry_contract_rejected(self):
         fixtures = (
             ("linux", '@extern(C) fn sotlas_linux_close(fd:u64)->i64;@system pub fn main_entry()->u32{let n:i64=sotlas_linux_close(7);return n as u32;}'),
