@@ -18,6 +18,12 @@ sotlas-native --build-library-new OUTPUT SOURCES.list
 sotlas-native --build-elf-modules-new OUTPUT ENTRY SOURCES.list [LIBRARIES.list]
 sotlas-native --build-pe-modules-new OUTPUT ENTRY SOURCES.list [LIBRARIES.list]
 sotlas-native --build-macho-modules-new OUTPUT ENTRY SOURCES.list [LIBRARIES.list]
+
+// Linux SV8.89c3a: opt-in same-directory staged atomic replacement.
+sotlas-native --build-library-atomic OUTPUT SOURCES.list
+sotlas-native --build-elf-modules-atomic OUTPUT ENTRY SOURCES.list [LIBRARIES.list]
+sotlas-native --build-pe-modules-atomic OUTPUT ENTRY SOURCES.list [LIBRARIES.list]
+sotlas-native --build-macho-modules-atomic OUTPUT ENTRY SOURCES.list [LIBRARIES.list]
 ```
 
 All native host drivers register the same commands. The output format is
@@ -155,6 +161,46 @@ file-identity and atomic-output implementation.
   identity checking and later output opening, nor all dangling-link and
   symlink-parent races. Full handle-backed publication and atomic-replace
   protection remain separate certification work.
+
+### Linux atomic replacement — SV8.89c3a
+
+Opt-in `-atomic` commands are available **only on the Linux x86-64 native
+driver**. They compile and link exactly as the existing source-list forms
+before publishing the result to disk.
+
+The Linux driver appends the fixed suffix `.sotlas-stage` to the output
+path, bounds the resulting path to 4095 bytes, opens that name with
+`O_CREAT|O_EXCL`, writes and closes the entire artifact, and finally
+uses native Linux `rename` syscall 82 to atomically replace the output
+directory entry. If a stage already exists (including a symlink), it is
+**never overwritten or deleted** and the command returns status 10.
+For failed writes or failed rename, status 11 is returned and the driver
+attempts cleanup through native Linux `unlink` syscall 87. The previous
+output remains unchanged until rename succeeds. The stage lives next to
+the output, so the rename does not cross filesystem boundaries.
+
+This is a bounded, deterministic **single-writer contract**, not a
+concurrent-writer or hostile-directory protocol: an existing stage blocks
+the operation, and a malicious parent-directory swap or path race is
+not prevented by a preflight check. Cleanup after an I/O failure is
+best-effort; a process crash can leave a stage that must be examined and
+removed deliberately. A successful rename gives atomic namespace replacement,
+**not crash durability**: no fsync of file or parent directory, multi-file
+transaction, permissions/ACL preservation, or simultaneous no-clobber
+semantics is claimed. Successful replacement uses the new 0755 artifact
+permissions rather than preserving the old inode's attributes.
+
+The default source-list commands and existing `-new` modes remain unchanged
+on Linux, Windows and Intel macOS. The latter two drivers do **not** yet
+implement `-atomic` publication. The next SV8.89c3b step adds verified
+Darwin and Win32 publication adapters, while a later phase must certify
+handle-backed identity and durable crash recovery.
+
+Evidence: `tests/test_sotlas_native_module_builds.py` includes Linux
+library/ELF/PE/Mach-O publication, forced staging collision, failed rename
+and late compile failure; `tests/test_sotlas_native_linux_driver.py` checks
+the owned rename/unlink syscalls and rejects invalid declarations. The new
+post-commit CI is required before claiming the atomic mode certified.
 
 - Source units do not share symbol tables, types or static compiler state.
   A sibling implementation cannot satisfy an undeclared source-level name.

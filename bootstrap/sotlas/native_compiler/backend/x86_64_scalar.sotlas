@@ -3145,8 +3145,10 @@ pub fn emit_elf64_module_object(
                     else { platform_flags = platform_flags | 1; }
                     let mut expected: u32 = 3;
                     if operation == 3 { expected = 1; }
-                    if operation == 5 || operation == 6 { expected = 2; }
-                    if operation > 6 || operation == 4 || (!darwin && operation == 6)
+                    if operation == 5 || operation == 6 || operation == 8 { expected = 2; }
+                    if operation == 9 { expected = 1; }
+                    if operation > 9 || operation == 4 || operation == 7 || (!darwin && operation == 6)
+                        || (darwin && operation > 6)
                         || instruction.operand_count != expected
                         || result_type != TargetTypeTag::I64 || instruction.type_tag != result_type { return false; }
                     let mut argument_index: u32 = 0;
@@ -3155,13 +3157,18 @@ pub fn emit_elf64_module_object(
                         let mut wanted: TargetTypeTag = TargetTypeTag::U64;
                         if (operation <= 1 && argument_index == 1)
                             || (operation == 2 && argument_index == 0)
-                            || ((operation == 5 || operation == 6) && argument_index == 1) { wanted = TargetTypeTag::Pointer; }
+                            || ((operation == 5 || operation == 6) && argument_index == 1)
+                            || operation == 8 || operation == 9 { wanted = TargetTypeTag::Pointer; }
                         if object_value_type(values, ir.value_count, argument.value_id) != wanted
                             || !append_object_slot_load_rax64(output, capacity, &mut code, argument.value_id - slot_base)
                             || !append_object_rax_to_argument(output, capacity, &mut code, argument_index) { return false; }
                         argument_index = argument_index + 1;
                     }
                     let mut syscall_number: u32 = operation as u32;
+                    if !darwin {
+                        if operation == 8 { syscall_number = 82; }
+                        if operation == 9 { syscall_number = 87; }
+                    }
                     if darwin {
                         syscall_number = (operation as u32) + 33554435;
                         if operation == 1 { syscall_number = 33554436; }

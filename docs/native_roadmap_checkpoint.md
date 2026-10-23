@@ -24,6 +24,7 @@ This checkpoint reports executable deliveries and remaining gates separately.
 | SV8.89c1 CI #1291 repair | Keep the native preflight file-identity gate and return 10 for protected `-new` output collisions vs 1 for invalid/duplicate inputs; CI matrix must validate the new repair commit |
 | Windows file identity (SV8.89c2a) | Typed native Win32 handle metadata and 64-bit file IDs in the Windows source-list preflight; preserve Linux device/inode and reserve separate Darwin verification |
 | Intel macOS identity (SV8.89c2b repair) | Correct legacy fstat(189) / 64-bit inode layout mismatch by using native XNU fstat64(339) with verified same-inode and distinct-inode gates; CI #1294/#1295 failed and repair awaits verification |
+| Linux atomic source-list publication (SV8.89c3a) | Opt-in same-directory O_EXCL staging, full write/close and Linux rename(82), with unlink(87) on failed publish; preserve existing output until commit, no fsync durability guarantee |
 | Inline record arrays | Store pointer-free record arrays inside structs and initialize, read, mutate, copy and return supported containers |
 | Static record data | Serialize constant record configurations, including nested arrays, directly into native data/BSS and use them from native code |
 | Global record tables | Declare initialized record lists/repetition, read indexed entries, copy elements and update mutable tables through checked native accesses |
@@ -83,9 +84,10 @@ tracked in the [preview roadmap](preview_launch_roadmap.md).
    cleanup across returns, branches, loops and deferred work.
 3. Carry semantic module contracts into the independent-module path; complete
    visibility and package resolution before claiming general separate compilation.
-4. Certify the Linux, Windows and Intel Darwin native file-ID adapters
-   together, then implement handle-aware output publication, rollback
-   and race-resistant no-clobber/replace semantics (SV8.89c3).
+4. Certify Linux SV8.89c3a opt-in atomic source-list publication on CI,
+   then extend staged publication and rollback via native Darwin and
+   Win32 APIs (SV8.89c3b); reserve fsync/handle identity/race closure for
+   later certification.
 5. Close the installed preview and release-platform gates against the actual
    shipped compiler, runtime, examples and extension.
 

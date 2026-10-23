@@ -93,6 +93,31 @@ This is a preflight identity check; no-clobber builds still rely on XNU
 exclusive creation. Parent symlink swaps, filesystem races and partial
 artifact rollback require the separate SV8.89c3 gate.
 
+## Linux atomic source-list publication (SV8.89c3a)
+
+The Linux x86-64 native driver now supports explicit staged replacement:
+
+```text
+sotlas-native --build-library-atomic OUTPUT SOURCES.list
+sotlas-native --build-elf-modules-atomic OUTPUT ENTRY SOURCES.list [LIBRARIES.list]
+sotlas-native --build-pe-modules-atomic OUTPUT ENTRY SOURCES.list [LIBRARIES.list]
+sotlas-native --build-macho-modules-atomic OUTPUT ENTRY SOURCES.list [LIBRARIES.list]
+```
+
+The backend uses typed direct Linux `rename` syscall 82 and `unlink` 87.
+A bounded same-directory `.sotlas-stage` path is written with exclusive
+creation first; only after the complete write and close succeeds is it
+renamed over the previous output. The old artifact is preserved on failed
+validation, link, staging open or rename. An existing staging file is left
+intact and causes status 10. Failed stage write or rename causes status 11,
+with best-effort unlink of the stage opened by this process.
+
+This single-writer contract is not fsync crash durability, concurrent
+writers, handle-backed path identity or strong atomic cleanup on process
+crash. The existing source-list commands remain unchanged; macOS and Windows
+do not support these opt-in atomic commands yet. The exact limits are in
+[native module builds](../../../docs/native_module_builds.md).
+
 ## Compile files
 
 ```sh
