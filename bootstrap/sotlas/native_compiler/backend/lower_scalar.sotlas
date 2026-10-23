@@ -3532,6 +3532,8 @@ impl ScalarLowering {
                 callee_symbol.offset, callee_symbol.length, "sotlas_darwin_close", 19) { syscall_number = 19; }
             else if syscall_sema.source_slice_equals(self.source, self.source_len,
                 callee_symbol.offset, callee_symbol.length, "sotlas_darwin_fstat", 19) { syscall_number = 21; }
+            else if syscall_sema.source_slice_equals(self.source, self.source_len,
+                callee_symbol.offset, callee_symbol.length, "sotlas_darwin_fstat64", 21) { syscall_number = 22; }
             if syscall_number != 18446744073709551615 {
                 let mut body_scan: usize = unsafe { (*(self.nodes + callee_decl)).first_child };
                 let mut has_body: bool = false;
@@ -3545,13 +3547,13 @@ impl ScalarLowering {
                     if operation >= 16 { operation = operation - 16; }
                     let mut expected: u32 = 3;
                     if operation == 3 { expected = 1; }
-                    if operation == 5 { expected = 2; }
+                    if operation == 5 || operation == 6 { expected = 2; }
                     if actual_type != TargetTypeTag::I64 || argument_count != expected || result == 0 { return 0; }
                     let mut check: u32 = 0;
                     while check < expected {
                         let mut wanted: TargetTypeTag = TargetTypeTag::U64;
                         if (operation <= 1 && check == 1) || (operation == 2 && check == 0)
-                            || (operation == 5 && check == 1) { wanted = TargetTypeTag::Pointer; }
+                            || ((operation == 5 || operation == 6) && check == 1) { wanted = TargetTypeTag::Pointer; }
                         let declared_type: TargetTypeTag = self.function_parameter_type_from_ast(callee_decl, check);
                         if declared_type != wanted { return 0; }
                         check = check + 1;

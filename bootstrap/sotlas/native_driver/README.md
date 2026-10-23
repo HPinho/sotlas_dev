@@ -75,10 +75,13 @@ only lexical identity and no-clobber output mode.
 
 ## Intel macOS native file identity (SV8.89c2b)
 
-The Intel Darwin driver uses a reserved typed `sotlas_darwin_fstat`
-adapter (XNU BSD syscall 189) alongside its existing native open/close
-adapters. Device and inode identity comes from the bounded kernel
-`user64_stat` ABI (st_dev at byte 0, st_ino at byte 8). This rejects
+The Intel Darwin driver now uses a reserved typed `sotlas_darwin_fstat64`
+adapter (XNU BSD syscall 339, `0x02000153`) alongside its existing native
+open/close adapters. Device and inode identity comes from the bounded kernel
+`user64_stat64` ABI (st_dev at byte 0, st_ino at byte 8). The original
+legacy `fstat` (189) is retained separately but is not a valid substitute
+for the 64-bit inode layout; mixing these contracts caused the #1294/#1295
+regression on Intel macOS. This rejects
 duplicate linked source/library paths and protects outputs that are other
 names for an input, without a C runtime or Python helper. Darwin error
 returns retain native negative errno normalization. Unexpected read/metadata

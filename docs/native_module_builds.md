@@ -128,13 +128,16 @@ file-identity and atomic-output implementation.
   is a bounded identity profile, not a general identity certificate for ReFS
   (which can require a 128-bit file ID), remote/virtual filesystems or Unicode
   aliases. Do not claim complete ReFS/SMB/Unicode support.
-- **SV8.89c2b (Intel macOS x86-64):** native Darwin path preflight now
-  adds `open(O_RDONLY)` + `fstat` (XNU syscall 189) + `close` through the
-  reserved typed `sotlas_darwin_fstat` adapter. The owned x86-64 machine
-  emitter encodes BSD syscall 0x20000BD without using a C runtime or
-  linking to libc. A bounded 256-byte kernel stat buffer supplies
-  the device ID (32-bit at byte 0) and inode (64-bit at byte 8)
-  from the Intel Darwin user64_stat ABI.
+- **SV8.89c2b repair (Intel macOS x86-64):** the original preflight
+  mistakenly paired legacy XNU `fstat` (syscall 189) with the newer
+  64-bit-inode layout, treating unrelated regular files as identical
+  and breaking CI #1294/#1295. The repaired preflight uses
+  `open(O_RDONLY)` + `fstat64` (BSD syscall **339**, 0x02000153)
+  + `close` via the reserved typed `sotlas_darwin_fstat64` adapter.
+  This writes the explicit `user64_stat64` format into a 256-byte
+  native buffer; device ID is 32-bit at byte 0 and inode is 64-bit
+  at byte 8. The legacy adapter (189) remains separately available
+  but is not used for these 64-bit file identity comparisons.
   The same source/library duplicate and output/manifest collision
   checks as on Linux and Windows now reject hard links, ordinary
   symlink aliases and paths through symlinked parent directories.
@@ -213,6 +216,9 @@ and invalid signatures validate the kernel32 bridge on the test matrix.
 SV8.89c2b adds Intel-macOS-hosted source-list identity gates for hardlinked
 or symbolic-linked sources, output path aliases, linked parent directories,
 duplicate libraries and different-inode files with identical contents.
-A Mach-O execution test verifies the typed XNU fstat adapter's errno
-normalization and dev/inode metadata bytes without a host C runtime. PE runs
+The Mach-O execution test now verifies the typed XNU `fstat64` adapter's
+negative errno and explicitly checks both halves of the identity contract:
+hard links must compare equal, while two independently created files
+with identical contents must have different inodes. It also checks
+the exact emitted syscall encoding, without a host C runtime. PE runs
 on Windows, ELF on Linux and Mach-O on Intel macOS when that runner is present.
