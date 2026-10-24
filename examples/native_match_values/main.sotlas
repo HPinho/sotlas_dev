@@ -14,6 +14,11 @@ fn sample_score(value:whisper Samples)->u32 {
 
 fn consume_samples(value:sole Samples)->u32 { return sample_score(value); }
 
+fn sample_window()->u32 {
+    let values:[u32;3]=[20,99,22];
+    return match values { [first,..,last]=>first+last };
+}
+
 fn envelope_score(value:Envelope)->u32 {
     return match value {
         Envelope::Data(Measurement::Reading(item,2)) if item.score>0 => item.score+2,
@@ -94,5 +99,6 @@ pub fn main_entry() -> u32 {
     if named_score(Classification{kind:ResultKind::Large,score:40})+fraction_score(1.5)!=42 { return 5; }
     let samples:sole Samples=Samples::Values([21;2]);
     if sample_score(samples)!=42 || consume_samples(samples)!=42 { return 6; }
+    if sample_window()!=42 { return 7; }
     return total + adjustment(ResultKind::Small);
 }

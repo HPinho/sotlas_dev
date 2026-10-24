@@ -42,3 +42,7 @@ function. Arrays live directly inside the enum, with no wrapper record.
 `Samples::Values([first,last])` now destructures its two elements directly.
 See [inline array patterns](../../docs/native_match_array_patterns.md) for exact
 lengths, prefix/suffix rest, coverage and the supported POD limits.
+
+`sample_window` matches a stored array directly with `[first,..,last]`.
+[Array subjects](../../docs/native_match_array_subjects.md) explain whole-array
+bindings, receiver evaluation and snapshots across guard fallthrough.

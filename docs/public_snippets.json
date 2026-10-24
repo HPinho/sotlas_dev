@@ -250,6 +250,13 @@
       "status": "EXPERIMENTAL",
       "source": "tests/native/match_profile/array_patterns.sotlas",
       "verification": "tests/test_sotlas_native_match_array_patterns.py; shared-native-stage3-fixtures; outside-the-canonical-stage0-c11-runnable-policy"
+    },
+    {
+      "id": "native-fixed-array-match-subjects",
+      "document": "docs/native_match_array_subjects.md",
+      "status": "EXPERIMENTAL",
+      "source": "tests/native/match_profile/array_subject.sotlas",
+      "verification": "tests/test_sotlas_native_match_array_subjects.py; shared-native-stage3-fixtures; outside-the-canonical-stage0-c11-runnable-policy"
     }
   ]
 }

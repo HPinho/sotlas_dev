@@ -1,0 +1,5 @@
+module array_subject_scalar;
+pub fn main_entry()->u32{
+    let values:[u32;2]=[20,22];
+    return match values{0..=>42,_=>0};
+}

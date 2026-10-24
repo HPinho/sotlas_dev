@@ -59,8 +59,9 @@ owned subject reads and LIFO deferred cleanup retain their existing rules.
 ## Bounds and exclusions
 
 This block covers arrays embedded in accepted POD records and tagged payloads.
-Standalone array subjects, slices, multidimensional arrays and resource elements
-remain outside this contract. It does not add ARC or generated destructors.
+[Standalone stored array subjects](native_match_array_subjects.md) were added in
+SV8.91. Slices, multidimensional arrays and resource elements remain outside
+this contract. It does not add ARC or generated destructors.
 
 Arrays retain the 1â€“256 element and 4096-byte container bounds. The compiler
 creates layout views for explicitly selected elements only, sharing views with
