@@ -1,0 +1,18 @@
+module array_patterns;
+struct Row{pub value:u32;pub enabled:bool;}
+enum Packet{Empty,Samples([u32;3]),Rows([Row;2]),}
+fn read(value:whisper Packet)->u32{
+    return match value{
+        Packet::Empty=>0,
+        Packet::Samples([20,..,last])=>20+last,
+        Packet::Samples([..])=>0,
+        Packet::Rows([Row{enabled:true,value:a},Row{enabled:true,value:b}])=>a+b,
+        Packet::Rows([..])=>0
+    };
+}
+pub fn main_entry()->u32{
+    let first:sole Packet=Packet::Samples([20,99,22]);
+    let second:sole Packet=Packet::Rows([Row{value:20,enabled:true},Row{value:22,enabled:true}]);
+    if read(first)!=42{return 1;}
+    return read(second);
+}

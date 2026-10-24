@@ -38,8 +38,9 @@ pub fn main_entry()->u32 {
 
 ## Matching and ownership
 
-Array fields accept an immutable binding or `_`. Array element patterns and
-slicing are outside this block. Bindings retain element types/counts and get an
+Array fields accept an immutable binding, `_`, or the
+[inline element patterns](native_match_array_patterns.md) added in SV8.90.
+Slicing remains outside this block. Bindings retain element types/counts and get an
 independent copy before guards execute. A false guard cannot modify the snapshot
 seen by a later arm through its capture. Root/nested alternatives require matching
 binding types and array lengths. Indexing uses the existing checked native array
@@ -56,8 +57,7 @@ These operations do not implement automatic destruction of resource graphs.
 Pointer/resource array elements, ownership-qualified payload fields, shared ARC,
 weak invalidation and general resource drop glue remain rejected. Owned temporary
 expressions as match subjects retain their existing rejection. Standalone array
-parameters/returns, slices and array element patterns keep their separate ABI
-and language contracts.
+parameters/returns and slices keep their separate ABI and language contracts.
 
 ## Evidence
 

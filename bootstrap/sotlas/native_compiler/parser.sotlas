@@ -433,7 +433,47 @@ impl Parser {
         if self.error_count != 0 {
             return 0;
         }
+        if !self.prepare_array_pattern_types() { return 0; }
         return mod_node;
+    }
+
+    // Element TypeRefs are needed only by array pattern bindings. Keep modules
+    // without these patterns unchanged, including the bootstrap compiler itself.
+    pub fn prepare_array_pattern_types(mut self: &mut Self) -> bool {
+        let limit: usize = self.node_count;let mut index: usize = 1;let mut needed: bool = false;
+        while index < limit {
+            if unsafe{(*(self.nodes+index)).kind} == AstKind::PatternArray { needed=true; }
+            index=index+1;
+        }
+        if !needed { return true; }
+        index=1;
+        while index < limit {
+            let node: AstNode = unsafe{*(self.nodes+index)};
+            if node.kind == AstKind::TypeRef && node.first_child == 0 && node.str_len > 4 {
+                let mut low: usize = 0;let mut high: usize = self.token_count;
+                while low < high {
+                    let middle: usize = low+(high-low)/2;
+                    if unsafe{(*(self.tokens+middle)).span.offset} < node.str_offset { low=middle+1; }
+                    else { high=middle; }
+                }
+                let mut token: usize = low;
+                if token+1 < self.token_count && unsafe{(*(self.tokens+token)).span.offset} == node.str_offset
+                    && unsafe{(*(self.tokens+token)).kind} == TokenKind::OpenBracket {
+                    token=token+1;let first: Token = unsafe{*(self.tokens+token)};let mut last: Token = first;
+                    while token < self.token_count && unsafe{(*(self.tokens+token)).kind} != TokenKind::SemiColon
+                        && unsafe{(*(self.tokens+token)).span.offset} < node.str_offset+node.str_len {
+                        last=unsafe{*(self.tokens+token)};token=token+1;
+                    }
+                    if token < self.token_count && unsafe{(*(self.tokens+token)).kind} == TokenKind::SemiColon {
+                        let element: usize = self.alloc_node(AstKind::TypeRef,first.span);
+                        if element == 0 || !self.set_node_text_range(element,first,last)
+                            || !self.append_child(index,element) { return false; }
+                    }
+                }
+            }
+            index=index+1;
+        }
+        return true;
     }
 
     pub fn parse_block(mut self: &mut Self) -> usize {
@@ -1604,6 +1644,7 @@ impl Parser {
             } else if kind == TokenKind::CloseParen { nesting=nesting-1; }
             if kind == TokenKind::OpenBrace && cursor != 0
                 && unsafe{(*(self.tokens+cursor-1)).kind} == TokenKind::Ident { patterned=true; }
+            if kind == TokenKind::OpenBracket { patterned=true; }
             if nesting != 0 && (kind == TokenKind::Pipe || kind == TokenKind::DotDot) { patterned=true; }
             cursor=cursor+1;
         }
@@ -1620,6 +1661,7 @@ impl Parser {
             self.advance();return grouped;
         }
         let first: Token = self.current();
+        if first.kind == TokenKind::OpenBracket { return self.parse_array_pattern(depth); }
         let mut pattern: usize = 0;
         let open_start: bool = self.match_token(TokenKind::DotDot);
         if first.kind == TokenKind::Ident && self.cursor+1 < self.token_count
@@ -1658,7 +1700,8 @@ impl Parser {
             }
             let missing: bool = self.match_token(TokenKind::FatArrow) || self.match_token(TokenKind::KwIf)
                 || self.match_token(TokenKind::Comma) || self.match_token(TokenKind::CloseParen)
-                || self.match_token(TokenKind::CloseBrace) || self.match_token(TokenKind::Pipe);
+                || self.match_token(TokenKind::CloseBrace) || self.match_token(TokenKind::CloseBracket)
+                || self.match_token(TokenKind::Pipe);
             let mut end: usize = 0;
             if missing { unsafe{(*(self.nodes+range)).int_value=(*(self.nodes+range)).int_value | 4;} }
             else { end=self.parse_unary_expression(); }
@@ -1668,6 +1711,34 @@ impl Parser {
             pattern=range;
         }
         return pattern;
+    }
+
+    pub fn parse_array_pattern(mut self: &mut Self, depth: usize) -> usize {
+        let pattern: usize = self.alloc_node(AstKind::PatternArray,self.current().span);
+        if pattern == 0 { return 0; }
+        unsafe{(*(self.nodes+pattern)).int_value=-1;}
+        self.advance();let mut count: usize = 0;
+        while !self.is_at_end() && !self.match_token(TokenKind::CloseBracket) {
+            let mut rest: bool = false;
+            if self.match_token(TokenKind::DotDot) && self.cursor+1 < self.token_count {
+                let next: TokenKind = unsafe{(*(self.tokens+self.cursor+1)).kind};
+                rest=next == TokenKind::Comma || next == TokenKind::CloseBracket;
+            }
+            if rest {
+                if unsafe{(*(self.nodes+pattern)).int_value} != -1 { self.reject_current();return 0; }
+                unsafe{(*(self.nodes+pattern)).int_value=count as i64;}
+                self.advance();
+            } else {
+                if count >= 256 { self.reject_current();return 0; }
+                let element: usize = self.parse_match_pattern(depth+1);
+                if element == 0 || !self.append_child(pattern,element) { return 0; }
+                count=count+1;
+            }
+            if self.match_token(TokenKind::Comma) { self.advance(); }
+            else if !self.match_token(TokenKind::CloseBracket) { self.reject_current();return 0; }
+        }
+        if !self.match_token(TokenKind::CloseBracket) { self.reject_current();return 0; }
+        self.advance();return pattern;
     }
 
     pub fn parse_record_pattern(mut self: &mut Self, name: Token, depth: usize) -> usize {
@@ -1710,7 +1781,7 @@ impl Parser {
         let node: AstNode = unsafe{*(self.nodes+pattern)};
         if node.kind == AstKind::PatternField { return self.match_pattern_choices(node.first_child,depth); }
         if node.kind != AstKind::PatternOr && node.kind != AstKind::PatternVariant
-            && node.kind != AstKind::PatternRecord { return 1; }
+            && node.kind != AstKind::PatternRecord && node.kind != AstKind::PatternArray { return 1; }
         let mut child: usize = node.first_child;let mut count: usize = 1;
         if node.kind == AstKind::PatternOr { count=0; }
         else if node.kind == AstKind::PatternVariant && child != 0 { child=unsafe{(*(self.nodes+child)).next_sibling}; }
@@ -1764,7 +1835,8 @@ impl Parser {
             if !self.append_child(field,selected) { return 0; }
             return field;
         }
-        if node.kind != AstKind::PatternVariant && node.kind != AstKind::PatternRecord { return self.clone_match_tree(pattern,0); }
+        if node.kind != AstKind::PatternVariant && node.kind != AstKind::PatternRecord
+            && node.kind != AstKind::PatternArray { return self.clone_match_tree(pattern,0); }
         let copy: usize = self.alloc_node(node.kind,node.span);
         if copy == 0 { return 0; }
         unsafe{(*(self.nodes+copy)).str_offset=node.str_offset;(*(self.nodes+copy)).str_len=node.str_len;

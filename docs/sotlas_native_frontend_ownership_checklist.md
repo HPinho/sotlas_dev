@@ -2,6 +2,38 @@
 
 Repository: [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev).
 
+## SV8.90 - inline array element patterns (2026-10-24)
+
+The local main was fast-forwarded from 88bfa5c to bdd605d, preserving the online
+module/file-identity and Linux/Darwin atomic-publication work.
+
+- [x] Parse exact arrays and one unbound prefix/middle/suffix rest marker inside
+  supported enum payloads and named POD record fields.
+- [x] Preserve scalar/record element types for immutable captures, calls, guards
+  and nested named field access.
+- [x] Lower element tests and independent captures through shared typed array
+  layout views; preserve value ABI, subject snapshots and guard ordering.
+- [x] Integrate exact product coverage, alternative expansion, owned reads and
+  lexical cleanup with these array patterns.
+- [x] Check all 512 Boolean rectangle unions with an independent set oracle;
+  execute suffix-offset, 256-element sparse view and IEEE NaN cases.
+- [ ] Resource-bearing payloads, ARC/drop, slice/rest bindings and general array ABI.
+
+[Inline array patterns](native_match_array_patterns.md) define the completed
+bounded block. This adds a native feature; it does not certify broader resource
+management or full canonical frontend parity.
+
+Local validation: 199 native match tests and 52 shared rebuilt Stage 3 driver
+cases pass on each Windows/Linux host. The 20 new array-pattern tests also pass
+through the hosted bootstrap route. Another 212 frontend/parser/bootstrap/docs
+tests pass, as does the exact Windows original-module CI gate with calculator,
+GUI and UI-model checks. Final native Stage 2/3 images are byte-identical within
+each host; reconstruction runs without host tools after obtaining a refreshed
+seed for the OS adapters added online. The final sources also pass canonical
+bootstrap validation. The public example object and ELF/PE/Mach-O images match
+across hosts, and the Windows/Linux images execute with exit 42. GitHub CI and
+actual Intel macOS execution remain pending.
+
 ## SV8.89c3b1 - Intel macOS atomic source-list publication (2026-10-23)
 
 **Green starting baseline:** `5fafd77`, [CI #1297](https://github.com/HPinho/sotlas_dev/actions/runs/39978252120), including Linux SV8.89c3a.

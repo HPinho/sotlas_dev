@@ -39,3 +39,6 @@ for shorthand, rest markers, signed zero, NaNs and the current POD layout bound.
 The example also constructs `Samples::Values([21;2])`, reads its exclusive POD
 owner through a `whisper` parameter, then transfers the owner to a consuming
 function. Arrays live directly inside the enum, with no wrapper record.
+`Samples::Values([first,last])` now destructures its two elements directly.
+See [inline array patterns](../../docs/native_match_array_patterns.md) for exact
+lengths, prefix/suffix rest, coverage and the supported POD limits.

@@ -765,6 +765,7 @@ impl Sema {
             // Their identifiers are patterns, not evaluated local references.
             if parent.kind == AstKind::PatternOr { return true; }
             if parent.kind == AstKind::PatternField { return true; }
+            if parent.kind == AstKind::PatternArray { return true; }
             if parent.kind == AstKind::ExprCall && parent.first_child == expression_index {
                 if self.find_module_function(
                     nodes, node_count, expression_index, source, source_len
@@ -2108,8 +2109,21 @@ impl Sema {
 
     pub fn payload_binding_type(self: &Self, nodes: *const AstNode, count: usize,
         binding: usize, source: *const u8, length: usize) -> usize {
-        if binding == 0 || binding >= count { return 0; }
+        return self.pattern_binding_type_at(nodes,count,binding,source,length,0);
+    }
+
+    pub fn pattern_binding_type_at(self: &Self, nodes: *const AstNode, count: usize,
+        binding: usize, source: *const u8, length: usize, depth: usize) -> usize {
+        if binding == 0 || binding >= count || depth >= 32 { return 0; }
         let parent: usize = unsafe{(*(nodes+binding)).parent};
+        if parent != 0 && parent < count && unsafe{(*(nodes+parent)).kind} == AstKind::PatternOr {
+            return self.pattern_binding_type_at(nodes,count,parent,source,length,depth+1);
+        }
+        if parent != 0 && parent < count && unsafe{(*(nodes+parent)).kind} == AstKind::PatternArray {
+            let array: usize = self.pattern_binding_type_at(nodes,count,parent,source,length,depth+1);
+            if array == 0 || array >= count { return 0; }
+            return unsafe{(*(nodes+array)).first_child};
+        }
         if parent != 0 && parent < count && unsafe{(*(nodes+parent)).kind} == AstKind::PatternField {
             let record: usize = unsafe{(*(nodes+parent)).parent};
             let declaration: usize = self.find_module_struct(nodes,count,record,source,length);
@@ -3812,7 +3826,7 @@ impl Sema {
         if node.kind == AstKind::PatternField {
             return self.find_pattern_binding(nodes,count,node.first_child,name,source,length,depth);
         }
-        if (node.kind != AstKind::PatternVariant && node.kind != AstKind::PatternRecord
+        if (node.kind != AstKind::PatternVariant && node.kind != AstKind::PatternRecord && node.kind != AstKind::PatternArray
             && node.kind != AstKind::PatternField) || node.first_child == 0 || node.first_child >= count { return 0; }
         let mut child: usize = node.first_child;
         if node.kind == AstKind::PatternVariant { child=unsafe{(*(nodes+child)).next_sibling}; }
