@@ -68,6 +68,8 @@ NaNs; captures and guards can select them explicitly.
 prefix/suffix rest inside the existing inline POD storage contract.
 [Stored arrays can also be subjects directly](native_match_array_subjects.md),
 including captures extracted from a payload and matched again.
+[Contextual array results](native_match_array_results.md) can initialize declared
+array payload arguments from `match` and conditional expressions.
 The layout is internal and does not define a C enum ABI or a stable public format.
 Native support does not certify canonical Stage-0/C11 parity or every master
 language ownership domain.

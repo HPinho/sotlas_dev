@@ -46,3 +46,7 @@ lengths, prefix/suffix rest, coverage and the supported POD limits.
 `sample_window` matches a stored array directly with `[first,..,last]`.
 [Array subjects](../../docs/native_match_array_subjects.md) explain whole-array
 bindings, receiver evaluation and snapshots across guard fallthrough.
+
+`selected_samples` initializes a typed array from a `match` result and then
+destructures that array. See [contextual array results](../../docs/native_match_array_results.md)
+for conditional expressions, field/payload contexts and cleanup behavior.

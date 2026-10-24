@@ -257,6 +257,13 @@
       "status": "EXPERIMENTAL",
       "source": "tests/native/match_profile/array_subject.sotlas",
       "verification": "tests/test_sotlas_native_match_array_subjects.py; shared-native-stage3-fixtures; outside-the-canonical-stage0-c11-runnable-policy"
+    },
+    {
+      "id": "native-contextual-array-results",
+      "document": "docs/native_match_array_results.md",
+      "status": "EXPERIMENTAL",
+      "source": "tests/native/match_profile/array_results.sotlas",
+      "verification": "tests/test_sotlas_native_match_array_results.py; shared-native-stage3-fixtures; outside-the-canonical-stage0-c11-runnable-policy"
     }
   ]
 }

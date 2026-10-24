@@ -19,6 +19,11 @@ fn sample_window()->u32 {
     return match values { [first,..,last]=>first+last };
 }
 
+fn selected_samples(flag:bool)->u32 {
+    let values:[u32;2]=match flag { true=>[20,22],false=>[0;2] };
+    return match values { [first,last]=>first+last };
+}
+
 fn envelope_score(value:Envelope)->u32 {
     return match value {
         Envelope::Data(Measurement::Reading(item,2)) if item.score>0 => item.score+2,
@@ -100,5 +105,6 @@ pub fn main_entry() -> u32 {
     let samples:sole Samples=Samples::Values([21;2]);
     if sample_score(samples)!=42 || consume_samples(samples)!=42 { return 6; }
     if sample_window()!=42 { return 7; }
+    if selected_samples(true)!=42 { return 8; }
     return total + adjustment(ResultKind::Small);
 }

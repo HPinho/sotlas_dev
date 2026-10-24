@@ -2469,6 +2469,46 @@ impl Sema {
         return type_count != 0 && type_count as u64 == repeat_count;
     }
 
+    // Expected array types flow through result arms, conditional branches and
+    // value-block tails. Conditions, subjects and guards are not result values.
+    pub fn array_value_context(self: &Self, nodes: *const AstNode, count: usize,
+        index: usize, source: *const u8, length: usize, depth: usize) -> usize {
+        if index == 0 || index >= count || depth >= 64 { return 0; }
+        let parent: usize = unsafe{(*(nodes+index)).parent};
+        if parent == 0 || parent >= count { return 0; }
+        let node: AstNode = unsafe{*(nodes+parent)};
+        if node.kind == AstKind::LetStmt { return self.binding_type_ref(nodes,count,parent); }
+        if node.kind == AstKind::StructFieldInit {
+            let declaration: usize = self.find_module_struct(nodes,count,node.parent,source,length);
+            let field: usize = self.find_struct_field_for_init(nodes,count,declaration,parent,source,length);
+            return self.binding_type_ref(nodes,count,field);
+        }
+        if node.kind == AstKind::MatchArm {
+            let pattern: usize = node.first_child;
+            if pattern == 0 || pattern >= count || unsafe{(*(nodes+pattern)).next_sibling} != index { return 0; }
+            return self.array_value_context(nodes,count,node.parent,source,length,depth+1);
+        }
+        if node.kind == AstKind::ExprConditional {
+            if node.first_child == index { return 0; }
+            return self.array_value_context(nodes,count,parent,source,length,depth+1);
+        }
+        if node.kind == AstKind::MatchYield || node.kind == AstKind::MatchValueBlock
+            || node.kind == AstKind::UnsafeExpr {
+            return self.array_value_context(nodes,count,parent,source,length,depth+1);
+        }
+        if node.kind == AstKind::ExprCall && node.first_child != 0 && node.first_child < count {
+            let variant: usize = self.enum_variant_path(nodes,count,node.first_child,source,length);
+            if variant == 0 { return 0; }
+            let mut field: usize = unsafe{(*(nodes+variant)).first_child};
+            let mut argument: usize = unsafe{(*(nodes+node.first_child)).next_sibling};
+            while field != 0 && field < count && argument != 0 && argument < count {
+                if argument == index { return field; }
+                field=unsafe{(*(nodes+field)).next_sibling};argument=unsafe{(*(nodes+argument)).next_sibling};
+            }
+        }
+        return 0;
+    }
+
     pub fn check_array_repeat_context(
         mut self: &mut Self,
         nodes: *const AstNode,
@@ -2488,6 +2528,13 @@ impl Sema {
         }
         let init_index: usize = repeat.parent;
         let init: AstNode = unsafe { *(nodes + init_index) };
+        if init.kind == AstKind::MatchYield || init.kind == AstKind::MatchArm
+            || init.kind == AstKind::ExprConditional || init.kind == AstKind::UnsafeExpr {
+            let expected: usize = self.array_value_context(nodes,node_count,repeat_index,source,source_len,0);
+            if expected == 0 || !self.fixed_array_type_matches_repeat(nodes,node_count,expected,repeat_index,
+                source,source_len,false) { return self.reject_node(repeat); }
+            return true;
+        }
         if init.kind == AstKind::ExprCall && init.first_child != 0 && init.first_child < node_count {
             let variant: usize = self.enum_variant_path(nodes,node_count,init.first_child,source,source_len);
             if variant == 0 { return self.reject_node(repeat); }
@@ -2649,7 +2696,10 @@ impl Sema {
                 ) {
                     return false;
                 }
-            } else if value.kind == AstKind::ExprArrayLiteral {
+            } else if value.kind == AstKind::ExprArrayLiteral
+                || ((value.kind == AstKind::ExprMatch || value.kind == AstKind::ExprConditional)
+                    && unsafe{(*(nodes+type_index)).str_len} != 0
+                    && unsafe{*(source+(*(nodes+type_index)).str_offset)} == 91) {
                 if !self.ownership_pod_array(unsafe { *(nodes + type_index) }, source, source_len)
                     && !self.ownership_record_array(nodes,node_count,type_index,source,source_len,0) {
                     return self.reject_node(value);

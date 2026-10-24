@@ -1,0 +1,5 @@
+module array_result_gap;
+pub fn main_entry()->u32{
+    let values:[u32;2]=match true{true=>[20,22]};
+    return 42;
+}
